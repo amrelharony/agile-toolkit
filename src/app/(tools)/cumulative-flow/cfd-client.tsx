@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo, useState } from "react";
+import { useRef, useMemo, useState, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
@@ -249,6 +249,15 @@ export function CFDClient() {
   const exportRef = useRef<HTMLDivElement>(null);
   const [newColName, setNewColName] = useState("");
   const [wipInput, setWipInput] = useState(wipLimit?.toString() ?? "");
+
+  // Sync wipInput when the store hydrates from localStorage (wipLimit starts null)
+  const prevWipLimit = useRef(wipLimit);
+  useEffect(() => {
+    if (prevWipLimit.current === null && wipLimit !== null) {
+      setWipInput(wipLimit.toString());
+    }
+    prevWipLimit.current = wipLimit;
+  }, [wipLimit]);
 
   /* -- Sorted entries by date --------------------------------------------- */
   const sortedEntries = useMemo(

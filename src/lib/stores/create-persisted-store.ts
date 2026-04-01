@@ -28,7 +28,10 @@ export function createPersistedStore<T extends object>(
           importJSON: (json: string) => {
             try {
               const data = JSON.parse(json);
-              set(data);
+              // Strip action methods to prevent overwriting store actions
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              const { exportJSON: _, importJSON: __, reset: ___, ...stateOnly } = data;
+              set(stateOnly as Partial<T & PersistedStoreActions>);
             } catch {
               console.error("Failed to import JSON");
             }

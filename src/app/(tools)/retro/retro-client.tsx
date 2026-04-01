@@ -609,9 +609,10 @@ function Board({
 }) {
   const [copied, setCopied] = useState(false);
 
-  // Timer tick
+  // Timer tick — only depend on timerRunning, not timerSeconds, to avoid
+  // interval churn on every tick. Functional updater accesses latest state.
   useEffect(() => {
-    if (!state.timerRunning || state.timerSeconds <= 0) return;
+    if (!state.timerRunning) return;
     const id = setInterval(() => {
       onUpdate((prev) => ({
         ...prev,
@@ -620,7 +621,7 @@ function Board({
       }));
     }, 1000);
     return () => clearInterval(id);
-  }, [state.timerRunning, state.timerSeconds, onUpdate]);
+  }, [state.timerRunning, onUpdate]);
 
   const handleAdvancePhase = useCallback(() => {
     onUpdate((prev) => {

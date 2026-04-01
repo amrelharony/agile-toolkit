@@ -8,7 +8,7 @@ interface BurndownData {
 
 export function generateBurndownPrompts(data: BurndownData): PromptDefinition[] {
   const filledEntries = data.entries.filter((e) => e.remaining !== null);
-  if (filledEntries.length === 0) return [];
+  if (filledEntries.length === 0 || data.config.sprintDays <= 0) return [];
 
   const ideal = (day: number) =>
     Math.round((data.config.totalPoints * (data.config.sprintDays - day)) / data.config.sprintDays * 10) / 10;

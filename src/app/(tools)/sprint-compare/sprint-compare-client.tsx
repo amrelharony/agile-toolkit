@@ -214,7 +214,8 @@ export function SprintCompareClient() {
       DIMENSIONS.map((dim) => {
         const entry: Record<string, string | number> = { dimension: dim };
         sprints.forEach((sp) => {
-          entry[sp.name] = sp.scores[dim];
+          // Use id as key to prevent collision when two sprints share the same name
+          entry[sp.id] = sp.scores[dim];
         });
         return entry;
       }),
@@ -282,7 +283,7 @@ export function SprintCompareClient() {
                   <Radar
                     key={sp.id}
                     name={sp.name}
-                    dataKey={sp.name}
+                    dataKey={sp.id}
                     stroke={CHART_COLORS[i % CHART_COLORS.length]}
                     fill={CHART_COLORS[i % CHART_COLORS.length]}
                     fillOpacity={0.15}

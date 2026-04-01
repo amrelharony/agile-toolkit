@@ -17,12 +17,13 @@ export function generateRefinementPrompts(data: RefinementData): PromptDefinitio
   const note = truncated ? `\n(Showing ${shown.length} of ${totalCount} stories)\n` : "";
 
   // Find most-failed criteria
+  const histLen = data.history.length;
   const failRates = data.criteria.map((c) => {
     const failed = data.history.filter((s) => !s.checks[c.id]).length;
-    return { label: c.label, failRate: Math.round((failed / data.history.length) * 100) };
+    return { label: c.label, failRate: histLen > 0 ? Math.round((failed / histLen) * 100) : 0 };
   }).sort((a, b) => b.failRate - a.failRate);
 
-  const avgPassRate = Math.round(data.history.reduce((s, h) => s + h.passRate, 0) / data.history.length);
+  const avgPassRate = histLen > 0 ? Math.round(data.history.reduce((s, h) => s + h.passRate, 0) / histLen) : 0;
 
   return [
     {
@@ -30,7 +31,7 @@ export function generateRefinementPrompts(data: RefinementData): PromptDefinitio
       title: "Definition of Ready Effectiveness",
       description: "Evaluate whether refinement criteria are adding value and identify weak spots.",
       prompt: buildPreamble("Refinement Checklist", "It tracks whether stories meet a Definition of Ready before entering a sprint.") +
-        `## Criteria: ${data.criteria.map((c) => c.label).join(", ")}\n\nAverage pass rate: ${avgPassRate}%\nMost-failed criteria: ${failRates.slice(0, 3).map((f) => `${f.label} (${f.failRate}% fail rate)`).join(", ")}\n\n## Story History\n\n${table}${note}\n\n## Questions\n\n1. Is the average pass rate (${avgPassRate}%) healthy? What target should the team aim for?\n2. Why are ${failRates[0]?.label} and ${failRates[1]?.label} failing most often? What root causes might explain this?\n3. Are any criteria redundant or too strict? Should any be removed or modified?\n4. Are there missing criteria the team should add?\n5. How should the team handle stories that don't fully pass — allow with conditions or block until ready?`,
+        `## Criteria: ${data.criteria.map((c) => c.label).join(", ")}\n\nAverage pass rate: ${avgPassRate}%\nMost-failed criteria: ${failRates.slice(0, 3).map((f) => `${f.label} (${f.failRate}% fail rate)`).join(", ")}\n\n## Story History\n\n${table}${note}\n\n## Questions\n\n1. Is the average pass rate (${avgPassRate}%) healthy? What target should the team aim for?\n2. Why are ${failRates[0]?.label ?? "N/A"}${failRates[1] ? ` and ${failRates[1].label}` : ""} failing most often? What root causes might explain this?\n3. Are any criteria redundant or too strict? Should any be removed or modified?\n4. Are there missing criteria the team should add?\n5. How should the team handle stories that don't fully pass — allow with conditions or block until ready?`,
     },
     {
       id: "refinement-process",

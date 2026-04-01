@@ -52,9 +52,9 @@ const DEFAULT_SPRINTS: Sprint[] = [
   { id: "s3", name: "Sprint 3", committed: 36, completed: 35 },
 ];
 
-const createSprint = (): Sprint => ({
+const createSprint = (count: number): Sprint => ({
   id: crypto.randomUUID(),
-  name: `Sprint ${Date.now()}`,
+  name: `Sprint ${count + 1}`,
   committed: 30,
   completed: 28,
 });
@@ -69,7 +69,7 @@ const useVelocityStore = create<VelocityStore>()(
       sprints: DEFAULT_SPRINTS,
 
       addSprint: () =>
-        set((s) => ({ sprints: [...s.sprints, createSprint()] })),
+        set((s) => ({ sprints: [...s.sprints, createSprint(s.sprints.length)] })),
 
       removeSprint: (id) =>
         set((s) => ({ sprints: s.sprints.filter((sp) => sp.id !== id) })),

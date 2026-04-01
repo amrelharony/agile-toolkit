@@ -34,8 +34,10 @@ export async function exportToPNG(
   element: HTMLElement,
   filename: string
 ): Promise<void> {
+  // Detect current theme to use correct background
+  const isLight = document.documentElement.classList.contains("light");
   const dataUrl = await toPng(element, {
-    backgroundColor: "#0a0e1a",
+    backgroundColor: isLight ? "#f4f6fb" : "#0a0e1a",
     pixelRatio: 2,
   });
   saveAs(dataUrl, `${filename}.png`);

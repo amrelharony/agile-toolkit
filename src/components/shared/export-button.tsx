@@ -93,7 +93,7 @@ export function ExportButton({
             Export JSON
           </DropdownMenuItem>
         )}
-        {targetRef && (
+        {targetRef?.current && (
           <DropdownMenuItem onClick={handlePNG} className="gap-2 cursor-pointer">
             <ImageIcon className="w-4 h-4" />
             Export PNG

@@ -354,11 +354,11 @@
   backdrop-filter: blur(32px) saturate(1.6);
   -webkit-backdrop-filter: blur(32px) saturate(1.6);
   border: 1px solid var(--border);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), inset 0 1px 0 var(--border);
 }
 
 .glass-backdrop {
-  background: rgba(6, 8, 15, 0.6);
+  background: rgba(var(--bg2-rgb), 0.6);
   backdrop-filter: blur(32px);
   -webkit-backdrop-filter: blur(32px);
 }
@@ -372,8 +372,8 @@
 }
 .hover-lift:hover {
   transform: translateY(-3px);
-  border-color: rgba(0, 225, 255, 0.15);
-  box-shadow: 0 8px 32px rgba(0, 225, 255, 0.1);
+  border-color: var(--border);
+  box-shadow: 0 8px 32px var(--glow);
 }
 
 .hover-scale {
@@ -401,12 +401,13 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--border);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--sub);
+  opacity: 0.3;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -417,7 +418,7 @@
   background: linear-gradient(
     90deg,
     var(--card) 25%,
-    rgba(255, 255, 255, 0.06) 50%,
+    var(--cardH) 50%,
     var(--card) 75%
   );
   background-size: 200% 100%;
@@ -463,8 +464,8 @@
 }
 
 [data-slot="card"]:hover {
-  border-color: rgba(0, 225, 255, 0.15);
-  box-shadow: 0 8px 32px rgba(0, 225, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  border-color: var(--border);
+  box-shadow: 0 8px 32px var(--glow), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 /* Override shadcn Button */
@@ -500,19 +501,19 @@
 
 /* Override shadcn Dialog */
 [data-slot="dialog-overlay"] {
-  background: rgba(6, 8, 15, 0.6);
+  background: rgba(var(--bg2-rgb), 0.6);
   backdrop-filter: blur(32px);
   -webkit-backdrop-filter: blur(32px);
 }
 
 [data-slot="dialog-content"] {
-  background: rgba(8, 12, 30, 0.78);
+  background: var(--card);
   backdrop-filter: blur(40px) saturate(1.6);
   -webkit-backdrop-filter: blur(40px) saturate(1.6);
-  border: 1px solid rgba(0, 225, 255, 0.1);
-  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.45),
+  border: 1px solid var(--border);
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.25),
               inset 0 1px 0 rgba(255, 255, 255, 0.03),
-              0 0 80px rgba(0, 225, 255, 0.04);
+              0 0 80px var(--glow);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════

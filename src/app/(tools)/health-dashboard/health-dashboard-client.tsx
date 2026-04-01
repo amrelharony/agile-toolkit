@@ -350,7 +350,7 @@ function TrendIcon({ trend, positiveIsUp = true }: { trend: TrendDir; positiveIs
     const color = positiveIsUp ? "#ef4444" : "#22c55e";
     return <TrendingDown className="w-4 h-4" style={{ color }} />;
   }
-  return <Minus className="w-4 h-4 text-white/30" />;
+  return <Minus className="w-4 h-4 text-sub/70" />;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -381,20 +381,17 @@ export function HealthDashboardClient() {
   const [summaryText, setSummaryText] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  /* -- Build all KPIs on every render (refresh via key) -------------------- */
+  /* -- Build all KPIs — memoized, refreshed only when refreshKey changes ---- */
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const velocityData = (() => extractVelocityKPIs())();
+  const velocityData = useMemo(() => extractVelocityKPIs(), [refreshKey]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const healthCheckData = (() => extractHealthCheckKPIs())();
+  const healthCheckData = useMemo(() => extractHealthCheckKPIs(), [refreshKey]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const impedimentData = (() => extractImpedimentKPIs())();
+  const impedimentData = useMemo(() => extractImpedimentKPIs(), [refreshKey]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const standupData = (() => extractStandupKPIs())();
+  const standupData = useMemo(() => extractStandupKPIs(), [refreshKey]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const cycleTimeData = (() => extractCycleTimeKPIs())();
-
-  // Trick to re-run on refresh without useMemo dependency complexity
-  void refreshKey;
+  const cycleTimeData = useMemo(() => extractCycleTimeKPIs(), [refreshKey]);
 
   const kpis: KPI[] = [
     {
@@ -524,20 +521,26 @@ export function HealthDashboardClient() {
   const overallStatus: TrafficStatus =
     overallScore === null ? "red" : overallScore >= 75 ? "green" : overallScore >= 50 ? "amber" : "red";
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Health Dashboard",
-    prompts: generateHealthDashboardPrompts({
-      kpis: kpis.filter((k) => k.value !== null).map((k) => ({
-        name: k.name,
-        value: k.value ?? 0,
-        unit: k.unit,
-        status: k.status,
-        trend: k.trend,
-        sourceName: k.sourceName,
-        description: k.description,
-      })),
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Health Dashboard",
+      prompts: generateHealthDashboardPrompts({
+        kpis: kpis.filter((k) => k.value !== null).map((k) => ({
+          name: k.name,
+          value: k.value ?? 0,
+          unit: k.unit,
+          status: k.status,
+          trend: k.trend,
+          sourceName: k.sourceName,
+          description: k.description,
+        })),
+      }),
     }),
-  }), [kpis]);
+    // kpis is intentionally omitted — it's rebuilt every render from localStorage.
+    // refreshKey triggers recalculation when the user clicks Refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [refreshKey]
+  );
 
   /* -- Refresh ------------------------------------------------------------- */
   const handleRefresh = useCallback(() => {
@@ -623,7 +626,7 @@ export function HealthDashboardClient() {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <LayoutDashboard className="w-5 h-5 text-accent" />
-          <span className="text-sm text-white/50">
+          <span className="text-sm text-sub">
             {dataSources.filter((d) => d.hasData).length} of {dataSources.length} data sources connected
           </span>
         </div>
@@ -633,7 +636,7 @@ export function HealthDashboardClient() {
             variant="outline"
             size="sm"
             onClick={handleRefresh}
-            className="border-border text-white/70 hover:text-white hover:border-border gap-2"
+            className="border-border text-text/80 hover:text-text hover:border-border gap-2"
           >
             <RefreshCw className="w-4 h-4" />
             Refresh
@@ -670,7 +673,7 @@ export function HealthDashboardClient() {
                     >
                       <Icon className="w-4 h-4" style={{ color: kpi.iconColor }} />
                     </div>
-                    <CardTitle className="text-sm font-medium text-white/70">
+                    <CardTitle className="text-sm font-medium text-text/80">
                       {kpi.name}
                     </CardTitle>
                   </div>
@@ -697,15 +700,15 @@ export function HealthDashboardClient() {
                       >
                         {kpi.value}
                       </span>
-                      <span className="text-sm text-white/40 mb-1">{kpi.unit}</span>
+                      <span className="text-sm text-sub mb-1">{kpi.unit}</span>
                       <div className="ml-auto mb-1">
                         <TrendIcon trend={kpi.trend} positiveIsUp={kpi.id !== "open-impediments" && kpi.id !== "critical-impediments" && kpi.id !== "open-blockers" && kpi.id !== "cycle-time-p85"} />
                       </div>
                     </div>
-                    <p className="text-xs text-white/40 mb-3">{kpi.description}</p>
+                    <p className="text-xs text-sub mb-3">{kpi.description}</p>
                     <Link
                       href={kpi.sourcePath}
-                      className="inline-flex items-center gap-1 text-xs text-white/40 hover:text-accent transition-colors"
+                      className="inline-flex items-center gap-1 text-xs text-sub hover:text-accent transition-colors"
                     >
                       <ExternalLink className="w-3 h-3" />
                       {kpi.sourceName}
@@ -713,8 +716,8 @@ export function HealthDashboardClient() {
                   </>
                 ) : (
                   <div className="py-2">
-                    <p className="text-2xl font-data text-white/20 mb-1">—</p>
-                    <p className="text-xs text-white/30 mb-3">No data yet</p>
+                    <p className="text-2xl font-data text-sub/50 mb-1">—</p>
+                    <p className="text-xs text-sub/70 mb-3">No data yet</p>
                     <Link
                       href={kpi.sourcePath}
                       className="inline-flex items-center gap-1 text-xs text-accent/60 hover:text-accent transition-colors"
@@ -733,7 +736,7 @@ export function HealthDashboardClient() {
       {/* Traffic Light Summary */}
       <Card className="border-border bg-surface-deep mb-8">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base text-white/90">Traffic Light Summary</CardTitle>
+          <CardTitle className="text-base text-text">Traffic Light Summary</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-6 mb-6">
@@ -746,7 +749,7 @@ export function HealthDashboardClient() {
                     className="w-10 h-10 rounded-full border-2 border-dashed border-border"
                   />
                 )}
-                <span className="text-[10px] text-white/50 text-center leading-tight max-w-[80px]">
+                <span className="text-[10px] text-sub text-center leading-tight max-w-[80px]">
                   {kpi.name}
                 </span>
               </div>
@@ -762,8 +765,8 @@ export function HealthDashboardClient() {
             }}
           >
             <div>
-              <p className="text-xs text-white/40 uppercase tracking-wider mb-1">Overall Health Score</p>
-              <p className="text-xs text-white/30">
+              <p className="text-xs text-sub uppercase tracking-wider mb-1">Overall Health Score</p>
+              <p className="text-xs text-sub/70">
                 Weighted average of {connectedKpis.length} connected KPI{connectedKpis.length !== 1 ? "s" : ""}
                 {connectedKpis.length < kpis.length && ` (${kpis.length - connectedKpis.length} awaiting data)`}
               </p>
@@ -785,7 +788,7 @@ export function HealthDashboardClient() {
                   </div>
                 </>
               ) : (
-                <p className="text-white/30 text-sm">No data connected yet</p>
+                <p className="text-sub/70 text-sm">No data connected yet</p>
               )}
             </div>
           </div>
@@ -796,7 +799,7 @@ export function HealthDashboardClient() {
       <Card className="border-border bg-surface-deep mb-8">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base text-white/90 flex items-center gap-2">
+            <CardTitle className="text-base text-text flex items-center gap-2">
               <FileText className="w-4 h-4 text-accent" />
               Executive Summary
             </CardTitle>
@@ -806,7 +809,7 @@ export function HealthDashboardClient() {
                   variant="outline"
                   size="sm"
                   onClick={handleCopy}
-                  className="border-border text-white/60 hover:text-white hover:border-border gap-1.5 text-xs"
+                  className="border-border text-sub hover:text-text hover:border-border gap-1.5 text-xs"
                 >
                   {copied ? (
                     <>
@@ -837,7 +840,7 @@ export function HealthDashboardClient() {
               {summaryText}
             </pre>
           ) : (
-            <p className="text-sm text-white/30 italic">
+            <p className="text-sm text-sub/70 italic">
               Click &ldquo;Generate Summary&rdquo; to produce a formatted sprint health report from your connected data sources.
             </p>
           )}
@@ -846,7 +849,7 @@ export function HealthDashboardClient() {
 
       {/* Data Source Status */}
       <div>
-        <h2 className="text-sm font-medium text-white/50 uppercase tracking-wider mb-3">
+        <h2 className="text-sm font-medium text-sub uppercase tracking-wider mb-3">
           Data Source Status
         </h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -863,7 +866,7 @@ export function HealthDashboardClient() {
                   {src.hasData ? (
                     <CheckCircle2 className="w-4 h-4 text-[#22c55e] flex-shrink-0" />
                   ) : (
-                    <AlertCircle className="w-4 h-4 text-white/25 flex-shrink-0" />
+                    <AlertCircle className="w-4 h-4 text-sub/60 flex-shrink-0" />
                   )}
                   <span
                     className="text-xs font-medium truncate"
@@ -872,7 +875,7 @@ export function HealthDashboardClient() {
                     {src.hasData ? "Connected" : "No data"}
                   </span>
                 </div>
-                <p className="text-xs text-white/50 leading-tight">{src.label}</p>
+                <p className="text-xs text-sub leading-tight">{src.label}</p>
               </div>
             </Link>
           ))}

@@ -331,7 +331,7 @@ function ProfCell({
       className={`w-full h-10 rounded border flex items-center justify-center transition-all hover:opacity-80 active:scale-95 select-none ${meta.bg} ${meta.border}`}
     >
       {level === 0 ? (
-        <span className="text-xs text-white/20">·</span>
+        <span className="text-xs text-sub/50">·</span>
       ) : level === 4 ? (
         <span className={`flex items-center gap-0.5 text-xs font-bold ${meta.text}`}>
           <Star className="w-3 h-3 fill-current" />
@@ -687,7 +687,7 @@ export function SkillsMatrixClient() {
                     className={`w-8 h-6 rounded border flex items-center justify-center flex-shrink-0 ${meta.bg} ${meta.border}`}
                   >
                     {i === 0 ? (
-                      <span className="text-xs text-white/20">·</span>
+                      <span className="text-xs text-sub/50">·</span>
                     ) : i === 4 ? (
                       <Star className={`w-3 h-3 fill-current ${meta.text}`} />
                     ) : (

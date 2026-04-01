@@ -137,22 +137,21 @@ export function CeremonyTimerClient() {
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    if (running && remaining > 0) {
-      intervalRef.current = setInterval(() => {
-        setRemaining((prev) => {
-          if (prev <= 1) {
-            setRunning(false);
-            playBeep();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
+    if (!running) return;
+    intervalRef.current = setInterval(() => {
+      setRemaining((prev) => {
+        if (prev <= 1) {
+          setRunning(false);
+          playBeep();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [running, remaining, playBeep]);
+  }, [running, playBeep]);
 
   // Person rotation -- check if we should switch person
   useEffect(() => {

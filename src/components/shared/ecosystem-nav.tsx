@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ChevronDown } from "lucide-react";
 import Image from "next/image";
 
@@ -33,6 +33,19 @@ const apps: { id: AppId; label: string; shortLabel: string; href: string }[] = [
 
 export function EcosystemNav({ currentApp }: EcosystemNavProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close on click-outside
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setMobileOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [mobileOpen]);
 
   return (
     <nav
@@ -103,7 +116,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
         </div>
 
         {/* Mobile dropdown */}
-        <div className="sm:hidden relative ml-auto">
+        <div className="sm:hidden relative ml-auto" ref={dropdownRef}>
           <button
             onClick={() => setMobileOpen(!mobileOpen)}
             className="
@@ -113,6 +126,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
               transition-colors duration-fast
             "
             aria-expanded={mobileOpen}
+            aria-haspopup="true"
           >
             {apps.find((a) => a.id === currentApp)?.shortLabel}
             <ChevronDown

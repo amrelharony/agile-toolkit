@@ -109,9 +109,8 @@ const TIPS = [
   "Avoid listing multiple unrelated goals",
 ];
 
-let nextId = 1;
 function genId() {
-  return `item-${nextId++}`;
+  return crypto.randomUUID();
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────

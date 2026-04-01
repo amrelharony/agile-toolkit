@@ -5,10 +5,11 @@ export function formatTable(
   headers: string[],
   rows: (string | number)[][]
 ): string {
-  const hdr = `| ${headers.join(" | ")} |`;
+  const hdr = `| ${headers.map((h) => h.replace(/\|/g, "\\|")).join(" | ")} |`;
   const sep = `| ${headers.map(() => "---").join(" | ")} |`;
+  const esc = (v: string | number) => String(v).replace(/\|/g, "\\|");
   const body = rows
-    .map((r) => `| ${r.map((c) => String(c)).join(" | ")} |`)
+    .map((r) => `| ${r.map((c) => esc(c)).join(" | ")} |`)
     .join("\n");
   return `${hdr}\n${sep}\n${body}`;
 }

@@ -32,7 +32,7 @@ export function ToolCard({
         overflow-hidden
         transition-all duration-medium ease-spring
         hover:bg-[var(--cardH)]
-        hover:border-[rgba(0,225,255,0.15)]
+        hover:border-accent/20
         hover:shadow-glow
         hover:-translate-y-[3px]
         will-change-transform
@@ -70,7 +70,7 @@ export function ToolCard({
             bg-[var(--card)] border border-border
             flex items-center justify-center
             transition-border-color duration-default
-            group-hover:border-[rgba(0,225,255,0.15)]
+            group-hover:border-accent/20
             text-accent text-lg
           "
         >
@@ -101,7 +101,7 @@ export function ToolCard({
                 px-2 py-0.5 rounded-xs
                 bg-[var(--card)] border border-border text-sub
                 transition-all duration-default
-                group-hover:border-[rgba(0,225,255,0.1)]
+                group-hover:border-accent/15
                 group-hover:text-accent
               "
             >

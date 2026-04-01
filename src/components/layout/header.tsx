@@ -24,10 +24,12 @@ export function Header({ onOpenSearch }: HeaderProps) {
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [isMac, setIsMac] = useState(false);
 
   useEffect(() => {
     const saved = (localStorage.getItem("ae-theme") as "dark" | "light") || "dark";
     setTheme(saved);
+    setIsMac(navigator.platform.toUpperCase().includes("MAC") || navigator.userAgent.includes("Mac"));
     setMounted(true);
   }, []);
 
@@ -109,7 +111,7 @@ export function Header({ onOpenSearch }: HeaderProps) {
           <span>Search tools...</span>
         </div>
         <kbd className="font-mono text-nano text-sub bg-[var(--card)] border border-border rounded px-1.5 py-0.5">
-          Ctrl K
+          {mounted && isMac ? "⌘K" : "Ctrl K"}
         </kbd>
       </button>
 
