@@ -1,0 +1,559 @@
+/**
+ * Agile Toolkit — globals.css
+ * Design DNA from amrelharony.com, adapted for data-heavy tool UIs.
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   CSS CUSTOM PROPERTIES — Dark Mode (Default)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+@layer base {
+  :root {
+    /* Design system tokens */
+    --bg: #06080f;
+    --bg2: #0c1018;
+    --bg2-rgb: 12, 16, 24;
+    --text: #f0f2f5;
+    --sub: #8a95a8;
+    --accent: #00e1ff;
+    --accent2: #6366f1;
+    --accent3: #a855f7;
+    --card: rgba(12, 16, 24, 0.65);
+    --cardH: rgba(255, 255, 255, 0.07);
+    --border: rgba(255, 255, 255, 0.08);
+    --glow: rgba(0, 225, 255, 0.15);
+    --glowS: rgba(0, 225, 255, 0.4);
+    --surface: #1a1f36;
+    --surface-deep: #0a0e1a;
+    --surface-hover: #1e2540;
+    --sidebar-w: 260px;
+    --header-h: 56px;
+
+    /* shadcn/ui bridge — keeps all 24 shadcn components working */
+    --background: var(--bg);
+    --foreground: var(--text);
+    --card-foreground: var(--text);
+    --popover: var(--bg2);
+    --popover-foreground: var(--text);
+    --primary: var(--accent);
+    --primary-foreground: var(--bg);
+    --secondary: var(--bg2);
+    --secondary-foreground: var(--text);
+    --muted: var(--bg2);
+    --muted-foreground: var(--sub);
+    --accent-bg: rgba(0, 225, 255, 0.08);
+    --accent-foreground: var(--text);
+    --destructive: #ef4444;
+    --destructive-foreground: var(--text);
+    --input: var(--border);
+    --ring: var(--accent);
+    --radius: 0.625rem;
+    --chart-1: #00e1ff;
+    --chart-2: #ff00aa;
+    --chart-3: #00ff88;
+    --chart-4: #ffaa00;
+    --chart-5: #8b5cf6;
+  }
+
+  * {
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   LIGHT MODE
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+@layer base {
+  .light, [data-theme="light"] {
+    --bg: #f4f6fb;
+    --bg2: #ffffff;
+    --bg2-rgb: 255, 255, 255;
+    --text: #0a0f1a;
+    --sub: #5a6578;
+    --accent: #0066ff;
+    --accent2: #4f46e5;
+    --accent3: #9333ea;
+    --card: rgba(255, 255, 255, 0.7);
+    --cardH: rgba(255, 255, 255, 0.95);
+    --border: rgba(0, 0, 0, 0.06);
+    --glow: rgba(0, 102, 255, 0.08);
+    --glowS: rgba(0, 102, 255, 0.2);
+    --surface: rgba(255, 255, 255, 0.8);
+    --surface-deep: #eef1f8;
+    --surface-hover: rgba(0, 0, 0, 0.04);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   RESET & BASE (inside @layer base so Tailwind utilities can override)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    transition: background 0.6s, color 0.6s;
+    min-height: 100vh;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TYPOGRAPHY UTILITIES
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.font-serif {
+  font-family: 'Source Serif 4', Georgia, serif;
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, var(--accent), var(--accent2), var(--accent3));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.gradient-text-animated {
+  background: linear-gradient(135deg, var(--accent), var(--accent2), var(--accent3));
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: gradient-shift 6s ease-in-out infinite;
+}
+
+.text-glow {
+  text-shadow: 0 0 8px var(--glow);
+}
+
+.text-glow-strong {
+  text-shadow: 0 0 24px var(--glowS);
+}
+
+/* Label pattern — used for section headers, badges, tags */
+.label-mono {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.tag-mono {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   ATMOSPHERE — Mesh Background (reduced intensity for data UIs)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.atmosphere {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.mesh-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  will-change: transform;
+}
+
+/* 2 blobs at 0.04 opacity — reduced from main site's 3 blobs at 0.06-0.08 */
+.mesh-blob-1 {
+  width: 40vw;
+  height: 40vw;
+  background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
+  opacity: 0.04;
+  top: -10%;
+  left: -5%;
+  animation: mf1 20s ease-in-out infinite;
+}
+
+.mesh-blob-2 {
+  width: 35vw;
+  height: 35vw;
+  background: radial-gradient(circle, var(--accent2) 0%, transparent 70%);
+  opacity: 0.04;
+  bottom: -10%;
+  right: -10%;
+  animation: mf2 25s ease-in-out infinite;
+}
+
+/* Noise overlay — subtle grain at 0.02 opacity */
+.noise-overlay::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  opacity: 0.02;
+  pointer-events: none;
+  z-index: 9998;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   KEYFRAMES
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+@keyframes mf1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(5vw, 8vh) scale(1.1); }
+  66% { transform: translate(-3vw, -5vh) scale(0.95); }
+}
+
+@keyframes mf2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-8vw, -4vh) scale(1.15); }
+  66% { transform: translate(4vw, 6vh) scale(0.9); }
+}
+
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.85) translateY(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 225, 255, 0); }
+  50% { box-shadow: 0 0 12px 2px rgba(0, 225, 255, 0.12); }
+}
+
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+  50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(34, 197, 94, 0); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pop-in {
+  0% { transform: scale(0) rotate(-30deg); }
+  60% { transform: scale(1.3) rotate(5deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+/* Radix UI accordion/collapsible (used by sidebar categories) */
+@keyframes accordion-down {
+  from { height: 0; }
+  to { height: var(--radix-accordion-content-height); }
+}
+
+@keyframes accordion-up {
+  from { height: var(--radix-accordion-content-height); }
+  to { height: 0; }
+}
+
+@keyframes collapsible-down {
+  from { height: 0; }
+  to { height: var(--radix-collapsible-content-height); }
+}
+
+@keyframes collapsible-up {
+  from { height: var(--radix-collapsible-content-height); }
+  to { height: 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   ANIMATION UTILITIES
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.animate-fade-in { animation: fade-in 0.4s ease-out forwards; }
+.animate-slide-up { animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-slide-down { animation: slide-down 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-scale-in { animation: scale-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-pop-in { animation: pop-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-float { animation: float 3s ease-in-out infinite; }
+.animate-glow-pulse { animation: glow-pulse 2s ease-in-out infinite; }
+.animate-shimmer { animation: shimmer 0.8s ease forwards; }
+
+/* Stagger delays */
+.delay-1 { animation-delay: 0.08s; }
+.delay-2 { animation-delay: 0.16s; }
+.delay-3 { animation-delay: 0.24s; }
+.delay-4 { animation-delay: 0.32s; }
+.delay-5 { animation-delay: 0.40s; }
+.delay-6 { animation-delay: 0.48s; }
+.stagger-item { opacity: 0; }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   GLASSMORPHISM UTILITIES
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.glass {
+  background: var(--card);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid var(--border);
+}
+
+.glass-elevated {
+  background: var(--card);
+  backdrop-filter: blur(32px) saturate(1.6);
+  -webkit-backdrop-filter: blur(32px) saturate(1.6);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.glass-backdrop {
+  background: rgba(6, 8, 15, 0.6);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   HOVER INTERACTION PATTERNS
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.hover-lift {
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.hover-lift:hover {
+  transform: translateY(-3px);
+  border-color: rgba(0, 225, 255, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 225, 255, 0.1);
+}
+
+.hover-scale {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.hover-scale:hover {
+  transform: scale(1.05);
+}
+
+.active-press:active {
+  transform: scale(0.95);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   SCROLL BAR
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   SKELETON LOADING
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--card) 25%,
+    rgba(255, 255, 255, 0.06) 50%,
+    var(--card) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   SCROLL PROGRESS BAR
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  z-index: 1000;
+  transition: width 0.1s linear;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   FOCUS STYLES — Accessibility
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   SHADCN/UI OVERRIDES — Match the DNA
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Override shadcn Card */
+[data-slot="card"] {
+  background: var(--card);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-slot="card"]:hover {
+  border-color: rgba(0, 225, 255, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 225, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Override shadcn Button */
+[data-slot="button"] {
+  font-family: 'JetBrains Mono', monospace;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-slot="button"]:active {
+  transform: scale(0.95);
+}
+
+/* Override shadcn Input */
+[data-slot="input"] {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+[data-slot="input"]:focus {
+  border-color: rgba(0, 225, 255, 0.3);
+  box-shadow: 0 0 0 3px rgba(0, 225, 255, 0.1);
+}
+
+/* Override shadcn Badge */
+[data-slot="badge"] {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+
+/* Override shadcn Dialog */
+[data-slot="dialog-overlay"] {
+  background: rgba(6, 8, 15, 0.6);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+}
+
+[data-slot="dialog-content"] {
+  background: rgba(8, 12, 30, 0.78);
+  backdrop-filter: blur(40px) saturate(1.6);
+  -webkit-backdrop-filter: blur(40px) saturate(1.6);
+  border: 1px solid rgba(0, 225, 255, 0.1);
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.45),
+              inset 0 1px 0 rgba(255, 255, 255, 0.03),
+              0 0 80px rgba(0, 225, 255, 0.04);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   BACKWARD-COMPATIBLE UTILITIES (legacy cyberpunk classes)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .glow-cyan {
+    box-shadow: 0 0 20px rgba(0, 225, 255, 0.3);
+  }
+
+  .glow-magenta {
+    box-shadow: 0 0 20px rgba(255, 0, 170, 0.3);
+  }
+
+  .glow-green {
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+  }
+
+  .text-glow-cyan {
+    text-shadow: 0 0 10px rgba(0, 225, 255, 0.5);
+  }
+
+  .border-glow-cyan {
+    border-color: var(--accent);
+    box-shadow: 0 0 10px rgba(0, 225, 255, 0.2), inset 0 0 10px rgba(0, 225, 255, 0.05);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   REDUCED MOTION
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

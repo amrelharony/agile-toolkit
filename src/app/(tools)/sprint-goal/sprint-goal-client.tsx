@@ -1,0 +1,650 @@
+"use client";
+
+import { useState, useRef, useCallback, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { ExportButton } from "@/components/shared/export-button";
+import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { generateSprintGoalPrompts } from "@/lib/ai-prompts/sprint-goal";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import {
+  Plus,
+  Trash2,
+  ChevronRight,
+  ChevronLeft,
+  Target,
+  CheckCircle2,
+  Lightbulb,
+  BarChart3,
+} from "lucide-react";
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+interface AcceptanceCriterion {
+  id: string;
+  text: string;
+  relevantChecked: boolean;
+}
+
+interface SmartResult {
+  specific: boolean;
+  measurable: boolean;
+  achievable: boolean;
+  relevant: boolean;
+  timeBound: boolean;
+}
+
+// ─── SMART validation helpers ───────────────────────────────────────────────
+
+const VAGUE_WORDS = [
+  "improve",
+  "better",
+  "good",
+  "nice",
+  "fine",
+  "some",
+  "various",
+  "stuff",
+  "things",
+  "enhance",
+  "optimize",
+  "miscellaneous",
+];
+
+const QUANTIFIABLE_PATTERNS =
+  /\d+|percent|%|percentage|count|total|average|ratio|rate|score|increase by|decrease by|reduce by|at least|no more than|minimum|maximum/i;
+
+const TIME_PATTERNS =
+  /by end of sprint|by sprint end|deadline|before|after|within \d|by \w+day|by \d{1,2}\/|by \d{4}|end of day|EOD|end of week|EOW|by close|due date|sprint \d|week \d|day \d|hours?|days?|date/i;
+
+function validateSmart(
+  criterion: AcceptanceCriterion
+): SmartResult {
+  const text = criterion.text.trim();
+  const words = text.toLowerCase().split(/\s+/);
+
+  const hasVague = words.some((w) => VAGUE_WORDS.includes(w));
+  const hasConcreteNoun = text.length > 10 && !hasVague;
+
+  const specific = hasConcreteNoun;
+  const measurable = QUANTIFIABLE_PATTERNS.test(text);
+  const achievable = text.length >= 20 && text.length <= 300;
+  const relevant = criterion.relevantChecked;
+  const timeBound = TIME_PATTERNS.test(text);
+
+  return { specific, measurable, achievable, relevant, timeBound };
+}
+
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+const STEPS = ["objective", "goal", "criteria", "results"] as const;
+type Step = (typeof STEPS)[number];
+
+const STEP_LABELS: Record<Step, string> = {
+  objective: "Business Objective",
+  goal: "Sprint Goal",
+  criteria: "Acceptance Criteria",
+  results: "Key Results",
+};
+
+const STEP_ICONS: Record<Step, React.ReactNode> = {
+  objective: <Target className="w-4 h-4" />,
+  goal: <Lightbulb className="w-4 h-4" />,
+  criteria: <CheckCircle2 className="w-4 h-4" />,
+  results: <BarChart3 className="w-4 h-4" />,
+};
+
+const GOAL_MAX_CHARS = 300;
+
+const TIPS = [
+  "Start with a verb: \"Deliver...\", \"Enable...\", \"Validate...\"",
+  "Focus on the outcome, not the tasks",
+  "Make it achievable within a single sprint",
+  "Ensure the whole team can rally behind it",
+  "Avoid listing multiple unrelated goals",
+];
+
+let nextId = 1;
+function genId() {
+  return `item-${nextId++}`;
+}
+
+// ─── Component ──────────────────────────────────────────────────────────────
+
+export function SprintGoalClient() {
+  const [activeStep, setActiveStep] = useState<Step>("objective");
+  const [businessObjective, setBusinessObjective] = useState("");
+  const [sprintGoal, setSprintGoal] = useState("");
+  const [criteria, setCriteria] = useState<AcceptanceCriterion[]>([
+    { id: genId(), text: "", relevantChecked: false },
+  ]);
+  const [keyResults, setKeyResults] = useState<string[]>([""]);
+
+  const previewRef = useRef<HTMLDivElement>(null);
+
+  // ── Navigation ──────────────────────────────────────────────────────────
+
+  const currentIndex = STEPS.indexOf(activeStep);
+
+  const goNext = useCallback(() => {
+    if (currentIndex < STEPS.length - 1) {
+      setActiveStep(STEPS[currentIndex + 1]);
+    }
+  }, [currentIndex]);
+
+  const goPrev = useCallback(() => {
+    if (currentIndex > 0) {
+      setActiveStep(STEPS[currentIndex - 1]);
+    }
+  }, [currentIndex]);
+
+  // ── Criteria helpers ────────────────────────────────────────────────────
+
+  const addCriterion = () =>
+    setCriteria((prev) => [
+      ...prev,
+      { id: genId(), text: "", relevantChecked: false },
+    ]);
+
+  const removeCriterion = (id: string) =>
+    setCriteria((prev) => (prev.length > 1 ? prev.filter((c) => c.id !== id) : prev));
+
+  const updateCriterionText = (id: string, text: string) =>
+    setCriteria((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, text } : c))
+    );
+
+  const toggleRelevant = (id: string) =>
+    setCriteria((prev) =>
+      prev.map((c) =>
+        c.id === id ? { ...c, relevantChecked: !c.relevantChecked } : c
+      )
+    );
+
+  // ── Key results helpers ─────────────────────────────────────────────────
+
+  const addKeyResult = () => setKeyResults((prev) => [...prev, ""]);
+
+  const removeKeyResult = (index: number) =>
+    setKeyResults((prev) =>
+      prev.length > 1 ? prev.filter((_, i) => i !== index) : prev
+    );
+
+  const updateKeyResult = (index: number, value: string) =>
+    setKeyResults((prev) => prev.map((kr, i) => (i === index ? value : kr)));
+
+  // ── Export data ─────────────────────────────────────────────────────────
+
+  const clipboardText = [
+    `BUSINESS OBJECTIVE: ${businessObjective}`,
+    `SPRINT GOAL: ${sprintGoal}`,
+    `ACCEPTANCE CRITERIA:`,
+    ...criteria.map((c, i) => `${i + 1}. ${c.text}`),
+    `KEY RESULTS:`,
+    ...keyResults.map((kr) => `- ${kr}`),
+  ].join("\n");
+
+  const jsonData = {
+    businessObjective,
+    sprintGoal,
+    acceptanceCriteria: criteria.map((c) => ({
+      text: c.text,
+      smart: validateSmart(c),
+    })),
+    keyResults,
+  };
+
+  // AI prompt config
+  const promptConfig = useMemo(() => ({
+    toolName: "Sprint Goal Builder",
+    prompts: generateSprintGoalPrompts({
+      businessObjective,
+      sprintGoal,
+      criteria: criteria.map((c) => ({ text: c.text, met: c.relevantChecked })),
+      keyResults,
+    }),
+  }), [businessObjective, sprintGoal, criteria, keyResults]);
+
+  // ── SMART badge renderer ────────────────────────────────────────────────
+
+  const SmartBadge = ({
+    label,
+    passes,
+    tooltip,
+  }: {
+    label: string;
+    passes: boolean;
+    tooltip: string;
+  }) => (
+    <Badge
+      title={tooltip}
+      className={
+        passes
+          ? "bg-[#00ff88]/15 text-[#00ff88] border-[#00ff88]/30 hover:bg-[#00ff88]/25"
+          : "bg-red-500/15 text-red-400 border-red-500/30 hover:bg-red-500/25"
+      }
+    >
+      {label}
+    </Badge>
+  );
+
+  // ── Transition wrapper ──────────────────────────────────────────────────
+
+  const tabMotion = {
+    initial: { opacity: 0, x: 20 },
+    animate: { opacity: 1, x: 0 },
+    exit: { opacity: 0, x: -20 },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    transition: { duration: 0.2, ease: "easeOut" } as any,
+  };
+
+  // ── Render ──────────────────────────────────────────────────────────────
+
+  return (
+    <ToolPageWrapper
+      title="Sprint Goal Builder"
+      description="Craft focused, SMART sprint goals with acceptance criteria and measurable key results."
+      category="Sprint Planning & Estimation"
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* ── Wizard Panel ─────────────────────────────────────────── */}
+        <div className="lg:col-span-2">
+          <Card className="bg-card border-border p-6">
+            <Tabs
+              value={activeStep}
+              onValueChange={(v) => setActiveStep(v as Step)}
+            >
+              <TabsList className="w-full bg-card border border-border mb-6">
+                {STEPS.map((step) => (
+                  <TabsTrigger
+                    key={step}
+                    value={step}
+                    className="flex-1 gap-2 data-[state=active]:bg-accent-cyan/15 data-[state=active]:text-accent data-[state=active]:shadow-none text-sub"
+                  >
+                    {STEP_ICONS[step]}
+                    <span className="hidden sm:inline">{STEP_LABELS[step]}</span>
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+
+              {/* Step 1 - Business Objective */}
+              <TabsContent value="objective">
+                <AnimatePresence mode="wait">
+                  <motion.div key="objective" {...tabMotion}>
+                    <h2 className="text-lg font-semibold text-text mb-2">
+                      Business Objective
+                    </h2>
+                    <p className="text-sm text-sub mb-4">
+                      What high-level business objective does this sprint serve?
+                      This provides context for why the sprint work matters.
+                    </p>
+                    <Textarea
+                      placeholder="e.g., Increase user retention by streamlining the onboarding experience..."
+                      value={businessObjective}
+                      onChange={(e) => setBusinessObjective(e.target.value)}
+                      className="min-h-[120px] bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
+                    />
+                  </motion.div>
+                </AnimatePresence>
+              </TabsContent>
+
+              {/* Step 2 - Sprint Goal */}
+              <TabsContent value="goal">
+                <AnimatePresence mode="wait">
+                  <motion.div key="goal" {...tabMotion}>
+                    <h2 className="text-lg font-semibold text-text mb-2">
+                      Sprint Goal
+                    </h2>
+                    <p className="text-sm text-sub mb-4">
+                      Define the specific goal for this sprint. A good sprint
+                      goal is concise, outcome-focused, and achievable.
+                    </p>
+                    <div className="relative">
+                      <Textarea
+                        placeholder="e.g., Deliver a self-service onboarding flow that allows new users to complete setup within 3 minutes..."
+                        value={sprintGoal}
+                        onChange={(e) =>
+                          setSprintGoal(e.target.value.slice(0, GOAL_MAX_CHARS))
+                        }
+                        className="min-h-[120px] bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
+                      />
+                      <span
+                        className={`absolute bottom-2 right-3 text-xs ${
+                          sprintGoal.length > GOAL_MAX_CHARS * 0.9
+                            ? "text-red-400"
+                            : "text-sub/60"
+                        }`}
+                      >
+                        {sprintGoal.length}/{GOAL_MAX_CHARS}
+                      </span>
+                    </div>
+
+                    {/* Tips */}
+                    <div className="mt-4 p-4 rounded-lg bg-accent-cyan/5 border border-accent-cyan/15">
+                      <h3 className="text-sm font-medium text-accent mb-2 flex items-center gap-2">
+                        <Lightbulb className="w-4 h-4" />
+                        Tips for a Great Sprint Goal
+                      </h3>
+                      <ul className="space-y-1">
+                        {TIPS.map((tip, i) => (
+                          <li
+                            key={i}
+                            className="text-sm text-sub flex items-start gap-2"
+                          >
+                            <span className="text-accent mt-0.5">-</span>
+                            {tip}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </motion.div>
+                </AnimatePresence>
+              </TabsContent>
+
+              {/* Step 3 - Acceptance Criteria */}
+              <TabsContent value="criteria">
+                <AnimatePresence mode="wait">
+                  <motion.div key="criteria" {...tabMotion}>
+                    <h2 className="text-lg font-semibold text-text mb-2">
+                      Acceptance Criteria
+                    </h2>
+                    <p className="text-sm text-sub mb-4">
+                      Define measurable criteria that determine when the sprint
+                      goal is met. Each criterion is validated against SMART
+                      principles.
+                    </p>
+
+                    <div className="space-y-4">
+                      {criteria.map((criterion) => {
+                        const smart = validateSmart(criterion);
+                        return (
+                          <div
+                            key={criterion.id}
+                            className="p-4 rounded-lg bg-card border border-border"
+                          >
+                            <div className="flex gap-2 mb-3">
+                              <Textarea
+                                placeholder="e.g., 90% of new users complete onboarding within 3 minutes by end of sprint"
+                                value={criterion.text}
+                                onChange={(e) =>
+                                  updateCriterionText(
+                                    criterion.id,
+                                    e.target.value
+                                  )
+                                }
+                                className="flex-1 min-h-[60px] bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeCriterion(criterion.id)}
+                                className="text-sub hover:text-red-400 hover:bg-red-500/10 shrink-0"
+                                disabled={criteria.length === 1}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+
+                            {/* SMART badges */}
+                            {criterion.text.trim().length > 0 && (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs text-sub mr-1">
+                                  SMART:
+                                </span>
+                                <SmartBadge
+                                  label="Specific"
+                                  passes={smart.specific}
+                                  tooltip={
+                                    smart.specific
+                                      ? "Contains concrete actions or nouns"
+                                      : "Avoid vague words like improve, better, good"
+                                  }
+                                />
+                                <SmartBadge
+                                  label="Measurable"
+                                  passes={smart.measurable}
+                                  tooltip={
+                                    smart.measurable
+                                      ? "Contains quantifiable terms"
+                                      : "Add numbers, percentages, or measurable metrics"
+                                  }
+                                />
+                                <SmartBadge
+                                  label="Achievable"
+                                  passes={smart.achievable}
+                                  tooltip={
+                                    smart.achievable
+                                      ? "Good length - not too vague or complex"
+                                      : "Aim for 20-300 characters for clarity"
+                                  }
+                                />
+                                <div className="flex items-center gap-1.5">
+                                  <SmartBadge
+                                    label="Relevant"
+                                    passes={smart.relevant}
+                                    tooltip={
+                                      smart.relevant
+                                        ? "Confirmed relevant by you"
+                                        : "Check the box to confirm relevance"
+                                    }
+                                  />
+                                  <input
+                                    type="checkbox"
+                                    checked={criterion.relevantChecked}
+                                    onChange={() =>
+                                      toggleRelevant(criterion.id)
+                                    }
+                                    className="w-3.5 h-3.5 rounded border-border bg-card accent-[#00ff88] cursor-pointer"
+                                    title="Confirm this criterion is relevant to the sprint goal"
+                                  />
+                                </div>
+                                <SmartBadge
+                                  label="Time-bound"
+                                  passes={smart.timeBound}
+                                  tooltip={
+                                    smart.timeBound
+                                      ? "Contains time reference"
+                                      : 'Add a deadline like "by end of sprint" or a date'
+                                  }
+                                />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={addCriterion}
+                      className="mt-4 gap-2 border-border bg-card hover:bg-accent-cyan/10 hover:border-accent-cyan/30 text-sub hover:text-accent"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add Criterion
+                    </Button>
+                  </motion.div>
+                </AnimatePresence>
+              </TabsContent>
+
+              {/* Step 4 - Key Results */}
+              <TabsContent value="results">
+                <AnimatePresence mode="wait">
+                  <motion.div key="results" {...tabMotion}>
+                    <h2 className="text-lg font-semibold text-text mb-2">
+                      Key Results
+                    </h2>
+                    <p className="text-sm text-sub mb-4">
+                      Define the measurable outcomes that indicate success.
+                      These should be observable and verifiable.
+                    </p>
+
+                    <div className="space-y-3">
+                      {keyResults.map((kr, index) => (
+                        <div key={index} className="flex gap-2">
+                          <Input
+                            placeholder={`e.g., Onboarding completion rate reaches 90%`}
+                            value={kr}
+                            onChange={(e) =>
+                              updateKeyResult(index, e.target.value)
+                            }
+                            className="flex-1 bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeKeyResult(index)}
+                            className="text-sub hover:text-red-400 hover:bg-red-500/10 shrink-0"
+                            disabled={keyResults.length === 1}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={addKeyResult}
+                      className="mt-4 gap-2 border-border bg-card hover:bg-accent-cyan/10 hover:border-accent-cyan/30 text-sub hover:text-accent"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add Key Result
+                    </Button>
+                  </motion.div>
+                </AnimatePresence>
+              </TabsContent>
+            </Tabs>
+
+            {/* Navigation buttons */}
+            <div className="flex justify-between mt-6 pt-4 border-t border-border">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goPrev}
+                disabled={currentIndex === 0}
+                className="gap-2 border-border bg-card text-sub hover:text-text disabled:opacity-30"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goNext}
+                disabled={currentIndex === STEPS.length - 1}
+                className="gap-2 border-border bg-accent-cyan/10 text-accent hover:bg-accent-cyan/20 hover:border-accent-cyan/30 disabled:opacity-30"
+              >
+                Next
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </Card>
+        </div>
+
+        {/* ── Preview Panel ────────────────────────────────────────── */}
+        <div className="lg:col-span-1">
+          <Card className="bg-card border-border p-6 sticky top-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-text">
+                Preview
+              </h2>
+              <div className="flex items-center gap-2">
+                <AiPromptGenerator config={promptConfig} />
+                <ExportButton
+                  filename="sprint-goal"
+                  clipboardText={clipboardText}
+                  jsonData={jsonData}
+                  targetRef={previewRef}
+                />
+              </div>
+            </div>
+
+            <div
+              ref={previewRef}
+              className="p-4 rounded-lg bg-card border border-border space-y-4 text-sm"
+            >
+              {/* Business Objective */}
+              <div>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+                  Business Objective
+                </span>
+                <p className="text-text mt-1">
+                  {businessObjective || (
+                    <span className="text-sub/40 italic">
+                      Not yet defined
+                    </span>
+                  )}
+                </p>
+              </div>
+
+              {/* Sprint Goal */}
+              <div>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+                  Sprint Goal
+                </span>
+                <p className="text-text mt-1">
+                  {sprintGoal || (
+                    <span className="text-sub/40 italic">
+                      Not yet defined
+                    </span>
+                  )}
+                </p>
+              </div>
+
+              {/* Acceptance Criteria */}
+              <div>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+                  Acceptance Criteria
+                </span>
+                {criteria.some((c) => c.text.trim()) ? (
+                  <ol className="list-decimal list-inside mt-1 space-y-1">
+                    {criteria
+                      .filter((c) => c.text.trim())
+                      .map((c) => (
+                        <li key={c.id} className="text-text">
+                          {c.text}
+                        </li>
+                      ))}
+                  </ol>
+                ) : (
+                  <p className="text-sub/40 italic mt-1">
+                    No criteria added
+                  </p>
+                )}
+              </div>
+
+              {/* Key Results */}
+              <div>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+                  Key Results
+                </span>
+                {keyResults.some((kr) => kr.trim()) ? (
+                  <ul className="list-disc list-inside mt-1 space-y-1">
+                    {keyResults
+                      .filter((kr) => kr.trim())
+                      .map((kr, i) => (
+                        <li key={i} className="text-text">
+                          {kr}
+                        </li>
+                      ))}
+                  </ul>
+                ) : (
+                  <p className="text-sub/40 italic mt-1">
+                    No key results added
+                  </p>
+                )}
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+    </ToolPageWrapper>
+  );
+}
