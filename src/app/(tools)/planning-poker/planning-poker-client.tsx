@@ -537,15 +537,18 @@ function SessionScreen({
     return {
       toolName: "Planning Poker",
       prompts: generatePlanningPokerPrompts({
-        stories: session.stories.map((s) => ({
+        stories: session.stories.map((s, idx) => ({
           title: s.title,
-          votes: session.participants.map((p) => p.vote).filter((v): v is string => v !== null),
+          // Only the current active story has live votes; past stories only have finalEstimate
+          votes: idx === session.currentStoryIdx && session.revealed
+            ? session.participants.map((p) => p.vote).filter((v): v is string => v !== null)
+            : [],
           finalEstimate: s.finalEstimate,
         })),
         scaleName,
       }),
     };
-  }, [session.stories, session.participants, session.scale]);
+  }, [session.stories, session.participants, session.scale, session.currentStoryIdx, session.revealed]);
 
   // Card rotation for fan effect
   const cardCount = session.scale.length;

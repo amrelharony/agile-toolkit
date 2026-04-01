@@ -45,7 +45,7 @@ export function generateImpedimentPrompts(data: ImpedimentData): PromptDefinitio
         `## Open Impediments\n\n${formatTable(
           ["Title", "Category", "Severity", "Description"],
           open.slice(0, 10).map((i) => [i.title, i.category, i.severity, i.description.slice(0, 80)])
-        )}\n\n## Questions\n\n1. Rank the open impediments by business impact — which should be resolved first?\n2. For each Critical/High impediment, draft a 2-sentence escalation message for management.\n3. Who should own resolution for each impediment? Should any be escalated outside the team?\n4. What is the likely sprint velocity impact if these impediments remain unresolved?\n5. Design a simple impediment triage protocol the team can use at standup.`,
+        )}${open.length > 10 ? `\n(Showing 10 of ${open.length} open impediments)\n` : ""}\n\n## Questions\n\n1. Rank the open impediments by business impact — which should be resolved first?\n2. For each Critical/High impediment, draft a 2-sentence escalation message for management.\n3. Who should own resolution for each impediment? Should any be escalated outside the team?\n4. What is the likely sprint velocity impact if these impediments remain unresolved?\n5. Design a simple impediment triage protocol the team can use at standup.`,
     },
     {
       id: "impediment-rootcause",

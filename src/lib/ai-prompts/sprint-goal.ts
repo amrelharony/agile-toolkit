@@ -17,7 +17,7 @@ export function generateSprintGoalPrompts(data: SprintGoalData): PromptDefinitio
     "",
     "**Acceptance Criteria:**",
     ...(data.criteria.length > 0
-      ? data.criteria.map((c, i) => `${i + 1}. ${c.met ? "✅" : "⬜"} ${c.text}`)
+      ? data.criteria.map((c, i) => `${i + 1}. ${c.text}${c.met ? " ✓ (SMART relevant)" : ""}`)
       : ["(none defined)"]),
     "",
     "**Key Results:**",

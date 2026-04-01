@@ -2,7 +2,7 @@ import type { PromptDefinition } from "./types";
 import { buildPreamble } from "./prompt-utils";
 
 interface ReleasePlannerData {
-  config: { backlogSize: number; velocityInput: string; scopeBuffer: number; sprintLengthDays: number; startDate: string };
+  config: { backlogSize: number; velocityInput: string; scopeBuffer: number; scopeAdjustment: number; sprintLengthDays: number; startDate: string };
   results: { p50: number; p75: number; p85: number; p95: number } | null;
 }
 
@@ -20,6 +20,7 @@ export function generateReleasePlannerPrompts(data: ReleasePlannerData): PromptD
     `Historical Velocities: ${velocities.join(", ")} pts/sprint`,
     `Average Velocity: ${avgVel} pts/sprint`,
     `Scope Buffer: ${data.config.scopeBuffer}%`,
+    `Scope Adjustment: ${data.config.scopeAdjustment > 0 ? "+" : ""}${data.config.scopeAdjustment}%`,
     `Sprint Length: ${data.config.sprintLengthDays} days`,
     `Start Date: ${data.config.startDate}`,
   ].join("\n");
