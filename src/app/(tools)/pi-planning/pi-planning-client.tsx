@@ -15,6 +15,7 @@ import { generatePiPlanningPrompts } from "@/lib/ai-prompts/pi-planning";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PI_PLANNING_ACTIONS } from "@/lib/history/event-actions";
+import { selectEvents } from "@/lib/history/selectors";
 import { ActionRow } from "@/components/shared/action-row";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
@@ -167,6 +168,23 @@ export function PiPlanningClient() {
     [state, overloads]
   );
 
+  // ── Cross-tool signal: sprints completed during the PI window ───────────
+  // PI commitments roll forward as constituent sprints complete. Surface a
+  // small chip with the count so the user can sanity-check whether the
+  // board's iteration count and team velocities still reflect reality.
+  const sprintsSincePiStart = useMemo(
+    () =>
+      selectEvents({
+        toolId: "velocity",
+        action: "sprint_added",
+        sinceDays: 90,
+        limit: 50,
+      }),
+    // history-store mutations cause parent re-render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   return (
     <ToolPageWrapper
       toolId="pi-planning"
@@ -196,6 +214,14 @@ export function PiPlanningClient() {
           jsonData={state}
         />
       </ActionRow>
+
+      {sprintsSincePiStart.length > 0 && (
+        <div className="mb-3">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/5 text-accent px-2.5 py-1 text-[11px]">
+            {sprintsSincePiStart.length} sprint{sprintsSincePiStart.length === 1 ? "" : "s"} completed since PI start
+          </span>
+        </div>
+      )}
 
       <KpiGrid cols={4} marginBottom="md">
         <StatCard

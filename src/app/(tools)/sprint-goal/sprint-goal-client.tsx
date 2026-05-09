@@ -8,6 +8,8 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateSprintGoalPrompts } from "@/lib/ai-prompts/sprint-goal";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPRINT_GOAL_ACTIONS } from "@/lib/history/event-actions";
+import { selectEvents } from "@/lib/history/selectors";
+import { CalloutAlert } from "@/components/shared/callout-alert";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -250,6 +252,23 @@ export function SprintGoalClient() {
     }),
   }), [businessObjective, sprintGoal, criteria, keyResults]);
 
+  // ── Cross-tool signal: recent sprint additions in velocity tool ─────────
+  // Surface a tiny callout when at least one sprint was added in the last
+  // 14 days — prompts the user to revisit the latest sprint's goal.
+  const recentSprintAdds = useMemo(
+    () =>
+      selectEvents({
+        toolId: "velocity",
+        action: "sprint_added",
+        sinceDays: 14,
+        limit: 5,
+      }),
+    // Re-evaluates on every parent render which is sufficient to stay fresh
+    // with the history store; eslint-disable for the empty dep array.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   // ── SMART badge renderer ────────────────────────────────────────────────
 
   const SmartBadge = ({
@@ -292,6 +311,11 @@ export function SprintGoalClient() {
       description="Craft focused, SMART sprint goals with acceptance criteria and measurable key results."
       category="Sprint Planning & Estimation"
     >
+      {recentSprintAdds.length >= 1 && (
+        <CalloutAlert tone="info" className="mb-3">
+          {recentSprintAdds.length} sprint{recentSprintAdds.length === 1 ? " was" : "s were"} logged in the last 14 days — review the latest sprint&apos;s goal performance.
+        </CalloutAlert>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ── Wizard Panel ─────────────────────────────────────────── */}
         <div className="lg:col-span-2">

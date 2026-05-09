@@ -9,6 +9,9 @@ import {
   YAxis,
   Tooltip,
   Cell,
+  LineChart,
+  Line,
+  ReferenceLine,
 } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -19,6 +22,7 @@ import { StatCard } from "@/components/shared/stat-card";
 import { SectionCard } from "@/components/shared/section-card";
 import { ChartCard } from "@/components/shared/chart-card";
 import { EmptyState } from "@/components/shared/empty-state";
+import { SmartInput } from "@/components/shared/smart-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,13 +36,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, AlertOctagon, ArrowUpDown } from "lucide-react";
+import { Plus, Trash2, AlertOctagon, ArrowUpDown, TrendingUp } from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { generateFlakyPrompts } from "@/lib/ai-prompts/flaky-tests";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { FLAKY_TEST_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { xmrLimits } from "@/lib/analytics/control-chart";
+import { mannKendall } from "@/lib/analytics/trend-test";
+import type { PredictedValue } from "@/lib/predictions/registry";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 
@@ -221,6 +228,65 @@ export function FlakyTestsClient() {
       }));
   }, [state.tests]);
 
+  // Inline median predictor for the "failure rate (%)" field. We deliberately
+  // keep this inline (no global predictor registered for flaky-tests) — the
+  // signal is just "what's a typical failure rate in this team's log?".
+  const failureRatePrediction = useMemo<
+    PredictedValue<number> | { value: number; confidence: "none" }
+  >(() => {
+    const ratesPct = state.tests
+      .filter((t) => t.status !== "fixed")
+      .map((t) => t.failureRate * 100)
+      .sort((a, b) => a - b);
+    if (ratesPct.length < 3) {
+      return { value: 20, confidence: "none" };
+    }
+    const median = ratesPct[Math.floor(ratesPct.length * 0.5)];
+    return {
+      value: Number(median.toFixed(1)),
+      confidence: "medium" as const,
+      source: `Median across ${ratesPct.length} flakies`,
+    };
+  }, [state.tests]);
+
+  // Per-week count series derived from `firstSeenAt`. Each point is the number
+  // of flaky tests first observed that ISO-week. Used as the source for the
+  // XmR overlay and the Mann-Kendall trend chip. Returns an empty array when
+  // there's not enough breadth for meaningful weekly bucketing.
+  const weeklyCounts = useMemo(() => {
+    if (state.tests.length === 0) return [] as Array<{ week: string; count: number }>;
+    const buckets = new Map<string, number>();
+    for (const t of state.tests) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(t.firstSeenAt);
+      if (!m) continue;
+      // ISO week-start: Monday of the week containing firstSeenAt. Cheap
+      // proxy good enough for trend visibility — we don't need calendar-week
+      // accuracy across DST.
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      // JS getDay: 0 (Sun) … 6 (Sat). Shift so Mon = 0.
+      const weekday = (d.getDay() + 6) % 7;
+      d.setDate(d.getDate() - weekday);
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      buckets.set(iso, (buckets.get(iso) ?? 0) + 1);
+    }
+    return Array.from(buckets.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([week, count]) => ({ week, count }));
+  }, [state.tests]);
+
+  // XmR control limits on the weekly flaky-count series. Returns null when
+  // fewer than 4 weeks of data — XmR is unstable on tiny series.
+  const weeklyControl = useMemo(() => {
+    if (weeklyCounts.length < 4) return null;
+    return xmrLimits(weeklyCounts.map((w) => w.count));
+  }, [weeklyCounts]);
+
+  // Mann-Kendall trend test on the weekly flaky count.
+  const weeklyTrend = useMemo(() => {
+    if (weeklyCounts.length < 5) return null;
+    return mannKendall(weeklyCounts.map((w) => w.count));
+  }, [weeklyCounts]);
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Flaky Test Scoreboard",
@@ -346,22 +412,37 @@ export function FlakyTestsClient() {
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-sub">Failure rate (%)</Label>
-            <Input
-              type="text"
-              inputMode="decimal"
-              value={failureRateDraft}
-              onChange={(e) => setFailureRateDraft(e.target.value)}
-              onBlur={() => {
-                const n = Number(failureRateDraft);
-                if (!Number.isFinite(n)) {
-                  setFailureRateDraft("");
-                } else {
-                  const clamped = Math.min(100, Math.max(0, n));
-                  setFailureRateDraft(String(clamped));
-                }
-              }}
-              placeholder="e.g. 12.5"
-              className="bg-bg border-border font-data"
+            <SmartInput<number>
+              predicted={failureRatePrediction}
+              onAccept={(v) => setFailureRateDraft(String(v))}
+              render={({ ghost, chip, accept }) => (
+                <>
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    value={failureRateDraft}
+                    placeholder={ghost ?? "e.g. 12.5"}
+                    onKeyDown={(e) => {
+                      if (e.key === "Tab" && failureRateDraft === "") {
+                        e.preventDefault();
+                        accept();
+                      }
+                    }}
+                    onChange={(e) => setFailureRateDraft(e.target.value)}
+                    onBlur={() => {
+                      const n = Number(failureRateDraft);
+                      if (!Number.isFinite(n)) {
+                        setFailureRateDraft("");
+                      } else {
+                        const clamped = Math.min(100, Math.max(0, n));
+                        setFailureRateDraft(String(clamped));
+                      }
+                    }}
+                    className="bg-bg border-border font-data"
+                  />
+                  {chip}
+                </>
+              )}
             />
           </div>
           <div className="space-y-1 sm:col-span-2 lg:col-span-2">
@@ -427,6 +508,90 @@ export function FlakyTestsClient() {
               ))}
             </Bar>
           </BarChart>
+        </ChartCard>
+      )}
+
+      {/* XmR control chart on per-week newly-observed flakies. UCL/X̄/LCL
+          surface when an unusual week breaks the natural variation band. */}
+      {weeklyControl && (
+        <ChartCard
+          title="New flakies per week"
+          icon={TrendingUp}
+          height={220}
+          className="mb-6"
+          headerExtras={
+            weeklyTrend?.significant ? (
+              <Badge
+                variant="outline"
+                className={`font-mono text-[10px] tracking-wider uppercase ${
+                  // Down = fewer new flakies = good. Up = more = bad.
+                  weeklyTrend.trend === "down"
+                    ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+                    : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                }`}
+                title={`Mann-Kendall p=${weeklyTrend.pValue.toFixed(3)}`}
+              >
+                {weeklyTrend.trend === "up" ? "↗" : "↘"} flaky-count trend
+              </Badge>
+            ) : undefined
+          }
+        >
+          <LineChart
+            data={weeklyCounts}
+            margin={{ top: 8, right: 12, left: -12, bottom: 0 }}
+          >
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke={chartTheme.gridColor}
+              vertical={false}
+            />
+            <XAxis
+              dataKey="week"
+              tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
+              axisLine={false}
+              tickLine={false}
+              allowDecimals={false}
+            />
+            <Tooltip contentStyle={chartTheme.tooltipStyle} />
+            <ReferenceLine
+              y={weeklyControl.centerLine}
+              stroke={chartTheme.colors.cyan}
+              strokeDasharray="2 4"
+              strokeOpacity={0.55}
+              label={{ value: "X̄", fill: chartTheme.colors.cyan, fontSize: 10, position: "right" }}
+              ifOverflow="extendDomain"
+            />
+            <ReferenceLine
+              y={weeklyControl.ucl}
+              stroke={chartTheme.colors.red}
+              strokeDasharray="2 4"
+              strokeOpacity={0.55}
+              label={{ value: "UCL", fill: chartTheme.colors.red, fontSize: 10, position: "right" }}
+              ifOverflow="extendDomain"
+            />
+            <ReferenceLine
+              y={weeklyControl.lcl}
+              stroke={chartTheme.colors.green}
+              strokeDasharray="2 4"
+              strokeOpacity={0.55}
+              label={{ value: "LCL", fill: chartTheme.colors.green, fontSize: 10, position: "right" }}
+              ifOverflow="extendDomain"
+            />
+            <Line
+              type="monotone"
+              dataKey="count"
+              name="Flakies"
+              stroke={chartTheme.colors.cyan}
+              strokeWidth={2}
+              dot={{ fill: chartTheme.colors.cyan, r: 3 }}
+              activeDot={{ r: 5 }}
+            />
+          </LineChart>
         </ChartCard>
       )}
 

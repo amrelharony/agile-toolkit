@@ -19,7 +19,10 @@ import {
 import { Plus, Trash2, BarChart as BarIcon } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
 import { chartTheme } from "@/components/charts/chart-theme";
+import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { zScoreAnomalies } from "@/lib/analytics/anomaly";
+import { cusum } from "@/lib/analytics/changepoint";
+import { mannKendall } from "@/lib/analytics/trend-test";
 import { generateNpsCsatPrompts } from "@/lib/ai-prompts/nps-csat";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { usePersisted } from "@/lib/utils/use-persisted";
@@ -164,6 +167,56 @@ export function NpsCsatClient() {
     return zScoreAnomalies(scores, 2);
   }, [entries]);
 
+  /* ── Phase-15 analytics ───────────────────────────────────────────────── */
+  // Per-date NPS / CSAT means used by CUSUM and the Mann-Kendall trend
+  // chips. Built from trendData so the markers align with the line chart.
+  const npsSeries = useMemo(
+    () =>
+      trendData
+        .filter((d): d is typeof d & { nps: number } => typeof d.nps === "number")
+        .map((d) => ({ date: d.date, value: d.nps })),
+    [trendData]
+  );
+  const csatSeries = useMemo(
+    () =>
+      trendData
+        .filter((d): d is typeof d & { csat: number } => typeof d.csat === "number")
+        .map((d) => ({ date: d.date, value: d.csat })),
+    [trendData]
+  );
+
+  const npsValues = useMemo(() => npsSeries.map((d) => d.value), [npsSeries]);
+  const csatValues = useMemo(() => csatSeries.map((d) => d.value), [csatSeries]);
+
+  const npsChangepoints = useMemo<CausalAnnotationData[]>(() => {
+    if (npsValues.length < 4) return [];
+    return cusum(npsValues).map((cp) => ({
+      x: npsSeries[cp.index]?.date ?? String(cp.index),
+      label: `NPS ${cp.direction === "up" ? "↑ regime" : "↓ regime"}`,
+      detail: `CUSUM detected a sustained ${cp.direction === "up" ? "lift" : "drop"} in NPS at ${npsSeries[cp.index]?.date}.`,
+      confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
+    }));
+  }, [npsValues, npsSeries]);
+
+  const csatChangepoints = useMemo<CausalAnnotationData[]>(() => {
+    if (csatValues.length < 4) return [];
+    return cusum(csatValues).map((cp) => ({
+      x: csatSeries[cp.index]?.date ?? String(cp.index),
+      label: `CSAT ${cp.direction === "up" ? "↑ regime" : "↓ regime"}`,
+      detail: `CUSUM detected a sustained ${cp.direction === "up" ? "lift" : "drop"} in CSAT at ${csatSeries[cp.index]?.date}.`,
+      confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
+    }));
+  }, [csatValues, csatSeries]);
+
+  const npsTrend = useMemo(
+    () => (npsValues.length >= 5 ? mannKendall(npsValues) : null),
+    [npsValues]
+  );
+  const csatTrend = useMemo(
+    () => (csatValues.length >= 5 ? mannKendall(csatValues) : null),
+    [csatValues]
+  );
+
   const promptConfig = useMemo(
     () => ({
       toolName: "NPS/CSAT Tracker",
@@ -280,9 +333,36 @@ export function NpsCsatClient() {
       {trendData.length > 0 && (
         <Card className="bg-surface border-border mb-6">
           <CardContent className="p-4" ref={chartRef as React.RefObject<HTMLDivElement>}>
-            <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
               <BarIcon className="w-4 h-4 text-accent" />
               <h3 className="text-sm font-semibold text-text">Score Trend</h3>
+              {npsTrend?.significant && (
+                <span
+                  className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                    // For NPS, "up" trend is good, "down" is bad.
+                    npsTrend.trend === "up"
+                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
+                      : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                  }`}
+                  aria-label={`NPS trend ${npsTrend.trend} (Mann-Kendall p=${npsTrend.pValue.toFixed(3)})`}
+                  title={`Mann-Kendall p=${npsTrend.pValue.toFixed(3)}`}
+                >
+                  NPS {npsTrend.trend === "up" ? "↗" : "↘"}
+                </span>
+              )}
+              {csatTrend?.significant && (
+                <span
+                  className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                    csatTrend.trend === "up"
+                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
+                      : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                  }`}
+                  aria-label={`CSAT trend ${csatTrend.trend} (Mann-Kendall p=${csatTrend.pValue.toFixed(3)})`}
+                  title={`Mann-Kendall p=${csatTrend.pValue.toFixed(3)}`}
+                >
+                  CSAT {csatTrend.trend === "up" ? "↗" : "↘"}
+                </span>
+              )}
             </div>
             <ResponsiveContainer width="100%" height={280}>
               <LineChart data={trendData}>
@@ -292,6 +372,12 @@ export function NpsCsatClient() {
                 <Tooltip contentStyle={chartTheme.tooltipStyle} />
                 <Line type="monotone" dataKey="nps" stroke={chartTheme.colors.cyan} name="NPS" />
                 <Line type="monotone" dataKey="csat" stroke={chartTheme.colors.purple} name="CSAT" />
+                {npsChangepoints.map((cp, i) => (
+                  <CausalLine key={`nps-cusum-${i}`} annotation={cp} />
+                ))}
+                {csatChangepoints.map((cp, i) => (
+                  <CausalLine key={`csat-cusum-${i}`} annotation={cp} />
+                ))}
               </LineChart>
             </ResponsiveContainer>
           </CardContent>

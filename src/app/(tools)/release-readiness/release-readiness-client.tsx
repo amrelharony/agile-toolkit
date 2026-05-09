@@ -9,6 +9,9 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
+  LineChart,
+  Line,
+  ReferenceLine,
 } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -31,12 +34,15 @@ import {
   Undo2,
   ListChecks,
   BarChart3,
+  TrendingUp,
 } from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RELEASE_READINESS_ACTIONS } from "@/lib/history/event-actions";
 import { generateReleaseReadinessPrompts } from "@/lib/ai-prompts/release-readiness";
+import { pChartLimits } from "@/lib/analytics/control-chart";
+import { mannKendall } from "@/lib/analytics/trend-test";
 
 type ReleaseStatus = "planning" | "shipped" | "rolled_back";
 
@@ -266,6 +272,52 @@ export function ReleaseReadinessClient() {
     [gateFailureCounts]
   );
 
+  // Per-release gate-pass series — chronological order of shipped releases.
+  // For releases shipped before `gatesOpenAtShip` was captured we fall back
+  // to the live gate state. Each release contributes a binomial trial:
+  // `passed` gates met out of `GATES.length` total.
+  const gatePassSeries = useMemo(() => {
+    const ordered = [...shipped]
+      .filter((r) => r.shippedDate)
+      .sort((a, b) =>
+        (a.shippedDate ?? "").localeCompare(b.shippedDate ?? "")
+      )
+      .slice(-20);
+    return ordered.map((r) => {
+      const open =
+        r.gatesOpenAtShip ?? GATES.filter((g) => !r.gates[g.id]).length;
+      const passed = GATES.length - open;
+      return {
+        release: r.name,
+        shippedDate: r.shippedDate ?? "",
+        passed,
+        total: GATES.length,
+        passRatePct: (passed / GATES.length) * 100,
+      };
+    });
+  }, [shipped]);
+
+  // p-chart limits on per-release gate-pass rate. Returns null when fewer
+  // than 4 shipped releases — limits are unstable on tiny series.
+  const gatePassControl = useMemo(() => {
+    if (gatePassSeries.length < 4) return null;
+    const limits = pChartLimits(
+      gatePassSeries.map((s) => s.passed),
+      gatePassSeries.map((s) => s.total)
+    );
+    return {
+      centerLinePct: limits.centerLine * 100,
+      uclPct: limits.ucl * 100,
+      lclPct: limits.lcl * 100,
+    };
+  }, [gatePassSeries]);
+
+  // Mann-Kendall trend test on the rolling gate-pass-rate series.
+  const gatePassTrend = useMemo(() => {
+    if (gatePassSeries.length < 5) return null;
+    return mannKendall(gatePassSeries.map((s) => s.passRatePct));
+  }, [gatePassSeries]);
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Release Readiness",
@@ -446,6 +498,98 @@ export function ReleaseReadinessClient() {
             />
           ))}
         </div>
+      )}
+
+      {/* Standalone p-chart on per-release gate-pass rate. Anchors UCL / X̄ /
+          LCL so a single bad release vs. a real regime shift is obvious.
+          Renders alongside a Mann-Kendall trend chip when 5+ ships exist. */}
+      {gatePassControl && (
+        <SectionCard
+          title="Per-release gate-pass rate"
+          icon={TrendingUp}
+          titleSize="lg"
+          className="mb-6"
+          actions={
+            gatePassTrend?.significant ? (
+              <Badge
+                variant="outline"
+                className={`font-mono text-[10px] tracking-wider uppercase ${
+                  gatePassTrend.trend === "up"
+                    ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+                    : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                }`}
+                title={`Mann-Kendall p=${gatePassTrend.pValue.toFixed(3)}`}
+              >
+                {gatePassTrend.trend === "up" ? "↗" : "↘"} pass-rate trend
+              </Badge>
+            ) : undefined
+          }
+        >
+          <div className="-mx-2" style={{ height: 220 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={gatePassSeries}
+                margin={{ top: 8, right: 12, left: -12, bottom: 0 }}
+              >
+                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
+                <XAxis
+                  dataKey="release"
+                  tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
+                  axisLine={false}
+                  tickLine={false}
+                  interval={0}
+                  height={50}
+                  angle={-25}
+                  textAnchor="end"
+                />
+                <YAxis
+                  domain={[0, 100]}
+                  tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v) => `${v}%`}
+                />
+                <Tooltip
+                  contentStyle={chartTheme.tooltipStyle}
+                  formatter={(v) => [`${Number(v).toFixed(0)}%`, "Pass rate"]}
+                />
+                <ReferenceLine
+                  y={gatePassControl.centerLinePct}
+                  stroke={chartTheme.colors.cyan}
+                  strokeDasharray="2 4"
+                  strokeOpacity={0.55}
+                  label={{ value: "X̄", fill: chartTheme.colors.cyan, fontSize: 10, position: "right" }}
+                  ifOverflow="extendDomain"
+                />
+                <ReferenceLine
+                  y={gatePassControl.uclPct}
+                  stroke={chartTheme.colors.green}
+                  strokeDasharray="2 4"
+                  strokeOpacity={0.55}
+                  label={{ value: "UCL", fill: chartTheme.colors.green, fontSize: 10, position: "right" }}
+                  ifOverflow="extendDomain"
+                />
+                <ReferenceLine
+                  y={gatePassControl.lclPct}
+                  stroke={chartTheme.colors.red}
+                  strokeDasharray="2 4"
+                  strokeOpacity={0.55}
+                  label={{ value: "LCL", fill: chartTheme.colors.red, fontSize: 10, position: "right" }}
+                  ifOverflow="extendDomain"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="passRatePct"
+                  name="Pass rate"
+                  stroke={chartTheme.colors.cyan}
+                  strokeWidth={2}
+                  dot={{ fill: chartTheme.colors.cyan, r: 3 }}
+                  activeDot={{ r: 5 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
       )}
 
       {shipped.length > 0 && (

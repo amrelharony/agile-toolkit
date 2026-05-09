@@ -30,12 +30,29 @@ import {
   CheckCircle2,
   Copy,
   ShieldAlert,
+  TrendingUp,
 } from "lucide-react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from "recharts";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { INCIDENT_ACTIONS } from "@/lib/history/event-actions";
 import { generateIncidentCommanderPrompts } from "@/lib/ai-prompts/incident-commander";
 import { toast } from "@/lib/utils/toast";
+import { chartTheme } from "@/components/charts/chart-theme";
+import {
+  kaplanMeier,
+  medianSurvivalTime,
+} from "@/lib/analytics/survival";
+import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
+import { mannKendall } from "@/lib/analytics/trend-test";
 
 type Severity = "sev1" | "sev2" | "sev3" | "sev4";
 type IncidentStatus = "active" | "mitigated" | "resolved";
@@ -283,6 +300,83 @@ export function IncidentCommanderClient() {
     return counts;
   }, [state.incidents, nowHourBucket]);
 
+  // ── Tier-2: KM survival on MTTR (minutes) + bootstrap CI on median ──
+  // We treat each resolved incident as an event observation and report MTTR
+  // in minutes (industry-typical for incident KPIs).
+  const mttrMinutesResolved = useMemo(() => {
+    return state.incidents
+      .filter((i) => i.resolvedAt)
+      .map((i) => {
+        const ms = new Date(i.resolvedAt!).getTime() - new Date(i.openedAt).getTime();
+        return Math.max(0, Math.round(ms / 60000));
+      })
+      .filter((m) => Number.isFinite(m));
+  }, [state.incidents]);
+
+  // KM curve uses durations rounded to whole minutes; pass an explicit `now`
+  // so right-censoring of in-flight incidents lines up with the MTTR memo.
+  const survivalCurve = useMemo(() => {
+    if (mttrMinutesResolved.length < 4) return [];
+    // Build observations directly on minutes — the helper only does days, so
+    // pre-compute the {duration, event} pairs ourselves.
+    const obs = state.incidents.map((i) => {
+      const start = new Date(i.openedAt).getTime();
+      const end = i.resolvedAt
+        ? new Date(i.resolvedAt).getTime()
+        : nowHourBucket * 3600000;
+      const duration = Math.max(0, Math.round((end - start) / 60000));
+      return { duration, event: Boolean(i.resolvedAt) };
+    });
+    return kaplanMeier(obs.filter((o) => Number.isFinite(o.duration)));
+  }, [state.incidents, mttrMinutesResolved.length, nowHourBucket]);
+
+  const survivalChartData = useMemo(
+    () => survivalCurve.map((p) => ({ t: p.t, survival: Math.round(p.survival * 1000) / 1000 })),
+    [survivalCurve],
+  );
+
+  const medianMttrMinutes = useMemo(
+    () => medianSurvivalTime(survivalCurve),
+    [survivalCurve],
+  );
+
+  const medianMttrCI = useMemo(() => {
+    if (mttrMinutesResolved.length < 3) return null;
+    return bootstrapQuantile(mttrMinutesResolved, 0.5);
+  }, [mttrMinutesResolved]);
+
+  // Mann-Kendall on weekly incident count (monotonic-trend chip).
+  const weeklyIncidentCount = useMemo(() => {
+    if (state.incidents.length === 0) return [];
+    // Build week buckets from the earliest incident through current week.
+    const opens = state.incidents
+      .map((i) => new Date(i.openedAt).getTime())
+      .filter((t) => Number.isFinite(t));
+    if (opens.length === 0) return [];
+    const earliest = new Date(Math.min(...opens));
+    const dayOfWeek = earliest.getUTCDay();
+    const weekStart = new Date(earliest);
+    weekStart.setUTCDate(earliest.getUTCDate() - dayOfWeek);
+    weekStart.setUTCHours(0, 0, 0, 0);
+    const today = new Date(nowHourBucket * 3600000);
+    const totalWeeks = Math.max(
+      1,
+      Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1,
+    );
+    const cappedWeeks = Math.min(totalWeeks, 26);
+    const series = new Array(cappedWeeks).fill(0) as number[];
+    for (const ts of opens) {
+      const w = Math.floor((ts - weekStart.getTime()) / (7 * 86_400_000));
+      if (w >= 0 && w < cappedWeeks) series[w] += 1;
+    }
+    return series;
+  }, [state.incidents, nowHourBucket]);
+
+  const incidentTrend = useMemo(() => {
+    if (weeklyIncidentCount.length < 5) return null;
+    return mannKendall(weeklyIncidentCount);
+  }, [weeklyIncidentCount]);
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Incident Commander",
@@ -359,9 +453,21 @@ export function IncidentCommanderClient() {
         <StatCard
           variant="compact"
           icon={Clock}
-          label="Avg MTTR (7d)"
-          value={avgMttrHours === null ? "—" : `${avgMttrHours.toFixed(1)}h`}
-          hint={avgMttrHours === null ? "No resolutions" : "resolved"}
+          label={medianMttrMinutes !== null ? "Median MTTR" : "Avg MTTR (7d)"}
+          value={
+            medianMttrMinutes !== null
+              ? `${medianMttrMinutes}m`
+              : avgMttrHours === null
+              ? "—"
+              : `${avgMttrHours.toFixed(1)}h`
+          }
+          hint={
+            medianMttrCI && medianMttrMinutes !== null
+              ? `95% CI [${Math.round(medianMttrCI.lower)}, ${Math.round(medianMttrCI.upper)}]`
+              : avgMttrHours === null
+              ? "No resolutions"
+              : "resolved"
+          }
         />
         <StatCard
           variant="compact"
@@ -381,6 +487,96 @@ export function IncidentCommanderClient() {
           hint="all severities"
         />
       </KpiGrid>
+
+      {incidentTrend && (
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {incidentTrend.significant ? (
+            <span
+              className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
+                incidentTrend.trend === "up"
+                  ? "border-danger/40 text-danger bg-danger/10"
+                  : "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+              }`}
+            >
+              <TrendingUp
+                className={`w-3 h-3 ${incidentTrend.trend === "down" ? "rotate-180" : ""}`}
+              />
+              Weekly incidents trending {incidentTrend.trend} significantly
+              <span className="opacity-60">· p={incidentTrend.pValue.toFixed(3)}</span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface">
+              <TrendingUp className="w-3 h-3" />
+              Weekly incident trend: no significant change
+            </span>
+          )}
+        </div>
+      )}
+
+      {survivalChartData.length > 1 && (
+        <SectionCard
+          title="MTTR survival curve"
+          icon={Activity}
+          titleSuffix={
+            medianMttrMinutes !== null
+              ? `Median ${medianMttrMinutes}m${
+                  medianMttrCI
+                    ? ` · 95% CI [${Math.round(medianMttrCI.lower)}, ${Math.round(medianMttrCI.upper)}]`
+                    : ""
+                }`
+              : undefined
+          }
+          className="mb-6"
+        >
+          <div className="h-40 -mx-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={survivalChartData}
+                margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="t"
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                  axisLine={{ stroke: chartTheme.gridColor }}
+                  label={{
+                    value: "minutes",
+                    fill: chartTheme.axisColor,
+                    fontSize: 10,
+                    position: "insideBottom",
+                    offset: -2,
+                  }}
+                />
+                <YAxis
+                  domain={[0, 1]}
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                  axisLine={{ stroke: chartTheme.gridColor }}
+                  tickFormatter={(v) => `${Math.round(v * 100)}%`}
+                />
+                <Tooltip
+                  contentStyle={chartTheme.tooltipStyle}
+                  formatter={(v) => [`${(Number(v) * 100).toFixed(1)}%`, "still open"]}
+                  labelFormatter={(v) => `${v}m`}
+                />
+                <Line
+                  type="stepAfter"
+                  dataKey="survival"
+                  stroke={chartTheme.colors.cyan}
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-[11px] text-sub mt-2">
+            Kaplan-Meier estimate over {mttrMinutesResolved.length} resolved
+            incident{mttrMinutesResolved.length === 1 ? "" : "s"} (active
+            incidents are right-censored). Y-axis: probability the incident is
+            still open after N minutes.
+          </p>
+        </SectionCard>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
         <SectionCard title="Declare an incident" icon={Plus} titleSize="lg">

@@ -15,12 +15,15 @@ import {
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { CalloutAlert } from "@/components/shared/callout-alert";
 import { ChartCard } from "@/components/shared/chart-card";
 import { SectionCard } from "@/components/shared/section-card";
 import { generateRefinementPrompts } from "@/lib/ai-prompts/refinement";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { REFINEMENT_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { pChartLimits, westernElectricRules } from "@/lib/analytics/control-chart";
+import { mannKendall } from "@/lib/analytics/trend-test";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -449,6 +452,51 @@ export function RefinementClient() {
       }));
   }, [history]);
 
+  // p-chart limits on per-story DoR pass rate. Each save is a "trial" with
+  // `metCount` successes out of `totalCriteria` criteria. Limits expressed
+  // as percentages so they overlay the existing 0-100 chart axis.
+  // Returns null when the chart window is too small (< 4 points) to keep
+  // limits stable.
+  const passRateControl = useMemo(() => {
+    if (chartData.length < 4) return null;
+    const window = [...history].reverse().slice(-20);
+    const successes = window.map((h) => h.metCount);
+    const trials = window.map((h) => h.totalCriteria);
+    const limits = pChartLimits(successes, trials);
+    return {
+      centerLinePct: limits.centerLine * 100,
+      uclPct: limits.ucl * 100,
+      lclPct: limits.lcl * 100,
+      // Series scaled to 0-1 for Western Electric — limits are in fractions.
+      ratioSeries: window.map((h) =>
+        h.totalCriteria > 0 ? h.metCount / h.totalCriteria : 0
+      ),
+      rawLimits: limits,
+      lastStoryName: window[window.length - 1]?.storyName,
+    };
+  }, [chartData.length, history]);
+
+  // Western Electric Rule 2 detection ("9 consecutive points on same side of
+  // center line"). Surfaces a CalloutAlert when the most recent point trips
+  // the rule so a sustained drift is hard to miss.
+  const rule2Signal = useMemo(() => {
+    if (!passRateControl) return null;
+    const signals = westernElectricRules(
+      passRateControl.ratioSeries,
+      passRateControl.rawLimits
+    );
+    const lastIndex = passRateControl.ratioSeries.length - 1;
+    return signals.find(
+      (s) => s.rule === "rule-2" && s.index === lastIndex
+    ) ?? null;
+  }, [passRateControl]);
+
+  // Mann-Kendall trend test on the rolling pass-rate series.
+  const passRateTrend = useMemo(() => {
+    if (chartData.length < 5) return null;
+    return mannKendall(chartData.map((c) => c.passRate));
+  }, [chartData]);
+
   // CSV export
   const csvData = useMemo(
     () => ({
@@ -662,6 +710,17 @@ export function RefinementClient() {
 
           {/* Right — history + chart */}
           <div className="space-y-4">
+            {/* Western Electric Rule 2 alert: 9 consecutive saves on same side
+                of the p-chart center line — sustained drift in DoR adherence. */}
+            {rule2Signal && passRateControl && (
+              <CalloutAlert tone="warning">
+                <strong className="font-semibold">DoR adherence drift:</strong>{" "}
+                The last 9 saved stories sit on one side of the long-run
+                pass-rate baseline ({passRateControl.centerLinePct.toFixed(0)}%).
+                Investigate before it shifts the team baseline.
+              </CalloutAlert>
+            )}
+
             {/* Pass rate chart */}
             {chartData.length > 1 && (
               <ChartCard
@@ -710,6 +769,51 @@ export function RefinementClient() {
                       position: "right",
                     }}
                   />
+                  {/* p-chart limits — UCL / X̄ / LCL — stable when the rolling
+                      window has at least 4 saved stories. */}
+                  {passRateControl && (
+                    <>
+                      <ReferenceLine
+                        y={passRateControl.centerLinePct}
+                        stroke="#00f0ff"
+                        strokeDasharray="2 4"
+                        strokeOpacity={0.55}
+                        label={{
+                          value: "X̄",
+                          fill: "#00f0ff",
+                          fontSize: 10,
+                          position: "right",
+                        }}
+                        ifOverflow="extendDomain"
+                      />
+                      <ReferenceLine
+                        y={passRateControl.uclPct}
+                        stroke="#00ff88"
+                        strokeDasharray="2 4"
+                        strokeOpacity={0.55}
+                        label={{
+                          value: "UCL",
+                          fill: "#00ff88",
+                          fontSize: 10,
+                          position: "right",
+                        }}
+                        ifOverflow="extendDomain"
+                      />
+                      <ReferenceLine
+                        y={passRateControl.lclPct}
+                        stroke="#ef4444"
+                        strokeDasharray="2 4"
+                        strokeOpacity={0.55}
+                        label={{
+                          value: "LCL",
+                          fill: "#ef4444",
+                          fontSize: 10,
+                          position: "right",
+                        }}
+                        ifOverflow="extendDomain"
+                      />
+                    </>
+                  )}
                   <Line
                     type="monotone"
                     dataKey="passRate"
@@ -721,6 +825,27 @@ export function RefinementClient() {
                   />
                 </LineChart>
               </ChartCard>
+            )}
+
+            {/* Mann-Kendall trend chip on the rolling pass-rate series. */}
+            {passRateTrend?.significant && (
+              <div className="flex items-center justify-end -mt-2">
+                <span
+                  className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+                    passRateTrend.trend === "up"
+                      ? "bg-accent/15 text-accent border-accent/40"
+                      : "bg-destructive/15 text-destructive border-destructive/40"
+                  }`}
+                  title={`Mann-Kendall p=${passRateTrend.pValue.toFixed(3)}`}
+                >
+                  <span>
+                    {passRateTrend.trend === "up" ? "↗" : "↘"} pass-rate trend
+                  </span>
+                  <span className="opacity-60">
+                    p={passRateTrend.pValue.toFixed(2)}
+                  </span>
+                </span>
+              </div>
             )}
 
             {/* History table */}

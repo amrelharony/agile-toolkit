@@ -24,6 +24,8 @@ import {
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ASYNC_STANDUP_ACTIONS } from "@/lib/history/event-actions";
+import { selectEvents } from "@/lib/history/selectors";
+import { Badge } from "@/components/ui/badge";
 import { generateAsyncStandupPrompts } from "@/lib/ai-prompts/async-standup";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { copyToClipboard } from "@/lib/utils/export";
@@ -229,6 +231,21 @@ export function AsyncStandupClient() {
     [updates]
   );
 
+  // ── Cross-tool signal: blockers raised in the impediments tool ────────
+  // Renders inline with the digest header so async readers see the
+  // blocker pulse without opening another tab.
+  const recentImpedimentCount = useMemo(
+    () =>
+      selectEvents({
+        toolId: "impediments",
+        action: "impediment_raised",
+        sinceDays: 7,
+        limit: 100,
+      }).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [updates.length]
+  );
+
   const csvData = useMemo(
     () => ({
       headers: ["Date", "Member", "Yesterday", "Today", "Blockers", "Description"],
@@ -411,8 +428,19 @@ export function AsyncStandupClient() {
         </EmptyState>
       ) : (
         <div className="space-y-3">
-          <div className="text-xs uppercase tracking-wider text-sub">
-            Today's digest
+          <div className="flex items-center gap-3">
+            <div className="text-xs uppercase tracking-wider text-sub">
+              Today&apos;s digest
+            </div>
+            {recentImpedimentCount > 0 && (
+              <Badge
+                className="bg-[#ef4444]/15 text-[#ef4444] border-[#ef4444]/30 gap-1.5 text-[10px]"
+                title="Blockers raised in the Impediments tool in the last 7 days. Surface them in your digest."
+              >
+                <AlertTriangle className="w-3 h-3" />
+                {recentImpedimentCount} blocker{recentImpedimentCount === 1 ? "" : "s"} raised (7d)
+              </Badge>
+            )}
           </div>
           {Array.from(groupedByMemberToday.entries()).map(([m, list]) => (
             <div

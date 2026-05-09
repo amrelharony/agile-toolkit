@@ -34,6 +34,11 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2, Bug, AlertTriangle, Clock, ShieldOff } from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
+import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import { SmartInput } from "@/components/shared/smart-input";
+import { cusum } from "@/lib/analytics/changepoint";
+import { mannKendall } from "@/lib/analytics/trend-test";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { generateVulnPrompts } from "@/lib/ai-prompts/vuln-burndown";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -288,9 +293,41 @@ export function VulnBurndownClient() {
         const resolved = v.resolvedAt ? v.resolvedAt <= d : false;
         if (opened && !resolved) counts[v.severity]++;
       }
-      return { date: d, ...counts };
+      const total = counts.critical + counts.high + counts.medium + counts.low;
+      return { date: d, ...counts, total };
     });
   }, [state.vulns]);
+
+  /* ── Phase-15 analytics ───────────────────────────────────────────────── */
+  // Total open over time, used as the underlying series for CUSUM and the
+  // Mann-Kendall trend chip. We operate on the existing chartData ticks so
+  // the markers align 1:1 with the area chart's x-axis.
+  const openSeries = useMemo(() => chartData.map((d) => d.total), [chartData]);
+
+  const openChangepoints = useMemo<CausalAnnotationData[]>(() => {
+    if (openSeries.length < 4) return [];
+    return cusum(openSeries).map((cp) => ({
+      x: chartData[cp.index]?.date ?? String(cp.index),
+      label: `Open vulns ${cp.direction === "up" ? "↑ regime" : "↓ regime"}`,
+      detail: `CUSUM detected a sustained ${cp.direction === "up" ? "increase" : "decrease"} in open vulnerabilities at ${chartData[cp.index]?.date}.`,
+      confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
+    }));
+  }, [openSeries, chartData]);
+
+  const openTrend = useMemo(
+    () => (openSeries.length >= 5 ? mannKendall(openSeries) : null),
+    [openSeries]
+  );
+
+  // Smart-default predictor for the SLA-days-for-critical input. The
+  // predictor (when registered) suggests a target based on workspace history;
+  // the fallback mirrors the static default for critical so chip appears with
+  // confidence "none" silently when no predictor is registered.
+  const slaCriticalPrediction = usePredictedDefault<number>(
+    "vuln-burndown",
+    "slaDaysCritical",
+    SEVERITY_DEFAULT_SLA.critical
+  );
 
   const promptConfig = useMemo(
     () => ({
@@ -420,27 +457,68 @@ export function VulnBurndownClient() {
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-sub">SLA target (days)</Label>
-            <Input
-              type="text"
-              inputMode="numeric"
-              value={slaDraft}
-              onChange={(e) => {
-                slaUserModifiedRef.current = true;
-                setSlaDraft(e.target.value);
-              }}
-              onBlur={() => {
-                const n = Number(slaDraft);
-                if (!Number.isFinite(n) || n < 1) {
-                  // Reset to severity default and treat as unmodified again.
-                  slaUserModifiedRef.current = false;
-                  setSlaDraft(String(SEVERITY_DEFAULT_SLA[severity]));
-                } else {
-                  setSlaDraft(String(Math.round(n)));
-                }
-              }}
-              placeholder="e.g. 30"
-              className="bg-bg border-border font-data"
-            />
+            {severity === "critical" ? (
+              <SmartInput<number>
+                predicted={slaCriticalPrediction}
+                onAccept={(v) => {
+                  slaUserModifiedRef.current = true;
+                  setSlaDraft(String(v));
+                }}
+                render={({ ghost, chip, accept }) => (
+                  <>
+                    <Input
+                      type="text"
+                      inputMode="numeric"
+                      value={slaDraft}
+                      placeholder={ghost ?? "e.g. 7"}
+                      onKeyDown={(e) => {
+                        if (e.key === "Tab" && slaDraft === "") {
+                          e.preventDefault();
+                          accept();
+                        }
+                      }}
+                      onChange={(e) => {
+                        slaUserModifiedRef.current = true;
+                        setSlaDraft(e.target.value);
+                      }}
+                      onBlur={() => {
+                        const n = Number(slaDraft);
+                        if (!Number.isFinite(n) || n < 1) {
+                          slaUserModifiedRef.current = false;
+                          setSlaDraft(String(SEVERITY_DEFAULT_SLA[severity]));
+                        } else {
+                          setSlaDraft(String(Math.round(n)));
+                        }
+                      }}
+                      className="bg-bg border-border font-data"
+                    />
+                    {chip}
+                  </>
+                )}
+              />
+            ) : (
+              <Input
+                type="text"
+                inputMode="numeric"
+                value={slaDraft}
+                onChange={(e) => {
+                  slaUserModifiedRef.current = true;
+                  setSlaDraft(e.target.value);
+                }}
+                onBlur={() => {
+                  const n = Number(slaDraft);
+                  if (!Number.isFinite(n) || n < 1) {
+                    // Reset to severity default and treat as unmodified again.
+                    slaUserModifiedRef.current = false;
+                    setSlaDraft(String(SEVERITY_DEFAULT_SLA[severity]));
+                  } else {
+                    setSlaDraft(String(Math.round(n)));
+                  }
+                }}
+                placeholder="e.g. 30"
+                className="bg-bg border-border font-data"
+              />
+            )}
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-sub">Owner (optional)</Label>
@@ -480,6 +558,22 @@ export function VulnBurndownClient() {
           height={300}
           chartContainerRef={chartRef}
           className="mb-6"
+          headerExtras={
+            openTrend?.significant ? (
+              <span
+                className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                  // For open vulns, "down" is good (closing them out), "up" is bad.
+                  openTrend.trend === "down"
+                    ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
+                    : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                }`}
+                aria-label={`Open-vuln trend ${openTrend.trend} (Mann-Kendall p=${openTrend.pValue.toFixed(3)})`}
+                title={`Mann-Kendall p=${openTrend.pValue.toFixed(3)}`}
+              >
+                {openTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+              </span>
+            ) : undefined
+          }
         >
           <AreaChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
@@ -533,6 +627,9 @@ export function VulnBurndownClient() {
               fillOpacity={0.45}
               name="Low"
             />
+            {openChangepoints.map((cp, i) => (
+              <CausalLine key={`cusum-${i}`} annotation={cp} />
+            ))}
           </AreaChart>
         </ChartCard>
       )}

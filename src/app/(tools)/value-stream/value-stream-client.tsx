@@ -15,6 +15,7 @@ import { generateValueStreamPrompts } from "@/lib/ai-prompts/value-stream";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { VALUE_STREAM_ACTIONS } from "@/lib/history/event-actions";
+import { selectEvents } from "@/lib/history/selectors";
 import { ActionRow } from "@/components/shared/action-row";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
@@ -150,6 +151,23 @@ export function ValueStreamClient() {
     [stages, totals]
   );
 
+  // ── Cross-tool signal: recent kanban card moves (proxy for story status
+  // changes). Surfaces a small chip when stories have moved through stages
+  // recently — reminds the user that lead-time/flow-efficiency may be stale
+  // if the value-stream model wasn't updated since.
+  const recentStoryMoves = useMemo(
+    () =>
+      selectEvents({
+        toolId: "kanban",
+        action: "card_moved",
+        sinceDays: 7,
+        limit: 50,
+      }),
+    // history-store mutations cause parent re-render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   return (
     <ToolPageWrapper
       toolId="value-stream"
@@ -178,6 +196,14 @@ export function ValueStreamClient() {
           Add Stage
         </Button>
       </ActionRow>
+
+      {recentStoryMoves.length > 0 && (
+        <div className="mb-3">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/5 text-accent px-2.5 py-1 text-[11px]">
+            {recentStoryMoves.length} stor{recentStoryMoves.length === 1 ? "y" : "ies"} changed status in last 7 days
+          </span>
+        </div>
+      )}
 
       <KpiGrid cols={4} gap="lg">
         <StatCard

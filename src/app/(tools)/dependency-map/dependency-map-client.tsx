@@ -21,6 +21,7 @@ import { generateDependencyMapPrompts } from "@/lib/ai-prompts/dependency-map";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DEPENDENCY_MAP_ACTIONS } from "@/lib/history/event-actions";
+import { selectEvents } from "@/lib/history/selectors";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { CalloutAlert } from "@/components/shared/callout-alert";
@@ -202,6 +203,23 @@ export function DependencyMapClient() {
     [state.nodes, validEdges, cycles, criticalPath]
   );
 
+  // ── Cross-tool signal: recent blockers in impediments tool ──────────────
+  // Surface a callout when several blockers were raised in the last 14 days —
+  // dependencies often co-occur with blockers, so the user should review
+  // whether new impediments map to known dependency edges.
+  const recentBlockers = useMemo(
+    () =>
+      selectEvents({
+        toolId: "impediments",
+        action: "impediment_raised",
+        sinceDays: 14,
+        limit: 50,
+      }),
+    // history-store mutations cause parent re-render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   return (
     <ToolPageWrapper
       toolId="dependency-map"
@@ -246,6 +264,12 @@ export function DependencyMapClient() {
           tone={cycles.length > 0 ? "danger" : "default"}
         />
       </KpiGrid>
+
+      {recentBlockers.length >= 3 && (
+        <CalloutAlert tone="info" className="mb-3">
+          {recentBlockers.length} blockers raised in last 14 days &mdash; review whether they map to known dependencies.
+        </CalloutAlert>
+      )}
 
       {cycles.length > 0 && (
         <CalloutAlert tone="danger" className="mb-4">

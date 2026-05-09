@@ -243,6 +243,10 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 1,
     usesWorkspace: true,
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["sprint.completed"], reason: "review goal performance after sprint completion" },
+    ],
   },
   {
     id: "release-planner",
@@ -379,6 +383,10 @@ export const tools: ToolDefinition[] = [
     phase: 2,
     usesWorkspace: true,
     analyticsFeatures: ["anomaly"],
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["sprint.completed"], reason: "auto-pin most-recent completed sprint" },
+    ],
   },
   {
     id: "health-dashboard",
@@ -447,6 +455,10 @@ export const tools: ToolDefinition[] = [
     phase: 3,
     usesWorkspace: true,
     analyticsFeatures: ["survival"],
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["impediment.raised", "impediment.resolved"], reason: "blocker activity during standup window" },
+    ],
   },
   {
     id: "sprint-review",
@@ -460,6 +472,10 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 4,
     usesWorkspace: true,
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["sprint.completed"], reason: "review demo from completed sprints" },
+    ],
   },
   {
     id: "ceremony-timer",
@@ -486,6 +502,10 @@ export const tools: ToolDefinition[] = [
     phase: 4,
     usesWorkspace: true,
     analyticsFeatures: ["anti-pattern"],
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["sprint.completed"], reason: "DoR pass-rate refreshes after sprint" },
+    ],
   },
   {
     id: "icebreaker",
@@ -596,6 +616,10 @@ export const tools: ToolDefinition[] = [
     phase: 6,
     usesWorkspace: true,
     analyticsFeatures: ["monte-carlo"],
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["sprint.completed"], reason: "PI commitments roll forward as sprints complete" },
+    ],
   },
   {
     id: "epic-roadmap",
@@ -610,6 +634,10 @@ export const tools: ToolDefinition[] = [
     phase: 6,
     usesWorkspace: true,
     analyticsFeatures: ["forecast"],
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["sprint.completed", "okr.kr.updated"], reason: "epic progress depends on sprint outcomes + OKR shifts" },
+    ],
   },
   {
     id: "scrum-of-scrums",
@@ -640,6 +668,10 @@ export const tools: ToolDefinition[] = [
     phase: 7,
     usesWorkspace: true,
     analyticsFeatures: ["survival"],
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["sprint.completed"], reason: "hypothesis validation cadence tied to sprints" },
+    ],
   },
   {
     id: "user-interviews",
@@ -719,6 +751,13 @@ export const tools: ToolDefinition[] = [
     phase: 8,
     usesWorkspace: true,
     analyticsFeatures: ["survival", "anti-pattern"],
+    analyticsTier: 2,
+    predictedDefaults: [
+      { field: "interestRate", description: "Mean across prior tech-debt items" },
+    ],
+    crossToolSubscriptions: [
+      { kinds: ["sprint.completed"], reason: "debt accumulation tracked per sprint" },
+    ],
   },
   {
     id: "decision-log",
@@ -745,6 +784,10 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 11,
     usesWorkspace: true,
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["sprint.completed"], reason: "DoD adherence tied to sprint outcomes" },
+    ],
   },
 
   // Category H: Flow & Delivery (NEW — Phase 9)
@@ -782,6 +825,10 @@ export const tools: ToolDefinition[] = [
     phase: 9,
     usesWorkspace: true,
     analyticsFeatures: ["anti-pattern"],
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["impediment.raised", "story.statusChanged"], reason: "dependencies surface when blockers + story flow change" },
+    ],
   },
   {
     id: "value-stream",
@@ -796,6 +843,10 @@ export const tools: ToolDefinition[] = [
     phase: 9,
     usesWorkspace: true,
     analyticsFeatures: ["anomaly"],
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["story.statusChanged"], reason: "lead-time and flow-efficiency reflect story flow" },
+    ],
   },
 
   // Category I: Outcomes & Pulse (NEW — Phase 10)
@@ -828,6 +879,10 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 10,
     analyticsFeatures: ["anomaly"],
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["techDebt.added", "incident.opened"], reason: "NPS/CSAT swings link to product friction" },
+    ],
   },
   {
     id: "mood-tracker",
@@ -842,6 +897,10 @@ export const tools: ToolDefinition[] = [
     phase: 10,
     usesWorkspace: true,
     analyticsFeatures: ["anti-pattern"],
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["impediment.raised", "sprint.completed"], reason: "mood tracks blockers + sprint outcomes" },
+    ],
   },
 
   // Category J: Engineering Excellence (NEW — Phase 12)
@@ -941,6 +1000,10 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["survival"],
     audience: "engineering-leader",
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["deploy.recorded"], reason: "incidents correlate with deploys" },
+    ],
   },
   {
     id: "post-mortem",
@@ -956,6 +1019,10 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["anti-pattern"],
     audience: "both",
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["incident.resolved"], reason: "post-mortems triggered by resolved incidents" },
+    ],
   },
   {
     id: "oncall-roster",
@@ -971,6 +1038,13 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["anti-pattern"],
     audience: "engineering-leader",
+    analyticsTier: 2,
+    predictedDefaults: [
+      { field: "expectedPagesPerWeek", description: "Default oncall load" },
+    ],
+    crossToolSubscriptions: [
+      { kinds: ["incident.opened"], reason: "paging volume tied to incident frequency" },
+    ],
   },
   {
     id: "release-readiness",
@@ -986,6 +1060,10 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["anti-pattern"],
     audience: "both",
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["incident.opened"], reason: "release readiness vs incidents recently shipped" },
+    ],
   },
   {
     id: "runbook-scorer",
@@ -1001,6 +1079,10 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["anti-pattern"],
     audience: "engineering-leader",
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["incident.opened"], reason: "runbook freshness matters when incidents fire" },
+    ],
   },
 
   // Category L: Security & Compliance (NEW — Phase 13)
@@ -1033,6 +1115,13 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["survival", "anomaly"],
     audience: "engineering-leader",
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["incident.opened"], reason: "vulns escalate when incidents fire" },
+    ],
+    predictedDefaults: [
+      { field: "slaDaysCritical", description: "Standard SLA: 7 days for critical" },
+    ],
   },
   {
     id: "control-map",
@@ -1062,6 +1151,10 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["survival"],
     audience: "both",
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["sprint.completed"], reason: "a11y debt tracked alongside delivery" },
+    ],
   },
 
   // Category M: Quality Engineering (NEW — Phase 13)
@@ -1094,6 +1187,10 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["survival", "anti-pattern"],
     audience: "engineering-leader",
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["sprint.completed"], reason: "flaky tests tracked per release/sprint" },
+    ],
   },
   {
     id: "code-review-metrics",
@@ -1109,6 +1206,10 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["anomaly", "anti-pattern"],
     audience: "engineering-leader",
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["story.statusChanged"], reason: "PR cycle time tracks story flow" },
+    ],
   },
   {
     id: "quality-cost",
@@ -1224,6 +1325,10 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["survival"],
     audience: "both",
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["impediment.raised"], reason: "blocker visibility in async digest" },
+    ],
   },
   {
     id: "one-on-one",
@@ -1339,6 +1444,10 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["survival", "anti-pattern"],
     audience: "engineering-leader",
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      { kinds: ["deploy.recorded"], reason: "flag retirements often follow deploys" },
+    ],
   },
 ];
 

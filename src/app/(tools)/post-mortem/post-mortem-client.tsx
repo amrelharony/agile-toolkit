@@ -28,12 +28,28 @@ import {
   ListChecks,
   AlertTriangle,
   BookOpenCheck,
+  Activity,
   X,
 } from "lucide-react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from "recharts";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { POST_MORTEM_ACTIONS } from "@/lib/history/event-actions";
 import { generatePostMortemPrompts } from "@/lib/ai-prompts/post-mortem";
+import { chartTheme } from "@/components/charts/chart-theme";
+import {
+  durationsFromTimeRanges,
+  kaplanMeier,
+  medianSurvivalTime,
+} from "@/lib/analytics/survival";
 
 type PMStatus = "draft" | "review" | "published";
 type ActionStatus = "open" | "in_progress" | "done";
@@ -63,6 +79,11 @@ interface PostMortem {
   timeline: TimelineEntry[];
   actions: ActionItem[];
   description?: string;
+  /** ISO timestamp when the post-mortem was created (raised). Optional for
+   *  backward compatibility with persisted records that pre-date this field. */
+  createdAt?: string;
+  /** ISO timestamp when status first transitioned to "published". */
+  publishedAt?: string;
 }
 
 interface PMState {
@@ -140,6 +161,7 @@ export function PostMortemClient() {
       timeline: [],
       actions: [],
       description: draft.description.trim() || undefined,
+      createdAt: new Date().toISOString(),
     };
     setState((s) => ({ postmortems: [pm, ...s.postmortems] }));
     log(POST_MORTEM_ACTIONS.POSTMORTEM_ADDED, {
@@ -174,9 +196,17 @@ export function PostMortemClient() {
 
   const setStatus = (id: string, status: PMStatus) => {
     setState((s) => ({
-      postmortems: s.postmortems.map((p) =>
-        p.id === id ? { ...p, status } : p
-      ),
+      postmortems: s.postmortems.map((p) => {
+        if (p.id !== id) return p;
+        const patch: Partial<PostMortem> = { status };
+        // Stamp `publishedAt` only on the first transition into published —
+        // re-entering published from review→published→review→published would
+        // otherwise reset the time-to-publish duration.
+        if (status === "published" && !p.publishedAt) {
+          patch.publishedAt = new Date().toISOString();
+        }
+        return { ...p, ...patch };
+      }),
     }));
     if (status === "published") {
       log(POST_MORTEM_ACTIONS.POSTMORTEM_PUBLISHED, { postmortemId: id });
@@ -341,6 +371,46 @@ export function PostMortemClient() {
     [state.postmortems]
   );
 
+  // ── Tier-2: KM survival on time-to-publish (raised → published) ──
+  // Pre-existing post-mortems lack `createdAt`; we fall back to
+  // `incidentDate` so they still contribute to the curve. Pre-existing
+  // published post-mortems also lack `publishedAt`; we drop those from the
+  // event set rather than guess (would bias the median downward).
+  const publishedDurations = useMemo(() => {
+    return state.postmortems
+      .filter((p) => p.status === "published" && p.publishedAt)
+      .map((p) => {
+        const startStr = p.createdAt ?? p.incidentDate;
+        const start = new Date(startStr).getTime();
+        const end = new Date(p.publishedAt!).getTime();
+        return Math.max(0, Math.round((end - start) / 86_400_000));
+      })
+      .filter((d) => Number.isFinite(d));
+  }, [state.postmortems]);
+
+  const survivalCurve = useMemo(() => {
+    if (publishedDurations.length < 4) return [];
+    const obs = durationsFromTimeRanges(
+      state.postmortems
+        .filter((p) => p.createdAt || p.incidentDate)
+        .map((p) => ({
+          raisedAt: p.createdAt ?? p.incidentDate,
+          resolvedAt: p.status === "published" ? p.publishedAt : undefined,
+        })),
+    );
+    return kaplanMeier(obs);
+  }, [state.postmortems, publishedDurations.length]);
+
+  const medianTimeToPublish = useMemo(
+    () => medianSurvivalTime(survivalCurve),
+    [survivalCurve],
+  );
+
+  const survivalChartData = useMemo(
+    () => survivalCurve.map((p) => ({ t: p.t, survival: Math.round(p.survival * 1000) / 1000 })),
+    [survivalCurve],
+  );
+
   // CSV — flatten all action items across post-mortems.
   const csvRows: (string | number)[][] = useMemo(() => {
     const rows: (string | number)[][] = [];
@@ -459,6 +529,65 @@ export function PostMortemClient() {
           tone={overdueActions > 0 ? "danger" : "default"}
         />
       </KpiGrid>
+
+      {survivalChartData.length > 1 && (
+        <SectionCard
+          title="Time-to-publish survival curve"
+          icon={Activity}
+          titleSuffix={
+            medianTimeToPublish !== null ? `Median ${medianTimeToPublish}d` : undefined
+          }
+          className="mb-6"
+        >
+          <div className="h-40 -mx-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={survivalChartData}
+                margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="t"
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                  axisLine={{ stroke: chartTheme.gridColor }}
+                  label={{
+                    value: "days",
+                    fill: chartTheme.axisColor,
+                    fontSize: 10,
+                    position: "insideBottom",
+                    offset: -2,
+                  }}
+                />
+                <YAxis
+                  domain={[0, 1]}
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                  axisLine={{ stroke: chartTheme.gridColor }}
+                  tickFormatter={(v) => `${Math.round(v * 100)}%`}
+                />
+                <Tooltip
+                  contentStyle={chartTheme.tooltipStyle}
+                  formatter={(v) => [`${(Number(v) * 100).toFixed(1)}%`, "still unpublished"]}
+                  labelFormatter={(v) => `${v}d`}
+                />
+                <Line
+                  type="stepAfter"
+                  dataKey="survival"
+                  stroke={chartTheme.colors.cyan}
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-[11px] text-sub mt-2">
+            Kaplan-Meier estimate over {publishedDurations.length} published
+            post-mortem{publishedDurations.length === 1 ? "" : "s"} (drafts and
+            in-review are right-censored). Y-axis: probability the post-mortem
+            is still unpublished after N days.
+          </p>
+        </SectionCard>
+      )}
 
       <SectionCard
         title="Create a post-mortem"

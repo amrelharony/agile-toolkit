@@ -9,6 +9,8 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateSprintReviewPrompts } from "@/lib/ai-prompts/sprint-review";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPRINT_REVIEW_ACTIONS } from "@/lib/history/event-actions";
+import { selectEvents } from "@/lib/history/selectors";
+import { CalloutAlert } from "@/components/shared/callout-alert";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
@@ -1101,6 +1103,32 @@ export function SprintReviewClient() {
     }),
   }), [sprintName, sprintNumber, features, feedbackItems, checklistItems, committed, completed]);
 
+  // ── Cross-tool signal: review activity in the last 30 days ────────────
+  // Counts past demo additions + feedback captures so the user gets a
+  // sense of cadence without leaving the page.
+  const recentDemoCount = useMemo(
+    () =>
+      selectEvents({
+        toolId: "sprint-review",
+        action: "item_added",
+        sinceDays: 30,
+        limit: 200,
+      }).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [features.length]
+  );
+  const recentFeedbackCount = useMemo(
+    () =>
+      selectEvents({
+        toolId: "sprint-review",
+        action: "feedback_added",
+        sinceDays: 30,
+        limit: 200,
+      }).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [feedbackItems.length]
+  );
+
   return (
     <ToolPageWrapper
       toolId="sprint-review"
@@ -1109,6 +1137,18 @@ export function SprintReviewClient() {
       category="Ceremonies"
     >
       <div className="space-y-6">
+        {(recentDemoCount > 0 || recentFeedbackCount > 0) && (
+          <CalloutAlert tone="info" className="mb-0">
+            Last 30 days: <strong>{recentDemoCount}</strong> demo item{recentDemoCount === 1 ? "" : "s"} added
+            {recentFeedbackCount > 0 && (
+              <>
+                {" · "}
+                <strong>{recentFeedbackCount}</strong> feedback item{recentFeedbackCount === 1 ? "" : "s"} captured
+              </>
+            )}
+            .
+          </CalloutAlert>
+        )}
         {/* Header actions */}
         <div className="flex items-center justify-between">
           <div className="text-sm text-sub">

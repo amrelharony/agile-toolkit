@@ -10,6 +10,9 @@ import {
   Tooltip,
   BarChart,
   Bar,
+  LineChart,
+  Line,
+  ReferenceLine,
 } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -28,6 +31,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, GitPullRequest, Clock, MessageSquare, Layers } from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
+import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
+import { xmrLimits } from "@/lib/analytics/control-chart";
+import { mannKendall } from "@/lib/analytics/trend-test";
 import { generateCodeReviewPrompts } from "@/lib/ai-prompts/code-review-metrics";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -394,6 +400,72 @@ export function CodeReviewMetricsClient() {
       .slice(0, 10);
   }, [state.samples]);
 
+  /* ── Phase-15 analytics ───────────────────────────────────────────────── */
+  // Underlying cycle-hours array — drives bootstrap CI brackets and the
+  // weekly XmR series.
+  const cycleHoursArray = useMemo(
+    () => merged.map((s) => s.cycleHours as number),
+    [merged]
+  );
+
+  // Bootstrap percentile CIs for median + P85. The primitive collapses to a
+  // point CI when n<3 — we guard above that to keep the UI honest.
+  const cycleP50CI = useMemo(
+    () => (cycleHoursArray.length >= 3 ? bootstrapQuantile(cycleHoursArray, 0.5) : null),
+    [cycleHoursArray]
+  );
+  const cycleP85CI = useMemo(
+    () => (cycleHoursArray.length >= 3 ? bootstrapQuantile(cycleHoursArray, 0.85) : null),
+    [cycleHoursArray]
+  );
+
+  // Per-week mean cycle hours, bucketed by ISO week of mergedAt.
+  const weeklyCycle = useMemo(() => {
+    const buckets = new Map<string, number[]>();
+    for (const s of merged) {
+      if (!s.mergedAt || s.cycleHours === null) continue;
+      const d = new Date(s.mergedAt);
+      if (Number.isNaN(d.getTime())) continue;
+      // ISO-week key (matches the cycle-time tool's pattern).
+      const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+      date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+      const week = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+      const key = `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+      const arr = buckets.get(key) ?? [];
+      arr.push(s.cycleHours);
+      buckets.set(key, arr);
+    }
+    return Array.from(buckets.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([weekKey, vals]) => ({
+        weekKey,
+        meanHours: vals.reduce((a, b) => a + b, 0) / vals.length,
+      }));
+  }, [merged]);
+
+  const weeklyMeanSeries = useMemo(
+    () => weeklyCycle.map((w) => w.meanHours),
+    [weeklyCycle]
+  );
+
+  // XmR control limits on the weekly cycle-time mean.
+  const cycleControl = useMemo(
+    () => (weeklyMeanSeries.length >= 4 ? xmrLimits(weeklyMeanSeries) : null),
+    [weeklyMeanSeries]
+  );
+
+  // Mann-Kendall trend on the weekly cycle-time mean.
+  const cycleTrend = useMemo(
+    () => (weeklyMeanSeries.length >= 5 ? mannKendall(weeklyMeanSeries) : null),
+    [weeklyMeanSeries]
+  );
+
+  const weeklyChartData = useMemo(
+    () => weeklyCycle.map((w) => ({ week: w.weekKey, meanHours: Number(w.meanHours.toFixed(2)) })),
+    [weeklyCycle]
+  );
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Code Review Metrics",
@@ -460,9 +532,25 @@ export function CodeReviewMetricsClient() {
         <StatCard
           variant="compact"
           icon={Clock}
-          label="Avg cycle time"
-          value={avgCycleHours !== null ? `${avgCycleHours.toFixed(1)}h` : "—"}
+          label="Cycle median"
+          value={cycleP50CI ? `${cycleP50CI.point.toFixed(1)}h` : avgCycleHours !== null ? `${avgCycleHours.toFixed(1)}h` : "—"}
+          hint={
+            cycleP50CI
+              ? `± [${cycleP50CI.lower.toFixed(1)}, ${cycleP50CI.upper.toFixed(1)}] 95% CI`
+              : "median cycle hours"
+          }
           valueClassName="text-accent"
+        />
+        <StatCard
+          variant="compact"
+          icon={Clock}
+          label="Cycle P85"
+          value={cycleP85CI ? `${cycleP85CI.point.toFixed(1)}h` : "—"}
+          hint={
+            cycleP85CI
+              ? `± [${cycleP85CI.lower.toFixed(1)}, ${cycleP85CI.upper.toFixed(1)}] 95% CI`
+              : "85th percentile cycle hours"
+          }
         />
         <StatCard
           variant="compact"
@@ -478,14 +566,10 @@ export function CodeReviewMetricsClient() {
           value={Math.round(avgPrSize)}
           hint="lines changed"
         />
-        <StatCard
-          variant="compact"
-          icon={GitPullRequest}
-          label="Unmerged"
-          value={unmerged}
-          tone={unmerged > 0 ? "warning" : "default"}
-        />
       </KpiGrid>
+      <div className="text-[11px] text-sub mb-4 -mt-2 font-mono">
+        {unmerged > 0 ? `${unmerged} PR(s) still open` : ""}
+      </div>
 
       <SectionCard
         title="Log PR sample"
@@ -603,6 +687,77 @@ export function CodeReviewMetricsClient() {
           </Button>
         </div>
       </SectionCard>
+
+      {weeklyChartData.length > 0 && (
+        <ChartCard
+          title="Weekly cycle-time mean (XmR)"
+          icon={Clock}
+          height={260}
+          className="mb-6"
+          headerExtras={
+            cycleTrend?.significant ? (
+              <span
+                className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                  // For cycle time, "down" trend is good (faster), "up" is bad.
+                  cycleTrend.trend === "down"
+                    ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
+                    : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                }`}
+                aria-label={`Weekly cycle-time trend ${cycleTrend.trend} (Mann-Kendall p=${cycleTrend.pValue.toFixed(3)})`}
+                title={`Mann-Kendall p=${cycleTrend.pValue.toFixed(3)}`}
+              >
+                {cycleTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+              </span>
+            ) : undefined
+          }
+        >
+          <LineChart data={weeklyChartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
+            <XAxis
+              dataKey="week"
+              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+              axisLine={{ stroke: chartTheme.gridColor }}
+              tickLine={false}
+            />
+            <YAxis
+              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              label={{ value: "Hours", angle: -90, position: "insideLeft", fill: chartTheme.axisColor, fontSize: 11 }}
+            />
+            <Tooltip contentStyle={chartTheme.tooltipStyle} />
+            <Line type="monotone" dataKey="meanHours" stroke={chartTheme.colors.cyan} strokeWidth={2} dot={{ r: 3 }} name="Mean cycle (h)" />
+            {cycleControl && (
+              <>
+                <ReferenceLine
+                  y={cycleControl.centerLine}
+                  stroke={chartTheme.colors.cyan}
+                  strokeDasharray="2 4"
+                  strokeOpacity={0.55}
+                  label={{ value: "X̄", fill: chartTheme.colors.cyan, fontSize: 10, position: "right" }}
+                  ifOverflow="extendDomain"
+                />
+                <ReferenceLine
+                  y={cycleControl.ucl}
+                  stroke={chartTheme.colors.red}
+                  strokeDasharray="2 4"
+                  strokeOpacity={0.55}
+                  label={{ value: "UCL", fill: chartTheme.colors.red, fontSize: 10, position: "right" }}
+                  ifOverflow="extendDomain"
+                />
+                <ReferenceLine
+                  y={cycleControl.lcl}
+                  stroke={chartTheme.colors.green}
+                  strokeDasharray="2 4"
+                  strokeOpacity={0.55}
+                  label={{ value: "LCL", fill: chartTheme.colors.green, fontSize: 10, position: "right" }}
+                  ifOverflow="extendDomain"
+                />
+              </>
+            )}
+          </LineChart>
+        </ChartCard>
+      )}
 
       {scatterData.length > 0 && (
         <ChartCard

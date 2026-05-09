@@ -29,6 +29,7 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RUNBOOK_SCORER_ACTIONS } from "@/lib/history/event-actions";
 import { generateRunbookScorerPrompts } from "@/lib/ai-prompts/runbook-scorer";
+import { mannKendall } from "@/lib/analytics/trend-test";
 
 type ScoreValue = 1 | 2 | 3 | 4 | 5;
 
@@ -151,6 +152,22 @@ export function RunbookScorerClient() {
     [state.runbooks]
   );
 
+  // Hygiene-over-time series — derived from runbooks ordered by their
+  // `lastReviewedAt` timestamp. Treats each review as a sample and reports
+  // a Mann-Kendall trend chip so the team can see whether reviews have been
+  // raising or eroding hygiene. Returns null until 5 reviewed runbooks exist.
+  const hygieneTrend = useMemo(() => {
+    const reviewed = state.runbooks.filter((r) => r.lastReviewedAt);
+    if (reviewed.length < 5) return null;
+    const ordered = [...reviewed].sort((a, b) =>
+      (a.lastReviewedAt ?? "").localeCompare(b.lastReviewedAt ?? "")
+    );
+    return {
+      mk: mannKendall(ordered.map((r) => hygieneScore(r))),
+      sampleSize: ordered.length,
+    };
+  }, [state.runbooks]);
+
   const sorted = useMemo(() => {
     const list = state.runbooks.map((r) => ({
       runbook: r,
@@ -265,6 +282,25 @@ export function RunbookScorerClient() {
           tone={untestedCount > 0 ? "danger" : "default"}
         />
       </KpiGrid>
+
+      {/* Mann-Kendall trend chip on hygiene-by-review-date. Surfaces only
+          when statistically significant — otherwise we suppress the chip to
+          avoid implying a trend from noisy data. */}
+      {hygieneTrend?.mk.significant && (
+        <div className="flex items-center justify-end mb-4 -mt-2">
+          <Badge
+            variant="outline"
+            className={`font-mono text-[10px] tracking-wider uppercase ${
+              hygieneTrend.mk.trend === "up"
+                ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+                : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+            }`}
+            title={`Mann-Kendall p=${hygieneTrend.mk.pValue.toFixed(3)} across ${hygieneTrend.sampleSize} reviewed runbooks`}
+          >
+            {hygieneTrend.mk.trend === "up" ? "↗" : "↘"} hygiene index trending
+          </Badge>
+        </div>
+      )}
 
       <SectionCard
         title="Add a runbook"

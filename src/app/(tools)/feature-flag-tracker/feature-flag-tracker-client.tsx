@@ -5,6 +5,8 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -18,6 +20,7 @@ import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { CalloutAlert } from "@/components/shared/callout-alert";
 import { EmptyState } from "@/components/shared/empty-state";
+import { SectionCard } from "@/components/shared/section-card";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +40,8 @@ import {
   AlertTriangle,
   Archive,
   Clock,
+  Activity,
+  TrendingUp,
 } from "lucide-react";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -45,6 +50,13 @@ import { FEATURE_FLAG_ACTIONS } from "@/lib/history/event-actions";
 import { generateFeatureFlagPrompts } from "@/lib/ai-prompts/feature-flag-tracker";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { cn } from "@/lib/utils";
+import {
+  durationsFromTimeRanges,
+  kaplanMeier,
+  medianSurvivalTime,
+} from "@/lib/analytics/survival";
+import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
+import { mannKendall } from "@/lib/analytics/trend-test";
 
 type FlagStatus = "active" | "on" | "off" | "deprecated";
 type FlagEnv = "dev" | "staging" | "prod" | "all";
@@ -226,6 +238,73 @@ export function FeatureFlagTrackerClient() {
     }));
   }, [flags]);
 
+  // ── Tier-2: KM survival on flag age before retirement ──────────────
+  const retiredAges = useMemo(() => {
+    return flags
+      .filter((f) => f.retiredAt)
+      .map((f) => {
+        const start = parseLocalDate(f.createdAt) ?? new Date(f.createdAt);
+        const end = parseLocalDate(f.retiredAt!) ?? new Date(f.retiredAt!);
+        return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86_400_000));
+      })
+      .filter((d) => Number.isFinite(d));
+  }, [flags]);
+
+  const survivalCurve = useMemo(() => {
+    if (retiredAges.length < 4) return [];
+    const obs = durationsFromTimeRanges(
+      flags.map((f) => ({ raisedAt: f.createdAt, resolvedAt: f.retiredAt })),
+    );
+    return kaplanMeier(obs);
+  }, [flags, retiredAges.length]);
+
+  const medianFlagAge = useMemo(
+    () => medianSurvivalTime(survivalCurve),
+    [survivalCurve],
+  );
+
+  const medianFlagAgeCI = useMemo(() => {
+    if (retiredAges.length < 3) return null;
+    return bootstrapQuantile(retiredAges, 0.5);
+  }, [retiredAges]);
+
+  const survivalChartData = useMemo(
+    () => survivalCurve.map((p) => ({ t: p.t, survival: Math.round(p.survival * 1000) / 1000 })),
+    [survivalCurve],
+  );
+
+  // Mann-Kendall on weekly flag-creation count for the trend chip.
+  const weeklyFlagCount = useMemo(() => {
+    if (flags.length === 0) return [];
+    const ts = flags
+      .map((f) => parseLocalDate(f.createdAt)?.getTime() ?? new Date(f.createdAt).getTime())
+      .filter((t) => Number.isFinite(t));
+    if (ts.length === 0) return [];
+    const earliest = new Date(Math.min(...ts));
+    const dayOfWeek = earliest.getUTCDay();
+    const weekStart = new Date(earliest);
+    weekStart.setUTCDate(earliest.getUTCDate() - dayOfWeek);
+    weekStart.setUTCHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const totalWeeks = Math.max(
+      1,
+      Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1,
+    );
+    const cappedWeeks = Math.min(totalWeeks, 26);
+    const counts = new Array(cappedWeeks).fill(0) as number[];
+    for (const t of ts) {
+      const w = Math.floor((t - weekStart.getTime()) / (7 * 86_400_000));
+      if (w >= 0 && w < cappedWeeks) counts[w] += 1;
+    }
+    return counts;
+  }, [flags]);
+
+  const flagTrend = useMemo(() => {
+    if (weeklyFlagCount.length < 5) return null;
+    return mannKendall(weeklyFlagCount);
+  }, [weeklyFlagCount]);
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Feature Flag Tracker",
@@ -324,6 +403,96 @@ export function FeatureFlagTrackerClient() {
           older than {STALE_DAYS} days {stats.stale === 1 ? "is" : "are"} still
           active. Schedule a retirement sweep before they ossify.
         </CalloutAlert>
+      )}
+
+      {flagTrend && (
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {flagTrend.significant ? (
+            <span
+              className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
+                flagTrend.trend === "up"
+                  ? "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                  : "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+              }`}
+            >
+              <TrendingUp
+                className={`w-3 h-3 ${flagTrend.trend === "down" ? "rotate-180" : ""}`}
+              />
+              Weekly flag creation trending {flagTrend.trend} significantly
+              <span className="opacity-60">· p={flagTrend.pValue.toFixed(3)}</span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface">
+              <TrendingUp className="w-3 h-3" />
+              Weekly flag creation trend: no significant change
+            </span>
+          )}
+        </div>
+      )}
+
+      {survivalChartData.length > 1 && (
+        <SectionCard
+          title="Flag retirement survival curve"
+          icon={Activity}
+          titleSuffix={
+            medianFlagAge !== null
+              ? `Median ${medianFlagAge}d${
+                  medianFlagAgeCI
+                    ? ` · 95% CI [${Math.round(medianFlagAgeCI.lower)}, ${Math.round(medianFlagAgeCI.upper)}]`
+                    : ""
+                }`
+              : undefined
+          }
+          className="mb-4"
+        >
+          <div className="h-40 -mx-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={survivalChartData}
+                margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="t"
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                  axisLine={{ stroke: chartTheme.gridColor }}
+                  label={{
+                    value: "days",
+                    fill: chartTheme.axisColor,
+                    fontSize: 10,
+                    position: "insideBottom",
+                    offset: -2,
+                  }}
+                />
+                <YAxis
+                  domain={[0, 1]}
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                  axisLine={{ stroke: chartTheme.gridColor }}
+                  tickFormatter={(v) => `${Math.round(v * 100)}%`}
+                />
+                <Tooltip
+                  contentStyle={chartTheme.tooltipStyle}
+                  formatter={(v) => [`${(Number(v) * 100).toFixed(1)}%`, "still active"]}
+                  labelFormatter={(v) => `${v}d`}
+                />
+                <Line
+                  type="stepAfter"
+                  dataKey="survival"
+                  stroke={chartTheme.colors.cyan}
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-[11px] text-sub mt-2">
+            Kaplan-Meier estimate over {retiredAges.length} retired flag
+            {retiredAges.length === 1 ? "" : "s"} (active flags are
+            right-censored). Y-axis: probability the flag is still active after
+            N days.
+          </p>
+        </SectionCard>
       )}
 
       {/* Add-flag form */}

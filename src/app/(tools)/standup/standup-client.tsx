@@ -10,6 +10,7 @@ import { generateStandupPrompts } from "@/lib/ai-prompts/standup";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { STANDUP_ACTIONS } from "@/lib/history/event-actions";
+import { selectEvents } from "@/lib/history/selectors";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
@@ -698,6 +699,23 @@ export function StandupClient() {
     prompts: generateStandupPrompts({ entries, members, resolvedBlockers }),
   }), [entries, members, resolvedBlockers]);
 
+  // ── Cross-tool signal: blocker activity from impediments tool ────────
+  // Counts blockers raised in the last 7 days so the standup facilitator
+  // sees external activity at a glance.
+  const recentBlockerCount = useMemo(
+    () =>
+      selectEvents({
+        toolId: "impediments",
+        action: "impediment_raised",
+        sinceDays: 7,
+        limit: 100,
+      }).length,
+    // Re-evaluates on every parent render; entries.length ensures it
+    // refreshes when the user posts a new standup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [entries.length]
+  );
+
   return (
     <ToolPageWrapper
       toolId="standup"
@@ -709,9 +727,20 @@ export function StandupClient() {
 
         {/* ---- Top controls ---- */}
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-sm text-sub">
-            <Calendar className="w-4 h-4" />
-            {todayStr()}
+          <div className="flex items-center gap-3 text-sm text-sub">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4" />
+              {todayStr()}
+            </div>
+            {recentBlockerCount > 0 && (
+              <Badge
+                className="bg-[#ef4444]/15 text-[#ef4444] border-[#ef4444]/30 gap-1.5"
+                title="Blockers logged in the Impediments tool in the last 7 days. Bring these up during standup."
+              >
+                <AlertTriangle className="w-3 h-3" />
+                Recent blocker activity: {recentBlockerCount}
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Button

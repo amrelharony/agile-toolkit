@@ -11,8 +11,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Smile, Heart, TrendingUp } from "lucide-react";
+import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
+import { chartTheme } from "@/components/charts/chart-theme";
+import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { trendDirection, mean } from "@/lib/analytics/anomaly";
+import { cusum } from "@/lib/analytics/changepoint";
+import { mannKendall } from "@/lib/analytics/trend-test";
 import { generateMoodTrackerPrompts } from "@/lib/ai-prompts/mood-tracker";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -143,6 +148,47 @@ export function MoodTrackerClient() {
     const avgs = averageByDay.filter((d) => d.avg !== null).map((d) => d.avg as number);
     return trendDirection(avgs);
   }, [averageByDay]);
+
+  /* ── Phase-15 analytics ───────────────────────────────────────────────── */
+  // Daily-average mood line — sparse days (no entries) drop out so CUSUM
+  // operates on actual observations only.
+  const dailySeries = useMemo(
+    () =>
+      averageByDay
+        .filter((d): d is typeof d & { avg: number } => d.avg !== null)
+        .map((d) => ({ date: d.date, avg: Number(d.avg.toFixed(2)) })),
+    [averageByDay]
+  );
+  const dailyValues = useMemo(() => dailySeries.map((d) => d.avg), [dailySeries]);
+
+  // CUSUM regime-shift markers on the daily-average series.
+  const dailyChangepoints = useMemo<CausalAnnotationData[]>(() => {
+    if (dailyValues.length < 4) return [];
+    return cusum(dailyValues).map((cp) => ({
+      x: dailySeries[cp.index]?.date ?? String(cp.index),
+      label: `Mood ${cp.direction === "up" ? "↑ regime" : "↓ regime"}`,
+      detail: `CUSUM detected a sustained ${cp.direction === "up" ? "lift" : "drop"} in daily team mood at ${dailySeries[cp.index]?.date}.`,
+      confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
+    }));
+  }, [dailyValues, dailySeries]);
+
+  // Rolling-week mood: 7-point moving average over the daily series. The
+  // MK test on a smoothed series captures the persistent trend rather than
+  // day-to-day noise.
+  const rollingWeek = useMemo(() => {
+    if (dailyValues.length < 7) return [] as number[];
+    const out: number[] = [];
+    for (let i = 6; i < dailyValues.length; i++) {
+      const window = dailyValues.slice(i - 6, i + 1);
+      out.push(window.reduce((a, b) => a + b, 0) / window.length);
+    }
+    return out;
+  }, [dailyValues]);
+
+  const moodTrend = useMemo(
+    () => (rollingWeek.length >= 5 ? mannKendall(rollingWeek) : null),
+    [rollingWeek]
+  );
 
   const promptConfig = useMemo(
     () => ({
@@ -322,6 +368,49 @@ export function MoodTrackerClient() {
                   );
                 })}
             </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {dailySeries.length > 0 && (
+        <Card className="bg-surface border-border mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <Heart className="w-4 h-4 text-accent" />
+              <h3 className="text-sm font-semibold text-text">Daily-average mood</h3>
+              {moodTrend?.significant && (
+                <span
+                  className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                    // For mood, "up" trend is good, "down" is concerning.
+                    moodTrend.trend === "up"
+                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
+                      : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                  }`}
+                  aria-label={`Rolling-week mood trend ${moodTrend.trend} (Mann-Kendall p=${moodTrend.pValue.toFixed(3)})`}
+                  title={`Mann-Kendall p=${moodTrend.pValue.toFixed(3)} on 7-day rolling mean`}
+                >
+                  {moodTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+                </span>
+              )}
+            </div>
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={dailySeries} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="date" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} axisLine={{ stroke: chartTheme.gridColor }} tickLine={false} />
+                <YAxis
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  domain={[1, 5]}
+                  ticks={[1, 2, 3, 4, 5]}
+                />
+                <Tooltip contentStyle={chartTheme.tooltipStyle} />
+                <Line type="monotone" dataKey="avg" stroke={chartTheme.colors.cyan} strokeWidth={2} dot={{ r: 3 }} name="Daily avg" />
+                {dailyChangepoints.map((cp, i) => (
+                  <CausalLine key={`cusum-${i}`} annotation={cp} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
       )}

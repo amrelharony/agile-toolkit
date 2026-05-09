@@ -17,7 +17,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Wrench } from "lucide-react";
+import { Plus, Trash2, Wrench, Activity } from "lucide-react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from "recharts";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { TechDebtItem } from "@/lib/stores/workspace-types";
 import { generateTechDebtPrompts } from "@/lib/ai-prompts/tech-debt";
@@ -27,8 +36,18 @@ import { ActionRow } from "@/components/shared/action-row";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { EmptyState } from "@/components/shared/empty-state";
+import { SectionCard } from "@/components/shared/section-card";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { chartTheme } from "@/components/charts/chart-theme";
+import { SmartInput } from "@/components/shared/smart-input";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
+import {
+  durationsFromTimeRanges,
+  kaplanMeier,
+  medianSurvivalTime,
+} from "@/lib/analytics/survival";
+import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 
 function emptyItem(): TechDebtItem {
   return {
@@ -53,6 +72,74 @@ function ageDays(item: TechDebtItem): number {
 function priorityScore(item: TechDebtItem): number {
   const interest = (item.interestRate ?? 0) * ageDays(item);
   return item.impact * 4 - item.effort + interest * 0.5;
+}
+
+/**
+ * Per-row interest-rate input wired to the smart-default predictor. The
+ * SmartInput chip appears for empty (or zero-default) values, and pressing
+ * Tab on an empty field accepts the prediction. We display a string draft
+ * so the placeholder/ghost is visible while the user thinks.
+ */
+function InterestRateInput({
+  value,
+  commit,
+}: {
+  value: number | undefined;
+  commit: (next: number) => void;
+}) {
+  const isUnset = value === undefined || value === 0;
+  const [draft, setDraft] = useState<string>(isUnset ? "" : String(value));
+  const lastSyncedRef = useRef<number | undefined>(value);
+  // Sync external changes (e.g. workspace import) into local draft when
+  // the field isn't being edited — same pattern as DescriptionEditor.
+  useEffect(() => {
+    if (lastSyncedRef.current === value) return;
+    lastSyncedRef.current = value;
+    setDraft(value === undefined || value === 0 ? "" : String(value));
+  }, [value]);
+  const pred = usePredictedDefault<number>("tech-debt", "interestRate", 0.5);
+
+  return (
+    <SmartInput<number>
+      predicted={pred}
+      onAccept={(v) => {
+        setDraft(String(v));
+        lastSyncedRef.current = v;
+        commit(v);
+      }}
+      render={({ ghost, accept, chip }) => (
+        <div className="flex flex-col gap-0.5">
+          <Input
+            type="number"
+            step="0.5"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => {
+              if (draft === "") {
+                if (value !== 0 && value !== undefined) commit(0);
+                return;
+              }
+              const n = Number(draft);
+              if (Number.isFinite(n) && n !== value) {
+                lastSyncedRef.current = n;
+                commit(n);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Tab" && draft === "") {
+                e.preventDefault();
+                accept();
+              }
+            }}
+            placeholder={ghost ?? "Int/sprint"}
+            className="bg-bg border-border font-data"
+            aria-label="Interest per sprint"
+          />
+          {draft === "" && chip}
+        </div>
+      )}
+    />
+  );
 }
 
 /**
@@ -202,6 +289,43 @@ export function TechDebtClient() {
     return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
   }, [items]);
 
+  // ── Tier-2 KM survival on resolution time ────────────────────────────
+  // Resolved-only durations feed the bootstrap CI on the median (right-
+  // censoring isn't meaningful here because open items are unbounded).
+  const resolvedDurations = useMemo(() => {
+    return items
+      .filter((i) => i.resolvedAt)
+      .map((i) => {
+        const start = new Date(i.raisedAt).getTime();
+        const end = new Date(i.resolvedAt!).getTime();
+        return Math.max(0, Math.round((end - start) / 86_400_000));
+      })
+      .filter((d) => Number.isFinite(d));
+  }, [items]);
+
+  const survivalCurve = useMemo(() => {
+    if (resolvedDurations.length < 4) return [];
+    const obs = durationsFromTimeRanges(
+      items.map((i) => ({ raisedAt: i.raisedAt, resolvedAt: i.resolvedAt })),
+    );
+    return kaplanMeier(obs);
+  }, [items, resolvedDurations.length]);
+
+  const medianResolutionDays = useMemo(
+    () => medianSurvivalTime(survivalCurve),
+    [survivalCurve],
+  );
+
+  const medianCI = useMemo(() => {
+    if (resolvedDurations.length < 3) return null;
+    return bootstrapQuantile(resolvedDurations, 0.5);
+  }, [resolvedDurations]);
+
+  const survivalChartData = useMemo(
+    () => survivalCurve.map((p) => ({ t: p.t, survival: Math.round(p.survival * 1000) / 1000 })),
+    [survivalCurve],
+  );
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Technical Debt Tracker",
@@ -283,6 +407,61 @@ export function TechDebtClient() {
         </CardContent>
       </Card>
 
+      {survivalChartData.length > 1 && (
+        <SectionCard
+          title="Resolution survival curve"
+          icon={Activity}
+          titleSuffix={
+            medianResolutionDays !== null
+              ? `Median ${medianResolutionDays}d${
+                  medianCI
+                    ? ` · 95% CI [${Math.round(medianCI.lower)}, ${Math.round(medianCI.upper)}]`
+                    : ""
+                }`
+              : undefined
+          }
+          className="mb-6"
+        >
+          <div className="h-40 -mx-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={survivalChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="t"
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                  axisLine={{ stroke: chartTheme.gridColor }}
+                  label={{ value: "days", fill: chartTheme.axisColor, fontSize: 10, position: "insideBottom", offset: -2 }}
+                />
+                <YAxis
+                  domain={[0, 1]}
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                  axisLine={{ stroke: chartTheme.gridColor }}
+                  tickFormatter={(v) => `${Math.round(v * 100)}%`}
+                />
+                <Tooltip
+                  contentStyle={chartTheme.tooltipStyle}
+                  formatter={(v) => [`${(Number(v) * 100).toFixed(1)}%`, "still open"]}
+                  labelFormatter={(v) => `${v}d`}
+                />
+                <Line
+                  type="stepAfter"
+                  dataKey="survival"
+                  stroke={chartTheme.colors.cyan}
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-[11px] text-sub mt-2">
+            Kaplan-Meier estimate over {resolvedDurations.length} resolved item
+            {resolvedDurations.length === 1 ? "" : "s"}. Y-axis: probability the
+            debt is still open after N days.
+          </p>
+        </SectionCard>
+      )}
+
       <div className="space-y-2">
         {ranked.map((i) => (
           <Card key={i.id} className="bg-surface border-border">
@@ -298,7 +477,10 @@ export function TechDebtClient() {
                   <SelectTrigger className="bg-bg border-border font-data"><SelectValue /></SelectTrigger>
                   <SelectContent>{[1,2,3,4,5].map(n => <SelectItem key={n} value={String(n)}>Effort {n}</SelectItem>)}</SelectContent>
                 </Select>
-                <Input type="number" step="0.5" value={i.interestRate ?? 0} onChange={(e) => update(i.id, { interestRate: Number(e.target.value) })} placeholder="Int/sprint" className="bg-bg border-border font-data" />
+                <InterestRateInput
+                  value={i.interestRate}
+                  commit={(next) => update(i.id, { interestRate: next })}
+                />
                 <div className="font-data text-sm text-accent text-center">{priorityScore(i).toFixed(0)}</div>
                 <Button variant="ghost" size="sm" onClick={() => remove(i.id)} className="text-sub hover:text-danger">
                   <Trash2 className="w-3.5 h-3.5" />

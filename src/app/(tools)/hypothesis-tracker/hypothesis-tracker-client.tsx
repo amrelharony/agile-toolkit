@@ -17,7 +17,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Lightbulb } from "lucide-react";
+import { Plus, Trash2, Lightbulb, Activity } from "lucide-react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from "recharts";
 import { durationsFromTimeRanges, kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import { generateHypothesisTrackerPrompts } from "@/lib/ai-prompts/hypothesis-tracker";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -26,9 +35,11 @@ import { ActionRow } from "@/components/shared/action-row";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { EmptyState } from "@/components/shared/empty-state";
+import { SectionCard } from "@/components/shared/section-card";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { chartTheme } from "@/components/charts/chart-theme";
 
 type Status = "drafted" | "running" | "validated" | "invalidated" | "inconclusive";
 
@@ -270,12 +281,32 @@ export function HypothesisTrackerClient() {
     return closed.filter((i) => i.status === "validated").length / closed.length;
   }, [items]);
 
+  // ── Tier-2: KM survival on validation time (raised → validated/invalidated) ──
+  const resolvedDurations = useMemo(
+    () =>
+      items
+        .filter((i) => i.resolvedAt)
+        .map((i) => {
+          const start = new Date(i.raisedAt).getTime();
+          const end = new Date(i.resolvedAt!).getTime();
+          return Math.max(0, Math.round((end - start) / 86_400_000));
+        })
+        .filter((d) => Number.isFinite(d)),
+    [items],
+  );
+
   const survivalCurve = useMemo(() => {
+    if (resolvedDurations.length < 4) return [];
     const obs = durationsFromTimeRanges(items.map((i) => ({ raisedAt: i.raisedAt, resolvedAt: i.resolvedAt })));
     return kaplanMeier(obs);
-  }, [items]);
+  }, [items, resolvedDurations.length]);
 
   const medianTimeToValidate = medianSurvivalTime(survivalCurve);
+
+  const survivalChartData = useMemo(
+    () => survivalCurve.map((p) => ({ t: p.t, survival: Math.round(p.survival * 1000) / 1000 })),
+    [survivalCurve],
+  );
 
   const promptConfig = useMemo(
     () => ({
@@ -323,6 +354,65 @@ export function HypothesisTrackerClient() {
           value={medianTimeToValidate !== null ? `${medianTimeToValidate}d` : "—"}
         />
       </KpiGrid>
+
+      {survivalChartData.length > 1 && (
+        <SectionCard
+          title="Validation survival curve"
+          icon={Activity}
+          titleSuffix={
+            medianTimeToValidate !== null ? `Median ${medianTimeToValidate}d` : undefined
+          }
+          className="my-4"
+        >
+          <div className="h-40 -mx-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={survivalChartData}
+                margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="t"
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                  axisLine={{ stroke: chartTheme.gridColor }}
+                  label={{
+                    value: "days",
+                    fill: chartTheme.axisColor,
+                    fontSize: 10,
+                    position: "insideBottom",
+                    offset: -2,
+                  }}
+                />
+                <YAxis
+                  domain={[0, 1]}
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                  axisLine={{ stroke: chartTheme.gridColor }}
+                  tickFormatter={(v) => `${Math.round(v * 100)}%`}
+                />
+                <Tooltip
+                  contentStyle={chartTheme.tooltipStyle}
+                  formatter={(v) => [`${(Number(v) * 100).toFixed(1)}%`, "still open"]}
+                  labelFormatter={(v) => `${v}d`}
+                />
+                <Line
+                  type="stepAfter"
+                  dataKey="survival"
+                  stroke={chartTheme.colors.cyan}
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-[11px] text-sub mt-2">
+            Kaplan-Meier estimate over {resolvedDurations.length} resolved
+            hypothes{resolvedDurations.length === 1 ? "is" : "es"} (drafted /
+            running are right-censored). Y-axis: probability the hypothesis is
+            still open after N days.
+          </p>
+        </SectionCard>
+      )}
 
       <div className="space-y-3">
         {items.map((h) => (

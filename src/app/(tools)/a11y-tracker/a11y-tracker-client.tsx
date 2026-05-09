@@ -9,6 +9,7 @@ import {
   YAxis,
   Tooltip,
   Legend,
+  ReferenceLine,
 } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -34,6 +35,10 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2, Eye, Clock, Layers } from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
+import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import { xmrLimits } from "@/lib/analytics/control-chart";
+import { cusum } from "@/lib/analytics/changepoint";
+import { mannKendall } from "@/lib/analytics/trend-test";
 import { generateA11yPrompts } from "@/lib/ai-prompts/a11y-tracker";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -292,9 +297,58 @@ export function A11yTrackerClient() {
         const resolved = i.resolvedAt ? i.resolvedAt <= d : false;
         if (opened && !resolved) counts[i.severity]++;
       }
-      return { date: d, ...counts };
+      const total = counts.critical + counts.serious + counts.moderate + counts.minor;
+      return { date: d, ...counts, total };
     });
   }, [state.issues]);
+
+  /* ── Phase-15 analytics: per-week open-issue count series ─────────────── */
+  // Bucket the snapshot series by ISO week (YYYY-Www). Each bucket holds
+  // the latest snapshot's total for that week, so XmR / CUSUM / Mann-Kendall
+  // operate on a single observation per period (the canonical XmR setup).
+  const weeklyOpen = useMemo(() => {
+    if (chartData.length === 0) return [] as { weekKey: string; date: string; total: number }[];
+    const map = new Map<string, { date: string; total: number }>();
+    for (const row of chartData) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(row.date);
+      if (!m) continue;
+      const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const week = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+      const key = `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+      // Latest snapshot in week wins (chartData is already date-sorted).
+      map.set(key, { date: row.date, total: row.total });
+    }
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([weekKey, v]) => ({ weekKey, ...v }));
+  }, [chartData]);
+
+  const weeklyTotals = useMemo(() => weeklyOpen.map((w) => w.total), [weeklyOpen]);
+
+  // XmR control limits on the weekly open-issue series.
+  const openControl = useMemo(
+    () => (weeklyTotals.length >= 4 ? xmrLimits(weeklyTotals) : null),
+    [weeklyTotals]
+  );
+
+  // CUSUM regime-shift markers for the open-issue total.
+  const openChangepoints = useMemo<CausalAnnotationData[]>(() => {
+    if (weeklyTotals.length < 4) return [];
+    return cusum(weeklyTotals).map((cp) => ({
+      x: weeklyOpen[cp.index]?.date ?? String(cp.index),
+      label: `Open issues ${cp.direction === "up" ? "↑ regime" : "↓ regime"}`,
+      detail: `CUSUM detected a sustained ${cp.direction === "up" ? "increase" : "decrease"} in open a11y issues at week ${weeklyOpen[cp.index]?.weekKey}.`,
+      confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
+    }));
+  }, [weeklyTotals, weeklyOpen]);
+
+  // Mann-Kendall trend chip on the weekly series.
+  const openTrend = useMemo(
+    () => (weeklyTotals.length >= 5 ? mannKendall(weeklyTotals) : null),
+    [weeklyTotals]
+  );
 
   const promptConfig = useMemo(
     () => ({
@@ -454,6 +508,22 @@ export function A11yTrackerClient() {
           height={280}
           chartContainerRef={chartRef}
           className="mb-6"
+          headerExtras={
+            openTrend?.significant ? (
+              <span
+                className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                  // For open-issue count, "down" trend is good (fewer open), "up" is bad.
+                  openTrend.trend === "down"
+                    ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
+                    : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                }`}
+                aria-label={`Weekly open-issue trend ${openTrend.trend} (Mann-Kendall p=${openTrend.pValue.toFixed(3)})`}
+                title={`Mann-Kendall p=${openTrend.pValue.toFixed(3)}`}
+              >
+                {openTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+              </span>
+            ) : undefined
+          }
         >
           <LineChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
@@ -475,6 +545,38 @@ export function A11yTrackerClient() {
             <Line type="monotone" dataKey="serious" stroke={SEVERITY_COLOR.serious} strokeWidth={2} dot={false} name="Serious" />
             <Line type="monotone" dataKey="moderate" stroke={SEVERITY_COLOR.moderate} strokeWidth={2} dot={false} name="Moderate" />
             <Line type="monotone" dataKey="minor" stroke={SEVERITY_COLOR.minor} strokeWidth={2} dot={false} name="Minor" />
+            <Line type="monotone" dataKey="total" stroke={chartTheme.colors.cyan} strokeWidth={1.5} strokeOpacity={0.55} dot={false} name="Total open" />
+            {openControl && (
+              <>
+                <ReferenceLine
+                  y={openControl.centerLine}
+                  stroke={chartTheme.colors.cyan}
+                  strokeDasharray="2 4"
+                  strokeOpacity={0.55}
+                  label={{ value: "X̄", fill: chartTheme.colors.cyan, fontSize: 10, position: "right" }}
+                  ifOverflow="extendDomain"
+                />
+                <ReferenceLine
+                  y={openControl.ucl}
+                  stroke={chartTheme.colors.red}
+                  strokeDasharray="2 4"
+                  strokeOpacity={0.55}
+                  label={{ value: "UCL", fill: chartTheme.colors.red, fontSize: 10, position: "right" }}
+                  ifOverflow="extendDomain"
+                />
+                <ReferenceLine
+                  y={openControl.lcl}
+                  stroke={chartTheme.colors.green}
+                  strokeDasharray="2 4"
+                  strokeOpacity={0.55}
+                  label={{ value: "LCL", fill: chartTheme.colors.green, fontSize: 10, position: "right" }}
+                  ifOverflow="extendDomain"
+                />
+              </>
+            )}
+            {openChangepoints.map((cp, i) => (
+              <CausalLine key={`cusum-${i}`} annotation={cp} />
+            ))}
           </LineChart>
         </ChartCard>
       )}

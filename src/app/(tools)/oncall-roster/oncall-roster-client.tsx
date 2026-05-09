@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -29,11 +29,27 @@ import {
   AlertTriangle,
   Flame,
   User,
+  TrendingUp,
 } from "lucide-react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from "recharts";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ONCALL_ACTIONS } from "@/lib/history/event-actions";
 import { generateOncallRosterPrompts } from "@/lib/ai-prompts/oncall-roster";
+import { chartTheme } from "@/components/charts/chart-theme";
+import { SmartInput } from "@/components/shared/smart-input";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
+import { mannKendall } from "@/lib/analytics/trend-test";
+import { cusum } from "@/lib/analytics/changepoint";
+import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
 
 type Severity = "sev1" | "sev2" | "sev3" | "sev4";
 
@@ -56,6 +72,8 @@ interface Page {
 interface OncallState {
   shifts: OncallShift[];
   pages: Page[];
+  /** Operator-supplied expected pages per week (default for capacity planning). */
+  expectedPagesPerWeek?: number;
 }
 
 const DEFAULT_STATE: OncallState = { shifts: [], pages: [] };
@@ -129,6 +147,75 @@ function emptyShiftDraft(): ShiftDraft {
 
 function emptyPageDraft(): PageDraft {
   return { severity: "sev3", description: "" };
+}
+
+/**
+ * Smart-default-backed input for the operator's expected pages-per-week.
+ * Used as a capacity-planning anchor and surfaced as a SectionCard widget.
+ */
+function ExpectedPagesInput({
+  value,
+  commit,
+}: {
+  value: number | undefined;
+  commit: (next: number | undefined) => void;
+}) {
+  const [draft, setDraft] = useState<string>(value === undefined ? "" : String(value));
+  const lastSyncedRef = useRef<number | undefined>(value);
+  useEffect(() => {
+    if (lastSyncedRef.current === value) return;
+    lastSyncedRef.current = value;
+    setDraft(value === undefined ? "" : String(value));
+  }, [value]);
+  const pred = usePredictedDefault<number>(
+    "oncall-roster",
+    "expectedPagesPerWeek",
+    5,
+  );
+  return (
+    <SmartInput<number>
+      predicted={pred}
+      onAccept={(v) => {
+        setDraft(String(v));
+        lastSyncedRef.current = v;
+        commit(v);
+      }}
+      render={({ ghost, accept, chip }) => (
+        <div className="flex flex-col gap-1">
+          <Input
+            type="number"
+            min={0}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => {
+              if (draft === "") {
+                if (value !== undefined) {
+                  lastSyncedRef.current = undefined;
+                  commit(undefined);
+                }
+                return;
+              }
+              const n = Number(draft);
+              if (Number.isFinite(n) && n !== value) {
+                lastSyncedRef.current = n;
+                commit(n);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Tab" && draft === "") {
+                e.preventDefault();
+                accept();
+              }
+            }}
+            placeholder={ghost ?? "e.g. 5"}
+            className="bg-surface border-border font-data"
+            aria-label="Expected pages per week"
+          />
+          {draft === "" && chip}
+        </div>
+      )}
+    />
+  );
 }
 
 export function OncallRosterClient() {
@@ -264,6 +351,73 @@ export function OncallRosterClient() {
 
   const topPagedPerson = personStats[0]?.person ?? null;
 
+  // ── Tier-2: weekly paging trend + CUSUM changepoints ──────────────
+  // Bucket pages into weeks aligned to the earliest page (cap 26 weeks so
+  // the chart doesn't sprawl with long-running rosters).
+  const weeklyPageSeries = useMemo<{
+    counts: number[];
+    weekLabels: string[];
+  }>(() => {
+    if (state.pages.length === 0) return { counts: [], weekLabels: [] };
+    const ts = state.pages
+      .map((p) => new Date(p.ts).getTime())
+      .filter((t) => Number.isFinite(t));
+    if (ts.length === 0) return { counts: [], weekLabels: [] };
+    const earliest = new Date(Math.min(...ts));
+    const dayOfWeek = earliest.getUTCDay();
+    const weekStart = new Date(earliest);
+    weekStart.setUTCDate(earliest.getUTCDate() - dayOfWeek);
+    weekStart.setUTCHours(0, 0, 0, 0);
+    const today = new Date(now);
+    const totalWeeks = Math.max(
+      1,
+      Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1,
+    );
+    const cappedWeeks = Math.min(totalWeeks, 26);
+    const counts = new Array(cappedWeeks).fill(0) as number[];
+    const labels: string[] = [];
+    for (let w = 0; w < cappedWeeks; w++) {
+      const start = new Date(weekStart.getTime() + w * 7 * 86_400_000);
+      labels.push(
+        `${start.getUTCMonth() + 1}/${String(start.getUTCDate()).padStart(2, "0")}`,
+      );
+    }
+    for (const t of ts) {
+      const w = Math.floor((t - weekStart.getTime()) / (7 * 86_400_000));
+      if (w >= 0 && w < cappedWeeks) counts[w] += 1;
+    }
+    return { counts, weekLabels: labels };
+  }, [state.pages, now]);
+
+  const pageTrend = useMemo(() => {
+    if (weeklyPageSeries.counts.length < 5) return null;
+    return mannKendall(weeklyPageSeries.counts);
+  }, [weeklyPageSeries.counts]);
+
+  const pageChangepoints = useMemo<CausalAnnotationData[]>(() => {
+    if (weeklyPageSeries.counts.length < 4) return [];
+    return cusum(weeklyPageSeries.counts).map((cp) => ({
+      x: weeklyPageSeries.weekLabels[cp.index] ?? String(cp.index),
+      label:
+        cp.direction === "up"
+          ? "Paging volume regime up"
+          : "Paging volume regime down",
+      detail: `CUSUM detected a sustained ${
+        cp.direction === "up" ? "increase" : "decrease"
+      } in paging starting in week ${cp.index + 1}.`,
+      confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
+    }));
+  }, [weeklyPageSeries.counts, weeklyPageSeries.weekLabels]);
+
+  const pagingChartData = useMemo(
+    () =>
+      weeklyPageSeries.counts.map((c, i) => ({
+        week: weeklyPageSeries.weekLabels[i] ?? String(i),
+        pages: c,
+      })),
+    [weeklyPageSeries.counts, weeklyPageSeries.weekLabels],
+  );
+
   const promptConfig = useMemo(
     () => ({
       toolName: "On-Call Roster",
@@ -355,6 +509,113 @@ export function OncallRosterClient() {
           }
         />
       </KpiGrid>
+
+      <SectionCard
+        title="Capacity expectation"
+        icon={Phone}
+        titleSize="lg"
+        className="mb-6"
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-[260px_1fr] gap-4 items-start">
+          <div>
+            <Label className="text-xs text-sub mb-1 block">
+              Expected pages per week
+            </Label>
+            <ExpectedPagesInput
+              value={state.expectedPagesPerWeek}
+              commit={(next) =>
+                setState((s) => ({ ...s, expectedPagesPerWeek: next }))
+              }
+            />
+          </div>
+          <p className="text-xs text-sub max-w-prose">
+            The team&apos;s expected paging load. Used as a baseline for the
+            capacity-planning conversation; the predictor seeds a default if
+            you haven&apos;t set one.
+          </p>
+        </div>
+      </SectionCard>
+
+      {pageTrend && (
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {pageTrend.significant ? (
+            <span
+              className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
+                pageTrend.trend === "up"
+                  ? "border-danger/40 text-danger bg-danger/10"
+                  : "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+              }`}
+            >
+              <TrendingUp
+                className={`w-3 h-3 ${pageTrend.trend === "down" ? "rotate-180" : ""}`}
+              />
+              Weekly paging volume trending {pageTrend.trend} significantly
+              <span className="opacity-60">· p={pageTrend.pValue.toFixed(3)}</span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface">
+              <TrendingUp className="w-3 h-3" />
+              Weekly paging trend: no significant change
+            </span>
+          )}
+          {pageChangepoints.length > 0 && (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-amber-500/40 text-amber-300 bg-amber-500/10">
+              <AlertTriangle className="w-3 h-3" />
+              {pageChangepoints.length} regime shift
+              {pageChangepoints.length === 1 ? "" : "s"} detected (CUSUM)
+            </span>
+          )}
+        </div>
+      )}
+
+      {pagingChartData.length > 1 && (
+        <SectionCard
+          title="Paging frequency by week"
+          icon={Phone}
+          titleSize="lg"
+          className="mb-6"
+        >
+          <div className="h-44 -mx-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={pagingChartData}
+                margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="week"
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                  axisLine={{ stroke: chartTheme.gridColor }}
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                  axisLine={{ stroke: chartTheme.gridColor }}
+                />
+                <Tooltip
+                  contentStyle={chartTheme.tooltipStyle}
+                  formatter={(v) => [String(v), "pages"]}
+                />
+                {pageChangepoints.map((a, i) => (
+                  <CausalLine key={`cp-${i}`} annotation={a} />
+                ))}
+                <Line
+                  type="monotone"
+                  dataKey="pages"
+                  stroke={chartTheme.colors.cyan}
+                  strokeWidth={2}
+                  dot={{ r: 2, fill: chartTheme.colors.cyan }}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-[11px] text-sub mt-2">
+            Pages aggregated by week. Dashed vertical lines mark CUSUM-detected
+            regime shifts (sustained changes in paging volume).
+          </p>
+        </SectionCard>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
         <SectionCard title="Add shift" icon={Plus} titleSize="lg">

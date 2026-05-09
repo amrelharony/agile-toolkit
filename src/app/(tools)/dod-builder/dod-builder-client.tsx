@@ -2,9 +2,20 @@
 
 import { useMemo, useState } from "react";
 import { nanoid } from "nanoid";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+  ResponsiveContainer,
+} from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,11 +23,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Plus, Trash2, Code, ShieldCheck, FileCode, Gauge, Lock, CircleHelp } from "lucide-react";
+import { chartTheme } from "@/components/charts/chart-theme";
 import { generateDodBuilderPrompts } from "@/lib/ai-prompts/dod-builder";
 import { ActionRow } from "@/components/shared/action-row";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DOD_ACTIONS } from "@/lib/history/event-actions";
+import { pChartLimits } from "@/lib/analytics/control-chart";
+import { mannKendall } from "@/lib/analytics/trend-test";
 
 type CategoryId = "code" | "testing" | "docs" | "performance" | "security" | "other";
 
@@ -105,6 +119,52 @@ export function DodBuilderClient() {
     return required.length > 0 ? passed.length / required.length : 0;
   }, [state.items, state.history]);
 
+  // Per-sprint adherence series, computed against the *current* required set.
+  // We snapshot the trailing 20 sprints so the p-chart limits stay stable as
+  // the team's DoD bar evolves; older sprints are summarised but not plotted.
+  const adherenceSeries = useMemo(() => {
+    const required = state.items.filter((i) => i.required);
+    const requiredIds = new Set(required.map((i) => i.id));
+    if (required.length === 0) return [] as Array<{
+      sprintName: string;
+      passed: number;
+      required: number;
+      adherencePct: number;
+    }>;
+    return state.history.slice(-20).map((h) => {
+      const passed = h.completedItemIds.filter((id) => requiredIds.has(id)).length;
+      return {
+        sprintName: h.sprintName,
+        passed,
+        required: required.length,
+        adherencePct: (passed / required.length) * 100,
+      };
+    });
+  }, [state.items, state.history]);
+
+  // p-chart on per-sprint DoD adherence. Each sprint = one trial-block where
+  // `passed` = met requirements, `required.length` = total trials. Returns
+  // null when fewer than 4 sprints — limits are unstable on tiny series.
+  const adherenceControl = useMemo(() => {
+    if (adherenceSeries.length < 4) return null;
+    const limits = pChartLimits(
+      adherenceSeries.map((s) => s.passed),
+      adherenceSeries.map((s) => s.required)
+    );
+    return {
+      centerLinePct: limits.centerLine * 100,
+      uclPct: limits.ucl * 100,
+      lclPct: limits.lcl * 100,
+    };
+  }, [adherenceSeries]);
+
+  // Mann-Kendall on the per-sprint adherence series. Reports a chip when
+  // the trend is significant at α=0.05 over 5+ sprints.
+  const adherenceTrend = useMemo(() => {
+    if (adherenceSeries.length < 5) return null;
+    return mannKendall(adherenceSeries.map((s) => s.adherencePct));
+  }, [adherenceSeries]);
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Definition of Done Builder",
@@ -140,6 +200,92 @@ export function DodBuilderClient() {
               <div className="text-2xl font-data text-accent">{Math.round(adherence * 100)}%</div>
             </div>
             <Progress value={adherence * 100} className="h-2" />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* p-chart on per-sprint DoD adherence — UCL/X̄/LCL overlay so the team
+          can see when adherence drifts outside the natural variation band.
+          Renders alongside a Mann-Kendall trend chip when 5+ sprints exist. */}
+      {adherenceSeries.length >= 4 && adherenceControl && (
+        <Card className="bg-surface border-border mb-6">
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-sub">DoD adherence — last {adherenceSeries.length} sprints</div>
+              {adherenceTrend?.significant && (
+                <Badge
+                  variant="outline"
+                  className={`font-mono text-[10px] tracking-wider uppercase ${
+                    adherenceTrend.trend === "up"
+                      ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+                      : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                  }`}
+                  title={`Mann-Kendall p=${adherenceTrend.pValue.toFixed(3)}`}
+                >
+                  {adherenceTrend.trend === "up" ? "↗" : "↘"} adherence trend
+                </Badge>
+              )}
+            </div>
+            <div style={{ height: 180 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={adherenceSeries}
+                  margin={{ top: 8, right: 12, left: -12, bottom: 0 }}
+                >
+                  <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
+                  <XAxis
+                    dataKey="sprintName"
+                    tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    domain={[0, 100]}
+                    tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => `${v}%`}
+                  />
+                  <Tooltip
+                    contentStyle={chartTheme.tooltipStyle}
+                    formatter={(v) => [`${Number(v).toFixed(0)}%`, "Adherence"]}
+                  />
+                  <ReferenceLine
+                    y={adherenceControl.centerLinePct}
+                    stroke={chartTheme.colors.cyan}
+                    strokeDasharray="2 4"
+                    strokeOpacity={0.55}
+                    label={{ value: "X̄", fill: chartTheme.colors.cyan, fontSize: 10, position: "right" }}
+                    ifOverflow="extendDomain"
+                  />
+                  <ReferenceLine
+                    y={adherenceControl.uclPct}
+                    stroke={chartTheme.colors.green}
+                    strokeDasharray="2 4"
+                    strokeOpacity={0.55}
+                    label={{ value: "UCL", fill: chartTheme.colors.green, fontSize: 10, position: "right" }}
+                    ifOverflow="extendDomain"
+                  />
+                  <ReferenceLine
+                    y={adherenceControl.lclPct}
+                    stroke={chartTheme.colors.red}
+                    strokeDasharray="2 4"
+                    strokeOpacity={0.55}
+                    label={{ value: "LCL", fill: chartTheme.colors.red, fontSize: 10, position: "right" }}
+                    ifOverflow="extendDomain"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="adherencePct"
+                    name="Adherence"
+                    stroke={chartTheme.colors.cyan}
+                    strokeWidth={2}
+                    dot={{ fill: chartTheme.colors.cyan, r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
       )}

@@ -15,8 +15,10 @@ import { generateEpicRoadmapPrompts } from "@/lib/ai-prompts/epic-roadmap";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { ActionRow } from "@/components/shared/action-row";
 import { EmptyState } from "@/components/shared/empty-state";
+import { CalloutAlert } from "@/components/shared/callout-alert";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { EPIC_ROADMAP_ACTIONS } from "@/lib/history/event-actions";
+import { selectEvents } from "@/lib/history/selectors";
 
 interface Epic {
   id: string;
@@ -222,6 +224,35 @@ export function EpicRoadmapClient() {
     [epics, columns]
   );
 
+  // ── Cross-tool signals: recent sprint completions + OKR updates ─────────
+  // Epic timelines depend on both sprint outcomes (capacity to deliver) and
+  // OKR shifts (whether the epic still maps to current objectives). When
+  // either has changed in the last 14 days, prompt the user to revisit the
+  // roadmap and update progress / dates.
+  const recentSprintCompletions = useMemo(
+    () =>
+      selectEvents({
+        toolId: "velocity",
+        action: "sprint_added",
+        sinceDays: 14,
+        limit: 50,
+      }),
+    // history-store mutations cause parent re-render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+  const recentOkrUpdates = useMemo(
+    () =>
+      selectEvents({
+        toolId: "okrs",
+        action: "progress_updated",
+        sinceDays: 14,
+        limit: 50,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   return (
     <ToolPageWrapper
       toolId="epic-roadmap"
@@ -244,6 +275,12 @@ export function EpicRoadmapClient() {
           Add Epic
         </Button>
       </ActionRow>
+
+      {(recentSprintCompletions.length > 0 || recentOkrUpdates.length > 0) && (
+        <CalloutAlert tone="info" className="mb-3">
+          {recentSprintCompletions.length} sprint{recentSprintCompletions.length === 1 ? "" : "s"} completed, {recentOkrUpdates.length} OKR update{recentOkrUpdates.length === 1 ? "" : "s"} in last 14 days &mdash; review epic timelines.
+        </CalloutAlert>
+      )}
 
       <Card className="bg-surface border-border mb-4">
         <CardContent className="p-3 flex flex-wrap items-end gap-2">
