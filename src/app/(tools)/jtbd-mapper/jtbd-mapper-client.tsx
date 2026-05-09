@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -194,65 +194,20 @@ export function JtbdMapperClient() {
       <div key={job.id} className="space-y-2">
         <div
           className="rounded-lg border border-border bg-bg p-3"
-          style={{ borderLeftColor: "#a855f7", borderLeftWidth: 3 }}
+          style={{ borderLeftColor: "var(--accent3)", borderLeftWidth: 3 }}
         >
           {isEditing ? (
-            <div className="space-y-2">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <Input
-                  value={job.situation}
-                  onChange={(e) =>
-                    updateJob(job.id, { situation: e.target.value })
-                  }
-                  placeholder="When..."
-                  className="bg-surface border-border text-xs"
-                  aria-label="When (situation)"
-                />
-                <Input
-                  value={job.motivation}
-                  onChange={(e) =>
-                    updateJob(job.id, { motivation: e.target.value })
-                  }
-                  placeholder="I want to..."
-                  className="bg-surface border-border text-xs"
-                  aria-label="I want to (motivation)"
-                />
-                <Input
-                  value={job.outcome}
-                  onChange={(e) =>
-                    updateJob(job.id, { outcome: e.target.value })
-                  }
-                  placeholder="So I can..."
-                  className="bg-surface border-border text-xs"
-                  aria-label="So I can (outcome)"
-                />
-              </div>
-              <Input
-                value={job.description ?? ""}
-                onChange={(e) => {
-                  const trimmed = e.target.value.trim();
-                  updateJob(job.id, {
-                    description: trimmed.length > 0 ? e.target.value : undefined,
-                  });
-                }}
-                placeholder="Description (optional)"
-                className="bg-surface border-border text-xs"
-                aria-label="Description"
-              />
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setEditingId(null)}
-                  className="text-sub"
-                >
-                  Done
-                </Button>
-              </div>
-            </div>
+            <JobRowEditor
+              job={job}
+              onCommit={updateJob}
+              onDone={() => setEditingId(null)}
+            />
           ) : (
             <div className="flex items-start gap-2">
-              <User className="w-4 h-4 mt-0.5 shrink-0 text-[#a855f7]" />
+              <User
+                className="w-4 h-4 mt-0.5 shrink-0"
+                style={{ color: "var(--accent3)" }}
+              />
               <div className="flex-1 min-w-0 space-y-1">
                 <p className="text-sm text-text break-words">
                   <span className="text-sub">When </span>
@@ -421,5 +376,145 @@ export function JtbdMapperClient() {
         </div>
       )}
     </ToolPageWrapper>
+  );
+}
+
+/**
+ * Local-draft inline editor for a job story. Holds keystrokes in component
+ * state and only commits to the parent (which writes localStorage and logs
+ * a history entry) on blur or "Done", avoiding the per-keystroke storage
+ * write + log-flood and the cursor-jump that came with `value={job.x}`.
+ */
+function JobRowEditor({
+  job,
+  onCommit,
+  onDone,
+}: {
+  job: JobStory;
+  onCommit: (id: string, patch: Partial<JobStory>) => void;
+  onDone: () => void;
+}) {
+  const [situation, setSituation] = useState(job.situation);
+  const [motivation, setMotivation] = useState(job.motivation);
+  const [outcome, setOutcome] = useState(job.outcome);
+  // Description: store raw value, trim only when committing on blur.
+  const [description, setDescription] = useState(job.description ?? "");
+
+  // Sync external changes (e.g. another tab) into local draft when the
+  // corresponding input isn't focused — otherwise we'd wipe mid-edit typing.
+  const sitRef = useRef<HTMLInputElement>(null);
+  const motRef = useRef<HTMLInputElement>(null);
+  const outRef = useRef<HTMLInputElement>(null);
+  const descRef = useRef<HTMLInputElement>(null);
+  const lastSitRef = useRef(job.situation);
+  const lastMotRef = useRef(job.motivation);
+  const lastOutRef = useRef(job.outcome);
+  const lastDescRef = useRef(job.description ?? "");
+  useEffect(() => {
+    if (document.activeElement === sitRef.current) return;
+    if (job.situation === lastSitRef.current) return;
+    setSituation(job.situation);
+    lastSitRef.current = job.situation;
+  }, [job.situation]);
+  useEffect(() => {
+    if (document.activeElement === motRef.current) return;
+    if (job.motivation === lastMotRef.current) return;
+    setMotivation(job.motivation);
+    lastMotRef.current = job.motivation;
+  }, [job.motivation]);
+  useEffect(() => {
+    if (document.activeElement === outRef.current) return;
+    if (job.outcome === lastOutRef.current) return;
+    setOutcome(job.outcome);
+    lastOutRef.current = job.outcome;
+  }, [job.outcome]);
+  useEffect(() => {
+    const next = job.description ?? "";
+    if (document.activeElement === descRef.current) return;
+    if (next === lastDescRef.current) return;
+    setDescription(next);
+    lastDescRef.current = next;
+  }, [job.description]);
+
+  const commitField = <K extends keyof JobStory>(key: K, value: JobStory[K]) => {
+    if (job[key] === value) return;
+    onCommit(job.id, { [key]: value } as Partial<JobStory>);
+  };
+
+  const commitDescription = () => {
+    const trimmed = description.trim();
+    const next = trimmed.length > 0 ? trimmed : undefined;
+    if (next === (job.description ?? undefined)) return;
+    onCommit(job.id, { description: next });
+    lastDescRef.current = trimmed;
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <Input
+          ref={sitRef}
+          value={situation}
+          onChange={(e) => setSituation(e.target.value)}
+          onBlur={() => {
+            commitField("situation", situation);
+            lastSitRef.current = situation;
+          }}
+          placeholder="When..."
+          className="bg-surface border-border text-xs"
+          aria-label="When (situation)"
+        />
+        <Input
+          ref={motRef}
+          value={motivation}
+          onChange={(e) => setMotivation(e.target.value)}
+          onBlur={() => {
+            commitField("motivation", motivation);
+            lastMotRef.current = motivation;
+          }}
+          placeholder="I want to..."
+          className="bg-surface border-border text-xs"
+          aria-label="I want to (motivation)"
+        />
+        <Input
+          ref={outRef}
+          value={outcome}
+          onChange={(e) => setOutcome(e.target.value)}
+          onBlur={() => {
+            commitField("outcome", outcome);
+            lastOutRef.current = outcome;
+          }}
+          placeholder="So I can..."
+          className="bg-surface border-border text-xs"
+          aria-label="So I can (outcome)"
+        />
+      </div>
+      <Input
+        ref={descRef}
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        onBlur={commitDescription}
+        placeholder="Description (optional)"
+        className="bg-surface border-border text-xs"
+        aria-label="Description"
+      />
+      <div className="flex justify-end gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            // Flush any pending edits before collapsing the editor.
+            commitField("situation", situation);
+            commitField("motivation", motivation);
+            commitField("outcome", outcome);
+            commitDescription();
+            onDone();
+          }}
+          className="text-sub"
+        >
+          Done
+        </Button>
+      </div>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -113,6 +113,27 @@ export function TestPyramidClient() {
     });
   };
 
+  // Local raw-text draft for the description so intermediate spaces survive
+  // mid-edit. We sync from persisted state when the field isn't focused, and
+  // normalize (trim → undefined) only on blur.
+  const descRef = useRef<HTMLTextAreaElement>(null);
+  const [descDraft, setDescDraft] = useState<string>(state.description ?? "");
+  const lastDescRef = useRef<string>(state.description ?? "");
+  useEffect(() => {
+    if (document.activeElement === descRef.current) return;
+    const next = state.description ?? "";
+    if (next === lastDescRef.current) return;
+    setDescDraft(next);
+    lastDescRef.current = next;
+  }, [state.description]);
+
+  const commitDescription = () => {
+    const raw = descDraft;
+    const next = raw.trim() ? raw : undefined;
+    lastDescRef.current = next ?? "";
+    setState((s) => ({ ...s, description: next }));
+  };
+
   /* ── Aggregations ───────────────────────────────────────────────────── */
 
   const total = state.unit + state.integration + state.e2e;
@@ -137,12 +158,23 @@ export function TestPyramidClient() {
   // - E2E green if ≤ unit; red if > unit (inverted).
   // - Integration green if between e2e and unit.
   // - Unit always green when it's the largest layer.
-  const e2eColor = inverted ? "#ef4444" : "#34d399";
+  // When total is 0 there's nothing to evaluate — use a neutral tone instead
+  // of misleading "all green".
+  const NEUTRAL_COLOR = "#6b7280";
+  const e2eColor =
+    total === 0 ? NEUTRAL_COLOR : inverted ? "#ef4444" : "#34d399";
   const intColor =
-    state.integration <= state.unit && state.integration >= state.e2e
-      ? "#34d399"
-      : "#facc15";
-  const unitColor = state.unit >= state.integration ? "#34d399" : "#facc15";
+    total === 0
+      ? NEUTRAL_COLOR
+      : state.integration <= state.unit && state.integration >= state.e2e
+        ? "#34d399"
+        : "#facc15";
+  const unitColor =
+    total === 0
+      ? NEUTRAL_COLOR
+      : state.unit >= state.integration
+        ? "#34d399"
+        : "#facc15";
 
   const promptConfig = useMemo(
     () => ({
@@ -184,7 +216,7 @@ export function TestPyramidClient() {
                 state.integration * COST_PER_INTEGRATION,
               ],
               ["E2E", state.e2e, e2ePct.toFixed(1), state.e2e * COST_PER_E2E],
-              ["Total", total, "100.0", costEstimate],
+              ["Total", total, total === 0 ? "0.0" : "100.0", costEstimate],
             ],
           }}
           jsonData={state}
@@ -262,15 +294,11 @@ export function TestPyramidClient() {
           </Label>
           <Textarea
             id="pyramid-description"
+            ref={descRef}
             rows={2}
-            value={state.description ?? ""}
-            onChange={(e) => {
-              const next = e.target.value;
-              setState((s) => ({
-                ...s,
-                description: next.trim() ? next : undefined,
-              }));
-            }}
+            value={descDraft}
+            onChange={(e) => setDescDraft(e.target.value)}
+            onBlur={commitDescription}
             placeholder="Repo, snapshot date, framework notes..."
             className="bg-bg border-border text-sm"
           />

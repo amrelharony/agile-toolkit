@@ -93,13 +93,22 @@ const STATUS_OPTIONS: { value: Status; label: string }[] = [
 
 function dayDiff(fromIso: string, toIso?: string): number {
   const m1 = /^(\d{4})-(\d{2})-(\d{2})/.exec(fromIso);
-  if (!m1) return 0;
-  const from = new Date(Number(m1[1]), Number(m1[2]) - 1, Number(m1[3])).getTime();
+  let from: number;
+  if (m1) {
+    from = new Date(Number(m1[1]), Number(m1[2]) - 1, Number(m1[3])).getTime();
+  } else {
+    from = Date.parse(fromIso);
+    if (Number.isNaN(from)) return 0;
+  }
   let to: number;
   if (toIso) {
     const m2 = /^(\d{4})-(\d{2})-(\d{2})/.exec(toIso);
-    if (!m2) return 0;
-    to = new Date(Number(m2[1]), Number(m2[2]) - 1, Number(m2[3])).getTime();
+    if (m2) {
+      to = new Date(Number(m2[1]), Number(m2[2]) - 1, Number(m2[3])).getTime();
+    } else {
+      to = Date.parse(toIso);
+      if (Number.isNaN(to)) return 0;
+    }
   } else {
     const now = new Date();
     to = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -263,7 +272,14 @@ export function A11yTrackerClient() {
       if (i.resolvedAt) dateSet.add(i.resolvedAt);
     }
     dateSet.add(todayLocalISO());
-    const dates = Array.from(dateSet).sort();
+    let dates = Array.from(dateSet).sort();
+    // Empty-state buffer: if only one tick, prepend "today minus 7 days" so
+    // the line chart isn't a single dot.
+    if (dates.length < 2) {
+      const now = new Date();
+      const seven = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+      dates = [todayLocalISO(seven), ...dates];
+    }
     return dates.map((d) => {
       const counts: Record<Severity, number> = {
         critical: 0,

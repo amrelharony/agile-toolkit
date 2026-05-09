@@ -29,6 +29,7 @@ export function generateRunbookScorerPrompts(data: {
       "Tested",
       "Hygiene",
       "Last reviewed",
+      "Description",
     ],
     data.runbooks.slice(0, 20).map((r) => [
       r.name,
@@ -38,6 +39,7 @@ export function generateRunbookScorerPrompts(data: {
       r.testedRecently ? "yes" : "no",
       r.hygiene.toFixed(2),
       r.lastReviewedAt ?? "—",
+      (r.description ?? "—").slice(0, 80),
     ])
   );
 

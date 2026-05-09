@@ -21,7 +21,7 @@ export function generateRiskiestAssumptionPrompts(data: {
     .sort((x, y) => y.score - x.score);
 
   const table = formatTable(
-    ["Statement", "Risk", "Evidence", "Status", "Test idea"],
+    ["Statement", "Risk", "Evidence", "Status", "Test idea", "Description"],
     ranked
       .slice(0, 20)
       .map(({ a }) => [
@@ -30,6 +30,7 @@ export function generateRiskiestAssumptionPrompts(data: {
         a.evidenceLevel,
         a.status,
         (a.testIdea ?? "—").slice(0, 60),
+        (a.description ?? "—").slice(0, 80),
       ])
   );
 

@@ -143,15 +143,19 @@ export function VulnBurndownClient() {
   const [owner, setOwner] = useState("");
   const [description, setDescription] = useState("");
 
-  // When severity changes, default SLA target — but never overwrite a user
-  // edit. We snap to default whenever the previous value matched the default.
+  // Track explicit user edits to SLA so severity-change auto-snap doesn't
+  // clobber an intentional value. The previous heuristic (compare to set of
+  // default values) collided whenever a user picked a value that happened to
+  // match another severity's default (e.g. typed 30 under "low").
+  const slaUserModifiedRef = useRef(false);
+
   useEffect(() => {
-    setSlaDraft((d) => {
-      const n = Number(d);
-      const wasDefault = Object.values(SEVERITY_DEFAULT_SLA).includes(n);
-      if (!d || wasDefault) return String(SEVERITY_DEFAULT_SLA[severity]);
-      return d;
-    });
+    const wasModified = slaUserModifiedRef.current;
+    // Reset the ref so the next severity change can auto-snap again unless
+    // the user re-edits in between.
+    slaUserModifiedRef.current = false;
+    if (wasModified) return;
+    setSlaDraft(String(SEVERITY_DEFAULT_SLA[severity]));
   }, [severity]);
 
   const addVuln = () => {
@@ -189,20 +193,22 @@ export function VulnBurndownClient() {
 
   const setStatus = (id: string, status: Status) => {
     const prev = state.vulns.find((v) => v.id === id);
-    update(id, {
-      status,
-      resolvedAt:
-        status === "resolved"
-          ? prev?.resolvedAt ?? todayLocalISO()
-          : status === "accepted"
-            ? prev?.resolvedAt
-            : undefined,
-    });
+    // Only "resolved" carries a resolution timestamp. "accepted" is a risk
+    // decision, not a fix, so it should NOT inherit a resolvedAt — and any
+    // other transition clears the timestamp explicitly.
+    const resolvedAt =
+      status === "resolved"
+        ? prev?.resolvedAt ?? todayLocalISO()
+        : undefined;
+    update(id, { status, resolvedAt });
     if (status === "resolved") {
+      const stamp = prev?.resolvedAt ?? todayLocalISO();
       log(VULN_ACTIONS.VULN_RESOLVED, {
         vulnId: id,
         cve: prev?.cve,
-        ageDays: prev ? ageDays({ ...prev, status, resolvedAt: todayLocalISO() }) : undefined,
+        ageDays: prev
+          ? ageDays({ ...prev, status, resolvedAt: stamp })
+          : undefined,
       });
     } else {
       log(VULN_ACTIONS.VULN_UPDATED, { vulnId: id, fields: ["status"] });
@@ -418,10 +424,15 @@ export function VulnBurndownClient() {
               type="text"
               inputMode="numeric"
               value={slaDraft}
-              onChange={(e) => setSlaDraft(e.target.value)}
+              onChange={(e) => {
+                slaUserModifiedRef.current = true;
+                setSlaDraft(e.target.value);
+              }}
               onBlur={() => {
                 const n = Number(slaDraft);
                 if (!Number.isFinite(n) || n < 1) {
+                  // Reset to severity default and treat as unmodified again.
+                  slaUserModifiedRef.current = false;
                   setSlaDraft(String(SEVERITY_DEFAULT_SLA[severity]));
                 } else {
                   setSlaDraft(String(Math.round(n)));

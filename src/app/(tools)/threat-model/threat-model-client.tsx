@@ -102,17 +102,41 @@ const STATUS_OPTIONS: { value: Status; label: string }[] = [
 function useDraftField(value: string, commit: (next: string) => void) {
   const [draft, setDraft] = useState(value);
   const lastRef = useRef(value);
+  const draftRef = useRef(value);
+  const inputRef = useRef<HTMLElement | null>(null);
+  const commitRef = useRef(commit);
   useEffect(() => {
+    commitRef.current = commit;
+  }, [commit]);
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+  useEffect(() => {
+    // Skip the resync if the user is currently typing into this field —
+    // mid-edit clobbering would wipe in-progress text. We also skip if the
+    // upstream value already matches what we last committed.
+    const active = typeof document !== "undefined" ? document.activeElement : null;
+    if (inputRef.current && active === inputRef.current) return;
+    if (value === lastRef.current) return;
     setDraft(value);
     lastRef.current = value;
   }, [value]);
+  // On unmount, flush any uncommitted draft so unmounting the row (e.g. via
+  // re-sort) doesn't lose typing.
+  useEffect(() => {
+    return () => {
+      if (draftRef.current !== lastRef.current) {
+        commitRef.current(draftRef.current);
+      }
+    };
+  }, []);
   const onBlur = () => {
     if (draft !== lastRef.current) {
       lastRef.current = draft;
       commit(draft);
     }
   };
-  return { draft, setDraft, onBlur };
+  return { draft, setDraft, onBlur, inputRef };
 }
 
 /* ── Per-row card ────────────────────────────────────────────────────────── */
@@ -169,14 +193,14 @@ function ThreatRow({
             onValueChange={(v) => {
               const status = v as Status;
               const patch: Partial<Threat> = { status };
+              // Preserve mitigatedAt on transitions out of "mitigated" — the
+              // historical timestamp is meaningful even if we re-open the
+              // threat later. Only stamp on first transition in.
               if (status === "mitigated" && !t.mitigatedAt) {
                 patch.mitigatedAt = todayLocalISO();
               }
-              if (status !== "mitigated") {
-                patch.mitigatedAt = undefined;
-              }
               update(t.id, patch);
-              logUpdate(t.id, ["status"]);
+              logUpdate(t.id, Object.keys(patch));
             }}
           >
             <SelectTrigger
@@ -204,6 +228,7 @@ function ThreatRow({
           </Button>
         </div>
         <Textarea
+          ref={mitigation.inputRef as React.RefObject<HTMLTextAreaElement>}
           rows={2}
           value={mitigation.draft}
           onChange={(e) => mitigation.setDraft(e.target.value)}
@@ -212,6 +237,7 @@ function ThreatRow({
           className="bg-bg border-border text-sm"
         />
         <Textarea
+          ref={description.inputRef as React.RefObject<HTMLTextAreaElement>}
           rows={2}
           value={description.draft}
           onChange={(e) => description.setDraft(e.target.value)}

@@ -56,6 +56,18 @@ const DEFAULT_STATE: CrState = { samples: [] };
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 
+/**
+ * Hours between an "opened" and "merged" timestamp.
+ *
+ * Both args may be:
+ *   - "datetime-local" form values (e.g. "2026-05-09T14:30") — parsed as local
+ *     time by `new Date()`.
+ *   - ISO 8601 with explicit Z / offset (e.g. "2026-05-09T14:30:00Z") — parsed
+ *     as UTC by `new Date()`.
+ *
+ * Both yield the same elapsed-hours delta because we subtract the two epoch ms
+ * values, so mixing the two formats inside a dataset is safe.
+ */
 function hoursBetween(opened: string, merged?: string): number | null {
   if (!merged) return null;
   const a = new Date(opened).getTime();
@@ -99,22 +111,33 @@ function parseCsvRow(line: string): string[] {
   return out.map((c) => c.trim());
 }
 
+interface ParseResult {
+  samples: PrSample[];
+  skipped: number;
+}
+
 /**
- * Parse a CSV blob. Supports an optional header row (detected by checking if
- * the first row's "linesChanged" cell is non-numeric). Required columns:
+ * Parse a CSV blob. Supports an optional header row (detected by the presence
+ * of a recognizable text header). Required columns:
  *   prNumber, author, openedAt, mergedAt, reviewerCount, commentCount, linesChanged, description
+ *
+ * When a header row is present, ONLY header indices are used. Missing required
+ * columns throw a descriptive error so the caller can surface a toast — no
+ * positional fallback, because that silently misroutes data.
+ *
+ * When no header is present, positional indices are used.
  */
-function parseCsv(csv: string): PrSample[] {
+function parseCsv(csv: string): ParseResult {
   const lines = csv
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
-  if (lines.length === 0) return [];
+  if (lines.length === 0) return { samples: [], skipped: 0 };
 
-  // If first row has any non-numeric in numeric columns, treat as header.
   const firstCells = parseCsvRow(lines[0]);
-  const headerIndex: Record<string, number> = {};
   let bodyStart = 0;
+  let useHeader = false;
+  const headerIndex: Record<string, number> = {};
   if (
     firstCells.length >= 7 &&
     firstCells.some((c) => /author|opened|merged|review/i.test(c))
@@ -123,36 +146,83 @@ function parseCsv(csv: string): PrSample[] {
       headerIndex[cell.toLowerCase().replace(/\s+/g, "")] = i;
     });
     bodyStart = 1;
+    useHeader = true;
   }
 
-  const idxOr = (
-    name: string,
-    defaultIdx: number
-  ): number => {
-    const k = name.toLowerCase();
-    return headerIndex[k] ?? defaultIdx;
-  };
+  const REQUIRED = [
+    { key: "author", label: "author" },
+    { key: "openedat", label: "openedAt" },
+    { key: "reviewercount", label: "reviewerCount" },
+    { key: "commentcount", label: "commentCount" },
+    { key: "lineschanged", label: "linesChanged" },
+  ] as const;
+
+  let idxPrNumber: number | undefined;
+  let idxAuthor: number;
+  let idxOpenedAt: number;
+  let idxMergedAt: number | undefined;
+  let idxReviewers: number;
+  let idxComments: number;
+  let idxLines: number;
+  let idxDescription: number | undefined;
+
+  if (useHeader) {
+    for (const { key, label } of REQUIRED) {
+      if (headerIndex[key] === undefined) {
+        throw new Error(`CSV header missing required column: ${label}`);
+      }
+    }
+    idxPrNumber = headerIndex.prnumber;
+    idxAuthor = headerIndex.author!;
+    idxOpenedAt = headerIndex.openedat!;
+    idxMergedAt = headerIndex.mergedat;
+    idxReviewers = headerIndex.reviewercount!;
+    idxComments = headerIndex.commentcount!;
+    idxLines = headerIndex.lineschanged!;
+    idxDescription = headerIndex.description;
+  } else {
+    idxPrNumber = 0;
+    idxAuthor = 1;
+    idxOpenedAt = 2;
+    idxMergedAt = 3;
+    idxReviewers = 4;
+    idxComments = 5;
+    idxLines = 6;
+    idxDescription = 7;
+  }
 
   const out: PrSample[] = [];
+  let skipped = 0;
   for (let i = bodyStart; i < lines.length; i++) {
     const cells = parseCsvRow(lines[i]);
-    if (cells.length < 6) continue;
-    const prNumber = (cells[idxOr("prnumber", 0)] ?? "").trim();
-    const author = (cells[idxOr("author", 1)] ?? "").trim();
-    const openedAt = (cells[idxOr("openedat", 2)] ?? "").trim();
-    const mergedAt = (cells[idxOr("mergedat", 3)] ?? "").trim();
-    const reviewers = Number(cells[idxOr("reviewercount", 4)] ?? "0");
-    const comments = Number(cells[idxOr("commentcount", 5)] ?? "0");
-    const lines_ = Number(cells[idxOr("lineschanged", 6)] ?? "0");
-    const description = (cells[idxOr("description", 7)] ?? "").trim();
-    if (!author || !openedAt) continue;
+    if (cells.length < 6) {
+      skipped++;
+      continue;
+    }
+    const prNumber = (idxPrNumber !== undefined ? cells[idxPrNumber] ?? "" : "").trim();
+    const author = (cells[idxAuthor] ?? "").trim();
+    const openedAt = (cells[idxOpenedAt] ?? "").trim();
+    const mergedAt = (idxMergedAt !== undefined ? cells[idxMergedAt] ?? "" : "").trim();
+    const reviewers = Number(cells[idxReviewers] ?? "0");
+    const comments = Number(cells[idxComments] ?? "0");
+    const lines_ = Number(cells[idxLines] ?? "0");
+    const description = (idxDescription !== undefined ? cells[idxDescription] ?? "" : "").trim();
+    if (!author || !openedAt) {
+      skipped++;
+      continue;
+    }
     if (!Number.isFinite(reviewers) || !Number.isFinite(comments) || !Number.isFinite(lines_)) {
+      skipped++;
       continue;
     }
     out.push({
       id: crypto.randomUUID(),
       prNumber: prNumber || undefined,
       author,
+      // openedAt/mergedAt: when entered via the form's <Input type="datetime-local">
+      // the value is local-time (no Z suffix) like "2026-05-09T14:30". CSV imports
+      // may use ISO 8601 with or without a Z; new Date(...) handles both, treating
+      // the no-Z variant as local — matching the form's behavior.
       openedAt,
       mergedAt: mergedAt || undefined,
       reviewerCount: Math.max(0, Math.round(reviewers)),
@@ -161,7 +231,7 @@ function parseCsv(csv: string): PrSample[] {
       description: description || undefined,
     });
   }
-  return out;
+  return { samples: out, skipped };
 }
 
 /* ── Main client ────────────────────────────────────────────────────────── */
@@ -228,17 +298,25 @@ export function CodeReviewMetricsClient() {
 
   const importCsv = () => {
     if (!csvDraft.trim()) return;
-    const parsed = parseCsv(csvDraft);
-    if (parsed.length === 0) {
+    let result: ParseResult;
+    try {
+      result = parseCsv(csvDraft);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "CSV parse failed");
+      return;
+    }
+    if (result.samples.length === 0) {
       toast.error("No valid rows parsed — check headers and number columns");
       return;
     }
-    setState((s) => ({ samples: [...s.samples, ...parsed] }));
+    setState((s) => ({ samples: [...s.samples, ...result.samples] }));
     log(CODE_REVIEW_ACTIONS.PR_LOGGED, {
       bulk: true,
-      count: parsed.length,
+      count: result.samples.length,
+      skipped: result.skipped,
     });
-    toast.success(`Imported ${parsed.length} PR(s)`);
+    const skipNote = result.skipped > 0 ? ` (${result.skipped} skipped)` : "";
+    toast.success(`Imported ${result.samples.length} PR(s)${skipNote}`);
     setCsvDraft("");
   };
 
@@ -563,11 +641,16 @@ export function CodeReviewMetricsClient() {
 
       {topAuthors.length > 0 && (
         <ChartCard
-          title="Top contributors by comment volume"
+          title="Top PR authors by comments received"
           icon={MessageSquare}
           height={260}
           className="mb-6"
         >
+          <div className="text-[11px] text-sub px-1 mb-2">
+            Measures comments left on each author&apos;s PRs — not reviews-given.
+            Reviewer-level credit isn&apos;t available because comments are
+            logged at the PR level only.
+          </div>
           <BarChart
             data={topAuthors}
             margin={{ top: 10, right: 16, left: 0, bottom: 10 }}

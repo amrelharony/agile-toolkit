@@ -76,6 +76,14 @@ interface Release {
   status: ReleaseStatus;
   shippedDate?: string;
   gates: Record<GateId, boolean>;
+  /**
+   * Snapshot of gates that were *not* passing at the moment of shipping.
+   * Captured before the all-pass precondition is enforced so that future
+   * stats ("avg gates open at ship") stay meaningful even when policy
+   * changes (e.g. allowing partial-pass ship). Optional for backward
+   * compatibility with older persisted data.
+   */
+  gatesOpenAtShip?: number;
   description?: string;
 }
 
@@ -163,11 +171,19 @@ export function ReleaseReadinessClient() {
   const ship = (id: string) => {
     const release = state.releases.find((r) => r.id === id);
     if (!release) return;
-    if (!GATES.every((g) => release.gates[g.id])) return;
+    // Snapshot the open-gate count *before* the all-pass guard so the field
+    // is meaningful even if future versions allow partial-pass shipping.
+    const openAtShip = GATES.filter((g) => !release.gates[g.id]).length;
+    if (openAtShip > 0) return;
     setState((s) => ({
       releases: s.releases.map((r) =>
         r.id === id
-          ? { ...r, status: "shipped", shippedDate: todayIso() }
+          ? {
+              ...r,
+              status: "shipped",
+              shippedDate: todayIso(),
+              gatesOpenAtShip: openAtShip,
+            }
           : r
       ),
     }));
@@ -175,6 +191,7 @@ export function ReleaseReadinessClient() {
       releaseId: id,
       name: release.name,
       plannedDate: release.plannedDate,
+      gatesOpenAtShip: openAtShip,
     });
   };
 
@@ -184,9 +201,22 @@ export function ReleaseReadinessClient() {
         r.id === id ? { ...r, status: "rolled_back" } : r
       ),
     }));
+    log(RELEASE_READINESS_ACTIONS.RELEASE_ROLLED_BACK, {
+      releaseId: id,
+    });
+  };
+
+  const reopenForPlanning = (id: string) => {
+    setState((s) => ({
+      releases: s.releases.map((r) =>
+        r.id === id
+          ? { ...r, status: "planning", shippedDate: undefined }
+          : r
+      ),
+    }));
     log(RELEASE_READINESS_ACTIONS.RELEASE_ADDED, {
       releaseId: id,
-      status: "rolled_back",
+      reopened: true,
     });
   };
 
@@ -206,8 +236,13 @@ export function ReleaseReadinessClient() {
 
   const avgGatesOpen = useMemo(() => {
     if (shipped.length === 0) return null;
+    // Use the at-ship snapshot when present; fall back to the live gate
+    // count for releases shipped before the snapshot field existed.
     const sum = shipped.reduce(
-      (acc, r) => acc + GATES.filter((g) => !r.gates[g.id]).length,
+      (acc, r) =>
+        acc +
+        (r.gatesOpenAtShip ??
+          GATES.filter((g) => !r.gates[g.id]).length),
       0
     );
     return sum / shipped.length;
@@ -406,6 +441,7 @@ export function ReleaseReadinessClient() {
               onToggleGate={(gate, val) => toggleGate(r.id, gate, val)}
               onShip={() => ship(r.id)}
               onRollBack={() => markRolledBack(r.id)}
+              onReopen={() => reopenForPlanning(r.id)}
               onRemove={() => removeRelease(r.id)}
             />
           ))}
@@ -454,12 +490,14 @@ function ReleaseCard({
   onToggleGate,
   onShip,
   onRollBack,
+  onReopen,
   onRemove,
 }: {
   release: Release;
   onToggleGate: (gate: GateId, value: boolean) => void;
   onShip: () => void;
   onRollBack: () => void;
+  onReopen: () => void;
   onRemove: () => void;
 }) {
   const passed = GATES.filter((g) => release.gates[g.id]).length;
@@ -571,6 +609,17 @@ function ReleaseCard({
             >
               <Undo2 className="w-4 h-4 mr-1" aria-hidden="true" /> Mark rolled
               back
+            </Button>
+          )}
+          {release.status === "rolled_back" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onReopen}
+              className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
+            >
+              <Undo2 className="w-4 h-4 mr-1" aria-hidden="true" /> Reopen for
+              planning
             </Button>
           )}
           {!allPassed && release.status === "planning" && (

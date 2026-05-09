@@ -124,12 +124,12 @@ export function RfcTrackerClient() {
       prev.map((r) => {
         if (r.id !== id) return r;
         const next: Rfc = { ...r, status };
+        // R-STATUS-PRESERVE: stamp decidedAt on first transition to "decided",
+        // but never clear it on transition out — preserves the historical
+        // record (e.g. if a decided RFC is re-opened to "in_review").
         if (status === "decided" && !r.decidedAt) {
           next.decidedAt = todayLocalISO();
           logged = true;
-        }
-        if (status !== "decided") {
-          next.decidedAt = undefined;
         }
         return next;
       })
@@ -154,7 +154,7 @@ export function RfcTrackerClient() {
     setRfcs((prev) =>
       prev.map((r) =>
         r.id === id
-          ? r.reviewers.includes(name)
+          ? r.reviewers.some((x) => x.toLowerCase() === name.toLowerCase())
             ? r
             : { ...r, reviewers: [...r.reviewers, name] }
           : r
@@ -211,7 +211,9 @@ export function RfcTrackerClient() {
     } catch {
       existing = [];
     }
-    if (existing.find((d) => d.title === rfc.title)) {
+    if (
+      existing.find((d) => d.title.toLowerCase() === rfc.title.toLowerCase())
+    ) {
       toast.error("A decision with this title already exists in the log.");
       return;
     }
@@ -226,9 +228,18 @@ export function RfcTrackerClient() {
       date: rfc.decidedAt ?? todayLocalISO(),
     };
     try {
-      window.localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify([decision, ...existing])
+      const updated = [decision, ...existing];
+      const serialized = JSON.stringify(updated);
+      window.localStorage.setItem(STORAGE_KEY, serialized);
+      // Decision Log lives in another tab/route under usePersisted, which
+      // only listens to native `storage` events (cross-tab). Same-tab writes
+      // don't fire one — dispatch a synthetic event so an open Decision Log
+      // page picks up the new entry without a manual refresh.
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: STORAGE_KEY,
+          newValue: serialized,
+        })
       );
       toast.success("Pushed to Decision Log");
     } catch {

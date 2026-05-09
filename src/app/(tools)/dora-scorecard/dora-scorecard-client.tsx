@@ -56,28 +56,31 @@ const BAND_TONE: Record<Band, "success" | "default" | "warning" | "danger"> = {
 };
 
 /* ── Banding helpers ────────────────────────────────────────────────────── */
+// Per Accelerate / DORA 2023 report. Upper bounds are inclusive (`<=`) so
+// boundary values (e.g. exactly 24h lead time) fall into the better band.
 function bandDeploy(perWeek: number): Band {
-  // Elite: at least daily (≥7/wk). High: weekly. Medium: monthly (~0.25/wk).
-  if (perWeek >= 7) return "Elite";
+  // Elite: multiple per day (≥30/wk). High: between weekly and daily.
+  // Medium: between monthly (~0.25/wk) and weekly. Low: less than monthly.
+  if (perWeek >= 30) return "Elite";
   if (perWeek >= 1) return "High";
   if (perWeek >= 0.25) return "Medium";
   return "Low";
 }
 function bandLead(hours: number): Band {
-  if (hours < 1) return "Elite";
-  if (hours < 24) return "High";
+  if (hours <= 1) return "Elite";
+  if (hours <= 24) return "High";
   if (hours <= 24 * 7) return "Medium";
   return "Low";
 }
 function bandCfr(rate: number): Band {
-  if (rate < 0.15) return "Elite";
+  if (rate <= 0.15) return "Elite";
   if (rate <= 0.30) return "High";
   if (rate <= 0.45) return "Medium";
   return "Low";
 }
 function bandMttr(hours: number): Band {
-  if (hours < 1) return "Elite";
-  if (hours < 24) return "High";
+  if (hours <= 1) return "Elite";
+  if (hours <= 24) return "High";
   if (hours <= 24 * 7) return "Medium";
   return "Low";
 }
@@ -356,10 +359,21 @@ export function DoraScorecardClient() {
           <LineChart data={chartData} margin={{ top: 8, right: 12, left: -16, bottom: 4 }}>
             <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
             <XAxis dataKey="quarter" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
-            <YAxis tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
+            {/* Left axis: deploy frequency (per week) and lead time (hours). */}
+            <YAxis
+              yAxisId="left"
+              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+            />
+            {/* Right axis: CFR (%) and MTTR (hours) — distinct scales/units. */}
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+            />
             <Tooltip contentStyle={chartTheme.tooltipStyle} />
             <Legend wrapperStyle={chartTheme.legendStyle} />
             <Line
+              yAxisId="left"
               type="monotone"
               dataKey="deployFreqPerWeek"
               name="Deploy/wk"
@@ -368,6 +382,7 @@ export function DoraScorecardClient() {
               dot={{ r: 3 }}
             />
             <Line
+              yAxisId="left"
               type="monotone"
               dataKey="leadTimeHours"
               name="Lead (h)"
@@ -376,6 +391,7 @@ export function DoraScorecardClient() {
               dot={{ r: 3 }}
             />
             <Line
+              yAxisId="right"
               type="monotone"
               dataKey="changeFailRatePct"
               name="CFR (%)"
@@ -384,6 +400,7 @@ export function DoraScorecardClient() {
               dot={{ r: 3 }}
             />
             <Line
+              yAxisId="right"
               type="monotone"
               dataKey="mttrHours"
               name="MTTR (h)"

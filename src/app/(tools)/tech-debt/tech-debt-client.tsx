@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -53,6 +53,52 @@ function ageDays(item: TechDebtItem): number {
 function priorityScore(item: TechDebtItem): number {
   const interest = (item.interestRate ?? 0) * ageDays(item);
   return item.impact * 4 - item.effort + interest * 0.5;
+}
+
+/**
+ * Inline-edit description with local draft state. Avoids the
+ * per-keystroke pattern that would (a) write to localStorage on every
+ * character and (b) flood the history log with ITEM_UPDATED events. We
+ * commit on blur, only firing the upstream update if the value actually
+ * changed since the last commit.
+ */
+function DescriptionEditor({
+  value,
+  commit,
+}: {
+  value: string;
+  commit: (next: string | undefined) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const lastCommittedRef = useRef(value);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (
+      typeof document !== "undefined" &&
+      document.activeElement === inputRef.current
+    ) {
+      return;
+    }
+    if (value === lastCommittedRef.current) return;
+    setDraft(value);
+    lastCommittedRef.current = value;
+  }, [value]);
+  return (
+    <Textarea
+      ref={inputRef}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (draft === lastCommittedRef.current) return;
+        lastCommittedRef.current = draft;
+        commit(draft.trim() ? draft : undefined);
+      }}
+      placeholder="Description (optional)..."
+      rows={2}
+      className="bg-bg border-border resize-none text-xs"
+      aria-label="Debt item description"
+    />
+  );
 }
 
 export function TechDebtClient() {
@@ -258,13 +304,9 @@ export function TechDebtClient() {
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
               </div>
-              <Textarea
+              <DescriptionEditor
                 value={i.description ?? ""}
-                onChange={(e) => update(i.id, { description: e.target.value.trim() ? e.target.value : undefined })}
-                placeholder="Description (optional)..."
-                rows={2}
-                className="bg-bg border-border resize-none text-xs"
-                aria-label="Debt item description"
+                commit={(next) => update(i.id, { description: next })}
               />
             </CardContent>
           </Card>

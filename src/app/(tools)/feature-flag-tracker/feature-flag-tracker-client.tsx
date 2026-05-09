@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -85,8 +85,20 @@ const PURPOSE_LABEL: Record<FlagPurpose, string> = {
 
 const STALE_DAYS = 90;
 
+/**
+ * Parse a `YYYY-MM-DD` string as a *local* date (midnight local time).
+ * Avoids `new Date(iso)` which interprets bare date strings as UTC and so
+ * shifts the day back/forward depending on the user's timezone.
+ */
+function parseLocalDate(iso: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
 function ageDays(iso: string): number {
-  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  const d = parseLocalDate(iso) ?? new Date(iso);
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
 }
 
 function isStale(f: Flag): boolean {
@@ -107,6 +119,14 @@ export function FeatureFlagTrackerClient() {
   const [environment, setEnvironment] = useState<FlagEnv>("prod");
   const [purpose, setPurpose] = useState<FlagPurpose>("rollout");
   const [description, setDescription] = useState("");
+
+  // Hourly tick so `Date.now()`-derived ages (and the stale flag) refresh
+  // when the page is left open across midnight without requiring a reload.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 3600_000);
+    return () => clearInterval(id);
+  }, []);
 
   const addFlag = () => {
     const trimmed = name.trim();
@@ -172,7 +192,12 @@ export function FeatureFlagTrackerClient() {
     const quarterStart = new Date(now.getFullYear(), quarter * 3, 1).getTime();
     const retiredThisQuarter = flags.filter((f) => {
       if (!f.retiredAt) return false;
-      return new Date(f.retiredAt).getTime() >= quarterStart;
+      // Parse `retiredAt` as a local date so it lines up with `quarterStart`
+      // (also computed in local time). Using `new Date(iso)` would treat a
+      // bare YYYY-MM-DD as UTC and could miscount near quarter boundaries.
+      const retired = parseLocalDate(f.retiredAt);
+      if (!retired) return false;
+      return retired.getTime() >= quarterStart;
     }).length;
     const byPurpose: Record<FlagPurpose, number> = {
       rollout: 0,

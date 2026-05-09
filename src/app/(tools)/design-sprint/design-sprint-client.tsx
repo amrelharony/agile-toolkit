@@ -34,6 +34,7 @@ import { generateDesignSprintPrompts } from "@/lib/ai-prompts/design-sprint";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DESIGN_SPRINT_ACTIONS } from "@/lib/history/event-actions";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 type DayNumber = 1 | 2 | 3 | 4 | 5;
 
@@ -126,8 +127,10 @@ function buildDays(): DaySection[] {
   }));
 }
 
+/** Local-time YYYY-MM-DD; replaces the prior `new Date().toISOString().slice(0,10)`
+ * which silently rolled to the *next* day after ~16:00 in west-of-UTC zones. */
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayLocalISO();
 }
 
 export function DesignSprintClient() {
@@ -251,6 +254,10 @@ export function DesignSprintClient() {
 
   const setTaskOwner = (dayNum: DayNumber, taskId: string, ownerRaw: string) => {
     const owner = ownerRaw.trim() || undefined;
+    if (!state.sprint) return;
+    const day = state.sprint.days.find((x) => x.day === dayNum);
+    const task = day?.tasks.find((t) => t.id === taskId);
+    if (task && task.owner === owner) return;
     setState((s) =>
       s.sprint
         ? {
@@ -270,6 +277,13 @@ export function DesignSprintClient() {
           }
         : s
     );
+    log(DESIGN_SPRINT_ACTIONS.TASK_OWNER_ASSIGNED, {
+      sprintId: state.sprint.id,
+      day: dayNum,
+      taskId,
+      text: task?.text,
+      owner: owner ?? null,
+    });
   };
 
   const addTask = (dayNum: DayNumber) => {
@@ -459,9 +473,17 @@ export function DesignSprintClient() {
         <ExportButton
           filename={`design-sprint-${state.sprint.name.replace(/\W+/g, "-")}`}
           csvData={{
-            headers: ["Day", "Phase", "Task", "Done", "Owner"],
+            headers: [
+              "Sprint Description",
+              "Day",
+              "Phase",
+              "Task",
+              "Done",
+              "Owner",
+            ],
             rows: state.sprint.days.flatMap((d) =>
               d.tasks.map((t) => [
+                (state.sprint?.description ?? "").replace(/\r?\n/g, " "),
                 `Day ${d.day}`,
                 d.dayName,
                 t.text,
@@ -638,9 +660,13 @@ export function DesignSprintClient() {
                         {t.text}
                       </div>
                       <Select
-                        value={t.owner ?? "__none"}
+                        value={t.owner ?? "__OWNER_NONE__"}
                         onValueChange={(v) =>
-                          setTaskOwner(day.day, t.id, v === "__none" ? "" : v)
+                          setTaskOwner(
+                            day.day,
+                            t.id,
+                            v === "__OWNER_NONE__" ? "" : v
+                          )
                         }
                       >
                         <SelectTrigger
@@ -650,7 +676,7 @@ export function DesignSprintClient() {
                           <SelectValue placeholder="Owner" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__none">No owner</SelectItem>
+                          <SelectItem value="__OWNER_NONE__">No owner</SelectItem>
                           {[state.sprint!.decider, state.sprint!.facilitator]
                             .filter((n): n is string => Boolean(n))
                             .map((n) => (

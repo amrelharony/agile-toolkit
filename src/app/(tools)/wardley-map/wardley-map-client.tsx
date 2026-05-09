@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -83,11 +83,25 @@ interface NumDraftInputProps {
  */
 function NumDraftInput({ value, onCommit, ariaLabel }: NumDraftInputProps) {
   const [draft, setDraft] = useState(value.toFixed(2));
+  const inputRef = useRef<HTMLInputElement>(null);
+  const lastCommittedRef = useRef(value);
   useEffect(() => {
+    // Don't clobber the user's in-progress typing. If the field is focused,
+    // we trust the local draft until blur. Also skip syncing when the
+    // upstream value already matches what we last committed.
+    if (
+      typeof document !== "undefined" &&
+      document.activeElement === inputRef.current
+    ) {
+      return;
+    }
+    if (value === lastCommittedRef.current) return;
     setDraft(value.toFixed(2));
+    lastCommittedRef.current = value;
   }, [value]);
   return (
     <Input
+      ref={inputRef}
       type="number"
       min={0}
       max={1}
@@ -97,6 +111,7 @@ function NumDraftInput({ value, onCommit, ariaLabel }: NumDraftInputProps) {
       onBlur={() => {
         const parsed = Number(draft);
         const next = Number.isFinite(parsed) ? clamp01(parsed) : value;
+        lastCommittedRef.current = next;
         onCommit(next);
         setDraft(next.toFixed(2));
       }}
@@ -507,7 +522,10 @@ export function WardleyMapClient() {
                     setDraft((d) => ({ ...d, evolution: e.target.value }))
                   }
                   onBlur={(e) => {
-                    const v = clamp01(Number(e.target.value) || 0.5);
+                    // `Number(x) || 0.5` collapses 0 to 0.5 — use Number.isFinite
+                    // so a deliberate 0 (Genesis) survives.
+                    const n = Number(e.target.value);
+                    const v = clamp01(Number.isFinite(n) ? n : 0.5);
                     setDraft((d) => ({ ...d, evolution: v.toFixed(2) }));
                   }}
                   className="bg-bg border-border font-data"
@@ -528,7 +546,10 @@ export function WardleyMapClient() {
                     setDraft((d) => ({ ...d, visibility: e.target.value }))
                   }
                   onBlur={(e) => {
-                    const v = clamp01(Number(e.target.value) || 0.5);
+                    // `Number(x) || 0.5` collapses 0 to 0.5 — use Number.isFinite
+                    // so a deliberate 0 (infrastructure) survives.
+                    const n = Number(e.target.value);
+                    const v = clamp01(Number.isFinite(n) ? n : 0.5);
                     setDraft((d) => ({ ...d, visibility: v.toFixed(2) }));
                   }}
                   className="bg-bg border-border font-data"

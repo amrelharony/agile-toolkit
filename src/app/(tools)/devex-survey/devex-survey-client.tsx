@@ -129,22 +129,23 @@ export function DevexSurveyClient() {
   }, [sorted]);
 
   // Distribution: per-dimension count at each score 1-5.
+  // Out-of-range values are dropped (not clamped into the 1 / 5 buckets) so
+  // a stray `flowState: 7` doesn't show up as an extra response with a 5.
   const distribution = useMemo(() => {
-    const buckets = [1, 2, 3, 4, 5].map((score) => ({
+    const inRange = (n: number) => Number.isInteger(n) && n >= 1 && n <= 5;
+    const count = (
+      pred: (r: (typeof sorted)[number]) => boolean
+    ): number => sorted.filter(pred).length;
+    return [1, 2, 3, 4, 5].map((score) => ({
       score: `${score}`,
-      flow: 0,
-      feedback: 0,
-      cognitive: 0,
+      flow: count((r) => inRange(r.flowState) && r.flowState === score),
+      feedback: count(
+        (r) => inRange(r.feedbackLoops) && r.feedbackLoops === score
+      ),
+      cognitive: count(
+        (r) => inRange(r.cognitiveLoad) && r.cognitiveLoad === score
+      ),
     }));
-    for (const r of sorted) {
-      const fIdx = Math.max(0, Math.min(4, r.flowState - 1));
-      const fbIdx = Math.max(0, Math.min(4, r.feedbackLoops - 1));
-      const cIdx = Math.max(0, Math.min(4, r.cognitiveLoad - 1));
-      buckets[fIdx].flow += 1;
-      buckets[fbIdx].feedback += 1;
-      buckets[cIdx].cognitive += 1;
-    }
-    return buckets;
   }, [sorted]);
 
   const promptConfig = useMemo(

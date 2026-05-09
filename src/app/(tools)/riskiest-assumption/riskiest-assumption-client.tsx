@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -131,7 +131,18 @@ export function RiskiestAssumptionClient() {
     description: "",
   });
   const [testCard, setTestCard] = useState<TestCard | null>(null);
+  const testCardRef = useRef<HTMLDivElement>(null);
   const { log } = useHistoryLogger("riskiest-assumption");
+
+  // Scroll the test card into view when the active assumption changes.
+  // Lives below the ranked list, so it's easy to miss off-screen.
+  useEffect(() => {
+    if (!testCard) return;
+    testCardRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+    });
+  }, [testCard?.assumption.id, testCard]);
 
   const addAssumption = () => {
     const statement = draft.statement.trim();
@@ -598,7 +609,10 @@ export function RiskiestAssumptionClient() {
 
       {/* Test card panel */}
       {testCard && (
-        <Card className="bg-surface border-accent/40 mt-6">
+        <Card
+          ref={testCardRef}
+          className="bg-surface border-accent/40 mt-6"
+        >
           <CardContent className="p-4 space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2 text-sm font-semibold text-text">

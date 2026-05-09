@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -251,9 +251,14 @@ export function IncidentCommanderClient() {
     [state.incidents]
   );
 
+  // Bucket `now` to the hour so avgMttr/bySeverity recompute only when the
+  // hour rolls over, not every 10s tick (which would invalidate downstream
+  // memos like promptConfig on every interval fire).
+  const nowHourBucket = Math.floor(now / 3600000);
+
   // Avg MTTR over the last 7 days of resolved incidents.
   const avgMttrHours = useMemo(() => {
-    const cutoff = now - 7 * 24 * 60 * 60 * 1000;
+    const cutoff = nowHourBucket * 3600000 - 7 * 24 * 60 * 60 * 1000;
     const samples = state.incidents
       .filter((i) => i.resolvedAt)
       .filter((i) => new Date(i.resolvedAt!).getTime() >= cutoff)
@@ -261,11 +266,11 @@ export function IncidentCommanderClient() {
       .filter((v): v is number => v !== null);
     if (samples.length === 0) return null;
     return samples.reduce((a, b) => a + b, 0) / samples.length;
-  }, [state.incidents, now]);
+  }, [state.incidents, nowHourBucket]);
 
   // Severity counts over the last 30 days.
   const bySeverity = useMemo<Record<Severity, number>>(() => {
-    const cutoff = now - 30 * 24 * 60 * 60 * 1000;
+    const cutoff = nowHourBucket * 3600000 - 30 * 24 * 60 * 60 * 1000;
     const counts: Record<Severity, number> = {
       sev1: 0,
       sev2: 0,
@@ -276,7 +281,7 @@ export function IncidentCommanderClient() {
       if (new Date(i.openedAt).getTime() >= cutoff) counts[i.severity] += 1;
     }
     return counts;
-  }, [state.incidents, now]);
+  }, [state.incidents, nowHourBucket]);
 
   const promptConfig = useMemo(
     () => ({
@@ -609,10 +614,28 @@ function ActiveIncidentCard({
   const [entryText, setEntryText] = useState("");
   const [commanderDraft, setCommanderDraft] = useState(incident.commander ?? "");
   const [scribeDraft, setScribeDraft] = useState(incident.scribe ?? "");
+  const commanderInputRef = useRef<HTMLInputElement>(null);
+  const scribeInputRef = useRef<HTMLInputElement>(null);
+  const lastCommanderRef = useRef(incident.commander ?? "");
+  const lastScribeRef = useRef(incident.scribe ?? "");
 
-  // Sync external changes into local draft (e.g. another tab edits the role).
-  useEffect(() => setCommanderDraft(incident.commander ?? ""), [incident.commander]);
-  useEffect(() => setScribeDraft(incident.scribe ?? ""), [incident.scribe]);
+  // Sync external changes into local draft (e.g. another tab edits the role),
+  // but only when the input isn't currently focused — otherwise we'd wipe
+  // mid-edit typing on every render that touches `incident`.
+  useEffect(() => {
+    const next = incident.commander ?? "";
+    if (document.activeElement === commanderInputRef.current) return;
+    if (next === lastCommanderRef.current) return;
+    setCommanderDraft(next);
+    lastCommanderRef.current = next;
+  }, [incident.commander]);
+  useEffect(() => {
+    const next = incident.scribe ?? "";
+    if (document.activeElement === scribeInputRef.current) return;
+    if (next === lastScribeRef.current) return;
+    setScribeDraft(next);
+    lastScribeRef.current = next;
+  }, [incident.scribe]);
 
   const elapsedMs =
     (incident.resolvedAt
@@ -698,11 +721,13 @@ function ActiveIncidentCard({
           <div>
             <Label className="text-xs text-sub">Commander</Label>
             <Input
+              ref={commanderInputRef}
               value={commanderDraft}
               onChange={(e) => setCommanderDraft(e.target.value)}
               onBlur={() => {
                 if (commanderDraft.trim() !== (incident.commander ?? "")) {
                   onAssignRole(incident.id, "commander", commanderDraft);
+                  lastCommanderRef.current = commanderDraft.trim();
                 }
               }}
               placeholder="Assign commander…"
@@ -712,11 +737,13 @@ function ActiveIncidentCard({
           <div>
             <Label className="text-xs text-sub">Scribe</Label>
             <Input
+              ref={scribeInputRef}
               value={scribeDraft}
               onChange={(e) => setScribeDraft(e.target.value)}
               onBlur={() => {
                 if (scribeDraft.trim() !== (incident.scribe ?? "")) {
                   onAssignRole(incident.id, "scribe", scribeDraft);
+                  lastScribeRef.current = scribeDraft.trim();
                 }
               }}
               placeholder="Assign scribe…"

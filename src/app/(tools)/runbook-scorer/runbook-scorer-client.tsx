@@ -73,10 +73,11 @@ function hygieneTone(value: number): "default" | "warning" | "danger" | "success
 interface RunbookDraft {
   name: string;
   owner: string;
+  description: string;
 }
 
 function emptyDraft(): RunbookDraft {
-  return { name: "", owner: "" };
+  return { name: "", owner: "", description: "" };
 }
 
 export function RunbookScorerClient() {
@@ -92,6 +93,7 @@ export function RunbookScorerClient() {
   const addRunbook = () => {
     const name = draft.name.trim();
     if (!name) return;
+    const description = draft.description.trim() || undefined;
     const runbook: Runbook = {
       id: crypto.randomUUID(),
       name,
@@ -99,12 +101,14 @@ export function RunbookScorerClient() {
       freshness: 3,
       completeness: 3,
       testedRecently: false,
+      description,
     };
     setState((s) => ({ runbooks: [runbook, ...s.runbooks] }));
     log(RUNBOOK_SCORER_ACTIONS.RUNBOOK_ADDED, {
       runbookId: runbook.id,
       name: runbook.name,
       owner: runbook.owner,
+      description,
     });
     setDraft(emptyDraft());
   };
@@ -190,7 +194,7 @@ export function RunbookScorerClient() {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(key);
-      setSortDir(key === "name" ? "asc" : "asc");
+      setSortDir("asc");
     }
   };
 
@@ -298,6 +302,21 @@ export function RunbookScorerClient() {
               }
               placeholder="optional"
               className="bg-surface border-border"
+            />
+          </div>
+          <div className="sm:col-span-3">
+            <Label htmlFor="rb-desc" className="text-xs text-sub">
+              Description (optional)
+            </Label>
+            <Textarea
+              id="rb-desc"
+              value={draft.description}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, description: e.target.value }))
+              }
+              placeholder="Notes about scope, owners, last drill…"
+              rows={2}
+              className="bg-surface border-border resize-none text-xs"
             />
           </div>
           <div className="sm:col-span-3">

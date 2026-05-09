@@ -79,6 +79,9 @@ function MoneyField({
     }
     const rounded = Math.round(n * 100) / 100;
     setDraft(String(rounded));
+    // Skip the onChange (and history log entry) when the value didn't
+    // actually change — pure focus/blur cycles shouldn't add noise.
+    if (rounded === value) return;
     onChange(rounded);
   };
 
@@ -247,11 +250,13 @@ export function QualityCostClient() {
           value={
             state.internalFailureCost > 0
               ? (state.externalFailureCost / state.internalFailureCost).toFixed(2)
-              : state.externalFailureCost > 0
-                ? "∞"
-                : "—"
+              : "—"
           }
-          hint="ext failures escaping QA"
+          hint={
+            state.internalFailureCost === 0 && state.externalFailureCost > 0
+              ? "no internal recorded"
+              : "ext failures escaping QA"
+          }
           tone={
             state.externalFailureCost > state.internalFailureCost &&
             state.externalFailureCost > 0
@@ -305,10 +310,17 @@ export function QualityCostClient() {
             rows={2}
             value={state.description ?? ""}
             onChange={(e) => {
+              // Store the raw value while typing — trimming inside onChange
+              // strips spaces the user is actively pressing. Normalize the
+              // empty-string-to-undefined collapse only on blur.
               const next = e.target.value;
+              setState((s) => ({ ...s, description: next }));
+            }}
+            onBlur={(e) => {
+              const trimmed = e.target.value.trim();
               setState((s) => ({
                 ...s,
-                description: next.trim() ? next : undefined,
+                description: trimmed ? trimmed : undefined,
               }));
             }}
             placeholder="Period covered, scope, sources of estimates..."

@@ -174,6 +174,10 @@ export function PsychSafetyClient() {
 
   const removeResponse = (id: string) => {
     setResponses((s) => s.filter((r) => r.id !== id));
+    log(PSYCH_SAFETY_ACTIONS.RESPONSE_LOGGED, {
+      responseId: id,
+      removed: true,
+    });
   };
 
   // Per-question average (raw and reversed-adjusted).
@@ -218,8 +222,10 @@ export function PsychSafetyClient() {
     const prior = sorted.slice(0, mid);
     const recent = sorted.slice(mid);
     const meanScore = (rs: Response[]) => {
+      if (rs.length === 0) return 0;
       const perQ = QUESTIONS.map((q) => {
         const vals = rs.map((r) => r.scores[q.id]);
+        if (vals.length === 0) return 0;
         const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
         return adjustedScore(avg, q.reversed);
       });

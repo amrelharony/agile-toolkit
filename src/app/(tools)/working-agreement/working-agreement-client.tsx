@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -120,6 +120,56 @@ function parseAgreedBy(s: string): string[] {
     .filter((x) => x.length > 0);
 }
 
+/**
+ * Controlled draft input for the comma-separated "agreed by" field. Mirrors
+ * upstream value into local state, but skips the resync while the user is
+ * actively typing (R-DRAFT) so mid-edit React rerenders don't wipe the
+ * caret. Commits raw text on blur — parsing/normalization happens upstream.
+ */
+function AgreedByInput({
+  value,
+  commit,
+  ariaLabel,
+  placeholder,
+  className,
+}: {
+  value: string;
+  commit: (raw: string) => void;
+  ariaLabel?: string;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const lastCommittedRef = useRef(value);
+  useEffect(() => {
+    if (
+      typeof document !== "undefined" &&
+      document.activeElement === inputRef.current
+    ) {
+      return;
+    }
+    if (value === lastCommittedRef.current) return;
+    setDraft(value);
+    lastCommittedRef.current = value;
+  }, [value]);
+  return (
+    <Input
+      ref={inputRef}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (draft === lastCommittedRef.current) return;
+        lastCommittedRef.current = draft;
+        commit(draft);
+      }}
+      placeholder={placeholder}
+      className={className}
+      aria-label={ariaLabel}
+    />
+  );
+}
+
 export function WorkingAgreementClient() {
   const [state, setState] = usePersisted<State>(
     "agile-toolkit:working-agreement",
@@ -202,12 +252,14 @@ export function WorkingAgreementClient() {
     }));
   };
 
-  const commitRuleText = (id: string) => {
-    const r = state.rules.find((x) => x.id === id);
-    if (!r) return;
+  // Commit takes the new text explicitly so the log entry reflects what the
+  // user typed, not whatever stale snapshot of `state.rules` the closure
+  // captured at render time. (React batches setState, so reading state here
+  // would race the just-fired updateRuleText.)
+  const commitRuleText = (id: string, text: string) => {
     log(WORKING_AGREEMENT_ACTIONS.RULE_UPDATED, {
       ruleId: id,
-      text: r.text,
+      text,
     });
   };
 
@@ -220,12 +272,10 @@ export function WorkingAgreementClient() {
     }));
   };
 
-  const commitAgreedBy = (id: string) => {
-    const r = state.rules.find((x) => x.id === id);
-    if (!r) return;
+  const commitAgreedBy = (id: string, raw: string) => {
     log(WORKING_AGREEMENT_ACTIONS.RULE_UPDATED, {
       ruleId: id,
-      agreedBy: r.agreedBy,
+      agreedBy: parseAgreedBy(raw),
     });
   };
 
@@ -248,16 +298,21 @@ export function WorkingAgreementClient() {
 
   const publishCharter = () => {
     if (state.rules.length === 0) return;
+    // Compute the new version once and use the same value for both the
+    // setState updater and the log payload — otherwise a rapid
+    // double-publish could let the log call read a stale meta.version.
+    const newVersion = state.meta.version + 1;
+    const publishedAt = new Date().toISOString();
     setState((s) => ({
       ...s,
       meta: {
         ...s.meta,
-        version: s.meta.version + 1,
-        publishedAt: new Date().toISOString(),
+        version: newVersion,
+        publishedAt,
       },
     }));
     log(WORKING_AGREEMENT_ACTIONS.CHARTER_PUBLISHED, {
-      version: state.meta.version + 1,
+      version: newVersion,
       ruleCount: state.rules.length,
       teamName: state.meta.teamName,
     });
@@ -275,9 +330,12 @@ export function WorkingAgreementClient() {
     setState((s) => ({ ...s, meta: { ...s.meta, description } }));
   };
 
-  const adherencePct = useMemo(() => {
+  const adherencePct = useMemo<number | null>(() => {
     const checked = state.rules.filter((r) => r.stillWorking !== undefined);
-    if (checked.length === 0) return 0;
+    // Distinguish "no check-ins yet" from an actual 0% adherence — the KPI
+    // tile renders the null case as "—" with a clarifying hint instead of
+    // implying every rule is broken.
+    if (checked.length === 0) return null;
     return (checked.filter((r) => r.stillWorking === true).length / checked.length) * 100;
   }, [state.rules]);
 
@@ -304,7 +362,9 @@ export function WorkingAgreementClient() {
       prompts: generateWorkingAgreementPrompts({
         rules: state.rules,
         meta: state.meta,
-        adherencePct,
+        // The prompt generator expects a numeric adherence; map "no check-ins
+        // yet" (null) to 0 there. The UI separately renders null as "—".
+        adherencePct: adherencePct ?? 0,
       }),
     }),
     [state.rules, state.meta, adherencePct]
@@ -368,10 +428,10 @@ export function WorkingAgreementClient() {
           variant="compact"
           icon={CheckCircle2}
           label="Adherence"
-          value={`${adherencePct.toFixed(0)}%`}
-          hint="still working"
+          value={adherencePct === null ? "—" : `${adherencePct.toFixed(0)}%`}
+          hint={adherencePct === null ? "no check-ins" : "still working"}
           tone={
-            adherencePct === 0
+            adherencePct === null
               ? "default"
               : adherencePct < 60
                 ? "danger"
@@ -541,7 +601,7 @@ export function WorkingAgreementClient() {
                     <Input
                       value={r.text}
                       onChange={(e) => updateRuleText(r.id, e.target.value)}
-                      onBlur={() => commitRuleText(r.id)}
+                      onBlur={(e) => commitRuleText(r.id, e.target.value)}
                       className="bg-bg border-border text-sm"
                       aria-label="Rule text"
                     />
@@ -587,15 +647,15 @@ export function WorkingAgreementClient() {
                       </Button>
                     </div>
                   </div>
-                  <Input
-                    defaultValue={r.agreedBy.join(", ")}
-                    onBlur={(e) => {
-                      updateAgreedBy(r.id, e.target.value);
-                      commitAgreedBy(r.id);
+                  <AgreedByInput
+                    value={r.agreedBy.join(", ")}
+                    commit={(raw) => {
+                      updateAgreedBy(r.id, raw);
+                      commitAgreedBy(r.id, raw);
                     }}
                     placeholder="Agreed by (comma-separated names)..."
                     className="bg-bg border-border text-xs"
-                    aria-label="Agreed by"
+                    ariaLabel="Agreed by"
                   />
                   {r.description && (
                     <div className="text-sub text-[11px] whitespace-pre-wrap break-words">

@@ -110,11 +110,25 @@ export function OneOnOneClient() {
       description: desc.length > 0 ? desc : undefined,
     };
     // Carry forward open agenda items from the most recent prior meeting
-    // for the same pair (case-insensitive match).
+    // for the same pair (case-insensitive match). Only meetings *on or
+    // before* the new meeting's date count as prior — otherwise scheduling
+    // a back-dated meeting would inherit items from a future one. Ties on
+    // date are broken by preferring the meeting with a non-empty agenda
+    // (so an empty placeholder doesn't shadow a populated one).
     const pk = pairKey(newMeeting);
     const prior = meetings
-      .filter((m) => pairKey(m) === pk)
-      .sort((a, b) => b.date.localeCompare(a.date))[0];
+      .filter(
+        (m) =>
+          pairKey(m) === pk &&
+          m.id !== newMeeting.id &&
+          m.date <= newMeeting.date
+      )
+      .sort((a, b) => {
+        if (a.date !== b.date) return b.date.localeCompare(a.date);
+        const aHas = a.agenda.length > 0 ? 1 : 0;
+        const bHas = b.agenda.length > 0 ? 1 : 0;
+        return bHas - aHas;
+      })[0];
     if (prior) {
       const carry = prior.agenda
         .filter((a) => a.status === "open")
@@ -274,14 +288,20 @@ export function OneOnOneClient() {
     return Math.round((discussed / total) * 100);
   }, [meetings]);
 
-  const growthThemes = useMemo(
-    () =>
-      meetings
-        .flatMap((m) => m.agenda)
-        .filter((a) => /growth/i.test(a.text) || /growth/i.test(a.action ?? ""))
-        .length,
-    [meetings]
-  );
+  // Count anywhere "growth" surfaces in a 1:1 — agenda text/action *and*
+  // meeting-level notes/description. The KPI label is "Growth themes", so
+  // it covers themes mentioned outside discrete agenda items too.
+  const growthThemes = useMemo(() => {
+    const re = /growth/i;
+    let count = 0;
+    for (const m of meetings) {
+      if (re.test(m.notes ?? "") || re.test(m.description ?? "")) count += 1;
+      for (const a of m.agenda) {
+        if (re.test(a.text) || re.test(a.action ?? "")) count += 1;
+      }
+    }
+    return count;
+  }, [meetings]);
 
   const promptConfig = useMemo(
     () => ({

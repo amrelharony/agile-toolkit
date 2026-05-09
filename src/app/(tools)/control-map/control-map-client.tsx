@@ -28,6 +28,7 @@ import { generateControlMapPrompts } from "@/lib/ai-prompts/control-map";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CONTROL_MAP_ACTIONS } from "@/lib/history/event-actions";
+import { toast } from "@/lib/utils/toast";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 
@@ -79,13 +80,28 @@ const STATUS_TONE: Record<Status, "default" | "warning" | "success"> = {
 
 /* ── Local draft hook ───────────────────────────────────────────────────── */
 
-function useDraftField(value: string, commit: (next: string) => void) {
+function useDraftField(
+  value: string,
+  commit: (next: string) => void,
+  inputRef?: React.RefObject<HTMLInputElement | HTMLTextAreaElement | null>
+) {
   const [draft, setDraft] = useState(value);
   const lastRef = useRef(value);
   useEffect(() => {
+    // Skip the sync if the user is currently editing this field — otherwise a
+    // parent re-render arriving mid-typing would wipe the in-progress draft
+    // and bounce the cursor.
+    if (
+      inputRef?.current &&
+      typeof document !== "undefined" &&
+      document.activeElement === inputRef.current
+    ) {
+      return;
+    }
+    if (value === lastRef.current) return;
     setDraft(value);
     lastRef.current = value;
-  }, [value]);
+  }, [value, inputRef]);
   const onBlur = () => {
     if (draft !== lastRef.current) {
       lastRef.current = draft;
@@ -93,6 +109,31 @@ function useDraftField(value: string, commit: (next: string) => void) {
     }
   };
   return { draft, setDraft, onBlur };
+}
+
+/**
+ * Sanitize an evidence URL. If the user types something without a scheme,
+ * default to https. Reject anything that isn't http/https (especially
+ * `javascript:` / `data:` / `file:`) to prevent XSS via the rendered <a href>.
+ * Returns the normalized URL string, or null if invalid.
+ */
+function sanitizeEvidenceUrl(raw: string): string | null {
+  const value = raw.trim();
+  if (!value) return null;
+  // Add scheme if missing — also normalize scheme-relative "//host/...".
+  const candidate = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value)
+    ? value
+    : `https://${value.replace(/^\/\//, "")}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return null;
+  }
+  return parsed.toString();
 }
 
 /* ── Per-control row ────────────────────────────────────────────────────── */
@@ -110,23 +151,38 @@ function ControlRow({
   logEvidence: (id: string, url: string) => void;
   remove: (id: string) => void;
 }) {
-  const description = useDraftField(c.description ?? "", (next) => {
-    const trimmed = next.trim();
-    update(c.id, { description: trimmed.length ? trimmed : undefined });
-    logUpdate(c.id, ["description"]);
-  });
-  const owner = useDraftField(c.owner ?? "", (next) => {
-    const trimmed = next.trim();
-    update(c.id, { owner: trimmed.length ? trimmed : undefined });
-    logUpdate(c.id, ["owner"]);
-  });
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const ownerRef = useRef<HTMLInputElement>(null);
+  const description = useDraftField(
+    c.description ?? "",
+    (next) => {
+      const trimmed = next.trim();
+      update(c.id, { description: trimmed.length ? trimmed : undefined });
+      logUpdate(c.id, ["description"]);
+    },
+    descriptionRef
+  );
+  const owner = useDraftField(
+    c.owner ?? "",
+    (next) => {
+      const trimmed = next.trim();
+      update(c.id, { owner: trimmed.length ? trimmed : undefined });
+      logUpdate(c.id, ["owner"]);
+    },
+    ownerRef
+  );
   const [newLink, setNewLink] = useState("");
 
   const addEvidence = () => {
-    const url = newLink.trim();
-    if (!url) return;
-    update(c.id, { evidenceLinks: [...c.evidenceLinks, url] });
-    logEvidence(c.id, url);
+    const trimmed = newLink.trim();
+    if (!trimmed) return;
+    const safe = sanitizeEvidenceUrl(trimmed);
+    if (!safe) {
+      toast.error("Evidence URL must be http(s) and well-formed");
+      return;
+    }
+    update(c.id, { evidenceLinks: [...c.evidenceLinks, safe] });
+    logEvidence(c.id, safe);
     setNewLink("");
   };
 
@@ -182,6 +238,7 @@ function ControlRow({
 
         <div className="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-2">
           <Input
+            ref={ownerRef}
             value={owner.draft}
             onChange={(e) => owner.setDraft(e.target.value)}
             onBlur={owner.onBlur}
@@ -190,6 +247,7 @@ function ControlRow({
             aria-label={`Owner for ${c.controlId}`}
           />
           <Textarea
+            ref={descriptionRef}
             rows={2}
             value={description.draft}
             onChange={(e) => description.setDraft(e.target.value)}
@@ -354,10 +412,17 @@ export function ControlMapClient() {
       if (c.status === "implemented" || c.status === "verified") cell.implemented++;
       map.set(c.framework, cell);
     }
-    return Array.from(map.entries()).map(([fw, v]) => ({
-      framework: fw,
-      ...v,
-    }));
+    // Sort entries in canonical FRAMEWORK_OPTIONS order so the dashboard
+    // always displays SOC 2 → ISO 27001 → HIPAA → GDPR → Custom regardless of
+    // which framework was added first.
+    const order = new Map<Framework, number>(
+      FRAMEWORK_OPTIONS.map((o, i) => [o.value, i])
+    );
+    return Array.from(map.entries())
+      .map(([fw, v]) => ({ framework: fw, ...v }))
+      .sort(
+        (a, b) => (order.get(a.framework) ?? 0) - (order.get(b.framework) ?? 0)
+      );
   }, [state.controls]);
 
   const gapsCount = useMemo(
@@ -466,7 +531,10 @@ export function ControlMapClient() {
         >
           <div className="space-y-3">
             {byFramework.map((f) => {
-              const pct = (f.implemented / Math.max(1, f.total)) * 100;
+              const pct = Math.min(
+                100,
+                (f.implemented / Math.max(1, f.total)) * 100
+              );
               return (
                 <div key={f.framework}>
                   <div className="flex items-center justify-between mb-1 text-xs">

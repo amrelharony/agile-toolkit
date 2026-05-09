@@ -29,12 +29,33 @@ export function generateOneOnOnePrompts(data: {
   const recent = sorted.slice(0, 8);
 
   const meetingTable = formatTable(
-    ["Date", "Manager", "Report", "Agenda items", "Open/Discussed/Action"],
+    [
+      "Date",
+      "Manager",
+      "Report",
+      "Agenda items",
+      "Open/Discussed/Action",
+      "Description",
+    ],
     recent.map((m) => {
       const open = m.agenda.filter((a) => a.status === "open").length;
       const discussed = m.agenda.filter((a) => a.status === "discussed").length;
       const action = m.agenda.filter((a) => a.status === "action_required").length;
-      return [m.date, m.manager, m.report, m.agenda.length, `${open}/${discussed}/${action}`];
+      // Truncate to 80 chars so the table stays scannable but the model
+      // still sees the framing the user gave each meeting.
+      const desc = m.description
+        ? m.description.length > 80
+          ? `${m.description.slice(0, 77)}...`
+          : m.description
+        : "—";
+      return [
+        m.date,
+        m.manager,
+        m.report,
+        m.agenda.length,
+        `${open}/${discussed}/${action}`,
+        desc,
+      ];
     })
   );
 

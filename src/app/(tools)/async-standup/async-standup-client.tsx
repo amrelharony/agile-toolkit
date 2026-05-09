@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -41,6 +41,12 @@ interface AsyncUpdate {
 
 const STORAGE_KEY = "agile-toolkit:async-standup";
 
+/** Flatten user-typed newlines so they don't break a markdown bullet's
+ * single-line layout when copied to Slack/email. */
+function singleLine(s: string): string {
+  return s.replace(/\r?\n/g, " ").trim();
+}
+
 function buildDigestMarkdown(updates: AsyncUpdate[], date: string): string {
   const todayUpdates = updates.filter((u) => u.date === date);
   if (todayUpdates.length === 0) {
@@ -53,7 +59,7 @@ function buildDigestMarkdown(updates: AsyncUpdate[], date: string): string {
   if (blocked.length > 0) {
     lines.push("## Blockers");
     for (const u of blocked) {
-      lines.push(`- **${u.member}**: ${u.blockers}`);
+      lines.push(`- **${u.member}**: ${singleLine(u.blockers ?? "")}`);
     }
     lines.push("");
   }
@@ -67,11 +73,12 @@ function buildDigestMarkdown(updates: AsyncUpdate[], date: string): string {
   for (const [member, ms] of Array.from(byMember.entries())) {
     lines.push(`## ${member}`);
     for (const u of ms) {
-      if (u.yesterday.trim()) lines.push(`- **Yesterday**: ${u.yesterday}`);
-      if (u.today.trim()) lines.push(`- **Today**: ${u.today}`);
+      if (u.yesterday.trim())
+        lines.push(`- **Yesterday**: ${singleLine(u.yesterday)}`);
+      if (u.today.trim()) lines.push(`- **Today**: ${singleLine(u.today)}`);
       if (u.blockers && u.blockers.trim())
-        lines.push(`- **Blockers**: ${u.blockers}`);
-      if (u.description) lines.push(`- ${u.description}`);
+        lines.push(`- **Blockers**: ${singleLine(u.blockers)}`);
+      if (u.description) lines.push(`- ${singleLine(u.description)}`);
     }
     lines.push("");
   }
@@ -99,6 +106,14 @@ export function AsyncStandupClient() {
   const [today, setToday] = useState("");
   const [blockers, setBlockers] = useState("");
   const [description, setDescription] = useState("");
+
+  // Re-render every minute so `todayISO` rolls over at midnight without
+  // requiring a page reload.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const todayISO = todayLocalISO();
 
@@ -151,10 +166,13 @@ export function AsyncStandupClient() {
     const id = crypto.randomUUID();
     const desc = description.trim();
     const blk = blockers.trim();
+    // Recompute today's date here so an update posted moments after midnight
+    // is filed on the correct day even if the render closure was stale.
+    const dateNow = todayLocalISO();
     const upd: AsyncUpdate = {
       id,
       member: member.trim(),
-      date: todayISO,
+      date: dateNow,
       yesterday: yesterday.trim(),
       today: today.trim(),
       blockers: blk.length > 0 ? blk : undefined,
@@ -185,14 +203,21 @@ export function AsyncStandupClient() {
   };
 
   const generateDigest = async () => {
-    const md = buildDigestMarkdown(updates, todayISO);
+    // Recompute "today" so a digest generated right after midnight uses the
+    // current local day rather than the day rendered by a stale closure.
+    const dateNow = todayLocalISO();
+    const todaysNow = updates.filter((u) => u.date === dateNow);
+    const blockersNow = todaysNow.filter(
+      (u) => u.blockers && u.blockers.trim().length > 0
+    );
+    const md = buildDigestMarkdown(updates, dateNow);
     const ok = await copyToClipboard(md);
     if (ok) toast.success("Digest copied to clipboard");
     else toast.error("Failed to copy digest");
     log(ASYNC_STANDUP_ACTIONS.DIGEST_GENERATED, {
-      date: todayISO,
-      updateCount: todaysUpdates.length,
-      blockerCount: blockerUpdates.length,
+      date: dateNow,
+      updateCount: todaysNow.length,
+      blockerCount: blockersNow.length,
     });
   };
 

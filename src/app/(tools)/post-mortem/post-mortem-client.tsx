@@ -87,9 +87,17 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function parseLocalDate(iso: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
 function isThisQuarter(iso: string): boolean {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return false;
+  // Parse YYYY-MM-DD as a *local* date so an incident on the first or last
+  // day of a quarter doesn't get bumped into the wrong bucket by UTC drift.
+  const d = parseLocalDate(iso);
+  if (!d) return false;
   const now = new Date();
   const q = (m: number) => Math.floor(m / 3);
   return d.getFullYear() === now.getFullYear() && q(d.getMonth()) === q(now.getMonth());
@@ -230,9 +238,10 @@ export function PostMortemClient() {
         p.id === id ? { ...p, timeline: [...p.timeline, entry] } : p
       ),
     }));
-    log(POST_MORTEM_ACTIONS.POSTMORTEM_UPDATED, {
+    log(POST_MORTEM_ACTIONS.TIMELINE_ADDED, {
       postmortemId: id,
-      fields: ["timeline"],
+      entryId: entry.id,
+      author: entry.author,
     });
   };
 
@@ -302,10 +311,9 @@ export function PostMortemClient() {
           : p
       ),
     }));
-    log(POST_MORTEM_ACTIONS.POSTMORTEM_UPDATED, {
+    log(POST_MORTEM_ACTIONS.ACTION_REMOVED, {
       postmortemId: id,
       actionId,
-      fields: ["actions"],
     });
   };
 
@@ -342,6 +350,7 @@ export function PostMortemClient() {
           p.title,
           p.status,
           p.incidentDate,
+          p.summary ?? "",
           "",
           "",
           "",
@@ -355,6 +364,7 @@ export function PostMortemClient() {
           p.title,
           p.status,
           p.incidentDate,
+          p.summary ?? "",
           a.text,
           a.owner ?? "",
           a.dueDate ?? "",
@@ -405,6 +415,7 @@ export function PostMortemClient() {
               "Post-mortem",
               "Status",
               "Incident date",
+              "Summary",
               "Action",
               "Owner",
               "Due",
@@ -866,9 +877,18 @@ function ActionItemRow({
         <input
           type="checkbox"
           checked={action.status === "done"}
-          onChange={(e) =>
-            onUpdate({ status: e.target.checked ? "done" : "open" })
-          }
+          onChange={(e) => {
+            // Unchecking from done shouldn't drop work back to "open" — if
+            // it had been in_progress before, prefer that. Use in_progress
+            // as the safer fallback for "uncheck after marking done".
+            if (e.target.checked) {
+              onUpdate({ status: "done" });
+            } else {
+              onUpdate({
+                status: action.status === "done" ? "in_progress" : "open",
+              });
+            }
+          }}
           aria-label={`Toggle done for ${action.text}`}
           className="mt-1 shrink-0 accent-emerald-400"
         />

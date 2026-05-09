@@ -15,10 +15,14 @@ export function generateLiberatingStructuresPrompts(data: {
   favoriteIds: string[];
 }): PromptDefinition[] {
   const list = data.catalog
-    .map(
-      (s) =>
-        `- ${s.name} (${s.timing}, ${s.groupSize}) — ${s.purpose}`
-    )
+    .map((s) => {
+      // Truncate description to 100 chars so the catalog stays scannable but
+      // the model still sees what each structure actually *does*.
+      const desc = s.description.length > 100
+        ? `${s.description.slice(0, 97)}...`
+        : s.description;
+      return `- ${s.name} (${s.timing}, ${s.groupSize}) — ${s.purpose} · ${desc}`;
+    })
     .join("\n");
   const favs = data.favoriteIds
     .map((id) => data.catalog.find((s) => s.id === id)?.name)

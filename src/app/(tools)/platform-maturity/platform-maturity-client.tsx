@@ -166,12 +166,15 @@ export function PlatformMaturityClient() {
   };
 
   const saveAssessment = () => {
+    // Use the same clamp as the radar / KPI so the snapshot matches what's
+    // shown on screen (corrupt imports can't poison the avg).
+    const clamped = DIMENSIONS.map((d) =>
+      Math.min(5, Math.max(1, state.dimensions[d.id] ?? 1))
+    );
     log(
       PLATFORM_MATURITY_ACTIONS.ASSESSMENT_SAVED,
       {
-        avg:
-          DIMENSIONS.reduce((a, d) => a + (state.dimensions[d.id] ?? 1), 0) /
-          DIMENSIONS.length,
+        avg: clamped.reduce((a, v) => a + v, 0) / DIMENSIONS.length,
         dimensions: { ...state.dimensions },
         notes: { ...state.notes },
       },
@@ -301,7 +304,7 @@ export function PlatformMaturityClient() {
                     max={5}
                     step={1}
                     value={[score]}
-                    onValueChange={([v]) => setScore(d.id, v)}
+                    onValueChange={(vals) => setScore(d.id, vals[0] ?? 1)}
                     className="w-full"
                     aria-label={`${d.label} maturity score`}
                   />

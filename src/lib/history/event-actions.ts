@@ -380,6 +380,8 @@ export const POST_MORTEM_ACTIONS = {
   POSTMORTEM_UPDATED: "postmortem_updated",
   POSTMORTEM_REMOVED: "postmortem_removed",
   ACTION_ADDED: "action_added",
+  ACTION_REMOVED: "action_removed",
+  TIMELINE_ADDED: "timeline_added",
   POSTMORTEM_PUBLISHED: "postmortem_published", // milestone
   POSTMORTEM_RESET: "postmortem_reset",
 } as const;
@@ -388,6 +390,7 @@ export const ONCALL_ACTIONS = {
   SHIFT_ADDED: "shift_added",
   SHIFT_REMOVED: "shift_removed",
   PAGE_LOGGED: "page_logged",
+  PAGE_REMOVED: "page_removed",
   ONCALL_RESET: "oncall_reset", // milestone
 } as const;
 
@@ -395,6 +398,7 @@ export const RELEASE_READINESS_ACTIONS = {
   RELEASE_ADDED: "release_added",
   GATE_TOGGLED: "gate_toggled",
   RELEASE_SHIPPED: "release_shipped", // milestone
+  RELEASE_ROLLED_BACK: "release_rolled_back",
   RELEASE_REMOVED: "release_removed",
   READINESS_RESET: "readiness_reset",
 } as const;
@@ -483,6 +487,7 @@ export const LIBERATING_STRUCTURES_ACTIONS = {
 export const DESIGN_SPRINT_ACTIONS = {
   SPRINT_STARTED: "sprint_started", // milestone
   TASK_TOGGLED: "task_toggled",
+  TASK_OWNER_ASSIGNED: "task_owner_assigned",
   ARTIFACT_LOGGED: "artifact_logged",
   SPRINT_COMPLETED: "sprint_completed", // milestone
   SPRINT_RESET: "sprint_reset",

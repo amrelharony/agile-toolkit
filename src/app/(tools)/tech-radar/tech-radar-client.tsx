@@ -80,20 +80,28 @@ const RADAR_CENTER = RADAR_SIZE / 2;
 const RADAR_RADIUS = RADAR_CENTER - 6;
 
 /**
+ * Cheap djb2 string hash, returns a non-negative integer in [0, 2^31).
+ */
+function djb2(s: string): number {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+/**
  * Project a blip into x/y on the 300x300 radar.
  *
- * Uses a deterministic hash of the blip id so the dot stays put across
- * renders (no jitter when the user types). The point is restricted to the
- * blip's quadrant (90deg sector) and ring (radial band).
+ * Uses two independent deterministic hashes of the blip id (one for the
+ * angular fraction, one for the radial fraction) so dots within a sector
+ * spread across both axes. The previous implementation derived both from
+ * the same hash via a 7-bit shift, which left r1 and r2 strongly
+ * correlated and caused dots to clump along a diagonal line per quadrant.
  */
 function projectBlip(blip: Blip): { x: number; y: number } {
-  // Pseudo-random, deterministic per id. djb2-ish.
-  let h = 5381;
-  for (let i = 0; i < blip.id.length; i++) {
-    h = ((h << 5) + h + blip.id.charCodeAt(i)) | 0;
-  }
-  const r1 = (Math.abs(h) % 1000) / 1000; // angular fraction
-  const r2 = (Math.abs(h >> 7) % 1000) / 1000; // radial fraction
+  const r1 = (djb2(blip.id) % 1000) / 1000; // angular fraction
+  const r2 = (djb2(blip.id + "_y") % 1000) / 1000; // radial fraction
   // Each ring is 1/4 of the radius. inner padding so the dot doesn't sit
   // exactly on the ring divider.
   const ringIdx = RING_INDEX[blip.ring];
@@ -349,6 +357,11 @@ export function TechRadarClient() {
         </div>
       </div>
 
+      {blips.length === 0 ? (
+        <EmptyState icon={Compass}>
+          No blips yet. Add the first technology, language, or technique above.
+        </EmptyState>
+      ) : (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
         {/* Radar SVG */}
         <div className="rounded-lg border border-border bg-surface p-4">
@@ -529,11 +542,6 @@ export function TechRadarClient() {
           ))}
         </div>
       </div>
-
-      {blips.length === 0 && (
-        <EmptyState icon={Compass}>
-          No blips yet. Add the first technology, language, or technique above.
-        </EmptyState>
       )}
     </ToolPageWrapper>
   );

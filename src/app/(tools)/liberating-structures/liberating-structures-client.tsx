@@ -252,8 +252,11 @@ export function LiberatingStructuresClient() {
   };
 
   const handleExpand = (id: string) => {
-    setExpandedId((cur) => (cur === id ? null : id));
-    if (expandedId !== id) {
+    // Compute the next state up-front so we can decide whether to log without
+    // racing the (asynchronous) `expandedId` update from the previous click.
+    const nextExpanded = expandedId === id ? null : id;
+    setExpandedId(nextExpanded);
+    if (nextExpanded !== null) {
       log(LIBERATING_STRUCTURES_ACTIONS.STRUCTURE_VIEWED, { structureId: id });
     }
   };
@@ -308,13 +311,21 @@ export function LiberatingStructuresClient() {
         <ExportButton
           filename="liberating-structures-favorites"
           csvData={{
-            headers: ["Name", "Purpose", "Timing", "Group Size", "Source"],
+            headers: [
+              "Name",
+              "Purpose",
+              "Timing",
+              "Group Size",
+              "Source",
+              "Description",
+            ],
             rows: favoriteEntries.map((s) => [
               s.name,
               s.purpose,
               s.timing,
               s.groupSize,
               s.source,
+              s.description,
             ]),
           }}
           jsonData={{ favorites: favoriteEntries }}

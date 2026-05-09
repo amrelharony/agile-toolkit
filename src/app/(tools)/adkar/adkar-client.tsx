@@ -104,6 +104,13 @@ const STAGE_COLOR: Record<Stage, string> = {
   reinforcement: "#fbbf24",
 };
 
+/** Parse YYYY-MM-DD as local date so day-deltas don't drift across timezones. */
+function parseLocalDate(iso: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
 export function AdkarClient() {
   const [initiatives, setInitiatives] = usePersisted<Initiative[]>(
     "agile-toolkit:adkar",
@@ -151,33 +158,37 @@ export function AdkarClient() {
   };
 
   const advanceStage = (id: string) => {
-    let logged: { from?: Stage; to?: Stage } | null = null;
+    // Compute the transition BEFORE calling setState so React StrictMode
+    // (which may invoke updaters twice) doesn't cause double-logging or stale
+    // closure issues.
+    const target = initiatives.find((i) => i.id === id);
+    if (!target) return;
+    const idx = STAGES.indexOf(target.currentStage);
+    if (idx === STAGES.length - 1) return;
+    const from = target.currentStage;
+    const to = STAGES[idx + 1]!;
     setInitiatives((prev) =>
       prev.map((i) => {
         if (i.id !== id) return i;
-        const idx = STAGES.indexOf(i.currentStage);
-        if (idx === STAGES.length - 1) return i;
-        const next = STAGES[idx + 1]!;
-        logged = { from: i.currentStage, to: next };
+        if (i.currentStage !== from) return i;
         return {
           ...i,
-          currentStage: next,
-          stagesCompleted: [...i.stagesCompleted, i.currentStage],
+          currentStage: to,
+          stagesCompleted: Array.from(
+            new Set([...i.stagesCompleted, i.currentStage])
+          ),
           stageHistory: [
             ...i.stageHistory,
-            { stage: next, enteredAt: todayLocalISO() },
+            { stage: to, enteredAt: todayLocalISO() },
           ],
         };
       })
     );
-    const captured = logged as { from?: Stage; to?: Stage } | null;
-    if (captured) {
-      log(ADKAR_ACTIONS.STAGE_ADVANCED, {
-        initiativeId: id,
-        from: captured.from,
-        to: captured.to,
-      });
-    }
+    log(ADKAR_ACTIONS.STAGE_ADVANCED, {
+      initiativeId: id,
+      from,
+      to,
+    });
   };
 
   const perStage = useMemo(() => {
@@ -202,8 +213,11 @@ export function AdkarClient() {
     for (const i of initiatives) {
       const h = i.stageHistory;
       for (let k = 1; k < h.length; k++) {
-        const a = new Date(h[k - 1]!.enteredAt).getTime();
-        const b = new Date(h[k]!.enteredAt).getTime();
+        const aDate = parseLocalDate(h[k - 1]!.enteredAt);
+        const bDate = parseLocalDate(h[k]!.enteredAt);
+        if (!aDate || !bDate) continue;
+        const a = aDate.getTime();
+        const b = bDate.getTime();
         const d = (b - a) / (1000 * 60 * 60 * 24);
         if (Number.isFinite(d) && d >= 0) deltas.push(d);
       }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AreaChart,
   Area,
@@ -103,6 +103,21 @@ function budgetMinutes(slo: SloDefinition): number {
 }
 
 /**
+ * Parse a YYYY-MM-DD string as midnight in the user's *local* timezone.
+ * `new Date("2025-04-01")` parses as UTC midnight, so users west of UTC
+ * see the burn date shift to the prior local day — which then drops out
+ * of the rolling window early.
+ */
+function parseDateLocal(iso: string): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return new Date(iso).getTime();
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  return new Date(y, mo, d).getTime();
+}
+
+/**
  * Sum of `errorMinutes` for a given SLO inside its rolling window
  * (from `today - windowDays` up to `today`, inclusive).
  */
@@ -111,7 +126,7 @@ function consumedMinutes(slo: SloDefinition, burns: SloBurn[]): number {
   return burns
     .filter((b) => b.sloId === slo.id)
     .filter((b) => {
-      const t = new Date(b.date).getTime();
+      const t = parseDateLocal(b.date);
       return Number.isFinite(t) && t >= cutoff;
     })
     .reduce((acc, b) => acc + b.errorMinutes, 0);
@@ -128,15 +143,18 @@ export function SloBuilderClient() {
 
   // When the SLO list changes (or starts empty), make sure the burn-draft has
   // a valid sloId selected — otherwise the Select renders unbound.
+  // Functional setState reads `b.sloId` synchronously so we don't need to
+  // depend on it here (depending on it just churns the effect on every typing-
+  // induced re-render that doesn't change the SLO list).
   useEffect(() => {
-    if (state.slos.length === 0) {
-      if (burnDraft.sloId !== "") setBurnDraft((b) => ({ ...b, sloId: "" }));
-      return;
-    }
-    if (!state.slos.some((s) => s.id === burnDraft.sloId)) {
-      setBurnDraft((b) => ({ ...b, sloId: state.slos[0].id }));
-    }
-  }, [state.slos, burnDraft.sloId]);
+    setBurnDraft((b) => {
+      if (state.slos.length === 0) {
+        return b.sloId === "" ? b : { ...b, sloId: "" };
+      }
+      if (state.slos.some((s) => s.id === b.sloId)) return b;
+      return { ...b, sloId: state.slos[0].id };
+    });
+  }, [state.slos]);
 
   const addSlo = () => {
     const name = sloDraft.name.trim();
@@ -616,8 +634,19 @@ function NumericField({
   onChange: (v: string) => void;
   placeholder?: string;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
+  // R-DRAFT: track the last value we synced from props. A parent re-render
+  // that ships the same `value` would otherwise clobber the user's in-flight
+  // typing — both because of the effect and because focused inputs should
+  // never be reset under the cursor.
+  const lastCommittedRef = useRef(value);
+  useEffect(() => {
+    if (document.activeElement === inputRef.current) return;
+    if (value === lastCommittedRef.current) return;
+    setDraft(value);
+    lastCommittedRef.current = value;
+  }, [value]);
   return (
     <div>
       <Label htmlFor={id} className="text-xs text-sub">
@@ -625,14 +654,19 @@ function NumericField({
       </Label>
       <Input
         id={id}
+        ref={inputRef}
         type="text"
         inputMode="decimal"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => onChange(draft)}
+        onBlur={() => {
+          lastCommittedRef.current = draft;
+          onChange(draft);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
+            lastCommittedRef.current = draft;
             onChange(draft);
             (e.target as HTMLInputElement).blur();
           }

@@ -16,6 +16,28 @@ interface OnboardingPersonData {
   milestones: OnboardingMilestoneData[];
 }
 
+function parseLocalDate(iso: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+/**
+ * Centralized at-risk check — duplicated from the client so the AI prompt
+ * generator stays free of UI-layer imports. Keep both impls in sync.
+ */
+function isAtRisk(
+  startDate: string,
+  milestone: { targetDays: number; completedAt?: string },
+  todayMs: number
+): boolean {
+  if (milestone.completedAt) return false;
+  const start = parseLocalDate(startDate);
+  if (!start) return false;
+  const elapsed = (todayMs - start.getTime()) / 86400000;
+  return elapsed > milestone.targetDays * 0.5;
+}
+
 export function generateOnboardingTrackerPrompts(data: {
   onboardees: OnboardingPersonData[];
   avgTimeToFirstPR: number | null;
@@ -27,9 +49,10 @@ export function generateOnboardingTrackerPrompts(data: {
 
   const personRows = data.onboardees.slice(0, 15).map((p) => {
     const completed = p.milestones.filter((m) => m.completedAt).length;
-    const ageDays = Math.floor(
-      (today - new Date(p.startDate).getTime()) / (1000 * 60 * 60 * 24)
-    );
+    const start = parseLocalDate(p.startDate);
+    const ageDays = start
+      ? Math.floor((today - start.getTime()) / 86400000)
+      : 0;
     return [
       p.name,
       p.role ?? "—",
@@ -45,16 +68,11 @@ export function generateOnboardingTrackerPrompts(data: {
     personRows
   );
 
-  const overdue = data.onboardees.flatMap((p) => {
-    const start = new Date(p.startDate).getTime();
-    return p.milestones
-      .filter((m) => {
-        if (m.completedAt) return false;
-        const dayElapsed = Math.floor((today - start) / (1000 * 60 * 60 * 24));
-        return dayElapsed > m.targetDays * 0.5;
-      })
-      .map((m) => [p.name, m.name, m.targetDays]);
-  });
+  const overdue = data.onboardees.flatMap((p) =>
+    p.milestones
+      .filter((m) => isAtRisk(p.startDate, m, today))
+      .map((m) => [p.name, m.name, m.targetDays])
+  );
 
   const overdueTable =
     overdue.length > 0

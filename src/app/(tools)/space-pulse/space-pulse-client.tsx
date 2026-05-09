@@ -28,6 +28,11 @@ import { generateSpacePrompts } from "@/lib/ai-prompts/space-pulse";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPACE_ACTIONS } from "@/lib/history/event-actions";
+import { toast } from "@/lib/utils/toast";
+
+// Quarter must be `YYYY-Q[1-4]` so localeCompare yields chronological order.
+// Anything else slips through, but we warn the user at write-time.
+const QUARTER_FORMAT = /^\d{4}-Q[1-4]$/;
 
 type SpaceDimensionKey =
   | "satisfaction"
@@ -98,10 +103,16 @@ export function SpacePulseClient() {
   const { log } = useHistoryLogger("space-pulse");
 
   const addScore = () => {
-    if (!draft.quarter.trim()) return;
+    const quarter = draft.quarter.trim();
+    if (!quarter) return;
+    if (!QUARTER_FORMAT.test(quarter)) {
+      toast.warning(
+        "Quarter should be formatted as YYYY-Q1..Q4 (e.g. 2026-Q1) — sort order may be off otherwise.",
+      );
+    }
     const score: SpaceScore = {
       id: crypto.randomUUID(),
-      quarter: draft.quarter.trim(),
+      quarter,
       satisfaction: draft.satisfaction,
       performance: draft.performance,
       activity: draft.activity,
@@ -109,7 +120,18 @@ export function SpacePulseClient() {
       efficiency: draft.efficiency,
       description: draft.description.trim() || undefined,
     };
-    setState((s) => ({ scores: [...s.scores, score] }));
+    // De-dup: replace an existing entry for the same quarter so users don't
+    // end up with two pulses for 2026-Q1 (the radar would silently show the
+    // last-added one and the trend chip would compare against itself).
+    const existingIdx = state.scores.findIndex((x) => x.quarter === quarter);
+    if (existingIdx >= 0) {
+      setState((s) => ({
+        scores: s.scores.map((x) => (x.quarter === quarter ? score : x)),
+      }));
+      toast.warning(`Replaced existing entry for ${quarter}`);
+    } else {
+      setState((s) => ({ scores: [...s.scores, score] }));
+    }
     log(SPACE_ACTIONS.SCORE_LOGGED, {
       scoreId: score.id,
       quarter: score.quarter,

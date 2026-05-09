@@ -129,8 +129,11 @@ export function FlakyTestsClient() {
           ? {
               ...t,
               status,
+              // fixedAt is the date the test was LAST fixed; preserved across
+              // reopens for audit. We stamp it on the first transition into
+              // "fixed" and never clear it when transitioning out.
               fixedAt:
-                status === "fixed" ? t.fixedAt ?? todayLocalISO() : undefined,
+                status === "fixed" ? t.fixedAt ?? todayLocalISO() : t.fixedAt,
             }
           : t
       ),
@@ -239,13 +242,11 @@ export function FlakyTestsClient() {
     [state.tests, active, quarantined, fixedThisQuarter, avgFailureRate]
   );
 
+  // The Select fires only on change, so the "click same field to flip" branch
+  // never ran for users picking the same option. Direction is handled by the
+  // dedicated Asc/Desc button beside the sort dropdown.
   const toggleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDesc((d) => !d);
-    } else {
-      setSortField(field);
-      setSortDesc(true);
-    }
+    setSortField(field);
   };
 
   return (

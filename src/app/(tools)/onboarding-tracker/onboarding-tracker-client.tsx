@@ -77,14 +77,42 @@ function buildDefaultMilestones(): Milestone[] {
   }));
 }
 
+function parseLocalDate(iso: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
 function daysBetween(a: string, b: string): number {
-  return Math.floor(
-    (new Date(b).getTime() - new Date(a).getTime()) / (1000 * 60 * 60 * 24)
-  );
+  const aDate = parseLocalDate(a);
+  const bDate = parseLocalDate(b);
+  if (!aDate || !bDate) return 0;
+  return Math.round((bDate.getTime() - aDate.getTime()) / 86400000);
 }
 
 function daysSince(iso: string): number {
-  return Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24));
+  const start = parseLocalDate(iso);
+  if (!start) return 0;
+  const today = new Date();
+  const todayLocal = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.round((todayLocal.getTime() - start.getTime()) / 86400000);
+}
+
+/**
+ * Centralized at-risk check. A milestone is at-risk if it's incomplete and
+ * the elapsed days since the person's start are >50% of the target.
+ * Mirrored in `src/lib/ai-prompts/onboarding-tracker.ts` — keep in sync.
+ */
+function isAtRisk(
+  startDate: string,
+  milestone: { targetDays: number; completedAt?: string },
+  todayMs: number
+): boolean {
+  if (milestone.completedAt) return false;
+  const start = parseLocalDate(startDate);
+  if (!start) return false;
+  const elapsed = (todayMs - start.getTime()) / 86400000;
+  return elapsed > milestone.targetDays * 0.5;
 }
 
 export function OnboardingTrackerClient() {
@@ -134,33 +162,32 @@ export function OnboardingTrackerClient() {
   };
 
   const toggleMilestone = (personId: string, milestoneId: string) => {
-    let logged: { milestoneName?: string; completedAt?: string } | null = null;
+    // Pre-compute target/log info from the current snapshot so we don't
+    // mutate inside setState. If the person/milestone vanished mid-render,
+    // the functional update below will still no-op.
+    const person = onboardees.find((p) => p.id === personId);
+    const milestone = person?.milestones.find((m) => m.id === milestoneId);
+    if (!milestone) return;
+    const wasCompleted = Boolean(milestone.completedAt);
+    const completedAt = wasCompleted ? undefined : todayLocalISO();
     setOnboardees((prev) =>
-      prev.map((p) => {
-        if (p.id !== personId) return p;
-        return {
-          ...p,
-          milestones: p.milestones.map((m) => {
-            if (m.id !== milestoneId) return m;
-            if (m.completedAt) {
-              return { ...m, completedAt: undefined };
+      prev.map((p) =>
+        p.id !== personId
+          ? p
+          : {
+              ...p,
+              milestones: p.milestones.map((m) =>
+                m.id === milestoneId ? { ...m, completedAt } : m
+              ),
             }
-            const completedAt = todayLocalISO();
-            logged = { milestoneName: m.name, completedAt };
-            return { ...m, completedAt };
-          }),
-        };
-      })
+      )
     );
-    const captured = logged as
-      | { milestoneName?: string; completedAt?: string }
-      | null;
-    if (captured) {
+    if (!wasCompleted) {
       log(ONBOARDING_TRACKER_ACTIONS.MILESTONE_LOGGED, {
         personId,
         milestoneId,
-        milestoneName: captured.milestoneName,
-        completedAt: captured.completedAt,
+        milestoneName: milestone.name,
+        completedAt,
       });
     }
   };
@@ -189,11 +216,9 @@ export function OnboardingTrackerClient() {
     let atRisk = 0;
     const today = Date.now();
     for (const p of onboardees) {
-      const startMs = new Date(p.startDate).getTime();
       for (const m of p.milestones) {
         if (!m.completedAt) {
-          const elapsed = (today - startMs) / (1000 * 60 * 60 * 24);
-          if (elapsed > m.targetDays * 0.5) atRisk += 1;
+          if (isAtRisk(p.startDate, m, today)) atRisk += 1;
           continue;
         }
         const days = daysBetween(p.startDate, m.completedAt);
@@ -216,20 +241,23 @@ export function OnboardingTrackerClient() {
   }, [onboardees]);
 
   const rampCurveData = useMemo(() => {
-    // Build an avg "milestones completed by day X" curve across people.
+    // Build an avg "% milestones complete by day X" curve across people.
     if (onboardees.length === 0) return [];
     const maxDay = 90;
-    const out: { day: number; avgCompleted: number }[] = [];
+    const out: { day: number; avgPct: number }[] = [];
     for (let d = 0; d <= maxDay; d += 5) {
-      let sum = 0;
+      let pctSum = 0;
+      let counted = 0;
       for (const p of onboardees) {
+        if (p.milestones.length === 0) continue;
         const completedByDay = p.milestones.filter((m) => {
           if (!m.completedAt) return false;
           return daysBetween(p.startDate, m.completedAt) <= d;
         }).length;
-        sum += completedByDay;
+        pctSum += (completedByDay / p.milestones.length) * 100;
+        counted += 1;
       }
-      out.push({ day: d, avgCompleted: sum / onboardees.length });
+      out.push({ day: d, avgPct: counted > 0 ? pctSum / counted : 0 });
     }
     return out;
   }, [onboardees]);
@@ -559,19 +587,20 @@ export function OnboardingTrackerClient() {
                   <YAxis
                     tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
                     axisLine={{ stroke: chartTheme.gridColor }}
-                    allowDecimals
+                    domain={[0, 100]}
+                    tickFormatter={(v) => `${v}%`}
                   />
                   <Tooltip
                     contentStyle={chartTheme.tooltipStyle}
                     labelFormatter={(v) => `Day ${v}`}
                     formatter={(v) => [
-                      typeof v === "number" ? v.toFixed(2) : String(v),
-                      "Avg done",
+                      typeof v === "number" ? `${v.toFixed(1)}%` : String(v),
+                      "% complete",
                     ]}
                   />
                   <Line
                     type="monotone"
-                    dataKey="avgCompleted"
+                    dataKey="avgPct"
                     stroke={chartTheme.colors.cyan}
                     strokeWidth={2}
                     dot={false}

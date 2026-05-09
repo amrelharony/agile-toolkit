@@ -89,7 +89,13 @@ function shiftCovers(shift: OncallShift, ts: number): boolean {
 }
 
 function activeShiftAt(shifts: OncallShift[], ts: number): OncallShift | null {
-  return shifts.find((s) => shiftCovers(s, ts)) ?? null;
+  // For overlapping shifts (handover days), the newest start wins so a
+  // hand-over to the next shift is reflected immediately.
+  const candidates = shifts.filter((s) => shiftCovers(s, ts));
+  if (candidates.length === 0) return null;
+  return [...candidates].sort((a, b) =>
+    b.startDate.localeCompare(a.startDate)
+  )[0];
 }
 
 function burnoutTone(count: number): "default" | "warning" | "danger" {
@@ -200,7 +206,7 @@ export function OncallRosterClient() {
 
   const removePage = (id: string) => {
     setState((s) => ({ ...s, pages: s.pages.filter((p) => p.id !== id) }));
-    log(ONCALL_ACTIONS.PAGE_LOGGED, { pageId: id, removed: true });
+    log(ONCALL_ACTIONS.PAGE_REMOVED, { pageId: id });
   };
 
   const active = useMemo(() => activeShiftAt(state.shifts, now), [state.shifts, now]);
@@ -221,9 +227,9 @@ export function OncallRosterClient() {
   }, [state.pages]);
 
   const pagesThisMonth = useMemo(() => {
-    const cutoff = new Date(now);
-    cutoff.setMonth(cutoff.getMonth() - 1);
-    const cutoffMs = cutoff.getTime();
+    // Strict 30-day rolling window — avoids `setMonth(-1)` quirks around
+    // month-end (e.g. Mar 31 → Mar 3 rather than Feb 28).
+    const cutoffMs = now - 30 * 86400000;
     return state.pages.filter((p) => new Date(p.ts).getTime() >= cutoffMs).length;
   }, [state.pages, now]);
 

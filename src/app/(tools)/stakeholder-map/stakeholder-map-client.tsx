@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -88,6 +88,52 @@ function quadrantOf(s: Stakeholder): Quadrant {
   if (highAuthority && !highInterest) return "keepSatisfied";
   if (!highAuthority && highInterest) return "keepInformed";
   return "monitor";
+}
+
+interface InlineDescriptionEditorProps {
+  value: string;
+  onChange: (next: string) => void;
+  placeholder?: string;
+}
+
+/**
+ * R-INLINE-LOG editor for the per-row description Textarea.
+ *
+ * `updateStakeholder` logs unconditionally, so binding the Textarea to it
+ * via `onChange` would emit one history event per keystroke. We keep a local
+ * draft string, write back to the parent only on blur, and only when the
+ * trimmed value actually differs from what the parent committed last.
+ */
+function InlineDescriptionEditor({
+  value,
+  onChange,
+  placeholder,
+}: InlineDescriptionEditorProps) {
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const [draft, setDraft] = useState(value);
+  const lastCommittedRef = useRef(value);
+  useEffect(() => {
+    if (document.activeElement === taRef.current) return;
+    if (value === lastCommittedRef.current) return;
+    setDraft(value);
+    lastCommittedRef.current = value;
+  }, [value]);
+  return (
+    <Textarea
+      ref={taRef}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (draft === lastCommittedRef.current) return;
+        lastCommittedRef.current = draft;
+        onChange(draft);
+      }}
+      placeholder={placeholder}
+      rows={2}
+      className="bg-bg border-border text-xs resize-none"
+      aria-label="Description"
+    />
+  );
 }
 
 interface StakeholderFormProps {
@@ -268,6 +314,9 @@ export function StakeholderMapClient() {
   const removeStakeholder = (id: string) => {
     const s = stakeholders.find((x) => x.id === id);
     setStakeholders((prev) => prev.filter((x) => x.id !== id));
+    // The matrix tooltip stays anchored to a removed dot until another
+    // hover/focus replaces it — clear it so it doesn't dangle.
+    setHovered((cur) => (cur === id ? null : cur));
     log(STAKEHOLDER_MAP_ACTIONS.STAKEHOLDER_REMOVED, {
       stakeholderId: id,
       name: s?.name,
@@ -374,8 +423,8 @@ export function StakeholderMapClient() {
               s.authority,
               s.sentiment,
               QUADRANT_LABEL[quadrantOf(s)],
-              (s.strategy ?? "").replace(/\n/g, " "),
-              (s.description ?? "").replace(/\n/g, " "),
+              s.strategy ?? "",
+              s.description ?? "",
             ]),
           }}
           jsonData={stakeholders}
@@ -474,8 +523,12 @@ export function StakeholderMapClient() {
                   {stakeholders.map((s) => {
                     // Map (interest, authority) ∈ [0,10] to (left%, top%)
                     // Authority=10 should be at the top, so invert Y.
-                    const left = (s.interest / 10) * 100;
-                    const top = 100 - (s.authority / 10) * 100;
+                    // Clamp to [4, 96]% so the 16 px dot doesn't get clipped
+                    // at the matrix corners (interest=0 or authority=10).
+                    const rawLeft = (s.interest / 10) * 100;
+                    const rawTop = 100 - (s.authority / 10) * 100;
+                    const left = Math.min(96, Math.max(4, rawLeft));
+                    const top = Math.min(96, Math.max(4, rawTop));
                     return (
                       <button
                         key={s.id}
@@ -596,6 +649,12 @@ export function StakeholderMapClient() {
                       <Input
                         value={s.role ?? ""}
                         onChange={(e) =>
+                          // R-TYPE: store raw, trim on blur — trimming
+                          // mid-keystroke strips trailing spaces and breaks
+                          // multi-word roles ("VP Eng " → "VPEng" feel).
+                          updateStakeholder(s.id, { role: e.target.value })
+                        }
+                        onBlur={(e) =>
                           updateStakeholder(s.id, {
                             role: e.target.value.trim() || undefined,
                           })
@@ -690,6 +749,10 @@ export function StakeholderMapClient() {
                   <Textarea
                     value={s.strategy ?? ""}
                     onChange={(e) =>
+                      // R-TYPE: store raw, trim on blur.
+                      updateStakeholder(s.id, { strategy: e.target.value })
+                    }
+                    onBlur={(e) =>
                       updateStakeholder(s.id, {
                         strategy: e.target.value.trim() || undefined,
                       })
@@ -699,11 +762,15 @@ export function StakeholderMapClient() {
                     className="bg-bg border-border text-sm resize-none"
                     aria-label="Strategy"
                   />
-                  {s.description && (
-                    <div className="text-xs text-sub whitespace-pre-wrap">
-                      {s.description}
-                    </div>
-                  )}
+                  <InlineDescriptionEditor
+                    value={s.description ?? ""}
+                    onChange={(next) =>
+                      updateStakeholder(s.id, {
+                        description: next.trim() || undefined,
+                      })
+                    }
+                    placeholder="Description (optional)..."
+                  />
                 </CardContent>
               </Card>
             ))}
