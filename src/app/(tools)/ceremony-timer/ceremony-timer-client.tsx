@@ -14,6 +14,8 @@ import {
   Plus,
   ChevronRight,
   Timer,
+  Maximize,
+  Minimize,
 } from "lucide-react";
 import { useToolSonification } from "@/lib/sonification/use-sonification";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -53,16 +55,20 @@ function formatTime(totalSeconds: number): string {
   return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
+// Theme-aware color tokens. We intentionally use CSS custom properties so the
+// timer adapts to light/dark without each call site needing to know the
+// current theme. `--destructive` and `--chart-4` are defined on `:root` in
+// globals.css and inherit into both themes; `--accent` overrides per theme.
 function progressColor(fraction: number): string {
-  if (fraction <= 0.05) return "#ef4444"; // danger red
-  if (fraction <= 0.2) return "#ffaa00"; // warning amber
-  return "#00f0ff"; // accent cyan
+  if (fraction <= 0.05) return "var(--destructive)";
+  if (fraction <= 0.2) return "var(--chart-4)";
+  return "var(--accent)";
 }
 
 function glowColor(fraction: number): string {
-  if (fraction <= 0.05) return "0 0 30px #ef4444, 0 0 60px #ef444466";
-  if (fraction <= 0.2) return "0 0 30px #ffaa00, 0 0 60px #ffaa0066";
-  return "0 0 30px #00f0ff, 0 0 60px #00f0ff66";
+  if (fraction <= 0.05) return "0 0 30px var(--destructive), 0 0 60px var(--destructive)";
+  if (fraction <= 0.2) return "0 0 30px var(--chart-4), 0 0 60px var(--chart-4)";
+  return "0 0 30px var(--accent), 0 0 60px var(--glowS)";
 }
 
 // ---------------------------------------------------------------------------
@@ -87,9 +93,43 @@ export function CeremonyTimerClient() {
   const [nameInput, setNameInput] = useState("");
   const [currentPerson, setCurrentPerson] = useState(0);
   const prevPersonRef = useRef(0);
+  // Suppresses the rotation sonification when the active-person index changes
+  // because a participant was removed (vs. because the timer rolled forward).
+  // Without this, deleting the active participant plays "rotate" spuriously.
+  const suppressRotateSonifyRef = useRef(false);
 
+  // `useToolSonification` returns a callback memoized with `[toolId]`; since
+  // toolId is a string literal here, `sonify` is stable across renders and
+  // safe to include in effect deps without thrashing the interval.
   const sonify = useToolSonification("ceremony-timer");
   const { log } = useHistoryLogger("ceremony-timer");
+
+  // Fullscreen — uses the browser Fullscreen API on the timer card so the
+  // user gets a distraction-free view (browser hides chrome, address bar).
+  // Listen for `fullscreenchange` so ESC / browser-driven exits keep state in sync.
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handler = () => {
+      setIsFullscreen(document.fullscreenElement === cardRef.current);
+    };
+    document.addEventListener("fullscreenchange", handler);
+    return () => document.removeEventListener("fullscreenchange", handler);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    if (!cardRef.current) return;
+    try {
+      if (document.fullscreenElement === cardRef.current) {
+        await document.exitFullscreen();
+      } else {
+        await cardRef.current.requestFullscreen();
+      }
+    } catch {
+      // Some browsers (or sandboxed iframes) reject the request silently.
+    }
+  };
 
   // ---------------------------------------------------------------------------
   // Derived
@@ -145,9 +185,14 @@ export function CeremonyTimerClient() {
     }
   }, [running, remaining, sonify]);
 
-  // Person rotation -- check if we should switch person
+  // Person rotation -- check if we should switch person.
+  // Guard against `perPersonSeconds === 0` (which happens when the user picks
+  // a duration shorter than the participant count, e.g. 3s split across 5
+  // people). Without the guard, `Math.floor(elapsed / 0)` becomes NaN on the
+  // first tick and propagates into the rotation chip ("NaN / 5").
   useEffect(() => {
     if (!rotationMode || participants.length === 0 || totalSeconds === 0) return;
+    if (perPersonSeconds <= 0) return;
     const elapsed = totalSeconds - remaining;
     const newPerson = Math.min(
       Math.floor(elapsed / perPersonSeconds),
@@ -156,7 +201,13 @@ export function CeremonyTimerClient() {
     if (newPerson !== prevPersonRef.current) {
       prevPersonRef.current = newPerson;
       setCurrentPerson(newPerson);
-      sonify("rotate");
+      // Skip the rotation sound when the index moved because a participant
+      // was just removed — that's a structural change, not a real rotation.
+      if (suppressRotateSonifyRef.current) {
+        suppressRotateSonifyRef.current = false;
+      } else {
+        sonify("rotate");
+      }
     }
   }, [remaining, rotationMode, participants.length, totalSeconds, perPersonSeconds, sonify]);
 
@@ -182,12 +233,21 @@ export function CeremonyTimerClient() {
     if (trimmed && Number.isFinite(mins) && mins > 0 && mins <= 480) {
       selectPreset(mins);
       setShowCustom(false);
+      // Reset the input so the next time the user opens Custom they don't
+      // see a stale value pre-filled from the prior session.
+      setCustomMin("");
     }
   };
 
   const togglePlay = () => {
     if (remaining <= 0) return;
-    if (!running) sonify("start");
+    if (!running) {
+      sonify("start");
+      // Decrement immediately on play so the display drops from N → N-1
+      // right away instead of freezing at N for the full first second
+      // (setInterval waits the full delay before its first invocation).
+      setRemaining((prev) => (prev > 0 ? prev - 1 : prev));
+    }
     setStarted(true);
     setRunning((r) => !r);
     log(running ? CEREMONY_TIMER_ACTIONS.TIMER_PAUSED : CEREMONY_TIMER_ACTIONS.TIMER_STARTED, {
@@ -213,17 +273,23 @@ export function CeremonyTimerClient() {
   };
 
   const removeParticipant = (name: string) => {
-    setParticipants((prev) => {
-      const next = prev.filter((p) => p !== name);
-      // Clamp currentPerson so the rotation pointer doesn't dangle past the
-      // shortened list (which would render `undefined` as the active name and
-      // break the progress bar). Sync the ref so the rotation effect doesn't
-      // immediately re-fire from the now-stale "previous" value.
-      const max = Math.max(0, next.length - 1);
-      setCurrentPerson((cp) => Math.min(cp, max));
-      prevPersonRef.current = Math.min(prevPersonRef.current, max);
-      return next;
-    });
+    // Compute the post-removal state outside any setState updater so we
+    // don't fall back into the "setState inside setState" anti-pattern that
+    // was fixed in the timer-tick effect (React 18 StrictMode invokes
+    // updaters twice; nested setState + ref mutation in an updater is unsafe).
+    const nextLen = Math.max(0, participants.filter((p) => p !== name).length);
+    const max = Math.max(0, nextLen - 1);
+    const newCp = Math.min(currentPerson, max);
+    const newPrev = Math.min(prevPersonRef.current, max);
+    // Mark the next rotation index change as remove-driven so the rotation
+    // effect doesn't play a "rotate" sound for what is structurally a
+    // participant deletion.
+    if (newCp !== currentPerson || newPrev !== prevPersonRef.current) {
+      suppressRotateSonifyRef.current = true;
+    }
+    prevPersonRef.current = newPrev;
+    setCurrentPerson(newCp);
+    setParticipants((prev) => prev.filter((p) => p !== name));
   };
 
   // ---------------------------------------------------------------------------
@@ -241,8 +307,19 @@ export function CeremonyTimerClient() {
         {/* ----------------------------------------------------------------- */}
         {/* Left column -- Timer display */}
         {/* ----------------------------------------------------------------- */}
-        <Card className="border-border/40 bg-surface">
-          <CardContent className="flex flex-col items-center gap-6 pt-8 pb-8">
+        <Card
+          ref={cardRef}
+          className={`border-border/40 bg-surface ${
+            isFullscreen
+              ? "!bg-bg !border-0 !rounded-none flex items-center justify-center"
+              : ""
+          }`}
+        >
+          <CardContent
+            className={`flex flex-col items-center gap-6 pt-8 pb-8 ${
+              isFullscreen ? "scale-[1.6] sm:scale-[2.2]" : ""
+            }`}
+          >
             {/* SVG circular timer */}
             <div
               className="relative"
@@ -267,7 +344,7 @@ export function CeremonyTimerClient() {
                   cy={SVG_SIZE / 2}
                   r={RADIUS}
                   fill="none"
-                  stroke="#1e2540"
+                  stroke="var(--surface-hover)"
                   strokeWidth={STROKE_WIDTH}
                 />
                 {/* Progress */}
@@ -303,7 +380,10 @@ export function CeremonyTimerClient() {
                   </span>
                 )}
                 {remaining === 0 && started && (
-                  <span className="mt-2 text-sm font-semibold text-[#ef4444]">
+                  <span
+                    className="mt-2 text-sm font-semibold"
+                    style={{ color: "var(--destructive)" }}
+                  >
                     Time&apos;s up!
                   </span>
                 )}
@@ -318,8 +398,8 @@ export function CeremonyTimerClient() {
                 disabled={totalSeconds === 0}
                 className="h-14 w-14 rounded-full p-0"
                 style={{
-                  backgroundColor: running ? "#1e2540" : "#00f0ff",
-                  color: running ? "#00f0ff" : "#0a0e1a",
+                  backgroundColor: running ? "var(--surface-hover)" : "var(--accent)",
+                  color: running ? "var(--accent)" : "var(--bg)",
                 }}
               >
                 {running ? (
@@ -334,8 +414,23 @@ export function CeremonyTimerClient() {
                 onClick={reset}
                 disabled={!started}
                 className="h-14 w-14 rounded-full p-0 border-border/40 hover:bg-surface-hover"
+                aria-label="Reset timer"
               >
                 <RotateCcw className="h-5 w-5 text-sub" />
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={toggleFullscreen}
+                className="h-14 w-14 rounded-full p-0 border-border/40 hover:bg-surface-hover"
+                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                title={isFullscreen ? "Exit fullscreen (Esc)" : "Enter fullscreen"}
+              >
+                {isFullscreen ? (
+                  <Minimize className="h-5 w-5 text-sub" />
+                ) : (
+                  <Maximize className="h-5 w-5 text-sub" />
+                )}
               </Button>
             </div>
 
@@ -350,10 +445,10 @@ export function CeremonyTimerClient() {
                       style={{
                         backgroundColor:
                           i < currentPerson
-                            ? "#00f0ff"
+                            ? "var(--accent)"
                             : i === currentPerson
                               ? color
-                              : "#1e2540",
+                              : "var(--surface-hover)",
                       }}
                     />
                   ))}
@@ -422,7 +517,7 @@ export function CeremonyTimerClient() {
                   />
                   <Button
                     onClick={applyCustom}
-                    className="h-11 bg-accent text-[#0a0e1a] hover:bg-accent/80 font-medium"
+                    className="h-11 bg-accent text-[var(--bg)] hover:bg-accent/80 font-medium"
                   >
                     Set
                   </Button>
@@ -469,7 +564,7 @@ export function CeremonyTimerClient() {
                     size="icon"
                     onClick={addParticipant}
                     disabled={!nameInput.trim()}
-                    className="h-10 w-10 shrink-0 bg-accent text-[#0a0e1a] hover:bg-accent/80"
+                    className="h-10 w-10 shrink-0 bg-accent text-[var(--bg)] hover:bg-accent/80"
                   >
                     <Plus className="h-4 w-4" />
                   </Button>
@@ -501,7 +596,7 @@ export function CeremonyTimerClient() {
                           variant="ghost"
                           onClick={() => removeParticipant(name)}
                           disabled={started && running}
-                          className="min-touch-coarse h-6 w-6 opacity-40 hover:opacity-100 hover:text-[#ef4444]"
+                          className="min-touch-coarse h-6 w-6 opacity-40 hover:opacity-100 hover:text-[var(--destructive)]"
                         >
                           <X className="h-3 w-3" />
                         </Button>
