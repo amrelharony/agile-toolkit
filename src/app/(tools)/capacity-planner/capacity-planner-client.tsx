@@ -10,6 +10,7 @@ import { generateCapacityPrompts } from "@/lib/ai-prompts/capacity-planner";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CAPACITY_ACTIONS } from "@/lib/history/event-actions";
 import { SectionCard } from "@/components/shared/section-card";
+import { CalloutAlert } from "@/components/shared/callout-alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -23,7 +24,13 @@ import {
   Zap,
   UserCheck,
   Settings2,
+  Target,
 } from "lucide-react";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { bayesianForecastConfidence } from "@/lib/analytics/forecasting-bayesian";
+import { hasRecentChangepoint } from "@/lib/analytics/changepoint";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
+import { SmartInput } from "@/components/shared/smart-input";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -43,6 +50,12 @@ interface SprintConfig {
   ceremonyOverhead: number; // 0-100
   focusFactor: number; // 0-1
   hoursPerDay: number;
+  /**
+   * Optional planned commitment in story points for the next sprint. Surfaced
+   * via SmartInput with a Bayesian forecast as the default suggestion. Stored
+   * as a string so the input can be cleared without coercing to NaN/0 mid-edit.
+   */
+  pointsCommitted: string;
 }
 
 interface CapacityStore {
@@ -64,6 +77,7 @@ const defaultConfig: SprintConfig = {
   ceremonyOverhead: 15,
   focusFactor: 0.8,
   hoursPerDay: 8,
+  pointsCommitted: "",
 };
 
 const createMember = (): TeamMember => ({
@@ -351,6 +365,30 @@ export function CapacityPlannerClient() {
   } = useCapacityStore();
   const { log } = useHistoryLogger("capacity-planner");
 
+  /* -- Velocity history (from workspace store, which the predictor also uses) */
+  const velocityHistory = useWorkspaceStore((s) =>
+    s.sprints
+      .filter((sp) => sp.status === "completed" && Number.isFinite(sp.pointsCompleted))
+      .map((sp) => sp.pointsCompleted ?? 0),
+  );
+
+  const forecastConfidence = useMemo(
+    () => bayesianForecastConfidence(velocityHistory),
+    [velocityHistory],
+  );
+
+  const recentRegimeShift = useMemo(
+    () => hasRecentChangepoint(velocityHistory, 3),
+    [velocityHistory],
+  );
+
+  /* -- SmartInput predicted default for points-committed -------------------- */
+  const pointsCommittedPred = usePredictedDefault<number>(
+    "capacity-planner",
+    "pointsCommitted",
+    0,
+  );
+
   const addMember: typeof addMemberRaw = (...args) => {
     addMemberRaw(...args);
     const list = useCapacityStore.getState().members;
@@ -481,6 +519,22 @@ export function CapacityPlannerClient() {
           />
         </div>
 
+        {/* ---- Velocity regime-shift advisory ---- */}
+        {recentRegimeShift && velocityHistory.length >= 5 && (
+          <CalloutAlert tone="warning">
+            <div>
+              <div className="font-semibold mb-0.5 text-text">
+                Recent regime shift in velocity detected
+              </div>
+              <div className="text-sub">
+                CUSUM flagged a changepoint in the last few sprints — historical
+                commitments may not be representative. Trim the sample to the
+                post-shift window before relying on the suggested commitment.
+              </div>
+            </div>
+          </CalloutAlert>
+        )}
+
         {/* ---- Sprint Configuration ---- */}
         <SectionCard
           title="Sprint Configuration"
@@ -524,6 +578,78 @@ export function CapacityPlannerClient() {
               step={0.5}
               suffix="hrs"
             />
+          </div>
+
+          {/* SmartInput — points committed (next sprint). */}
+          <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-sub text-xs flex items-center gap-1.5">
+                <Target className="w-3.5 h-3.5" />
+                Points Committed (next sprint)
+              </Label>
+              <SmartInput<number>
+                predicted={pointsCommittedPred}
+                onAccept={(v) => updateConfig({ pointsCommitted: String(v) })}
+                render={({ ghost, chip, accept }) => (
+                  <div>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={config.pointsCommitted ?? ""}
+                      placeholder={ghost ?? "e.g. 30"}
+                      onKeyDown={(e) => {
+                        if (
+                          e.key === "Tab" &&
+                          (config.pointsCommitted ?? "") === ""
+                        ) {
+                          e.preventDefault();
+                          accept();
+                        }
+                      }}
+                      onChange={(e) =>
+                        updateConfig({ pointsCommitted: e.target.value })
+                      }
+                      className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+                    />
+                    {chip}
+                  </div>
+                )}
+              />
+            </div>
+
+            {/* Forecast-confidence chip — sourced from Bayesian shrinkage on the
+                velocity history. Only shown when there's a non-trivial sample. */}
+            {velocityHistory.length > 0 && (
+              <div className="space-y-1.5">
+                <Label className="text-sub text-xs">Forecast confidence</Label>
+                <div
+                  className="h-9 inline-flex items-center px-3 rounded-md border text-xs font-mono uppercase tracking-wider"
+                  style={{
+                    color:
+                      forecastConfidence === "high"
+                        ? "#22c55e"
+                        : forecastConfidence === "medium"
+                          ? "#eab308"
+                          : "#94a3b8",
+                    borderColor:
+                      forecastConfidence === "high"
+                        ? "rgba(34,197,94,0.4)"
+                        : forecastConfidence === "medium"
+                          ? "rgba(234,179,8,0.4)"
+                          : "rgba(148,163,184,0.4)",
+                    background:
+                      forecastConfidence === "high"
+                        ? "rgba(34,197,94,0.08)"
+                        : forecastConfidence === "medium"
+                          ? "rgba(234,179,8,0.08)"
+                          : "rgba(148,163,184,0.08)",
+                  }}
+                  title={`Bayesian forecast confidence based on ${velocityHistory.length} completed sprint${velocityHistory.length === 1 ? "" : "s"}`}
+                >
+                  {forecastConfidence}
+                </div>
+              </div>
+            )}
           </div>
         </SectionCard>
 

@@ -49,6 +49,8 @@ export interface Risk {
   probability: 1 | 2 | 3 | 4 | 5;
   impact: 1 | 2 | 3 | 4 | 5;
   mitigation?: string;
+  /** Target date by which mitigation should complete (ISO yyyy-mm-dd). */
+  mitigationDueAt?: ISODateString;
   status: "open" | "mitigating" | "closed" | "accepted";
   raisedAt: ISODateString;
   resolvedAt?: ISODateString;

@@ -19,7 +19,13 @@ import {
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { SmartInput } from "@/components/shared/smart-input";
+import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { generateCycleTimePrompts } from "@/lib/ai-prompts/cycle-time";
+import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
+import { cusum } from "@/lib/analytics/changepoint";
+import { mannKendall } from "@/lib/analytics/trend-test";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CYCLE_TIME_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
@@ -139,24 +145,32 @@ function StatCard({
   value,
   unit,
   accent = false,
+  trailing,
+  footer,
 }: {
   label: string;
   value: string | number;
   unit?: string;
   accent?: boolean;
+  /** Inline trailing element next to the value (e.g. trend chip). */
+  trailing?: React.ReactNode;
+  /** Sub-line under the value (e.g. bootstrap CI bracket "± [2, 6]"). */
+  footer?: React.ReactNode;
 }) {
   return (
     <Card className="bg-surface border-border">
       <CardContent className="p-5">
         <p className="text-xs text-sub mb-2">{label}</p>
-        <div className="flex items-baseline gap-1.5">
+        <div className="flex items-baseline gap-1.5 flex-wrap">
           <span
             className={`text-2xl font-data font-bold ${accent ? "text-accent" : "text-text"}`}
           >
             {value}
           </span>
           {unit && <span className="text-sm text-sub">{unit}</span>}
+          {trailing}
         </div>
+        {footer && <div className="mt-1 text-[11px] text-sub font-mono">{footer}</div>}
       </CardContent>
     </Card>
   );
@@ -276,6 +290,79 @@ export function CycleTimeClient() {
     [sortedCT, targetPct]
   );
 
+  /* -- Phase-15 analytics -------------------------------------------------- */
+  // Bootstrap CIs for P50 / P85. The primitive shrinks to a point CI when
+  // n<3, which keeps the UI honest. Use 1000 iterations (deterministic seed
+  // inside the primitive) so the bracket is stable across renders.
+  const p50CI = useMemo(
+    () => (validCycleTimes.length >= 3 ? bootstrapQuantile(validCycleTimes, 0.5) : null),
+    [validCycleTimes]
+  );
+  const p85CI = useMemo(
+    () => (validCycleTimes.length >= 3 ? bootstrapQuantile(validCycleTimes, 0.85) : null),
+    [validCycleTimes]
+  );
+
+  // Per-item CUSUM markers (rendered on the scatter plot). Operates on the
+  // scatter's natural ordering — the existing component sorts by insertion
+  // order, so a regime shift here means the team's per-item cycle time
+  // changed character mid-stream.
+  const scatterCusumAnnotations = useMemo<CausalAnnotationData[]>(() => {
+    if (validCycleTimes.length < 4) return [];
+    return cusum(validCycleTimes).map((cp) => ({
+      x: cp.index + 1,
+      label:
+        cp.direction === "up"
+          ? "Cycle-time regime up"
+          : "Cycle-time regime down",
+      detail: `CUSUM detected a sustained ${cp.direction === "up" ? "increase" : "decrease"} starting at item #${cp.index + 1}.`,
+      confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
+    }));
+  }, [validCycleTimes]);
+
+  // Per-week mean cycle time for the trend chip. Bucket by ISO week of the
+  // item's endDate so a single week with N items contributes one mean.
+  const weeklyCycleMean = useMemo(() => {
+    const buckets = new Map<string, number[]>();
+    for (const i of itemsWithCT) {
+      if (i.cycleTime === null || !i.endDate) continue;
+      const d = new Date(i.endDate);
+      if (Number.isNaN(d.getTime())) continue;
+      // ISO week key (matches kanban's pattern). Inline so we don't need a
+      // shared helper for one consumer.
+      const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+      const week = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+      const key = `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+      const arr = buckets.get(key) ?? [];
+      arr.push(i.cycleTime);
+      buckets.set(key, arr);
+    }
+    return Array.from(buckets.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, vals]) => vals.reduce((a, b) => a + b, 0) / vals.length);
+  }, [itemsWithCT]);
+
+  const weeklyTrend = useMemo(
+    () => (weeklyCycleMean.length >= 5 ? mannKendall(weeklyCycleMean) : null),
+    [weeklyCycleMean]
+  );
+
+  // Smart-default predictor for the SLE target days. Note the existing
+  // predictor reads from workspace.stories rather than this tool's local
+  // store, so chip confidence will typically be "none" until the workspace
+  // tracks story timestamps — wiring is forward-compatible.
+  const sleDaysPrediction = usePredictedDefault<number>(
+    "cycle-time",
+    "sleTargetDays",
+    Math.max(1, Math.round(stats.p85 || 5))
+  );
+  const [sleDaysBuffer, setSleDaysBuffer] = useState<string | null>(null);
+  // The tool already exposes targetPct; we add a parallel "target days" SLE
+  // input that mirrors the percentile/value pair from the predictor.
+  const [sleTargetDays, setSleTargetDays] = useState<number | null>(null);
+
   /* -- Histogram data ------------------------------------------------------ */
   const histogramData = useMemo(
     () =>
@@ -347,9 +434,49 @@ export function CycleTimeClient() {
       <div ref={exportRef} className="space-y-6">
         {/* ---- Stats ---- */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <StatCard label="Average" value={stats.avg} unit="days" accent />
-          <StatCard label="Median (50th %ile)" value={stats.median} unit="days" />
-          <StatCard label="85th Percentile" value={stats.p85} unit="days" accent />
+          <StatCard
+            label="Average"
+            value={stats.avg}
+            unit="days"
+            accent
+            trailing={
+              weeklyTrend?.significant ? (
+                <span
+                  className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                    // For cycle time, "down" trend is good (faster), "up" is bad.
+                    weeklyTrend.trend === "down"
+                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
+                      : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                  }`}
+                  aria-label={`Weekly cycle-time trend ${weeklyTrend.trend} (Mann-Kendall p=${weeklyTrend.pValue.toFixed(3)})`}
+                  title={`Mann-Kendall p=${weeklyTrend.pValue.toFixed(3)}`}
+                >
+                  {weeklyTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+                </span>
+              ) : undefined
+            }
+          />
+          <StatCard
+            label="Median (50th %ile)"
+            value={stats.median}
+            unit="days"
+            footer={
+              p50CI && p50CI.iterations > 0
+                ? `95% CI [${p50CI.lower.toFixed(1)}, ${p50CI.upper.toFixed(1)}]`
+                : undefined
+            }
+          />
+          <StatCard
+            label="85th Percentile"
+            value={stats.p85}
+            unit="days"
+            accent
+            footer={
+              p85CI && p85CI.iterations > 0
+                ? `95% CI [${p85CI.lower.toFixed(1)}, ${p85CI.upper.toFixed(1)}]`
+                : undefined
+            }
+          />
           <StatCard label="Std Deviation" value={stats.stddev} unit="days" />
         </div>
 
@@ -540,6 +667,9 @@ export function CycleTimeClient() {
                         strokeDasharray="5 3"
                         label={{ value: `P95 (${percentileMap[95]}d)`, fill: "#ef4444", fontSize: 10, position: "right" }}
                       />
+                      {scatterCusumAnnotations.map((a, i) => (
+                        <CausalLine key={i} annotation={a} />
+                      ))}
                       <Scatter data={scatterData} fill="#00f0ff" fillOpacity={0.8} />
                     </ScatterChart>
                   </ResponsiveContainer>
@@ -577,6 +707,62 @@ export function CycleTimeClient() {
                       <p className="text-xs text-sub pb-2.5">
                         = {sleValue} days
                       </p>
+                    </div>
+
+                    {/* Target Days Input — SmartInput-backed. The predictor
+                        suggests P85 of historical cycle times (or workspace
+                        story signal when present). Tab on an empty field
+                        accepts the suggestion. The input commits to a
+                        local target, separate from the percentile. */}
+                    <div className="flex items-end gap-3 max-w-xs">
+                      <div className="flex-1 space-y-1.5">
+                        <Label className="text-sub text-xs">SLE Target (days)</Label>
+                        <SmartInput<number>
+                          predicted={sleDaysPrediction}
+                          onAccept={(v) => {
+                            setSleTargetDays(v);
+                            setSleDaysBuffer(null);
+                          }}
+                          render={({ ghost, chip, accept }) => (
+                            <>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={
+                                  sleDaysBuffer !== null
+                                    ? sleDaysBuffer
+                                    : sleTargetDays !== null
+                                    ? String(sleTargetDays)
+                                    : ""
+                                }
+                                placeholder={ghost ?? "e.g. 5"}
+                                onKeyDown={(e) => {
+                                  const empty =
+                                    (sleDaysBuffer ?? "") === "" && sleTargetDays === null;
+                                  if (e.key === "Tab" && empty) {
+                                    e.preventDefault();
+                                    accept();
+                                  }
+                                }}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  setSleDaysBuffer(raw);
+                                  if (raw === "") {
+                                    setSleTargetDays(null);
+                                    return;
+                                  }
+                                  const n = Number(raw);
+                                  if (Number.isFinite(n) && n > 0) setSleTargetDays(n);
+                                }}
+                                onBlur={() => setSleDaysBuffer(null)}
+                                className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
+                                aria-label="SLE target days"
+                              />
+                              {chip}
+                            </>
+                          )}
+                        />
+                      </div>
                     </div>
 
                     {/* Percentile Table */}

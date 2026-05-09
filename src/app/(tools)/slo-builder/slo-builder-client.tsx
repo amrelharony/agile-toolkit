@@ -17,10 +17,12 @@ import { ActionRow } from "@/components/shared/action-row";
 import { SectionCard } from "@/components/shared/section-card";
 import { ChartCard } from "@/components/shared/chart-card";
 import { CalloutAlert } from "@/components/shared/callout-alert";
+import { SmartInput } from "@/components/shared/smart-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -30,6 +32,11 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2, Target, AlertTriangle } from "lucide-react";
 import { chartTheme, CHART_COLORS } from "@/components/charts/chart-theme";
+import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import { cusum } from "@/lib/analytics/changepoint";
+import { mannKendall } from "@/lib/analytics/trend-test";
+import { forecastBayesianHolt, bayesianForecastConfidence } from "@/lib/analytics/forecasting-bayesian";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { generateSloPrompts } from "@/lib/ai-prompts/slo-builder";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -265,6 +272,86 @@ export function SloBuilderClient() {
     });
   }, [state.slos, state.burns]);
 
+  // ── Per-SLO daily-burn series (not cumulative) used for analytics. ─────
+  // Pick the SLO with the longest series for analytics; the rest stay
+  // visualised but uninstrumented to keep the UI focused.
+  const burnAnalytics = useMemo(() => {
+    if (state.slos.length === 0 || state.burns.length === 0) return null;
+    // Build per-SLO date→errorMinutes map, then pick the longest one.
+    type Series = { sloId: string; name: string; dates: string[]; values: number[] };
+    let best: Series | null = null;
+    for (const slo of state.slos) {
+      const burns = state.burns
+        .filter((b) => b.sloId === slo.id)
+        .slice()
+        .sort((a, b) => a.date.localeCompare(b.date));
+      if (burns.length < 4) continue;
+      const dates = burns.map((b) => b.date);
+      const values = burns.map((b) => b.errorMinutes);
+      if (!best || values.length > best.values.length) {
+        best = { sloId: slo.id, name: slo.name, dates, values };
+      }
+    }
+    if (!best) return null;
+
+    // CUSUM regime shifts on the per-burn series.
+    const cps = cusum(best.values);
+    const annotations: CausalAnnotationData[] = cps.map((cp) => ({
+      x: best!.dates[cp.index] ?? String(cp.index),
+      label: `Burn regime ${cp.direction === "up" ? "↑" : "↓"}`,
+      detail: `CUSUM detected a ${cp.direction === "up" ? "spike" : "drop"} in burn rate for ${best!.name} on ${best!.dates[cp.index]}.`,
+      confidence: "moderate" as const,
+    }));
+
+    // Mann-Kendall trend.
+    const mk = mannKendall(best.values);
+
+    // Bayesian projection of remaining budget at end of window.
+    const slo = state.slos.find((s) => s.id === best!.sloId);
+    let projection: {
+      remainingMin: number;
+      ciLowMin: number;
+      ciHighMin: number;
+      horizonDays: number;
+      confidence: "low" | "medium" | "high";
+    } | null = null;
+    if (slo && best.values.length >= 2) {
+      // Days from first burn date to today; horizon = remaining window days.
+      const firstTs = parseDateLocal(best.dates[0]);
+      const elapsedDays = Math.max(1, Math.round((Date.now() - firstTs) / (24 * 60 * 60 * 1000)));
+      const horizon = Math.max(0, slo.windowDays - elapsedDays);
+      if (horizon > 0) {
+        const fc = forecastBayesianHolt(best.values, horizon, { priorWeight: 1 });
+        // Sum of projected daily burns over the horizon.
+        const projectedSum = fc.reduce((acc, p) => acc + Math.max(0, p.yHat), 0);
+        const projectedLow = fc.reduce((acc, p) => acc + Math.max(0, p.lower80), 0);
+        const projectedHigh = fc.reduce((acc, p) => acc + Math.max(0, p.upper80), 0);
+        const budget = budgetMinutes(slo);
+        const consumed = consumedMinutes(slo, state.burns);
+        projection = {
+          remainingMin: Math.max(0, budget - consumed - projectedSum),
+          // Note: lower projected burn → MORE remaining, so we swap.
+          ciLowMin: Math.max(0, budget - consumed - projectedHigh),
+          ciHighMin: Math.max(0, budget - consumed - projectedLow),
+          horizonDays: horizon,
+          confidence: bayesianForecastConfidence(best.values),
+        };
+      }
+    }
+
+    return {
+      sloName: best.name,
+      annotations,
+      mk,
+      projection,
+    };
+  }, [state.slos, state.burns]);
+
+  // ── Smart-default predictor for the suggested error budget ──────────────
+  // Predictor returns a target budget (minutes) for a 99.9% / 30d SLO.
+  // Accepting fills both target % and window days that produce that budget.
+  const budgetPrediction = usePredictedDefault<number>("slo-builder", "errorBudgetMinutes", 0);
+
   const promptConfig = useMemo(
     () => ({
       toolName: "SLO & Error Budget Builder",
@@ -383,6 +470,15 @@ export function SloBuilderClient() {
                 placeholder="30"
               />
             </div>
+            {/* Suggested error budget chip — accepts the predictor's
+                canonical 99.9 % / 30-day target into the two fields above. */}
+            <SmartInput<number>
+              predicted={budgetPrediction}
+              onAccept={() =>
+                setSloDraft((d) => ({ ...d, targetPct: "99.9", windowDays: "30" }))
+              }
+              render={({ chip }) => <div>{chip}</div>}
+            />
             <div>
               <Label htmlFor="slo-desc" className="text-xs text-sub">
                 Description (optional)
@@ -588,30 +684,71 @@ export function SloBuilderClient() {
       )}
 
       {chartData.length > 0 && (
-        <ChartCard
-          title="Cumulative error consumption"
-          height={320}
-          className="mt-6"
-        >
-          <AreaChart data={chartData} margin={{ top: 8, right: 12, left: -16, bottom: 4 }}>
-            <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-            <XAxis dataKey="date" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
-            <YAxis tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
-            <Tooltip contentStyle={chartTheme.tooltipStyle} />
-            <Legend wrapperStyle={chartTheme.legendStyle} />
-            {state.slos.map((slo, i) => (
-              <Area
-                key={slo.id}
-                type="monotone"
-                dataKey={slo.name}
-                stackId="1"
-                stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                fill={CHART_COLORS[i % CHART_COLORS.length]}
-                fillOpacity={0.35}
-              />
-            ))}
-          </AreaChart>
-        </ChartCard>
+        <>
+          <ChartCard
+            title="Cumulative error consumption"
+            height={320}
+            className="mt-6"
+          >
+            <AreaChart data={chartData} margin={{ top: 8, right: 12, left: -16, bottom: 4 }}>
+              <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
+              <XAxis dataKey="date" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
+              <YAxis tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
+              <Tooltip contentStyle={chartTheme.tooltipStyle} />
+              <Legend wrapperStyle={chartTheme.legendStyle} />
+              {state.slos.map((slo, i) => (
+                <Area
+                  key={slo.id}
+                  type="monotone"
+                  dataKey={slo.name}
+                  stackId="1"
+                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                  fill={CHART_COLORS[i % CHART_COLORS.length]}
+                  fillOpacity={0.35}
+                />
+              ))}
+              {/* CUSUM regime-shift markers on the (longest) burn series. */}
+              {burnAnalytics?.annotations.map((cp, i) => (
+                <CausalLine key={`cusum-${i}`} annotation={cp} />
+              ))}
+            </AreaChart>
+          </ChartCard>
+
+          {burnAnalytics && (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              {/* Mann-Kendall trend chip on the burn series. */}
+              <Badge
+                variant="outline"
+                className={`font-mono text-[10px] tracking-wider uppercase ${
+                  !burnAnalytics.mk.significant || burnAnalytics.mk.trend === "none"
+                    ? "text-sub border-border"
+                    : burnAnalytics.mk.trend === "up"
+                      ? "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                      : "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+                }`}
+              >
+                {burnAnalytics.sloName} burn{" "}
+                {!burnAnalytics.mk.significant || burnAnalytics.mk.trend === "none"
+                  ? "flat"
+                  : burnAnalytics.mk.trend === "up"
+                    ? "↗ significant"
+                    : "↘ significant"}
+              </Badge>
+              {burnAnalytics.projection && (
+                <CalloutAlert tone="info" className="m-0 flex-1 min-w-[260px]">
+                  <span className="text-xs">
+                    <strong>Projected end-of-window remaining ({burnAnalytics.sloName}):</strong>{" "}
+                    {burnAnalytics.projection.remainingMin.toFixed(1)} min{" "}
+                    <span className="text-sub">
+                      (80% CI {burnAnalytics.projection.ciLowMin.toFixed(1)}–{burnAnalytics.projection.ciHighMin.toFixed(1)},{" "}
+                      {burnAnalytics.projection.horizonDays}d horizon, confidence {burnAnalytics.projection.confidence})
+                    </span>
+                  </span>
+                </CalloutAlert>
+              )}
+            </div>
+          )}
+        </>
       )}
     </ToolPageWrapper>
   );

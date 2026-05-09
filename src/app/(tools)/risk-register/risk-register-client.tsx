@@ -2,6 +2,17 @@
 
 import { useEffect, useMemo } from "react";
 import { nanoid } from "nanoid";
+import {
+  ComposedChart,
+  Area,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -17,17 +28,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, ShieldAlert } from "lucide-react";
+import { Plus, Trash2, ShieldAlert, TrendingUp } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Risk } from "@/lib/stores/workspace-types";
 import { durationsFromTimeRanges, kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
+import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
+import { mannKendall } from "@/lib/analytics/trend-test";
+import { cusum } from "@/lib/analytics/changepoint";
 import { generateRiskRegisterPrompts } from "@/lib/ai-prompts/risk-register";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RISK_ACTIONS } from "@/lib/history/event-actions";
 import { ActionRow } from "@/components/shared/action-row";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
+import { SectionCard } from "@/components/shared/section-card";
 import { EmptyState } from "@/components/shared/empty-state";
+import { SmartInput } from "@/components/shared/smart-input";
+import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import { chartTheme } from "@/components/charts/chart-theme";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -52,6 +71,84 @@ function riskColor(score: number): string {
   if (score >= 10) return "#f59e0b";
   if (score >= 5) return "#facc15";
   return "#34d399";
+}
+
+/** Parse an ISO yyyy-mm-dd date string into a UTC-anchored Date. */
+function parseISODate(iso: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return null;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+}
+
+/** Format a Date as yyyy-mm-dd in UTC. */
+function toISODate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/** Add N days to a yyyy-mm-dd ISO date string (UTC). */
+function addDaysISO(iso: string, days: number): string {
+  const d = parseISODate(iso) ?? new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  return toISODate(d);
+}
+
+/**
+ * Bucket a series of risk timestamps into weekly counts and open-counts.
+ * Buckets are ISO weeks anchored on the Monday of the earliest event;
+ * we cap the series at 26 weeks so short histories don't disappear behind
+ * a long tail of empty weeks and forecast quality stays useful.
+ */
+function buildWeeklyRiskSeries(risks: Risk[]): {
+  raisedPerWeek: number[];
+  openAtWeek: number[];
+  weekLabels: string[];
+} {
+  if (risks.length === 0) return { raisedPerWeek: [], openAtWeek: [], weekLabels: [] };
+  const raisedDates = risks.map((r) => parseISODate(r.raisedAt)).filter((d): d is Date => d !== null);
+  if (raisedDates.length === 0) return { raisedPerWeek: [], openAtWeek: [], weekLabels: [] };
+
+  const earliest = new Date(Math.min(...raisedDates.map((d) => d.getTime())));
+  // Anchor on the Sunday of the earliest week (UTC).
+  const dayOfWeek = earliest.getUTCDay();
+  const weekStart = new Date(earliest);
+  weekStart.setUTCDate(earliest.getUTCDate() - dayOfWeek);
+  weekStart.setUTCHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const totalWeeks = Math.max(
+    1,
+    Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1,
+  );
+  const cappedWeeks = Math.min(totalWeeks, 26);
+
+  const raisedPerWeek = new Array(cappedWeeks).fill(0) as number[];
+  const openAtWeek = new Array(cappedWeeks).fill(0) as number[];
+  const weekLabels: string[] = [];
+
+  for (let w = 0; w < cappedWeeks; w++) {
+    const weekStartT = weekStart.getTime() + w * 7 * 86_400_000;
+    const weekEndT = weekStartT + 7 * 86_400_000;
+    weekLabels.push(toISODate(new Date(weekStartT)));
+
+    let raised = 0;
+    let open = 0;
+    for (const r of risks) {
+      const raisedDate = parseISODate(r.raisedAt);
+      if (!raisedDate) continue;
+      const raisedT = raisedDate.getTime();
+      if (raisedT >= weekStartT && raisedT < weekEndT) raised++;
+      // Open as of the END of the week: raised on/before week-end and not yet resolved by week-end.
+      if (raisedT < weekEndT) {
+        const resolvedDate = r.resolvedAt ? parseISODate(r.resolvedAt) : null;
+        if (!resolvedDate || resolvedDate.getTime() >= weekEndT) open++;
+      }
+    }
+    raisedPerWeek[w] = raised;
+    openAtWeek[w] = open;
+  }
+
+  return { raisedPerWeek, openAtWeek, weekLabels };
 }
 
 export function RiskRegisterClient() {
@@ -95,6 +192,81 @@ export function RiskRegisterClient() {
 
   const medianTTM = medianSurvivalTime(survivalCurve);
 
+  // ── Phase-15 analytics: weekly trend, forecast, changepoints ─────────
+  const { raisedPerWeek, openAtWeek, weekLabels } = useMemo(
+    () => buildWeeklyRiskSeries(risks),
+    [risks],
+  );
+
+  // Mann-Kendall on the raised-per-week series (need n>=5 for meaningful trend).
+  const raisedTrend = useMemo(() => {
+    if (raisedPerWeek.length < 5) return null;
+    return mannKendall(raisedPerWeek);
+  }, [raisedPerWeek]);
+
+  // Bayesian forecast on the open-risks series — 4-week horizon.
+  const openForecast = useMemo(() => {
+    if (openAtWeek.length < 3) return [];
+    return forecastBayesianHolt(openAtWeek, 4, { priorWeight: 2 });
+  }, [openAtWeek]);
+
+  // CUSUM on the open-risks series — flag regime shifts.
+  const openChangepoints = useMemo(() => {
+    if (openAtWeek.length < 4) return [];
+    return cusum(openAtWeek);
+  }, [openAtWeek]);
+
+  // Annotations rendered as <CausalLine> inside the forecast chart.
+  const causalAnnotations = useMemo<CausalAnnotationData[]>(
+    () =>
+      openChangepoints.map((cp) => ({
+        x: weekLabels[cp.index] ?? cp.index,
+        label: cp.direction === "up" ? "Open-risk surge" : "Open-risk drop",
+        detail: `CUSUM detected a ${cp.direction === "up" ? "rise" : "fall"} regime shift in open-risk count at week ${weekLabels[cp.index] ?? cp.index} (cumulative stat ${cp.cumulativeStat.toFixed(2)}σ).`,
+        confidence: Math.abs(cp.cumulativeStat) > 6 ? "strong" : "moderate",
+      })),
+    [openChangepoints, weekLabels],
+  );
+
+  // Build the chart data: historical actuals + forecast band.
+  const forecastChartData = useMemo(() => {
+    const data: Array<{
+      x: string;
+      actual?: number;
+      yHat?: number;
+      band80Lower?: number;
+      band80Upper?: number;
+    }> = weekLabels.map((label, i) => ({ x: label, actual: openAtWeek[i] }));
+    // Bridge actual → forecast at the boundary so the forecast line is connected.
+    if (data.length > 0 && openForecast.length > 0) {
+      const last = data[data.length - 1];
+      data[data.length - 1] = {
+        ...last,
+        yHat: last.actual,
+        band80Lower: last.actual,
+        band80Upper: last.actual,
+      };
+      const lastDate = parseISODate(weekLabels[weekLabels.length - 1]) ?? new Date();
+      openForecast.forEach((f, i) => {
+        const next = new Date(lastDate.getTime() + (i + 1) * 7 * 86_400_000);
+        data.push({
+          x: toISODate(next),
+          yHat: f.yHat,
+          band80Lower: Math.max(0, f.lower80),
+          band80Upper: f.upper80,
+        });
+      });
+    }
+    return data;
+  }, [weekLabels, openAtWeek, openForecast]);
+
+  // Smart-default predictor for mitigation lead-time (in days).
+  const mitigationDaysPrediction = usePredictedDefault<number>(
+    "risk-register",
+    "mitigationDays",
+    14,
+  );
+
   const handleImport = () => {
     const fresh = workspaceRisks.filter((w) => !risks.find((r) => r.id === w.id));
     setRisks((r) => [...fresh, ...r]);
@@ -132,7 +304,7 @@ export function RiskRegisterClient() {
         <ExportButton
           filename="risk-register"
           csvData={{
-            headers: ["Title", "Probability", "Impact", "Score", "Status", "Mitigation", "Raised", "Resolved"],
+            headers: ["Title", "Probability", "Impact", "Score", "Status", "Mitigation", "Mitigation Due", "Raised", "Resolved"],
             rows: risks.map((r) => [
               r.title,
               r.probability,
@@ -140,6 +312,7 @@ export function RiskRegisterClient() {
               riskScore(r),
               r.status,
               r.mitigation ?? "",
+              r.mitigationDueAt ?? "",
               r.raisedAt,
               r.resolvedAt ?? "",
             ]),
@@ -212,6 +385,93 @@ export function RiskRegisterClient() {
         </KpiGrid>
       </div>
 
+      {/* Trend chip — Mann-Kendall over weekly raised count. */}
+      {raisedTrend && (
+        <div className="mb-4">
+          {raisedTrend.significant ? (
+            <span
+              className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
+                raisedTrend.trend === "up"
+                  ? "border-[#ef4444]/40 text-[#ef4444] bg-[#ef4444]/10"
+                  : "border-[#34d399]/40 text-[#34d399] bg-[#34d399]/10"
+              }`}
+            >
+              <TrendingUp className={`w-3 h-3 ${raisedTrend.trend === "down" ? "rotate-180" : ""}`} />
+              Risk creation trending {raisedTrend.trend} significantly
+              <span className="opacity-60">· p={raisedTrend.pValue.toFixed(3)}</span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-[var(--surface-hover)]">
+              <TrendingUp className="w-3 h-3" />
+              Risk creation trend: no significant change
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Open-risks forecast with CUSUM markers — only when we have enough history. */}
+      {openAtWeek.length >= 3 && (
+        <div className="mb-6">
+          <SectionCard title="Open Risks Over Time" icon={TrendingUp}>
+            <div className="h-64 -mx-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart
+                  data={forecastChartData}
+                  margin={{ top: 12, right: 24, bottom: 24, left: 12 }}
+                >
+                  <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
+                  <XAxis dataKey="x" stroke={chartTheme.axisColor} fontSize={11} />
+                  <YAxis stroke={chartTheme.axisColor} fontSize={11} allowDecimals={false} />
+                  <Tooltip contentStyle={chartTheme.tooltipStyle} />
+                  <Legend wrapperStyle={chartTheme.legendStyle} />
+                  <Area
+                    dataKey="band80Upper"
+                    stroke="none"
+                    fill={chartTheme.colors.cyan}
+                    fillOpacity={0.18}
+                    name="80% band"
+                    connectNulls
+                  />
+                  <Area
+                    dataKey="band80Lower"
+                    stroke="none"
+                    fill={chartTheme.background}
+                    fillOpacity={1}
+                    legendType="none"
+                    connectNulls
+                  />
+                  <Line
+                    dataKey="actual"
+                    stroke={chartTheme.colors.cyan}
+                    strokeWidth={2}
+                    dot={{ fill: chartTheme.colors.cyan, r: 3 }}
+                    name="Open risks"
+                    connectNulls={false}
+                  />
+                  <Line
+                    dataKey="yHat"
+                    stroke={chartTheme.colors.cyan}
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    dot={false}
+                    name="Forecast"
+                    connectNulls
+                  />
+                  {causalAnnotations.map((ann, i) => (
+                    <CausalLine key={`cp-${i}`} annotation={ann} />
+                  ))}
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+            {causalAnnotations.length > 0 && (
+              <div className="mt-2 text-[11px] text-sub">
+                {causalAnnotations.length} regime shift{causalAnnotations.length !== 1 ? "s" : ""} detected (CUSUM markers)
+              </div>
+            )}
+          </SectionCard>
+        </div>
+      )}
+
       <div className="space-y-2">
         {risks
           .slice()
@@ -282,6 +542,45 @@ export function RiskRegisterClient() {
                     placeholder="Mitigation plan..."
                     className="bg-bg border-border text-sm"
                   />
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] uppercase tracking-wider text-sub font-mono shrink-0 w-32">
+                        Mitigation due
+                      </span>
+                      <SmartInput<string>
+                        predicted={
+                          mitigationDaysPrediction.confidence === "none"
+                            ? { value: "", confidence: "none" }
+                            : {
+                                value: addDaysISO(r.raisedAt, mitigationDaysPrediction.value),
+                                confidence: mitigationDaysPrediction.confidence,
+                                source:
+                                  mitigationDaysPrediction.source ??
+                                  `${mitigationDaysPrediction.value}-day median lead time`,
+                              }
+                        }
+                        onAccept={(value) => update(r.id, { mitigationDueAt: value })}
+                        render={({ ghost, accept, chip }) => (
+                          <div className="flex flex-col gap-1 flex-1">
+                            <Input
+                              type="date"
+                              value={r.mitigationDueAt ?? ""}
+                              onChange={(e) => update(r.id, { mitigationDueAt: e.target.value || undefined })}
+                              onKeyDown={(e) => {
+                                if (e.key === "Tab" && !r.mitigationDueAt && ghost) {
+                                  e.preventDefault();
+                                  accept();
+                                }
+                              }}
+                              placeholder={ghost}
+                              className="bg-bg border-border text-sm font-data h-8"
+                            />
+                            {!r.mitigationDueAt && chip}
+                          </div>
+                        )}
+                      />
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             );

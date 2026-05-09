@@ -19,10 +19,13 @@ import { SectionCard } from "@/components/shared/section-card";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { CausalLine } from "@/components/charts/causal-annotation";
 import { generateBurnupPrompts } from "@/lib/ai-prompts/burnup";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { BURNUP_ACTIONS } from "@/lib/history/event-actions";
+import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
+import { cusum } from "@/lib/analytics/changepoint";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -297,6 +300,61 @@ export function BurnupClient() {
 
   /* -- Carry-forward scope (scope persists until changed) ------------------ */
 
+  // Numeric series of completed points at filled days. Drops holes — Holt
+  // expects an evenly-spaced sequence and we'd rather forecast from real
+  // samples than synthesise zeros.
+  const completedSeries = useMemo(
+    () =>
+      sortedEntries
+        .filter((e) => e.completed !== null && Number.isFinite(e.completed))
+        .map((e) => e.completed as number),
+    [sortedEntries]
+  );
+
+  // Bayesian forecast for the days remaining in the sprint after the last
+  // logged completed point. Returns [] when n<2 — band area then renders
+  // as nothing.
+  const forecast = useMemo(() => {
+    if (completedSeries.length < 2) return [];
+    const filledDays = sortedEntries
+      .filter((e) => e.completed !== null && Number.isFinite(e.completed))
+      .map((e) => e.day);
+    const lastFilledDay = filledDays.length > 0 ? Math.max(...filledDays) : 0;
+    const horizon = Math.max(1, config.sprintDays - lastFilledDay);
+    return forecastBayesianHolt(completedSeries, horizon);
+  }, [completedSeries, sortedEntries, config.sprintDays]);
+
+  // Forecast lookup keyed by sprint-day.
+  const forecastByDay = useMemo(() => {
+    if (forecast.length === 0) return new Map<number, (typeof forecast)[number]>();
+    const filledDays = sortedEntries
+      .filter((e) => e.completed !== null && Number.isFinite(e.completed))
+      .map((e) => e.day);
+    const lastFilledDay = filledDays.length > 0 ? Math.max(...filledDays) : 0;
+    const m = new Map<number, (typeof forecast)[number]>();
+    forecast.forEach((fp, i) => {
+      m.set(lastFilledDay + i + 1, fp);
+    });
+    return m;
+  }, [forecast, sortedEntries]);
+
+  // CUSUM on completed-points series. Useful for spotting "team unblocked"
+  // (sustained acceleration) or "delivery stalled" (sustained flatten).
+  const changepoints = useMemo(() => {
+    if (completedSeries.length < 4) return [];
+    return cusum(completedSeries);
+  }, [completedSeries]);
+
+  const changepointDays = useMemo(() => {
+    if (changepoints.length === 0) return [] as Array<{ day: number; direction: "up" | "down" }>;
+    const filledDays = sortedEntries
+      .filter((e) => e.completed !== null && Number.isFinite(e.completed))
+      .map((e) => e.day);
+    return changepoints
+      .map((cp) => ({ day: filledDays[cp.index], direction: cp.direction }))
+      .filter((x): x is { day: number; direction: "up" | "down" } => Number.isFinite(x.day));
+  }, [changepoints, sortedEntries]);
+
   const chartData = useMemo(() => {
     const map = new Map<number, DayEntry>();
     sortedEntries.forEach((e) => map.set(e.day, e));
@@ -307,14 +365,25 @@ export function BurnupClient() {
       if (entry?.scope !== null && entry?.scope !== undefined) {
         lastScope = entry.scope;
       }
+      const fc = forecastByDay.get(day);
       return {
         day,
         scope: lastScope,
         completed: entry?.completed ?? null,
+        forecast: fc ? parseFloat(fc.yHat.toFixed(1)) : undefined,
+        // Clamp lower band at 0 — completed points can't be negative; clamp
+        // upper band at the carried-forward scope when known so the band
+        // doesn't visually exceed total scope (which would mislead).
+        band80Lower: fc ? parseFloat(Math.max(0, fc.lower80).toFixed(1)) : undefined,
+        band80Upper: fc
+          ? parseFloat(
+              (lastScope !== null ? Math.min(lastScope, Math.max(0, fc.upper80)) : Math.max(0, fc.upper80)).toFixed(1)
+            )
+          : undefined,
         description: entry?.description ?? "",
       };
     });
-  }, [sortedEntries, config.sprintDays]);
+  }, [sortedEntries, config.sprintDays, forecastByDay]);
 
   const todayDay = useMemo(
     () => computeTodayDay(config.sprintStartDate, config.sprintDays),
@@ -568,6 +637,30 @@ export function BurnupClient() {
                     />
                   )}
 
+                  {/* Bayesian 80% forecast band — drawn before the actual
+                      completed area so the lines render on top. The
+                      lower-mask Area uses var(--bg) at fillOpacity 1 to clip
+                      the upper Area down to a true band rather than a solid
+                      wedge from 0. */}
+                  <Area
+                    dataKey="band80Upper"
+                    name="80% forecast"
+                    stroke="none"
+                    fill="#00f0ff"
+                    fillOpacity={0.18}
+                    connectNulls
+                    isAnimationActive={false}
+                  />
+                  <Area
+                    dataKey="band80Lower"
+                    stroke="none"
+                    fill="var(--bg, #06080f)"
+                    fillOpacity={1}
+                    legendType="none"
+                    connectNulls
+                    isAnimationActive={false}
+                  />
+
                   {/* Completed area */}
                   <Area
                     type="monotone"
@@ -593,6 +686,32 @@ export function BurnupClient() {
                     activeDot={{ r: 5, fill: "#ff00aa", strokeWidth: 0 }}
                     connectNulls
                   />
+
+                  {/* Forecast centre-line (dashed) — paired with the band
+                      Area; only renders when the forecast has data. */}
+                  <Line
+                    type="monotone"
+                    dataKey="forecast"
+                    name="Forecast"
+                    stroke="#00f0ff"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    dot={false}
+                    connectNulls
+                  />
+
+                  {/* CUSUM regime-shift markers on completed-points series. */}
+                  {changepointDays.map((cp, i) => (
+                    <CausalLine
+                      key={`cusum-${cp.day}-${cp.direction}-${i}`}
+                      annotation={{
+                        x: cp.day,
+                        label: `Delivery shift ${cp.direction}`,
+                        detail: `CUSUM detected a ${cp.direction === "up" ? "sustained acceleration" : "sustained slow-down"} in completed points around day ${cp.day}.`,
+                        confidence: "moderate",
+                      }}
+                    />
+                  ))}
           </ComposedChart>
         </ChartCard>
 

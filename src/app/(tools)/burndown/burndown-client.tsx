@@ -5,6 +5,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
   ComposedChart,
+  Area,
   Line,
   CartesianGrid,
   XAxis,
@@ -18,10 +19,15 @@ import { SectionCard } from "@/components/shared/section-card";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { SmartInput } from "@/components/shared/smart-input";
+import { CausalLine } from "@/components/charts/causal-annotation";
 import { generateBurndownPrompts } from "@/lib/ai-prompts/burndown";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { BURNDOWN_ACTIONS } from "@/lib/history/event-actions";
 import { withTimeTravel } from "@/lib/stores/with-time-travel";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
+import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
+import { cusum } from "@/lib/analytics/changepoint";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -343,6 +349,14 @@ export function BurndownClient() {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartHeight = useChartHeight({ min: 260, max: 420 });
 
+  /* -- Smart-default for Total Story Points (sprint scope) ----------------- */
+  // Uses the velocity:nextSprintPlan predictor (registered globally at
+  // boot) — Bayesian Holt over completed sprints in the workspace store.
+  // Falls back to confidence "none" if the workspace has no completed
+  // sprints, so the chip silently disappears and the input behaves as
+  // a normal number field.
+  const totalPointsPrediction = usePredictedDefault<number>("velocity", "nextSprintPlan", config.totalPoints);
+
   /* -- Chart data ---------------------------------------------------------- */
 
   const sortedEntries = useMemo(
@@ -350,21 +364,86 @@ export function BurndownClient() {
     [entries]
   );
 
+  // Numeric series of remaining points at the days the user has filled in.
+  // Used as the input to forecastBayesianHolt + cusum below. Holes are
+  // dropped — Holt expects an evenly-spaced series, and we'd rather
+  // forecast from real samples than synthesise zeros.
+  const remainingSeries = useMemo(
+    () =>
+      sortedEntries
+        .filter((e) => e.remaining !== null && Number.isFinite(e.remaining))
+        .map((e) => e.remaining as number),
+    [sortedEntries]
+  );
+
+  // Bayesian forecast for the days remaining in the sprint after the last
+  // logged day. Returns [] when remainingSeries is too short (n<2 means we
+  // can't fit a slope) — that disables the band cleanly.
+  const forecast = useMemo(() => {
+    if (remainingSeries.length < 2) return [];
+    const filledDays = sortedEntries
+      .filter((e) => e.remaining !== null && Number.isFinite(e.remaining))
+      .map((e) => e.day);
+    const lastFilledDay = filledDays.length > 0 ? Math.max(...filledDays) : 0;
+    const horizon = Math.max(1, config.sprintDays - lastFilledDay);
+    return forecastBayesianHolt(remainingSeries, horizon);
+  }, [remainingSeries, sortedEntries, config.sprintDays]);
+
+  // Map forecast horizon-index → sprint-day so we can merge into chartData
+  // without scanning twice.
+  const forecastByDay = useMemo(() => {
+    if (forecast.length === 0) return new Map<number, (typeof forecast)[number]>();
+    const filledDays = sortedEntries
+      .filter((e) => e.remaining !== null && Number.isFinite(e.remaining))
+      .map((e) => e.day);
+    const lastFilledDay = filledDays.length > 0 ? Math.max(...filledDays) : 0;
+    const m = new Map<number, (typeof forecast)[number]>();
+    forecast.forEach((fp, i) => {
+      m.set(lastFilledDay + i + 1, fp);
+    });
+    return m;
+  }, [forecast, sortedEntries]);
+
+  // CUSUM regime-shift detection on the remaining-points series. cusum() is
+  // a no-op when n<4 so this stays safe with sparse mid-sprint logs.
+  const changepoints = useMemo(() => {
+    if (remainingSeries.length < 4) return [];
+    return cusum(remainingSeries);
+  }, [remainingSeries]);
+
+  // Map changepoint-index (within the dense filled series) → sprint-day so
+  // CausalLine can render at the right x-axis position.
+  const changepointDays = useMemo(() => {
+    if (changepoints.length === 0) return [] as Array<{ day: number; direction: "up" | "down" }>;
+    const filledDays = sortedEntries
+      .filter((e) => e.remaining !== null && Number.isFinite(e.remaining))
+      .map((e) => e.day);
+    return changepoints
+      .map((cp) => ({ day: filledDays[cp.index], direction: cp.direction }))
+      .filter((x): x is { day: number; direction: "up" | "down" } => Number.isFinite(x.day));
+  }, [changepoints, sortedEntries]);
+
   const chartData = useMemo(() => {
     const map = new Map<number, DayEntry>();
     sortedEntries.forEach((e) => map.set(e.day, e));
 
     return Array.from({ length: config.sprintDays + 1 }, (_, day) => {
       const entry = map.get(day);
+      const fc = forecastByDay.get(day);
       return {
         day,
         ideal: parseFloat(getIdealValue(day, config.totalPoints, config.sprintDays).toFixed(1)),
         actual: entry?.remaining ?? null,
+        forecast: fc ? parseFloat(fc.yHat.toFixed(1)) : undefined,
+        // Clamp the lower band at 0 — negative remaining-points is meaningless
+        // for the y-axis and would expand the chart domain unnecessarily.
+        band80Lower: fc ? parseFloat(Math.max(0, fc.lower80).toFixed(1)) : undefined,
+        band80Upper: fc ? parseFloat(Math.max(0, fc.upper80).toFixed(1)) : undefined,
         scopeChange: entry?.scopeChange ?? false,
         description: entry?.description ?? "",
       };
     });
-  }, [sortedEntries, config]);
+  }, [sortedEntries, config, forecastByDay]);
 
   const todayDay = useMemo(
     () => computeTodayDay(config.sprintStartDate, config.sprintDays),
@@ -477,12 +556,37 @@ export function BurndownClient() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-1.5">
               <Label className="text-sub text-xs">Total Story Points</Label>
-              <Input
-                type="number"
-                min={1}
-                value={config.totalPoints}
-                onChange={(e) => updateConfig({ totalPoints: Math.max(1, Number(e.target.value)) })}
-                className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+              {/* SmartInput-wrapped so the user can Tab-accept the
+                  velocity-forecast suggestion. The field still commits on
+                  every change (we don't gate the manual flow). */}
+              <SmartInput<number>
+                predicted={totalPointsPrediction}
+                onAccept={(v) => updateConfig({ totalPoints: Math.max(1, Math.round(v)) })}
+                render={({ ghost, accept, chip }) => (
+                  <>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={config.totalPoints}
+                      placeholder={ghost}
+                      onKeyDown={(e) => {
+                        // Tab-to-accept only when the user hasn't already
+                        // committed a value (avoids stomping on intent).
+                        if (
+                          e.key === "Tab" &&
+                          (config.totalPoints === 0 || Number.isNaN(config.totalPoints))
+                        ) {
+                          e.preventDefault();
+                          accept();
+                        }
+                      }}
+                      onChange={(e) => updateConfig({ totalPoints: Math.max(1, Number(e.target.value)) })}
+                      className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+                      aria-label="Total story points for the sprint"
+                    />
+                    {chip}
+                  </>
+                )}
               />
             </div>
             <div className="space-y-1.5">
@@ -604,6 +708,29 @@ export function BurndownClient() {
               />
             )}
 
+            {/* Bayesian 80% forecast band — drawn first so the actual/ideal
+                lines render on top. The lower-mask Area uses var(--bg) at
+                fillOpacity 1 to clip the upper Area down to a true band
+                rather than a solid wedge from 0. */}
+            <Area
+              dataKey="band80Upper"
+              name="80% forecast"
+              stroke="none"
+              fill="#00f0ff"
+              fillOpacity={0.18}
+              connectNulls
+              isAnimationActive={false}
+            />
+            <Area
+              dataKey="band80Lower"
+              stroke="none"
+              fill="var(--bg, #06080f)"
+              fillOpacity={1}
+              legendType="none"
+              connectNulls
+              isAnimationActive={false}
+            />
+
             {/* Ideal line */}
             <Line
               type="linear"
@@ -628,6 +755,33 @@ export function BurndownClient() {
               activeDot={{ r: 6, fill: "#00f0ff", strokeWidth: 0 }}
               connectNulls={false}
             />
+
+            {/* Forecast centre-line (dashed) — only renders when the band
+                Area has data, so behaves cleanly with sparse mid-sprint logs. */}
+            <Line
+              type="monotone"
+              dataKey="forecast"
+              name="Forecast"
+              stroke="#00f0ff"
+              strokeWidth={2}
+              strokeDasharray="5 5"
+              dot={false}
+              connectNulls
+            />
+
+            {/* CUSUM regime-shift markers on the days where the remaining
+                burn-rate flipped. Skipped silently if no shifts found. */}
+            {changepointDays.map((cp, i) => (
+              <CausalLine
+                key={`cusum-${cp.day}-${cp.direction}-${i}`}
+                annotation={{
+                  x: cp.day,
+                  label: `Burn-rate shift ${cp.direction}`,
+                  detail: `CUSUM detected a ${cp.direction === "up" ? "spike (work piling back up)" : "drop (faster burn)"} in remaining points around day ${cp.day}.`,
+                  confidence: "moderate",
+                }}
+              />
+            ))}
           </ComposedChart>
         </ChartCard>
 

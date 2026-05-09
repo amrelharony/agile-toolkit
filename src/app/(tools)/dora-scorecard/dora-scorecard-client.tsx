@@ -9,6 +9,7 @@ import {
   YAxis,
   Tooltip,
   Legend,
+  ReferenceLine,
 } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -18,12 +19,19 @@ import { KpiGrid } from "@/components/shared/kpi-grid";
 import { StatCard } from "@/components/shared/stat-card";
 import { SectionCard } from "@/components/shared/section-card";
 import { ChartCard } from "@/components/shared/chart-card";
+import { SmartInput } from "@/components/shared/smart-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, Rocket, Clock, AlertTriangle, Wrench } from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
+import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import { xmrLimits } from "@/lib/analytics/control-chart";
+import { cusum } from "@/lib/analytics/changepoint";
+import { mannKendall } from "@/lib/analytics/trend-test";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { generateDoraPrompts } from "@/lib/ai-prompts/dora-scorecard";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -190,6 +198,46 @@ export function DoraScorecardClient() {
     [sorted]
   );
 
+  // ── XmR control limits on deploy frequency (most actionable DORA SPC) ──
+  // Anchors UCL / CenterLine / LCL on the trend chart so out-of-control
+  // quarters are visible at a glance. Returns null when n < 4 — limits are
+  // unstable on tiny series.
+  const deployControl = useMemo(() => {
+    const series = sorted.map((s) => s.deployFreqPerWeek);
+    if (series.length < 4) return null;
+    return xmrLimits(series);
+  }, [sorted]);
+
+  // ── CUSUM markers on the deploy-frequency series ────────────────────────
+  // Each detected changepoint becomes a CausalLine on the chart so DORA
+  // banding regime shifts ("we crossed into Elite at Q3") are obvious.
+  const deployChangepoints = useMemo<CausalAnnotationData[]>(() => {
+    const series = sorted.map((s) => s.deployFreqPerWeek);
+    if (series.length < 4) return [];
+    const cps = cusum(series);
+    return cps.map((cp) => ({
+      x: sorted[cp.index]?.quarter ?? String(cp.index),
+      label: `Deploy regime ${cp.direction === "up" ? "↑" : "↓"}`,
+      detail: `CUSUM detected a ${cp.direction === "up" ? "lift" : "drop"} in deploy frequency at ${sorted[cp.index]?.quarter}.`,
+      confidence: "moderate" as const,
+    }));
+  }, [sorted]);
+
+  // ── Mann-Kendall trend chips for each of the four DORA metrics ─────────
+  // Renders muted when the test is non-significant or sample is too small.
+  const trends = useMemo(() => {
+    if (sorted.length < 5) return null;
+    return {
+      deploy: mannKendall(sorted.map((s) => s.deployFreqPerWeek)),
+      lead: mannKendall(sorted.map((s) => s.leadTimeHours)),
+      cfr: mannKendall(sorted.map((s) => s.changeFailRate)),
+      mttr: mannKendall(sorted.map((s) => s.mttrHours)),
+    };
+  }, [sorted]);
+
+  // ── Smart-default predictor for the deploy-frequency input ─────────────
+  const deployPrediction = usePredictedDefault<number>("dora-scorecard", "deploysPerWeekTarget", 0);
+
   const promptConfig = useMemo(
     () => ({
       toolName: "DORA Scorecard",
@@ -232,40 +280,50 @@ export function DoraScorecardClient() {
       </ActionRow>
 
       {latest ? (
-        <KpiGrid cols={4} gap="lg">
-          <StatCard
-            variant="compact"
-            icon={Rocket}
-            label="Deploy/wk"
-            value={latest.deployFreqPerWeek.toFixed(2)}
-            hint={bandDeploy(latest.deployFreqPerWeek)}
-            tone={BAND_TONE[bandDeploy(latest.deployFreqPerWeek)]}
-          />
-          <StatCard
-            variant="compact"
-            icon={Clock}
-            label="Lead time"
-            value={`${latest.leadTimeHours.toFixed(1)}h`}
-            hint={bandLead(latest.leadTimeHours)}
-            tone={BAND_TONE[bandLead(latest.leadTimeHours)]}
-          />
-          <StatCard
-            variant="compact"
-            icon={AlertTriangle}
-            label="Change-fail rate"
-            value={`${(latest.changeFailRate * 100).toFixed(1)}%`}
-            hint={bandCfr(latest.changeFailRate)}
-            tone={BAND_TONE[bandCfr(latest.changeFailRate)]}
-          />
-          <StatCard
-            variant="compact"
-            icon={Wrench}
-            label="MTTR"
-            value={`${latest.mttrHours.toFixed(1)}h`}
-            hint={bandMttr(latest.mttrHours)}
-            tone={BAND_TONE[bandMttr(latest.mttrHours)]}
-          />
-        </KpiGrid>
+        <>
+          <KpiGrid cols={4} gap="lg">
+            <StatCard
+              variant="compact"
+              icon={Rocket}
+              label="Deploy/wk"
+              value={latest.deployFreqPerWeek.toFixed(2)}
+              hint={bandDeploy(latest.deployFreqPerWeek)}
+              tone={BAND_TONE[bandDeploy(latest.deployFreqPerWeek)]}
+            />
+            <StatCard
+              variant="compact"
+              icon={Clock}
+              label="Lead time"
+              value={`${latest.leadTimeHours.toFixed(1)}h`}
+              hint={bandLead(latest.leadTimeHours)}
+              tone={BAND_TONE[bandLead(latest.leadTimeHours)]}
+            />
+            <StatCard
+              variant="compact"
+              icon={AlertTriangle}
+              label="Change-fail rate"
+              value={`${(latest.changeFailRate * 100).toFixed(1)}%`}
+              hint={bandCfr(latest.changeFailRate)}
+              tone={BAND_TONE[bandCfr(latest.changeFailRate)]}
+            />
+            <StatCard
+              variant="compact"
+              icon={Wrench}
+              label="MTTR"
+              value={`${latest.mttrHours.toFixed(1)}h`}
+              hint={bandMttr(latest.mttrHours)}
+              tone={BAND_TONE[bandMttr(latest.mttrHours)]}
+            />
+          </KpiGrid>
+          {trends && (
+            <div className="flex flex-wrap gap-2 -mt-2 mb-2" aria-label="DORA metric trends">
+              <TrendChip label="Deploy/wk" trend={trends.deploy.trend} significant={trends.deploy.significant} />
+              <TrendChip label="Lead time" trend={trends.lead.trend} significant={trends.lead.significant} betterDown />
+              <TrendChip label="CFR" trend={trends.cfr.trend} significant={trends.cfr.significant} betterDown />
+              <TrendChip label="MTTR" trend={trends.mttr.trend} significant={trends.mttr.significant} betterDown />
+            </div>
+          )}
+        </>
       ) : (
         <KpiGrid cols={4} gap="lg">
           <StatCard variant="compact" label="Deploy/wk" value="—" hint="No data" />
@@ -293,14 +351,25 @@ export function DoraScorecardClient() {
               />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <NumericField
-                id="dora-deploy"
-                label="Deploys / week"
-                value={draft.deployFreqPerWeek}
-                onChange={(v) =>
-                  setDraft((d) => ({ ...d, deployFreqPerWeek: v }))
+              <SmartInput<number>
+                predicted={deployPrediction}
+                onAccept={(v) =>
+                  setDraft((d) => ({ ...d, deployFreqPerWeek: String(v) }))
                 }
-                placeholder="e.g. 12"
+                render={({ chip }) => (
+                  <div>
+                    <NumericField
+                      id="dora-deploy"
+                      label="Deploys / week"
+                      value={draft.deployFreqPerWeek}
+                      onChange={(v) =>
+                        setDraft((d) => ({ ...d, deployFreqPerWeek: v }))
+                      }
+                      placeholder="e.g. 12"
+                    />
+                    {chip}
+                  </div>
+                )}
               />
               <NumericField
                 id="dora-lead"
@@ -408,6 +477,42 @@ export function DoraScorecardClient() {
               strokeWidth={2}
               dot={{ r: 3 }}
             />
+            {/* XmR control limits on deploy frequency — most actionable SPC. */}
+            {deployControl && (
+              <>
+                <ReferenceLine
+                  yAxisId="left"
+                  y={deployControl.centerLine}
+                  stroke={chartTheme.colors.cyan}
+                  strokeDasharray="2 4"
+                  strokeOpacity={0.55}
+                  label={{ value: "X̄", fill: chartTheme.colors.cyan, fontSize: 10, position: "right" }}
+                  ifOverflow="extendDomain"
+                />
+                <ReferenceLine
+                  yAxisId="left"
+                  y={deployControl.ucl}
+                  stroke={chartTheme.colors.green}
+                  strokeDasharray="2 4"
+                  strokeOpacity={0.55}
+                  label={{ value: "UCL", fill: chartTheme.colors.green, fontSize: 10, position: "right" }}
+                  ifOverflow="extendDomain"
+                />
+                <ReferenceLine
+                  yAxisId="left"
+                  y={deployControl.lcl}
+                  stroke={chartTheme.colors.red}
+                  strokeDasharray="2 4"
+                  strokeOpacity={0.55}
+                  label={{ value: "LCL", fill: chartTheme.colors.red, fontSize: 10, position: "right" }}
+                  ifOverflow="extendDomain"
+                />
+              </>
+            )}
+            {/* CUSUM regime-shift markers on the deploy series. */}
+            {deployChangepoints.map((cp, i) => (
+              <CausalLine key={`cusum-${i}`} annotation={cp} />
+            ))}
           </LineChart>
         </ChartCard>
       </div>
@@ -461,6 +566,41 @@ export function DoraScorecardClient() {
         </SectionCard>
       )}
     </ToolPageWrapper>
+  );
+}
+
+/**
+ * Mann-Kendall trend chip. Renders an arrow with directionality color-coded
+ * for whether the trend is desirable (deploy/wk up = good; lead time, CFR,
+ * MTTR up = bad). Muted when the test isn't significant.
+ */
+function TrendChip({
+  label,
+  trend,
+  significant,
+  betterDown = false,
+}: {
+  label: string;
+  trend: "up" | "down" | "none";
+  significant: boolean;
+  betterDown?: boolean;
+}) {
+  if (!significant || trend === "none") {
+    return (
+      <Badge variant="outline" className="font-mono text-[10px] tracking-wider uppercase text-sub border-border">
+        {label} flat
+      </Badge>
+    );
+  }
+  const isFavorable = betterDown ? trend === "down" : trend === "up";
+  const arrow = trend === "up" ? "↗" : "↘";
+  const tone = isFavorable
+    ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+    : "border-amber-500/40 text-amber-300 bg-amber-500/10";
+  return (
+    <Badge variant="outline" className={`font-mono text-[10px] tracking-wider uppercase ${tone}`}>
+      {label} {arrow} significant
+    </Badge>
   );
 }
 

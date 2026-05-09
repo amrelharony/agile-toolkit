@@ -185,6 +185,13 @@ export const tools: ToolDefinition[] = [
     phase: 1,
     usesWorkspace: true,
     analyticsFeatures: ["monte-carlo"],
+    analyticsTier: 1,
+    predictedDefaults: [
+      { field: "pointsCommitted", description: "Bayesian forecast across completed sprints" },
+    ],
+    crossToolSubscriptions: [
+      { kinds: ["sprint.completed", "velocity.changed"], reason: "commitment recommendation refreshes on velocity changes" },
+    ],
   },
   {
     id: "story-mapper",
@@ -250,6 +257,13 @@ export const tools: ToolDefinition[] = [
     phase: 4,
     usesWorkspace: true,
     analyticsFeatures: ["monte-carlo", "forecast"],
+    analyticsTier: 1,
+    predictedDefaults: [
+      { field: "sprintsToRelease", description: "Total scope ÷ avg velocity" },
+    ],
+    crossToolSubscriptions: [
+      { kinds: ["sprint.completed", "story.statusChanged"], reason: "release projection refreshes on velocity + scope changes" },
+    ],
   },
 
   // Category B: Metrics & Dashboards
@@ -266,6 +280,13 @@ export const tools: ToolDefinition[] = [
     phase: 2,
     usesWorkspace: true,
     analyticsFeatures: ["forecast", "anomaly"],
+    analyticsTier: 1,
+    predictedDefaults: [
+      { field: "idealSlope", description: "Mean burn-rate from prior completed sprints" },
+    ],
+    crossToolSubscriptions: [
+      { kinds: ["sprint.completed", "sprint.started"], reason: "config refresh on sprint lifecycle" },
+    ],
   },
   {
     id: "burnup",
@@ -280,6 +301,10 @@ export const tools: ToolDefinition[] = [
     phase: 2,
     usesWorkspace: true,
     analyticsFeatures: ["forecast", "anomaly"],
+    analyticsTier: 1,
+    crossToolSubscriptions: [
+      { kinds: ["sprint.completed", "sprint.started"], reason: "config refresh on sprint lifecycle" },
+    ],
   },
   {
     id: "velocity",
@@ -294,6 +319,13 @@ export const tools: ToolDefinition[] = [
     phase: 2,
     usesWorkspace: true,
     analyticsFeatures: ["forecast", "anomaly"],
+    analyticsTier: 1,
+    predictedDefaults: [
+      { field: "nextSprintPlan", description: "Bayesian forecast over completed sprints" },
+    ],
+    crossToolSubscriptions: [
+      { kinds: ["impediment.raised", "impediment.resolved"], reason: "blockers correlate with velocity" },
+    ],
   },
   {
     id: "cumulative-flow",
@@ -308,6 +340,10 @@ export const tools: ToolDefinition[] = [
     phase: 2,
     usesWorkspace: true,
     analyticsFeatures: ["anti-pattern"],
+    analyticsTier: 1,
+    crossToolSubscriptions: [
+      { kinds: ["story.statusChanged"], reason: "CFD updates on story flow" },
+    ],
   },
   {
     id: "cycle-time",
@@ -322,6 +358,13 @@ export const tools: ToolDefinition[] = [
     phase: 2,
     usesWorkspace: true,
     analyticsFeatures: ["anomaly"],
+    analyticsTier: 1,
+    predictedDefaults: [
+      { field: "sleTargetDays", description: "P85 of historical cycle times" },
+    ],
+    crossToolSubscriptions: [
+      { kinds: ["story.statusChanged"], reason: "refresh on story status flow" },
+    ],
   },
   {
     id: "sprint-compare",
@@ -350,6 +393,24 @@ export const tools: ToolDefinition[] = [
     phase: 5,
     usesWorkspace: true,
     analyticsFeatures: ["forecast", "anomaly", "anti-pattern", "survival"],
+    analyticsTier: 1,
+    crossToolSubscriptions: [
+      {
+        kinds: [
+          "sprint.completed",
+          "impediment.raised",
+          "incident.opened",
+          "techDebt.added",
+          "moodLogged",
+          "okr.kr.updated",
+        ],
+        reason: "dashboard aggregates signals across the entire workspace",
+      },
+    ],
+    causalAnnotations: [
+      { source: "impediment.raised", target: "velocity.changed", maxLagDays: 7 },
+      { source: "techDebt.added", target: "moodLogged", maxLagDays: 14 },
+    ],
   },
 
   // Category C: Ceremonies
@@ -365,6 +426,13 @@ export const tools: ToolDefinition[] = [
     isRealtime: true,
     phase: 3,
     usesWorkspace: true,
+    analyticsTier: 1,
+    crossToolSubscriptions: [
+      {
+        kinds: ["sprint.completed", "impediment.resolved"],
+        reason: "retros surface insights from completed sprints and resolved blockers",
+      },
+    ],
   },
   {
     id: "standup",
@@ -499,6 +567,19 @@ export const tools: ToolDefinition[] = [
     phase: 4,
     usesWorkspace: true,
     analyticsFeatures: ["survival", "anti-pattern"],
+    analyticsTier: 1,
+    predictedDefaults: [
+      {
+        field: "expectedResolutionDays",
+        description: "Median across resolved impediments",
+      },
+    ],
+    crossToolSubscriptions: [
+      {
+        kinds: ["sprint.started", "sprint.completed"],
+        reason: "impediment patterns correlate with sprint lifecycle",
+      },
+    ],
   },
 
   // Category E: Portfolio & Scaling (NEW — Phase 6)
@@ -599,6 +680,19 @@ export const tools: ToolDefinition[] = [
     phase: 8,
     usesWorkspace: true,
     analyticsFeatures: ["survival", "anomaly", "anti-pattern"],
+    analyticsTier: 1,
+    predictedDefaults: [
+      {
+        field: "mitigationDays",
+        description: "Median historical mitigation lead time",
+      },
+    ],
+    crossToolSubscriptions: [
+      {
+        kinds: ["incident.opened", "techDebt.added"],
+        reason: "risks correlate with incidents and growing tech debt",
+      },
+    ],
   },
   {
     id: "premortem",
@@ -667,6 +761,13 @@ export const tools: ToolDefinition[] = [
     phase: 9,
     usesWorkspace: true,
     analyticsFeatures: ["forecast", "anomaly"],
+    analyticsTier: 1,
+    predictedDefaults: [
+      { field: "wipLimit", description: "120% of current in-progress count" },
+    ],
+    crossToolSubscriptions: [
+      { kinds: ["story.statusChanged"], reason: "rebalance WIP recommendations on story flow" },
+    ],
   },
   {
     id: "dependency-map",
@@ -711,6 +812,9 @@ export const tools: ToolDefinition[] = [
     phase: 10,
     usesWorkspace: true,
     analyticsFeatures: ["forecast"],
+    analyticsTier: 1,
+    predictedDefaults: [{ field: "krTargetExtrapolation", description: "Mean target across prior KRs" }],
+    crossToolSubscriptions: [{ kinds: ["okr.kr.updated", "risk.opened"], reason: "OKR confidence shifts on KR updates and new risks" }],
   },
   {
     id: "nps-csat",
@@ -755,6 +859,9 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["forecast", "anomaly"],
     audience: "engineering-leader",
+    analyticsTier: 1,
+    predictedDefaults: [{ field: "deploysPerWeekTarget", description: "DORA High/Elite threshold" }],
+    crossToolSubscriptions: [{ kinds: ["deploy.recorded", "incident.opened"], reason: "DORA metrics react to deploys + incidents" }],
   },
   {
     id: "space-pulse",
@@ -800,6 +907,9 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["forecast", "anti-pattern"],
     audience: "engineering-leader",
+    analyticsTier: 1,
+    predictedDefaults: [{ field: "errorBudgetMinutes", description: "99.9% over 30 days" }],
+    crossToolSubscriptions: [{ kinds: ["incident.opened", "incident.resolved"], reason: "SLO burn driven by incidents" }],
   },
   {
     id: "platform-maturity",

@@ -2,6 +2,16 @@
 
 import { useMemo, useState } from "react";
 import { nanoid } from "nanoid";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+  ResponsiveContainer,
+} from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -9,6 +19,9 @@ import { StatCard } from "@/components/shared/stat-card";
 import { ActionRow } from "@/components/shared/action-row";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { CalloutAlert } from "@/components/shared/callout-alert";
+import { SectionCard } from "@/components/shared/section-card";
+import { SmartInput } from "@/components/shared/smart-input";
+import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,9 +32,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Zap, Clock, TrendingUp } from "lucide-react";
+import { Plus, Trash2, Zap, Clock, TrendingUp, Activity } from "lucide-react";
 import { mean, stdDev } from "@/lib/analytics/anomaly";
 import { forecastHolt } from "@/lib/analytics/forecasting";
+import { xmrLimits } from "@/lib/analytics/control-chart";
+import { cusum } from "@/lib/analytics/changepoint";
+import { mannKendall } from "@/lib/analytics/trend-test";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { generateKanbanPrompts } from "@/lib/ai-prompts/kanban";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { cn } from "@/lib/utils";
@@ -179,7 +196,9 @@ export function KanbanClient() {
     ).length;
   }, [state.cards]);
 
-  const weeklyThroughput = useMemo(() => {
+  // Keep both the (label, value) pairs (for charting) and the value-only
+  // series (for the analytics primitives that take number[]).
+  const weeklyThroughputSeries = useMemo(() => {
     const byWeek = new Map<string, number>();
     for (const c of state.cards) {
       if (!c.completedAt) continue;
@@ -189,13 +208,58 @@ export function KanbanClient() {
     }
     return Array.from(byWeek.entries())
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, v]) => v);
+      .map(([label, value]) => ({ label, value }));
   }, [state.cards]);
+
+  const weeklyThroughput = useMemo(
+    () => weeklyThroughputSeries.map((p) => p.value),
+    [weeklyThroughputSeries]
+  );
 
   const forecast = useMemo(
     () => (weeklyThroughput.length >= 2 ? forecastHolt(weeklyThroughput, 1) : []),
     [weeklyThroughput]
   );
+
+  // ── Phase-15 analytics on weekly throughput ─────────────────────────────
+  // XmR control limits — need at least 2 observations to compute a moving
+  // range; below that we suppress the overlay rather than draw a flat line.
+  const throughputLimits = useMemo(
+    () => (weeklyThroughput.length >= 2 ? xmrLimits(weeklyThroughput) : null),
+    [weeklyThroughput]
+  );
+
+  // CUSUM changepoints — primitive guards length<4 internally but we keep
+  // the explicit gate for clarity. Map to the chart's x-axis label so the
+  // CausalLine lands on the right tick.
+  const throughputCusumAnnotations = useMemo<CausalAnnotationData[]>(() => {
+    if (weeklyThroughput.length < 4) return [];
+    return cusum(weeklyThroughput).map((cp) => {
+      const point = weeklyThroughputSeries[cp.index];
+      return {
+        x: point?.label ?? cp.index,
+        label: cp.direction === "up" ? "Throughput regime up" : "Throughput regime down",
+        detail: `CUSUM detected a ${cp.direction === "up" ? "sustained increase" : "sustained decrease"} in weekly throughput at ${point?.label ?? `week ${cp.index + 1}`}.`,
+        confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
+      };
+    });
+  }, [weeklyThroughput, weeklyThroughputSeries]);
+
+  // Mann-Kendall trend test — primitive returns trend "none" for n<5.
+  const throughputTrend = useMemo(
+    () => (weeklyThroughput.length >= 5 ? mannKendall(weeklyThroughput) : null),
+    [weeklyThroughput]
+  );
+
+  // ── Smart-default predictor for the in_progress WIP limit ──────────────
+  const wipPrediction = usePredictedDefault<number>("kanban", "wipLimit", 3);
+  // Local edit buffer so the SmartInput's ghost can render when the field
+  // is empty. The committed store value remains the source of truth.
+  const [wipEditBuffer, setWipEditBuffer] = useState<string | null>(null);
+  const wipFor = (col: ColumnId): string => {
+    if (col === "in_progress" && wipEditBuffer !== null) return wipEditBuffer;
+    return String(state.wipLimits[col]);
+  };
 
   const violations = COLUMNS.filter((c) => c.id !== "backlog" && c.id !== "done" && state.wipLimits[c.id] > 0 && byColumn[c.id].length > state.wipLimits[c.id]);
 
@@ -253,7 +317,25 @@ export function KanbanClient() {
           variant="compact"
           icon={Zap}
           label="Last 7 days"
-          value={throughputLast7}
+          value={
+            <span className="inline-flex items-baseline gap-1.5">
+              {throughputLast7}
+              {throughputTrend?.significant && (
+                <span
+                  className={cn(
+                    "text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border",
+                    throughputTrend.trend === "up"
+                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
+                      : "border-danger/40 text-danger bg-danger/5"
+                  )}
+                  aria-label={`Throughput trend ${throughputTrend.trend} (Mann-Kendall p=${throughputTrend.pValue.toFixed(3)})`}
+                  title={`Mann-Kendall p=${throughputTrend.pValue.toFixed(3)}`}
+                >
+                  {throughputTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+                </span>
+              )}
+            </span>
+          }
           hint="completed"
           valueClassName="text-accent"
         />
@@ -267,6 +349,99 @@ export function KanbanClient() {
           hint="forecast"
         />
       </KpiGrid>
+
+      {/* Weekly throughput chart with XmR control limits + CUSUM markers.
+          Hidden when there are fewer than 2 weeks of completion data — the
+          XmR primitive collapses to a point and the chart is meaningless. */}
+      {weeklyThroughputSeries.length >= 2 && (
+        <SectionCard
+          title="Weekly throughput"
+          icon={Activity}
+          titleSize="sm"
+          className="mb-4"
+        >
+          <div className="-mx-2" style={{ height: 200 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={weeklyThroughputSeries}
+                margin={{ top: 10, right: 16, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fill: "var(--sub)", fontSize: 11 }}
+                  axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fill: "var(--sub)", fontSize: 11 }}
+                  axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                  tickLine={false}
+                  allowDecimals={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    fontSize: 12,
+                  }}
+                  labelStyle={{ color: "var(--sub)" }}
+                />
+                {throughputLimits && (
+                  <>
+                    <ReferenceLine
+                      y={throughputLimits.centerLine}
+                      stroke="var(--sub)"
+                      strokeDasharray="2 4"
+                      label={{
+                        value: `X̄ ${throughputLimits.centerLine.toFixed(1)}`,
+                        fill: "var(--sub)",
+                        fontSize: 10,
+                        position: "right",
+                      }}
+                    />
+                    <ReferenceLine
+                      y={throughputLimits.ucl}
+                      stroke="var(--destructive)"
+                      strokeDasharray="4 2"
+                      label={{
+                        value: `UCL ${throughputLimits.ucl.toFixed(1)}`,
+                        fill: "var(--destructive)",
+                        fontSize: 10,
+                        position: "right",
+                      }}
+                    />
+                    <ReferenceLine
+                      y={throughputLimits.lcl}
+                      stroke="var(--destructive)"
+                      strokeDasharray="4 2"
+                      label={{
+                        value: `LCL ${throughputLimits.lcl.toFixed(1)}`,
+                        fill: "var(--destructive)",
+                        fontSize: 10,
+                        position: "right",
+                      }}
+                    />
+                  </>
+                )}
+                {throughputCusumAnnotations.map((a, i) => (
+                  <CausalLine key={i} annotation={a} />
+                ))}
+                <Line
+                  type="monotone"
+                  dataKey="value"
+                  stroke="var(--accent)"
+                  strokeWidth={2}
+                  dot={{ r: 3, fill: "var(--accent)" }}
+                  activeDot={{ r: 5 }}
+                  name="Completed"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+      )}
 
       {violations.length > 0 && (
         <CalloutAlert tone="danger" className="mb-4">
@@ -353,15 +528,56 @@ export function KanbanClient() {
                   </div>
                 </div>
                 {col.id !== "backlog" && col.id !== "done" && (
-                  <Input
-                    type="number"
-                    min={0}
-                    value={limit}
-                    onChange={(e) => setWip(col.id, Number(e.target.value))}
-                    placeholder="WIP"
-                    className="h-8 sm:h-7 text-xs bg-bg border-border font-data"
-                    aria-label={`WIP limit for ${col.label}`}
-                  />
+                  col.id === "in_progress" ? (
+                    // SmartInput on the most-used column. Predictor returns
+                    // 120% of current in-progress count when there's signal;
+                    // Tab-to-accept when the field is blank.
+                    <SmartInput<number>
+                      predicted={wipPrediction}
+                      onAccept={(v) => {
+                        setWip("in_progress", v);
+                        setWipEditBuffer(null);
+                      }}
+                      render={({ ghost, chip, accept }) => (
+                        <>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={wipFor("in_progress")}
+                            placeholder={ghost ?? "WIP"}
+                            onKeyDown={(e) => {
+                              if (e.key === "Tab" && wipFor("in_progress") === "") {
+                                e.preventDefault();
+                                accept();
+                              }
+                            }}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              setWipEditBuffer(raw);
+                              // Empty string parks at 0 in store but keeps the
+                              // ghost visible via wipEditBuffer.
+                              const n = raw === "" ? 0 : Number(raw);
+                              if (Number.isFinite(n)) setWip("in_progress", n);
+                            }}
+                            onBlur={() => setWipEditBuffer(null)}
+                            className="h-8 sm:h-7 text-xs bg-bg border-border font-data"
+                            aria-label={`WIP limit for ${col.label}`}
+                          />
+                          {chip}
+                        </>
+                      )}
+                    />
+                  ) : (
+                    <Input
+                      type="number"
+                      min={0}
+                      value={limit}
+                      onChange={(e) => setWip(col.id, Number(e.target.value))}
+                      placeholder="WIP"
+                      className="h-8 sm:h-7 text-xs bg-bg border-border font-data"
+                      aria-label={`WIP limit for ${col.label}`}
+                    />
+                  )
                 )}
               </div>
               {/* Card pile. Mobile gets a smaller min-height so empty lanes

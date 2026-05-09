@@ -2,10 +2,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
+import {
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ReferenceLine,
+} from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { WorkspaceSyncButton } from "@/components/shared/workspace-sync-button";
+import { ChartCard } from "@/components/shared/chart-card";
+import { SmartInput } from "@/components/shared/smart-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,10 +26,17 @@ import { Badge } from "@/components/ui/badge";
 import { Flag, Plus, Trash2, Target } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Okr, KeyResult } from "@/lib/stores/workspace-types";
-// `forecastLinear` was used to fit a regression of KR-progress against
-// KR-index. That has no temporal meaning — KR ordering inside an objective is
-// editorial, not chronological — so the resulting "forecast" was misleading.
-// Removed until we have actual historical snapshots to fit against.
+// Note: a previous Holt-only `forecastLinear` against KR-index was removed
+// because that ordering is editorial. We bring forecasting back with the
+// Bayesian Holt primitive, but **only** apply it to per-OKR KR-progress
+// series with a clear "across KR sequence" caveat in the UI — never as a
+// dishonest "over time" projection.
+import { forecastBayesianHolt, bayesianForecastConfidence } from "@/lib/analytics/forecasting-bayesian";
+import { mannKendall } from "@/lib/analytics/trend-test";
+import { cusum } from "@/lib/analytics/changepoint";
+import { chartTheme } from "@/components/charts/chart-theme";
+import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { generateOkrsPrompts } from "@/lib/ai-prompts/okrs";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { OKR_ACTIONS } from "@/lib/history/event-actions";
@@ -111,6 +129,11 @@ export function OkrsClient() {
   const workspaceOkrs = useWorkspaceStore((s) => s.okrs);
   const upsertOkr = useWorkspaceStore((s) => s.upsertOkr);
   const { log } = useHistoryLogger("okrs");
+
+  // Smart-default predictor for the KR target field. Returns the mean
+  // target across prior KRs (capped low/medium confidence) — anchors new
+  // KRs against the team's historical sizing.
+  const krTargetPrediction = usePredictedDefault<number>("okrs", "krTargetExtrapolation", 100);
 
   useEffect(() => {
     useWorkspaceStore.persist.rehydrate();
@@ -221,6 +244,38 @@ export function OkrsClient() {
         )}
         {okrs.map((o) => {
           const health = objectiveHealth(o);
+
+          // ── Per-Okr analytics — applied across the KR sequence. The KR
+          //    order isn't temporal, so we label each chip explicitly with
+          //    "across KR sequence" to avoid the over-claim that previously
+          //    led to the linear-forecast removal.
+          const progressSeries = o.keyResults.map((kr) => krProgress(kr));
+          const mk = progressSeries.length >= 5 ? mannKendall(progressSeries) : null;
+
+          // Bayesian projection of the next-KR progress under the Bayesian
+          // Holt model. Only meaningful at n>=3; we still surface "low"
+          // confidence at smaller n thanks to the primitive's built-in
+          // shrinkage.
+          const fc =
+            progressSeries.length >= 3
+              ? forecastBayesianHolt(progressSeries, 1, { priorWeight: 1 })
+              : [];
+          const fcConfidence =
+            progressSeries.length >= 3 ? bayesianForecastConfidence(progressSeries) : null;
+
+          // CUSUM markers for the KR-progress mini-chart (n>=4 required).
+          const cps = progressSeries.length >= 4 ? cusum(progressSeries) : [];
+          const krChartData = o.keyResults.map((kr, idx) => ({
+            kr: kr.title.slice(0, 24) || `KR${idx + 1}`,
+            progressPct: Math.round(krProgress(kr) * 100),
+          }));
+          const krAnnotations: CausalAnnotationData[] = cps.map((cp) => ({
+            x: krChartData[cp.index]?.kr ?? String(cp.index),
+            label: `Progress regime ${cp.direction === "up" ? "↑" : "↓"}`,
+            detail: `CUSUM detected a ${cp.direction === "up" ? "lift" : "drop"} in progress at this KR (across the KR sequence — not temporal).`,
+            confidence: "weak" as const,
+          }));
+
           return (
             <Card key={o.id} className="bg-surface border-border">
               <CardHeader className="pb-3">
@@ -249,15 +304,44 @@ export function OkrsClient() {
                       className="bg-bg border-border resize-none text-xs"
                       aria-label="Objective description"
                     />
-                    <div className="flex items-center gap-3">
-                      <Progress value={health * 100} className="h-2 flex-1" />
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <Progress value={health * 100} className="h-2 flex-1 min-w-[120px]" />
                       <Badge variant="outline" className="font-data">
                         {Math.round(health * 100)}%
                       </Badge>
-                      {/* Forecast badge removed: regressing KR-progress
-                          against KR-index produced a "forecast" with no
-                          temporal grounding. Will reintroduce once we capture
-                          historical OKR snapshots over time. */}
+                      {/* Mann-Kendall trend across the KR sequence (not
+                          temporal — see comment near analytics). */}
+                      {mk && (
+                        <Badge
+                          variant="outline"
+                          className={`font-mono text-[10px] tracking-wider uppercase ${
+                            !mk.significant || mk.trend === "none"
+                              ? "text-sub border-border"
+                              : mk.trend === "up"
+                                ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+                                : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                          }`}
+                          title="Mann-Kendall trend across the KR sequence (KR ordering, not over time)"
+                        >
+                          {!mk.significant || mk.trend === "none"
+                            ? "KR-seq flat"
+                            : mk.trend === "up"
+                              ? "KR-seq ↗ significant"
+                              : "KR-seq ↘ significant"}
+                        </Badge>
+                      )}
+                      {/* Bayesian-Holt forecast for the next KR's expected
+                          progress. Honestly labeled as "next KR" not "next
+                          quarter" to avoid the previous over-claim. */}
+                      {fc.length > 0 && fcConfidence && (
+                        <Badge
+                          variant="outline"
+                          className="font-mono text-[10px] tracking-wider uppercase text-accent border-accent/40 bg-accent/10"
+                          title={`Bayesian Holt projection of the next KR's progress under the current sequence trend. Confidence: ${fcConfidence}.`}
+                        >
+                          Next-KR ~ {Math.round(Math.max(0, Math.min(1, fc[0].yHat)) * 100)}%
+                        </Badge>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -271,7 +355,12 @@ export function OkrsClient() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-2">
-                {o.keyResults.map((kr) => (
+                {o.keyResults.map((kr) => {
+                  // Only show the SmartInput chip on a KR whose target
+                  // hasn't been edited yet (still at the default 100). Avoids
+                  // chip clutter on already-set KRs.
+                  const showTargetChip = kr.target === 100;
+                  return (
                   <div
                     key={kr.id}
                     className="space-y-2 rounded-md border border-border bg-bg p-2"
@@ -289,12 +378,30 @@ export function OkrsClient() {
                         placeholder="Current"
                         className="bg-surface border-border font-data"
                       />
-                      <NumCell
-                        value={kr.target}
-                        onChange={(n) => updateKr(o.id, kr.id, { target: n })}
-                        placeholder="Target"
-                        className="bg-surface border-border font-data"
-                      />
+                      {showTargetChip ? (
+                        <SmartInput<number>
+                          predicted={krTargetPrediction}
+                          onAccept={(v) => updateKr(o.id, kr.id, { target: v })}
+                          render={({ chip }) => (
+                            <div className="flex flex-col gap-0">
+                              <NumCell
+                                value={kr.target}
+                                onChange={(n) => updateKr(o.id, kr.id, { target: n })}
+                                placeholder="Target"
+                                className="bg-surface border-border font-data"
+                              />
+                              {chip}
+                            </div>
+                          )}
+                        />
+                      ) : (
+                        <NumCell
+                          value={kr.target}
+                          onChange={(n) => updateKr(o.id, kr.id, { target: n })}
+                          placeholder="Target"
+                          className="bg-surface border-border font-data"
+                        />
+                      )}
                       <NumCell
                         value={kr.confidence ?? 5}
                         onChange={(n) => updateKr(o.id, kr.id, { confidence: n })}
@@ -321,7 +428,43 @@ export function OkrsClient() {
                       aria-label="Key result description"
                     />
                   </div>
-                ))}
+                  );
+                })}
+                {/* KR-progress mini-chart with CUSUM regime markers, only
+                    when there are enough KRs (n>=4) for the analysis to
+                    mean anything. */}
+                {o.keyResults.length >= 4 && (
+                  <ChartCard
+                    title="KR progress (across KR sequence)"
+                    height={180}
+                    className="mt-2"
+                  >
+                    <LineChart data={krChartData} margin={{ top: 8, right: 12, left: -16, bottom: 4 }}>
+                      <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
+                      <XAxis dataKey="kr" tick={{ fill: chartTheme.axisColor, fontSize: 10 }} interval={0} />
+                      <YAxis domain={[0, 100]} tick={{ fill: chartTheme.axisColor, fontSize: 10 }} />
+                      <Tooltip contentStyle={chartTheme.tooltipStyle} />
+                      <Line
+                        type="monotone"
+                        dataKey="progressPct"
+                        name="Progress %"
+                        stroke={chartTheme.colors.cyan}
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                      />
+                      <ReferenceLine
+                        y={70}
+                        stroke={chartTheme.colors.amber}
+                        strokeDasharray="2 4"
+                        strokeOpacity={0.55}
+                        label={{ value: "Target band", fill: chartTheme.colors.amber, fontSize: 10, position: "right" }}
+                      />
+                      {krAnnotations.map((ann, i) => (
+                        <CausalLine key={`okr-cusum-${i}`} annotation={ann} />
+                      ))}
+                    </LineChart>
+                  </ChartCard>
+                )}
                 <Button
                   variant="outline"
                   size="sm"

@@ -13,11 +13,17 @@ import {
   Legend,
   ReferenceLine,
   ResponsiveContainer,
+  LineChart,
+  Line,
 } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { generateCFDPrompts } from "@/lib/ai-prompts/cumulative-flow";
+import { xmrLimits } from "@/lib/analytics/control-chart";
+import { cusum } from "@/lib/analytics/changepoint";
+import { mannKendall } from "@/lib/analytics/trend-test";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CFD_ACTIONS } from "@/lib/history/event-actions";
@@ -27,7 +33,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Layers, BarChart2, Settings2, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Layers, BarChart2, Settings2, AlertTriangle, Activity } from "lucide-react";
 import { toast } from "@/lib/utils/toast";
 
 /* -------------------------------------------------------------------------- */
@@ -211,18 +217,21 @@ function StatCard({
   unit,
   accent = false,
   warning = false,
+  trailing,
 }: {
   label: string;
   value: string | number;
   unit?: string;
   accent?: boolean;
   warning?: boolean;
+  /** Inline trailing element next to the value (e.g. trend chip). */
+  trailing?: React.ReactNode;
 }) {
   return (
     <Card className="bg-surface border-border">
       <CardContent className="p-5">
         <p className="text-xs text-sub mb-2">{label}</p>
-        <div className="flex items-baseline gap-1.5">
+        <div className="flex items-baseline gap-1.5 flex-wrap">
           <span
             className={`text-2xl font-data font-bold ${
               warning
@@ -235,6 +244,7 @@ function StatCard({
             {value}
           </span>
           {unit && <span className="text-sm text-sub">{unit}</span>}
+          {trailing}
         </div>
       </CardContent>
     </Card>
@@ -353,6 +363,48 @@ export function CFDClient() {
     return { totalItems, wipItems, wipPct, doneItems, cycleEff };
   }, [sortedEntries, columns]);
 
+  /* -- Phase-15: WIP series across snapshots ------------------------------ */
+  // The WIP definition mirrors the `stats` memo — everything except the
+  // first (backlog/todo) and last (done) columns. Returns one (date, count)
+  // per snapshot in chronological order so analytics primitives can chew on
+  // it directly.
+  const wipSeries = useMemo(() => {
+    if (sortedEntries.length === 0 || columns.length < 3) return [];
+    const wipColIds = columns.slice(1, columns.length - 1).map((c) => c.id);
+    return sortedEntries.map((e) => ({
+      date: e.date,
+      value: wipColIds.reduce((s, id) => s + (e.counts[id] ?? 0), 0),
+    }));
+  }, [sortedEntries, columns]);
+
+  const wipValues = useMemo(() => wipSeries.map((p) => p.value), [wipSeries]);
+
+  // XmR control limits — needs ≥2 observations to compute a moving range.
+  const wipLimits = useMemo(
+    () => (wipValues.length >= 2 ? xmrLimits(wipValues) : null),
+    [wipValues]
+  );
+
+  // CUSUM regime shifts on WIP — primitive guards length<4 internally.
+  const wipCusumAnnotations = useMemo<CausalAnnotationData[]>(() => {
+    if (wipValues.length < 4) return [];
+    return cusum(wipValues).map((cp) => {
+      const point = wipSeries[cp.index];
+      return {
+        x: point?.date ?? cp.index,
+        label: cp.direction === "up" ? "WIP regime up" : "WIP regime down",
+        detail: `CUSUM detected a sustained ${cp.direction === "up" ? "increase" : "decrease"} in WIP at ${point?.date ?? `index ${cp.index}`}.`,
+        confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
+      };
+    });
+  }, [wipValues, wipSeries]);
+
+  // Mann-Kendall trend chip — needs n>=5 for a meaningful p-value.
+  const wipTrend = useMemo(
+    () => (wipValues.length >= 5 ? mannKendall(wipValues) : null),
+    [wipValues]
+  );
+
   /* -- WIP limit apply ---------------------------------------------------- */
   const applyWipLimit = () => {
     const v = parseInt(wipInput, 10);
@@ -419,7 +471,28 @@ export function CFDClient() {
         {/* ---- Stats ---- */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <StatCard label="Total Items (latest)" value={stats.totalItems} accent />
-          <StatCard label="WIP Items" value={stats.wipItems} unit={`(${stats.wipPct}%)`} warning={wipLimit !== null && stats.wipItems > wipLimit} />
+          <StatCard
+            label="WIP Items"
+            value={stats.wipItems}
+            unit={`(${stats.wipPct}%)`}
+            warning={wipLimit !== null && stats.wipItems > wipLimit}
+            trailing={
+              wipTrend?.significant ? (
+                <span
+                  className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                    // For WIP, "down" is good (less queue), "up" is concerning.
+                    wipTrend.trend === "down"
+                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
+                      : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                  }`}
+                  aria-label={`WIP trend ${wipTrend.trend} (Mann-Kendall p=${wipTrend.pValue.toFixed(3)})`}
+                  title={`Mann-Kendall p=${wipTrend.pValue.toFixed(3)}`}
+                >
+                  {wipTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+                </span>
+              ) : undefined
+            }
+          />
           <StatCard label="Done Items" value={stats.doneItems} accent />
           <StatCard label="Cycle Efficiency" value={`${stats.cycleEff}%`} accent={stats.cycleEff >= 50} />
         </div>
@@ -501,6 +574,107 @@ export function CFDClient() {
             )}
           </CardContent>
         </Card>
+
+        {/* ---- WIP control chart (XmR + CUSUM) ---- */}
+        {/* Standalone view of in-progress (WIP) over time. Overlays UCL/LCL
+            from the XmR primitive and vertical CausalLines at CUSUM
+            changepoints. Hidden when the source series is too short to be
+            meaningful (the XmR primitive collapses to a point at <2). */}
+        {wipSeries.length >= 2 && (
+          <Card className="bg-surface border-border">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base font-display text-text">
+                <Activity className="w-4 h-4 text-accent" />
+                WIP control chart
+                <span className="text-xs text-sub font-normal ml-1">
+                  · XmR limits + CUSUM regime shifts
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="-mx-2" style={{ height: 240 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={wipSeries}
+                    margin={{ top: 10, right: 16, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fill: "#94a3b8", fontSize: 11 }}
+                      axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fill: "#94a3b8", fontSize: 11 }}
+                      axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                      tickLine={false}
+                      allowDecimals={false}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        fontSize: 12,
+                      }}
+                      labelStyle={{ color: "var(--sub)" }}
+                    />
+                    {wipLimits && (
+                      <>
+                        <ReferenceLine
+                          y={wipLimits.centerLine}
+                          stroke="var(--sub)"
+                          strokeDasharray="2 4"
+                          label={{
+                            value: `X̄ ${wipLimits.centerLine.toFixed(1)}`,
+                            fill: "var(--sub)",
+                            fontSize: 10,
+                            position: "right",
+                          }}
+                        />
+                        <ReferenceLine
+                          y={wipLimits.ucl}
+                          stroke="#ef4444"
+                          strokeDasharray="4 2"
+                          label={{
+                            value: `UCL ${wipLimits.ucl.toFixed(1)}`,
+                            fill: "#ef4444",
+                            fontSize: 10,
+                            position: "right",
+                          }}
+                        />
+                        <ReferenceLine
+                          y={wipLimits.lcl}
+                          stroke="#ef4444"
+                          strokeDasharray="4 2"
+                          label={{
+                            value: `LCL ${wipLimits.lcl.toFixed(1)}`,
+                            fill: "#ef4444",
+                            fontSize: 10,
+                            position: "right",
+                          }}
+                        />
+                      </>
+                    )}
+                    {wipCusumAnnotations.map((a, i) => (
+                      <CausalLine key={i} annotation={a} />
+                    ))}
+                    <Line
+                      type="monotone"
+                      dataKey="value"
+                      stroke="#00f0ff"
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: "#00f0ff" }}
+                      activeDot={{ r: 5 }}
+                      name="WIP"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* ---- WIP Limit ---- */}
         <Card className="bg-surface border-border">

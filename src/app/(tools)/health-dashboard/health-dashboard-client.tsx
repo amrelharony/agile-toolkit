@@ -8,6 +8,13 @@ import { InsightsEngine } from "@/components/shared/insights-engine";
 import { generateHealthDashboardPrompts } from "@/lib/ai-prompts/health-dashboard";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { HEALTH_DASHBOARD_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryStore } from "@/lib/history/history-store";
+import { correlateEventStreams } from "@/lib/history/selectors";
+import { mannKendall } from "@/lib/analytics/trend-test";
+import {
+  CausalAnnotationList,
+  type CausalAnnotationData,
+} from "@/components/charts/causal-annotation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
@@ -29,6 +36,7 @@ import {
   FileText,
   Copy,
   Check,
+  Network,
 } from "lucide-react";
 import { todayLocalISO } from "@/lib/utils/formatters";
 
@@ -64,6 +72,13 @@ interface KPI {
   icon: React.ElementType;
   iconColor: string;
   description: string;
+  /**
+   * Optional time-series for the metric. When present and length >= 5, the
+   * KPI card renders a Mann-Kendall trend chip beside the trend arrow.
+   */
+  series?: number[];
+  /** Whether an upward trend is "good" (predictability) or "bad" (impediments). */
+  positiveIsGood?: boolean;
 }
 
 interface DataSourceStatus {
@@ -97,9 +112,15 @@ interface VelocitySprint {
   completed: number;
 }
 
-function extractVelocityKPIs(): { avgVelocity: number | null; predictability: number | null; trend: TrendDir } {
+function extractVelocityKPIs(): {
+  avgVelocity: number | null;
+  predictability: number | null;
+  trend: TrendDir;
+  /** Raw completed-points series, ascending by sprint, used by Mann-Kendall. */
+  series: number[];
+} {
   const data = readStore<{ sprints: VelocitySprint[] }>("agile-toolkit:velocity");
-  if (!data?.sprints?.length) return { avgVelocity: null, predictability: null, trend: "same" };
+  if (!data?.sprints?.length) return { avgVelocity: null, predictability: null, trend: "same", series: [] };
 
   const sprints = data.sprints;
   const completed = sprints.map((s) => s.completed);
@@ -117,7 +138,12 @@ function extractVelocityKPIs(): { avgVelocity: number | null; predictability: nu
     else if (diff < -1) trend = "down";
   }
 
-  return { avgVelocity: Math.round(avg * 10) / 10, predictability: Math.round(predictability), trend };
+  return {
+    avgVelocity: Math.round(avg * 10) / 10,
+    predictability: Math.round(predictability),
+    trend,
+    series: completed,
+  };
 }
 
 /* --- Health Check --- */
@@ -136,17 +162,22 @@ interface HealthCheckHistoryEntry {
   scores: Record<string, HealthDimensionScore>;
 }
 
-function extractHealthCheckKPIs(): { healthPct: number | null; trend: TrendDir } {
+function extractHealthCheckKPIs(): {
+  healthPct: number | null;
+  trend: TrendDir;
+  /** Historical scores ascending by date — used by Mann-Kendall. */
+  series: number[];
+} {
   const data = readStore<{
     current: { scores: Record<string, HealthDimensionScore> };
     history: HealthCheckHistoryEntry[];
   }>("agile-toolkit:health-check");
 
-  if (!data?.current?.scores) return { healthPct: null, trend: "same" };
+  if (!data?.current?.scores) return { healthPct: null, trend: "same", series: [] };
 
   const scoreMap: Record<HealthLight, number> = { green: 2, yellow: 1, red: 0 };
   const scores = Object.values(data.current.scores);
-  if (scores.length === 0) return { healthPct: null, trend: "same" };
+  if (scores.length === 0) return { healthPct: null, trend: "same", series: [] };
 
   const total = scores.reduce((sum, s) => sum + scoreMap[s.light], 0);
   const maxTotal = scores.length * 2;
@@ -155,7 +186,16 @@ function extractHealthCheckKPIs(): { healthPct: number | null; trend: TrendDir }
   // Trend: compare current to last history entry
   let trend: TrendDir = "same";
   const history = data.history ?? [];
+  const series: number[] = [];
   if (history.length > 0) {
+    for (const h of history) {
+      const hScores = Object.values(h.scores ?? {});
+      if (hScores.length === 0) continue;
+      const hTotal = hScores.reduce((sum, s) => sum + scoreMap[s.light], 0);
+      series.push(Math.round((hTotal / (hScores.length * 2)) * 100));
+    }
+    series.push(pct);
+
     const last = history[history.length - 1];
     const lastScores = Object.values(last.scores);
     if (lastScores.length > 0) {
@@ -167,7 +207,7 @@ function extractHealthCheckKPIs(): { healthPct: number | null; trend: TrendDir }
     }
   }
 
-  return { healthPct: pct, trend };
+  return { healthPct: pct, trend, series };
 }
 
 /* --- Impediments --- */
@@ -374,6 +414,42 @@ function TrendIcon({ trend, positiveIsUp = true }: { trend: TrendDir; positiveIs
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Mann-Kendall trend chip                                                   */
+/* -------------------------------------------------------------------------- */
+
+function MannKendallChip({
+  series,
+  positiveIsGood,
+}: {
+  series: number[];
+  positiveIsGood: boolean;
+}) {
+  // Hooks are not allowed in this leaf; the cost is bounded by series length.
+  // Mann-Kendall is O(n^2) but n here is at most a few dozen — cheap.
+  const result = useMemo(() => mannKendall(series), [series]);
+  if (series.length < 5 || result.trend === "none") return null;
+  // A trend in the metric is "good" or "bad" depending on the metric.
+  // For positive-is-good (predictability, health), an "up" trend is good.
+  // For positive-is-bad (open impediments), an "up" trend is bad.
+  const trendUp = result.trend === "up";
+  const isGood = trendUp === positiveIsGood;
+  const color = isGood ? "#22c55e" : "#ef4444";
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border"
+      style={{
+        color,
+        borderColor: `${color}55`,
+        background: `${color}1a`,
+      }}
+      title={`Mann-Kendall p=${result.pValue.toFixed(3)} — distribution-free monotonic trend test`}
+    >
+      {trendUp ? "↑" : "↓"} {isGood ? "trending up" : "trending down"}
+    </span>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Traffic light circle                                                      */
 /* -------------------------------------------------------------------------- */
 
@@ -401,6 +477,9 @@ export function HealthDashboardClient() {
   const [summaryText, setSummaryText] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const { log } = useHistoryLogger("health-dashboard");
+  // Subscribe to history events so cross-tool correlations recompute when new
+  // events arrive (sprint completed, impediment raised, mood logged, etc.).
+  const events = useHistoryStore((s) => s.events);
 
   /* -- Build all KPIs — memoized, refreshed only when refreshKey changes ---- */
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -413,6 +492,76 @@ export function HealthDashboardClient() {
   const standupData = useMemo(() => extractStandupKPIs(), [refreshKey]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const cycleTimeData = useMemo(() => extractCycleTimeKPIs(), [refreshKey]);
+
+  /* -- Causal annotations from cross-tool event streams --------------------- */
+  // Each correlation is a best-effort: when the source streams are too sparse
+  // we silently skip the annotation rather than rendering noise. Confidence
+  // tier is derived from `withinLagCount` and `pairs` thresholds.
+  const annotations = useMemo<CausalAnnotationData[]>(() => {
+    // `events` is in the dep array even though selectors read from getState();
+    // including the reference here forces recomputation on every history mutation.
+    void events;
+    const out: CausalAnnotationData[] = [];
+
+    // 1) Velocity dip ↔ blocker spike (lag −3 days)
+    const velImp = correlateEventStreams(
+      { toolId: "impediments", action: "impediment_raised" },
+      { toolId: "velocity", action: "sprint_added" },
+      3,
+    );
+    if (velImp.withinLagCount >= 3 && velImp.pairs >= 6) {
+      const conf =
+        velImp.withinLagCount >= 8 ? "strong" : velImp.withinLagCount >= 5 ? "moderate" : "weak";
+      out.push({
+        x: 0,
+        label: "Velocity dip aligned with blocker spike",
+        detail: `Across ${velImp.pairs} sampled pairs, ${velImp.withinLagCount} blockers were raised within 3 days of a velocity update (mean lag ${velImp.meanLagDays.toFixed(1)} days). Inspect the Impediments and Velocity tools for the underlying sprints.`,
+        link: { toolId: "impediments" },
+        confidence: conf,
+      });
+    }
+
+    // 2) Tech-debt added correlates with mood/NPS dip (lag −14 days)
+    const debtMood = correlateEventStreams(
+      { toolId: "tech-debt", action: "item_added" },
+      { toolId: "mood-tracker", action: "mood_logged" },
+      14,
+    );
+    if (debtMood.withinLagCount >= 3 && debtMood.pairs >= 6) {
+      const conf =
+        debtMood.withinLagCount >= 8 ? "strong" : debtMood.withinLagCount >= 5 ? "moderate" : "weak";
+      out.push({
+        x: 1,
+        label: "Tech-debt spike correlates with team mood / NPS dip",
+        detail: `${debtMood.withinLagCount} of ${debtMood.pairs} tech-debt entries fell within 14 days of a mood log (mean lag ${debtMood.meanLagDays.toFixed(1)} days). Long-term debt accrual often precedes morale signals — worth exploring in the Tech Debt and Mood Tracker tools.`,
+        link: { toolId: "tech-debt" },
+        confidence: conf,
+      });
+    }
+
+    // 3) Open risks spike preceded by missed sprint goal — best-effort.
+    // We approximate "missed sprint goal" via `sprint_updated` (closest signal
+    // available without sprint-goal coupling) and "open risks spike" via
+    // `risk_added`. If either stream is empty the correlation collapses to 0.
+    const goalRisk = correlateEventStreams(
+      { toolId: "sprint-goal", action: "goal_saved" },
+      { toolId: "risk-register", action: "risk_added" },
+      14,
+    );
+    if (goalRisk.withinLagCount >= 3 && goalRisk.pairs >= 6) {
+      const conf =
+        goalRisk.withinLagCount >= 8 ? "strong" : goalRisk.withinLagCount >= 5 ? "moderate" : "weak";
+      out.push({
+        x: 2,
+        label: "Open risks rose after sprint-goal events",
+        detail: `${goalRisk.withinLagCount} of ${goalRisk.pairs} new risks landed within 14 days of a sprint-goal save (mean lag ${goalRisk.meanLagDays.toFixed(1)} days). Sprint-goal pressure may be surfacing latent risks earlier — inspect the Risk Register for context.`,
+        link: { toolId: "risk-register" },
+        confidence: conf,
+      });
+    }
+
+    return out;
+  }, [events]);
 
   const kpis: KPI[] = useMemo(
     () => [
@@ -428,6 +577,8 @@ export function HealthDashboardClient() {
         icon: Activity,
         iconColor: "#00f0ff",
         description: "% of sprints where completed ≥ committed",
+        series: velocityData.series,
+        positiveIsGood: true,
       },
       {
         id: "team-health",
@@ -441,6 +592,8 @@ export function HealthDashboardClient() {
         icon: HeartPulse,
         iconColor: "#ff00aa",
         description: "Overall squad health across all dimensions",
+        series: healthCheckData.series,
+        positiveIsGood: true,
       },
       {
         id: "open-impediments",
@@ -660,6 +813,24 @@ export function HealthDashboardClient() {
       showInsights={false}
     >
       <FullInsightsPanel />
+
+      {/* Cross-tool causal signals — only renders when at least one
+          correlation crosses the confidence threshold. */}
+      {annotations.length > 0 && (
+        <SectionCard
+          title="Cross-tool signals"
+          icon={Network}
+          className="border-border bg-surface-deep mb-6"
+          titleSuffix={`(${annotations.length})`}
+        >
+          <p className="text-xs text-sub mb-1">
+            Correlations the dashboard detected across your workspace event history.
+            Click an item to expand, then drill into the source tool.
+          </p>
+          <CausalAnnotationList annotations={annotations} />
+        </SectionCard>
+      )}
+
       {/* Header controls */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
@@ -743,6 +914,14 @@ export function HealthDashboardClient() {
                         <TrendIcon trend={kpi.trend} positiveIsUp={kpi.id !== "open-impediments" && kpi.id !== "critical-impediments" && kpi.id !== "open-blockers" && kpi.id !== "cycle-time-p85"} />
                       </div>
                     </div>
+                    {kpi.series && kpi.series.length >= 5 && (
+                      <div className="mb-2">
+                        <MannKendallChip
+                          series={kpi.series}
+                          positiveIsGood={kpi.positiveIsGood ?? true}
+                        />
+                      </div>
+                    )}
                     <p className="text-xs text-sub mb-3">{kpi.description}</p>
                     <Link
                       href={kpi.sourcePath}

@@ -35,7 +35,13 @@ import {
   Clock,
   Filter,
   X,
+  TrendingUp,
 } from "lucide-react";
+import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
+import { mannKendall } from "@/lib/analytics/trend-test";
+import { cusum } from "@/lib/analytics/changepoint";
+import { SmartInput } from "@/components/shared/smart-input";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -56,6 +62,8 @@ interface Impediment {
   status: Status;
   raisedDate: string; // ISO date
   resolvedDate?: string; // ISO date
+  /** Expected resolution lead-time in days, captured at logging time. */
+  expectedResolutionDays?: number;
 }
 
 interface ImpedimentStore {
@@ -151,6 +159,77 @@ function avgResolutionDays(impediments: Impediment[]): number {
     return sum + Math.max(0, Math.floor((done - raised) / (1000 * 60 * 60 * 24)));
   }, 0);
   return Math.round(total / resolved.length);
+}
+
+/** Pull resolution-day durations for resolved impediments, with NaN-guarding. */
+function resolutionDaysSeries(impediments: Impediment[]): number[] {
+  return impediments
+    .filter((i) => i.status === "Resolved" && i.resolvedDate)
+    .map((i) => {
+      const raised = new Date(i.raisedDate).getTime();
+      const done = new Date(i.resolvedDate!).getTime();
+      return Math.max(0, Math.floor((done - raised) / (1000 * 60 * 60 * 24)));
+    })
+    .filter((d) => Number.isFinite(d));
+}
+
+function parseISODateUTC(iso: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return null;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+}
+
+/**
+ * Bucket impediments into weekly raised-counts and open-counts. Capped at
+ * 26 weeks to keep the trend window meaningful and forecast cost bounded.
+ */
+function buildWeeklyImpedimentSeries(impediments: Impediment[]): {
+  raisedPerWeek: number[];
+  openAtWeek: number[];
+} {
+  if (impediments.length === 0) return { raisedPerWeek: [], openAtWeek: [] };
+  const dates = impediments
+    .map((i) => parseISODateUTC(i.raisedDate))
+    .filter((d): d is Date => d !== null);
+  if (dates.length === 0) return { raisedPerWeek: [], openAtWeek: [] };
+
+  const earliest = new Date(Math.min(...dates.map((d) => d.getTime())));
+  const dayOfWeek = earliest.getUTCDay();
+  const weekStart = new Date(earliest);
+  weekStart.setUTCDate(earliest.getUTCDate() - dayOfWeek);
+  weekStart.setUTCHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const totalWeeks = Math.max(
+    1,
+    Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1,
+  );
+  const cappedWeeks = Math.min(totalWeeks, 26);
+
+  const raisedPerWeek = new Array(cappedWeeks).fill(0) as number[];
+  const openAtWeek = new Array(cappedWeeks).fill(0) as number[];
+
+  for (let w = 0; w < cappedWeeks; w++) {
+    const weekStartT = weekStart.getTime() + w * 7 * 86_400_000;
+    const weekEndT = weekStartT + 7 * 86_400_000;
+    let raised = 0;
+    let open = 0;
+    for (const i of impediments) {
+      const raisedDate = parseISODateUTC(i.raisedDate);
+      if (!raisedDate) continue;
+      const raisedT = raisedDate.getTime();
+      if (raisedT >= weekStartT && raisedT < weekEndT) raised++;
+      if (raisedT < weekEndT) {
+        const resolvedDate = i.resolvedDate ? parseISODateUTC(i.resolvedDate) : null;
+        if (!resolvedDate || resolvedDate.getTime() >= weekEndT) open++;
+      }
+    }
+    raisedPerWeek[w] = raised;
+    openAtWeek[w] = open;
+  }
+
+  return { raisedPerWeek, openAtWeek };
 }
 
 const SEVERITY_CONFIG: Record<
@@ -255,6 +334,7 @@ const EMPTY_FORM = {
   severity: "Medium" as Severity,
   raisedBy: "",
   assignedTo: "",
+  expectedResolutionDays: undefined as number | undefined,
 };
 
 function LogForm() {
@@ -262,6 +342,11 @@ function LogForm() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [open, setOpen] = useState(false);
   const { log } = useHistoryLogger("impediments");
+  const expectedResolutionPrediction = usePredictedDefault<number>(
+    "impediments",
+    "expectedResolutionDays",
+    3,
+  );
 
   const handleSubmit = () => {
     if (!form.title.trim()) return;
@@ -386,6 +471,39 @@ function LogForm() {
               onChange={(e) => setForm({ ...form, assignedTo: e.target.value })}
               placeholder="Name / Role"
               className="input-toolkit"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-sub text-xs">Expected Resolution (days)</Label>
+            <SmartInput<number>
+              predicted={expectedResolutionPrediction}
+              onAccept={(value) => setForm((f) => ({ ...f, expectedResolutionDays: value }))}
+              render={({ ghost, accept, chip }) => (
+                <div className="flex flex-col gap-1">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={form.expectedResolutionDays ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setForm((f) => ({
+                        ...f,
+                        expectedResolutionDays: v === "" ? undefined : Math.max(1, Number(v)),
+                      }));
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Tab" && form.expectedResolutionDays === undefined && ghost) {
+                        e.preventDefault();
+                        accept();
+                      }
+                    }}
+                    placeholder={ghost ?? "e.g. 3"}
+                    className="input-toolkit"
+                  />
+                  {form.expectedResolutionDays === undefined && chip}
+                </div>
+              )}
             />
           </div>
         </div>
@@ -594,6 +712,33 @@ export function ImpedimentsClient() {
     return { open, escalated, avgDays, byCategory };
   }, [impediments]);
 
+  // ── Phase-15 analytics ────────────────────────────────────────────
+  const resolutionDays = useMemo(() => resolutionDaysSeries(impediments), [impediments]);
+
+  // Bootstrap CI on the median resolution time. Empty/short series fall back
+  // to a degenerate CI (lower=upper=point) which we render as a non-CI value.
+  const medianResolutionCI = useMemo(() => {
+    if (resolutionDays.length < 3) return null;
+    return bootstrapQuantile(resolutionDays, 0.5);
+  }, [resolutionDays]);
+
+  const { raisedPerWeek, openAtWeek } = useMemo(
+    () => buildWeeklyImpedimentSeries(impediments),
+    [impediments],
+  );
+
+  // Mann-Kendall trend test on weekly raised count.
+  const raisedTrend = useMemo(() => {
+    if (raisedPerWeek.length < 5) return null;
+    return mannKendall(raisedPerWeek);
+  }, [raisedPerWeek]);
+
+  // CUSUM on the weekly open-impediment count for regime shifts.
+  const openChangepoints = useMemo(() => {
+    if (openAtWeek.length < 4) return [];
+    return cusum(openAtWeek);
+  }, [openAtWeek]);
+
   // Filtered list
   const filtered = useMemo(
     () =>
@@ -634,6 +779,7 @@ export function ImpedimentsClient() {
         "Raised Date",
         "Resolved Date",
         "Age (days)",
+        "Expected Resolution (days)",
       ],
       rows: impediments.map((i) => [
         i.title,
@@ -646,6 +792,7 @@ export function ImpedimentsClient() {
         i.raisedDate,
         i.resolvedDate || "",
         daysSince(i.raisedDate),
+        i.expectedResolutionDays ?? "",
       ]),
     }),
     [impediments]
@@ -687,13 +834,25 @@ export function ImpedimentsClient() {
           </Card>
           <Card className="bg-surface border-border">
             <CardContent className="p-4">
-              <p className="text-xs text-sub mb-1">Avg Resolution</p>
-              <p className="text-3xl font-data font-bold text-[#00ff88]">
-                {stats.avgDays}
-                <span className="text-sm font-normal text-sub ml-1">
-                  days
-                </span>
+              <p className="text-xs text-sub mb-1">
+                {medianResolutionCI ? "Median Resolution" : "Avg Resolution"}
               </p>
+              {medianResolutionCI ? (
+                <>
+                  <p className="text-3xl font-data font-bold text-[#00ff88]">
+                    {Math.round(medianResolutionCI.point)}
+                    <span className="text-sm font-normal text-sub ml-1">days</span>
+                  </p>
+                  <p className="text-[11px] text-sub mt-1 font-data">
+                    95% CI [{Math.round(medianResolutionCI.lower)}, {Math.round(medianResolutionCI.upper)}]
+                  </p>
+                </>
+              ) : (
+                <p className="text-3xl font-data font-bold text-[#00ff88]">
+                  {stats.avgDays}
+                  <span className="text-sm font-normal text-sub ml-1">days</span>
+                </p>
+              )}
             </CardContent>
           </Card>
           <Card className="bg-surface border-border">
@@ -720,6 +879,38 @@ export function ImpedimentsClient() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Phase-15 trend + changepoint signals */}
+        {(raisedTrend || openChangepoints.length > 0) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {raisedTrend && (
+              raisedTrend.significant ? (
+                <span
+                  className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
+                    raisedTrend.trend === "up"
+                      ? "border-[#ef4444]/40 text-[#ef4444] bg-[#ef4444]/10"
+                      : "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
+                  }`}
+                >
+                  <TrendingUp className={`w-3 h-3 ${raisedTrend.trend === "down" ? "rotate-180" : ""}`} />
+                  Impediment creation trending {raisedTrend.trend} significantly
+                  <span className="opacity-60">· p={raisedTrend.pValue.toFixed(3)}</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface-deep">
+                  <TrendingUp className="w-3 h-3" />
+                  Impediment creation trend: no significant change
+                </span>
+              )
+            )}
+            {openChangepoints.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-[#ffaa00]/40 text-[#ffaa00] bg-[#ffaa00]/10">
+                <AlertTriangle className="w-3 h-3" />
+                {openChangepoints.length} regime shift{openChangepoints.length !== 1 ? "s" : ""} detected (CUSUM)
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Actions + filters row */}
         <div className="flex flex-wrap items-center gap-3">

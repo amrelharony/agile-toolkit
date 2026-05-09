@@ -39,6 +39,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { retroFormats, type RetroFormat, type RetroColumn } from "@/lib/constants/retro-formats";
+import { kMeansAuto } from "@/lib/analytics/clustering";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -88,6 +89,36 @@ function formatTimer(s: number) {
 
 function sortedByVotes(cards: RetroCard[]) {
   return [...cards].sort((a, b) => b.votes - a.votes);
+}
+
+// Minimum cards before we attempt theme clustering — below this k-means
+// produces noise (each "cluster" is a card or two).
+const CLUSTER_MIN_CARDS = 30;
+
+// Color palette for cluster badges. Index by cluster id; cycles past the
+// length so a stray higher k still gets a colour. Keep in sync with the
+// retro tool's neon palette so the chips read as part of the page.
+const CLUSTER_COLORS = ["#00e1ff", "#ff00aa", "#00ff88", "#ffaa00", "#8b5cf6", "#ef4444"];
+
+/**
+ * Lightweight 4-feature vectorization for retro cards. Intentionally
+ * simple — no stemming, no stopwords — so clusters are deterministic and
+ * fast to compute client-side. Features:
+ *   1. length / 100      — verbosity
+ *   2. wordCount / 20    — content density
+ *   3. exclamationCount  — affective intensity
+ *   4. questionCount     — uncertainty / curiosity
+ */
+function extractCardFeatures(text: string): number[] {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  let exclamations = 0;
+  let questions = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    if (ch === 33) exclamations++; // !
+    else if (ch === 63) questions++; // ?
+  }
+  return [text.length / 100, words.length / 20, exclamations, questions];
 }
 
 // ── Phase Indicator ──────────────────────────────────────────
@@ -204,6 +235,7 @@ function RetroCardItem({
   allCards,
   phase,
   canVote,
+  clusterId,
   onVote,
   onDelete,
   onGroup,
@@ -216,6 +248,7 @@ function RetroCardItem({
   column: RetroColumn;
   phase: BoardPhase;
   canVote: boolean;
+  clusterId?: number;
   onVote: (id: string) => void;
   onDelete: (id: string) => void;
   onGroup: (id: string, parentId: string | null) => void;
@@ -231,6 +264,10 @@ function RetroCardItem({
   // Only top-level cards in the Discuss phase get the click-to-focus affordance.
   // Grouped child cards inherit visual state from the parent and aren't toggled.
   const isDiscussClickable = phase === "discuss" && card.groupedWith === null;
+  const clusterColor =
+    clusterId !== undefined && clusterId >= 0
+      ? CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length]
+      : undefined;
 
   return (
     <motion.div
@@ -275,6 +312,13 @@ function RetroCardItem({
           ? "border-border bg-cardH ml-6 opacity-80"
           : "border-border bg-card hover:border-border"
       }`}
+      // Cluster theme accent — a 3-px left rule. Don't override the discussing
+      // ring; that visual takes priority during the discuss phase.
+      style={
+        clusterColor && !isDiscussing
+          ? { borderLeftColor: clusterColor, borderLeftWidth: 3 }
+          : undefined
+      }
     >
       <div className="flex items-start gap-2">
         {/* Action item checkbox in actions phase */}
@@ -383,6 +427,7 @@ function RetroColumnPanel({
   allCards,
   phase,
   userVotes,
+  clusterByCardId,
   onAdd,
   onVote,
   onDelete,
@@ -396,6 +441,7 @@ function RetroColumnPanel({
   allCards: RetroCard[];
   phase: BoardPhase;
   userVotes: number;
+  clusterByCardId?: Record<string, number>;
   onAdd: (columnKey: string, text: string) => void;
   onVote: (id: string) => void;
   onDelete: (id: string) => void;
@@ -459,6 +505,7 @@ function RetroColumnPanel({
                     column={column}
                     phase={phase}
                     canVote={canVote}
+                    clusterId={clusterByCardId?.[card.id]}
                     onVote={onVote}
                     onDelete={onDelete}
                     onGroup={onGroup}
@@ -474,6 +521,7 @@ function RetroColumnPanel({
                       column={column}
                       phase={phase}
                       canVote={canVote}
+                      clusterId={clusterByCardId?.[child.id]}
                       onVote={onVote}
                       onDelete={onDelete}
                       onGroup={onGroup}
@@ -871,6 +919,26 @@ function Board({
     }),
   }), [state.format, state.cards]);
 
+  // ── Phase-15: lightweight theme clustering across all cards ────────
+  // Only kicks in once the board reaches CLUSTER_MIN_CARDS — small boards
+  // get nothing rather than misleading 1-card "themes". Memoised on the
+  // text+id signature so card edits, additions, and removals all retrigger
+  // exactly once per tick.
+  const clusters = useMemo(() => {
+    if (state.cards.length < CLUSTER_MIN_CARDS) return null;
+    const features = state.cards.map((c) => extractCardFeatures(c.text));
+    const result = kMeansAuto(features);
+    const byCardId: Record<string, number> = {};
+    state.cards.forEach((c, i) => {
+      byCardId[c.id] = result.labels[i] ?? -1;
+    });
+    const counts = new Array(result.k).fill(0) as number[];
+    for (const lbl of result.labels) {
+      if (lbl >= 0 && lbl < result.k) counts[lbl]++;
+    }
+    return { byCardId, counts, k: result.k };
+  }, [state.cards]);
+
   const handleExport = useCallback(async () => {
     const text = buildExportText(state);
     const json = buildExportJson(state);
@@ -972,6 +1040,40 @@ function Board({
           )}
         </div>
 
+        {/* ── Auto-detected themes (k-means clustering) ────── */}
+        {clusters && (
+          <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-semibold text-text">Auto-detected themes</span>
+              <span className="text-sub">
+                {clusters.k} cluster{clusters.k !== 1 ? "s" : ""} across {state.cards.length} cards
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {clusters.counts.map((count, i) => {
+                const color = CLUSTER_COLORS[i % CLUSTER_COLORS.length];
+                return (
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border"
+                    style={{
+                      color,
+                      borderColor: `${color}66`,
+                      background: `${color}15`,
+                    }}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ background: color }}
+                    />
+                    Theme {i + 1}: {count} card{count !== 1 ? "s" : ""}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* ── Columns ──────────────────────────────────────── */}
         <div className={`grid ${gridClass} gap-4`}>
           {state.format.columns.map((col) => {
@@ -984,6 +1086,7 @@ function Board({
                 allCards={state.cards}
                 phase={state.phase}
                 userVotes={state.userVotes}
+                clusterByCardId={clusters?.byCardId}
                 onAdd={handleAddCard}
                 onVote={handleVote}
                 onDelete={handleDelete}

@@ -7,6 +7,7 @@ import {
   ComposedChart,
   Bar,
   Line,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -19,10 +20,16 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { ChartCard } from "@/components/shared/chart-card";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatCard } from "@/components/shared/stat-card";
+import { SmartInput } from "@/components/shared/smart-input";
+import { CausalLine } from "@/components/charts/causal-annotation";
 import { generateVelocityPrompts } from "@/lib/ai-prompts/velocity";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { VELOCITY_ACTIONS } from "@/lib/history/event-actions";
 import { withTimeTravel } from "@/lib/stores/with-time-travel";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
+import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
+import { cusum } from "@/lib/analytics/changepoint";
+import { mannKendall } from "@/lib/analytics/trend-test";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Trash2, Activity, TrendingUp, TrendingDown, Minus } from "lucide-react";
@@ -276,20 +283,86 @@ export function VelocityClient() {
 
   const exportRef = useRef<HTMLDivElement>(null);
 
+  /* -- Smart-default for next sprint plan ---------------------------------- */
+  // Reads from the workspace store's completed sprints (registered in
+  // src/lib/predictions/bootstrap.ts). Falls back to confidence: "none" when
+  // no completed sprints exist in the workspace — the SmartInput then renders
+  // no chip and no ghost, so the manual flow is undisturbed.
+  const nextSprintPrediction = usePredictedDefault<number>("velocity", "nextSprintPlan", 0);
+  const [plannedNext, setPlannedNext] = useState<string>("");
+
   /* -- Derived chart data -------------------------------------------------- */
 
+  const completedSeries = useMemo(() => sprints.map((s) => s.completed), [sprints]);
+
+  // Bayesian forecast for the NEXT sprint. Wrapped in useMemo so we don't
+  // re-allocate on unrelated re-renders. Returns [] when the series is empty,
+  // which makes the Area renders as nothing — safe fallback.
+  const forecast = useMemo(() => {
+    if (completedSeries.length < 2) return [];
+    return forecastBayesianHolt(completedSeries, 1);
+  }, [completedSeries]);
+
+  // CUSUM changepoints on completed velocity. cusum() itself returns []
+  // when n<4 — we still memoise so downstream maps don't churn.
+  const changepoints = useMemo(() => {
+    if (completedSeries.length < 4) return [];
+    return cusum(completedSeries);
+  }, [completedSeries]);
+
+  // Mann-Kendall trend test — needs n>=5 to be informative.
+  const trendTest = useMemo(() => {
+    if (completedSeries.length < 5) return null;
+    return mannKendall(completedSeries);
+  }, [completedSeries]);
+
   const { chartData, stats } = useMemo(() => {
-    const completedValues = sprints.map((s) => s.completed);
+    const completedValues = completedSeries;
     const rolling = rollingAverage(completedValues, 3);
     const trendLine = linearRegression(completedValues);
 
-    const data = sprints.map((sp, i) => ({
+    type Row = {
+      name: string;
+      committed: number;
+      completed: number | null;
+      rollingAvg?: number;
+      trend?: number;
+      forecast?: number;
+      band80Lower?: number;
+      band80Upper?: number;
+    };
+
+    const data: Row[] = sprints.map((sp, i) => ({
       name: sp.name,
       committed: sp.committed,
       completed: sp.completed,
       rollingAvg: rolling[i] !== null ? round(rolling[i]!, 1) : undefined,
       trend: round(trendLine[i], 1),
     }));
+
+    // Append a synthetic "next" row carrying the Bayesian forecast band so
+    // Recharts has a single dataset to draw from. Lower-bound is clamped at 0
+    // — negative velocity is meaningless for the chart axis.
+    if (forecast.length > 0 && data.length > 0) {
+      const fc = forecast[0];
+      // Bridge the band onto the last actual point so the area starts where
+      // history ends rather than floating in mid-air.
+      const last = data[data.length - 1];
+      data[data.length - 1] = {
+        ...last,
+        forecast: last.completed ?? undefined,
+        band80Lower: last.completed ?? undefined,
+        band80Upper: last.completed ?? undefined,
+      };
+      data.push({
+        name: "Next",
+        committed: 0,
+        completed: null,
+        forecast: round(fc.yHat, 1),
+        band80Lower: round(Math.max(0, fc.lower80), 1),
+        band80Upper: round(Math.max(0, fc.upper80), 1),
+      });
+    }
 
     const n = sprints.length;
     const avgVelocity = n > 0 ? completedValues.reduce((a, b) => a + b, 0) / n : 0;
@@ -314,7 +387,7 @@ export function VelocityClient() {
       chartData: data,
       stats: { avgVelocity, predictability, sd, trendDir },
     };
-  }, [sprints]);
+  }, [sprints, completedSeries, forecast]);
 
   /* -- Export data --------------------------------------------------------- */
 
@@ -429,6 +502,27 @@ export function VelocityClient() {
             <Legend
               wrapperStyle={{ paddingTop: "16px", color: "#94a3b8", fontSize: 12 }}
             />
+            {/* Bayesian 80% band — drawn behind everything so bars stay legible.
+                The lower-mask Area uses var(--bg) at fillOpacity 1 to clip the
+                upper Area down to a true band rather than a solid wedge. */}
+            <Area
+              dataKey="band80Upper"
+              name="80% forecast"
+              stroke="none"
+              fill="#00f0ff"
+              fillOpacity={0.18}
+              connectNulls
+              isAnimationActive={false}
+            />
+            <Area
+              dataKey="band80Lower"
+              stroke="none"
+              fill="var(--bg, #06080f)"
+              fillOpacity={1}
+              legendType="none"
+              connectNulls
+              isAnimationActive={false}
+            />
             <Bar
               dataKey="committed"
               name="Committed"
@@ -459,8 +553,131 @@ export function VelocityClient() {
               strokeDasharray="4 4"
               dot={false}
             />
+            <Line
+              dataKey="forecast"
+              name="Forecast"
+              stroke="#00f0ff"
+              strokeWidth={2}
+              strokeDasharray="5 5"
+              dot={false}
+              connectNulls
+            />
+            {/* CUSUM regime-shift markers anchored to the affected sprint's
+                name so they line up with bar centers. Skipped silently when
+                no changepoints were detected. */}
+            {changepoints.map((cp) => {
+              const sprint = sprints[cp.index];
+              if (!sprint) return null;
+              return (
+                <CausalLine
+                  key={`cusum-${cp.index}-${cp.direction}`}
+                  annotation={{
+                    x: sprint.name,
+                    label: `Regime shift ${cp.direction}`,
+                    detail: `CUSUM detected a ${cp.direction === "up" ? "sustained increase" : "sustained drop"} in completed velocity at ${sprint.name}.`,
+                    confidence: "moderate",
+                  }}
+                />
+              );
+            })}
           </ComposedChart>
         </ChartCard>
+
+        {/* ---- Mann-Kendall trend chip ----
+            Only renders when the test has enough samples (n>=5) AND the trend
+            is statistically significant at α=0.05. Tone-coded so a
+            significant-up shows as accent ("good"), significant-down as
+            destructive ("alert worth investigating"). */}
+        {trendTest?.significant && (
+          <div className="flex items-center justify-end -mt-2">
+            <span
+              className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+                trendTest.trend === "up"
+                  ? "bg-accent/15 text-accent border-accent/40"
+                  : "bg-destructive/15 text-destructive border-destructive/40"
+              }`}
+              title={`Mann-Kendall p=${trendTest.pValue.toFixed(3)}`}
+            >
+              <span>
+                {trendTest.trend === "up" ? "↗" : "↘"} trend significant
+              </span>
+              <span className="opacity-60">p={trendTest.pValue.toFixed(2)}</span>
+            </span>
+          </div>
+        )}
+
+        {/* ---- Plan next sprint ----
+            SmartInput-backed quick-plan panel. The predictor (registered in
+            src/lib/predictions/bootstrap.ts) reads completed sprints from the
+            workspace store; if none exist, the chip silently disappears and
+            the input behaves as a normal number field. Accepting (Tab on
+            empty, or click the chip) populates the field with the forecast. */}
+        <SectionCard
+          title="Plan next sprint"
+          titleSize="lg"
+          headerClassName="pb-4"
+          actions={
+            <Button
+              size="sm"
+              variant="toolkit"
+              disabled={plannedNext.trim() === ""}
+              onClick={() => {
+                const n = Number(plannedNext);
+                if (!Number.isFinite(n) || n < 0) return;
+                addSprintRaw();
+                const fresh = useVelocityStore.getState().sprints;
+                const created = fresh[fresh.length - 1];
+                useVelocityStore.getState().updateSprint(created.id, {
+                  committed: Math.round(n),
+                  completed: 0,
+                });
+                log(VELOCITY_ACTIONS.SPRINT_ADDED, {
+                  sprintId: created.id,
+                  name: created.name,
+                  committed: Math.round(n),
+                  source: "predicted-default",
+                });
+                setPlannedNext("");
+              }}
+              className="gap-1.5"
+            >
+              <Plus className="w-4 h-4" />
+              Commit
+            </Button>
+          }
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-start">
+            <div className="space-y-1">
+              <SmartInput<number>
+                predicted={nextSprintPrediction}
+                onAccept={(v) => setPlannedNext(String(v))}
+                render={({ ghost, accept, chip }) => (
+                  <>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={plannedNext}
+                      placeholder={ghost ?? "Points to commit"}
+                      onKeyDown={(e) => {
+                        if (e.key === "Tab" && plannedNext === "") {
+                          e.preventDefault();
+                          accept();
+                        }
+                      }}
+                      onChange={(e) => setPlannedNext(e.target.value)}
+                      className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+                      aria-label="Planned commitment for the next sprint"
+                    />
+                    {chip}
+                  </>
+                )}
+              />
+            </div>
+            <p className="text-xs text-sub max-w-xs">
+              Tip: Tab to accept the suggested commitment, then Commit to add the sprint.
+            </p>
+          </div>
+        </SectionCard>
 
         {/* ---- Data Table ---- */}
         <SectionCard

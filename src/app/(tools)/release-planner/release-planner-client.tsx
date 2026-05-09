@@ -22,6 +22,7 @@ import { RELEASE_PLANNER_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
+import { CalloutAlert } from "@/components/shared/callout-alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
@@ -29,6 +30,10 @@ import { chartTheme } from "@/components/charts/chart-theme";
 import { TrendingUp, Calendar, BarChart3, Settings2, RefreshCw } from "lucide-react";
 import { addDays, format } from "date-fns";
 import { simulateThroughputCompletion } from "@/lib/analytics/monte-carlo";
+import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
+import { hasRecentChangepoint } from "@/lib/analytics/changepoint";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
+import { SmartInput } from "@/components/shared/smart-input";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                       */
@@ -41,6 +46,12 @@ interface ReleasePlannerConfig {
   sprintLengthDays: number;
   startDate: string;
   scopeAdjustment: number; // -50 to +50
+  /**
+   * Optional user-pinned target — number of sprints they're aiming for.
+   * Empty string = unset; the SmartInput prediction surfaces a Tab-to-accept
+   * default sourced from the Bayesian forecast over completed sprints.
+   */
+  sprintsToReleaseTarget: string;
 }
 
 interface ReleasePlannerStore {
@@ -68,6 +79,7 @@ function makeDefaultConfig(): ReleasePlannerConfig {
     sprintLengthDays: 14,
     startDate: `${y}-${m}-${day}`,
     scopeAdjustment: 0,
+    sprintsToReleaseTarget: "",
   };
 }
 
@@ -289,6 +301,40 @@ export function ReleasePlannerClient() {
     [effectiveBacklog, velocities]
   );
 
+  /* -- Bootstrap CI on sprint completion times ----------------------------- */
+  // Non-parametric companion to the parametric Monte Carlo. We bootstrap
+  // the 0.85 quantile of the *historical velocity* (points-per-sprint) and
+  // convert to sprints-to-completion = effectiveBacklog / sampledVelocity.
+  // Because the bootstrap statistic must be monotone in the sample, we
+  // resample the velocity series and compute the upper quantile, then
+  // divide. Returns a sprint count comparable to MC P85.
+  const bootstrapResult = useMemo(() => {
+    if (velocities.length < 3 || effectiveBacklog <= 0) return null;
+    // Bootstrap quantile of velocities at q=0.15 (low-velocity tail). A low
+    // velocity means MORE sprints needed — so dividing the backlog by the
+    // 15th-percentile velocity gives a P85 sprint count (worst-case 85%).
+    const ci = bootstrapQuantile(velocities, 0.15);
+    if (ci.point <= 0) return null;
+    return {
+      point: Math.ceil(effectiveBacklog / ci.point),
+      lower: Math.ceil(effectiveBacklog / Math.max(ci.upper, 0.01)),
+      upper: Math.ceil(effectiveBacklog / Math.max(ci.lower, 0.01)),
+    };
+  }, [velocities, effectiveBacklog]);
+
+  /* -- CUSUM regime-shift detection on the velocity series ------------------ */
+  const velocityRegimeShift = useMemo(
+    () => hasRecentChangepoint(velocities, 3),
+    [velocities],
+  );
+
+  /* -- SmartInput predicted default for the "sprints to release" target ---- */
+  const sprintsToReleasePred = usePredictedDefault<number>(
+    "release-planner",
+    "sprintsToRelease",
+    Math.max(1, sim.p50 || 4),
+  );
+
   const promptConfig = useMemo(() => ({
     toolName: "Release Planner",
     prompts: generateReleasePlannerPrompts({
@@ -385,12 +431,44 @@ export function ReleasePlannerClient() {
           />
           <StatCard
             label="85% Confidence"
-            value={sim.p85 > 0 ? `${sim.p85} sprints` : "—"}
-            sub={sim.p85 > 0 ? sprintToDate(config.startDate, sim.p85, config.sprintLengthDays) : undefined}
+            value={
+              sim.p85 > 0
+                ? bootstrapResult
+                  ? `MC ${sim.p85} · Boot ${bootstrapResult.point} sprints`
+                  : `${sim.p85} sprints`
+                : "—"
+            }
+            sub={
+              sim.p85 > 0
+                ? bootstrapResult
+                  ? `MC P85 vs non-parametric Bootstrap P85 — wider gap = noisier velocity`
+                  : sprintToDate(config.startDate, sim.p85, config.sprintLengthDays)
+                : undefined
+            }
             icon={Calendar}
             color="#ffaa00"
           />
         </div>
+
+        {/* Recent regime shift advisory — surfaces when CUSUM detects a
+            structural change in the velocity series within the last 3
+            observations. The Monte Carlo + bootstrap above pull from a
+            mixed-regime sample so the projection should be treated as
+            suspect until the new regime stabilises. */}
+        {velocityRegimeShift && velocities.length >= 5 && (
+          <CalloutAlert tone="warning">
+            <div>
+              <div className="font-semibold mb-0.5 text-text">
+                Recent regime shift in velocity detected
+              </div>
+              <div className="text-sub">
+                CUSUM flagged a changepoint in the last few sprints. The projection
+                blends old and new regimes — re-fit once the new velocity stabilises,
+                or trim the historical sample to the post-shift window.
+              </div>
+            </div>
+          </CalloutAlert>
+        )}
 
         {/* Configuration */}
         <SectionCard
@@ -455,6 +533,45 @@ export function ReleasePlannerClient() {
                   className={inputCls}
                 />
               </div>
+            </div>
+
+            {/* SmartInput — target sprints to release. The user can pin a
+                target; the Bayesian forecast suggests a value as a Tab-to-
+                accept ghost. When set, the histogram below renders a vertical
+                target line so the user can eyeball where their goal sits in
+                the simulated distribution. */}
+            <div className="mt-5 space-y-1.5">
+              <Label className="text-sub text-xs">
+                Target sprints to release (optional)
+              </Label>
+              <SmartInput<number>
+                predicted={sprintsToReleasePred}
+                onAccept={(v) => updateConfig({ sprintsToReleaseTarget: String(v) })}
+                render={({ ghost, chip, accept }) => (
+                  <div>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={config.sprintsToReleaseTarget ?? ""}
+                      placeholder={ghost ?? "e.g. 6"}
+                      onKeyDown={(e) => {
+                        if (
+                          e.key === "Tab" &&
+                          (config.sprintsToReleaseTarget ?? "") === ""
+                        ) {
+                          e.preventDefault();
+                          accept();
+                        }
+                      }}
+                      onChange={(e) =>
+                        updateConfig({ sprintsToReleaseTarget: e.target.value })
+                      }
+                      className={inputCls + " sm:max-w-xs"}
+                    />
+                    {chip}
+                  </div>
+                )}
+              />
             </div>
 
             <div className="mt-5 space-y-1.5">
@@ -620,6 +737,43 @@ export function ReleasePlannerClient() {
                         fontWeight: 600,
                       }}
                     />
+
+                    {/* Bootstrap P85 reference — non-parametric companion. */}
+                    {bootstrapResult && (
+                      <ReferenceLine
+                        x={bootstrapResult.point}
+                        stroke="#a78bfa"
+                        strokeWidth={2}
+                        strokeDasharray="2 4"
+                        label={{
+                          value: "Boot",
+                          position: "insideTop",
+                          fill: "#a78bfa",
+                          fontSize: 10,
+                          fontWeight: 600,
+                        }}
+                      />
+                    )}
+
+                    {/* User-pinned target line — only shown when the user
+                        enters a positive integer in the SmartInput field. */}
+                    {(() => {
+                      const t = Number(config.sprintsToReleaseTarget);
+                      return Number.isFinite(t) && t > 0 ? (
+                        <ReferenceLine
+                          x={t}
+                          stroke="#22c55e"
+                          strokeWidth={2}
+                          label={{
+                            value: "Target",
+                            position: "insideTop",
+                            fill: "#22c55e",
+                            fontSize: 10,
+                            fontWeight: 600,
+                          }}
+                        />
+                      ) : null;
+                    })()}
 
                     <Bar dataKey="count" fill="#00f0ff" fillOpacity={0.7} radius={[2, 2, 0, 0]} />
                   </BarChart>
