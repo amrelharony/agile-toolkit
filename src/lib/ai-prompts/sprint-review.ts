@@ -12,7 +12,15 @@ interface SprintReviewData {
 }
 
 export function generateSprintReviewPrompts(data: SprintReviewData): PromptDefinition[] {
-  if (data.features.length === 0 && data.feedbackItems.length === 0) return [];
+  // Return prompts as long as ANY review context is present — features,
+  // feedback, velocity (committed/completed), or checklist items.
+  const hasAnyData =
+    data.features.length > 0 ||
+    data.feedbackItems.length > 0 ||
+    data.committed > 0 ||
+    data.completed > 0 ||
+    data.checklistItems.length > 0;
+  if (!hasAnyData) return [];
 
   const featureTable = formatTable(
     ["Feature", "Description", "Demo Time (min)"],

@@ -2,7 +2,7 @@ import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable, truncateData } from "./prompt-utils";
 
 interface RefinementData {
-  criteria: { id: string; label: string }[];
+  criteria: { id: string; label: string; description?: string }[];
   history: { storyName: string; passRate: number; checks: Record<string, boolean> }[];
 }
 
@@ -31,14 +31,14 @@ export function generateRefinementPrompts(data: RefinementData): PromptDefinitio
       title: "Definition of Ready Effectiveness",
       description: "Evaluate whether refinement criteria are adding value and identify weak spots.",
       prompt: buildPreamble("Refinement Checklist", "It tracks whether stories meet a Definition of Ready before entering a sprint.") +
-        `## Criteria: ${data.criteria.map((c) => c.label).join(", ")}\n\nAverage pass rate: ${avgPassRate}%\nMost-failed criteria: ${failRates.slice(0, 3).map((f) => `${f.label} (${f.failRate}% fail rate)`).join(", ")}\n\n## Story History\n\n${table}${note}\n\n## Questions\n\n1. Is the average pass rate (${avgPassRate}%) healthy? What target should the team aim for?\n2. Why are ${failRates[0]?.label ?? "N/A"}${failRates[1] ? ` and ${failRates[1].label}` : ""} failing most often? What root causes might explain this?\n3. Are any criteria redundant or too strict? Should any be removed or modified?\n4. Are there missing criteria the team should add?\n5. How should the team handle stories that don't fully pass — allow with conditions or block until ready?`,
+        `## Criteria\n\n${data.criteria.map((c) => `- ${c.label}: ${(c.description ?? "—").slice(0, 80)}`).join("\n")}\n\nAverage pass rate: ${avgPassRate}%\nMost-failed criteria: ${failRates.slice(0, 3).map((f) => `${f.label} (${f.failRate}% fail rate)`).join(", ")}\n\n## Story History\n\n${table}${note}\n\n## Questions\n\n1. Is the average pass rate (${avgPassRate}%) healthy? What target should the team aim for?\n2. Why are ${failRates[0]?.label ?? "N/A"}${failRates[1] ? ` and ${failRates[1].label}` : ""} failing most often? What root causes might explain this?\n3. Are any criteria redundant or too strict? Should any be removed or modified?\n4. Are there missing criteria the team should add?\n5. How should the team handle stories that don't fully pass — allow with conditions or block until ready?`,
     },
     {
       id: "refinement-process",
       title: "Refinement Process Improvement",
       description: "Optimize the refinement session format based on historical patterns.",
       prompt: buildPreamble("Refinement Checklist", "Improve the refinement process based on checklist data.") +
-        `## Criteria: ${data.criteria.map((c) => c.label).join(", ")}\n\nAverage pass rate: ${avgPassRate}%\n\n## Story History\n\n${table}${note}\n\n## Questions\n\n1. How should the team structure their refinement sessions to improve pass rates?\n2. What template or format would help story authors meet these criteria before refinement?\n3. How much time should the team spend refining each story? Is there a "good enough" threshold?\n4. Create a pre-refinement checklist that story authors can self-assess before the session.\n5. How can the team make refinement engaging rather than a bureaucratic gate?`,
+        `## Criteria\n\n${data.criteria.map((c) => `- ${c.label}: ${(c.description ?? "—").slice(0, 80)}`).join("\n")}\n\nAverage pass rate: ${avgPassRate}%\n\n## Story History\n\n${table}${note}\n\n## Questions\n\n1. How should the team structure their refinement sessions to improve pass rates?\n2. What template or format would help story authors meet these criteria before refinement?\n3. How much time should the team spend refining each story? Is there a "good enough" threshold?\n4. Create a pre-refinement checklist that story authors can self-assess before the session.\n5. How can the team make refinement engaging rather than a bureaucratic gate?`,
     },
   ];
 }

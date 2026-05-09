@@ -3,7 +3,7 @@ import { buildPreamble, formatTable } from "./prompt-utils";
 
 interface BurnupData {
   config: { sprintDays: number; sprintStartDate: string };
-  entries: { day: number; scope: number | null; completed: number | null }[];
+  entries: { day: number; scope: number | null; completed: number | null; description?: string }[];
 }
 
 export function generateBurnupPrompts(data: BurnupData): PromptDefinition[] {
@@ -11,8 +11,8 @@ export function generateBurnupPrompts(data: BurnupData): PromptDefinition[] {
   if (filled.length === 0) return [];
 
   const table = formatTable(
-    ["Day", "Scope (total)", "Completed"],
-    filled.map((e) => [e.day, e.scope ?? "", e.completed ?? ""])
+    ["Day", "Scope (total)", "Completed", "Note"],
+    filled.map((e) => [e.day, e.scope ?? "", e.completed ?? "", (e.description ?? "—").slice(0, 80)])
   );
 
   const lastScope = filled.filter((e) => e.scope !== null).slice(-1)[0]?.scope ?? 0;

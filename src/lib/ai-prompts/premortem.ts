@@ -6,14 +6,16 @@ interface Cause {
   likelihood: number;
   impact: number;
   preventiveAction?: string;
+  description?: string;
+  owner?: string;
 }
 
 export function generatePremortemPrompts(data: { scenario: string; causes: Cause[] }): PromptDefinition[] {
   if (data.causes.length === 0 && !data.scenario) return [];
   const ranked = data.causes.slice().sort((a, b) => b.likelihood * b.impact - a.likelihood * a.impact);
   const table = formatTable(
-    ["Cause", "L", "I", "Score", "Preventive Action"],
-    ranked.map((c) => [c.text, c.likelihood, c.impact, c.likelihood * c.impact, c.preventiveAction ?? ""])
+    ["Cause", "Description", "L", "I", "Score", "Preventive Action", "Owner"],
+    ranked.map((c) => [c.text, (c.description ?? "—").slice(0, 80), c.likelihood, c.impact, c.likelihood * c.impact, c.preventiveAction ?? "", c.owner ?? "—"])
   );
   return [
     {

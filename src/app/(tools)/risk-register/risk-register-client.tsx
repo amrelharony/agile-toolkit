@@ -222,12 +222,23 @@ export function RiskRegisterClient() {
               <Card key={r.id} className="bg-surface border-border">
                 <CardContent className="p-3 space-y-2">
                   <div className="grid grid-cols-1 md:grid-cols-[1fr_80px_80px_140px_auto] gap-2">
-                    <Input
-                      value={r.title}
-                      onChange={(e) => update(r.id, { title: e.target.value })}
-                      placeholder="Risk title"
-                      className="bg-bg border-border"
-                    />
+                    <div className="space-y-0.5">
+                      <Input
+                        value={r.title}
+                        onChange={(e) => update(r.id, { title: e.target.value })}
+                        placeholder="Risk title"
+                        className="bg-bg border-border"
+                      />
+                      {/* Mitigation preview under the title — mirrors the
+                          kanban description style so the gist is visible at a
+                          glance before the user reaches the editable textarea
+                          below. */}
+                      {r.mitigation && r.mitigation.trim().length > 0 && (
+                        <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
+                          {r.mitigation}
+                        </div>
+                      )}
+                    </div>
                     <Select value={String(r.probability)} onValueChange={(v) => update(r.id, { probability: Number(v) as Risk["probability"] })}>
                       <SelectTrigger className="bg-bg border-border font-data">
                         <SelectValue />
@@ -244,7 +255,7 @@ export function RiskRegisterClient() {
                         {[1, 2, 3, 4, 5].map((i) => <SelectItem key={i} value={String(i)}>I{i}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    <Select value={r.status} onValueChange={(v) => update(r.id, { status: v as Risk["status"], resolvedAt: v === "closed" ? todayLocalISO() : r.resolvedAt })}>
+                    <Select value={r.status} onValueChange={(v) => update(r.id, { status: v as Risk["status"], resolvedAt: v === "closed" ? todayLocalISO() : undefined })}>
                       <SelectTrigger className="bg-bg border-border capitalize">
                         <SelectValue />
                       </SelectTrigger>

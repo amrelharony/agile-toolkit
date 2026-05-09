@@ -163,14 +163,18 @@ function buildDefaultSlices(steps: Step[]): Slice[] {
 /*  Store                                                                      */
 /* -------------------------------------------------------------------------- */
 
-const defaultSteps = buildDefaultSteps();
-const defaultSlices = buildDefaultSlices(defaultSteps);
-
+// Defaults are computed lazily inside the create() initializer rather than at
+// module load. This guarantees crypto.randomUUID() never runs while the module
+// is being evaluated, eliminating any chance of an SSR/client mismatch the
+// first time the persist middleware hydrates from localStorage.
 const useStoryMapStore = create<StoryMapState>()(
   persist(
-    (set) => ({
-      steps: defaultSteps,
-      slices: defaultSlices,
+    (set) => {
+      const initialSteps = buildDefaultSteps();
+      const initialSlices = buildDefaultSlices(initialSteps);
+      return {
+      steps: initialSteps,
+      slices: initialSlices,
 
       addStep: () =>
         set((s) => {
@@ -279,6 +283,23 @@ const useStoryMapStore = create<StoryMapState>()(
 
       moveCard: (fromSliceId, fromStepId, toSliceId, toStepId, cardId, toIndex) =>
         set((s) => {
+          // For same-cell reordering we have to decrement toIndex by one
+          // when the source position precedes the target — otherwise the
+          // splice after removal lands one slot past the intended spot.
+          let adjustedToIndex = toIndex;
+          if (
+            fromSliceId === toSliceId &&
+            fromStepId === toStepId &&
+            adjustedToIndex !== undefined
+          ) {
+            const sourceSlice = s.slices.find((sl) => sl.id === fromSliceId);
+            const sourceCards = sourceSlice?.cards[fromStepId] ?? [];
+            const fromIdx = sourceCards.findIndex((c) => c.id === cardId);
+            if (fromIdx !== -1 && fromIdx < adjustedToIndex) {
+              adjustedToIndex -= 1;
+            }
+          }
+
           let movedCard: StoryCard | null = null;
           const slices = s.slices.map((sl) => {
             if (sl.id !== fromSliceId) return sl;
@@ -302,7 +323,8 @@ const useStoryMapStore = create<StoryMapState>()(
             slices: slices.map((sl) => {
               if (sl.id !== toSliceId) return sl;
               const toCards = [...(sl.cards[toStepId] ?? [])];
-              const insertAt = toIndex !== undefined ? toIndex : toCards.length;
+              const insertAt =
+                adjustedToIndex !== undefined ? adjustedToIndex : toCards.length;
               toCards.splice(insertAt, 0, card);
               return {
                 ...sl,
@@ -317,7 +339,8 @@ const useStoryMapStore = create<StoryMapState>()(
         const slices = buildDefaultSlices(steps);
         set({ steps, slices });
       },
-    }),
+      };
+    },
     { name: "agile-toolkit:story-mapper" }
   )
 );

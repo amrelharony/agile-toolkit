@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -61,16 +61,39 @@ function csatAvg(entries: Entry[]): number {
   return csat.reduce((a, b) => a + b.score, 0) / csat.length;
 }
 
+// The persisted draft skeleton — note that `id` is intentionally NOT generated
+// here. Generating an id at draft-init time means rapid back-to-back submits
+// could share an id (and thus collapse to a single entry). We assign the id
+// inside `add()` instead.
+type Draft = Omit<Entry, "id">;
+
 export function NpsCsatClient() {
   const [entries, setEntries] = usePersisted<Entry[]>("agile-toolkit:nps-csat", []);
-  const [draft, setDraft] = useState<Entry>(() => ({
-    id: nanoid(6),
+  const [draft, setDraft] = useState<Draft>(() => ({
     kind: "nps",
     date: todayLocalISO(),
     score: 8,
   }));
+  // String-backed score input so typing 1-5 inside an NPS field doesn't snap
+  // back to a clamped value mid-edit. We commit on blur (or Enter).
+  const [scoreDraft, setScoreDraft] = useState<string>(String(8));
+  useEffect(() => setScoreDraft(String(draft.score)), [draft.score]);
   const chartRef = useRef<HTMLDivElement>(null);
   const { log } = useHistoryLogger("nps-csat");
+
+  const commitScore = () => {
+    const n = Number(scoreDraft);
+    if (Number.isFinite(n)) {
+      const min = draft.kind === "nps" ? 0 : 1;
+      const max = draft.kind === "nps" ? 10 : 5;
+      const clamped = Math.max(min, Math.min(max, n));
+      setDraft((d) => ({ ...d, score: clamped }));
+      setScoreDraft(String(clamped));
+    } else {
+      // Reject non-numeric input — fall back to whatever was committed last.
+      setScoreDraft(String(draft.score));
+    }
+  };
 
   const add = () => {
     if (draft.kind === "nps") {
@@ -82,14 +105,15 @@ export function NpsCsatClient() {
       else if (draft.score >= 3) sonify("nps-csat", "score-passive");
       else sonify("nps-csat", "score-detractor");
     }
-    setEntries((e) => [...e, draft]);
+    // Generate the id at submit time so two rapid clicks can never share it.
+    const entry: Entry = { ...draft, id: nanoid(6) };
+    setEntries((e) => [...e, entry]);
     log(NPS_CSAT_ACTIONS.SURVEY_ADDED, {
-      kind: draft.kind,
-      score: draft.score,
-      date: draft.date,
+      kind: entry.kind,
+      score: entry.score,
+      date: entry.date,
     });
     setDraft({
-      id: nanoid(6),
       kind: draft.kind,
       date: todayLocalISO(),
       score: draft.kind === "nps" ? 8 : 4,
@@ -106,6 +130,8 @@ export function NpsCsatClient() {
 
   const nps = useMemo(() => npsScore(entries), [entries]);
   const csat = useMemo(() => csatAvg(entries), [entries]);
+  const npsCount = useMemo(() => entries.filter((e) => e.kind === "nps").length, [entries]);
+  const csatCount = useMemo(() => entries.filter((e) => e.kind === "csat").length, [entries]);
 
   const trendData = useMemo(() => {
     const sums = new Map<
@@ -162,7 +188,11 @@ export function NpsCsatClient() {
             rows: entries.map((e) => [e.date, e.kind, e.score, e.respondent ?? "", e.verbatim ?? ""]),
           }}
           jsonData={entries}
-          targetRef={chartRef}
+          // Only expose PNG export when the chart is actually rendered. The
+          // ExportButton shows the PNG menu item whenever `targetRef` is
+          // truthy, so dropping it to `undefined` (rather than passing a ref
+          // that points at nothing) is what hides the button cleanly.
+          targetRef={trendData.length > 0 ? chartRef : undefined}
         />
       </ActionRow>
 
@@ -170,16 +200,18 @@ export function NpsCsatClient() {
         <StatCard
           variant="compact"
           label="NPS"
-          value={nps}
+          // Show "—" when there are no NPS entries — `0` is a valid score, so
+          // a literal `0` here would look indistinguishable from "no data".
+          value={npsCount > 0 ? nps : "—"}
           valueClassName="text-4xl text-accent"
-          hint={`${entries.filter((e) => e.kind === "nps").length} responses`}
+          hint={`${npsCount} responses`}
         />
         <StatCard
           variant="compact"
           label="CSAT"
-          value={csat.toFixed(1)}
+          value={csatCount > 0 ? csat.toFixed(1) : "—"}
           valueClassName="text-4xl text-accent"
-          hint={`${entries.filter((e) => e.kind === "csat").length} responses (1-5)`}
+          hint={`${csatCount} responses (1-5)`}
         />
         <StatCard
           variant="compact"
@@ -216,8 +248,12 @@ export function NpsCsatClient() {
               type="number"
               min={draft.kind === "nps" ? 0 : 1}
               max={draft.kind === "nps" ? 10 : 5}
-              value={draft.score}
-              onChange={(e) => setDraft((d) => ({ ...d, score: Number(e.target.value) }))}
+              value={scoreDraft}
+              onChange={(e) => setScoreDraft(e.target.value)}
+              onBlur={commitScore}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
               className="bg-bg border-border font-data"
             />
             <Input

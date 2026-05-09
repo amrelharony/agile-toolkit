@@ -273,10 +273,14 @@ export function HealthCheckClient() {
   const { log } = useHistoryLogger("health-check");
 
   const saveCheck = () => {
+    // Read latest store snapshot synchronously so we don't log a stale
+    // `current` from a previous render (the destructured `current` above
+    // can lag the most recent edit).
+    const pre = useHealthCheckStore.getState().current;
     saveCheckRaw();
     log(HEALTH_CHECK_ACTIONS.CHECK_SAVED, {
-      sprintName: current?.sprintName,
-      scores: current?.scores,
+      sprintName: pre?.sprintName,
+      scores: pre?.scores,
     });
   };
   const reset = () => {
@@ -293,12 +297,12 @@ export function HealthCheckClient() {
   const csvData = useMemo(() => {
     const headers = ["Sprint", "Date", ...DIMENSIONS, "Overall Health %"];
     const rows = history.map((h) => {
-      const greenCount = DIMENSIONS.filter((d) => h.scores[d].light === "green").length;
+      const greenCount = DIMENSIONS.filter((d) => h.scores[d]?.light === "green").length;
       const health = Math.round((greenCount / DIMENSIONS.length) * 100);
       return [
         h.sprintName,
         h.date,
-        ...DIMENSIONS.map((d) => h.scores[d].light),
+        ...DIMENSIONS.map((d) => h.scores[d]?.light ?? "—"),
         health,
       ] as (string | number)[];
     });
@@ -318,10 +322,14 @@ export function HealthCheckClient() {
   );
 
   /* -- Overall health for current check ------------------------------------ */
-  const currentGreen = DIMENSIONS.filter(
-    (d) => current.scores[d].light === "green"
-  ).length;
+  const currentGreen = useMemo(
+    () =>
+      DIMENSIONS.filter((d) => current.scores[d]?.light === "green").length,
+    [current.scores]
+  );
   const currentHealth = Math.round((currentGreen / DIMENSIONS.length) * 100);
+
+  const reversedHistory = useMemo(() => [...history].reverse(), [history]);
 
   /* -- Render -------------------------------------------------------------- */
   return (
@@ -531,9 +539,9 @@ export function HealthCheckClient() {
                     </tr>
                   </thead>
                   <tbody>
-                    {[...history].reverse().map((h) => {
+                    {reversedHistory.map((h) => {
                       const greens = DIMENSIONS.filter(
-                        (d) => h.scores[d].light === "green"
+                        (d) => h.scores[d]?.light === "green"
                       ).length;
                       const health = Math.round((greens / DIMENSIONS.length) * 100);
                       return (

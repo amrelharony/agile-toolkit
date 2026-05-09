@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -28,6 +28,58 @@ interface Interview {
 
 function emptyInterview(): Interview {
   return { id: nanoid(8), date: todayLocalISO(), participant: "", quotes: [] };
+}
+
+/** Parse a "tag1, tag2" string into a normalized array — trimmed,
+ *  lowercased, and de-empty'd. Lowercasing canonicalizes tags so "UX" and
+ *  "ux" become a single entry in frequency counts. */
+function parseTags(input: string): string[] {
+  return input
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+/** Tag input that holds a local string draft so a trailing comma or space
+ *  isn't dropped while the user is mid-type. Commits parsed tags to the
+ *  parent on blur or Enter. Re-syncs from props when the underlying tag
+ *  array changes (e.g. another quote update overrides). */
+function TagInput({
+  tags,
+  onCommit,
+}: {
+  tags: string[];
+  onCommit: (next: string[]) => void;
+}) {
+  const [draft, setDraft] = useState(tags.join(", "));
+  // Re-sync from props only when the joined external value differs from our
+  // current draft — otherwise we'd clobber the user's in-progress typing.
+  useEffect(() => {
+    const external = tags.join(", ");
+    setDraft((cur) => (cur.trim() === external.trim() ? cur : external));
+    // We intentionally re-run on the joined external value rather than the
+    // tags array identity to avoid loops with new array references that
+    // describe the same content.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tags.join(",")]);
+  const commit = () => {
+    onCommit(parseTags(draft));
+  };
+  return (
+    <Input
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+      placeholder="tags, comma-separated"
+      className="bg-surface border-border text-xs flex-1"
+    />
+  );
 }
 
 export function UserInterviewsClient() {
@@ -81,7 +133,11 @@ export function UserInterviewsClient() {
     for (const i of interviews) {
       for (const q of i.quotes) {
         for (const t of q.tags) {
-          m.set(t, (m.get(t) ?? 0) + 1);
+          // Normalize at counting time too, so legacy persisted entries with
+          // mixed-case tags collapse into a single frequency bucket.
+          const key = t.trim().toLowerCase();
+          if (!key) continue;
+          m.set(key, (m.get(key) ?? 0) + 1);
         }
       }
     }
@@ -89,6 +145,14 @@ export function UserInterviewsClient() {
   }, [interviews]);
 
   const active = interviews.find((i) => i.id === editing) ?? null;
+
+  // After hydration / removal, an `editing` id pointing at a non-existent
+  // interview leaves the right pane silently blank. Reset it once we notice.
+  useEffect(() => {
+    if (editing && !interviews.find((i) => i.id === editing)) {
+      setEditing(null);
+    }
+  }, [editing, interviews]);
 
   const promptConfig = useMemo(
     () => ({
@@ -135,9 +199,13 @@ export function UserInterviewsClient() {
                   variant="outline"
                   className="font-data"
                   style={{
-                    borderColor: `rgba(0,240,255,${Math.min(1, n / 8)})`,
+                    // Theme-aware accent — cyan in dark, blue in light. The
+                    // hardcoded rgb(0,240,255) was invisible in light mode.
+                    borderColor: "var(--accent)",
+                    borderWidth: 1,
+                    opacity: 0.4 + Math.min(0.6, n / 8),
                     color: "var(--accent)",
-                    background: `rgba(0,240,255,${Math.min(0.3, n / 20)})`,
+                    background: "var(--accent-bg)",
                   }}
                 >
                   {tag} · {n}
@@ -202,11 +270,11 @@ export function UserInterviewsClient() {
                         className="bg-surface border-border text-sm"
                       />
                       <div className="flex items-center gap-2">
-                        <Input
-                          value={q.tags.join(", ")}
-                          onChange={(e) => updateQuote(active.id, q.id, { tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean) })}
-                          placeholder="tags, comma-separated"
-                          className="bg-surface border-border text-xs flex-1"
+                        <TagInput
+                          tags={q.tags}
+                          onCommit={(next) =>
+                            updateQuote(active.id, q.id, { tags: next })
+                          }
                         />
                         <Button variant="ghost" size="sm" onClick={() => removeQuote(active.id, q.id)} className="text-sub hover:text-danger">
                           <Trash2 className="w-3.5 h-3.5" />

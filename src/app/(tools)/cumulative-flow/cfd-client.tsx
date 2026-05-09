@@ -24,9 +24,11 @@ import { CFD_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, Layers, BarChart2, Settings2, AlertTriangle } from "lucide-react";
+import { toast } from "@/lib/utils/toast";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -36,21 +38,26 @@ interface StatusColumn {
   id: string;
   name: string;
   color: string;
+  /** Optional purpose/definition for the column (shown in tooltip). */
+  description?: string;
 }
 
 interface DataEntry {
   id: string;
   date: string;
   counts: Record<string, number>; // statusId -> count
+  /** Optional note for the snapshot day. */
+  description?: string;
 }
 
 interface CFDStore {
   columns: StatusColumn[];
   entries: DataEntry[];
   wipLimit: number | null;
-  addColumn: (name: string) => void;
+  addColumn: (name: string, description?: string) => void;
   removeColumn: (id: string) => void;
   renameColumn: (id: string, name: string) => void;
+  setColumnDescription: (id: string, description: string | undefined) => void;
   addEntry: () => void;
   removeEntry: (id: string) => void;
   updateEntry: (id: string, updates: Partial<Omit<DataEntry, "id">>) => void;
@@ -98,11 +105,11 @@ const useCFDStore = create<CFDStore>()(
       entries: [],
       wipLimit: null,
 
-      addColumn: (name) =>
+      addColumn: (name, description) =>
         set((s) => {
           const id = crypto.randomUUID();
           const color = DEFAULT_COLORS[s.columns.length % DEFAULT_COLORS.length];
-          const newCol: StatusColumn = { id, name, color };
+          const newCol: StatusColumn = { id, name, color, description };
           return {
             columns: [...s.columns, newCol],
             entries: s.entries.map((e) => ({
@@ -125,6 +132,11 @@ const useCFDStore = create<CFDStore>()(
       renameColumn: (id, name) =>
         set((s) => ({
           columns: s.columns.map((c) => (c.id === id ? { ...c, name } : c)),
+        })),
+
+      setColumnDescription: (id, description) =>
+        set((s) => ({
+          columns: s.columns.map((c) => (c.id === id ? { ...c, description } : c)),
         })),
 
       addEntry: () =>
@@ -241,6 +253,7 @@ export function CFDClient() {
     addColumn: addColumnRaw,
     removeColumn: removeColumnRaw,
     renameColumn,
+    setColumnDescription,
     addEntry: addEntryRaw,
     removeEntry,
     updateEntry,
@@ -250,9 +263,9 @@ export function CFDClient() {
   } = useCFDStore();
   const { log } = useHistoryLogger("cumulative-flow");
 
-  const addColumn: typeof addColumnRaw = (name) => {
-    addColumnRaw(name);
-    log(CFD_ACTIONS.COLUMN_ADDED, { name });
+  const addColumn: typeof addColumnRaw = (name, description) => {
+    addColumnRaw(name, description);
+    log(CFD_ACTIONS.COLUMN_ADDED, { name, description });
   };
   const removeColumn: typeof removeColumnRaw = (id) => {
     const col = columns.find((c) => c.id === id);
@@ -260,6 +273,16 @@ export function CFDClient() {
     log(CFD_ACTIONS.COLUMN_REMOVED, { name: col?.name });
   };
   const addEntry: typeof addEntryRaw = () => {
+    // Reject a duplicate snapshot for today — the chart's date axis collapses
+    // same-date entries onto one tick, so a second blank entry just shadows
+    // the first and is impossible to tell apart visually. Warn the user via
+    // a toast instead of silently appending an invisible row.
+    const todayIso = todayLocalISO();
+    const existing = useCFDStore.getState().entries.find((e) => e.date === todayIso);
+    if (existing) {
+      toast.warning("A snapshot for today already exists — edit it instead of duplicating.");
+      return;
+    }
     addEntryRaw();
     const fresh = useCFDStore.getState().entries;
     log(CFD_ACTIONS.SNAPSHOT_LOGGED, { entryCount: fresh.length });
@@ -271,15 +294,25 @@ export function CFDClient() {
 
   const exportRef = useRef<HTMLDivElement>(null);
   const [newColName, setNewColName] = useState("");
+  const [newColDescription, setNewColDescription] = useState("");
   const [wipInput, setWipInput] = useState(wipLimit?.toString() ?? "");
 
-  // Sync wipInput when the store hydrates from localStorage (wipLimit starts null)
-  const prevWipLimit = useRef(wipLimit);
+  // Sync wipInput whenever wipLimit changes from a source other than this
+  // input (initial hydration, Clear button, undo/redo). The previous version
+  // only synced on the first hydration (null → number) and missed every
+  // subsequent external change, so the displayed text drifted from state.
+  // Compare via string form to (a) treat null/"" as equivalent and (b) avoid
+  // a feedback loop where the user-typed "10" gets re-set to "10".
+  const prevWipString = useRef<string>(wipLimit?.toString() ?? "");
   useEffect(() => {
-    if (prevWipLimit.current === null && wipLimit !== null) {
-      setWipInput(wipLimit.toString());
+    const next = wipLimit?.toString() ?? "";
+    if (next !== prevWipString.current) {
+      prevWipString.current = next;
+      // Only mirror into the input if the input doesn't already match — this
+      // avoids clobbering an in-progress edit (e.g. user typing "12" while a
+      // store-side update arrives).
+      setWipInput((cur) => (cur === next ? cur : next));
     }
-    prevWipLimit.current = wipLimit;
   }, [wipLimit]);
 
   /* -- Sorted entries by date --------------------------------------------- */
@@ -328,17 +361,27 @@ export function CFDClient() {
 
   /* -- Export data --------------------------------------------------------- */
   const csvData = useMemo(() => {
-    const headers = ["Date", ...columns.map((c) => c.name)];
+    const headers = ["Date", ...columns.map((c) => c.name), "Note"];
     const rows = sortedEntries.map((e) => [
       e.date,
       ...columns.map((c) => e.counts[c.id] ?? 0),
+      e.description ?? "",
     ]);
     return { headers, rows };
   }, [sortedEntries, columns]);
 
   const jsonData = useMemo(
-    () => ({ columns: columns.map((c) => c.name), entries: chartData }),
-    [columns, chartData]
+    () => ({
+      columns: columns.map((c) => ({ name: c.name, description: c.description })),
+      entries: sortedEntries.map((e) => ({
+        date: e.date,
+        description: e.description,
+        counts: Object.fromEntries(
+          columns.map((c) => [c.name, e.counts[c.id] ?? 0])
+        ),
+      })),
+    }),
+    [columns, sortedEntries]
   );
 
   const promptConfig = useMemo(() => ({
@@ -350,8 +393,18 @@ export function CFDClient() {
   const handleAddColumn = () => {
     const name = newColName.trim();
     if (!name) return;
-    addColumn(name);
+    // Reject case-insensitive duplicate column names. The chart's `dataKey`
+    // and the chartData accumulator key by `column.name`, so a second column
+    // with the same name silently merges into the first (and Recharts only
+    // renders one Area). Surface this to the user via a toast instead.
+    if (columns.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+      toast.warning(`A column named "${name}" already exists.`);
+      return;
+    }
+    const description = newColDescription.trim() || undefined;
+    addColumn(name, description);
     setNewColName("");
+    setNewColDescription("");
   };
 
   /* -- Render -------------------------------------------------------------- */
@@ -504,61 +557,91 @@ export function CFDClient() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2">
               {columns.map((col, idx) => (
                 <div
                   key={col.id}
-                  className="flex items-center gap-2 bg-surface-deep border border-border rounded-lg px-3 py-2"
+                  className="flex flex-col gap-2 bg-surface-deep border border-border rounded-lg px-3 py-2"
                 >
-                  <span
-                    className="w-3 h-3 rounded-full flex-shrink-0"
-                    style={{ background: col.color }}
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      style={{ background: col.color }}
+                    />
+                    <Input
+                      value={col.name}
+                      onChange={(e) => renameColumn(col.id, e.target.value)}
+                      className="h-7 w-32 bg-transparent border-none p-0 text-sm text-text focus:ring-0 focus:outline-none"
+                    />
+                    {columns.length > 2 && (
+                      <button
+                        onClick={() => removeColumn(col.id)}
+                        className="text-sub hover:text-red-400 transition-colors ml-1"
+                        title="Remove column"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {idx === 0 && (
+                      <Badge variant="outline" className="text-xs border-border text-sub ml-1">
+                        start
+                      </Badge>
+                    )}
+                    {idx === columns.length - 1 && (
+                      <Badge variant="outline" className="text-xs border-border text-sub ml-1">
+                        done
+                      </Badge>
+                    )}
+                  </div>
+                  <Textarea
+                    value={col.description ?? ""}
+                    onChange={(e) =>
+                      setColumnDescription(
+                        col.id,
+                        e.target.value.trim() ? e.target.value : undefined
+                      )
+                    }
+                    placeholder="Column purpose / definition (optional)..."
+                    rows={2}
+                    className="bg-surface border-border resize-none text-xs text-text"
+                    aria-label={`Description for ${col.name}`}
                   />
-                  <Input
-                    value={col.name}
-                    onChange={(e) => renameColumn(col.id, e.target.value)}
-                    className="h-7 w-28 bg-transparent border-none p-0 text-sm text-text focus:ring-0 focus:outline-none"
-                  />
-                  {columns.length > 2 && (
-                    <button
-                      onClick={() => removeColumn(col.id)}
-                      className="text-sub hover:text-red-400 transition-colors ml-1"
-                      title="Remove column"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                  {idx === 0 && (
-                    <Badge variant="outline" className="text-xs border-border text-sub ml-1">
-                      start
-                    </Badge>
-                  )}
-                  {idx === columns.length - 1 && (
-                    <Badge variant="outline" className="text-xs border-border text-sub ml-1">
-                      done
-                    </Badge>
-                  )}
                 </div>
               ))}
             </div>
-            <div className="flex items-center gap-2 max-w-xs">
-              <Input
-                placeholder="New status name…"
-                value={newColName}
-                onChange={(e) => setNewColName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAddColumn()}
-                className="input-toolkit"
+            {/* New column form — name input + Add on row 1, optional description Textarea below.
+                Cmd/Ctrl+Enter on the Textarea submits to match the kanban pattern. */}
+            <div className="flex flex-col gap-2 max-w-md">
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="New status name…"
+                  value={newColName}
+                  onChange={(e) => setNewColName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAddColumn()}
+                  className="input-toolkit"
+                />
+                <Button
+                  size="sm"
+                  variant="toolkit"
+                  onClick={handleAddColumn}
+                  disabled={!newColName.trim()}
+                  className="gap-1"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add
+                </Button>
+              </div>
+              <Textarea
+                value={newColDescription}
+                onChange={(e) => setNewColDescription(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleAddColumn();
+                }}
+                placeholder="Description (optional)..."
+                rows={2}
+                className="bg-surface-deep border-border resize-none text-xs text-text"
+                aria-label="New column description"
               />
-              <Button
-                size="sm"
-                variant="toolkit"
-                onClick={handleAddColumn}
-                disabled={!newColName.trim()}
-                className="gap-1"
-              >
-                <Plus className="w-4 h-4" />
-                Add
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -604,6 +687,9 @@ export function CFDClient() {
                           {col.name}
                         </th>
                       ))}
+                      <th className="text-left py-2 px-3 text-xs text-sub font-medium uppercase tracking-wider whitespace-nowrap">
+                        Note
+                      </th>
                       <th className="w-8" />
                     </tr>
                   </thead>
@@ -633,6 +719,23 @@ export function CFDClient() {
                             />
                           </td>
                         ))}
+                        {/* Compact single-line note input — dense table row. */}
+                        <td className="py-2 px-3">
+                          <Input
+                            type="text"
+                            placeholder="Optional note..."
+                            value={entry.description ?? ""}
+                            onChange={(e) =>
+                              updateEntry(entry.id, {
+                                description: e.target.value.trim()
+                                  ? e.target.value
+                                  : undefined,
+                              })
+                            }
+                            className="h-8 min-w-[140px] bg-surface-deep border-border text-text text-xs focus:border-accent/50"
+                            aria-label={`Note for ${entry.date}`}
+                          />
+                        </td>
                         <td className="py-2">
                           <button
                             onClick={() => removeEntry(entry.id)}

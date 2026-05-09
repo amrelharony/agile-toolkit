@@ -13,6 +13,7 @@ interface PrioritizerData {
     impact: number;
     confidence: number;
     effort: number;
+    description?: string;
   }[];
 }
 
@@ -29,8 +30,8 @@ export function generatePrioritizerPrompts(data: PrioritizerData): PromptDefinit
   const { data: shown, truncated, totalCount } = truncateData(data.items);
 
   const table = formatTable(
-    ["Item", "MoSCoW", "WSJF", "RICE", "Effort"],
-    shown.map((i) => [i.name, i.moscow.toUpperCase(), wsjf(i), rice(i), i.effort])
+    ["Item", "MoSCoW", "WSJF", "RICE", "Effort", "Description"],
+    shown.map((i) => [i.name, i.moscow.toUpperCase(), wsjf(i), rice(i), i.effort, (i.description ?? "—").slice(0, 80)])
   );
   const note = truncated ? `\n(Showing ${shown.length} of ${totalCount} items)\n` : "";
 

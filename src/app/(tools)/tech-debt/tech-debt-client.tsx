@@ -9,6 +9,7 @@ import { WorkspaceSyncButton } from "@/components/shared/workspace-sync-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -41,7 +42,12 @@ function emptyItem(): TechDebtItem {
 }
 
 function ageDays(item: TechDebtItem): number {
-  return Math.floor((Date.now() - new Date(item.raisedAt).getTime()) / (1000 * 60 * 60 * 24));
+  // Guard against NaN propagation when raisedAt is missing or unparseable —
+  // an unparseable date would otherwise yield NaN days, which then poisons
+  // every priorityScore() that depends on it.
+  const t = new Date(item.raisedAt).getTime();
+  if (!Number.isFinite(t)) return 0;
+  return Math.floor((Date.now() - t) / 86_400_000);
 }
 
 function priorityScore(item: TechDebtItem): number {
@@ -65,13 +71,19 @@ export function TechDebtClient() {
     log(TECH_DEBT_ACTIONS.ITEM_ADDED, { itemId: item.id });
   };
   const update = (id: string, patch: Partial<TechDebtItem>) => {
-    const prev = items.find((x) => x.id === id);
-    setItems((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-    if (patch.resolvedAt && !prev?.resolvedAt) {
-      log(TECH_DEBT_ACTIONS.ITEM_RESOLVED, { itemId: id, title: prev?.title });
-    } else {
-      log(TECH_DEBT_ACTIONS.ITEM_UPDATED, { itemId: id, fields: Object.keys(patch) });
-    }
+    // Use the functional setter so we observe the freshest list, not a value
+    // captured at render time. A rapid double-update would otherwise see a
+    // stale `prev` and miss the resolve transition.
+    setItems((items) => {
+      const prev = items.find((x) => x.id === id);
+      const next = items.map((x) => (x.id === id ? { ...x, ...patch } : x));
+      if (patch.resolvedAt && !prev?.resolvedAt) {
+        log(TECH_DEBT_ACTIONS.ITEM_RESOLVED, { itemId: id, title: prev?.title });
+      } else {
+        log(TECH_DEBT_ACTIONS.ITEM_UPDATED, { itemId: id, fields: Object.keys(patch) });
+      }
+      return next;
+    });
   };
   const remove = (id: string) => {
     const item = items.find((x) => x.id === id);
@@ -80,9 +92,30 @@ export function TechDebtClient() {
   };
 
   const handleImport = () => {
-    const fresh = workspaceDebt.filter((w) => !items.find((i) => i.id === w.id));
-    setItems((s) => [...fresh, ...s]);
-    return fresh.length;
+    // Merge by id with workspace-as-newer-wins: existing items are replaced
+    // with the workspace version, and brand-new ones are prepended. This
+    // turns Import into a true sync rather than a one-time copy that ignored
+    // updates.
+    let imported = 0;
+    setItems((existing) => {
+      const byId = new Map(existing.map((i) => [i.id, i] as const));
+      let replaced = 0;
+      let added = 0;
+      for (const w of workspaceDebt) {
+        if (byId.has(w.id)) replaced++;
+        else added++;
+        byId.set(w.id, w);
+      }
+      imported = replaced + added;
+      // Preserve original ordering when possible: keep existing-id items in
+      // their previous order, append any genuinely new ones at the front so
+      // the user notices them.
+      const existingIds = new Set(existing.map((i) => i.id));
+      const newOnes = workspaceDebt.filter((w) => !existingIds.has(w.id));
+      const merged = existing.map((i) => byId.get(i.id) ?? i);
+      return [...newOnes, ...merged];
+    });
+    return imported;
   };
   const handlePush = () => {
     let n = 0;
@@ -103,7 +136,14 @@ export function TechDebtClient() {
 
   const hotspotMatrix = useMemo(() => {
     const grid = Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => 0));
-    for (const i of items.filter((x) => !x.resolvedAt)) grid[i.impact - 1][i.effort - 1]++;
+    // Clamp impact/effort into [1,5] before indexing — corrupted persisted
+    // values (e.g. 0, 6, NaN) would otherwise reach `grid[-1][...]` or
+    // `grid[5][...]` and throw at runtime.
+    for (const item of items.filter((x) => !x.resolvedAt)) {
+      const r = Math.min(5, Math.max(1, item.impact)) - 1;
+      const c = Math.min(5, Math.max(1, item.effort)) - 1;
+      grid[r][c]++;
+    }
     return grid;
   }, [items]);
 
@@ -137,8 +177,8 @@ export function TechDebtClient() {
         <ExportButton
           filename="tech-debt"
           csvData={{
-            headers: ["Title", "Area", "Impact", "Effort", "Interest/Sprint", "Age (d)", "Score"],
-            rows: ranked.map((i) => [i.title, i.area ?? "", i.impact, i.effort, i.interestRate ?? 0, ageDays(i), priorityScore(i).toFixed(1)]),
+            headers: ["Title", "Description", "Area", "Impact", "Effort", "Interest/Sprint", "Age (d)", "Score"],
+            rows: ranked.map((i) => [i.title, i.description ?? "", i.area ?? "", i.impact, i.effort, i.interestRate ?? 0, ageDays(i), priorityScore(i).toFixed(1)]),
           }}
           jsonData={items}
         />
@@ -200,7 +240,7 @@ export function TechDebtClient() {
       <div className="space-y-2">
         {ranked.map((i) => (
           <Card key={i.id} className="bg-surface border-border">
-            <CardContent className="p-3">
+            <CardContent className="p-3 space-y-2">
               <div className="grid grid-cols-1 md:grid-cols-[1fr_120px_80px_80px_80px_60px_auto] gap-2 items-center">
                 <Input value={i.title} onChange={(e) => update(i.id, { title: e.target.value })} placeholder="Debt item" className="bg-bg border-border" />
                 <Input value={i.area ?? ""} onChange={(e) => update(i.id, { area: e.target.value })} placeholder="Area" className="bg-bg border-border" />
@@ -218,6 +258,14 @@ export function TechDebtClient() {
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
               </div>
+              <Textarea
+                value={i.description ?? ""}
+                onChange={(e) => update(i.id, { description: e.target.value.trim() ? e.target.value : undefined })}
+                placeholder="Description (optional)..."
+                rows={2}
+                className="bg-bg border-border resize-none text-xs"
+                aria-label="Debt item description"
+              />
             </CardContent>
           </Card>
         ))}

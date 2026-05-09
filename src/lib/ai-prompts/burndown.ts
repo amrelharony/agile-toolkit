@@ -3,7 +3,7 @@ import { buildPreamble, formatTable } from "./prompt-utils";
 
 interface BurndownData {
   config: { totalPoints: number; sprintDays: number; sprintStartDate: string };
-  entries: { day: number; remaining: number | null; scopeChange: boolean }[];
+  entries: { day: number; remaining: number | null; scopeChange: boolean; description?: string }[];
 }
 
 export function generateBurndownPrompts(data: BurndownData): PromptDefinition[] {
@@ -14,10 +14,10 @@ export function generateBurndownPrompts(data: BurndownData): PromptDefinition[] 
     Math.round((data.config.totalPoints * (data.config.sprintDays - day)) / data.config.sprintDays * 10) / 10;
 
   const table = formatTable(
-    ["Day", "Remaining", "Ideal", "Variance", "Scope Change"],
+    ["Day", "Remaining", "Ideal", "Variance", "Scope Change", "Note"],
     filledEntries.map((e) => {
       const id = ideal(e.day);
-      return [e.day, e.remaining!, id, Math.round((e.remaining! - id) * 10) / 10, e.scopeChange ? "Yes" : ""];
+      return [e.day, e.remaining!, id, Math.round((e.remaining! - id) * 10) / 10, e.scopeChange ? "Yes" : "", (e.description ?? "—").slice(0, 80)];
     })
   );
 

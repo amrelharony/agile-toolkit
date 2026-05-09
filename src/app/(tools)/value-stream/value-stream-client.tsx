@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -8,6 +8,7 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Waves, Plus, Trash2 } from "lucide-react";
 import { iqrOutliers } from "@/lib/analytics/anomaly";
 import { generateValueStreamPrompts } from "@/lib/ai-prompts/value-stream";
@@ -24,9 +25,54 @@ import { ragTone } from "@/lib/utils/rag-tone";
 interface Stage {
   id: string;
   name: string;
+  description?: string;
   processTime: number;
   leadTime: number;
   completeAccurate: number;
+}
+
+/**
+ * Numeric input that doesn't snap mid-edit. Holds a string draft so empty /
+ * partial values stay editable; commits on blur. Guards against NaN with
+ * Number.isFinite and clamps into [min, max].
+ */
+function NumCell({
+  value,
+  onCommit,
+  min = 0,
+  max,
+  className,
+}: {
+  value: number;
+  onCommit: (n: number) => void;
+  min?: number;
+  max?: number;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const n = Number(draft);
+    if (Number.isFinite(n)) {
+      onCommit(Math.max(min, Math.min(max ?? Infinity, n)));
+    } else {
+      setDraft(String(value));
+    }
+  };
+  return (
+    <Input
+      type="number"
+      min={min}
+      max={max}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      className={className}
+    />
+  );
 }
 
 export function ValueStreamClient() {
@@ -34,9 +80,18 @@ export function ValueStreamClient() {
   const { log } = useHistoryLogger("value-stream");
 
   const add = () => {
+    // Pick the first unused integer suffix so deleting "Stage 2" then adding
+    // a new one won't produce a duplicate "Stage 4" (or a third "Stage 4").
+    const used = new Set(
+      stages
+        .map((s) => parseInt(String(s.name).replace(/\D/g, ""), 10))
+        .filter(Number.isFinite)
+    );
+    let n = 1;
+    while (used.has(n)) n++;
     const newStage = {
       id: nanoid(6),
-      name: `Stage ${stages.length + 1}`,
+      name: `Stage ${n}`,
       processTime: 1,
       leadTime: 2,
       completeAccurate: 90,
@@ -67,9 +122,24 @@ export function ValueStreamClient() {
     return { totalProcess, totalLead, flowEfficiency, rolledCA };
   }, [stages]);
 
-  const leadOutliers = useMemo(() => {
-    const { outliers } = iqrOutliers(stages.map((s) => s.leadTime));
-    return outliers;
+  // Outlier stages by IQR on lead time. The anomaly utility returns matching
+  // *values* (which can collide when two stages share a lead time), so we
+  // map back to indices ourselves and walk each value once — that way each
+  // index is associated with exactly one stage.
+  const leadOutlierStageIds = useMemo(() => {
+    const series = stages.map((s) => s.leadTime);
+    const { outliers } = iqrOutliers(series);
+    if (outliers.length === 0) return new Set<string>();
+    const remaining = outliers.slice();
+    const ids = new Set<string>();
+    for (let i = 0; i < series.length; i++) {
+      const pos = remaining.indexOf(series[i]);
+      if (pos !== -1) {
+        ids.add(stages[i].id);
+        remaining.splice(pos, 1);
+      }
+    }
+    return ids;
   }, [stages]);
 
   const promptConfig = useMemo(
@@ -92,8 +162,14 @@ export function ValueStreamClient() {
         <ExportButton
           filename="value-stream"
           csvData={{
-            headers: ["Stage", "Process Time", "Lead Time", "%C/A"],
-            rows: stages.map((s) => [s.name, s.processTime, s.leadTime, s.completeAccurate]),
+            headers: ["Stage", "Description", "Process Time", "Lead Time", "%C/A"],
+            rows: stages.map((s) => [
+              s.name,
+              s.description ?? "",
+              s.processTime,
+              s.leadTime,
+              s.completeAccurate,
+            ]),
           }}
           jsonData={stages}
         />
@@ -128,11 +204,11 @@ export function ValueStreamClient() {
         />
       </KpiGrid>
 
-      {leadOutliers.length > 0 && (
+      {leadOutlierStageIds.size > 0 && (
         <CalloutAlert tone="warning" className="mb-4">
           <strong>Stage(s) with outlier lead time (IQR):</strong>{" "}
           {stages
-            .filter((s) => leadOutliers.includes(s.leadTime))
+            .filter((s) => leadOutlierStageIds.has(s.id))
             .map((s) => `${s.name} (${s.leadTime}d)`)
             .join(", ")}
         </CalloutAlert>
@@ -154,48 +230,57 @@ export function ValueStreamClient() {
                   onChange={(e) => update(s.id, { name: e.target.value })}
                   className="bg-bg border-border text-sm h-8"
                 />
+                {/* Optional description for this stage; empty trims to undefined. */}
+                <Textarea
+                  value={s.description ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    update(s.id, { description: v.trim() ? v : undefined });
+                  }}
+                  placeholder="Description (optional)..."
+                  rows={2}
+                  className="bg-bg border-border resize-none text-xs"
+                  aria-label={`Description for stage ${s.name}`}
+                />
                 <div>
                   <div className="text-[10px] uppercase text-sub">Process Time (d)</div>
-                  <Input
-                    type="number"
-                    min={0}
+                  <NumCell
                     value={s.processTime}
-                    onChange={(e) =>
-                      update(s.id, { processTime: Math.max(0, Number(e.target.value)) })
-                    }
+                    onCommit={(n) => update(s.id, { processTime: n })}
+                    min={0}
                     className="bg-bg border-border font-data h-8"
                   />
                 </div>
                 <div>
                   <div className="text-[10px] uppercase text-sub">Lead Time (d)</div>
-                  <Input
-                    type="number"
-                    min={0}
+                  <NumCell
                     value={s.leadTime}
-                    onChange={(e) =>
-                      update(s.id, { leadTime: Math.max(0, Number(e.target.value)) })
-                    }
+                    onCommit={(n) => update(s.id, { leadTime: n })}
+                    min={0}
                     className="bg-bg border-border font-data h-8"
                   />
                 </div>
                 <div>
                   <div className="text-[10px] uppercase text-sub">%C/A</div>
-                  <Input
-                    type="number"
+                  <NumCell
+                    value={s.completeAccurate}
+                    onCommit={(n) => update(s.id, { completeAccurate: n })}
                     min={0}
                     max={100}
-                    value={s.completeAccurate}
-                    onChange={(e) =>
-                      update(s.id, {
-                        completeAccurate: Math.min(100, Math.max(0, Number(e.target.value))),
-                      })
-                    }
                     className="bg-bg border-border font-data h-8"
                   />
                 </div>
                 <div className="pt-1 text-[10px] text-sub">
                   {s.leadTime > 0 && (
                     <span>Wait: {Math.max(0, s.leadTime - s.processTime).toFixed(1)}d</span>
+                  )}
+                  {/* Inline data-quality warning when process time exceeds
+                      lead time — that's logically impossible (process is a
+                      subset of lead) and usually indicates bad input. */}
+                  {s.processTime > s.leadTime && (
+                    <span className="ml-2 text-[#ffaa00]">
+                      ⚠ process &gt; lead
+                    </span>
                   )}
                 </div>
               </CardContent>

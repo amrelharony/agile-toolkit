@@ -73,8 +73,12 @@ export function durationsFromTimeRanges(
     .map((item) => {
       const start = new Date(item.raisedAt).getTime();
       const end = item.resolvedAt ? new Date(item.resolvedAt).getTime() : now.getTime();
-      const days = Math.max(0, Math.round((end - start) / (1000 * 60 * 60 * 24)));
-      return { duration: days, event: Boolean(item.resolvedAt) };
+      const rawDays = (end - start) / (1000 * 60 * 60 * 24);
+      return { duration: Math.round(rawDays), event: Boolean(item.resolvedAt), rawDays };
     })
-    .filter((o) => Number.isFinite(o.duration));
+    // Drop observations where end is strictly before start — clamping to 0
+    // would silently fold negative durations into the at-risk set at t=0,
+    // which biases survival calculations. Better to exclude bad data.
+    .filter((o) => Number.isFinite(o.duration) && o.rawDays >= 0)
+    .map(({ duration, event }) => ({ duration, event }));
 }

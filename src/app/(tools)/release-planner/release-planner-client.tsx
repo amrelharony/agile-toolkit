@@ -146,7 +146,12 @@ function parseVelocities(input: string): number[] {
 
 function sprintToDate(startDate: string, sprintCount: number, sprintLengthDays: number): string {
   try {
-    const start = new Date(startDate);
+    // Parse the YYYY-MM-DD string as a local calendar date — `new Date(string)`
+    // would interpret it as UTC midnight and shift the displayed date by one
+    // day in any timezone west of UTC.
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(startDate);
+    if (!m) return "—";
+    const start = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     const end = addDays(start, sprintCount * sprintLengthDays);
     return format(end, "MMM d, yyyy");
   } catch {

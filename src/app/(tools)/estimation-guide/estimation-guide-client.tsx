@@ -52,17 +52,16 @@ export function EstimationGuideClient() {
   const gridRef = useRef<HTMLDivElement>(null);
   const { log } = useHistoryLogger("estimation-guide");
 
-  // Hydrate persisted store on mount
+  // Hydrate persisted store on mount, then apply any URL-shared state so the
+  // URL payload wins over the locally-persisted state. Running these in
+  // parallel raced (whichever resolved last would clobber the other).
   useEffect(() => {
-    useEstimationGuideStore.persist.rehydrate();
-  }, []);
-
-  // Load shared state from URL on mount
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const shared = params.get("state");
-    if (shared) {
+    const rehydrate = useEstimationGuideStore.persist.rehydrate();
+    Promise.resolve(rehydrate).then(() => {
+      if (typeof window === "undefined") return;
+      const params = new URLSearchParams(window.location.search);
+      const shared = params.get("state");
+      if (!shared) return;
       try {
         const decoded = JSON.parse(atob(shared));
         if (decoded.selectedScale) {
@@ -78,7 +77,7 @@ export function EstimationGuideClient() {
       } catch {
         // Invalid shared state - ignore
       }
-    }
+    });
   }, []);
 
   const activeScale = useMemo(
@@ -96,20 +95,20 @@ export function EstimationGuideClient() {
 
   const handleDescriptionChange = useCallback(
     (key: string, value: string) => {
-      useEstimationGuideStore.setState({
-        descriptions: { ...store.descriptions, [key]: value },
-      });
+      useEstimationGuideStore.setState((state) => ({
+        descriptions: { ...state.descriptions, [key]: value },
+      }));
     },
-    [store.descriptions]
+    []
   );
 
   const handleExampleChange = useCallback(
     (key: string, value: string) => {
-      useEstimationGuideStore.setState({
-        examples: { ...store.examples, [key]: value },
-      });
+      useEstimationGuideStore.setState((state) => ({
+        examples: { ...state.examples, [key]: value },
+      }));
     },
-    [store.examples]
+    []
   );
 
   const handleReset = useCallback(() => {
@@ -137,6 +136,7 @@ export function EstimationGuideClient() {
 
   // Build export data
   const clipboardText = useMemo(() => {
+    if (!activeScale) return "";
     const lines = [`Estimation Reference Guide - ${activeScale.name} Scale`, ""];
     for (const val of activeScale.values) {
       const key = String(val);
@@ -151,6 +151,7 @@ export function EstimationGuideClient() {
   }, [activeScale, store.descriptions, store.examples]);
 
   const jsonData = useMemo(() => {
+    if (!activeScale) return { scale: "", values: [] };
     return {
       scale: activeScale.name,
       values: activeScale.values.map((val) => {
@@ -172,6 +173,10 @@ export function EstimationGuideClient() {
       examples: store.examples,
     }),
   }), [store.selectedScale, store.descriptions, store.examples]);
+
+  // Guard against scales[] being empty so render-time access to
+  // `activeScale.values` is safe.
+  if (!activeScale) return null;
 
   return (
     <ToolPageWrapper

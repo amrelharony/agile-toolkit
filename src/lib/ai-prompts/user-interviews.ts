@@ -14,7 +14,10 @@ export function generateUserInterviewsPrompts(data: { interviews: Interview[]; t
   for (const i of data.interviews) {
     for (const q of i.quotes) {
       if (!q.text) continue;
-      quoteLines.push(`- (${i.participant}) [${q.tags.join(", ")}] "${q.text}"`);
+      // Escape inner double-quotes so embedded quotes don't visually break the
+      // outer wrapping quotes in the rendered prompt.
+      const safe = q.text.replace(/"/g, '\\"');
+      quoteLines.push(`- (${i.participant}) [${q.tags.join(", ")}] "${safe}"`);
     }
   }
   const { data: sample } = truncateData(quoteLines, 40);

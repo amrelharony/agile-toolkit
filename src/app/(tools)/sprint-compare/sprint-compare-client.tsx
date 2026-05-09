@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo } from "react";
+import { useRef, useMemo, useState, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
@@ -164,6 +164,55 @@ const useSprintCompareStore = create<SprintCompareStore>()(
 );
 
 /* -------------------------------------------------------------------------- */
+/*  Numeric input cell — defers commit to blur/Enter so editing doesn't snap  */
+/*  to clamp bounds while the user is mid-keystroke.                          */
+/* -------------------------------------------------------------------------- */
+
+function NumCell({
+  value,
+  min,
+  max,
+  onCommit,
+  className,
+  style,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  onCommit: (n: number) => void;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+
+  const commit = () => {
+    const n = Number(draft);
+    if (Number.isFinite(n)) {
+      onCommit(Math.max(min, Math.min(max, n)));
+    } else {
+      setDraft(String(value));
+    }
+  };
+
+  return (
+    <Input
+      type="number"
+      min={min}
+      max={max}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      className={className}
+      style={style}
+    />
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Score cell with color intensity                                           */
 /* -------------------------------------------------------------------------- */
 
@@ -213,8 +262,13 @@ export function SprintCompareClient() {
   const { log } = useHistoryLogger("sprint-compare");
 
   const addSprint = () => {
+    // Compare lengths so we don't log a SPRINT_PINNED event when the store
+    // refused the add (e.g. already at MAX_SPRINTS) — otherwise the history
+    // shows a "pinned" entry that never actually happened.
+    const before = useSprintCompareStore.getState().sprints.length;
     addSprintRaw();
     const list = useSprintCompareStore.getState().sprints;
+    if (list.length <= before) return;
     const created = list[list.length - 1];
     log(SPRINT_COMPARE_ACTIONS.SPRINT_PINNED, {
       sprintId: created?.id,
@@ -383,18 +437,11 @@ export function SprintCompareClient() {
                         <Label className="text-sub text-xs leading-tight block">
                           {dim}
                         </Label>
-                        <Input
-                          type="number"
+                        <NumCell
+                          value={sp.scores[dim]}
                           min={1}
                           max={10}
-                          value={sp.scores[dim]}
-                          onChange={(e) =>
-                            updateScore(
-                              sp.id,
-                              dim,
-                              Math.min(10, Math.max(1, Number(e.target.value)))
-                            )
-                          }
+                          onCommit={(n) => updateScore(sp.id, dim, n)}
                           className="bg-surface-deep border-border text-text font-data focus:ring-0"
                           style={{
                             borderColor: `${color}40`,
@@ -453,16 +500,23 @@ export function SprintCompareClient() {
                     Average
                   </td>
                   {sprints.map((sp, i) => {
+                    // Filter out missing/undefined scores rather than treating
+                    // them as 0 — protects against schema drift where a new
+                    // dimension was added but old persisted entries lack it.
+                    const present = DIMENSIONS.map((d) => sp.scores[d]).filter(
+                      (v): v is number => Number.isFinite(v)
+                    );
                     const avg =
-                      DIMENSIONS.reduce((sum, d) => sum + sp.scores[d], 0) /
-                      DIMENSIONS.length;
+                      present.length > 0
+                        ? present.reduce((sum, v) => sum + v, 0) / present.length
+                        : 0;
                     return (
                       <td
                         key={sp.id}
                         className="px-4 py-2 text-center text-sm font-data font-bold"
                         style={{ color: CHART_COLORS[i % CHART_COLORS.length] }}
                       >
-                        {avg.toFixed(1)}
+                        {present.length > 0 ? avg.toFixed(1) : "—"}
                       </td>
                     );
                   })}

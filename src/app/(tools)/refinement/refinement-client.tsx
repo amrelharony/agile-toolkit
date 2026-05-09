@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
@@ -23,6 +23,7 @@ import { REFINEMENT_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -44,6 +45,7 @@ import {
 interface Criterion {
   id: string;
   label: string;
+  description?: string;
 }
 
 interface StoryCheck {
@@ -54,6 +56,7 @@ interface StoryCheck {
 interface StorySave {
   id: string;
   storyName: string;
+  description?: string;
   date: string; // ISO date string
   checks: StoryCheck[];
   totalCriteria: number;
@@ -64,14 +67,17 @@ interface StorySave {
 interface RefinementStore {
   criteria: Criterion[];
   storyName: string;
+  storyDescription: string;
   currentChecks: Record<string, boolean>;
   history: StorySave[];
 
   setCriterion: (id: string, label: string) => void;
+  setCriterionDescription: (id: string, description: string) => void;
   addCriterion: () => void;
   removeCriterion: (id: string) => void;
 
   setStoryName: (v: string) => void;
+  setStoryDescription: (v: string) => void;
   toggleCheck: (criterionId: string) => void;
   saveStory: () => void;
   removeHistory: (id: string) => void;
@@ -104,12 +110,22 @@ const useRefinementStore = create<RefinementStore>()(
     (set, get) => ({
       criteria: DEFAULT_CRITERIA,
       storyName: "",
+      storyDescription: "",
       currentChecks: {},
       history: [],
 
       setCriterion: (id, label) =>
         set((s) => ({
           criteria: s.criteria.map((c) => (c.id === id ? { ...c, label } : c)),
+        })),
+
+      setCriterionDescription: (id, description) =>
+        set((s) => ({
+          criteria: s.criteria.map((c) =>
+            c.id === id
+              ? { ...c, description: description.trim() || undefined }
+              : c
+          ),
         })),
 
       addCriterion: () =>
@@ -129,6 +145,7 @@ const useRefinementStore = create<RefinementStore>()(
         })),
 
       setStoryName: (v) => set({ storyName: v }),
+      setStoryDescription: (v) => set({ storyDescription: v }),
 
       toggleCheck: (criterionId) =>
         set((s) => ({
@@ -139,7 +156,7 @@ const useRefinementStore = create<RefinementStore>()(
         })),
 
       saveStory: () => {
-        const { criteria, storyName, currentChecks } = get();
+        const { criteria, storyName, storyDescription, currentChecks } = get();
         if (!storyName.trim()) return;
         const metCount = criteria.filter((c) => currentChecks[c.id]).length;
         const passRate =
@@ -150,6 +167,7 @@ const useRefinementStore = create<RefinementStore>()(
         const save: StorySave = {
           id: crypto.randomUUID(),
           storyName: storyName.trim(),
+          description: storyDescription.trim() || undefined,
           date: todayLocalISO(),
           checks: criteria.map((c) => ({
             criterionId: c.id,
@@ -163,6 +181,7 @@ const useRefinementStore = create<RefinementStore>()(
         set((s) => ({
           history: [save, ...s.history],
           storyName: "",
+          storyDescription: "",
           currentChecks: {},
         }));
       },
@@ -172,12 +191,14 @@ const useRefinementStore = create<RefinementStore>()(
 
       clearHistory: () => set({ history: [] }),
 
-      resetCurrent: () => set({ storyName: "", currentChecks: {} }),
+      resetCurrent: () =>
+        set({ storyName: "", storyDescription: "", currentChecks: {} }),
 
       reset: () =>
         set({
           criteria: DEFAULT_CRITERIA,
           storyName: "",
+          storyDescription: "",
           currentChecks: {},
           history: [],
         }),
@@ -226,6 +247,7 @@ function CriterionRow({
   checked,
   onToggle,
   onLabelChange,
+  onDescriptionChange,
   onRemove,
   showCheckbox,
 }: {
@@ -233,23 +255,37 @@ function CriterionRow({
   checked: boolean;
   onToggle?: () => void;
   onLabelChange: (label: string) => void;
+  onDescriptionChange: (description: string) => void;
   onRemove: () => void;
   showCheckbox: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(criterion.label);
+  const [descDraft, setDescDraft] = useState(criterion.description ?? "");
+
+  // Keep local draft state in sync when the criterion is updated elsewhere
+  // (e.g. another row reset, store rehydration). Skip while the user is mid-edit
+  // so we don't clobber their typing.
+  useEffect(() => {
+    if (!editing) {
+      setDraft(criterion.label);
+      setDescDraft(criterion.description ?? "");
+    }
+  }, [criterion.label, criterion.description, editing]);
 
   const commitEdit = () => {
     onLabelChange(draft.trim() || criterion.label);
+    onDescriptionChange(descDraft);
     setEditing(false);
   };
 
   return (
-    <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-deep/40 group hover:bg-surface-deep/70 transition-colors">
+    <div className="flex items-start gap-3 p-3 rounded-lg border border-border bg-surface-deep/40 group hover:bg-surface-deep/70 transition-colors">
       {showCheckbox && (
         <button
           onClick={onToggle}
-          className={`flex-shrink-0 w-5 h-5 rounded border transition-all ${
+          aria-label={`Toggle ${criterion.label}`}
+          className={`flex-shrink-0 w-5 h-5 mt-0.5 rounded border transition-all ${
             checked
               ? "bg-accent border-accent"
               : "border-border hover:border-accent/50"
@@ -270,44 +306,66 @@ function CriterionRow({
       )}
 
       {editing ? (
-        <div className="flex-1 flex items-center gap-2">
-          <Input
-            autoFocus
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+        <div className="flex-1 flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <Input
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitEdit();
+                if (e.key === "Escape") setEditing(false);
+              }}
+              className="flex-1 bg-surface-deep border-border text-text text-sm focus:border-accent/50 h-8"
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={commitEdit}
+              className="min-touch-coarse h-7 w-7 text-[#00ff88] hover:bg-[#00ff88]/10"
+            >
+              <Check className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setEditing(false)}
+              className="min-touch-coarse h-7 w-7 text-sub hover:bg-cardH"
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+          {/* Optional description; Cmd/Ctrl+Enter commits both. */}
+          <Textarea
+            value={descDraft}
+            onChange={(e) => setDescDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") commitEdit();
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commitEdit();
               if (e.key === "Escape") setEditing(false);
             }}
-            className="flex-1 bg-surface-deep border-border text-text text-sm focus:border-accent/50 h-8"
+            placeholder="Description (optional)..."
+            rows={2}
+            className="bg-surface-deep border-border resize-none text-xs"
+            aria-label="Criterion description"
           />
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={commitEdit}
-            className="min-touch-coarse h-7 w-7 text-[#00ff88] hover:bg-[#00ff88]/10"
-          >
-            <Check className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setEditing(false)}
-            className="min-touch-coarse h-7 w-7 text-sub hover:bg-cardH"
-          >
-            <X className="w-3.5 h-3.5" />
-          </Button>
         </div>
       ) : (
-        <span
-          className={`flex-1 text-sm ${
-            showCheckbox && checked
-              ? "line-through text-sub"
-              : "text-text"
-          }`}
-        >
-          {criterion.label}
-        </span>
+        <div className="flex-1 min-w-0">
+          <span
+            className={`block text-sm ${
+              showCheckbox && checked
+                ? "line-through text-sub"
+                : "text-text"
+            }`}
+          >
+            {criterion.label}
+          </span>
+          {criterion.description && (
+            <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
+              {criterion.description}
+            </div>
+          )}
+        </div>
       )}
 
       {!editing && (
@@ -317,6 +375,7 @@ function CriterionRow({
             size="icon"
             onClick={() => {
               setDraft(criterion.label);
+              setDescDraft(criterion.description ?? "");
               setEditing(true);
             }}
             className="min-touch-coarse h-7 w-7 text-sub hover:text-accent hover:bg-accent/10"
@@ -345,12 +404,15 @@ export function RefinementClient() {
   const {
     criteria,
     storyName,
+    storyDescription,
     currentChecks,
     history,
     setCriterion,
+    setCriterionDescription,
     addCriterion,
     removeCriterion,
     setStoryName,
+    setStoryDescription,
     toggleCheck,
     saveStory: saveStoryRaw,
     removeHistory,
@@ -373,13 +435,15 @@ export function RefinementClient() {
   const pct =
     criteria.length > 0 ? Math.round((metCount / criteria.length) * 100) : 0;
 
-  // Chart data — last 20 saves in chronological order
+  // Chart data — last 20 saves in chronological order. We label each point with
+  // the actual story name so the x-axis stays stable across renders (sequential
+  // #1..#N labels rebase whenever the window slides).
   const chartData = useMemo(() => {
     return [...history]
       .reverse()
       .slice(-20)
-      .map((h, i) => ({
-        name: `#${i + 1}`,
+      .map((h) => ({
+        name: h.storyName,
         passRate: h.passRate,
         story: h.storyName,
       }));
@@ -388,9 +452,17 @@ export function RefinementClient() {
   // CSV export
   const csvData = useMemo(
     () => ({
-      headers: ["Story", "Date", "% Ready", "Criteria Met", "Total Criteria"],
+      headers: [
+        "Story",
+        "Description",
+        "Date",
+        "% Ready",
+        "Criteria Met",
+        "Total Criteria",
+      ],
       rows: history.map((h) => [
         h.storyName,
+        h.description ?? "",
         h.date,
         h.passRate,
         h.metCount,
@@ -467,6 +539,9 @@ export function RefinementClient() {
                   criterion={c}
                   checked={false}
                   onLabelChange={(label) => setCriterion(c.id, label)}
+                  onDescriptionChange={(desc) =>
+                    setCriterionDescription(c.id, desc)
+                  }
                   onRemove={() => removeCriterion(c.id)}
                   showCheckbox={false}
                 />
@@ -494,6 +569,20 @@ export function RefinementClient() {
                     placeholder="e.g. USER-42 — Add dark mode toggle"
                     className="input-toolkit"
                   />
+                  {/* Optional description for the saved story snapshot;
+                      empty trims to undefined when committed via saveStory. */}
+                  <Textarea
+                    value={storyDescription}
+                    onChange={(e) => setStoryDescription(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey))
+                        saveStory();
+                    }}
+                    placeholder="Description (optional)..."
+                    rows={2}
+                    className="bg-surface border-border resize-none text-xs"
+                    aria-label="Story description"
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -504,6 +593,9 @@ export function RefinementClient() {
                       checked={!!currentChecks[c.id]}
                       onToggle={() => toggleCheck(c.id)}
                       onLabelChange={(label) => setCriterion(c.id, label)}
+                      onDescriptionChange={(desc) =>
+                        setCriterionDescription(c.id, desc)
+                      }
                       onRemove={() => removeCriterion(c.id)}
                       showCheckbox={true}
                     />
@@ -689,8 +781,15 @@ export function RefinementClient() {
                       <tbody className="divide-y divide-white/5">
                         {history.map((h) => (
                           <tr key={h.id} className="group">
-                            <td className="py-2.5 pr-4 text-text font-medium truncate max-w-[160px]">
-                              {h.storyName}
+                            <td className="py-2.5 pr-4 max-w-[200px]">
+                              <div className="text-text font-medium truncate">
+                                {h.storyName}
+                              </div>
+                              {h.description && (
+                                <div className="text-sub text-[11px] mt-0.5 whitespace-pre-wrap break-words">
+                                  {h.description}
+                                </div>
+                              )}
                             </td>
                             <td className="py-2.5 pr-4 text-sub text-xs">
                               {h.date}

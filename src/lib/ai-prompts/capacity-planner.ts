@@ -2,7 +2,7 @@ import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable } from "./prompt-utils";
 
 interface CapacityData {
-  members: { name: string; role: string; availability: number; daysOff: number }[];
+  members: { name: string; role: string; availability: number; daysOff: number; description?: string }[];
   config: { sprintDays: number; ceremonyOverhead: number; focusFactor: number; hoursPerDay: number };
 }
 
@@ -15,8 +15,8 @@ export function generateCapacityPrompts(data: CapacityData): PromptDefinition[] 
   };
 
   const table = formatTable(
-    ["Name", "Role", "Availability %", "Days Off", "Eff. Hours"],
-    data.members.map((m) => [m.name, m.role, m.availability, m.daysOff, effHours(m)])
+    ["Name", "Role", "Availability %", "Days Off", "Eff. Hours", "Description"],
+    data.members.map((m) => [m.name, m.role, m.availability, m.daysOff, effHours(m), (m.description ?? "—").slice(0, 80)])
   );
 
   const totalHours = data.members.reduce((s, m) => s + effHours(m), 0);

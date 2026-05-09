@@ -48,6 +48,8 @@ interface DayEntry {
   day: number;
   remaining: number | null;
   scopeChange: boolean;
+  /** Optional per-day note (e.g. "Friday demo prep", "Holiday"). */
+  description?: string;
 }
 
 interface BurndownConfig {
@@ -196,6 +198,12 @@ const useBurndownStore = create<BurndownStore>()(
 /* -------------------------------------------------------------------------- */
 
 function getIdealValue(day: number, totalPoints: number, sprintDays: number): number {
+  // Hydration guard — when sprintDays is 0/negative (mid-edit, transient store
+  // state, or corrupted persistence), the original `totalPoints / sprintDays`
+  // produces Infinity/NaN that cascades through the chart's domain calc and
+  // crashes Recharts. Return totalPoints (the y-intercept) as a safe fallback
+  // so the chart still renders a flat line at full scope.
+  if (!Number.isFinite(sprintDays) || sprintDays <= 0) return totalPoints;
   return Math.max(0, totalPoints - (totalPoints / sprintDays) * day);
 }
 
@@ -353,6 +361,7 @@ export function BurndownClient() {
         ideal: parseFloat(getIdealValue(day, config.totalPoints, config.sprintDays).toFixed(1)),
         actual: entry?.remaining ?? null,
         scopeChange: entry?.scopeChange ?? false,
+        description: entry?.description ?? "",
       };
     });
   }, [sortedEntries, config]);
@@ -388,12 +397,13 @@ export function BurndownClient() {
 
   const csvData = useMemo(
     () => ({
-      headers: ["Day", "Ideal (pts)", "Actual (pts)", "Scope Change"],
+      headers: ["Day", "Ideal (pts)", "Actual (pts)", "Scope Change", "Note"],
       rows: chartData.map((d) => [
         d.day,
         d.ideal,
         d.actual ?? "",
         d.scopeChange ? "Yes" : "No",
+        d.description ?? "",
       ]),
     }),
     [chartData]
@@ -648,13 +658,19 @@ export function BurndownClient() {
             </>
           }
         >
-          {/* Header row */}
-          <div className="hidden sm:grid grid-cols-[80px_1fr_120px_auto] gap-3 px-1 pb-2 border-b border-border mb-2">
+          {/* Header row.
+              Note column uses a single-line Input (not Textarea) because each
+              day-row is a compact grid; a multi-line field would break the
+              visual rhythm of the dense tracker. */}
+          <div className="hidden sm:grid grid-cols-[80px_1fr_1.2fr_120px_auto] gap-3 px-1 pb-2 border-b border-border mb-2">
             <span className="text-xs text-sub font-medium uppercase tracking-wider">
               Day
             </span>
             <span className="text-xs text-sub font-medium uppercase tracking-wider">
               Remaining Points
+            </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">
+              Note
             </span>
             <span className="text-xs text-sub font-medium uppercase tracking-wider flex items-center gap-1">
               <Flag className="w-3 h-3" /> Scope Change
@@ -666,7 +682,7 @@ export function BurndownClient() {
             {sortedEntries.map((entry) => (
               <div
                 key={entry.id}
-                className="grid grid-cols-[80px_1fr_120px_auto] gap-3 items-center"
+                className="grid grid-cols-[80px_1fr_1.2fr_120px_auto] gap-3 items-center"
               >
                 <div className="flex items-center">
                   <span className="font-data text-sm font-semibold text-accent">
@@ -685,6 +701,20 @@ export function BurndownClient() {
                     })
                   }
                   className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+                />
+
+                {/* Compact single-line note input — dense tracker row. */}
+                <Input
+                  type="text"
+                  placeholder="Optional note..."
+                  value={entry.description ?? ""}
+                  onChange={(e) =>
+                    updateEntry(entry.id, {
+                      description: e.target.value.trim() ? e.target.value : undefined,
+                    })
+                  }
+                  className="bg-surface-deep border-border text-text text-xs focus:border-accent/50 focus:ring-accent/20"
+                  aria-label={`Note for day ${entry.day}`}
                 />
 
                 <button

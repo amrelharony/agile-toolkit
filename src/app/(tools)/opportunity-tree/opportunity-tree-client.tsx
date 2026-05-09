@@ -24,6 +24,9 @@ interface TreeNode {
   text: string;
   parentId: string | null;
   evidence?: string;
+  // Optional elaboration applicable to any node kind. Distinct from
+  // `evidence`, which is only meaningful for opportunity/experiment nodes.
+  description?: string;
 }
 
 const KIND_COLORS: Record<NodeKind, string> = {
@@ -127,6 +130,16 @@ export function OpportunityTreeClient() {
               placeholder={`${node.kind}...`}
               className="bg-surface border-border text-sm"
             />
+            {/* Description input applies to any node kind — distinct from
+                evidence (opportunity/experiment only). The visible input
+                doubles as the display, mirroring how the main `text` field
+                works above. */}
+            <Input
+              value={node.description ?? ""}
+              onChange={(e) => update(node.id, { description: e.target.value })}
+              placeholder="Description (optional)..."
+              className="bg-surface border-border text-xs"
+            />
             {(node.kind === "opportunity" || node.kind === "experiment") && (
               <Input
                 value={node.evidence ?? ""}
@@ -171,8 +184,16 @@ export function OpportunityTreeClient() {
         <ExportButton
           filename="opportunity-tree"
           csvData={{
-            headers: ["Kind", "Text", "Parent", "Evidence"],
-            rows: nodes.map((n) => [n.kind, n.text, n.parentId ?? "", n.evidence ?? ""]),
+            headers: ["Kind", "Text", "Description", "Parent", "Evidence"],
+            // Resolve parentId to the parent node's `text` for the CSV export.
+            // Raw nanoids are useless to a human reading the spreadsheet, and
+            // they tie the export to internal IDs that change on import.
+            rows: nodes.map((n) => {
+              const parentText = n.parentId
+                ? nodes.find((p) => p.id === n.parentId)?.text ?? ""
+                : "";
+              return [n.kind, n.text, n.description ?? "", parentText, n.evidence ?? ""];
+            }),
           }}
           jsonData={nodes}
         />

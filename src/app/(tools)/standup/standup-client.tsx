@@ -49,6 +49,16 @@ interface StandupStore {
   addMember: (name: string) => void;
   removeMember: (name: string) => void;
   addEntry: (entry: Omit<StandupEntry, "id" | "timestamp">) => void;
+  /**
+   * Returns true if an entry with the same (member, date) already exists.
+   * Lets the form prompt the user before overwriting.
+   */
+  hasEntry: (member: string, date: string) => boolean;
+  /**
+   * Replaces the existing (member, date) entry with the new content; falls
+   * back to addEntry behavior if no match is found.
+   */
+  upsertEntry: (entry: Omit<StandupEntry, "id" | "timestamp">) => void;
   resolveBlocker: (entryId: string) => void;
   resolvedBlockers: string[]; // entry IDs whose blockers are resolved
   reset: () => void;
@@ -60,7 +70,7 @@ interface StandupStore {
 
 const useStandupStore = create<StandupStore>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       members: ["Alice", "Bob", "Carol"],
       entries: [],
       resolvedBlockers: [],
@@ -80,6 +90,33 @@ const useStandupStore = create<StandupStore>()(
             { ...entry, id: crypto.randomUUID(), timestamp: Date.now() },
           ],
         })),
+
+      hasEntry: (member, date) =>
+        get().entries.some((e) => e.member === member && e.date === date),
+
+      upsertEntry: (entry) =>
+        set((s) => {
+          const idx = s.entries.findIndex(
+            (e) => e.member === entry.member && e.date === entry.date
+          );
+          if (idx === -1) {
+            return {
+              entries: [
+                ...s.entries,
+                { ...entry, id: crypto.randomUUID(), timestamp: Date.now() },
+              ],
+            };
+          }
+          // Preserve the original id so blocker resolution / history references
+          // stay valid; refresh the timestamp to mark the latest update.
+          const next = s.entries.slice();
+          next[idx] = {
+            ...entry,
+            id: s.entries[idx].id,
+            timestamp: Date.now(),
+          };
+          return { entries: next };
+        }),
 
       resolveBlocker: (entryId) =>
         set((s) => ({
@@ -591,13 +628,18 @@ export function StandupClient() {
     addMember,
     removeMember,
     addEntry,
+    hasEntry,
+    upsertEntry,
     resolveBlocker,
     reset: resetRaw,
   } = useStandupStore();
   const { log } = useHistoryLogger("standup");
 
-  // Form state
+  // Form state — split into two non-fighting fields: a select for picking an
+  // existing team member, and a free-text override for ad-hoc names. The
+  // override wins on submit, so typing always beats the dropdown.
   const [formMember, setFormMember] = useState("");
+  const [customMemberDraft, setCustomMemberDraft] = useState("");
   const [yesterday, setYesterday] = useState("");
   const [today, setToday] = useState("");
   const [blockers, setBlockers] = useState("");
@@ -606,17 +648,32 @@ export function StandupClient() {
   const [newMember, setNewMember] = useState("");
 
   const handleSubmit = () => {
-    const member = formMember.trim() || members[0] || "";
+    const member =
+      customMemberDraft.trim() || formMember.trim() || members[0] || "";
     if (!member) return;
-    addEntry({ member, date: todayStr(), yesterday, today, blockers });
+    const date = todayStr();
+    const payload = { member, date, yesterday, today, blockers };
+    if (hasEntry(member, date)) {
+      const overwrite =
+        typeof window === "undefined"
+          ? true
+          : window.confirm(
+              `${member} already submitted standup for ${date}. Replace the existing entry?`
+            );
+      if (!overwrite) return;
+      upsertEntry(payload);
+    } else {
+      addEntry(payload);
+    }
     log(STANDUP_ACTIONS.ENTRY_ADDED, {
       member,
-      date: todayStr(),
+      date,
       hasBlocker: blockers.trim().length > 0,
     });
     setYesterday("");
     setToday("");
     setBlockers("");
+    setCustomMemberDraft("");
   };
 
   const reset = () => {
@@ -662,7 +719,7 @@ export function StandupClient() {
               size="sm"
               onClick={reset}
             >
-              Clear Data
+              Clear Entries
             </Button>
             <AiPromptGenerator config={promptConfig} />
             <ExportButton
@@ -694,7 +751,12 @@ export function StandupClient() {
                   <div className="flex gap-2">
                     <select
                       value={formMember}
-                      onChange={(e) => setFormMember(e.target.value)}
+                      onChange={(e) => {
+                        setFormMember(e.target.value);
+                        // Picking from the dropdown clears any ad-hoc draft so
+                        // the picked name takes effect immediately.
+                        if (e.target.value) setCustomMemberDraft("");
+                      }}
                       className="flex-1 bg-surface-deep border border-border rounded-md px-3 py-2 text-sm text-text focus:border-accent/50 focus:outline-none"
                     >
                       <option value="">Select member…</option>
@@ -706,8 +768,8 @@ export function StandupClient() {
                     </select>
                     <Input
                       placeholder="Or type name"
-                      value={formMember}
-                      onChange={(e) => setFormMember(e.target.value)}
+                      value={customMemberDraft}
+                      onChange={(e) => setCustomMemberDraft(e.target.value)}
                       className="flex-1 input-toolkit"
                     />
                   </div>
@@ -770,7 +832,11 @@ export function StandupClient() {
                 <Button
                   variant="toolkit"
                   onClick={handleSubmit}
-                  disabled={!formMember.trim() && members.length === 0}
+                  disabled={
+                    !customMemberDraft.trim() &&
+                    !formMember.trim() &&
+                    members.length === 0
+                  }
                   className="w-full"
                 >
                   Submit Standup

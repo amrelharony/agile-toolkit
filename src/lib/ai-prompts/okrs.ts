@@ -8,10 +8,23 @@ export function generateOkrsPrompts(data: { okrs: Okr[] }): PromptDefinition[] {
   for (const o of data.okrs) {
     for (const kr of o.keyResults) {
       const progress = kr.target > 0 ? Math.round((kr.current / kr.target) * 100) : 0;
-      rows.push([o.quarter, o.objective.slice(0, 50), kr.title.slice(0, 50), kr.current, kr.target, `${progress}%`, kr.confidence ?? "-"]);
+      rows.push([
+        o.quarter,
+        o.objective.slice(0, 50),
+        (o.description ?? "—").slice(0, 80),
+        kr.title.slice(0, 50),
+        (kr.description ?? "—").slice(0, 80),
+        kr.current,
+        kr.target,
+        `${progress}%`,
+        kr.confidence ?? "-",
+      ]);
     }
   }
-  const table = formatTable(["Quarter", "Objective", "KR", "Current", "Target", "Progress", "Confidence"], rows);
+  const table = formatTable(
+    ["Quarter", "Objective", "Obj. Description", "KR", "KR Description", "Current", "Target", "Progress", "Confidence"],
+    rows
+  );
 
   return [
     {

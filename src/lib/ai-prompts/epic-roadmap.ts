@@ -7,13 +7,14 @@ interface Epic {
   endQuarter: string;
   progress: number;
   owner?: string;
+  description?: string;
 }
 
 export function generateEpicRoadmapPrompts(data: { epics: Epic[]; columns: string[] }): PromptDefinition[] {
   if (data.epics.length === 0) return [];
   const table = formatTable(
-    ["Epic", "Start", "End", "Progress", "Owner"],
-    data.epics.map((e) => [e.title, e.startQuarter, e.endQuarter, `${e.progress}%`, e.owner ?? ""])
+    ["Epic", "Start", "End", "Progress", "Owner", "Description"],
+    data.epics.map((e) => [e.title, e.startQuarter, e.endQuarter, `${e.progress}%`, e.owner ?? "", (e.description ?? "—").slice(0, 80)])
   );
   return [
     {

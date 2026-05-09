@@ -5,9 +5,10 @@ import type { TechDebtItem } from "../stores/workspace-types";
 export function generateTechDebtPrompts(data: { items: TechDebtItem[]; totalInterestPerSprint: number }): PromptDefinition[] {
   if (data.items.length === 0) return [];
   const table = formatTable(
-    ["Title", "Area", "Impact", "Effort", "Interest", "Age (d)"],
+    ["Title", "Description", "Area", "Impact", "Effort", "Interest", "Age (d)"],
     data.items.slice(0, 15).map((i) => [
       i.title,
+      (i.description ?? "—").slice(0, 80),
       i.area ?? "",
       i.impact,
       i.effort,

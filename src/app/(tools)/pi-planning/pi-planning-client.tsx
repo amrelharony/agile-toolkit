@@ -8,8 +8,9 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Plus, Trash2, CalendarRange, AlertCircle } from "lucide-react";
-import { simulateThroughputCompletion } from "@/lib/analytics/monte-carlo";
+import { simulateVelocityDistribution } from "@/lib/analytics/monte-carlo";
 import { generatePiPlanningPrompts } from "@/lib/ai-prompts/pi-planning";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -21,12 +22,14 @@ import { KpiGrid } from "@/components/shared/kpi-grid";
 interface PiTeam {
   id: string;
   name: string;
+  description?: string;
   velocity: number;
 }
 
 interface PiItem {
   id: string;
   title: string;
+  description?: string;
   teamId: string;
   iteration: number;
   points: number;
@@ -49,15 +52,16 @@ const KIND_COLORS: Record<PiItem["kind"], string> = {
 
 export function PiPlanningClient() {
   const [state, setState] = usePersisted<State>("agile-toolkit:pi-planning", DEFAULT_STATE);
-  const [newTeam, setNewTeam] = useState({ name: "", velocity: 20 });
+  const [newTeam, setNewTeam] = useState({ name: "", velocity: 20, description: "" });
   const { log } = useHistoryLogger("pi-planning");
 
   const addTeam = () => {
     if (!newTeam.name.trim()) return;
-    const team = { id: nanoid(6), name: newTeam.name.trim(), velocity: newTeam.velocity };
+    const description = newTeam.description.trim() || undefined;
+    const team: PiTeam = { id: nanoid(6), name: newTeam.name.trim(), velocity: newTeam.velocity, description };
     setState((s) => ({ ...s, teams: [...s.teams, team] }));
-    log(PI_PLANNING_ACTIONS.TEAM_ADDED, { teamId: team.id, name: team.name });
-    setNewTeam({ name: "", velocity: 20 });
+    log(PI_PLANNING_ACTIONS.TEAM_ADDED, { teamId: team.id, name: team.name, description });
+    setNewTeam({ name: "", velocity: 20, description: "" });
   };
   const removeTeam = (id: string) => {
     const team = state.teams.find((t) => t.id === id);
@@ -76,6 +80,11 @@ export function PiPlanningClient() {
     setState((s) => ({ ...s, items: s.items.map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
     if (patch.iteration !== undefined || patch.teamId !== undefined) {
       log(PI_PLANNING_ACTIONS.ITEM_ASSIGNED, { itemId: id, ...patch });
+    } else {
+      // Otherwise we still want an audit trail for content edits (title,
+      // description, points, kind) — without this branch the history is
+      // silent on every typing edit and only catches reassignments.
+      log(PI_PLANNING_ACTIONS.ITEM_UPDATED, { itemId: id, ...patch });
     }
   };
   const removeItem = (id: string) => {
@@ -87,11 +96,25 @@ export function PiPlanningClient() {
   const setIterations = (n: number) =>
     setState((s) => {
       const next = Math.max(1, Math.min(10, n));
-      // Drop items pinned to iterations that no longer exist — otherwise
-      // they linger in persisted state, get exported in CSV, and reappear
-      // unexpectedly when the user widens the PI again.
-      const items = next < s.iterations ? s.items.filter((i) => i.iteration < next) : s.items;
-      return { ...s, iterations: next, items };
+      // Dropping items pinned to iterations that no longer exist is
+      // destructive — surface a confirm() before silently deleting them.
+      // (If they linger instead, they reappear when the user widens the PI
+      // again, so quietly keeping them isn't a clean alternative either.)
+      if (next < s.iterations) {
+        const orphans = s.items.filter((i) => i.iteration >= next).length;
+        if (orphans > 0) {
+          const ok =
+            typeof window !== "undefined" &&
+            window.confirm(
+              `Reducing iterations to ${next} will remove ${orphans} item${
+                orphans === 1 ? "" : "s"
+              } pinned to iteration ${next + 1} or later. Continue?`
+            );
+          if (!ok) return s;
+        }
+        return { ...s, iterations: next, items: s.items.filter((i) => i.iteration < next) };
+      }
+      return { ...s, iterations: next };
     });
 
   const overloads = useMemo(() => {
@@ -125,10 +148,16 @@ export function PiPlanningClient() {
     () => state.teams.map((t) => t.velocity).filter((v) => v > 0),
     [state.teams]
   );
+  // We only have one velocity per team (no historical samples per team), so
+  // we can't model "iterations to clear backlog" — feeding individual team
+  // velocities into simulateThroughputCompletion would treat each draw as a
+  // single-iteration team-of-one, dramatically overestimating effort.
+  // Downscoped to a per-team velocity distribution (P85 = the velocity you'd
+  // expect 85% of teams to hit or beat in a given iteration).
   const forecast = useMemo(() => {
-    if (velocities.length === 0 || totalScope === 0) return null;
-    return simulateThroughputCompletion(totalScope, velocities, 5000);
-  }, [totalScope, velocities]);
+    if (velocities.length === 0) return null;
+    return simulateVelocityDistribution(velocities, 5000);
+  }, [velocities]);
 
   const promptConfig = useMemo(
     () => ({
@@ -150,14 +179,19 @@ export function PiPlanningClient() {
         <ExportButton
           filename="pi-planning"
           csvData={{
-            headers: ["Team", "Iteration", "Item", "Points", "Kind"],
-            rows: state.items.map((i) => [
-              state.teams.find((t) => t.id === i.teamId)?.name ?? "",
-              i.iteration + 1,
-              i.title,
-              i.points,
-              i.kind,
-            ]),
+            headers: ["Team", "Team Description", "Iteration", "Item", "Item Description", "Points", "Kind"],
+            rows: state.items.map((i) => {
+              const team = state.teams.find((t) => t.id === i.teamId);
+              return [
+                team?.name ?? "",
+                team?.description ?? "",
+                i.iteration + 1,
+                i.title,
+                i.description ?? "",
+                i.points,
+                i.kind,
+              ];
+            }),
           }}
           jsonData={state}
         />
@@ -173,9 +207,9 @@ export function PiPlanningClient() {
         <StatCard variant="compact" label="Features (pts)" value={totalScope} />
         <StatCard
           variant="compact"
-          label="P85 iterations"
+          label="P85 team velocity"
           value={forecast ? Math.round(forecast.percentiles[85]) : "—"}
-          hint={`across ${state.teams.length} teams`}
+          hint={`points per iter, ${state.teams.length} teams sampled`}
         />
         <StatCard
           variant="compact"
@@ -187,36 +221,49 @@ export function PiPlanningClient() {
       </KpiGrid>
 
       <Card className="bg-surface border-border mb-4">
-        <CardContent className="p-3 flex flex-wrap items-end gap-2">
-          <div>
-            <div className="text-xs text-sub">Iterations in PI</div>
+        <CardContent className="p-3 space-y-2">
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <div className="text-xs text-sub">Iterations in PI</div>
+              <Input
+                type="number"
+                min={1}
+                max={10}
+                value={state.iterations}
+                onChange={(e) => setIterations(Number(e.target.value))}
+                className="bg-bg border-border font-data w-24"
+              />
+            </div>
+            <div className="flex-1" />
+            <Input
+              value={newTeam.name}
+              onChange={(e) => setNewTeam((n) => ({ ...n, name: e.target.value }))}
+              placeholder="New team name"
+              className="bg-bg border-border w-48"
+            />
             <Input
               type="number"
-              min={1}
-              max={10}
-              value={state.iterations}
-              onChange={(e) => setIterations(Number(e.target.value))}
+              value={newTeam.velocity}
+              onChange={(e) => setNewTeam((n) => ({ ...n, velocity: Number(e.target.value) }))}
+              placeholder="Velocity"
               className="bg-bg border-border font-data w-24"
             />
+            <Button onClick={addTeam} className="gap-2 bg-accent text-bg hover:bg-accent/90">
+              <Plus className="w-4 h-4" />
+              Add Team
+            </Button>
           </div>
-          <div className="flex-1" />
-          <Input
-            value={newTeam.name}
-            onChange={(e) => setNewTeam((n) => ({ ...n, name: e.target.value }))}
-            placeholder="New team name"
-            className="bg-bg border-border w-48"
+          <Textarea
+            value={newTeam.description}
+            onChange={(e) => setNewTeam((n) => ({ ...n, description: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addTeam();
+            }}
+            placeholder="Team description (optional)..."
+            rows={2}
+            className="bg-bg border-border resize-none text-xs"
+            aria-label="New team description"
           />
-          <Input
-            type="number"
-            value={newTeam.velocity}
-            onChange={(e) => setNewTeam((n) => ({ ...n, velocity: Number(e.target.value) }))}
-            placeholder="Velocity"
-            className="bg-bg border-border font-data w-24"
-          />
-          <Button onClick={addTeam} className="gap-2 bg-accent text-bg hover:bg-accent/90">
-            <Plus className="w-4 h-4" />
-            Add Team
-          </Button>
         </CardContent>
       </Card>
 
@@ -243,6 +290,11 @@ export function PiPlanningClient() {
                         onChange={(e) => updateTeam(team.id, { name: e.target.value })}
                         className="bg-bg border-border text-sm h-8"
                       />
+                      {team.description && (
+                        <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
+                          {team.description}
+                        </div>
+                      )}
                       <div className="flex items-center gap-1">
                         <Input
                           type="number"
@@ -276,6 +328,14 @@ export function PiPlanningClient() {
                               onChange={(e) => updateItem(item.id, { title: e.target.value })}
                               placeholder="Item"
                               className="bg-surface border-border text-xs h-6"
+                            />
+                            <Textarea
+                              value={item.description ?? ""}
+                              onChange={(e) => updateItem(item.id, { description: e.target.value.trim() ? e.target.value : undefined })}
+                              placeholder="Description (optional)..."
+                              rows={2}
+                              className="bg-surface border-border resize-none text-[10px] py-1"
+                              aria-label="Item description"
                             />
                             <div className="flex items-center gap-1">
                               <Input

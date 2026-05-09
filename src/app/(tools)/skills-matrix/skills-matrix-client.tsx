@@ -11,6 +11,7 @@ import { EditableName } from "@/components/shared/editable-name";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SKILLS_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { SectionCard } from "@/components/shared/section-card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -33,11 +34,13 @@ type Proficiency = 0 | 1 | 2 | 3 | 4;
 interface TeamMember {
   id: string;
   name: string;
+  description?: string;
 }
 
 interface Skill {
   id: string;
   name: string;
+  description?: string;
 }
 
 type GridData = Record<string, Record<string, Proficiency>>; // skillId -> memberId -> level
@@ -49,9 +52,11 @@ interface SkillsMatrixStore {
   addMember: () => void;
   removeMember: (id: string) => void;
   updateMemberName: (id: string, name: string) => void;
+  updateMemberDescription: (id: string, description: string) => void;
   addSkill: () => void;
   removeSkill: (id: string) => void;
   updateSkillName: (id: string, name: string) => void;
+  updateSkillDescription: (id: string, description: string) => void;
   cycleCell: (skillId: string, memberId: string) => void;
   reset: () => void;
 }
@@ -143,11 +148,20 @@ const useSkillsStore = create<SkillsMatrixStore>()(
       grid: buildDefaultGrid(DEFAULT_SKILLS, DEFAULT_MEMBERS),
 
       addMember: () => {
-        const newMember: TeamMember = {
-          id: crypto.randomUUID(),
-          name: `Member ${Date.now() % 1000}`,
-        };
         set((s) => {
+          // Pick the lowest unused integer suffix instead of `Date.now() % 1000`,
+          // which can collide if two adds land in the same millisecond.
+          const used = new Set(
+            s.members
+              .map((m) => parseInt(String(m.name).replace(/\D/g, ""), 10))
+              .filter(Number.isFinite)
+          );
+          let n = 1;
+          while (used.has(n)) n++;
+          const newMember: TeamMember = {
+            id: crypto.randomUUID(),
+            name: `Member ${n}`,
+          };
           const grid = { ...s.grid };
           for (const sId of Object.keys(grid)) {
             grid[sId] = { ...grid[sId], [newMember.id]: 0 };
@@ -172,12 +186,28 @@ const useSkillsStore = create<SkillsMatrixStore>()(
           members: s.members.map((m) => (m.id === id ? { ...m, name } : m)),
         })),
 
+      updateMemberDescription: (id, description) =>
+        set((s) => ({
+          members: s.members.map((m) =>
+            m.id === id
+              ? { ...m, description: description.trim() || undefined }
+              : m
+          ),
+        })),
+
       addSkill: () => {
-        const newSkill: Skill = {
-          id: crypto.randomUUID(),
-          name: `Skill ${Date.now() % 1000}`,
-        };
         set((s) => {
+          const used = new Set(
+            s.skills
+              .map((sk) => parseInt(String(sk.name).replace(/\D/g, ""), 10))
+              .filter(Number.isFinite)
+          );
+          let n = 1;
+          while (used.has(n)) n++;
+          const newSkill: Skill = {
+            id: crypto.randomUUID(),
+            name: `Skill ${n}`,
+          };
           const row: Record<string, Proficiency> = {};
           for (const m of s.members) {
             row[m.id] = 0;
@@ -199,6 +229,15 @@ const useSkillsStore = create<SkillsMatrixStore>()(
       updateSkillName: (id, name) =>
         set((s) => ({
           skills: s.skills.map((sk) => (sk.id === id ? { ...sk, name } : sk)),
+        })),
+
+      updateSkillDescription: (id, description) =>
+        set((s) => ({
+          skills: s.skills.map((sk) =>
+            sk.id === id
+              ? { ...sk, description: description.trim() || undefined }
+              : sk
+          ),
         })),
 
       cycleCell: (skillId, memberId) =>
@@ -254,7 +293,9 @@ function ProfCell({
   onClick: () => void;
   title: string;
 }) {
-  const meta = PROF_META[level];
+  // Clamp on lookup so a corrupt persisted level (out-of-range index from a
+  // schema drift or hand-edited localStorage) doesn't dereference undefined.
+  const meta = PROF_META[Math.min(4, Math.max(0, level))];
   return (
     <button
       type="button"
@@ -309,9 +350,11 @@ export function SkillsMatrixClient() {
     addMember: addMemberRaw,
     removeMember: removeMemberRaw,
     updateMemberName,
+    updateMemberDescription,
     addSkill: addSkillRaw,
     removeSkill: removeSkillRaw,
     updateSkillName,
+    updateSkillDescription,
     cycleCell: cycleCellRaw,
     reset: resetRaw,
   } = useSkillsStore();
@@ -407,12 +450,15 @@ export function SkillsMatrixClient() {
 
   const csvData = useMemo(
     () => ({
-      headers: ["Skill", ...members.map((m) => m.name)],
+      // Skill descriptions slot in as a second column without breaking the
+      // member-per-column matrix layout.
+      headers: ["Skill", "Description", ...members.map((m) => m.name)],
       rows: skills.map((skill) => [
         skill.name,
+        skill.description ?? "",
         ...members.map((m) => {
           const l = grid[skill.id]?.[m.id] ?? 0;
-          return l === 0 ? "" : PROF_META[l].label;
+          return l === 0 ? "" : PROF_META[Math.min(4, Math.max(0, l))].label;
         }),
       ]),
     }),
@@ -427,7 +473,7 @@ export function SkillsMatrixClient() {
         skill.name.padEnd(20),
         ...members.map((m) => {
           const l = grid[skill.id]?.[m.id] ?? 0;
-          return (l === 0 ? "-" : PROF_META[l].label).padEnd(14);
+          return (l === 0 ? "-" : PROF_META[Math.min(4, Math.max(0, l))].label).padEnd(14);
         }),
       ];
       return cols.join(" | ");
@@ -529,6 +575,7 @@ export function SkillsMatrixClient() {
                       <th
                         key={member.id}
                         className="bg-surface-deep border border-border p-2 min-w-[110px]"
+                        title={member.description || undefined}
                       >
                         <div className="flex items-center justify-between gap-1">
                           <EditableName
@@ -547,6 +594,17 @@ export function SkillsMatrixClient() {
                             </button>
                           )}
                         </div>
+                        {/* Compact one-line description input — keeps the
+                            matrix header dense; empty trims to undefined. */}
+                        <Input
+                          value={member.description ?? ""}
+                          onChange={(e) =>
+                            updateMemberDescription(member.id, e.target.value)
+                          }
+                          placeholder="Description (optional)..."
+                          className="mt-1 h-6 text-[11px] bg-surface border-border font-normal"
+                          aria-label={`Description for member ${member.name}`}
+                        />
                       </th>
                     ))}
                     <th className="bg-surface-deep border border-border p-2 w-10">
@@ -574,6 +632,7 @@ export function SkillsMatrixClient() {
                               ? "border-amber-500/40"
                               : "border-border"
                           }`}
+                          title={skill.description || undefined}
                         >
                           <div className="flex items-center gap-1.5">
                             <EditableName
@@ -610,6 +669,17 @@ export function SkillsMatrixClient() {
                               </button>
                             )}
                           </div>
+                          {/* Compact one-line description input keeps the
+                              skill row tidy; empty trims to undefined. */}
+                          <Input
+                            value={skill.description ?? ""}
+                            onChange={(e) =>
+                              updateSkillDescription(skill.id, e.target.value)
+                            }
+                            placeholder="Description (optional)..."
+                            className="mt-1 h-6 text-[11px] bg-surface border-border"
+                            aria-label={`Description for skill ${skill.name}`}
+                          />
                         </td>
                         {members.map((member) => (
                           <td

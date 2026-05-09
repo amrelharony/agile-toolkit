@@ -8,6 +8,7 @@ interface Hypothesis {
   successMetric: string;
   status: string;
   outcome?: string;
+  description?: string;
 }
 
 export function generateHypothesisTrackerPrompts(data: {
@@ -17,8 +18,8 @@ export function generateHypothesisTrackerPrompts(data: {
 }): PromptDefinition[] {
   if (data.items.length === 0) return [];
   const table = formatTable(
-    ["Believe", "Will Do", "Metric", "Status", "Outcome"],
-    data.items.slice(0, 10).map((h) => [h.believe.slice(0, 40), h.willDo.slice(0, 40), h.successMetric.slice(0, 40), h.status, (h.outcome ?? "").slice(0, 40)])
+    ["Description", "Believe", "Will Do", "Metric", "Status", "Outcome"],
+    data.items.slice(0, 10).map((h) => [(h.description ?? "—").slice(0, 80), h.believe.slice(0, 40), h.willDo.slice(0, 40), h.successMetric.slice(0, 40), h.status, (h.outcome ?? "").slice(0, 40)])
   );
   return [
     {

@@ -257,7 +257,7 @@ const EMPTY_FORM = {
   assignedTo: "",
 };
 
-function LogForm({ onAdd }: { onAdd: () => void }) {
+function LogForm() {
   const { addImpediment } = useImpedimentStore();
   const [form, setForm] = useState(EMPTY_FORM);
   const [open, setOpen] = useState(false);
@@ -275,7 +275,6 @@ function LogForm({ onAdd }: { onAdd: () => void }) {
     });
     setForm(EMPTY_FORM);
     setOpen(false);
-    onAdd();
   };
 
   if (!open) {
@@ -579,8 +578,6 @@ export function ImpedimentsClient() {
   const [filterCategory, setFilterCategory] = useState<Category | "All">("All");
   const [filterSeverity, setFilterSeverity] = useState<Severity | "All">("All");
 
-  const [, setRefresh] = useState(0);
-
   // Dashboard stats
   const stats = useMemo(() => {
     const open = impediments.filter((i) => i.status === "Open").length;
@@ -628,6 +625,7 @@ export function ImpedimentsClient() {
     () => ({
       headers: [
         "Title",
+        "Description",
         "Category",
         "Severity",
         "Status",
@@ -639,6 +637,7 @@ export function ImpedimentsClient() {
       ],
       rows: impediments.map((i) => [
         i.title,
+        i.description ?? "",
         i.category,
         i.severity,
         i.status,
@@ -724,7 +723,7 @@ export function ImpedimentsClient() {
 
         {/* Actions + filters row */}
         <div className="flex flex-wrap items-center gap-3">
-          <LogForm onAdd={() => setRefresh((n) => n + 1)} />
+          <LogForm />
 
           <div className="flex-1" />
 

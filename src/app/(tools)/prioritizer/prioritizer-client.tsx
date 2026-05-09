@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
@@ -23,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
 import { ChartCard } from "@/components/shared/chart-card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -47,6 +48,7 @@ type ImpactValue = (typeof IMPACT_VALUES)[number];
 interface BacklogItem {
   id: string;
   name: string;
+  description?: string;
   // MoSCoW
   moscow: MoSCoWCategory;
   // WSJF inputs
@@ -273,6 +275,55 @@ function ScoreBadge({ value, color = "#00f0ff" }: { value: string | number; colo
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Numeric input cell — defers commit until blur/Enter so editing doesn't    */
+/*  snap to clamp bounds while the user is mid-keystroke.                     */
+/* -------------------------------------------------------------------------- */
+
+function NumCell({
+  value,
+  min,
+  max,
+  step,
+  onCommit,
+  className,
+}: {
+  value: number;
+  min: number;
+  max?: number;
+  step?: number;
+  onCommit: (n: number) => void;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+
+  const commit = () => {
+    const n = Number(draft);
+    if (Number.isFinite(n)) {
+      onCommit(Math.max(min, Math.min(max ?? Infinity, n)));
+    } else {
+      setDraft(String(value));
+    }
+  };
+
+  return (
+    <Input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      className={className}
+    />
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Items table                                                                */
 /* -------------------------------------------------------------------------- */
 
@@ -346,12 +397,26 @@ function ItemsTable({
           <tbody>
             {items.map((item) => (
               <tr key={item.id} className="border-b border-border group">
-                <td className="py-2 pr-3">
-                  <Input
-                    value={item.name}
-                    onChange={(e) => updateItem(item.id, { name: e.target.value })}
-                    className={inputCls + " min-w-[140px]"}
-                  />
+                <td className="py-2 pr-3 align-top">
+                  <div className="flex flex-col gap-1.5 min-w-[140px]">
+                    <Input
+                      value={item.name}
+                      onChange={(e) => updateItem(item.id, { name: e.target.value })}
+                      className={inputCls}
+                    />
+                    <Textarea
+                      value={item.description ?? ""}
+                      onChange={(e) =>
+                        updateItem(item.id, {
+                          description: e.target.value.trim() ? e.target.value : undefined,
+                        })
+                      }
+                      placeholder="Description (optional)..."
+                      rows={2}
+                      className="bg-surface-deep border-border resize-none text-xs"
+                      aria-label={`Description for ${item.name || "unnamed item"}`}
+                    />
+                  </div>
                 </td>
                 <td className="py-2 px-2">
                   <Select
@@ -374,89 +439,62 @@ function ItemsTable({
                 </td>
                 {/* Value (shared for WSJF business value + matrix value) */}
                 <td className="py-2 px-2">
-                  <Input
-                    type="number"
+                  <NumCell
+                    value={item.businessValue}
                     min={1}
                     max={10}
-                    value={item.businessValue}
-                    onChange={(e) =>
-                      updateItem(item.id, {
-                        businessValue: Math.min(10, Math.max(1, Number(e.target.value))),
-                        value: Math.min(10, Math.max(1, Number(e.target.value))),
-                      })
+                    onCommit={(n) =>
+                      updateItem(item.id, { businessValue: n, value: n })
                     }
                     className={inputCls + " w-16 text-center"}
                   />
                 </td>
                 {/* Matrix Effort */}
                 <td className="py-2 px-2">
-                  <Input
-                    type="number"
+                  <NumCell
+                    value={item.matrixEffort}
                     min={1}
                     max={10}
-                    value={item.matrixEffort}
-                    onChange={(e) =>
-                      updateItem(item.id, {
-                        matrixEffort: Math.min(10, Math.max(1, Number(e.target.value))),
-                      })
-                    }
+                    onCommit={(n) => updateItem(item.id, { matrixEffort: n })}
                     className={inputCls + " w-16 text-center"}
                   />
                 </td>
                 {/* Time Criticality */}
                 <td className="py-2 px-2">
-                  <Input
-                    type="number"
+                  <NumCell
+                    value={item.timeCriticality}
                     min={1}
                     max={10}
-                    value={item.timeCriticality}
-                    onChange={(e) =>
-                      updateItem(item.id, {
-                        timeCriticality: Math.min(10, Math.max(1, Number(e.target.value))),
-                      })
-                    }
+                    onCommit={(n) => updateItem(item.id, { timeCriticality: n })}
                     className={inputCls + " w-16 text-center"}
                   />
                 </td>
                 {/* Risk Reduction */}
                 <td className="py-2 px-2">
-                  <Input
-                    type="number"
+                  <NumCell
+                    value={item.riskReduction}
                     min={1}
                     max={10}
-                    value={item.riskReduction}
-                    onChange={(e) =>
-                      updateItem(item.id, {
-                        riskReduction: Math.min(10, Math.max(1, Number(e.target.value))),
-                      })
-                    }
+                    onCommit={(n) => updateItem(item.id, { riskReduction: n })}
                     className={inputCls + " w-16 text-center"}
                   />
                 </td>
                 {/* Job Size */}
                 <td className="py-2 px-2">
-                  <Input
-                    type="number"
+                  <NumCell
+                    value={item.jobSize}
                     min={1}
                     max={10}
-                    value={item.jobSize}
-                    onChange={(e) =>
-                      updateItem(item.id, {
-                        jobSize: Math.min(10, Math.max(1, Number(e.target.value))),
-                      })
-                    }
+                    onCommit={(n) => updateItem(item.id, { jobSize: n })}
                     className={inputCls + " w-16 text-center"}
                   />
                 </td>
                 {/* Reach */}
                 <td className="py-2 px-2">
-                  <Input
-                    type="number"
-                    min={1}
+                  <NumCell
                     value={item.reach}
-                    onChange={(e) =>
-                      updateItem(item.id, { reach: Math.max(1, Number(e.target.value)) })
-                    }
+                    min={1}
+                    onCommit={(n) => updateItem(item.id, { reach: n })}
                     className={inputCls + " w-20 text-center"}
                   />
                 </td>
@@ -482,31 +520,21 @@ function ItemsTable({
                 </td>
                 {/* Confidence */}
                 <td className="py-2 px-2">
-                  <Input
-                    type="number"
+                  <NumCell
+                    value={item.confidence}
                     min={1}
                     max={100}
-                    value={item.confidence}
-                    onChange={(e) =>
-                      updateItem(item.id, {
-                        confidence: Math.min(100, Math.max(1, Number(e.target.value))),
-                      })
-                    }
+                    onCommit={(n) => updateItem(item.id, { confidence: n })}
                     className={inputCls + " w-16 text-center"}
                   />
                 </td>
                 {/* RICE Effort */}
                 <td className="py-2 px-2">
-                  <Input
-                    type="number"
+                  <NumCell
+                    value={item.effort}
                     min={0.1}
                     step={0.1}
-                    value={item.effort}
-                    onChange={(e) =>
-                      updateItem(item.id, {
-                        effort: Math.max(0.1, Number(e.target.value)),
-                      })
-                    }
+                    onCommit={(n) => updateItem(item.id, { effort: n })}
                     className={inputCls + " w-16 text-center"}
                   />
                 </td>
@@ -643,10 +671,17 @@ function WSJFTab({ items }: { items: BacklogItem[] }) {
                 key={item.id}
                 className="border-b border-border hover:bg-card-hover"
               >
-                <td className="py-3 pr-3">
+                <td className="py-3 pr-3 align-top">
                   <span className="font-data text-sub text-xs">#{idx + 1}</span>
                 </td>
-                <td className="py-3 pr-3 font-medium text-text">{item.name}</td>
+                <td className="py-3 pr-3 font-medium text-text align-top">
+                  <div>{item.name}</div>
+                  {item.description && (
+                    <div className="text-sub text-[11px] mt-0.5 mb-0.5 whitespace-pre-wrap break-words font-normal">
+                      {item.description}
+                    </div>
+                  )}
+                </td>
                 <td className="py-3 px-2 text-center font-data text-sub">
                   {item.businessValue}
                 </td>
@@ -728,10 +763,17 @@ function RICETab({ items }: { items: BacklogItem[] }) {
                 key={item.id}
                 className="border-b border-border hover:bg-card-hover"
               >
-                <td className="py-3 pr-3">
+                <td className="py-3 pr-3 align-top">
                   <span className="font-data text-sub text-xs">#{idx + 1}</span>
                 </td>
-                <td className="py-3 pr-3 font-medium text-text">{item.name}</td>
+                <td className="py-3 pr-3 font-medium text-text align-top">
+                  <div>{item.name}</div>
+                  {item.description && (
+                    <div className="text-sub text-[11px] mt-0.5 mb-0.5 whitespace-pre-wrap break-words font-normal">
+                      {item.description}
+                    </div>
+                  )}
+                </td>
                 <td className="py-3 px-2 text-center font-data text-sub">
                   {item.reach}
                 </td>
@@ -992,6 +1034,7 @@ export function PrioritizerClient() {
     () => ({
       headers: [
         "Name",
+        "Description",
         "MoSCoW",
         "Business Value",
         "Time Criticality",
@@ -1008,6 +1051,7 @@ export function PrioritizerClient() {
       ],
       rows: items.map((i) => [
         i.name,
+        i.description ?? "",
         MOSCOW_CONFIG[i.moscow].label,
         i.businessValue,
         i.timeCriticality,

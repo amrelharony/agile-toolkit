@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -9,18 +9,74 @@ import { WorkspaceSyncButton } from "@/components/shared/workspace-sync-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Flag, Plus, Trash2, Target, TrendingUp } from "lucide-react";
+import { Flag, Plus, Trash2, Target } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Okr, KeyResult } from "@/lib/stores/workspace-types";
-import { forecastLinear } from "@/lib/analytics/forecasting";
+// `forecastLinear` was used to fit a regression of KR-progress against
+// KR-index. That has no temporal meaning — KR ordering inside an objective is
+// editorial, not chronological — so the resulting "forecast" was misleading.
+// Removed until we have actual historical snapshots to fit against.
 import { generateOkrsPrompts } from "@/lib/ai-prompts/okrs";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { OKR_ACTIONS } from "@/lib/history/event-actions";
 import { ActionRow } from "@/components/shared/action-row";
 import { EmptyState } from "@/components/shared/empty-state";
 import { usePersisted } from "@/lib/utils/use-persisted";
+
+/**
+ * Numeric input with a string draft buffer so typing a multi-digit value
+ * doesn't snap mid-edit (e.g. typing "1500" wouldn't briefly show "1" → "15"
+ * → "150" coerced through Number()). Commits on blur or Enter.
+ */
+function NumCell({
+  value,
+  onChange,
+  min,
+  max,
+  className,
+  placeholder,
+  title,
+}: {
+  value: number;
+  onChange: (n: number) => void;
+  min?: number;
+  max?: number;
+  className?: string;
+  placeholder?: string;
+  title?: string;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const n = Number(draft);
+    if (Number.isFinite(n)) {
+      const clamped = Math.max(min ?? -Infinity, Math.min(max ?? Infinity, n));
+      onChange(clamped);
+      setDraft(String(clamped));
+    } else {
+      setDraft(String(value));
+    }
+  };
+  return (
+    <Input
+      type="number"
+      min={min}
+      max={max}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      className={className}
+      placeholder={placeholder}
+      title={title}
+    />
+  );
+}
 
 function emptyKr(): KeyResult {
   return { id: nanoid(6), title: "", target: 100, current: 0, confidence: 5 };
@@ -134,12 +190,14 @@ export function OkrsClient() {
         <ExportButton
           filename="okrs"
           csvData={{
-            headers: ["Quarter", "Objective", "KR", "Current", "Target", "Progress %", "Confidence"],
+            headers: ["Quarter", "Objective", "Objective Description", "KR", "KR Description", "Current", "Target", "Progress %", "Confidence"],
             rows: okrs.flatMap((o) =>
               o.keyResults.map((kr) => [
                 o.quarter,
                 o.objective,
+                o.description ?? "",
                 kr.title,
+                kr.description ?? "",
                 kr.current,
                 kr.target,
                 Math.round(krProgress(kr) * 100),
@@ -163,8 +221,6 @@ export function OkrsClient() {
         )}
         {okrs.map((o) => {
           const health = objectiveHealth(o);
-          const series = o.keyResults.map((kr, idx) => ({ x: idx, y: krProgress(kr) * 100 }));
-          const forecast = series.length >= 2 ? forecastLinear(series, [series.length]) : [];
           return (
             <Card key={o.id} className="bg-surface border-border">
               <CardHeader className="pb-3">
@@ -185,17 +241,23 @@ export function OkrsClient() {
                         className="bg-bg border-border text-text font-data"
                       />
                     </div>
+                    <Textarea
+                      value={o.description ?? ""}
+                      onChange={(e) => update(o.id, { description: e.target.value.trim() ? e.target.value : undefined })}
+                      placeholder="Description (optional)..."
+                      rows={2}
+                      className="bg-bg border-border resize-none text-xs"
+                      aria-label="Objective description"
+                    />
                     <div className="flex items-center gap-3">
                       <Progress value={health * 100} className="h-2 flex-1" />
                       <Badge variant="outline" className="font-data">
                         {Math.round(health * 100)}%
                       </Badge>
-                      {forecast[0] && (
-                        <Badge variant="outline" className="gap-1 font-data text-accent border-accent/40">
-                          <TrendingUp className="w-3 h-3" />
-                          forecast {Math.round(forecast[0].yHat)}%
-                        </Badge>
-                      )}
+                      {/* Forecast badge removed: regressing KR-progress
+                          against KR-index produced a "forecast" with no
+                          temporal grounding. Will reintroduce once we capture
+                          historical OKR snapshots over time. */}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -212,45 +274,52 @@ export function OkrsClient() {
                 {o.keyResults.map((kr) => (
                   <div
                     key={kr.id}
-                    className="grid grid-cols-[1fr_80px_80px_80px_32px] gap-2 items-center rounded-md border border-border bg-bg p-2"
+                    className="space-y-2 rounded-md border border-border bg-bg p-2"
                   >
-                    <Input
-                      value={kr.title}
-                      onChange={(e) => updateKr(o.id, kr.id, { title: e.target.value })}
-                      placeholder="KR: Increase DAU from 1k to 10k"
-                      className="bg-surface border-border"
+                    <div className="grid grid-cols-[1fr_80px_80px_80px_32px] gap-2 items-center">
+                      <Input
+                        value={kr.title}
+                        onChange={(e) => updateKr(o.id, kr.id, { title: e.target.value })}
+                        placeholder="KR: Increase DAU from 1k to 10k"
+                        className="bg-surface border-border"
+                      />
+                      <NumCell
+                        value={kr.current}
+                        onChange={(n) => updateKr(o.id, kr.id, { current: n })}
+                        placeholder="Current"
+                        className="bg-surface border-border font-data"
+                      />
+                      <NumCell
+                        value={kr.target}
+                        onChange={(n) => updateKr(o.id, kr.id, { target: n })}
+                        placeholder="Target"
+                        className="bg-surface border-border font-data"
+                      />
+                      <NumCell
+                        value={kr.confidence ?? 5}
+                        onChange={(n) => updateKr(o.id, kr.id, { confidence: n })}
+                        min={0}
+                        max={10}
+                        title="Confidence (0-10)"
+                        className="bg-surface border-border font-data"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeKr(o.id, kr.id)}
+                        className="text-sub hover:text-danger"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                    <Textarea
+                      value={kr.description ?? ""}
+                      onChange={(e) => updateKr(o.id, kr.id, { description: e.target.value.trim() ? e.target.value : undefined })}
+                      placeholder="Description (optional)..."
+                      rows={2}
+                      className="bg-surface border-border resize-none text-xs"
+                      aria-label="Key result description"
                     />
-                    <Input
-                      type="number"
-                      value={kr.current}
-                      onChange={(e) => updateKr(o.id, kr.id, { current: Number(e.target.value) })}
-                      placeholder="Current"
-                      className="bg-surface border-border font-data"
-                    />
-                    <Input
-                      type="number"
-                      value={kr.target}
-                      onChange={(e) => updateKr(o.id, kr.id, { target: Number(e.target.value) })}
-                      placeholder="Target"
-                      className="bg-surface border-border font-data"
-                    />
-                    <Input
-                      type="number"
-                      min={0}
-                      max={10}
-                      value={kr.confidence ?? 5}
-                      onChange={(e) => updateKr(o.id, kr.id, { confidence: Number(e.target.value) })}
-                      title="Confidence (0-10)"
-                      className="bg-surface border-border font-data"
-                    />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeKr(o.id, kr.id)}
-                      className="text-sub hover:text-danger"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
                   </div>
                 ))}
                 <Button

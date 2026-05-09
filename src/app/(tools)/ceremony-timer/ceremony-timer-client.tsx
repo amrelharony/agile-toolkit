@@ -117,12 +117,14 @@ export function CeremonyTimerClient() {
   useEffect(() => {
     if (!running) return;
     intervalRef.current = setInterval(() => {
+      // The previous version called setRunning(false) and sonify("finish")
+      // from inside the setRemaining updater. React may invoke updaters
+      // multiple times in Strict Mode (and during concurrent rendering),
+      // which produced duplicate sonify("finish") emissions and a "setState
+      // during setState" warning. The "did we just hit zero?" handling now
+      // lives in a separate effect below that watches `remaining`.
       setRemaining((prev) => {
-        if (prev <= 1) {
-          setRunning(false);
-          sonify("finish");
-          return 0;
-        }
+        if (prev <= 1) return 0;
         if (prev === 11) sonify("ten-seconds");
         else if (prev % 60 === 0 && prev > 0) sonify("minute-mark");
         return prev - 1;
@@ -132,6 +134,16 @@ export function CeremonyTimerClient() {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [running, sonify]);
+
+  // Stop the timer and play the finish sound exactly once when remaining
+  // reaches zero while running. This is intentionally a separate effect so
+  // setState calls don't happen inside another updater (see comment above).
+  useEffect(() => {
+    if (running && remaining === 0) {
+      setRunning(false);
+      sonify("finish");
+    }
+  }, [running, remaining, sonify]);
 
   // Person rotation -- check if we should switch person
   useEffect(() => {
@@ -201,7 +213,17 @@ export function CeremonyTimerClient() {
   };
 
   const removeParticipant = (name: string) => {
-    setParticipants((prev) => prev.filter((p) => p !== name));
+    setParticipants((prev) => {
+      const next = prev.filter((p) => p !== name);
+      // Clamp currentPerson so the rotation pointer doesn't dangle past the
+      // shortened list (which would render `undefined` as the active name and
+      // break the progress bar). Sync the ref so the rotation effect doesn't
+      // immediately re-fire from the now-stale "previous" value.
+      const max = Math.max(0, next.length - 1);
+      setCurrentPerson((cp) => Math.min(cp, max));
+      prevPersonRef.current = Math.min(prevPersonRef.current, max);
+      return next;
+    });
   };
 
   // ---------------------------------------------------------------------------

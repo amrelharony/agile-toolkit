@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -34,6 +34,9 @@ type Status = "drafted" | "running" | "validated" | "invalidated" | "inconclusiv
 
 interface Hypothesis {
   id: string;
+  // Optional rationale/context captured at creation. Distinct from `outcome`,
+  // which is filled in only after the hypothesis resolves.
+  description?: string;
   believe: string;
   willDo: string;
   toLearn: string;
@@ -62,6 +65,166 @@ function setStatus(h: Hypothesis, status: Status): Hypothesis {
   return { ...h, status, resolvedAt: done ? (h.resolvedAt ?? todayLocalISO()) : undefined };
 }
 
+type TextField = "description" | "believe" | "willDo" | "toLearn" | "successMetric" | "experiment" | "outcome";
+
+function useDraftField(value: string, commit: (next: string) => void) {
+  const [draft, setDraft] = useState(value);
+  const lastRef = useRef(value);
+  useEffect(() => {
+    setDraft(value);
+    lastRef.current = value;
+  }, [value]);
+  const onBlur = () => {
+    if (draft !== lastRef.current) {
+      lastRef.current = draft;
+      commit(draft);
+    }
+  };
+  return { draft, setDraft, onBlur };
+}
+
+function HypothesisRow({
+  h,
+  update,
+  logUpdate,
+  updateStatus,
+  remove,
+}: {
+  h: Hypothesis;
+  update: (id: string, patch: Partial<Hypothesis>) => void;
+  logUpdate: (id: string, fields: string[]) => void;
+  updateStatus: (id: string, status: Status) => void;
+  remove: (id: string) => void;
+}) {
+  const description = useDraftField(h.description ?? "", (next) => {
+    update(h.id, { description: next });
+    logUpdate(h.id, ["description"]);
+  });
+  const believe = useDraftField(h.believe, (next) => {
+    update(h.id, { believe: next });
+    logUpdate(h.id, ["believe"]);
+  });
+  const willDo = useDraftField(h.willDo, (next) => {
+    update(h.id, { willDo: next });
+    logUpdate(h.id, ["willDo"]);
+  });
+  const toLearn = useDraftField(h.toLearn, (next) => {
+    update(h.id, { toLearn: next });
+    logUpdate(h.id, ["toLearn"]);
+  });
+  const successMetric = useDraftField(h.successMetric, (next) => {
+    update(h.id, { successMetric: next });
+    logUpdate(h.id, ["successMetric"]);
+  });
+  const experiment = useDraftField(h.experiment ?? "", (next) => {
+    update(h.id, { experiment: next });
+    logUpdate(h.id, ["experiment"]);
+  });
+  const outcome = useDraftField(h.outcome ?? "", (next) => {
+    update(h.id, { outcome: next });
+    logUpdate(h.id, ["outcome"]);
+  });
+
+  return (
+    <Card className="bg-surface border-border">
+      <CardContent className="p-4 space-y-3">
+        {/* Optional one-line context for the hypothesis. Captured at
+            creation, distinct from the post-hoc `outcome` field. */}
+        <Textarea
+          rows={2}
+          value={description.draft}
+          onChange={(e) => description.setDraft(e.target.value)}
+          onBlur={description.onBlur}
+          placeholder="Description (optional) — context, link, or rationale..."
+          className="bg-bg border-border text-sm"
+        />
+        <div className="flex items-start gap-3">
+          <Lightbulb className="w-5 h-5 text-accent mt-0.5 shrink-0" />
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
+            <div>
+              <div className="text-[10px] uppercase text-sub mb-1">We believe</div>
+              <Textarea
+                rows={2}
+                value={believe.draft}
+                onChange={(e) => believe.setDraft(e.target.value)}
+                onBlur={believe.onBlur}
+                placeholder="... that users want X"
+                className="bg-bg border-border text-sm"
+              />
+            </div>
+            <div>
+              <div className="text-[10px] uppercase text-sub mb-1">We will do</div>
+              <Textarea
+                rows={2}
+                value={willDo.draft}
+                onChange={(e) => willDo.setDraft(e.target.value)}
+                onBlur={willDo.onBlur}
+                placeholder="... ship feature Y"
+                className="bg-bg border-border text-sm"
+              />
+            </div>
+            <div>
+              <div className="text-[10px] uppercase text-sub mb-1">To learn</div>
+              <Textarea
+                rows={2}
+                value={toLearn.draft}
+                onChange={(e) => toLearn.setDraft(e.target.value)}
+                onBlur={toLearn.onBlur}
+                placeholder="... whether users engage"
+                className="bg-bg border-border text-sm"
+              />
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 items-end">
+            <Select value={h.status} onValueChange={(v) => updateStatus(h.id, v as Status)}>
+              <SelectTrigger className="bg-bg border-border w-36 capitalize"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(["drafted", "running", "validated", "invalidated", "inconclusive"] as Status[]).map((s) => (
+                  <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="ghost" size="sm" onClick={() => remove(h.id)} className="text-sub hover:text-danger">
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <Input
+            value={successMetric.draft}
+            onChange={(e) => successMetric.setDraft(e.target.value)}
+            onBlur={successMetric.onBlur}
+            placeholder="Success metric (e.g. 30% DAU activation within 14 days)"
+            className="bg-bg border-border text-sm"
+          />
+          <Input
+            value={experiment.draft}
+            onChange={(e) => experiment.setDraft(e.target.value)}
+            onBlur={experiment.onBlur}
+            placeholder="Experiment design"
+            className="bg-bg border-border text-sm"
+          />
+        </div>
+        {h.resolvedAt && (
+          <Textarea
+            rows={2}
+            value={outcome.draft}
+            onChange={(e) => outcome.setDraft(e.target.value)}
+            onBlur={outcome.onBlur}
+            placeholder="Outcome: what did we learn?"
+            className="bg-bg border-border text-sm"
+          />
+        )}
+        <div className="text-xs text-sub flex items-center gap-3">
+          <Badge variant="outline" className="capitalize">{h.status}</Badge>
+          <span>raised {h.raisedAt}</span>
+          {h.resolvedAt && <span>resolved {h.resolvedAt}</span>}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function HypothesisTrackerClient() {
   const [items, setItems] = usePersisted<Hypothesis[]>("agile-toolkit:hypothesis-tracker", []);
   const { log } = useHistoryLogger("hypothesis-tracker");
@@ -73,9 +236,11 @@ export function HypothesisTrackerClient() {
   };
   const update = (id: string, patch: Partial<Hypothesis>) => {
     setItems((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  };
+  const logUpdate = (id: string, fields: string[]) => {
     log(HYPOTHESIS_ACTIONS.HYPOTHESIS_UPDATED, {
       hypothesisId: id,
-      fields: Object.keys(patch),
+      fields,
     });
   };
   const updateStatus = (id: string, status: Status) => {
@@ -132,8 +297,8 @@ export function HypothesisTrackerClient() {
         <ExportButton
           filename="hypotheses"
           csvData={{
-            headers: ["Believe", "Will do", "To learn", "Success metric", "Experiment", "Outcome", "Status", "Raised", "Resolved"],
-            rows: items.map((i) => [i.believe, i.willDo, i.toLearn, i.successMetric, i.experiment ?? "", i.outcome ?? "", i.status, i.raisedAt, i.resolvedAt ?? ""]),
+            headers: ["Description", "Believe", "Will do", "To learn", "Success metric", "Experiment", "Outcome", "Status", "Raised", "Resolved"],
+            rows: items.map((i) => [i.description ?? "", i.believe, i.willDo, i.toLearn, i.successMetric, i.experiment ?? "", i.outcome ?? "", i.status, i.raisedAt, i.resolvedAt ?? ""]),
           }}
           jsonData={items}
         />
@@ -161,68 +326,14 @@ export function HypothesisTrackerClient() {
 
       <div className="space-y-3">
         {items.map((h) => (
-          <Card key={h.id} className="bg-surface border-border">
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-start gap-3">
-                <Lightbulb className="w-5 h-5 text-accent mt-0.5 shrink-0" />
-                <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
-                  <div>
-                    <div className="text-[10px] uppercase text-sub mb-1">We believe</div>
-                    <Textarea rows={2} value={h.believe} onChange={(e) => update(h.id, { believe: e.target.value })} placeholder="... that users want X" className="bg-bg border-border text-sm" />
-                  </div>
-                  <div>
-                    <div className="text-[10px] uppercase text-sub mb-1">We will do</div>
-                    <Textarea rows={2} value={h.willDo} onChange={(e) => update(h.id, { willDo: e.target.value })} placeholder="... ship feature Y" className="bg-bg border-border text-sm" />
-                  </div>
-                  <div>
-                    <div className="text-[10px] uppercase text-sub mb-1">To learn</div>
-                    <Textarea rows={2} value={h.toLearn} onChange={(e) => update(h.id, { toLearn: e.target.value })} placeholder="... whether users engage" className="bg-bg border-border text-sm" />
-                  </div>
-                </div>
-                <div className="flex flex-col gap-2 items-end">
-                  <Select value={h.status} onValueChange={(v) => updateStatus(h.id, v as Status)}>
-                    <SelectTrigger className="bg-bg border-border w-36 capitalize"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {(["drafted", "running", "validated", "invalidated", "inconclusive"] as Status[]).map((s) => (
-                        <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button variant="ghost" size="sm" onClick={() => remove(h.id)} className="text-sub hover:text-danger">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                <Input
-                  value={h.successMetric}
-                  onChange={(e) => update(h.id, { successMetric: e.target.value })}
-                  placeholder="Success metric (e.g. 30% DAU activation within 14 days)"
-                  className="bg-bg border-border text-sm"
-                />
-                <Input
-                  value={h.experiment ?? ""}
-                  onChange={(e) => update(h.id, { experiment: e.target.value })}
-                  placeholder="Experiment design"
-                  className="bg-bg border-border text-sm"
-                />
-              </div>
-              {h.resolvedAt && (
-                <Textarea
-                  rows={2}
-                  value={h.outcome ?? ""}
-                  onChange={(e) => update(h.id, { outcome: e.target.value })}
-                  placeholder="Outcome: what did we learn?"
-                  className="bg-bg border-border text-sm"
-                />
-              )}
-              <div className="text-xs text-sub flex items-center gap-3">
-                <Badge variant="outline" className="capitalize">{h.status}</Badge>
-                <span>raised {h.raisedAt}</span>
-                {h.resolvedAt && <span>resolved {h.resolvedAt}</span>}
-              </div>
-            </CardContent>
-          </Card>
+          <HypothesisRow
+            key={h.id}
+            h={h}
+            update={update}
+            logUpdate={logUpdate}
+            updateStatus={updateStatus}
+            remove={remove}
+          />
         ))}
         {items.length === 0 && (
           <EmptyState icon={Lightbulb}>

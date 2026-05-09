@@ -43,6 +43,7 @@ import {
 interface WorkItem {
   id: string;
   name: string;
+  description?: string;
   startDate: string;
   endDate: string;
 }
@@ -104,6 +105,7 @@ const createItem = (): WorkItem => ({
   name: "",
   startDate: "",
   endDate: "",
+  // description omitted intentionally — optional, lazy-initialized.
 });
 
 const useCycleTimeStore = create<CycleTimeStore>()(
@@ -299,9 +301,10 @@ export function CycleTimeClient() {
 
   /* -- Export data --------------------------------------------------------- */
   const csvData = useMemo(() => ({
-    headers: ["Item Name", "Start Date", "End Date", "Cycle Time (days)"],
+    headers: ["Item Name", "Description", "Start Date", "End Date", "Cycle Time (days)"],
     rows: itemsWithCT.map((i) => [
       i.name || "(unnamed)",
+      i.description ?? "",
       i.startDate,
       i.endDate,
       i.cycleTime ?? "N/A",
@@ -312,6 +315,7 @@ export function CycleTimeClient() {
     () => ({
       items: itemsWithCT.map((i) => ({
         name: i.name || "(unnamed)",
+        description: i.description ?? "",
         startDate: i.startDate,
         endDate: i.endDate,
         cycleTime: i.cycleTime,
@@ -327,7 +331,7 @@ export function CycleTimeClient() {
     prompts: generateCycleTimePrompts({
       items: itemsWithCT
         .filter((i): i is typeof i & { cycleTime: number } => i.cycleTime !== null)
-        .map((i) => ({ name: i.name, startDate: i.startDate, endDate: i.endDate, cycleTimeDays: i.cycleTime })),
+        .map((i) => ({ name: i.name, startDate: i.startDate, endDate: i.endDate, cycleTimeDays: i.cycleTime, description: i.description })),
       stats: { mean: stats.avg, median: stats.median, p85: stats.p85, p95: percentileMap[95], stdDev: stats.stddev },
     }),
   }), [itemsWithCT, stats, percentileMap]);
@@ -429,30 +433,45 @@ export function CycleTimeClient() {
                       />
                       <Tooltip content={<HistogramTooltip />} />
                       <Bar dataKey="count" fill="#00f0ff" fillOpacity={0.8} radius={[4, 4, 0, 0]} />
-                      <ReferenceLine
-                        x={BUCKETS.findIndex((b) => stats.median >= b.min && stats.median <= b.max) >= 0
-                          ? BUCKETS[BUCKETS.findIndex((b) => stats.median >= b.min && stats.median <= b.max)].label
-                          : undefined}
-                        stroke="#00f0ff"
-                        strokeDasharray="4 2"
-                        label={{ value: "P50", fill: "#00f0ff", fontSize: 10 }}
-                      />
-                      <ReferenceLine
-                        x={BUCKETS.findIndex((b) => stats.p85 >= b.min && stats.p85 <= b.max) >= 0
-                          ? BUCKETS[BUCKETS.findIndex((b) => stats.p85 >= b.min && stats.p85 <= b.max)].label
-                          : undefined}
-                        stroke="#f59e0b"
-                        strokeDasharray="4 2"
-                        label={{ value: "P85", fill: "#f59e0b", fontSize: 10 }}
-                      />
-                      <ReferenceLine
-                        x={BUCKETS.findIndex((b) => percentileMap[95] >= b.min && percentileMap[95] <= b.max) >= 0
-                          ? BUCKETS[BUCKETS.findIndex((b) => percentileMap[95] >= b.min && percentileMap[95] <= b.max)].label
-                          : undefined}
-                        stroke="#ef4444"
-                        strokeDasharray="4 2"
-                        label={{ value: "P95", fill: "#ef4444", fontSize: 10 }}
-                      />
+                      {/* Each percentile marker is rendered ONLY when its
+                          value lands inside a defined histogram bucket. The
+                          previous version passed `x={undefined}` to Recharts
+                          when no bucket matched (e.g. all items completed in
+                          0d, P95 falls below the 1-day bucket), which threw
+                          console warnings and rendered phantom lines. */}
+                      {(() => {
+                        const idx = BUCKETS.findIndex((b) => stats.median >= b.min && stats.median <= b.max);
+                        return idx >= 0 ? (
+                          <ReferenceLine
+                            x={BUCKETS[idx].label}
+                            stroke="#00f0ff"
+                            strokeDasharray="4 2"
+                            label={{ value: "P50", fill: "#00f0ff", fontSize: 10 }}
+                          />
+                        ) : null;
+                      })()}
+                      {(() => {
+                        const idx = BUCKETS.findIndex((b) => stats.p85 >= b.min && stats.p85 <= b.max);
+                        return idx >= 0 ? (
+                          <ReferenceLine
+                            x={BUCKETS[idx].label}
+                            stroke="#f59e0b"
+                            strokeDasharray="4 2"
+                            label={{ value: "P85", fill: "#f59e0b", fontSize: 10 }}
+                          />
+                        ) : null;
+                      })()}
+                      {(() => {
+                        const idx = BUCKETS.findIndex((b) => percentileMap[95] >= b.min && percentileMap[95] <= b.max);
+                        return idx >= 0 ? (
+                          <ReferenceLine
+                            x={BUCKETS[idx].label}
+                            stroke="#ef4444"
+                            strokeDasharray="4 2"
+                            label={{ value: "P95", fill: "#ef4444", fontSize: 10 }}
+                          />
+                        ) : null;
+                      })()}
                     </BarChart>
                   </ResponsiveContainer>
                   <div className="flex items-center gap-4 mt-3 text-xs text-sub">
@@ -685,12 +704,29 @@ export function CycleTimeClient() {
                   {itemsWithCT.map((item) => (
                     <tr key={item.id} className="border-b border-border hover:bg-card-hover">
                       <td className="py-2 pr-4">
-                        <Input
-                          placeholder="Feature or story name"
-                          value={item.name}
-                          onChange={(e) => updateItem(item.id, { name: e.target.value })}
-                          className="h-8 input-toolkit"
-                        />
+                        {/* Compact single-line Input below the name keeps the
+                            tabular row tidy. Description is optional; empty
+                            string is normalized to undefined on commit. */}
+                        <div className="space-y-1">
+                          <Input
+                            placeholder="Feature or story name"
+                            value={item.name}
+                            onChange={(e) => updateItem(item.id, { name: e.target.value })}
+                            className="h-8 input-toolkit"
+                          />
+                          <Input
+                            placeholder="Description (optional)..."
+                            value={item.description ?? ""}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              updateItem(item.id, {
+                                description: v.trim() ? v : undefined,
+                              });
+                            }}
+                            className="h-7 input-toolkit text-xs"
+                            aria-label="Item description"
+                          />
+                        </div>
                       </td>
                       <td className="py-2 px-3">
                         <Input

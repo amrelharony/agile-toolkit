@@ -6,6 +6,7 @@ interface DodItem {
   label: string;
   category: string;
   required: boolean;
+  description?: string;
 }
 
 interface DodData {
@@ -16,8 +17,8 @@ interface DodData {
 export function generateDodBuilderPrompts(data: DodData): PromptDefinition[] {
   if (data.items.length === 0) return [];
   const table = formatTable(
-    ["Category", "Item", "Required"],
-    data.items.map((i) => [i.category, i.label, i.required ? "Yes" : "No"])
+    ["Category", "Item", "Required", "Description"],
+    data.items.map((i) => [i.category, i.label, i.required ? "Yes" : "No", (i.description ?? "—").slice(0, 80)])
   );
   return [
     {

@@ -67,17 +67,25 @@ export function DecisionLogClient() {
   };
 
   const updateDecision = (id: string, patch: Partial<Decision>) => {
-    setDecisions((d) => d.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    // Capture the previous decision atomically inside the functional setter so
+    // STATUS_CHANGED logs the actually-current `from` value. Reading from the
+    // outer `decisions` closure was stale: a rapid Select change would log
+    // the prior render's status (often the same value as `to`), and React
+    // batched updates would compound the drift.
+    setDecisions((d) => {
+      const prev = patch.status ? d.find((x) => x.id === id) : undefined;
+      const next = d.map((x) => (x.id === id ? { ...x, ...patch } : x));
+      if (patch.status && prev) {
+        log(DECISION_ACTIONS.STATUS_CHANGED, {
+          decisionId: id,
+          title: prev.title,
+          from: prev.status,
+          to: patch.status,
+        });
+      }
+      return next;
+    });
     if (editing?.id === id) setEditing((prev) => (prev ? { ...prev, ...patch } : prev));
-    if (patch.status) {
-      const prev = decisions.find((x) => x.id === id);
-      log(DECISION_ACTIONS.STATUS_CHANGED, {
-        decisionId: id,
-        title: prev?.title,
-        from: prev?.status,
-        to: patch.status,
-      });
-    }
   };
 
   const removeDecision = (id: string) => {
@@ -139,7 +147,7 @@ export function DecisionLogClient() {
         <ExportButton
           filename="decision-log"
           csvData={{
-            headers: ["ID", "Title", "Status", "Date", "Context", "Decision", "Consequences"],
+            headers: ["ID", "Title", "Status", "Date", "Context", "Decision", "Consequences", "Alternatives"],
             rows: decisions.map((d) => [
               d.id,
               d.title,
@@ -148,6 +156,10 @@ export function DecisionLogClient() {
               d.context ?? "",
               d.decision,
               d.consequences ?? "",
+              // Join with "; " (semicolons + space) — newlines inside a CSV
+              // cell would either need quoting (which the export helper may
+              // do) or break consumer tooling that expects single-line cells.
+              (d.alternatives ?? []).join("; "),
             ]),
           }}
           jsonData={decisions}
@@ -273,8 +285,14 @@ export function DecisionLogClient() {
                     placeholder={"Option A — rejected because...\nOption B — rejected because..."}
                     value={(editing.alternatives ?? []).join("\n")}
                     onChange={(e) =>
+                      // Keep the raw split — including empty trailing lines —
+                      // so the user can press Enter at the end of the field
+                      // without their cursor jumping back. The previous
+                      // `.filter(Boolean)` collapsed every empty line, which
+                      // made it impossible to add a blank line between bullets
+                      // mid-typing.
                       updateDecision(editing.id, {
-                        alternatives: e.target.value.split("\n").filter(Boolean),
+                        alternatives: e.target.value.split("\n"),
                       })
                     }
                     className="bg-bg border-border"

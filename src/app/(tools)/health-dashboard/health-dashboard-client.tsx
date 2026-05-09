@@ -158,11 +158,13 @@ function extractHealthCheckKPIs(): { healthPct: number | null; trend: TrendDir }
   if (history.length > 0) {
     const last = history[history.length - 1];
     const lastScores = Object.values(last.scores);
-    const lastTotal = lastScores.reduce((sum, s) => sum + scoreMap[s.light], 0);
-    const lastPct = (lastTotal / (lastScores.length * 2)) * 100;
-    const diff = pct - lastPct;
-    if (diff > 5) trend = "up";
-    else if (diff < -5) trend = "down";
+    if (lastScores.length > 0) {
+      const lastTotal = lastScores.reduce((sum, s) => sum + scoreMap[s.light], 0);
+      const lastPct = (lastTotal / (lastScores.length * 2)) * 100;
+      const diff = pct - lastPct;
+      if (diff > 5) trend = "up";
+      else if (diff < -5) trend = "down";
+    }
   }
 
   return { healthPct: pct, trend };
@@ -412,119 +414,125 @@ export function HealthDashboardClient() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const cycleTimeData = useMemo(() => extractCycleTimeKPIs(), [refreshKey]);
 
-  const kpis: KPI[] = [
-    {
-      id: "predictability",
-      name: "Velocity Predictability",
-      value: velocityData.predictability,
-      unit: "%",
-      status: predictabilityStatus(velocityData.predictability),
-      trend: velocityData.trend,
-      sourcePath: "/velocity",
-      sourceName: "Velocity Tracker",
-      icon: Activity,
-      iconColor: "#00f0ff",
-      description: "% of sprints where completed ≥ committed",
-    },
-    {
-      id: "team-health",
-      name: "Team Health Score",
-      value: healthCheckData.healthPct,
-      unit: "%",
-      status: healthPctStatus(healthCheckData.healthPct),
-      trend: healthCheckData.trend,
-      sourcePath: "/health-check",
-      sourceName: "Squad Health Check",
-      icon: HeartPulse,
-      iconColor: "#ff00aa",
-      description: "Overall squad health across all dimensions",
-    },
-    {
-      id: "open-impediments",
-      name: "Open Impediments",
-      value: impedimentData.openCount,
-      unit: "",
-      status: openImpedimentsStatus(impedimentData.openCount),
-      trend: "same",
-      sourcePath: "/impediments",
-      sourceName: "Impediment Tracker",
-      icon: AlertTriangle,
-      iconColor: "#eab308",
-      description: "Total unresolved impediments",
-    },
-    {
-      id: "critical-impediments",
-      name: "Critical Impediments",
-      value: impedimentData.criticalCount,
-      unit: "",
-      status: criticalImpedimentsStatus(impedimentData.criticalCount),
-      trend: "same",
-      sourcePath: "/impediments",
-      sourceName: "Impediment Tracker",
-      icon: AlertCircle,
-      iconColor: "#ef4444",
-      description: "Impediments at Critical severity",
-    },
-    {
-      id: "open-blockers",
-      name: "Open Standup Blockers",
-      value: standupData.openBlockers,
-      unit: "",
-      status: openBlockersStatus(standupData.openBlockers),
-      trend: "same",
-      sourcePath: "/standup",
-      sourceName: "Standup Tracker",
-      icon: Mic,
-      iconColor: "#8b5cf6",
-      description: "Unresolved blockers from standup logs",
-    },
-    {
-      id: "cycle-time-p85",
-      name: "Cycle Time P85",
-      value: cycleTimeData.p85,
-      unit: " days",
-      status: cycleTimeP85Status(cycleTimeData.p85),
-      trend: "same",
-      sourcePath: "/cycle-time",
-      sourceName: "Cycle Time Analyzer",
-      icon: Clock,
-      iconColor: "#f97316",
-      description: "85th percentile cycle time in days",
-    },
-  ];
+  const kpis: KPI[] = useMemo(
+    () => [
+      {
+        id: "predictability",
+        name: "Velocity Predictability",
+        value: velocityData.predictability,
+        unit: "%",
+        status: predictabilityStatus(velocityData.predictability),
+        trend: velocityData.trend,
+        sourcePath: "/velocity",
+        sourceName: "Velocity Tracker",
+        icon: Activity,
+        iconColor: "#00f0ff",
+        description: "% of sprints where completed ≥ committed",
+      },
+      {
+        id: "team-health",
+        name: "Team Health Score",
+        value: healthCheckData.healthPct,
+        unit: "%",
+        status: healthPctStatus(healthCheckData.healthPct),
+        trend: healthCheckData.trend,
+        sourcePath: "/health-check",
+        sourceName: "Squad Health Check",
+        icon: HeartPulse,
+        iconColor: "#ff00aa",
+        description: "Overall squad health across all dimensions",
+      },
+      {
+        id: "open-impediments",
+        name: "Open Impediments",
+        value: impedimentData.openCount,
+        unit: "",
+        status: openImpedimentsStatus(impedimentData.openCount),
+        trend: "same",
+        sourcePath: "/impediments",
+        sourceName: "Impediment Tracker",
+        icon: AlertTriangle,
+        iconColor: "#eab308",
+        description: "Total unresolved impediments",
+      },
+      {
+        id: "critical-impediments",
+        name: "Critical Impediments",
+        value: impedimentData.criticalCount,
+        unit: "",
+        status: criticalImpedimentsStatus(impedimentData.criticalCount),
+        trend: "same",
+        sourcePath: "/impediments",
+        sourceName: "Impediment Tracker",
+        icon: AlertCircle,
+        iconColor: "#ef4444",
+        description: "Impediments at Critical severity",
+      },
+      {
+        id: "open-blockers",
+        name: "Open Standup Blockers",
+        value: standupData.openBlockers,
+        unit: "",
+        status: openBlockersStatus(standupData.openBlockers),
+        trend: "same",
+        sourcePath: "/standup",
+        sourceName: "Standup Tracker",
+        icon: Mic,
+        iconColor: "#8b5cf6",
+        description: "Unresolved blockers from standup logs",
+      },
+      {
+        id: "cycle-time-p85",
+        name: "Cycle Time P85",
+        value: cycleTimeData.p85,
+        unit: " days",
+        status: cycleTimeP85Status(cycleTimeData.p85),
+        trend: "same",
+        sourcePath: "/cycle-time",
+        sourceName: "Cycle Time Analyzer",
+        icon: Clock,
+        iconColor: "#f97316",
+        description: "85th percentile cycle time in days",
+      },
+    ],
+    [velocityData, healthCheckData, impedimentData, standupData, cycleTimeData]
+  );
 
-  const dataSources: DataSourceStatus[] = [
-    {
-      key: "agile-toolkit:velocity",
-      label: "Velocity Tracker",
-      path: "/velocity",
-      hasData: velocityData.predictability !== null,
-    },
-    {
-      key: "agile-toolkit:health-check",
-      label: "Squad Health Check",
-      path: "/health-check",
-      hasData: healthCheckData.healthPct !== null,
-    },
-    {
-      key: "agile-toolkit:impediments",
-      label: "Impediment Tracker",
-      path: "/impediments",
-      hasData: impedimentData.openCount !== null,
-    },
-    {
-      key: "agile-toolkit:standup",
-      label: "Standup Tracker",
-      path: "/standup",
-      hasData: standupData.openBlockers !== null,
-    },
-    {
-      key: "agile-toolkit:cycle-time",
-      label: "Cycle Time Analyzer",
-      path: "/cycle-time",
-      hasData: cycleTimeData.p85 !== null,
-    },
-  ];
+  const dataSources: DataSourceStatus[] = useMemo(
+    () => [
+      {
+        key: "agile-toolkit:velocity",
+        label: "Velocity Tracker",
+        path: "/velocity",
+        hasData: velocityData.predictability !== null,
+      },
+      {
+        key: "agile-toolkit:health-check",
+        label: "Squad Health Check",
+        path: "/health-check",
+        hasData: healthCheckData.healthPct !== null,
+      },
+      {
+        key: "agile-toolkit:impediments",
+        label: "Impediment Tracker",
+        path: "/impediments",
+        hasData: impedimentData.openCount !== null,
+      },
+      {
+        key: "agile-toolkit:standup",
+        label: "Standup Tracker",
+        path: "/standup",
+        hasData: standupData.openBlockers !== null,
+      },
+      {
+        key: "agile-toolkit:cycle-time",
+        label: "Cycle Time Analyzer",
+        path: "/cycle-time",
+        hasData: cycleTimeData.p85 !== null,
+      },
+    ],
+    [velocityData, healthCheckData, impedimentData, standupData, cycleTimeData]
+  );
 
   /* -- Overall score ------------------------------------------------------- */
   const connectedKpis = kpis.filter((k) => k.value !== null);
@@ -555,10 +563,10 @@ export function HealthDashboardClient() {
         })),
       }),
     }),
-    // kpis is intentionally omitted — it's rebuilt every render from localStorage.
-    // refreshKey triggers recalculation when the user clicks Refresh.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [refreshKey]
+    // Refresh both when the user explicitly clicks Refresh AND when any
+    // upstream extractor output changes — kpis is now memoized and tracks
+    // those primitives, so it's safe to depend on directly.
+    [refreshKey, kpis]
   );
 
   /* -- Refresh ------------------------------------------------------------- */

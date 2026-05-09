@@ -49,7 +49,7 @@ const KIND_COLORS: Record<EntryKind, string> = {
 
 function empty(): SosEntry {
   return {
-    id: nanoid(8),
+    id: nanoid(),
     meetingDate: todayLocalISO(),
     team: "",
     kind: "update",
@@ -58,8 +58,12 @@ function empty(): SosEntry {
   };
 }
 
-function ageDays(e: SosEntry): number {
-  return Math.floor((Date.now() - new Date(e.meetingDate).getTime()) / (1000 * 60 * 60 * 24));
+function ageDays(e: SosEntry): number | null {
+  // Guard against malformed meetingDate (manual import, schema drift). NaN
+  // would bleed into the staleBlockers filter and the rendered "age Nd" pill.
+  const t = new Date(e.meetingDate).getTime();
+  if (!Number.isFinite(t)) return null;
+  return Math.floor((Date.now() - t) / (1000 * 60 * 60 * 24));
 }
 
 export function ScrumOfScrumsClient() {
@@ -84,14 +88,22 @@ export function ScrumOfScrumsClient() {
     setDraft(empty());
   };
   const update = (id: string, patch: Partial<SosEntry>) => {
-    const prev = entries.find((e) => e.id === id);
-    setEntries((s) => s.map((e) => (e.id === id ? { ...e, ...patch } : e)));
-    if (patch.status && patch.status !== prev?.status) {
-      log(SCRUM_OF_SCRUMS_ACTIONS.TEAM_UPDATE_ADDED, {
-        team: prev?.team,
-        kind: prev?.kind,
-        statusChange: { from: prev?.status, to: patch.status },
-      });
+    // Compute prev inside the functional setter so we observe the freshest
+    // entries — outer-closure `entries` can lag if multiple updates batch.
+    let logPayload: { team?: string; kind?: EntryKind; statusChange?: { from?: SosEntry["status"]; to?: SosEntry["status"] } } | null = null;
+    setEntries((entries) => {
+      const prev = entries.find((e) => e.id === id);
+      if (patch.status && patch.status !== prev?.status) {
+        logPayload = {
+          team: prev?.team,
+          kind: prev?.kind,
+          statusChange: { from: prev?.status, to: patch.status },
+        };
+      }
+      return entries.map((e) => (e.id === id ? { ...e, ...patch } : e));
+    });
+    if (logPayload) {
+      log(SCRUM_OF_SCRUMS_ACTIONS.TEAM_UPDATE_ADDED, logPayload);
     }
   };
   const remove = (id: string) => {
@@ -106,7 +118,15 @@ export function ScrumOfScrumsClient() {
     update(id, { status: "resolved", resolvedAt: todayLocalISO() });
   };
 
-  const staleBlockers = useMemo(() => entries.filter((e) => e.kind === "blocker" && e.status === "open" && ageDays(e) >= 3), [entries]);
+  const staleBlockers = useMemo(
+    () =>
+      entries.filter((e) => {
+        if (e.kind !== "blocker" || e.status !== "open") return false;
+        const age = ageDays(e);
+        return age !== null && age >= 3;
+      }),
+    [entries]
+  );
 
   const promptConfig = useMemo(
     () => ({
@@ -222,7 +242,7 @@ export function ScrumOfScrumsClient() {
                     {e.kind}
                   </div>
                   <div className="text-xs text-sub font-data">{e.meetingDate}</div>
-                  <div className="text-[10px] text-sub">age {ageDays(e)}d</div>
+                  <div className="text-[10px] text-sub">age {ageDays(e) ?? "—"}d</div>
                 </div>
                 <div className="flex-1 min-w-0 space-y-1">
                   <div className="text-sm font-semibold text-text">{e.team}</div>

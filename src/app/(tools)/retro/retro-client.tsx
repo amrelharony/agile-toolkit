@@ -77,7 +77,7 @@ const PHASES: { key: BoardPhase; label: string; description: string }[] = [
 // ── Helpers ──────────────────────────────────────────────────
 
 function makeId() {
-  return Math.random().toString(36).slice(2, 10);
+  return crypto.randomUUID();
 }
 
 function formatTimer(s: number) {
@@ -209,6 +209,7 @@ function RetroCardItem({
   onGroup,
   onToggleAction,
   onAssigneeChange,
+  onToggleDiscussing,
 }: {
   card: RetroCard;
   allCards: RetroCard[];
@@ -220,12 +221,16 @@ function RetroCardItem({
   onGroup: (id: string, parentId: string | null) => void;
   onToggleAction: (id: string) => void;
   onAssigneeChange: (id: string, val: string) => void;
+  onToggleDiscussing: (id: string) => void;
 }) {
   const otherCards = allCards.filter(
     (c) => c.id !== card.id && c.columnKey === card.columnKey && c.groupedWith === null
   );
 
   const isDiscussing = card.discussing;
+  // Only top-level cards in the Discuss phase get the click-to-focus affordance.
+  // Grouped child cards inherit visual state from the parent and aren't toggled.
+  const isDiscussClickable = phase === "discuss" && card.groupedWith === null;
 
   return (
     <motion.div
@@ -234,7 +239,36 @@ function RetroCardItem({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.2 }}
+      onClick={
+        isDiscussClickable
+          ? (e) => {
+              // Skip when the click bubbled from an inner interactive control
+              // (vote button, delete, etc.) — we only want bare-card clicks
+              // to toggle the discussing focus.
+              if ((e.target as HTMLElement).closest("button, input, select, [role='button']") !== e.currentTarget) {
+                const targetEl = e.target as HTMLElement;
+                if (targetEl.closest("button, input, select, a")) return;
+              }
+              onToggleDiscussing(card.id);
+            }
+          : undefined
+      }
+      role={isDiscussClickable ? "button" : undefined}
+      tabIndex={isDiscussClickable ? 0 : undefined}
+      onKeyDown={
+        isDiscussClickable
+          ? (e) => {
+              if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
+                e.preventDefault();
+                onToggleDiscussing(card.id);
+              }
+            }
+          : undefined
+      }
+      aria-pressed={isDiscussClickable ? isDiscussing : undefined}
       className={`group relative rounded-lg border p-3 transition-all duration-200 ${
+        isDiscussClickable ? "cursor-pointer" : ""
+      } ${
         isDiscussing
           ? "border-accent-cyan bg-accent-cyan/10 shadow-neon-cyan"
           : card.groupedWith !== null
@@ -355,6 +389,7 @@ function RetroColumnPanel({
   onGroup,
   onToggleAction,
   onAssigneeChange,
+  onToggleDiscussing,
 }: {
   column: RetroColumn;
   cards: RetroCard[];
@@ -367,6 +402,7 @@ function RetroColumnPanel({
   onGroup: (id: string, parentId: string | null) => void;
   onToggleAction: (id: string) => void;
   onAssigneeChange: (id: string, val: string) => void;
+  onToggleDiscussing: (id: string) => void;
 }) {
   const [inputVal, setInputVal] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -428,6 +464,7 @@ function RetroColumnPanel({
                     onGroup={onGroup}
                     onToggleAction={onToggleAction}
                     onAssigneeChange={onAssigneeChange}
+                    onToggleDiscussing={onToggleDiscussing}
                   />
                   {children.map((child) => (
                     <RetroCardItem
@@ -442,6 +479,7 @@ function RetroColumnPanel({
                       onGroup={onGroup}
                       onToggleAction={onToggleAction}
                       onAssigneeChange={onAssigneeChange}
+                      onToggleDiscussing={onToggleDiscussing}
                     />
                   ))}
                 </div>
@@ -800,6 +838,30 @@ function Board({
     [onUpdate]
   );
 
+  const handleToggleDiscussing = useCallback(
+    (id: string) => {
+      onUpdate((prev) => {
+        if (prev.phase !== "discuss") return prev;
+        const target = prev.cards.find((c) => c.id === id);
+        if (!target) return prev;
+        const next = !target.discussing;
+        return {
+          ...prev,
+          // Toggling a card "into" discussion focuses just that one — clear any
+          // others so the highlight ring stays meaningful at a glance.
+          cards: prev.cards.map((c) =>
+            c.id === id
+              ? { ...c, discussing: next }
+              : next && c.discussing
+              ? { ...c, discussing: false }
+              : c
+          ),
+        };
+      });
+    },
+    [onUpdate]
+  );
+
   const promptConfig = useMemo(() => ({
     toolName: "Retrospective Board",
     prompts: generateRetroPrompts({
@@ -928,6 +990,7 @@ function Board({
                 onGroup={handleGroup}
                 onToggleAction={handleToggleAction}
                 onAssigneeChange={handleAssigneeChange}
+                onToggleDiscussing={handleToggleDiscussing}
               />
             );
           })}
@@ -991,6 +1054,17 @@ export function RetroClient() {
 
   const handleSelectFormat = useCallback(
     (format: RetroFormat) => {
+      // Switching formats wipes every card — confirm first when there's work to lose.
+      if (
+        boardState &&
+        boardState.cards.length > 0 &&
+        typeof window !== "undefined" &&
+        !window.confirm(
+          `Switching to "${format.name}" will clear all ${boardState.cards.length} cards on the current board. Continue?`
+        )
+      ) {
+        return;
+      }
       setBoardState({
         format,
         phase: "write",
@@ -1002,7 +1076,7 @@ export function RetroClient() {
       });
       logger.log(RETRO_ACTIONS.FORMAT_CHANGED, { format: format.name });
     },
-    [logger]
+    [logger, boardState]
   );
 
   const handleReset = useCallback(() => {

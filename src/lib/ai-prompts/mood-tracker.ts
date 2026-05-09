@@ -28,6 +28,19 @@ export function generateMoodTrackerPrompts(data: {
     byDay.map((d) => [d.date, d.avg ? d.avg.toFixed(2) : "-", d.count])
   );
 
+  // Surface the most recent non-empty notes so the AI can ground its analysis
+  // in qualitative team voice, not just averages.
+  const recentNotes = data.entries
+    .filter((e) => e.note && e.note.trim().length > 0)
+    .slice()
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 5)
+    .map((e) => `- ${e.date} (score ${e.score}): ${e.note!.slice(0, 80)}`)
+    .join("\n");
+  const notesBlock = recentNotes
+    ? `\n\n## Recent Notes\n\n${recentNotes}`
+    : "";
+
   return [
     {
       id: "mood-interpretation",
@@ -35,7 +48,7 @@ export function generateMoodTrackerPrompts(data: {
       description: "Coach on what the team's 14-day mood pattern reveals.",
       prompt:
         buildPreamble("Team Mood Tracker", `14-day average: ${data.overallAvg.toFixed(2)} / 5.`) +
-        `## Daily Averages\n\n${table}\n\n## Questions\n\n1. What does this mood pattern tell you about team health?\n2. Are there correlation signals with sprint boundaries, incidents, or deadlines?\n3. Recommend 2-3 actions the Scrum Master should take.`,
+        `## Daily Averages\n\n${table}${notesBlock}\n\n## Questions\n\n1. What does this mood pattern tell you about team health?\n2. Are there correlation signals with sprint boundaries, incidents, or deadlines?\n3. Recommend 2-3 actions the Scrum Master should take.`,
     },
     {
       id: "mood-intervention",
@@ -43,7 +56,7 @@ export function generateMoodTrackerPrompts(data: {
       description: "If mood is low or falling, build a plan to address it.",
       prompt:
         buildPreamble("Team Mood Tracker", "Low mood is a leading indicator of burnout and attrition.") +
-        `## Daily Averages\n\n${table}\n\n## Questions\n\n1. What immediate 1:1 or retro topics should address this?\n2. What structural changes reduce mood drivers (meetings, interruptions, scope pressure)?\n3. How can the team monitor if interventions work?`,
+        `## Daily Averages\n\n${table}${notesBlock}\n\n## Questions\n\n1. What immediate 1:1 or retro topics should address this?\n2. What structural changes reduce mood drivers (meetings, interruptions, scope pressure)?\n3. How can the team monitor if interventions work?`,
     },
   ];
 }

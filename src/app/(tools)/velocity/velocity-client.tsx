@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
@@ -34,6 +34,7 @@ import { Plus, Trash2, Activity, TrendingUp, TrendingDown, Minus } from "lucide-
 interface Sprint {
   id: string;
   name: string;
+  description?: string;
   committed: number;
   completed: number;
 }
@@ -50,18 +51,35 @@ interface VelocityStore {
 /*  Default data                                                              */
 /* -------------------------------------------------------------------------- */
 
-const DEFAULT_SPRINTS: Sprint[] = [
-  { id: "s1", name: "Sprint 1", committed: 34, completed: 28 },
-  { id: "s2", name: "Sprint 2", committed: 30, completed: 32 },
-  { id: "s3", name: "Sprint 3", committed: 36, completed: 35 },
-];
+// Computed lazily so crypto.randomUUID() runs on the client (or wherever the
+// store is initialized) rather than at module load. Using static "s1"/"s2"/
+// "s3" ids meant a reset() in two different tabs would collide on the same
+// sprint id, breaking persistence semantics.
+function buildDefaultSprints(): Sprint[] {
+  return [
+    { id: crypto.randomUUID(), name: "Sprint 1", committed: 34, completed: 28 },
+    { id: crypto.randomUUID(), name: "Sprint 2", committed: 30, completed: 32 },
+    { id: crypto.randomUUID(), name: "Sprint 3", committed: 36, completed: 35 },
+  ];
+}
 
-const createSprint = (count: number): Sprint => ({
-  id: crypto.randomUUID(),
-  name: `Sprint ${count + 1}`,
-  committed: 30,
-  completed: 28,
-});
+function createSprint(existing: Sprint[]): Sprint {
+  // Pick the first unused integer suffix so deleting "Sprint 2" then adding
+  // a new one doesn't produce "Sprint 4" — the user expects gaps to fill.
+  const used = new Set(
+    existing
+      .map((s) => parseInt(String(s.name).replace(/\D/g, ""), 10))
+      .filter(Number.isFinite)
+  );
+  let n = 1;
+  while (used.has(n)) n++;
+  return {
+    id: crypto.randomUUID(),
+    name: `Sprint ${n}`,
+    committed: 30,
+    completed: 28,
+  };
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Store                                                                     */
@@ -72,10 +90,10 @@ const useVelocityStore = create<VelocityStore>()(
     withTimeTravel<VelocityStore>(
       { toolId: "velocity" },
       (set) => ({
-        sprints: DEFAULT_SPRINTS,
+        sprints: buildDefaultSprints(),
 
         addSprint: () =>
-          set((s) => ({ sprints: [...s.sprints, createSprint(s.sprints.length)] })),
+          set((s) => ({ sprints: [...s.sprints, createSprint(s.sprints)] })),
 
         removeSprint: (id) =>
           set((s) => ({ sprints: s.sprints.filter((sp) => sp.id !== id) })),
@@ -87,7 +105,9 @@ const useVelocityStore = create<VelocityStore>()(
             ),
           })),
 
-        reset: () => set({ sprints: DEFAULT_SPRINTS }),
+        // Re-build defaults on each reset so we mint fresh ids — never reuse
+        // the originals, otherwise sprint identity would alias old data.
+        reset: () => set({ sprints: buildDefaultSprints() }),
       })
     ),
     {
@@ -119,16 +139,24 @@ function rollingAverage(values: number[], window = 3): (number | null)[] {
 }
 
 function linearRegression(values: number[]): number[] {
-  const n = values.length;
-  if (n < 2) return values.map(() => values[0] ?? 0);
-  const xs = values.map((_, i) => i);
+  // Defensive filter — a single NaN would propagate through every reduction
+  // and yield a NaN slope/intercept that taints the entire trend line.
+  const valid = values.filter(Number.isFinite);
+  const n = valid.length;
+  if (n < 2) {
+    const fallback = Number.isFinite(valid[0]) ? valid[0] : 0;
+    return values.map(() => fallback);
+  }
+  const xs = valid.map((_, i) => i);
   const xMean = (n - 1) / 2;
-  const yMean = values.reduce((a, b) => a + b, 0) / n;
+  const yMean = valid.reduce((a, b) => a + b, 0) / n;
   const ssXX = xs.reduce((sum, x) => sum + (x - xMean) ** 2, 0);
-  const ssXY = xs.reduce((sum, x, i) => sum + (x - xMean) * (values[i] - yMean), 0);
-  const slope = ssXY / ssXX;
+  const ssXY = xs.reduce((sum, x, i) => sum + (x - xMean) * (valid[i] - yMean), 0);
+  const slope = ssXX === 0 ? 0 : ssXY / ssXX;
   const intercept = yMean - slope * xMean;
-  return xs.map((x) => Math.max(0, slope * x + intercept));
+  // Project the regression back across every original index so the consumer
+  // gets one trend value per input — even slots that held a non-finite value.
+  return values.map((_, i) => Math.max(0, slope * i + intercept));
 }
 
 function stdDev(values: number[]): number {
@@ -143,6 +171,55 @@ function round(v: number, d = 1) {
 }
 
 // StatCard moved to @/components/shared/stat-card — imported above.
+
+/**
+ * Numeric input that doesn't snap mid-edit. Holds a string draft so empty /
+ * partial values stay editable; commits on blur. Guards against NaN and
+ * clamps into [min, max]. Reverts to last good value on bad input.
+ */
+function NumCell({
+  value,
+  onCommit,
+  min = 0,
+  max,
+  className,
+  onCommitBlur,
+}: {
+  value: number;
+  onCommit: (n: number) => void;
+  min?: number;
+  max?: number;
+  className?: string;
+  /** Optional hook fired alongside the commit, useful for history logging. */
+  onCommitBlur?: (n: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const n = Number(draft);
+    if (Number.isFinite(n)) {
+      const clamped = Math.max(min, Math.min(max ?? Infinity, n));
+      onCommit(clamped);
+      onCommitBlur?.(clamped);
+    } else {
+      setDraft(String(value));
+    }
+  };
+  return (
+    <Input
+      type="number"
+      min={min}
+      max={max}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      className={className}
+    />
+  );
+}
 
 const TOOLTIP_STYLE = {
   backgroundColor: "#1a1f36",
@@ -220,11 +297,15 @@ export function VelocityClient() {
     const predictability = n > 0 ? (predictable / n) * 100 : 0;
     const sd = stdDev(completedValues);
 
-    // Trend direction: compare last 2 trend values
+    // Trend direction: compare last 2 trend values, but the deadband is now
+    // 5% of the average velocity rather than a fixed 0.5 pts. A 0.5 pt swing
+    // is meaningful for a 6-pt team and trivial for a 60-pt team — relative
+    // thresholds make the label honest at both scales.
     let trendDir: "up" | "down" | "stable" = "stable";
     if (trendLine.length >= 2) {
       const diff = trendLine[trendLine.length - 1] - trendLine[trendLine.length - 2];
-      if (Math.abs(diff) < 0.5) trendDir = "stable";
+      const deadband = avgVelocity > 0 ? avgVelocity * 0.05 : 0.5;
+      if (Math.abs(diff) < deadband) trendDir = "stable";
       else if (diff > 0) trendDir = "up";
       else trendDir = "down";
     }
@@ -238,8 +319,8 @@ export function VelocityClient() {
   /* -- Export data --------------------------------------------------------- */
 
   const csvData = useMemo(() => ({
-    headers: ["Sprint", "Committed", "Completed"],
-    rows: sprints.map((s) => [s.name, s.committed, s.completed]),
+    headers: ["Sprint", "Description", "Committed", "Completed"],
+    rows: sprints.map((s) => [s.name, s.description ?? "", s.committed, s.completed]),
   }), [sprints]);
 
   const promptConfig = useMemo(() => ({
@@ -421,34 +502,41 @@ export function VelocityClient() {
               key={sp.id}
               className="grid grid-cols-[1fr_0.6fr_0.6fr_auto] gap-3 items-center"
             >
-              <Input
-                value={sp.name}
-                onChange={(e) => updateSprint(sp.id, { name: e.target.value })}
-                onBlur={(e) => logSprintCommit(sp.id, "name", e.target.value)}
-                className="input-toolkit focus:ring-accent/20"
-              />
-              <Input
-                type="number"
-                min={0}
+              {/* Single-line Input chosen over Textarea here — sprint rows are
+                  in a tight 4-column data grid, so a multi-line description
+                  would break the row height alignment. Empty trims to undefined. */}
+              <div className="space-y-1">
+                <Input
+                  value={sp.name}
+                  onChange={(e) => updateSprint(sp.id, { name: e.target.value })}
+                  onBlur={(e) => logSprintCommit(sp.id, "name", e.target.value)}
+                  className="input-toolkit focus:ring-accent/20"
+                />
+                <Input
+                  value={sp.description ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    updateSprint(sp.id, {
+                      description: v.trim() ? v : undefined,
+                    });
+                  }}
+                  placeholder="Description (optional)..."
+                  className="input-toolkit text-xs h-7"
+                  aria-label={`Description for ${sp.name}`}
+                />
+              </div>
+              <NumCell
                 value={sp.committed}
-                onChange={(e) =>
-                  updateSprint(sp.id, { committed: Math.max(0, Number(e.target.value)) })
-                }
-                onBlur={(e) =>
-                  logSprintCommit(sp.id, "committed", Math.max(0, Number(e.target.value)))
-                }
+                onCommit={(n) => updateSprint(sp.id, { committed: n })}
+                onCommitBlur={(n) => logSprintCommit(sp.id, "committed", n)}
+                min={0}
                 className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
               />
-              <Input
-                type="number"
-                min={0}
+              <NumCell
                 value={sp.completed}
-                onChange={(e) =>
-                  updateSprint(sp.id, { completed: Math.max(0, Number(e.target.value)) })
-                }
-                onBlur={(e) =>
-                  logSprintCommit(sp.id, "completed", Math.max(0, Number(e.target.value)))
-                }
+                onCommit={(n) => updateSprint(sp.id, { completed: n })}
+                onCommitBlur={(n) => logSprintCommit(sp.id, "completed", n)}
+                min={0}
                 className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
               />
               <Button

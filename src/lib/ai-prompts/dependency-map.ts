@@ -5,6 +5,7 @@ interface Node {
   id: string;
   label: string;
   team?: string;
+  description?: string;
 }
 
 interface Edge {
@@ -21,6 +22,9 @@ export function generateDependencyMapPrompts(data: {
 }): PromptDefinition[] {
   if (data.nodes.length === 0) return [];
   const label = (id: string) => data.nodes.find((n) => n.id === id)?.label ?? id;
+  const nodeList = data.nodes
+    .map((n) => `- ${n.label}${n.team ? ` [${n.team}]` : ""}${n.description ? ` — ${n.description.slice(0, 80)}` : ""}`)
+    .join("\n");
   const edgeList = data.edges.map((e) => `- ${label(e.from)} ${e.kind} ${label(e.to)}`).join("\n");
   const criticalText = data.criticalPath.length > 1 ? data.criticalPath.map(label).join(" → ") : "(none)";
   const cycleText =
@@ -38,7 +42,7 @@ export function generateDependencyMapPrompts(data: {
           "Dependency Map",
           `${data.nodes.length} nodes, ${data.edges.length} edges. Critical path length: ${data.criticalPath.length}.`
         ) +
-        `## Edges\n\n${edgeList || "(none)"}\n\n## Critical Path\n\n${criticalText}\n\n## Cycles\n\n${cycleText}\n\n## Questions\n\n1. Where is coordination overhead highest?\n2. Which dependencies could be eliminated by splitting work differently?\n3. How should the team sequence work on the critical path?\n4. If cycles exist, propose how to break them.`,
+        `## Nodes\n\n${nodeList || "(none)"}\n\n## Edges\n\n${edgeList || "(none)"}\n\n## Critical Path\n\n${criticalText}\n\n## Cycles\n\n${cycleText}\n\n## Questions\n\n1. Where is coordination overhead highest?\n2. Which dependencies could be eliminated by splitting work differently?\n3. How should the team sequence work on the critical path?\n4. If cycles exist, propose how to break them.`,
     },
     {
       id: "dep-ownership",
@@ -46,7 +50,7 @@ export function generateDependencyMapPrompts(data: {
       description: "Coach on how to coordinate across team boundaries.",
       prompt:
         buildPreamble("Dependency Map", "Cross-team dependencies are the #1 source of delivery delay in scaled Agile.") +
-        `## Edges\n\n${edgeList || "(none)"}\n\n## Questions\n\n1. Who should own the coordination of the critical path?\n2. What rituals (Scrum of Scrums, async sync docs) best fit this shape?\n3. Which dependencies warrant a dedicated integration story?`,
+        `## Nodes\n\n${nodeList || "(none)"}\n\n## Edges\n\n${edgeList || "(none)"}\n\n## Questions\n\n1. Who should own the coordination of the critical path?\n2. What rituals (Scrum of Scrums, async sync docs) best fit this shape?\n3. Which dependencies warrant a dedicated integration story?`,
     },
   ];
 }

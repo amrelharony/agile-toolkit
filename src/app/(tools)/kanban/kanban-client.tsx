@@ -11,6 +11,7 @@ import { KpiGrid } from "@/components/shared/kpi-grid";
 import { CalloutAlert } from "@/components/shared/callout-alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -35,6 +36,7 @@ type ClassOfService = "standard" | "expedite" | "fixed_date" | "intangible";
 interface KCard {
   id: string;
   title: string;
+  description?: string;
   column: ColumnId;
   class: ClassOfService;
   createdAt: string;
@@ -74,9 +76,22 @@ function cycleTimeDays(c: KCard): number | null {
   return Math.max(0, (end - start) / (1000 * 60 * 60 * 24));
 }
 
+// ISO-8601 week number with the year of the Thursday-anchored week. Avoids
+// the year/DST boundary glitch from raw `floor((d - Jan1) / 7days)` keys
+// (which both miscount weeks at year boundaries and split a single calendar
+// week across two buckets when DST shifts the millisecond delta).
+function isoWeek(d: Date): { year: number; week: number } {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return { year: date.getUTCFullYear(), week };
+}
+
 export function KanbanClient() {
   const [state, setState] = usePersisted<KanbanState>("agile-toolkit:kanban", DEFAULT_STATE);
   const [newTitle, setNewTitle] = useState("");
+  const [newDescription, setNewDescription] = useState("");
   const { log } = useHistoryLogger("kanban");
 
   const addCard = () => {
@@ -85,15 +100,17 @@ export function KanbanClient() {
     const now = new Date().toISOString();
     const cardId = nanoid(8);
     const title = newTitle.trim();
+    const description = newDescription.trim() || undefined;
     setState((s) => ({
       ...s,
       cards: [
         ...s.cards,
-        { id: cardId, title, column: "backlog", class: "standard", createdAt: now },
+        { id: cardId, title, description, column: "backlog", class: "standard", createdAt: now },
       ],
     }));
-    log(KANBAN_ACTIONS.CARD_ADDED, { cardId, title });
+    log(KANBAN_ACTIONS.CARD_ADDED, { cardId, title, description });
     setNewTitle("");
+    setNewDescription("");
   };
 
   const moveCard = (id: string, col: ColumnId) => {
@@ -121,7 +138,11 @@ export function KanbanClient() {
   const removeCard = (id: string) => {
     const card = state.cards.find((c) => c.id === id);
     setState((s) => ({ ...s, cards: s.cards.filter((c) => c.id !== id) }));
-    log(KANBAN_ACTIONS.CARD_REMOVED, { cardId: id, title: card?.title });
+    log(KANBAN_ACTIONS.CARD_REMOVED, {
+      cardId: id,
+      title: card?.title,
+      description: card?.description,
+    });
   };
   const setWip = (col: ColumnId, n: number) =>
     setState((s) => ({ ...s, wipLimits: { ...s.wipLimits, [col]: Math.max(0, n) } }));
@@ -162,10 +183,8 @@ export function KanbanClient() {
     const byWeek = new Map<string, number>();
     for (const c of state.cards) {
       if (!c.completedAt) continue;
-      const d = new Date(c.completedAt);
-      const y = d.getFullYear();
-      const week = Math.floor((d.getTime() - new Date(y, 0, 1).getTime()) / (7 * 24 * 60 * 60 * 1000));
-      const key = `${y}-W${String(week).padStart(2, "0")}`;
+      const { year, week } = isoWeek(new Date(c.completedAt));
+      const key = `${year}-W${String(week).padStart(2, "0")}`;
       byWeek.set(key, (byWeek.get(key) ?? 0) + 1);
     }
     return Array.from(byWeek.entries())
@@ -173,7 +192,10 @@ export function KanbanClient() {
       .map(([, v]) => v);
   }, [state.cards]);
 
-  const forecast = weeklyThroughput.length >= 2 ? forecastHolt(weeklyThroughput, 1) : [];
+  const forecast = useMemo(
+    () => (weeklyThroughput.length >= 2 ? forecastHolt(weeklyThroughput, 1) : []),
+    [weeklyThroughput]
+  );
 
   const violations = COLUMNS.filter((c) => c.id !== "backlog" && c.id !== "done" && state.wipLimits[c.id] > 0 && byColumn[c.id].length > state.wipLimits[c.id]);
 
@@ -197,9 +219,10 @@ export function KanbanClient() {
         <ExportButton
           filename="kanban"
           csvData={{
-            headers: ["Title", "Column", "Class", "Created", "Started", "Completed", "Cycle (days)"],
+            headers: ["Title", "Description", "Column", "Class", "Created", "Started", "Completed", "Cycle (days)"],
             rows: state.cards.map((c) => [
               c.title,
+              c.description ?? "",
               c.column,
               c.class,
               c.createdAt,
@@ -252,24 +275,38 @@ export function KanbanClient() {
         </CalloutAlert>
       )}
 
-      {/* Add-card row. Stacks vertically on the smallest phones so the
-          "Add" button stays a comfortable touch target. */}
-      <div className="flex flex-col xs:flex-row gap-2 mb-4">
-        <Input
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addCard()}
-          placeholder="New card title..."
-          className="bg-surface border-border"
-          aria-label="New card title"
+      {/* Add-card form. Title row stacks vertically on the smallest phones
+          so the "Add" button stays a comfortable touch target. Description
+          is optional; Cmd/Ctrl+Enter submits from the textarea. */}
+      <div className="flex flex-col gap-2 mb-4">
+        <div className="flex flex-col xs:flex-row gap-2">
+          <Input
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addCard()}
+            placeholder="New card title..."
+            className="bg-surface border-border"
+            aria-label="New card title"
+          />
+          <Button
+            onClick={addCard}
+            className="gap-2 bg-accent text-bg hover:bg-accent/90 xs:w-auto w-full"
+          >
+            <Plus className="w-4 h-4" aria-hidden="true" />
+            Add
+          </Button>
+        </div>
+        <Textarea
+          value={newDescription}
+          onChange={(e) => setNewDescription(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addCard();
+          }}
+          placeholder="Description (optional)..."
+          rows={2}
+          className="bg-surface border-border resize-none text-xs"
+          aria-label="New card description"
         />
-        <Button
-          onClick={addCard}
-          className="gap-2 bg-accent text-bg hover:bg-accent/90 xs:w-auto w-full"
-        >
-          <Plus className="w-4 h-4" aria-hidden="true" />
-          Add
-        </Button>
       </div>
 
       {/* Column grid — mobile-first.
@@ -339,9 +376,15 @@ export function KanbanClient() {
                       borderLeftWidth: 3,
                     }}
                   >
-                    <div className="text-text font-medium mb-1.5 break-words">
+                    <div className="text-text font-medium break-words">
                       {c.title}
                     </div>
+                    {c.description && (
+                      <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
+                        {c.description}
+                      </div>
+                    )}
+                    {!c.description && <div className="mb-1.5" />}
                     {/* Card controls. Stacked on mobile (one per row) so each
                         select/button is a comfortable touch target; flex row
                         on sm+ where horizontal density is fine. */}

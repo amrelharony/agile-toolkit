@@ -2,7 +2,7 @@ import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable, truncateData } from "./prompt-utils";
 
 interface CycleTimeData {
-  items: { name: string; startDate: string; endDate: string; cycleTimeDays: number }[];
+  items: { name: string; startDate: string; endDate: string; cycleTimeDays: number; description?: string }[];
   stats: { mean: number; median: number; p85: number; p95: number; stdDev: number };
 }
 
@@ -11,8 +11,8 @@ export function generateCycleTimePrompts(data: CycleTimeData): PromptDefinition[
 
   const { data: shown, truncated, totalCount } = truncateData(data.items);
   const table = formatTable(
-    ["Item", "Start", "End", "Cycle Time (days)"],
-    shown.map((i) => [i.name, i.startDate, i.endDate, i.cycleTimeDays])
+    ["Item", "Start", "End", "Cycle Time (days)", "Description"],
+    shown.map((i) => [i.name, i.startDate, i.endDate, i.cycleTimeDays, (i.description ?? "—").slice(0, 80)])
   );
   const note = truncated ? `\n(Showing ${shown.length} of ${totalCount} items)\n` : "";
 

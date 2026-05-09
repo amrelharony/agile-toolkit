@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -137,7 +137,9 @@ const DEFAULT_STATE = {
   sprintName: "Sprint Alpha",
   sprintNumber: "1",
   features: DEFAULT_FEATURES,
-  meetingDate: todayLocalISO(),
+  // Empty on the server to avoid hydration mismatch — the main component
+  // initializes this on first client mount via useEffect.
+  meetingDate: "",
   feedbackItems: DEFAULT_FEEDBACK,
   checklistItems: DEFAULT_CHECKLIST,
   committed: 40,
@@ -266,6 +268,53 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Numeric input that doesn't snap mid-edit. Holds a local string draft so
+ * intermediate states like "" or "1." don't get rewritten by clamping. Commits
+ * on blur/Enter; reverts to the last good value on invalid input.
+ */
+function NumCell({
+  value,
+  onCommit,
+  min = 0,
+  max,
+  className,
+  ariaLabel,
+}: {
+  value: number;
+  onCommit: (n: number) => void;
+  min?: number;
+  max?: number;
+  className?: string;
+  ariaLabel?: string;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const n = Number(draft);
+    if (Number.isFinite(n)) {
+      onCommit(Math.max(min, Math.min(max ?? Infinity, n)));
+    } else {
+      setDraft(String(value));
+    }
+  };
+  return (
+    <Input
+      type="number"
+      min={min}
+      max={max}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      className={className}
+      aria-label={ariaLabel}
+    />
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Tab 1 — Demo Script                                                       */
 /* -------------------------------------------------------------------------- */
@@ -304,7 +353,7 @@ function DemoScriptTab() {
     lines.push(`**Estimated Duration:** ${totalMinutes} minutes`);
     lines.push("");
     features.forEach((f, i) => {
-      lines.push(`## ${i + 1}. ${f.name || "Untitled Feature"} (${f.timeMinutes} min)`);
+      lines.push(`## ${i + 1}. ${f.name || "Untitled Feature"} (${f.timeMinutes || 0} min)`);
       if (f.description) lines.push(`**Description:** ${f.description}`);
       if (f.acceptanceCriteria)
         lines.push(`**Acceptance Criteria:** ${f.acceptanceCriteria}`);
@@ -396,15 +445,10 @@ function DemoScriptTab() {
                 </div>
                 <div className="space-y-1.5 w-28">
                   <SectionLabel>Time (min)</SectionLabel>
-                  <Input
-                    type="number"
-                    min={1}
+                  <NumCell
                     value={f.timeMinutes}
-                    onChange={(e) =>
-                      updateFeature(f.id, {
-                        timeMinutes: Math.max(1, Number(e.target.value)),
-                      })
-                    }
+                    onCommit={(n) => updateFeature(f.id, { timeMinutes: n })}
+                    min={1}
                     className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
                   />
                 </div>
@@ -826,25 +870,19 @@ function VelocitySummaryTab() {
         >
           <div className="space-y-1.5">
             <Label className="text-sub text-xs">Committed Points</Label>
-            <Input
-              type="number"
-              min={0}
+            <NumCell
               value={committed}
-              onChange={(e) =>
-                setCommitted(Math.max(0, Number(e.target.value)))
-              }
+              onCommit={setCommitted}
+              min={0}
               className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
             />
           </div>
           <div className="space-y-1.5">
             <Label className="text-sub text-xs">Completed Points</Label>
-            <Input
-              type="number"
-              min={0}
+            <NumCell
               value={completed}
-              onChange={(e) =>
-                setCompleted(Math.max(0, Number(e.target.value)))
-              }
+              onCommit={setCompleted}
+              min={0}
               className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
             />
           </div>
@@ -878,25 +916,19 @@ function VelocitySummaryTab() {
         >
           <div className="space-y-1.5">
             <Label className="text-sub text-xs">Total Backlog Points</Label>
-            <Input
-              type="number"
-              min={0}
+            <NumCell
               value={totalBacklog}
-              onChange={(e) =>
-                setTotalBacklog(Math.max(0, Number(e.target.value)))
-              }
+              onCommit={setTotalBacklog}
+              min={0}
               className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
             />
           </div>
           <div className="space-y-1.5">
             <Label className="text-sub text-xs">Done to Date</Label>
-            <Input
-              type="number"
-              min={0}
+            <NumCell
               value={backlogDone}
-              onChange={(e) =>
-                setBacklogDone(Math.max(0, Number(e.target.value)))
-              }
+              onCommit={setBacklogDone}
+              min={0}
               className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
             />
           </div>
@@ -953,8 +985,17 @@ export function SprintReviewClient() {
     completed,
     totalBacklog,
     backlogDone,
+    setMeetingDate,
     reset,
   } = useSprintReviewStore();
+
+  // Initialize meetingDate on first client mount to avoid SSR/client time
+  // drift. Only set when empty so we don't clobber user edits or persisted data.
+  useEffect(() => {
+    if (!meetingDate) {
+      setMeetingDate(todayLocalISO());
+    }
+  }, [meetingDate, setMeetingDate]);
 
   // Build combined markdown export
   const fullExport = useMemo(() => {
@@ -977,7 +1018,7 @@ export function SprintReviewClient() {
     lines.push("");
     features.forEach((f, i) => {
       lines.push(
-        `### ${i + 1}. ${f.name || "Untitled Feature"} (${f.timeMinutes} min)`
+        `### ${i + 1}. ${f.name || "Untitled Feature"} (${f.timeMinutes || 0} min)`
       );
       if (f.description) lines.push(`**Description:** ${f.description}`);
       if (f.acceptanceCriteria)
@@ -1082,6 +1123,42 @@ export function SprintReviewClient() {
             <ExportButton
               filename={`sprint-${sprintNumber}-review`}
               clipboardText={fullExport}
+              csvData={{
+                // Single combined CSV — features + feedback share one sheet
+                // with a Type column so spreadsheet users can filter without
+                // juggling two downloads. Numeric/date columns stay typed
+                // where they apply; cross-type columns degrade to "" on the
+                // other row kind.
+                headers: [
+                  "Type",
+                  "Name / Stakeholder",
+                  "Description",
+                  "Acceptance Criteria",
+                  "Feedback",
+                  "Category",
+                  "Time (min)",
+                ],
+                rows: [
+                  ...features.map((f) => [
+                    "Feature",
+                    f.name,
+                    f.description,
+                    f.acceptanceCriteria,
+                    "",
+                    "",
+                    f.timeMinutes,
+                  ] as (string | number)[]),
+                  ...feedbackItems.map((fb) => [
+                    "Feedback",
+                    fb.stakeholder,
+                    "",
+                    "",
+                    fb.feedback,
+                    fb.category,
+                    "",
+                  ] as (string | number)[]),
+                ],
+              }}
             />
             <Button
               variant="danger-ghost"

@@ -9,6 +9,7 @@ import { WorkspaceSyncButton } from "@/components/shared/workspace-sync-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Plus, Smile, Heart, TrendingUp } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { trendDirection, mean } from "@/lib/analytics/anomaly";
@@ -63,6 +64,9 @@ function lastNDays(n: number): string[] {
 export function MoodTrackerClient() {
   const [entries, setEntries] = usePersisted<MoodEntry[]>("agile-toolkit:mood-tracker", []);
   const [newMemberName, setNewMemberName] = useState("");
+  // Drafts for the per-member optional note input. Keyed by memberId so each
+  // row's textarea controls its own buffer without colliding with neighbors.
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const members = useWorkspaceStore((s) => s.teamMembers);
   const upsertMember = useWorkspaceStore((s) => s.upsertTeamMember);
   const { log: logEvent } = useHistoryLogger("mood-tracker");
@@ -72,18 +76,48 @@ export function MoodTrackerClient() {
   }, []);
 
   const todayISO = todayLocalISO();
-  // Recompute on every render so the 14-day window doesn't freeze across midnight.
-  // The cost is trivial — 14-entry array — and stale data here would surprise users.
-  const days = lastNDays(14);
+  // Memoize on todayISO so the array reference is stable until midnight. With
+  // a fresh array per render, child memos that depend on `days` would
+  // invalidate every render and the heatmap would lose its identity. The dep
+  // is logically necessary — `lastNDays` reads "now" internally — so the
+  // exhaustive-deps lint that flags it as unnecessary is wrong here.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const days = useMemo(() => lastNDays(14), [todayISO]);
 
   const log = (memberId: string, score: MoodEntry["score"]) => {
     sonify("mood-tracker", MOOD_EVENT[score]);
+    // Recompute the day inside the callback — render closure can be stale if
+    // the user crosses midnight without re-rendering (e.g., backgrounded tab).
+    const today = todayLocalISO();
+    // Pull the in-progress note (if any) for this member and attach it. We
+    // still allow score-only logs so the click-to-log flow stays one tap.
+    const note = noteDrafts[memberId]?.trim() || undefined;
     setEntries((e) => {
-      const existing = e.find((x) => x.memberId === memberId && x.date === todayISO);
-      if (existing) return e.map((x) => (x === existing ? { ...x, score } : x));
-      return [...e, { id: nanoid(8), memberId, date: todayISO, score }];
+      const existing = e.find((x) => x.memberId === memberId && x.date === today);
+      if (existing) return e.map((x) => (x === existing ? { ...x, score, note: note ?? x.note } : x));
+      return [...e, { id: nanoid(8), memberId, date: today, score, note }];
     });
-    logEvent(MOOD_ACTIONS.MOOD_LOGGED, { memberId, score, date: todayISO });
+    logEvent(MOOD_ACTIONS.MOOD_LOGGED, { memberId, score, date: today, note });
+  };
+
+  const updateNote = (memberId: string, note: string) => {
+    // Update the local draft on every keystroke so the textarea stays
+    // responsive, but DON'T touch persisted entries here — that path would
+    // write localStorage on every character. The flush happens in commitNote
+    // (onBlur), keeping per-keystroke work in-memory only.
+    setNoteDrafts((d) => ({ ...d, [memberId]: note }));
+  };
+
+  const commitNote = (memberId: string) => {
+    const draft = noteDrafts[memberId];
+    if (draft === undefined) return;
+    const today = todayLocalISO();
+    const trimmed = draft.trim();
+    setEntries((e) => {
+      const existing = e.find((x) => x.memberId === memberId && x.date === today);
+      if (!existing) return e;
+      return e.map((x) => (x === existing ? { ...x, note: trimmed || undefined } : x));
+    });
   };
 
   const addMember = () => {
@@ -198,28 +232,42 @@ export function MoodTrackerClient() {
             <div className="space-y-2">
               {members.map((m) => {
                 const todays = entries.find((e) => e.memberId === m.id && e.date === todayISO);
+                // Prefer the in-flight draft so the user's typing isn't
+                // clobbered by the persisted entry's note on every keystroke.
+                const noteValue = noteDrafts[m.id] ?? todays?.note ?? "";
                 return (
-                  <div key={m.id} className="flex items-center gap-3 rounded-lg border border-border bg-bg p-2">
-                    <span className="text-sm text-text w-40 truncate">{m.name}</span>
-                    <div className="flex gap-1.5 flex-1">
-                      {FACES.map((f) => (
-                        <button
-                          key={f.score}
-                          type="button"
-                          onClick={() => log(m.id, f.score)}
-                          className={`flex-1 rounded-md border py-1.5 text-xs font-semibold transition ${
-                            todays?.score === f.score
-                              ? "border-transparent text-bg"
-                              : "border-border text-sub hover:border-accent/40"
-                          }`}
-                          style={{
-                            background: todays?.score === f.score ? f.color : "transparent",
-                          }}
-                        >
-                          {f.label}
-                        </button>
-                      ))}
+                  <div key={m.id} className="rounded-lg border border-border bg-bg p-2 space-y-2">
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-text w-40 truncate">{m.name}</span>
+                      <div className="flex gap-1.5 flex-1">
+                        {FACES.map((f) => (
+                          <button
+                            key={f.score}
+                            type="button"
+                            onClick={() => log(m.id, f.score)}
+                            className={`flex-1 rounded-md border py-1.5 text-xs font-semibold transition ${
+                              todays?.score === f.score
+                                ? "border-transparent text-bg"
+                                : "border-border text-sub hover:border-accent/40"
+                            }`}
+                            style={{
+                              background: todays?.score === f.score ? f.color : "transparent",
+                            }}
+                          >
+                            {f.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
+                    <Textarea
+                      value={noteValue}
+                      onChange={(e) => updateNote(m.id, e.target.value)}
+                      onBlur={() => commitNote(m.id)}
+                      placeholder="Note (optional)..."
+                      rows={2}
+                      className="bg-surface border-border resize-none text-xs"
+                      aria-label={`Note for ${m.name}`}
+                    />
                   </div>
                 );
               })}
@@ -239,6 +287,44 @@ export function MoodTrackerClient() {
           )}
         </CardContent>
       </Card>
+
+      {/* Recent notes — surfaces optional context that would otherwise hide
+          inside heatmap tooltips. Capped to 5 so the card stays scannable. */}
+      {entries.some((e) => e.note && e.note.trim().length > 0) && (
+        <Card className="bg-surface border-border mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Smile className="w-4 h-4 text-accent" />
+              <h3 className="text-sm font-semibold text-text">Recent Notes</h3>
+            </div>
+            <ul className="space-y-2">
+              {entries
+                .filter((e) => e.note && e.note.trim().length > 0)
+                .slice()
+                .sort((a, b) => b.date.localeCompare(a.date))
+                .slice(0, 5)
+                .map((e) => {
+                  const m = members.find((x) => x.id === e.memberId);
+                  const face = FACES.find((f) => f.score === e.score);
+                  return (
+                    <li key={e.id} className="rounded-md border border-border bg-bg p-2">
+                      <div className="flex items-center gap-2 text-[11px] text-sub font-data">
+                        <span style={{ color: face?.color }}>{face?.label}</span>
+                        <span>·</span>
+                        <span>{m?.name ?? e.memberId}</span>
+                        <span>·</span>
+                        <span>{e.date}</span>
+                      </div>
+                      <div className="text-sub text-[11px] mt-0.5 whitespace-pre-wrap break-words">
+                        {e.note}
+                      </div>
+                    </li>
+                  );
+                })}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="bg-surface border-border">
         <CardContent className="p-4">
@@ -267,10 +353,18 @@ export function MoodTrackerClient() {
                       const entry = entries.find((e) => e.memberId === m.id && e.date === d);
                       const score = entry?.score ?? null;
                       const color = score ? FACES.find((f) => f.score === score)?.color : "transparent";
+                      // Append the note to the tooltip when present so the
+                      // heatmap doubles as a hover-explorer over what people
+                      // wrote that day, without bloating the cell visually.
+                      const tooltip = score
+                        ? entry?.note
+                          ? `${m.name} — ${d} — ${score}/5\n${entry.note}`
+                          : `${m.name} — ${d} — ${score}/5`
+                        : "No entry";
                       return (
                         <div
                           key={d}
-                          title={score ? `${m.name} — ${d} — ${score}/5` : `No entry`}
+                          title={tooltip}
                           className="h-6 rounded border border-border"
                           style={{ background: color ?? "transparent" }}
                         />

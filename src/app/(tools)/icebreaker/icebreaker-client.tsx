@@ -43,7 +43,14 @@ function loadFavorites(): Set<string> {
 }
 
 function saveFavorites(ids: Set<string>) {
-  localStorage.setItem(FAVORITES_KEY, JSON.stringify(Array.from(ids)));
+  // localStorage can throw (quota exceeded, disabled, private mode). Match
+  // loadFavorites' resilience and don't crash the toggle handler — just
+  // log so the failure isn't fully silent during dev.
+  try {
+    localStorage.setItem(FAVORITES_KEY, JSON.stringify(Array.from(ids)));
+  } catch (err) {
+    console.warn("[icebreaker] failed to persist favorites:", err);
+  }
 }
 
 const sizeLabel: Record<IceBreaker["teamSize"], string> = {

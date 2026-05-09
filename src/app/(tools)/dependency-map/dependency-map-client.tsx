@@ -8,6 +8,7 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -27,6 +28,7 @@ import { CalloutAlert } from "@/components/shared/callout-alert";
 interface Node {
   id: string;
   label: string;
+  description?: string;
   team?: string;
 }
 
@@ -96,6 +98,15 @@ function detectCycles(nodes: Node[], edges: Edge[]): string[][] {
 }
 
 function computeCriticalPath(nodes: Node[], edges: Edge[]): string[] {
+  // Longest-path is well-defined only on a DAG. When a cycle exists, the
+  // memoization here returns `{ len: 0, path: [] }` for cycle entrants,
+  // which then poisons every parent path that reaches into the cycle and
+  // produces non-deterministic, often-wrong "critical paths". The caller
+  // already has cycles available from `detectCycles`; bail out early at the
+  // call site (see CalloutAlert near the cycles list) so the user sees an
+  // explicit "Critical path unavailable while cycles exist" message instead
+  // of a misleading half-result.
+  if (detectCycles(nodes, edges).length > 0) return [];
   const adj = new Map<string, string[]>();
   for (const e of edges.filter((x) => x.kind === "blocks" || x.kind === "needs")) {
     const src = e.kind === "needs" ? e.to : e.from;
@@ -130,16 +141,21 @@ function computeCriticalPath(nodes: Node[], edges: Edge[]): string[] {
 
 export function DependencyMapClient() {
   const [state, setState] = usePersisted<State>("agile-toolkit:dependency-map", DEFAULT_STATE);
-  const [newNode, setNewNode] = useState({ label: "", team: "" });
+  const [newNode, setNewNode] = useState({ label: "", team: "", description: "" });
   const [newEdge, setNewEdge] = useState<{ from: string; to: string; kind: Edge["kind"] }>({ from: "", to: "", kind: "blocks" });
   const { log } = useHistoryLogger("dependency-map");
 
   const addNode = () => {
     if (!newNode.label.trim()) return;
-    const node = { id: nanoid(6), label: newNode.label.trim(), team: newNode.team || undefined };
+    const description = newNode.description.trim() || undefined;
+    // Trim the team field — without it, a stray space (a common typo when
+    // tabbing between fields) was stored as a non-empty truthy string and
+    // rendered as an empty <span> next to the node label.
+    const team = newNode.team.trim() || undefined;
+    const node: Node = { id: nanoid(6), label: newNode.label.trim(), team, description };
     setState((s) => ({ ...s, nodes: [...s.nodes, node] }));
-    log(DEPENDENCY_MAP_ACTIONS.NODE_ADDED, { nodeId: node.id, label: node.label });
-    setNewNode({ label: "", team: "" });
+    log(DEPENDENCY_MAP_ACTIONS.NODE_ADDED, { nodeId: node.id, label: node.label, description });
+    setNewNode({ label: "", team: "", description: "" });
   };
   const removeNode = (id: string) => {
     const node = state.nodes.find((n) => n.id === id);
@@ -162,16 +178,28 @@ export function DependencyMapClient() {
     log(DEPENDENCY_MAP_ACTIONS.EDGE_REMOVED, { edgeId: id });
   };
 
-  const cycles = useMemo(() => detectCycles(state.nodes, state.edges), [state]);
-  const criticalPath = useMemo(() => computeCriticalPath(state.nodes, state.edges), [state]);
+  // Drop edges that reference a deleted (or never-existed) endpoint before
+  // running graph analyses or rendering. removeNode already filters edges in
+  // the same setState call, but persisted state from older builds — or a
+  // hand-edited localStorage payload — may contain orphans that crash
+  // detectCycles / computeCriticalPath via undefined adjacency lookups.
+  const validEdges = useMemo(() => {
+    const ids = new Set(state.nodes.map((n) => n.id));
+    return state.edges.filter((e) => ids.has(e.from) && ids.has(e.to));
+  }, [state.nodes, state.edges]);
+  const cycles = useMemo(() => detectCycles(state.nodes, validEdges), [state.nodes, validEdges]);
+  const criticalPath = useMemo(() => computeCriticalPath(state.nodes, validEdges), [state.nodes, validEdges]);
   const nodeLabel = (id: string) => state.nodes.find((n) => n.id === id)?.label ?? id;
 
   const promptConfig = useMemo(
     () => ({
       toolName: "Dependency Map",
-      prompts: generateDependencyMapPrompts({ nodes: state.nodes, edges: state.edges, cycles, criticalPath }),
+      // Pass the cleaned `validEdges` set so the AI prompt doesn't include
+      // dangling edges referencing deleted nodes (would otherwise produce
+      // confusing "From: undefined → To: foo" lines in the generated brief).
+      prompts: generateDependencyMapPrompts({ nodes: state.nodes, edges: validEdges, cycles, criticalPath }),
     }),
-    [state, cycles, criticalPath]
+    [state.nodes, validEdges, cycles, criticalPath]
   );
 
   return (
@@ -186,10 +214,10 @@ export function DependencyMapClient() {
         <ExportButton
           filename="dependency-map"
           csvData={{
-            headers: ["Type", "ID", "Label/Kind", "From", "To", "Team"],
+            headers: ["Type", "ID", "Label/Kind", "Description", "From", "To", "Team"],
             rows: [
-              ...state.nodes.map((n) => ["node", n.id, n.label, "", "", n.team ?? ""] as (string | number)[]),
-              ...state.edges.map((e) => ["edge", e.id, e.kind, nodeLabel(e.from), nodeLabel(e.to), ""] as (string | number)[]),
+              ...state.nodes.map((n) => ["node", n.id, n.label, n.description ?? "", "", "", n.team ?? ""] as (string | number)[]),
+              ...state.edges.map((e) => ["edge", e.id, e.kind, "", nodeLabel(e.from), nodeLabel(e.to), ""] as (string | number)[]),
             ],
           }}
           jsonData={state}
@@ -221,10 +249,13 @@ export function DependencyMapClient() {
 
       {cycles.length > 0 && (
         <CalloutAlert tone="danger" className="mb-4">
-          <strong>Circular dependencies detected:</strong>
+          <strong>Circular dependencies detected — critical path unavailable while cycles exist.</strong>
           <ul className="mt-1 space-y-0.5">
-            {cycles.slice(0, 3).map((c, i) => (
-              <li key={i}>{c.map(nodeLabel).join(" → ")}</li>
+            {cycles.slice(0, 3).map((c) => (
+              // Use the cycle's canonicalized id sequence as the key — index
+              // keys reordered the list when cycles were added/resolved,
+              // which lost focus and re-played any list-entry transitions.
+              <li key={c.join(">")}>{c.map(nodeLabel).join(" → ")}</li>
             ))}
           </ul>
         </CalloutAlert>
@@ -261,6 +292,17 @@ export function DependencyMapClient() {
               Add
             </Button>
           </div>
+          <Textarea
+            value={newNode.description}
+            onChange={(e) => setNewNode((n) => ({ ...n, description: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addNode();
+            }}
+            placeholder="Description (optional)..."
+            rows={2}
+            className="bg-bg border-border resize-none text-xs"
+            aria-label="New node description"
+          />
         </CardContent>
       </Card>
 
@@ -306,9 +348,16 @@ export function DependencyMapClient() {
             {state.nodes.map((n) => {
               const onCritical = criticalPath.includes(n.id);
               return (
-                <div key={n.id} className={`flex items-center gap-2 rounded-lg border p-2 ${onCritical ? "border-amber-500/40 bg-amber-500/5" : "border-border bg-surface"}`}>
-                  <span className="flex-1 text-sm text-text truncate">{n.label}</span>
-                  {n.team && <span className="text-xs text-sub font-mono">{n.team}</span>}
+                <div key={n.id} className={`flex items-start gap-2 rounded-lg border p-2 ${onCritical ? "border-amber-500/40 bg-amber-500/5" : "border-border bg-surface"}`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-text truncate">{n.label}</div>
+                    {n.description && (
+                      <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
+                        {n.description}
+                      </div>
+                    )}
+                  </div>
+                  {n.team && <span className="text-xs text-sub font-mono mt-0.5">{n.team}</span>}
                   <Button variant="ghost" size="sm" onClick={() => removeNode(n.id)} className="text-sub hover:text-danger">
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
@@ -320,7 +369,9 @@ export function DependencyMapClient() {
         <div>
           <div className="text-sm font-semibold text-text mb-2">Dependencies</div>
           <div className="space-y-2">
-            {state.edges.map((e) => (
+            {/* Render the cleaned edge list — orphan edges (referencing
+                deleted nodes) are filtered upstream and shown nowhere. */}
+            {validEdges.map((e) => (
               <div key={e.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface p-2 text-xs">
                 <span className="truncate text-text">{nodeLabel(e.from)}</span>
                 <span className="text-accent uppercase">{e.kind}</span>

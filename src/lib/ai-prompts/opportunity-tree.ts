@@ -7,12 +7,15 @@ interface TreeNode {
   text: string;
   parentId: string | null;
   evidence?: string;
+  description?: string;
 }
 
 function renderTree(nodes: TreeNode[], parentId: string | null, depth = 0): string {
   const lines: string[] = [];
   for (const n of nodes.filter((x) => x.parentId === parentId)) {
-    lines.push(`${"  ".repeat(depth)}- [${n.kind}] ${n.text || "(empty)"}${n.evidence ? ` — evidence: ${n.evidence}` : ""}`);
+    const desc = n.description ? ` — ${n.description.slice(0, 80)}` : "";
+    const ev = n.evidence ? ` — evidence: ${n.evidence}` : "";
+    lines.push(`${"  ".repeat(depth)}- [${n.kind}] ${n.text || "(empty)"}${desc}${ev}`);
     lines.push(renderTree(nodes, n.id, depth + 1));
   }
   return lines.join("\n");

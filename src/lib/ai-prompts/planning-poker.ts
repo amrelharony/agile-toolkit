@@ -2,7 +2,7 @@ import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable } from "./prompt-utils";
 
 interface PlanningPokerData {
-  stories: { title: string; votes: (string | number)[]; finalEstimate: string | null }[];
+  stories: { title: string; votes: (string | number)[]; finalEstimate: string | null; description?: string }[];
   scaleName: string;
 }
 
@@ -11,11 +11,11 @@ export function generatePlanningPokerPrompts(data: PlanningPokerData): PromptDef
   if (storiesWithVotes.length === 0) return [];
 
   const table = formatTable(
-    ["Story", "Votes", "Final Estimate", "Spread"],
+    ["Story", "Description", "Votes", "Final Estimate", "Spread"],
     storiesWithVotes.map((s) => {
       const nums = s.votes.map((v) => typeof v === "number" ? v : parseFloat(String(v))).filter((n) => !isNaN(n));
       const spread = nums.length > 1 ? Math.max(...nums) - Math.min(...nums) : 0;
-      return [s.title, s.votes.join(", "), s.finalEstimate ?? "TBD", spread];
+      return [s.title, (s.description ?? "—").slice(0, 80), s.votes.join(", "), s.finalEstimate ?? "TBD", spread];
     })
   );
 

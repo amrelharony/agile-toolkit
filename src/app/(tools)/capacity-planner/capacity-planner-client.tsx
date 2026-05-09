@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo } from "react";
+import { useRef, useMemo, useState, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -13,6 +13,7 @@ import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
   Users,
@@ -32,6 +33,7 @@ interface TeamMember {
   id: string;
   name: string;
   role: string;
+  description?: string;
   availability: number; // 0-100
   daysOff: number;
 }
@@ -177,11 +179,23 @@ function ConfigField({
   step?: number;
   suffix?: string;
 }) {
-  // Clamp user input to the declared min/max so pasted or long-typed values
-  // can't drive derived calcs (focus factor, ceremony hours) out of range.
-  const handleChange = (raw: string) => {
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return onChange(min ?? 0);
+  // Lift the editing value into a local string draft and only commit on blur
+  // (or Enter). The previous handler called Number(raw) on every keystroke and
+  // a paste of "abc" — or a transient empty string while the user typed "0.5"
+  // — would coerce to 0/NaN and silently zero out the focus factor (and thus
+  // every team member's effective hours). Decimal entry like ".5" or "0.05"
+  // is also broken when each keystroke is parsed and clamped immediately.
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+
+  const commit = () => {
+    const n = Number(draft);
+    if (!Number.isFinite(n)) {
+      // Invalid input — revert the draft to the live value rather than zeroing
+      // a critical multiplier.
+      setDraft(String(value));
+      return;
+    }
     let next = n;
     if (typeof min === "number") next = Math.max(min, next);
     if (typeof max === "number") next = Math.min(max, next);
@@ -195,8 +209,12 @@ function ConfigField({
         <Input
           type="number"
           inputMode="decimal"
-          value={value}
-          onChange={(e) => handleChange(e.target.value)}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
           min={min}
           max={max}
           step={step}
@@ -226,77 +244,93 @@ function MemberRow({
   canRemove: boolean;
 }) {
   return (
-    <div className="grid grid-cols-[1fr_1fr_0.6fr_0.5fr_0.6fr_auto] gap-3 items-end">
-      <div className="space-y-1.5">
-        <Label className="text-sub text-xs">Name</Label>
-        <Input
-          placeholder="Team member"
-          value={member.name}
-          onChange={(e) => onUpdate({ name: e.target.value })}
-          className="bg-surface border-border text-text focus:border-accent/50 focus:ring-accent/20"
-        />
-      </div>
+    <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-[1fr_1fr_0.6fr_0.5fr_0.6fr_auto] gap-3 items-end">
+        <div className="space-y-1.5">
+          <Label className="text-sub text-xs">Name</Label>
+          <Input
+            placeholder="Team member"
+            value={member.name}
+            onChange={(e) => onUpdate({ name: e.target.value })}
+            className="bg-surface border-border text-text focus:border-accent/50 focus:ring-accent/20"
+          />
+        </div>
 
-      <div className="space-y-1.5">
-        <Label className="text-sub text-xs">Role</Label>
-        <Input
-          placeholder="e.g. Developer"
-          value={member.role}
-          onChange={(e) => onUpdate({ role: e.target.value })}
-          className="bg-surface border-border text-text focus:border-accent/50 focus:ring-accent/20"
-        />
-      </div>
+        <div className="space-y-1.5">
+          <Label className="text-sub text-xs">Role</Label>
+          <Input
+            placeholder="e.g. Developer"
+            value={member.role}
+            onChange={(e) => onUpdate({ role: e.target.value })}
+            className="bg-surface border-border text-text focus:border-accent/50 focus:ring-accent/20"
+          />
+        </div>
 
-      <div className="space-y-1.5">
-        <Label className="text-sub text-xs">Availability %</Label>
-        <Input
-          type="number"
-          min={0}
-          max={100}
-          value={member.availability}
-          onChange={(e) =>
-            onUpdate({
-              availability: Math.min(100, Math.max(0, Number(e.target.value))),
-            })
-          }
-          className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-        />
-      </div>
+        <div className="space-y-1.5">
+          <Label className="text-sub text-xs">Availability %</Label>
+          <Input
+            type="number"
+            min={0}
+            max={100}
+            value={member.availability}
+            onChange={(e) =>
+              onUpdate({
+                availability: Math.min(100, Math.max(0, Number(e.target.value))),
+              })
+            }
+            className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+          />
+        </div>
 
-      <div className="space-y-1.5">
-        <Label className="text-sub text-xs">Days Off</Label>
-        <Input
-          type="number"
-          min={0}
-          value={member.daysOff}
-          onChange={(e) =>
-            onUpdate({ daysOff: Math.max(0, Number(e.target.value)) })
-          }
-          className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-        />
-      </div>
+        <div className="space-y-1.5">
+          <Label className="text-sub text-xs">Days Off</Label>
+          <Input
+            type="number"
+            min={0}
+            value={member.daysOff}
+            onChange={(e) =>
+              onUpdate({ daysOff: Math.max(0, Number(e.target.value)) })
+            }
+            className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+          />
+        </div>
 
-      <div className="space-y-1.5">
-        <Label className="text-sub text-xs">Eff. Hours</Label>
-        <div className="h-9 flex items-center px-3 rounded-md bg-accent/5 border border-accent/20">
-          <span className="font-data font-semibold text-accent">
-            {round(effectiveHours)}
-          </span>
+        <div className="space-y-1.5">
+          <Label className="text-sub text-xs">Eff. Hours</Label>
+          <div className="h-9 flex items-center px-3 rounded-md bg-accent/5 border border-accent/20">
+            <span className="font-data font-semibold text-accent">
+              {round(effectiveHours)}
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-sub text-xs invisible">Del</Label>
+          <Button
+            variant="danger-ghost"
+            size="icon"
+            disabled={!canRemove}
+            onClick={onRemove}
+            className="h-9 w-9 disabled:opacity-30"
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
         </div>
       </div>
 
-      <div className="space-y-1.5">
-        <Label className="text-sub text-xs invisible">Del</Label>
-        <Button
-          variant="danger-ghost"
-          size="icon"
-          disabled={!canRemove}
-          onClick={onRemove}
-          className="h-9 w-9 disabled:opacity-30"
-        >
-          <Trash2 className="w-4 h-4" />
-        </Button>
-      </div>
+      {/* Optional description spans full row width below the inputs. */}
+      <Textarea
+        placeholder="Description (optional) — e.g. specialty, coverage notes..."
+        value={member.description ?? ""}
+        onChange={(e) =>
+          onUpdate({
+            description: e.target.value.trim() ? e.target.value : undefined,
+          })
+        }
+        rows={2}
+        className="bg-surface border-border resize-none text-xs text-text"
+        aria-label={`Description for ${member.name || "member"}`}
+      />
     </div>
   );
 }
@@ -312,7 +346,7 @@ export function CapacityPlannerClient() {
     addMember: addMemberRaw,
     removeMember: removeMemberRaw,
     updateMember,
-    updateConfig,
+    updateConfig: updateConfigRaw,
     reset: resetRaw,
   } = useCapacityStore();
   const { log } = useHistoryLogger("capacity-planner");
@@ -327,6 +361,12 @@ export function CapacityPlannerClient() {
     const member = members.find((m) => m.id === id);
     removeMemberRaw(id);
     log(CAPACITY_ACTIONS.MEMBER_REMOVED, { memberId: id, name: member?.name });
+  };
+  // Wrap updateConfig so config changes (sprintDays, ceremony, focus, hours)
+  // also surface in the history drawer — mirrors the burndown/burnup pattern.
+  const updateConfig: typeof updateConfigRaw = (updates) => {
+    updateConfigRaw(updates);
+    log(CAPACITY_ACTIONS.CONFIG_UPDATED, updates as Record<string, unknown>);
   };
   const reset = () => {
     resetRaw();
@@ -354,10 +394,11 @@ export function CapacityPlannerClient() {
 
   const csvData = useMemo(
     () => ({
-      headers: ["Name", "Role", "Availability %", "Days Off", "Effective Hours"],
+      headers: ["Name", "Role", "Description", "Availability %", "Days Off", "Effective Hours"],
       rows: calculations.perMember.map((m) => [
         m.name || "(unnamed)",
         m.role || "(no role)",
+        m.description ?? "",
         m.availability,
         m.daysOff,
         round(m.effectiveHours),
@@ -372,6 +413,7 @@ export function CapacityPlannerClient() {
       members: calculations.perMember.map((m) => ({
         name: m.name || "(unnamed)",
         role: m.role || "(no role)",
+        description: m.description,
         availability: m.availability,
         daysOff: m.daysOff,
         effectiveHours: round(m.effectiveHours),
@@ -586,8 +628,8 @@ export function CapacityPlannerClient() {
                   return (
                     <Card key={m.id} className="bg-surface border-border">
                       <CardContent className="p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <div>
+                        <div className="flex items-start justify-between mb-2 gap-2">
+                          <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium text-text">
                               {m.name}
                             </p>
@@ -596,8 +638,13 @@ export function CapacityPlannerClient() {
                                 {m.role}
                               </p>
                             )}
+                            {m.description && (
+                              <p className="text-sub text-[11px] mt-0.5 mb-0.5 whitespace-pre-wrap break-words">
+                                {m.description}
+                              </p>
+                            )}
                           </div>
-                          <span className="text-xl font-data font-bold text-accent">
+                          <span className="text-xl font-data font-bold text-accent shrink-0">
                             {round(m.effectiveHours)}h
                           </span>
                         </div>

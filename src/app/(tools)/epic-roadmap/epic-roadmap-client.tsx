@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -8,6 +8,7 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Milestone, Plus, Trash2 } from "lucide-react";
 import { forecastLinear } from "@/lib/analytics/forecasting";
 import { generateEpicRoadmapPrompts } from "@/lib/ai-prompts/epic-roadmap";
@@ -20,6 +21,7 @@ import { EPIC_ROADMAP_ACTIONS } from "@/lib/history/event-actions";
 interface Epic {
   id: string;
   title: string;
+  description?: string;
   startQuarter: string;
   endQuarter: string;
   progress: number;
@@ -58,6 +60,115 @@ function quartersBetween(from: string, to: string): string[] {
   return out;
 }
 
+function EpicRowEditor({
+  epic,
+  update,
+  logUpdate,
+  remove,
+}: {
+  epic: Epic;
+  update: (id: string, patch: Partial<Epic>) => void;
+  logUpdate: (id: string, fields: string[]) => void;
+  remove: (id: string) => void;
+}) {
+  const [titleDraft, setTitleDraft] = useState(epic.title);
+  const [descDraft, setDescDraft] = useState(epic.description ?? "");
+  const lastTitleRef = useRef(epic.title);
+  const lastDescRef = useRef(epic.description ?? "");
+
+  useEffect(() => {
+    setTitleDraft(epic.title);
+    lastTitleRef.current = epic.title;
+  }, [epic.title]);
+
+  useEffect(() => {
+    setDescDraft(epic.description ?? "");
+    lastDescRef.current = epic.description ?? "";
+  }, [epic.description]);
+
+  const commitTitle = () => {
+    if (titleDraft !== epic.title) {
+      update(epic.id, { title: titleDraft });
+    }
+    if (titleDraft !== lastTitleRef.current) {
+      lastTitleRef.current = titleDraft;
+      logUpdate(epic.id, ["title"]);
+    }
+  };
+
+  const commitDesc = () => {
+    const normalized = descDraft.trim() ? descDraft : undefined;
+    if (normalized !== epic.description) {
+      update(epic.id, { description: normalized });
+    }
+    const normalizedForRef = normalized ?? "";
+    if (normalizedForRef !== lastDescRef.current) {
+      lastDescRef.current = normalizedForRef;
+      logUpdate(epic.id, ["description"]);
+    }
+  };
+
+  return (
+    <div className="py-2 pr-2 flex flex-col gap-1.5">
+      <div className="flex items-center gap-2">
+        <div className="w-2 h-2 rounded-full" style={{ background: epic.color ?? "#00f0ff" }} />
+        <Input
+          value={titleDraft}
+          onChange={(ev) => setTitleDraft(ev.target.value)}
+          onBlur={commitTitle}
+          className="bg-bg border-border text-sm h-7 flex-1"
+        />
+        <ProgressCell
+          value={epic.progress}
+          onChange={(n) => {
+            update(epic.id, { progress: n });
+            logUpdate(epic.id, ["progress"]);
+          }}
+        />
+        <Button variant="ghost" size="sm" onClick={() => remove(epic.id)} className="h-7 text-sub hover:text-danger">
+          <Trash2 className="w-3.5 h-3.5" />
+        </Button>
+      </div>
+      <Textarea
+        value={descDraft}
+        onChange={(ev) => setDescDraft(ev.target.value)}
+        onBlur={commitDesc}
+        placeholder="Description (optional)..."
+        rows={2}
+        className="bg-bg border-border resize-none text-xs"
+        aria-label="Epic description"
+      />
+    </div>
+  );
+}
+
+function ProgressCell({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const n = Number(draft);
+    if (Number.isFinite(n)) {
+      const clamped = Math.max(0, Math.min(100, n));
+      if (clamped !== value) onChange(clamped);
+      else setDraft(String(value));
+    } else {
+      setDraft(String(value));
+    }
+  };
+  return (
+    <Input
+      type="number"
+      value={draft}
+      onChange={(ev) => setDraft(ev.target.value)}
+      onBlur={commit}
+      onKeyDown={(ev) => {
+        if (ev.key === "Enter") ev.currentTarget.blur();
+      }}
+      className="bg-bg border-border font-data h-7 w-14"
+    />
+  );
+}
+
 export function EpicRoadmapClient() {
   const [epics, setEpics] = usePersisted<Epic[]>("agile-toolkit:epic-roadmap", []);
   const thisYear = new Date().getFullYear();
@@ -75,13 +186,18 @@ export function EpicRoadmapClient() {
       color: COLORS[epics.length % COLORS.length],
     };
     setEpics((s) => [...s, epic]);
-    log(EPIC_ROADMAP_ACTIONS.EPIC_ADDED, { epicId: epic.id });
+    log(EPIC_ROADMAP_ACTIONS.EPIC_ADDED, {
+      epicId: epic.id,
+      title: epic.title,
+    });
   };
   const update = (id: string, patch: Partial<Epic>) => {
     setEpics((s) => s.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  };
+  const logUpdate = (id: string, fields: string[]) => {
     log(EPIC_ROADMAP_ACTIONS.EPIC_UPDATED, {
       epicId: id,
-      fields: Object.keys(patch),
+      fields,
     });
   };
   const remove = (id: string) => {
@@ -92,8 +208,11 @@ export function EpicRoadmapClient() {
 
   const columns = useMemo(() => quartersBetween(from, to), [from, to]);
 
-  const progressSeries = epics.map((e, idx) => ({ x: idx, y: e.progress }));
-  const projectedNext = progressSeries.length >= 2 ? forecastLinear(progressSeries, [progressSeries.length]) : [];
+  const progressSeries = useMemo(() => epics.map((e, idx) => ({ x: idx, y: e.progress })), [epics]);
+  const projectedNext = useMemo(
+    () => (progressSeries.length >= 2 ? forecastLinear(progressSeries, [progressSeries.length]) : []),
+    [progressSeries]
+  );
 
   const promptConfig = useMemo(
     () => ({
@@ -115,8 +234,8 @@ export function EpicRoadmapClient() {
         <ExportButton
           filename="epic-roadmap"
           csvData={{
-            headers: ["Epic", "Start Q", "End Q", "Progress", "Owner"],
-            rows: epics.map((e) => [e.title, e.startQuarter, e.endQuarter, `${e.progress}%`, e.owner ?? ""]),
+            headers: ["Epic", "Description", "Start Q", "End Q", "Progress", "Owner"],
+            rows: epics.map((e) => [e.title, e.description ?? "", e.startQuarter, e.endQuarter, `${e.progress}%`, e.owner ?? ""]),
           }}
           jsonData={epics}
         />
@@ -175,23 +294,7 @@ export function EpicRoadmapClient() {
                 const span = Math.max(1, end - start + 1);
                 return (
                   <div key={e.id} style={{ display: "contents" }}>
-                    <div className="py-2 pr-2 flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{ background: e.color ?? "#00f0ff" }} />
-                      <Input
-                        value={e.title}
-                        onChange={(ev) => update(e.id, { title: ev.target.value })}
-                        className="bg-bg border-border text-sm h-7 flex-1"
-                      />
-                      <Input
-                        type="number"
-                        value={e.progress}
-                        onChange={(ev) => update(e.id, { progress: Math.max(0, Math.min(100, Number(ev.target.value))) })}
-                        className="bg-bg border-border font-data h-7 w-14"
-                      />
-                      <Button variant="ghost" size="sm" onClick={() => remove(e.id)} className="h-7 text-sub hover:text-danger">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
+                    <EpicRowEditor epic={e} update={update} logUpdate={logUpdate} remove={remove} />
                     {columns.map((_, idx) => {
                       if (outOfView || idx < start || idx > end) return <div key={idx} />;
                       const isStart = idx === start;

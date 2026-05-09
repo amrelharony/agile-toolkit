@@ -57,6 +57,7 @@ export interface Risk {
 export interface KeyResult {
   id: string;
   title: string;
+  description?: string;
   target: number;
   current: number;
   unit?: string;
@@ -66,6 +67,7 @@ export interface KeyResult {
 export interface Okr {
   id: string;
   objective: string;
+  description?: string;
   keyResults: KeyResult[];
   quarter: string;
   owner?: string;
@@ -85,6 +87,7 @@ export interface Decision {
 export interface TechDebtItem {
   id: string;
   title: string;
+  description?: string;
   area?: string;
   impact: 1 | 2 | 3 | 4 | 5;
   effort: 1 | 2 | 3 | 4 | 5;

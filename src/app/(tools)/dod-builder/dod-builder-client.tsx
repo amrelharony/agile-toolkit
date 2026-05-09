@@ -8,6 +8,7 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Plus, Trash2, Code, ShieldCheck, FileCode, Gauge, Lock, CircleHelp } from "lucide-react";
@@ -22,6 +23,7 @@ type CategoryId = "code" | "testing" | "docs" | "performance" | "security" | "ot
 interface DodItem {
   id: string;
   label: string;
+  description?: string;
   category: CategoryId;
   required: boolean;
 }
@@ -57,19 +59,23 @@ const CATEGORIES: { id: CategoryId; label: string; icon: typeof Code }[] = [
 export function DodBuilderClient() {
   const [state, setState] = usePersisted<DodState>("agile-toolkit:dod-builder", { items: STARTER, history: [] });
   const [newLabel, setNewLabel] = useState("");
+  const [newDescription, setNewDescription] = useState("");
   const [activeCategory, setActiveCategory] = useState<CategoryId>("code");
   const { log } = useHistoryLogger("dod-builder");
 
   const addItem = () => {
     if (!newLabel.trim()) return;
-    const item: DodItem = { id: nanoid(6), label: newLabel.trim(), category: activeCategory, required: false };
+    const description = newDescription.trim() || undefined;
+    const item: DodItem = { id: nanoid(6), label: newLabel.trim(), description, category: activeCategory, required: false };
     setState((s) => ({ ...s, items: [...s.items, item] }));
     log(DOD_ACTIONS.CRITERION_ADDED, {
       itemId: item.id,
       label: item.label,
+      description,
       category: item.category,
     });
     setNewLabel("");
+    setNewDescription("");
   };
 
   const toggleRequired = (id: string) => {
@@ -97,14 +103,14 @@ export function DodBuilderClient() {
     const required = state.items.filter((i) => i.required);
     const passed = required.filter((i) => last.completedItemIds.includes(i.id));
     return required.length > 0 ? passed.length / required.length : 0;
-  }, [state]);
+  }, [state.items, state.history]);
 
   const promptConfig = useMemo(
     () => ({
       toolName: "Definition of Done Builder",
       prompts: generateDodBuilderPrompts({ items: state.items, history: state.history }),
     }),
-    [state]
+    [state.items, state.history]
   );
 
   return (
@@ -119,8 +125,8 @@ export function DodBuilderClient() {
         <ExportButton
           filename="definition-of-done"
           csvData={{
-            headers: ["Category", "Item", "Required"],
-            rows: state.items.map((i) => [i.category, i.label, i.required ? "Yes" : "No"]),
+            headers: ["Category", "Item", "Description", "Required"],
+            rows: state.items.map((i) => [i.category, i.label, i.description ?? "", i.required ? "Yes" : "No"]),
           }}
           jsonData={state}
         />
@@ -160,12 +166,12 @@ export function DodBuilderClient() {
               .map((item) => (
                 <div
                   key={item.id}
-                  className="flex items-center gap-3 rounded-lg border border-border bg-surface p-3"
+                  className="flex items-start gap-3 rounded-lg border border-border bg-surface p-3"
                 >
                   <button
                     type="button"
                     onClick={() => toggleRequired(item.id)}
-                    className={`px-2 py-0.5 rounded-md text-xs font-mono uppercase tracking-wider border transition ${
+                    className={`px-2 py-0.5 rounded-md text-xs font-mono uppercase tracking-wider border transition mt-0.5 ${
                       item.required
                         ? "border-accent/60 bg-accent/10 text-accent"
                         : "border-border text-sub hover:border-accent/30"
@@ -173,7 +179,14 @@ export function DodBuilderClient() {
                   >
                     {item.required ? "Required" : "Optional"}
                   </button>
-                  <span className="flex-1 text-text text-sm">{item.label}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-text text-sm">{item.label}</div>
+                    {item.description && (
+                      <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
+                        {item.description}
+                      </div>
+                    )}
+                  </div>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -184,18 +197,31 @@ export function DodBuilderClient() {
                   </Button>
                 </div>
               ))}
-            <div className="flex gap-2 pt-2">
-              <Input
-                value={newLabel}
-                onChange={(e) => setNewLabel(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addItem()}
-                placeholder={`Add ${c.label.toLowerCase()} item...`}
-                className="bg-bg border-border"
+            <div className="flex flex-col gap-2 pt-2">
+              <div className="flex gap-2">
+                <Input
+                  value={newLabel}
+                  onChange={(e) => setNewLabel(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addItem()}
+                  placeholder={`Add ${c.label.toLowerCase()} item...`}
+                  className="bg-bg border-border"
+                />
+                <Button onClick={addItem} className="gap-2 bg-accent text-bg hover:bg-accent/90">
+                  <Plus className="w-4 h-4" />
+                  Add
+                </Button>
+              </div>
+              <Textarea
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addItem();
+                }}
+                placeholder="Description (optional)..."
+                rows={2}
+                className="bg-bg border-border resize-none text-xs"
+                aria-label="New DoD item description"
               />
-              <Button onClick={addItem} className="gap-2 bg-accent text-bg hover:bg-accent/90">
-                <Plus className="w-4 h-4" />
-                Add
-              </Button>
             </div>
           </TabsContent>
         ))}

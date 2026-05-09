@@ -10,6 +10,7 @@ import {
   Radar,
   Tooltip,
 } from "recharts";
+import { chartTheme } from "@/components/charts/chart-theme";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -71,11 +72,15 @@ function CustomTooltip({
 }) {
   if (!active || !payload?.length) return null;
   const { subject, value } = payload[0].payload;
+  // Persisted state can drift outside [1, 5] (corrupted import, future schema
+  // change). Clamp at the lookup site so the tooltip never displays "undefined".
+  const clamped = Math.min(5, Math.max(1, value));
+  const label = MATURITY_LEVEL_LABELS[clamped] ?? "Unknown";
   return (
     <div className="bg-surface border border-border rounded-lg px-3 py-2 text-sm shadow-lg">
       <p className="text-text font-medium">{subject}</p>
       <p className="text-accent">
-        Level {value} — {MATURITY_LEVEL_LABELS[value]}
+        Level {value} — {label}
       </p>
     </div>
   );
@@ -130,16 +135,20 @@ export function MaturityClient() {
     [averageLevel]
   );
 
+  // Clamp `current` and `targetLevel` reads into the valid 1-5 band so that a
+  // corrupted persisted score (or future schema drift) can't produce
+  // `nextLevel === undefined` followed by silent "undefined" UI.
+  const clampedTarget = Math.min(5, Math.max(1, targetLevel));
   const roadmapItems = useMemo(
     () =>
       MATURITY_DIMENSIONS.filter(
-        (d) => (scores[d.id] ?? 1) < targetLevel
+        (d) => Math.min(5, Math.max(1, scores[d.id] ?? 1)) < clampedTarget
       ).map((d) => {
-        const current = scores[d.id] ?? 1;
+        const current = Math.min(5, Math.max(1, scores[d.id] ?? 1));
         const nextLevel = d.levels.find((l) => l.level === current + 1);
         return { dimension: d, current, nextLevel };
       }),
-    [scores, targetLevel]
+    [scores, clampedTarget]
   );
 
   /* -- AI prompts ---------------------------------------------------------- */
@@ -172,7 +181,7 @@ export function MaturityClient() {
     ];
     for (const d of MATURITY_DIMENSIONS) {
       const level = scores[d.id] ?? 1;
-      const lbl = MATURITY_LEVEL_LABELS[level];
+      const lbl = MATURITY_LEVEL_LABELS[Math.min(5, Math.max(1, level))] ?? "Unknown";
       lines.push(`${d.name.padEnd(28)} Level ${level} (${lbl})`);
     }
     if (roadmapItems.length > 0) {
@@ -254,7 +263,10 @@ export function MaturityClient() {
           >
             {MATURITY_DIMENSIONS.map((dim) => {
               const level = scores[dim.id] ?? 1;
-              const levelData = dim.levels.find((l) => l.level === level)!;
+              // Persisted state can hold a level outside the dimension's defined
+              // range. Fall back to the first level instead of `!`-asserting,
+              // which would crash the whole tool on import of corrupted state.
+              const levelData = dim.levels.find((l) => l.level === level) ?? dim.levels[0]!;
               return (
                 <div key={dim.id} className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -295,7 +307,7 @@ export function MaturityClient() {
                   {[1, 2, 3, 4, 5].map((l) => (
                     <span key={l} className="text-xs text-sub">
                       <span className="text-text font-medium">{l}</span>{" "}
-                      {MATURITY_LEVEL_LABELS[l]}
+                      {MATURITY_LEVEL_LABELS[Math.min(5, Math.max(1, l))] ?? "Unknown"}
                     </span>
                   ))}
                 </div>
@@ -307,12 +319,12 @@ export function MaturityClient() {
               >
                 <PolarGrid
                   gridType="polygon"
-                  stroke="rgba(255,255,255,0.1)"
+                  stroke={chartTheme.gridColor}
                 />
                 <PolarAngleAxis
                   dataKey="subject"
                   tick={{
-                    fill: "#a0aec0",
+                    fill: chartTheme.axisColor,
                     fontSize: 11,
                     fontFamily: "Inter, sans-serif",
                   }}
@@ -320,11 +332,11 @@ export function MaturityClient() {
                 <Radar
                   name="Maturity"
                   dataKey="value"
-                  stroke="#00f0ff"
-                  fill="#00f0ff"
+                  stroke={chartTheme.colors.cyan}
+                  fill={chartTheme.colors.cyan}
                   fillOpacity={0.15}
                   strokeWidth={2}
-                  dot={{ r: 4, fill: "#00f0ff", strokeWidth: 0 }}
+                  dot={{ r: 4, fill: chartTheme.colors.cyan, strokeWidth: 0 }}
                 />
                 <Tooltip content={<CustomTooltip />} />
               </RadarChart>
@@ -364,7 +376,7 @@ export function MaturityClient() {
             <div className="text-center py-8 text-sub">
               <Award className="w-10 h-10 mx-auto mb-3 text-accent opacity-60" />
               <p className="font-medium text-text">
-                All dimensions meet or exceed target level {targetLevel}!
+                All dimensions meet or exceed target level {clampedTarget}!
               </p>
               <p className="text-sm mt-1">
                 Raise the target to continue improving.
@@ -385,12 +397,20 @@ export function MaturityClient() {
                       </span>
                       <span className="text-xs text-sub">
                         Level {current} → {current + 1}
-                        {current + 1 < targetLevel && ` (target: ${targetLevel})`}
+                        {current + 1 < clampedTarget && ` (target: ${clampedTarget})`}
                       </span>
                     </div>
-                    {nextLevel && (
+                    {nextLevel ? (
                       <p className="text-sm text-sub leading-relaxed">
                         {nextLevel.description}
+                      </p>
+                    ) : (
+                      // Defensive: roadmapItems already filters dimensions
+                      // below clampedTarget, but if levels[] is sparse the
+                      // next-level lookup can still miss. Show a clear
+                      // fallback rather than rendering nothing.
+                      <p className="text-sm text-sub leading-relaxed italic">
+                        Maximum maturity reached.
                       </p>
                     )}
                   </div>

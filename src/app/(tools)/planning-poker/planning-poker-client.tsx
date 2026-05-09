@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 
@@ -55,6 +56,7 @@ interface Participant {
 interface Story {
   id: string;
   title: string;
+  description?: string;
   finalEstimate: string | null;
 }
 
@@ -62,6 +64,10 @@ interface Session {
   roomCode: string;
   sessionName: string;
   scale: string[];
+  // Persist the chosen scale type so we don't have to reverse-lookup it from
+  // the resolved values (a fragile string-join heuristic that breaks on any
+  // future scale that happens to share values with another preset).
+  scaleType: ScaleType;
   host: string;
   participants: Participant[];
   stories: Story[];
@@ -83,12 +89,15 @@ function generateRoomCode(): string {
 }
 
 function getInitials(name: string): string {
+  // Filter empty segments so a name with multiple consecutive spaces (e.g.
+  // "Alice  Smith") doesn't dereference `undefined[0]` and crash the avatar.
   return name
     .split(" ")
+    .filter(Boolean)
     .map((w) => w[0])
     .join("")
-    .toUpperCase()
-    .slice(0, 2);
+    .slice(0, 2)
+    .toUpperCase();
 }
 
 // Deterministic color from name string
@@ -428,6 +437,7 @@ function SessionScreen({
   onLeave: () => void;
 }) {
   const [newStory, setNewStory] = useState("");
+  const [newDescription, setNewDescription] = useState("");
   const newStoryRef = useRef<HTMLInputElement>(null);
   const { log } = useHistoryLogger("planning-poker");
 
@@ -441,14 +451,16 @@ function SessionScreen({
   const addStory = () => {
     const title = newStory.trim();
     if (!title) return;
+    const description = newDescription.trim() || undefined;
     onUpdateSession((s) => ({
       ...s,
       stories: [
         ...s.stories,
-        { id: crypto.randomUUID(), title, finalEstimate: null },
+        { id: crypto.randomUUID(), title, description, finalEstimate: null },
       ],
     }));
     setNewStory("");
+    setNewDescription("");
     newStoryRef.current?.focus();
   };
 
@@ -526,30 +538,32 @@ function SessionScreen({
 
   const saveEstimate = (value: string) => {
     const story = session.stories[session.currentStoryIdx];
-    onUpdateSession((s) => ({
-      ...s,
-      revealed: false,
-      participants: s.participants.map((p) => ({ ...p, vote: null })),
-      stories: s.stories.map((st, i) =>
+    // Two-call updaters race: the second call read `session.stories`
+    // (pre-finalEstimate) and could land on the just-estimated story instead
+    // of the next unestimated one. Fold both updates into one updater so the
+    // findIndex sees the freshly stamped finalEstimate.
+    onUpdateSession((s) => {
+      const stories = s.stories.map((st, i) =>
         i === s.currentStoryIdx ? { ...st, finalEstimate: value } : st
-      ),
-    }));
+      );
+      const nextUnestimated = stories.findIndex(
+        (st, i) => i > s.currentStoryIdx && st.finalEstimate === null
+      );
+      return {
+        ...s,
+        revealed: false,
+        participants: s.participants.map((p) => ({ ...p, vote: null })),
+        stories,
+        currentStoryIdx:
+          nextUnestimated !== -1 ? nextUnestimated : s.currentStoryIdx,
+      };
+    });
     if (story) {
       log(PLANNING_POKER_ACTIONS.ESTIMATE_COMMITTED, {
         storyId: story.id,
         title: story.title,
         value,
       });
-    }
-    // Auto-advance to next unestimated story
-    const nextUnestimated = session.stories.findIndex(
-      (st, i) => i > session.currentStoryIdx && st.finalEstimate === null
-    );
-    if (nextUnestimated !== -1) {
-      onUpdateSession((s) => ({
-        ...s,
-        currentStoryIdx: nextUnestimated,
-      }));
     }
   };
 
@@ -568,16 +582,17 @@ function SessionScreen({
   const votedCount = session.participants.filter((p) => p.vote !== null).length;
   // const allVoted = votedCount === session.participants.length;
 
-  // AI prompts
+  // AI prompts — use the persisted scaleType directly. The previous reverse
+  // lookup against SCALES (`s.join() === session.scale.join()`) broke as soon
+  // as the user customized a preset's values.
   const promptConfig = useMemo(() => {
-    const scaleName = (SCALE_LABELS as Record<string, string>)[
-      (Object.entries(SCALES).find(([, s]) => s.join() === session.scale.join())?.[0]) ?? "custom"
-    ] ?? "Custom";
+    const scaleName = SCALE_LABELS[session.scaleType] ?? "Custom";
     return {
       toolName: "Planning Poker",
       prompts: generatePlanningPokerPrompts({
         stories: session.stories.map((s, idx) => ({
           title: s.title,
+          description: s.description,
           // Only the current active story has live votes; past stories only have finalEstimate
           votes: idx === session.currentStoryIdx && session.revealed
             ? session.participants.map((p) => p.vote).filter((v): v is string => v !== null)
@@ -587,7 +602,7 @@ function SessionScreen({
         scaleName,
       }),
     };
-  }, [session.stories, session.participants, session.scale, session.currentStoryIdx, session.revealed]);
+  }, [session.stories, session.participants, session.scaleType, session.currentStoryIdx, session.revealed]);
 
   // Card rotation for fan effect
   const cardCount = session.scale.length;
@@ -614,11 +629,7 @@ function SessionScreen({
             </span>
           </div>
           <Badge className="bg-accent/10 text-accent border-accent/30 text-xs">
-            {(SCALE_LABELS as Record<string, string>)[
-              (Object.entries(SCALES).find(
-                ([, s]) => s.join() === session.scale.join()
-              )?.[0]) ?? "custom"
-            ] ?? "Custom"}
+            {SCALE_LABELS[session.scaleType] ?? "Custom"}
           </Badge>
           <div className="flex items-center gap-1 text-xs text-amber-400/80">
             <WifiOff className="h-3 w-3" />
@@ -701,6 +712,12 @@ function SessionScreen({
                   <h2 className="text-2xl font-display font-bold text-text text-glow-cyan px-1">
                     {currentStory.title}
                   </h2>
+
+                  {currentStory.description && (
+                    <div className="text-sub text-sm mt-0.5 mb-1.5 px-1 whitespace-pre-wrap break-words">
+                      {currentStory.description}
+                    </div>
+                  )}
 
                   {currentStory.finalEstimate && (
                     <div className="flex items-center gap-2 text-sm text-accent-green">
@@ -900,24 +917,38 @@ function SessionScreen({
             className="border-border/40 bg-surface"
             contentClassName="flex flex-col gap-3"
           >
-            {/* Add story input */}
-            <div className="flex gap-2">
-              <Input
-                ref={newStoryRef}
-                value={newStory}
-                onChange={(e) => setNewStory(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addStory()}
-                placeholder="Story title…"
-                className="h-9 text-sm bg-surface-deep border-border/40 text-text"
+            {/* Add story input — title row, then optional description.
+                Cmd/Ctrl+Enter on the textarea submits to match the kanban pattern. */}
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-2">
+                <Input
+                  ref={newStoryRef}
+                  value={newStory}
+                  onChange={(e) => setNewStory(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addStory()}
+                  placeholder="Story title…"
+                  className="h-9 text-sm bg-surface-deep border-border/40 text-text"
+                />
+                <Button
+                  size="icon"
+                  onClick={addStory}
+                  disabled={!newStory.trim()}
+                  className="h-9 w-9 shrink-0 bg-accent text-[#0a0e1a] hover:bg-accent/80"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              <Textarea
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addStory();
+                }}
+                placeholder="Description (optional)..."
+                rows={2}
+                className="bg-surface-deep border-border/40 resize-none text-xs text-text"
+                aria-label="New story description"
               />
-              <Button
-                size="icon"
-                onClick={addStory}
-                disabled={!newStory.trim()}
-                className="h-9 w-9 shrink-0 bg-accent text-[#0a0e1a] hover:bg-accent/80"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
             </div>
 
             {/* Story list */}
@@ -932,13 +963,20 @@ function SessionScreen({
                     key={story.id}
                     onClick={() => goToStory(idx)}
                     className={[
-                      "flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors",
+                      "flex items-start justify-between gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors",
                       idx === session.currentStoryIdx
                         ? "bg-accent/10 border border-accent/30 text-accent"
                         : "text-sub hover:bg-surface-hover hover:text-text",
                     ].join(" ")}
                   >
-                    <span className="truncate flex-1">{story.title}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="truncate">{story.title}</div>
+                      {story.description && (
+                        <div className="text-sub text-[11px] mt-0.5 whitespace-pre-wrap break-words font-normal opacity-80">
+                          {story.description}
+                        </div>
+                      )}
+                    </div>
                     {story.finalEstimate !== null ? (
                       <span className="font-data shrink-0 text-accent-green">
                         {story.finalEstimate}
@@ -1018,17 +1056,21 @@ export function PlanningPokerClient() {
   const handleStart = ({
     sessionName,
     scale,
+    scaleType,
     displayName,
   }: {
     sessionName: string;
     scale: string[];
-    scaleType: ScaleType; // reserved for Supabase integration
+    scaleType: ScaleType;
     displayName: string;
   }) => {
     const newSession: Session = {
       roomCode: generateRoomCode(),
       sessionName,
       scale,
+      // Persisted so the badge label and AI prompt's scaleName don't have to
+      // reverse-engineer the chosen preset from the resolved string array.
+      scaleType,
       host: displayName,
       participants: [
         { id: crypto.randomUUID(), name: displayName, vote: null },

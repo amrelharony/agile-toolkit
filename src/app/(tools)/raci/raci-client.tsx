@@ -12,6 +12,8 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RACI_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { SectionCard } from "@/components/shared/section-card";
 import {
   Select,
@@ -37,11 +39,13 @@ type RACIValue = "" | "R" | "A" | "C" | "I";
 interface RACIRole {
   id: string;
   name: string;
+  description?: string;
 }
 
 interface RACIActivity {
   id: string;
   name: string;
+  description?: string;
 }
 
 type MatrixData = Record<string, Record<string, RACIValue>>; // activityId -> roleId -> value
@@ -53,9 +57,11 @@ interface RACIStore {
   addRole: () => void;
   removeRole: (id: string) => void;
   updateRoleName: (id: string, name: string) => void;
+  updateRoleDescription: (id: string, description: string) => void;
   addActivity: () => void;
   removeActivity: (id: string) => void;
   updateActivityName: (id: string, name: string) => void;
+  updateActivityDescription: (id: string, description: string) => void;
   setCellValue: (activityId: string, roleId: string, value: RACIValue) => void;
   reset: () => void;
 }
@@ -116,11 +122,18 @@ const useRACIStore = create<RACIStore>()(
       matrix: buildDefaultMatrix(DEFAULT_ACTIVITIES, DEFAULT_ROLES),
 
       addRole: () => {
-        const newRole: RACIRole = {
-          id: crypto.randomUUID(),
-          name: `Role ${Date.now() % 1000}`,
-        };
         set((s) => {
+          const used = new Set(
+            s.roles
+              .map((r) => parseInt(String(r.name).replace(/\D/g, ""), 10))
+              .filter(Number.isFinite)
+          );
+          let n = 1;
+          while (used.has(n)) n++;
+          const newRole: RACIRole = {
+            id: crypto.randomUUID(),
+            name: `Role ${n}`,
+          };
           const matrix = { ...s.matrix };
           for (const aId of Object.keys(matrix)) {
             matrix[aId] = { ...matrix[aId], [newRole.id]: "" };
@@ -148,12 +161,28 @@ const useRACIStore = create<RACIStore>()(
           roles: s.roles.map((r) => (r.id === id ? { ...r, name } : r)),
         })),
 
+      updateRoleDescription: (id, description) =>
+        set((s) => ({
+          roles: s.roles.map((r) =>
+            r.id === id
+              ? { ...r, description: description.trim() || undefined }
+              : r
+          ),
+        })),
+
       addActivity: () => {
-        const newActivity: RACIActivity = {
-          id: crypto.randomUUID(),
-          name: `Activity ${Date.now() % 1000}`,
-        };
         set((s) => {
+          const used = new Set(
+            s.activities
+              .map((a) => parseInt(String(a.name).replace(/\D/g, ""), 10))
+              .filter(Number.isFinite)
+          );
+          let n = 1;
+          while (used.has(n)) n++;
+          const newActivity: RACIActivity = {
+            id: crypto.randomUUID(),
+            name: `Activity ${n}`,
+          };
           const row: Record<string, RACIValue> = {};
           for (const r of s.roles) {
             row[r.id] = "";
@@ -179,6 +208,15 @@ const useRACIStore = create<RACIStore>()(
         set((s) => ({
           activities: s.activities.map((a) =>
             a.id === id ? { ...a, name } : a
+          ),
+        })),
+
+      updateActivityDescription: (id, description) =>
+        set((s) => ({
+          activities: s.activities.map((a) =>
+            a.id === id
+              ? { ...a, description: description.trim() || undefined }
+              : a
           ),
         })),
 
@@ -332,9 +370,11 @@ export function RACIClient() {
     addRole: addRoleRaw,
     removeRole: removeRoleRaw,
     updateRoleName,
+    updateRoleDescription,
     addActivity: addActivityRaw,
     removeActivity: removeActivityRaw,
     updateActivityName,
+    updateActivityDescription,
     setCellValue: setCellValueRaw,
     reset: resetRaw,
   } = useRACIStore();
@@ -409,25 +449,66 @@ export function RACIClient() {
       r.map((c, i) => pad(c, colWidths[i])).join(" | ")
     );
 
-    return ["RACI Matrix", "", headerLine, sep, ...bodyLines].join("\n");
+    // Reference blocks listing every role/activity with its description so the
+    // matrix labels alone don't strip context when pasted.
+    const roleLines = roles.map(
+      (r) => `  - ${r.name}${r.description ? `: ${r.description}` : ""}`
+    );
+    const activityLines = activities.map(
+      (a) => `  - ${a.name}${a.description ? `: ${a.description}` : ""}`
+    );
+
+    const out: string[] = ["RACI Matrix", ""];
+    if (roles.length > 0) {
+      out.push("Roles", ...roleLines, "");
+    }
+    if (activities.length > 0) {
+      out.push("Activities", ...activityLines, "");
+    }
+    out.push(headerLine, sep, ...bodyLines);
+    return out.join("\n");
   }, [roles, activities, matrix]);
 
-  const csvData = useMemo(
-    () => ({
+  const csvData = useMemo(() => {
+    // Sidecar table appended after the matrix carries Role/Activity descriptions
+    // so the export round-trips with the same data the UI shows.
+    const roleColCount = roles.length;
+    const matrixRows = activities.map((a) => [
+      a.name,
+      ...roles.map((r) => matrix[a.id]?.[r.id] || ""),
+    ]);
+
+    const sidecarRows: (string | number)[][] = [];
+    if (roles.length > 0 || activities.length > 0) {
+      // Blank separator row keeps the matrix and reference data visually distinct.
+      sidecarRows.push(Array(roleColCount + 1).fill(""));
+      sidecarRows.push(["Reference", ...Array(roleColCount).fill("")]);
+      if (roles.length > 0) {
+        sidecarRows.push(["Role", "Description", ...Array(Math.max(0, roleColCount - 1)).fill("")]);
+        for (const r of roles) {
+          sidecarRows.push([r.name, r.description ?? "", ...Array(Math.max(0, roleColCount - 1)).fill("")]);
+        }
+      }
+      if (activities.length > 0) {
+        sidecarRows.push(["Activity", "Description", ...Array(Math.max(0, roleColCount - 1)).fill("")]);
+        for (const a of activities) {
+          sidecarRows.push([a.name, a.description ?? "", ...Array(Math.max(0, roleColCount - 1)).fill("")]);
+        }
+      }
+    }
+
+    return {
       headers: ["Activity", ...roles.map((r) => r.name)],
-      rows: activities.map((a) => [
-        a.name,
-        ...roles.map((r) => matrix[a.id]?.[r.id] || ""),
-      ]),
-    }),
-    [roles, activities, matrix]
-  );
+      rows: [...matrixRows, ...sidecarRows],
+    };
+  }, [roles, activities, matrix]);
 
   const jsonData = useMemo(
     () => ({
-      roles: roles.map((r) => r.name),
+      roles: roles.map((r) => ({ name: r.name, description: r.description ?? "" })),
       activities: activities.map((a) => ({
         name: a.name,
+        description: a.description ?? "",
         assignments: Object.fromEntries(
           roles.map((r) => [r.name, matrix[a.id]?.[r.id] || ""])
         ),
@@ -573,6 +654,18 @@ export function RACIClient() {
                         </button>
                       )}
                     </div>
+                    {/* Optional description for this activity. Empty trims to
+                        undefined in the store updater. */}
+                    <Textarea
+                      value={activity.description ?? ""}
+                      onChange={(e) =>
+                        updateActivityDescription(activity.id, e.target.value)
+                      }
+                      placeholder="Description (optional)..."
+                      rows={2}
+                      className="bg-surface border-border resize-none text-xs"
+                      aria-label={`Description for activity ${activity.name}`}
+                    />
                     <div className="grid grid-cols-1 xs:grid-cols-2 gap-2">
                       {roles.map((role) => (
                         <div
@@ -619,25 +712,38 @@ export function RACIClient() {
                   <summary className="cursor-pointer hover:text-text min-touch py-2 inline-block">
                     Manage roles ({roles.length})
                   </summary>
-                  <ul className="mt-2 space-y-1 pl-1">
+                  <ul className="mt-2 space-y-2 pl-1">
                     {roles.map((role) => (
                       <li
                         key={role.id}
-                        className="flex items-center gap-2 rounded-md border border-border bg-[var(--bg2)] px-2 py-1"
+                        className="rounded-md border border-border bg-[var(--bg2)] px-2 py-1.5 space-y-1"
                       >
-                        <EditableName
-                          value={role.name}
-                          onChange={(name) => updateRoleName(role.id, name)}
-                          className="flex-1 font-medium text-text"
+                        <div className="flex items-center gap-2">
+                          <EditableName
+                            value={role.name}
+                            onChange={(name) => updateRoleName(role.id, name)}
+                            className="flex-1 font-medium text-text"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeRole(role.id)}
+                            className="btn-danger-ghost min-touch -m-2 p-2 rounded flex-shrink-0"
+                            aria-label={`Remove role ${role.name}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                          </button>
+                        </div>
+                        {/* Compact single-line description input — keeps the
+                            roles list dense; empty trims to undefined. */}
+                        <Input
+                          value={role.description ?? ""}
+                          onChange={(e) =>
+                            updateRoleDescription(role.id, e.target.value)
+                          }
+                          placeholder="Description (optional)..."
+                          className="h-7 text-xs bg-surface border-border"
+                          aria-label={`Description for role ${role.name}`}
                         />
-                        <button
-                          type="button"
-                          onClick={() => removeRole(role.id)}
-                          className="btn-danger-ghost min-touch -m-2 p-2 rounded flex-shrink-0"
-                          aria-label={`Remove role ${role.name}`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                        </button>
                       </li>
                     ))}
                   </ul>
@@ -658,6 +764,7 @@ export function RACIClient() {
                       <th
                         key={role.id}
                         className="bg-surface-deep border border-border p-2 min-w-[120px]"
+                        title={role.description || undefined}
                       >
                         <div className="flex items-center gap-1">
                           <EditableName
@@ -676,6 +783,17 @@ export function RACIClient() {
                             </button>
                           )}
                         </div>
+                        {/* Compact one-line description input directly under the
+                            role name. Stays optional; trims to undefined in store. */}
+                        <Input
+                          value={role.description ?? ""}
+                          onChange={(e) =>
+                            updateRoleDescription(role.id, e.target.value)
+                          }
+                          placeholder="Description (optional)..."
+                          className="mt-1 h-6 text-[11px] bg-surface border-border"
+                          aria-label={`Description for role ${role.name}`}
+                        />
                       </th>
                     ))}
                     <th className="bg-surface-deep border border-border p-2 w-10">
@@ -702,6 +820,7 @@ export function RACIClient() {
                               ? "border-red-500/50"
                               : "border-border"
                           }`}
+                          title={activity.description || undefined}
                         >
                           <div className="flex items-center gap-1">
                             <EditableName
@@ -722,6 +841,17 @@ export function RACIClient() {
                               </button>
                             )}
                           </div>
+                          {/* Compact one-line description for this activity.
+                              Empty trims to undefined in the store updater. */}
+                          <Input
+                            value={activity.description ?? ""}
+                            onChange={(e) =>
+                              updateActivityDescription(activity.id, e.target.value)
+                            }
+                            placeholder="Description (optional)..."
+                            className="mt-1 h-6 text-[11px] bg-surface border-border"
+                            aria-label={`Description for activity ${activity.name}`}
+                          />
                         </td>
                         {roles.map((role) => (
                           <td

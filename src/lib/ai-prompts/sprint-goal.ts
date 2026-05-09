@@ -4,7 +4,7 @@ import { buildPreamble } from "./prompt-utils";
 interface SprintGoalData {
   businessObjective: string;
   sprintGoal: string;
-  criteria: { text: string; met: boolean }[];
+  criteria: { text: string; smartRelevant: boolean }[];
   keyResults: string[];
 }
 
@@ -17,7 +17,7 @@ export function generateSprintGoalPrompts(data: SprintGoalData): PromptDefinitio
     "",
     "**Acceptance Criteria:**",
     ...(data.criteria.length > 0
-      ? data.criteria.map((c, i) => `${i + 1}. ${c.text}${c.met ? " ✓ (SMART relevant)" : ""}`)
+      ? data.criteria.map((c, i) => `${i + 1}. ${c.text}${c.smartRelevant ? " ✓ (SMART relevant)" : ""}`)
       : ["(none defined)"]),
     "",
     "**Key Results:**",

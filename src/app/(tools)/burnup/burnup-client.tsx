@@ -48,6 +48,8 @@ interface DayEntry {
   day: number;
   scope: number | null;
   completed: number | null;
+  /** Optional per-day note (e.g. "Demo prep", "Outage"). */
+  description?: string;
 }
 
 interface BurnupConfig {
@@ -93,18 +95,36 @@ function createDefaultEntries(sprintDays: number): DayEntry[] {
 
 const useBurnupStore = create<BurnupStore>()(
   persist(
-    (set) => ({
-      config: makeDefaultConfig(),
-      entries: createDefaultEntries(makeDefaultConfig().sprintDays),
+    (set) => {
+      // Compute defaults once so config and entries share the same sprintDays
+      // — the previous version called makeDefaultConfig() twice, allowing the
+      // two values to drift if the helper ever became non-deterministic.
+      const initialConfig = makeDefaultConfig();
+      return {
+      config: initialConfig,
+      entries: createDefaultEntries(initialConfig.sprintDays),
 
       updateConfig: (updates) =>
         set((s) => {
           const newConfig = { ...s.config, ...updates };
+          // Resize entries when sprint length changes — preserve user-entered
+          // values for days that still exist, drop days past the new end, and
+          // append blank entries for new days. The previous implementation
+          // wiped ALL user data whenever the user nudged the sprint length.
           if (updates.sprintDays !== undefined && updates.sprintDays !== s.config.sprintDays) {
-            return {
-              config: newConfig,
-              entries: createDefaultEntries(updates.sprintDays),
-            };
+            const target = Math.max(1, updates.sprintDays);
+            const byDay = new Map(s.entries.map((e) => [e.day, e]));
+            const next = Array.from({ length: target + 1 }, (_, i) => {
+              const existing = byDay.get(i);
+              if (existing) return existing;
+              return {
+                id: crypto.randomUUID(),
+                day: i,
+                scope: i === 0 ? 40 : null,
+                completed: i === 0 ? 0 : null,
+              };
+            });
+            return { config: newConfig, entries: next };
           }
           return { config: newConfig };
         }),
@@ -135,7 +155,8 @@ const useBurnupStore = create<BurnupStore>()(
           entries: createDefaultEntries(cfg.sprintDays),
         });
       },
-    }),
+    };
+    },
     { name: "agile-toolkit:burnup" }
   )
 );
@@ -145,18 +166,22 @@ const useBurnupStore = create<BurnupStore>()(
 /* -------------------------------------------------------------------------- */
 
 function computeTodayDay(sprintStartDate: string, sprintDays: number): number | null {
-  try {
-    const start = new Date(sprintStartDate);
-    const today = new Date();
-    start.setHours(0, 0, 0, 0);
-    today.setHours(0, 0, 0, 0);
-    const diffMs = today.getTime() - start.getTime();
-    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-    if (diffDays < 0 || diffDays > sprintDays) return null;
-    return diffDays;
-  } catch {
-    return null;
-  }
+  // Parse "YYYY-MM-DD" as a LOCAL calendar date and compare against today's
+  // local calendar date. The previous implementation parsed the ISO string
+  // (UTC midnight) and then called setHours (local), which mis-aligned the
+  // "Today" marker by a day for users east of UTC.
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(sprintStartDate.trim());
+  if (!m) return null;
+  const startY = Number(m[1]);
+  const startM = Number(m[2]) - 1;
+  const startD = Number(m[3]);
+  const start = new Date(startY, startM, startD).getTime();
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(today)) return null;
+  const diffDays = Math.round((today - start) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0 || diffDays > sprintDays) return null;
+  return diffDays;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -286,6 +311,7 @@ export function BurnupClient() {
         day,
         scope: lastScope,
         completed: entry?.completed ?? null,
+        description: entry?.description ?? "",
       };
     });
   }, [sortedEntries, config.sprintDays]);
@@ -356,8 +382,13 @@ export function BurnupClient() {
 
   const csvData = useMemo(
     () => ({
-      headers: ["Day", "Scope (pts)", "Completed (pts)"],
-      rows: chartData.map((d) => [d.day, d.scope ?? "", d.completed ?? ""]),
+      headers: ["Day", "Scope (pts)", "Completed (pts)", "Note"],
+      rows: chartData.map((d) => [
+        d.day,
+        d.scope ?? "",
+        d.completed ?? "",
+        d.description ?? "",
+      ]),
     }),
     [chartData]
   );
@@ -592,8 +623,11 @@ export function BurnupClient() {
             </>
           }
         >
-          {/* Column headers */}
-          <div className="hidden sm:grid grid-cols-[80px_1fr_1fr_auto] gap-3 px-1 pb-2 border-b border-border mb-2">
+          {/* Column headers.
+              Note column uses a single-line Input rather than a Textarea
+              because each day-row is a compact grid; a multi-line field
+              would break the visual rhythm of the dense tracker. */}
+          <div className="hidden sm:grid grid-cols-[80px_1fr_1fr_1.2fr_auto] gap-3 px-1 pb-2 border-b border-border mb-2">
             <span className="text-xs text-sub font-medium uppercase tracking-wider">
               Day
             </span>
@@ -603,6 +637,9 @@ export function BurnupClient() {
             <span className="text-xs text-sub font-medium uppercase tracking-wider">
               Completed (pts)
             </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">
+              Note
+            </span>
             <span className="w-9" />
           </div>
 
@@ -610,7 +647,7 @@ export function BurnupClient() {
             {sortedEntries.map((entry) => (
               <div
                 key={entry.id}
-                className="grid grid-cols-[80px_1fr_1fr_auto] gap-3 items-center"
+                className="grid grid-cols-[80px_1fr_1fr_1.2fr_auto] gap-3 items-center"
               >
                 <span className="font-data text-sm font-semibold text-accent">
                   Day {entry.day}
@@ -640,6 +677,20 @@ export function BurnupClient() {
                     })
                   }
                   className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+                />
+
+                {/* Compact single-line note input — dense tracker row. */}
+                <Input
+                  type="text"
+                  placeholder="Optional note..."
+                  value={entry.description ?? ""}
+                  onChange={(e) =>
+                    updateEntry(entry.id, {
+                      description: e.target.value.trim() ? e.target.value : undefined,
+                    })
+                  }
+                  className="bg-surface-deep border-border text-text text-xs focus:border-accent/50 focus:ring-accent/20"
+                  aria-label={`Note for day ${entry.day}`}
                 />
 
                 <Button

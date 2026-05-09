@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -144,7 +144,7 @@ export function SprintGoalClient() {
 
   const currentIndex = STEPS.indexOf(activeStep);
 
-  const goNext = useCallback(() => {
+  const goNext = () => {
     if (currentIndex >= STEPS.length - 1) return;
     const next = STEPS[currentIndex + 1];
     setActiveStep(next);
@@ -164,13 +164,13 @@ export function SprintGoalClient() {
       goal: sprintGoal,
       criteriaCount: criteria.length,
     });
-  }, [currentIndex, log, businessObjective, sprintGoal, criteria, keyResults]);
+  };
 
-  const goPrev = useCallback(() => {
+  const goPrev = () => {
     if (currentIndex > 0) {
       setActiveStep(STEPS[currentIndex - 1]);
     }
-  }, [currentIndex]);
+  };
 
   // ── Criteria helpers ────────────────────────────────────────────────────
 
@@ -213,24 +213,31 @@ export function SprintGoalClient() {
 
   // ── Export data ─────────────────────────────────────────────────────────
 
-  const clipboardText = [
-    `BUSINESS OBJECTIVE: ${businessObjective}`,
-    `SPRINT GOAL: ${sprintGoal}`,
-    `ACCEPTANCE CRITERIA:`,
-    ...criteria.map((c, i) => `${i + 1}. ${c.text}`),
-    `KEY RESULTS:`,
-    ...keyResults.map((kr) => `- ${kr}`),
-  ].join("\n");
+  const clipboardText = useMemo(
+    () =>
+      [
+        `BUSINESS OBJECTIVE: ${businessObjective}`,
+        `SPRINT GOAL: ${sprintGoal}`,
+        `ACCEPTANCE CRITERIA:`,
+        ...criteria.map((c, i) => `${i + 1}. ${c.text}`),
+        `KEY RESULTS:`,
+        ...keyResults.map((kr) => `- ${kr}`),
+      ].join("\n"),
+    [businessObjective, sprintGoal, criteria, keyResults]
+  );
 
-  const jsonData = {
-    businessObjective,
-    sprintGoal,
-    acceptanceCriteria: criteria.map((c) => ({
-      text: c.text,
-      smart: validateSmart(c),
-    })),
-    keyResults,
-  };
+  const jsonData = useMemo(
+    () => ({
+      businessObjective,
+      sprintGoal,
+      acceptanceCriteria: criteria.map((c) => ({
+        text: c.text,
+        smart: validateSmart(c),
+      })),
+      keyResults,
+    }),
+    [businessObjective, sprintGoal, criteria, keyResults]
+  );
 
   // AI prompt config
   const promptConfig = useMemo(() => ({
@@ -238,7 +245,7 @@ export function SprintGoalClient() {
     prompts: generateSprintGoalPrompts({
       businessObjective,
       sprintGoal,
-      criteria: criteria.map((c) => ({ text: c.text, met: c.relevantChecked })),
+      criteria: criteria.map((c) => ({ text: c.text, smartRelevant: c.relevantChecked })),
       keyResults,
     }),
   }), [businessObjective, sprintGoal, criteria, keyResults]);

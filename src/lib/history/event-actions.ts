@@ -89,6 +89,7 @@ export const CAPACITY_ACTIONS = {
   MEMBER_ADDED: "member_added",
   MEMBER_REMOVED: "member_removed",
   MEMBER_UPDATED: "member_updated",
+  CONFIG_UPDATED: "config_updated",
   CAPACITY_RESET: "capacity_reset", // milestone
 } as const;
 
@@ -168,6 +169,7 @@ export const PI_PLANNING_ACTIONS = {
   ITEM_ADDED: "item_added",
   ITEM_REMOVED: "item_removed",
   ITEM_ASSIGNED: "item_assigned",
+  ITEM_UPDATED: "item_updated",
   PI_PLAN_COMMITTED: "pi_plan_committed", // milestone
   PI_RESET: "pi_reset", // milestone
 } as const;
