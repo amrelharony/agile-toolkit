@@ -24,6 +24,7 @@ export function ToolCard({
   return (
     <Link
       href={href}
+      data-sonify-hover="card"
       className="
         group relative flex flex-col gap-3
         p-5 rounded-2xl

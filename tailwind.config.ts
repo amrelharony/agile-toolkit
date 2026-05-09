@@ -8,6 +8,39 @@ const config: Config = {
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
+    // ── Breakpoint system ──
+    // Default Tailwind breakpoints + two additions:
+    //   xs   → 375px  iPhone SE / small Android — gives us a safety net
+    //                 between 320px (default base) and 640px (sm).
+    //   3xl  → 1920px FullHD-and-above for larger info-density layouts.
+    // All min-width (mobile-first), evaluated bottom-up.
+    screens: {
+      xs: "375px",
+      sm: "640px",
+      md: "768px",
+      lg: "1024px",
+      xl: "1280px",
+      "2xl": "1536px",
+      "3xl": "1920px",
+    },
+    container: {
+      center: true,
+      // Padding scales mobile-first: 12 → 16 → 24 → 32 → 40px.
+      padding: {
+        DEFAULT: "0.75rem", // 12px (mobile)
+        xs: "1rem",         // 16px
+        sm: "1.5rem",       // 24px
+        lg: "2rem",         // 32px
+        xl: "2.5rem",       // 40px
+      },
+      screens: {
+        sm: "640px",
+        md: "768px",
+        lg: "1024px",
+        xl: "1280px",
+        "2xl": "1440px",   // cap the container before the 1536/1920 breakpoints
+      },
+    },
     extend: {
       colors: {
         // ── Design system core palette (CSS custom properties) ──
@@ -97,6 +130,7 @@ const config: Config = {
         data: ["var(--font-mono)", "monospace"],
       },
       fontSize: {
+        // ── Static design-system scale (existing usage; do not break) ──
         display: ["72px", { lineHeight: "1", letterSpacing: "-0.5px" }],
         h1: ["56px", { lineHeight: "1.1" }],
         h2: ["40px", { lineHeight: "1.1" }],
@@ -109,6 +143,34 @@ const config: Config = {
         tiny: ["10px", { lineHeight: "1.4" }],
         micro: ["9px", { lineHeight: "1" }],
         nano: ["8px", { lineHeight: "1", letterSpacing: "1.5px" }],
+
+        // ── Fluid scale (mobile-first, no-media-query) ──
+        // Uses clamp(min, viewport-relative, max). Use these for any text
+        // that should scale smoothly between 320px and ~1440px viewports.
+        // The "ideal" middle term is sized so the text reaches its max
+        // around the 1024px breakpoint and stays static beyond.
+        "fluid-display": ["clamp(2.5rem, 1.6rem + 4.5vw, 4.5rem)", { lineHeight: "1.05", letterSpacing: "-0.5px" }],
+        "fluid-h1":      ["clamp(1.75rem, 1.25rem + 2.5vw, 3rem)",  { lineHeight: "1.15" }],
+        "fluid-h2":      ["clamp(1.5rem, 1.15rem + 1.75vw, 2.25rem)", { lineHeight: "1.2" }],
+        "fluid-h3":      ["clamp(1.25rem, 1rem + 1.25vw, 1.75rem)",   { lineHeight: "1.25" }],
+        "fluid-h4":      ["clamp(1.125rem, 0.95rem + 0.85vw, 1.5rem)", { lineHeight: "1.3" }],
+        "fluid-body":    ["clamp(0.875rem, 0.83rem + 0.2vw, 1rem)",   { lineHeight: "1.55" }],
+      },
+      spacing: {
+        // ── WCAG 2.2 minimum touch target ──
+        // Use as `min-w-touch min-h-touch` (or `size-touch`) on any
+        // tap-target. 44px = 11 in Tailwind's 4px scale.
+        touch: "2.75rem",        // 44px
+        "touch-sm": "2.25rem",   // 36px — for desktop-only secondary controls
+        // Common content widths
+        "screen-90": "90vw",
+        "screen-80": "80vw",
+      },
+      maxWidth: {
+        // Reading-width helpers, in addition to Tailwind defaults.
+        prose: "65ch",
+        "tool-content": "80rem",  // 1280px
+        "tool-narrow": "48rem",   // 768px
       },
       borderRadius: {
         xs: "4px",
@@ -251,6 +313,14 @@ const config: Config = {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    require("tailwindcss-animate"),
+    // Container-query support: enables `@container` on a parent element
+    // and per-card breakpoint variants like `@sm:grid-cols-2`. Used in
+    // /insights so each card scales based on its own width — important
+    // when the sidebar collapse changes available content width without
+    // crossing a viewport breakpoint.
+    require("@tailwindcss/container-queries"),
+  ],
 };
 export default config;

@@ -10,18 +10,21 @@ import {
   PolarAngleAxis,
   PolarRadiusAxis,
   Legend,
-  ResponsiveContainer,
   Tooltip,
 } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateSprintComparePrompts } from "@/lib/ai-prompts/sprint-compare";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { SPRINT_COMPARE_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SectionCard } from "@/components/shared/section-card";
+import { ChartCard } from "@/components/shared/chart-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, GitCompare } from "lucide-react";
+import { parseHex } from "@/lib/utils";
 
 /* -------------------------------------------------------------------------- */
 /*  Constants                                                                 */
@@ -172,10 +175,7 @@ function ScoreCell({
   color: string;
 }) {
   const intensity = value / 10;
-  // Parse hex color to use in rgba
-  const r = parseInt(color.slice(1, 3), 16);
-  const g = parseInt(color.slice(3, 5), 16);
-  const b = parseInt(color.slice(5, 7), 16);
+  const { r, g, b } = parseHex(color);
   return (
     <td
       className="px-4 py-2 text-center text-sm font-data font-semibold"
@@ -202,8 +202,37 @@ const TOOLTIP_STYLE = {
 /* -------------------------------------------------------------------------- */
 
 export function SprintCompareClient() {
-  const { sprints, addSprint, removeSprint, updateSprint, updateScore, reset } =
-    useSprintCompareStore();
+  const {
+    sprints,
+    addSprint: addSprintRaw,
+    removeSprint: removeSprintRaw,
+    updateSprint,
+    updateScore,
+    reset: resetRaw,
+  } = useSprintCompareStore();
+  const { log } = useHistoryLogger("sprint-compare");
+
+  const addSprint = () => {
+    addSprintRaw();
+    const list = useSprintCompareStore.getState().sprints;
+    const created = list[list.length - 1];
+    log(SPRINT_COMPARE_ACTIONS.SPRINT_PINNED, {
+      sprintId: created?.id,
+      name: created?.name,
+    });
+  };
+  const removeSprint: typeof removeSprintRaw = (id) => {
+    const sprint = sprints.find((s) => s.id === id);
+    removeSprintRaw(id);
+    log(SPRINT_COMPARE_ACTIONS.SPRINT_UNPINNED, {
+      sprintId: id,
+      name: sprint?.name,
+    });
+  };
+  const reset = () => {
+    resetRaw();
+    log(SPRINT_COMPARE_ACTIONS.COMPARE_RESET, {});
+  };
 
   const exportRef = useRef<HTMLDivElement>(null);
 
@@ -240,6 +269,7 @@ export function SprintCompareClient() {
 
   return (
     <ToolPageWrapper
+      toolId="sprint-compare"
       title="Sprint Comparison"
       description="Compare sprints across 6 key dimensions using a radar chart."
       category="Metrics & Dashboards"
@@ -247,86 +277,79 @@ export function SprintCompareClient() {
       <div ref={exportRef} className="space-y-6">
 
         {/* ---- Radar Chart ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-                <GitCompare className="w-5 h-5 text-accent" />
-                Sprint Radar
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <AiPromptGenerator config={promptConfig} />
-                <ExportButton
-                  filename="sprint-comparison"
-                  jsonData={jsonData}
-                  targetRef={exportRef}
-                />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={400}>
-              <RadarChart data={radarData} margin={{ top: 10, right: 30, left: 30, bottom: 10 }}>
-                <PolarGrid stroke="rgba(255,255,255,0.1)" />
-                <PolarAngleAxis
-                  dataKey="dimension"
-                  tick={{ fill: "#94a3b8", fontSize: 12 }}
-                />
-                <PolarRadiusAxis
-                  domain={[0, 10]}
-                  tick={{ fill: "#94a3b8", fontSize: 10 }}
-                  tickCount={6}
-                  stroke="rgba(255,255,255,0.05)"
-                />
-                <Tooltip contentStyle={TOOLTIP_STYLE} />
-                {sprints.map((sp, i) => (
-                  <Radar
-                    key={sp.id}
-                    name={sp.name}
-                    dataKey={sp.id}
-                    stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                    fill={CHART_COLORS[i % CHART_COLORS.length]}
-                    fillOpacity={0.15}
-                    strokeWidth={2}
-                  />
-                ))}
-                <Legend
-                  wrapperStyle={{ paddingTop: "12px", color: "#94a3b8", fontSize: 12 }}
-                />
-              </RadarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+        <ChartCard
+          title="Sprint Radar"
+          icon={GitCompare}
+          height={400}
+          headerExtras={
+            <>
+              <AiPromptGenerator config={promptConfig} />
+              <ExportButton
+                filename="sprint-comparison"
+                jsonData={jsonData}
+                targetRef={exportRef}
+              />
+            </>
+          }
+        >
+          <RadarChart data={radarData} margin={{ top: 10, right: 30, left: 30, bottom: 10 }}>
+            <PolarGrid stroke="rgba(255,255,255,0.1)" />
+            <PolarAngleAxis
+              dataKey="dimension"
+              tick={{ fill: "#94a3b8", fontSize: 12 }}
+            />
+            <PolarRadiusAxis
+              domain={[0, 10]}
+              tick={{ fill: "#94a3b8", fontSize: 10 }}
+              tickCount={6}
+              stroke="rgba(255,255,255,0.05)"
+            />
+            <Tooltip contentStyle={TOOLTIP_STYLE} />
+            {sprints.map((sp, i) => (
+              <Radar
+                key={sp.id}
+                name={sp.name}
+                dataKey={sp.id}
+                stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                fill={CHART_COLORS[i % CHART_COLORS.length]}
+                fillOpacity={0.15}
+                strokeWidth={2}
+              />
+            ))}
+            <Legend
+              wrapperStyle={{ paddingTop: "12px", color: "#94a3b8", fontSize: 12 }}
+            />
+          </RadarChart>
+        </ChartCard>
 
         {/* ---- Score Input ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg font-display text-text">
-                Sprint Scores
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={reset}
-                  className="text-sub hover:text-red-400 hover:bg-red-400/10"
-                >
-                  Reset
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={addSprint}
-                  disabled={sprints.length >= MAX_SPRINTS}
-                  className="gap-1.5 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40 disabled:opacity-40"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Sprint
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-6">
+        <SectionCard
+          title="Sprint Scores"
+          titleSize="lg"
+          headerClassName="pb-4"
+          contentClassName="space-y-6"
+          actions={
+            <>
+              <Button
+                variant="danger-ghost"
+                size="sm"
+                onClick={reset}
+              >
+                Reset
+              </Button>
+              <Button
+                size="sm"
+                variant="toolkit"
+                onClick={addSprint}
+                disabled={sprints.length >= MAX_SPRINTS}
+                className="gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                Add Sprint
+              </Button>
+            </>
+          }
+        >
             {sprints.map((sp, idx) => {
               const color = CHART_COLORS[idx % CHART_COLORS.length];
               return (
@@ -340,14 +363,14 @@ export function SprintCompareClient() {
                     <Input
                       value={sp.name}
                       onChange={(e) => updateSprint(sp.id, { name: e.target.value })}
-                      className="bg-surface-deep border-border text-text focus:border-accent/50 focus:ring-accent/20 max-w-xs"
+                      className="input-toolkit focus:ring-accent/20 max-w-xs"
                     />
                     <Button
-                      variant="ghost"
+                      variant="danger-ghost"
                       size="icon"
                       disabled={sprints.length <= 1}
                       onClick={() => removeSprint(sp.id)}
-                      className="h-8 w-8 text-sub hover:text-red-400 hover:bg-red-400/10 disabled:opacity-30 ml-auto"
+                      className="min-touch-coarse h-8 w-8 disabled:opacity-30 ml-auto"
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -383,17 +406,15 @@ export function SprintCompareClient() {
                 </div>
               );
             })}
-          </CardContent>
-        </Card>
+        </SectionCard>
 
         {/* ---- Comparison Table ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg font-display text-text">
-              Dimension Comparison
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
+        <SectionCard
+          title="Dimension Comparison"
+          titleSize="lg"
+          headerClassName="pb-4"
+          contentClassName="overflow-x-auto"
+        >
             <table className="w-full text-sm">
               <thead>
                 <tr>
@@ -448,8 +469,7 @@ export function SprintCompareClient() {
                 </tr>
               </tbody>
             </table>
-          </CardContent>
-        </Card>
+        </SectionCard>
       </div>
     </ToolPageWrapper>
   );

@@ -33,3 +33,15 @@ export function formatHours(hours: number): string {
   const display = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
   return `${display} hours`;
 }
+
+/**
+ * Today as `YYYY-MM-DD` in the user's *local* timezone. Replaces the
+ * `new Date().toISOString().slice(0,10)` pattern, which records UTC and so
+ * stamps "tomorrow" for users west of UTC after their local evening.
+ */
+export function todayLocalISO(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}

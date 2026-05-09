@@ -17,14 +17,18 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateReleasePlannerPrompts } from "@/lib/ai-prompts/release-planner";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { RELEASE_PLANNER_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { SectionCard } from "@/components/shared/section-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { TrendingUp, Calendar, BarChart3, Settings2, RefreshCw } from "lucide-react";
 import { addDays, format } from "date-fns";
+import { simulateThroughputCompletion } from "@/lib/analytics/monte-carlo";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                       */
@@ -49,16 +53,23 @@ interface ReleasePlannerStore {
 /*  Defaults                                                                   */
 /* -------------------------------------------------------------------------- */
 
-const TODAY = new Date().toISOString().slice(0, 10);
-
-const defaultConfig: ReleasePlannerConfig = {
-  backlogSize: 120,
-  velocityInput: "18, 22, 19, 25, 21, 17, 23, 20",
-  scopeBuffer: 10,
-  sprintLengthDays: 14,
-  startDate: TODAY,
-  scopeAdjustment: 0,
-};
+// Defaults are computed lazily so the start-date is bound to when the user
+// actually opens the page — not when the bundle was loaded. Persisted state
+// rehydrates over the top of these defaults; first-visit users get today.
+function makeDefaultConfig(): ReleasePlannerConfig {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return {
+    backlogSize: 120,
+    velocityInput: "18, 22, 19, 25, 21, 17, 23, 20",
+    scopeBuffer: 10,
+    sprintLengthDays: 14,
+    startDate: `${y}-${m}-${day}`,
+    scopeAdjustment: 0,
+  };
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Store                                                                      */
@@ -67,12 +78,12 @@ const defaultConfig: ReleasePlannerConfig = {
 const useReleasePlannerStore = create<ReleasePlannerStore>()(
   persist(
     (set) => ({
-      config: { ...defaultConfig },
+      config: makeDefaultConfig(),
 
       updateConfig: (updates) =>
         set((s) => ({ config: { ...s.config, ...updates } })),
 
-      reset: () => set({ config: { ...defaultConfig } }),
+      reset: () => set({ config: makeDefaultConfig() }),
     }),
     { name: "agile-toolkit:release-planner" }
   )
@@ -110,44 +121,15 @@ function runSimulation(
     };
   }
 
-  const results: number[] = new Array(ITERATIONS);
-
-  for (let i = 0; i < ITERATIONS; i++) {
-    let remaining = effectiveBacklog;
-    let sprints = 0;
-    while (remaining > 0 && sprints < 200) {
-      const v = velocities[Math.floor(Math.random() * velocities.length)];
-      remaining -= v;
-      sprints++;
-    }
-    results[i] = sprints;
-  }
-
-  results.sort((a, b) => a - b);
-
-  const p = (pct: number) => results[Math.floor((pct / 100) * ITERATIONS)];
-
-  const minSprints = results[0];
-  const maxSprints = results[ITERATIONS - 1];
-
-  // Build histogram
-  const freq = new Map<number, number>();
-  for (const v of results) {
-    freq.set(v, (freq.get(v) ?? 0) + 1);
-  }
-
-  const histogram = Array.from(freq.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([sprints, count]) => ({ sprints, count }));
-
+  const result = simulateThroughputCompletion(effectiveBacklog, velocities, ITERATIONS);
   return {
-    histogram,
-    p50: p(50),
-    p75: p(75),
-    p85: p(85),
-    p95: p(95),
-    minSprints,
-    maxSprints,
+    histogram: result.histogram.map((h) => ({ sprints: h.value, count: h.count })),
+    p50: result.percentiles[50],
+    p75: result.percentiles[75],
+    p85: result.percentiles[85],
+    p95: result.percentiles[95],
+    minSprints: result.min,
+    maxSprints: result.max,
   };
 }
 
@@ -258,7 +240,24 @@ const inputCls =
 /* -------------------------------------------------------------------------- */
 
 export function ReleasePlannerClient() {
-  const { config, updateConfig, reset } = useReleasePlannerStore();
+  const {
+    config,
+    updateConfig: updateConfigRaw,
+    reset: resetRaw,
+  } = useReleasePlannerStore();
+  const { log } = useHistoryLogger("release-planner");
+
+  const updateConfig: typeof updateConfigRaw = (updates) => {
+    updateConfigRaw(updates);
+    log(RELEASE_PLANNER_ACTIONS.RELEASE_UPDATED, {
+      fields: Object.keys(updates),
+    });
+  };
+  const reset = () => {
+    resetRaw();
+    log(RELEASE_PLANNER_ACTIONS.RELEASE_RESET, {});
+  };
+
   const chartRef = useRef<HTMLDivElement>(null);
 
   const velocities = useMemo(
@@ -329,6 +328,7 @@ export function ReleasePlannerClient() {
 
   return (
     <ToolPageWrapper
+      toolId="release-planner"
       title="Release Planner"
       description="Monte Carlo simulation for release forecasting with confidence intervals and sensitivity analysis."
       category="Sprint Planning & Estimation"
@@ -337,10 +337,10 @@ export function ReleasePlannerClient() {
         {/* Actions */}
         <div className="flex items-center justify-between">
           <Button
-            variant="ghost"
+            variant="danger-ghost"
             size="sm"
             onClick={reset}
-            className="text-sub hover:text-red-400 hover:bg-red-400/10 gap-1.5"
+            className="gap-1.5"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Reset
@@ -388,15 +388,13 @@ export function ReleasePlannerClient() {
         </div>
 
         {/* Configuration */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-4">
-            <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-              <Settings2 className="w-5 h-5 text-accent" />
-              Configuration
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <SectionCard
+          title="Configuration"
+          icon={Settings2}
+          titleSize="lg"
+          headerClassName="pb-4"
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
               <div className="space-y-1.5">
                 <Label className="text-sub text-xs">
                   Backlog Size (story points)
@@ -477,19 +475,14 @@ export function ReleasePlannerClient() {
                 </p>
               )}
             </div>
-          </CardContent>
-        </Card>
+        </SectionCard>
 
         {/* Sensitivity slider */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base font-display text-text">
-              <TrendingUp className="w-4 h-4 text-accent" />
-              Scope Sensitivity
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-4">
+        <SectionCard
+          title="Scope Sensitivity"
+          icon={TrendingUp}
+        >
+          <div className="flex items-center gap-4">
               <span className="text-xs text-sub w-8 text-right">-50%</span>
               <div className="flex-1">
                 <Slider
@@ -521,23 +514,16 @@ export function ReleasePlannerClient() {
               Adjust scope by ±50% to model optimistic or pessimistic scenarios. Current effective
               backlog: <span className="text-accent font-data">{effectiveBacklog} pts</span>.
             </p>
-          </CardContent>
-        </Card>
+        </SectionCard>
 
         {/* Histogram chart */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-                <BarChart3 className="w-5 h-5 text-accent" />
-                Simulation Histogram
-                <span className="text-xs text-sub font-normal font-body ml-1">
-                  ({ITERATIONS.toLocaleString()} iterations)
-                </span>
-              </CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
+        <SectionCard
+          title="Simulation Histogram"
+          icon={BarChart3}
+          titleSize="lg"
+          titleSuffix={`(${ITERATIONS.toLocaleString()} iterations)`}
+          headerClassName="pb-2"
+        >
             {sim.histogram.length === 0 ? (
               <div className="flex items-center justify-center h-60 text-sub text-sm">
                 Enter velocity data to run simulation.
@@ -635,19 +621,14 @@ export function ReleasePlannerClient() {
                 </ResponsiveContainer>
               </div>
             )}
-          </CardContent>
-        </Card>
+        </SectionCard>
 
         {/* Confidence table */}
         {confidenceRows.length > 0 && (
-          <Card className="bg-surface border-border">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base font-display text-text">
-                <Calendar className="w-4 h-4 text-accent" />
-                Delivery Forecast
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
+          <SectionCard
+            title="Delivery Forecast"
+            icon={Calendar}
+          >
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -717,8 +698,7 @@ export function ReleasePlannerClient() {
                   {ITERATIONS.toLocaleString()} iterations.
                 </p>
               </div>
-            </CardContent>
-          </Card>
+          </SectionCard>
         )}
       </div>
     </ToolPageWrapper>

@@ -24,6 +24,23 @@ import {
   Grid3X3,
   Users,
   AlertTriangle,
+  CalendarRange,
+  Milestone,
+  GitBranch,
+  Lightbulb,
+  Quote,
+  Workflow,
+  ShieldAlert,
+  ScrollText,
+  Wrench,
+  Columns,
+  Network,
+  Waves,
+  Flag,
+  Smile,
+  BarChart,
+  FileText,
+  ClipboardCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -31,7 +48,14 @@ export type ToolCategory =
   | "Sprint Planning & Estimation"
   | "Metrics & Dashboards"
   | "Ceremonies"
-  | "Team Health & Maturity";
+  | "Team Health & Maturity"
+  | "Portfolio & Scaling"
+  | "Product Discovery"
+  | "Risk & Governance"
+  | "Flow & Delivery"
+  | "Outcomes & Pulse";
+
+export type AnalyticsFeature = "forecast" | "anomaly" | "survival" | "anti-pattern" | "monte-carlo";
 
 export interface ToolDefinition {
   id: string;
@@ -45,6 +69,8 @@ export interface ToolDefinition {
   requiresAuth: boolean;
   isRealtime: boolean;
   phase: number;
+  usesWorkspace?: boolean;
+  analyticsFeatures?: AnalyticsFeature[];
 }
 
 export const categories: ToolCategory[] = [
@@ -52,6 +78,11 @@ export const categories: ToolCategory[] = [
   "Metrics & Dashboards",
   "Ceremonies",
   "Team Health & Maturity",
+  "Portfolio & Scaling",
+  "Product Discovery",
+  "Risk & Governance",
+  "Flow & Delivery",
+  "Outcomes & Pulse",
 ];
 
 export const tools: ToolDefinition[] = [
@@ -64,10 +95,10 @@ export const tools: ToolDefinition[] = [
     category: "Sprint Planning & Estimation",
     path: "/planning-poker",
     icon: Target,
-    badge: "beta",
     requiresAuth: false,
     isRealtime: true,
     phase: 3,
+    usesWorkspace: true,
   },
   {
     id: "capacity-planner",
@@ -80,6 +111,8 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 1,
+    usesWorkspace: true,
+    analyticsFeatures: ["monte-carlo"],
   },
   {
     id: "story-mapper",
@@ -89,10 +122,10 @@ export const tools: ToolDefinition[] = [
     category: "Sprint Planning & Estimation",
     path: "/story-mapper",
     icon: Map,
-    badge: "beta",
     requiresAuth: true,
-    isRealtime: false,
+    isRealtime: true,
     phase: 4,
+    usesWorkspace: true,
   },
   {
     id: "prioritizer",
@@ -105,6 +138,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 4,
+    usesWorkspace: true,
   },
   {
     id: "estimation-guide",
@@ -129,6 +163,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 1,
+    usesWorkspace: true,
   },
   {
     id: "release-planner",
@@ -141,6 +176,8 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 4,
+    usesWorkspace: true,
+    analyticsFeatures: ["monte-carlo", "forecast"],
   },
 
   // Category B: Metrics & Dashboards
@@ -155,6 +192,8 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 2,
+    usesWorkspace: true,
+    analyticsFeatures: ["forecast", "anomaly"],
   },
   {
     id: "burnup",
@@ -167,6 +206,8 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 2,
+    usesWorkspace: true,
+    analyticsFeatures: ["forecast", "anomaly"],
   },
   {
     id: "velocity",
@@ -179,6 +220,8 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 2,
+    usesWorkspace: true,
+    analyticsFeatures: ["forecast", "anomaly"],
   },
   {
     id: "cumulative-flow",
@@ -191,6 +234,8 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 2,
+    usesWorkspace: true,
+    analyticsFeatures: ["anti-pattern"],
   },
   {
     id: "cycle-time",
@@ -203,6 +248,8 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 2,
+    usesWorkspace: true,
+    analyticsFeatures: ["anomaly"],
   },
   {
     id: "sprint-compare",
@@ -215,19 +262,22 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 2,
+    usesWorkspace: true,
+    analyticsFeatures: ["anomaly"],
   },
   {
     id: "health-dashboard",
     code: "B7",
     name: "Agile Health Dashboard",
-    description: "Aggregate dashboard with team KPIs, traffic lights, and executive summary",
+    description: "Aggregate insights hub with anti-pattern detection, forecasts, and team KPIs",
     category: "Metrics & Dashboards",
     path: "/health-dashboard",
     icon: LayoutDashboard,
-    badge: "beta",
     requiresAuth: true,
     isRealtime: false,
     phase: 5,
+    usesWorkspace: true,
+    analyticsFeatures: ["forecast", "anomaly", "anti-pattern", "survival"],
   },
 
   // Category C: Ceremonies
@@ -239,10 +289,10 @@ export const tools: ToolDefinition[] = [
     category: "Ceremonies",
     path: "/retro",
     icon: MessageSquare,
-    badge: "beta",
     requiresAuth: false,
     isRealtime: true,
     phase: 3,
+    usesWorkspace: true,
   },
   {
     id: "standup",
@@ -253,8 +303,10 @@ export const tools: ToolDefinition[] = [
     path: "/standup",
     icon: Mic,
     requiresAuth: true,
-    isRealtime: false,
+    isRealtime: true,
     phase: 3,
+    usesWorkspace: true,
+    analyticsFeatures: ["survival"],
   },
   {
     id: "sprint-review",
@@ -267,6 +319,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 4,
+    usesWorkspace: true,
   },
   {
     id: "ceremony-timer",
@@ -291,6 +344,8 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 4,
+    usesWorkspace: true,
+    analyticsFeatures: ["anti-pattern"],
   },
   {
     id: "icebreaker",
@@ -315,8 +370,10 @@ export const tools: ToolDefinition[] = [
     path: "/health-check",
     icon: HeartPulse,
     requiresAuth: true,
-    isRealtime: false,
+    isRealtime: true,
     phase: 3,
+    usesWorkspace: true,
+    analyticsFeatures: ["forecast"],
   },
   {
     id: "maturity",
@@ -329,6 +386,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 4,
+    usesWorkspace: true,
   },
   {
     id: "raci",
@@ -353,6 +411,8 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 4,
+    usesWorkspace: true,
+    analyticsFeatures: ["anti-pattern"],
   },
   {
     id: "impediments",
@@ -363,8 +423,249 @@ export const tools: ToolDefinition[] = [
     path: "/impediments",
     icon: AlertTriangle,
     requiresAuth: true,
-    isRealtime: false,
+    isRealtime: true,
     phase: 4,
+    usesWorkspace: true,
+    analyticsFeatures: ["survival", "anti-pattern"],
+  },
+
+  // Category E: Portfolio & Scaling (NEW — Phase 6)
+  {
+    id: "pi-planning",
+    code: "A8",
+    name: "PI Planning Board",
+    description: "SAFe Program Increment board with teams × iterations, dependencies, and capacity forecasting",
+    category: "Portfolio & Scaling",
+    path: "/pi-planning",
+    icon: CalendarRange,
+    requiresAuth: false,
+    isRealtime: true,
+    phase: 6,
+    usesWorkspace: true,
+    analyticsFeatures: ["monte-carlo"],
+  },
+  {
+    id: "epic-roadmap",
+    code: "A9",
+    name: "Epic Roadmap",
+    description: "Timeline view of epics across quarters with progress bars and milestones",
+    category: "Portfolio & Scaling",
+    path: "/epic-roadmap",
+    icon: Milestone,
+    requiresAuth: false,
+    isRealtime: false,
+    phase: 6,
+    usesWorkspace: true,
+    analyticsFeatures: ["forecast"],
+  },
+  {
+    id: "scrum-of-scrums",
+    code: "C7",
+    name: "Scrum of Scrums Tracker",
+    description: "Multi-team coordination — cross-team blockers, dependencies, decisions",
+    category: "Portfolio & Scaling",
+    path: "/scrum-of-scrums",
+    icon: GitBranch,
+    requiresAuth: false,
+    isRealtime: true,
+    phase: 6,
+    usesWorkspace: true,
+    analyticsFeatures: ["anti-pattern"],
+  },
+
+  // Category F: Product Discovery (NEW — Phase 7)
+  {
+    id: "hypothesis-tracker",
+    code: "A10",
+    name: "Hypothesis Tracker",
+    description: "Lean-startup hypotheses with experiments, metrics, and validation rate",
+    category: "Product Discovery",
+    path: "/hypothesis-tracker",
+    icon: Lightbulb,
+    requiresAuth: false,
+    isRealtime: false,
+    phase: 7,
+    usesWorkspace: true,
+    analyticsFeatures: ["survival"],
+  },
+  {
+    id: "user-interviews",
+    code: "A11",
+    name: "User Interview Log",
+    description: "Research synthesis — quotes, themes, and tag-frequency heatmap",
+    category: "Product Discovery",
+    path: "/user-interviews",
+    icon: Quote,
+    requiresAuth: false,
+    isRealtime: false,
+    phase: 7,
+  },
+  {
+    id: "opportunity-tree",
+    code: "A12",
+    name: "Opportunity Solution Tree",
+    description: "Outcome → opportunities → solutions → experiments (Teresa Torres framework)",
+    category: "Product Discovery",
+    path: "/opportunity-tree",
+    icon: Workflow,
+    requiresAuth: false,
+    isRealtime: false,
+    phase: 7,
+  },
+
+  // Category G: Risk & Governance (NEW — Phase 8 + 11)
+  {
+    id: "risk-register",
+    code: "D6",
+    name: "Risk Register",
+    description: "Probability × Impact matrix with mitigation tracking and risk burn-down",
+    category: "Risk & Governance",
+    path: "/risk-register",
+    icon: ShieldAlert,
+    requiresAuth: false,
+    isRealtime: true,
+    phase: 8,
+    usesWorkspace: true,
+    analyticsFeatures: ["survival", "anomaly", "anti-pattern"],
+  },
+  {
+    id: "premortem",
+    code: "C8",
+    name: "Premortem Facilitator",
+    description: "\"Imagine this project failed\" workshop — rank causes, convert to preventive actions",
+    category: "Risk & Governance",
+    path: "/premortem",
+    icon: ScrollText,
+    requiresAuth: false,
+    isRealtime: true,
+    phase: 8,
+  },
+  {
+    id: "tech-debt",
+    code: "D7",
+    name: "Technical Debt Tracker",
+    description: "Debt items with impact × effort, interest rate, hotspot heatmap",
+    category: "Risk & Governance",
+    path: "/tech-debt",
+    icon: Wrench,
+    requiresAuth: false,
+    isRealtime: false,
+    phase: 8,
+    usesWorkspace: true,
+    analyticsFeatures: ["survival", "anti-pattern"],
+  },
+  {
+    id: "decision-log",
+    code: "D12",
+    name: "Decision Log (ADR)",
+    description: "Architecture Decision Records — context, decision, consequences, status",
+    category: "Risk & Governance",
+    path: "/decision-log",
+    icon: FileText,
+    requiresAuth: false,
+    isRealtime: true,
+    phase: 11,
+    usesWorkspace: true,
+  },
+  {
+    id: "dod-builder",
+    code: "C9",
+    name: "Definition of Done Builder",
+    description: "Interactive DoD assembler with per-sprint adherence tracking",
+    category: "Risk & Governance",
+    path: "/dod-builder",
+    icon: ClipboardCheck,
+    requiresAuth: false,
+    isRealtime: false,
+    phase: 11,
+    usesWorkspace: true,
+  },
+
+  // Category H: Flow & Delivery (NEW — Phase 9)
+  {
+    id: "kanban",
+    code: "B8",
+    name: "Kanban Board",
+    description: "WIP-limited columns with throughput chart, lead time, and class-of-service lanes",
+    category: "Flow & Delivery",
+    path: "/kanban",
+    icon: Columns,
+    requiresAuth: false,
+    isRealtime: true,
+    phase: 9,
+    usesWorkspace: true,
+    analyticsFeatures: ["forecast", "anomaly"],
+  },
+  {
+    id: "dependency-map",
+    code: "D8",
+    name: "Dependency Map",
+    description: "Graph of inter-team / inter-story dependencies with critical-path highlight",
+    category: "Flow & Delivery",
+    path: "/dependency-map",
+    icon: Network,
+    requiresAuth: false,
+    isRealtime: true,
+    phase: 9,
+    usesWorkspace: true,
+    analyticsFeatures: ["anti-pattern"],
+  },
+  {
+    id: "value-stream",
+    code: "B9",
+    name: "Value Stream Map",
+    description: "Process stages with lead time, %C/A, flow efficiency end-to-end",
+    category: "Flow & Delivery",
+    path: "/value-stream",
+    icon: Waves,
+    requiresAuth: false,
+    isRealtime: false,
+    phase: 9,
+    usesWorkspace: true,
+    analyticsFeatures: ["anomaly"],
+  },
+
+  // Category I: Outcomes & Pulse (NEW — Phase 10)
+  {
+    id: "okrs",
+    code: "D9",
+    name: "OKR Tracker",
+    description: "Quarterly Objectives with 3–5 Key Results, weekly check-ins, trajectory forecast",
+    category: "Outcomes & Pulse",
+    path: "/okrs",
+    icon: Flag,
+    requiresAuth: false,
+    isRealtime: true,
+    phase: 10,
+    usesWorkspace: true,
+    analyticsFeatures: ["forecast"],
+  },
+  {
+    id: "nps-csat",
+    code: "D10",
+    name: "NPS / CSAT Tracker",
+    description: "Score collection, trend chart, verbatim theming, benchmark comparison",
+    category: "Outcomes & Pulse",
+    path: "/nps-csat",
+    icon: BarChart,
+    requiresAuth: false,
+    isRealtime: false,
+    phase: 10,
+    analyticsFeatures: ["anomaly"],
+  },
+  {
+    id: "mood-tracker",
+    code: "D11",
+    name: "Team Mood Tracker",
+    description: "Daily mood check-in with aggregate heatmap and velocity correlation",
+    category: "Outcomes & Pulse",
+    path: "/mood-tracker",
+    icon: Smile,
+    requiresAuth: false,
+    isRealtime: true,
+    phase: 10,
+    usesWorkspace: true,
+    analyticsFeatures: ["anti-pattern"],
   },
 ];
 
@@ -374,4 +675,16 @@ export function getToolByPath(path: string): ToolDefinition | undefined {
 
 export function getToolsByCategory(category: ToolCategory): ToolDefinition[] {
   return tools.filter((t) => t.category === category);
+}
+
+export function getToolsByAnalytics(feature: AnalyticsFeature): ToolDefinition[] {
+  return tools.filter((t) => t.analyticsFeatures?.includes(feature));
+}
+
+export function getRealtimeTools(): ToolDefinition[] {
+  return tools.filter((t) => t.isRealtime);
+}
+
+export function getWorkspaceTools(): ToolDefinition[] {
+  return tools.filter((t) => t.usesWorkspace);
 }

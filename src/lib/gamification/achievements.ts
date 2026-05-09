@@ -1,0 +1,106 @@
+import type { Achievement } from "./types";
+
+/**
+ * 60+ achievements, grouped by category.  The engine evaluates unlock
+ * conditions lazily (via registered rules in engine.ts) so this file is pure
+ * metadata — no behaviour.
+ */
+export const achievements: Achievement[] = [
+  // ───── Exploration (8) ──────────────────────────────────────────────────
+  { id: "first-click", title: "First Contact", description: "Click anything on the toolkit.", category: "exploration", xp: 25, icon: "MousePointerClick" },
+  { id: "tool-hop-5", title: "Tool Hopper", description: "Visit 5 different tools.", category: "exploration", xp: 100, icon: "Compass" },
+  { id: "tool-hop-20", title: "Seasoned Explorer", description: "Visit 20 different tools.", category: "exploration", xp: 400, icon: "Map" },
+  { id: "tool-hop-42", title: "Omniscient", description: "Visit all 42 tools.", category: "exploration", xp: 2000, icon: "Globe" },
+  { id: "scroll-floor", title: "To the Depths", description: "Scroll to the bottom of a tool.", category: "exploration", xp: 30, icon: "ArrowDownToLine" },
+  { id: "hover-hundred", title: "Butterfly Mind", description: "Hover 100 elements in one session.", category: "exploration", xp: 75, icon: "Mouse" },
+  { id: "night-owl", title: "Night Owl", description: "Use the toolkit between midnight and 5am local.", category: "exploration", xp: 150, icon: "Moon" },
+  { id: "early-bird", title: "Early Bird", description: "Use the toolkit before 6am local.", category: "exploration", xp: 150, icon: "Sunrise" },
+
+  // ───── Tool Mastery (16) — one per major capability cluster ─────────────
+  { id: "poker-voter", title: "Fibonacci Believer", description: "Cast 10 Planning Poker votes.", category: "tool-mastery", xp: 150, icon: "Target" },
+  { id: "poker-reveal", title: "The Reckoning", description: "Reveal votes in Planning Poker.", category: "tool-mastery", xp: 50, icon: "Eye" },
+  { id: "retro-one", title: "Reflective Practitioner", description: "Add your first retro card.", category: "tool-mastery", xp: 50, icon: "MessageSquare" },
+  { id: "retro-fifty", title: "Card Dealer", description: "Add 50 retro cards.", category: "tool-mastery", xp: 400, icon: "MessagesSquare" },
+  { id: "retro-all-formats", title: "Format Polymath", description: "Use 3 different retro formats.", category: "tool-mastery", xp: 300, icon: "Shuffle" },
+  { id: "kanban-ten", title: "Flow State", description: "Move 10 Kanban cards.", category: "tool-mastery", xp: 200, icon: "Columns" },
+  { id: "kanban-done-ten", title: "Ship It", description: "Complete 10 Kanban cards.", category: "tool-mastery", xp: 300, icon: "CheckCircle2" },
+  { id: "ceremony-finish", title: "Timeboxer", description: "Run a Ceremony Timer to completion.", category: "tool-mastery", xp: 100, icon: "Timer" },
+  { id: "burndown-full", title: "Burn It Down", description: "Log a full sprint of burndown data.", category: "tool-mastery", xp: 250, icon: "BarChart3" },
+  { id: "velocity-five", title: "Pattern Recognizer", description: "Track 5 sprints of velocity.", category: "tool-mastery", xp: 350, icon: "Activity" },
+  { id: "risk-closer", title: "Risk Manager", description: "Close 5 risks in the Risk Register.", category: "tool-mastery", xp: 250, icon: "ShieldAlert" },
+  { id: "impediments-clear", title: "Clear Path", description: "Resolve 10 impediments.", category: "tool-mastery", xp: 300, icon: "AlertTriangle" },
+  { id: "okr-complete", title: "Outcome-Oriented", description: "Mark a Key Result at 100%.", category: "tool-mastery", xp: 500, icon: "Flag" },
+  { id: "debt-paydown", title: "Debt Free", description: "Resolve 5 tech debt items.", category: "tool-mastery", xp: 300, icon: "Wrench" },
+  { id: "adr-writer", title: "Scribe", description: "Write 5 ADRs.", category: "tool-mastery", xp: 250, icon: "FileText" },
+  { id: "mood-streak", title: "Pulse Checker", description: "Log mood for 7 consecutive days.", category: "tool-mastery", xp: 400, icon: "Smile" },
+
+  // ───── Collaboration (5) ────────────────────────────────────────────────
+  { id: "room-join", title: "Teammate", description: "Join a multiplayer room.", category: "collaboration", xp: 100, icon: "Users" },
+  { id: "room-host", title: "Host with the Most", description: "Create an invite link.", category: "collaboration", xp: 150, icon: "Link2" },
+  { id: "sync-first", title: "In Sync", description: "Receive your first realtime sync event.", category: "collaboration", xp: 75, icon: "RefreshCw" },
+  { id: "party-of-four", title: "Party of Four", description: "Have 4+ people in a room.", category: "collaboration", xp: 300, icon: "UsersRound" },
+  { id: "workspace-share", title: "Single Source", description: "Push data to the shared Workspace.", category: "collaboration", xp: 150, icon: "Database" },
+
+  // ───── Flow (6) — combos, streaks of action ─────────────────────────────
+  { id: "combo-3", title: "On A Roll", description: "Chain a x3 combo.", category: "flow", xp: 100, icon: "Zap" },
+  { id: "combo-5", title: "Unstoppable", description: "Chain a x5 combo.", category: "flow", xp: 300, icon: "Flame" },
+  { id: "marathon-30", title: "Marathoner", description: "30 minutes in one session.", category: "flow", xp: 200, icon: "Timer" },
+  { id: "marathon-60", title: "Ironman", description: "One continuous hour.", category: "flow", xp: 500, icon: "Trophy" },
+  { id: "daily-three", title: "Triple Threat", description: "Complete all 3 daily challenges.", category: "flow", xp: 400, icon: "Target" },
+  { id: "weekly-sweep", title: "Weekly Sweeper", description: "Complete all 3 weekly challenges.", category: "flow", xp: 1000, icon: "Award" },
+
+  // ───── Delivery (5) ─────────────────────────────────────────────────────
+  { id: "sprint-complete", title: "Sprint Delivered", description: "Mark a sprint as completed.", category: "delivery", xp: 400, icon: "Rocket" },
+  { id: "release-forecast", title: "Oracle", description: "Run a Monte Carlo simulation.", category: "delivery", xp: 200, icon: "TrendingUp" },
+  { id: "dependency-free", title: "Untangled", description: "Build a dependency map with 0 cycles.", category: "delivery", xp: 350, icon: "Network" },
+  { id: "flow-efficient", title: "Lean Mean", description: "Value stream with 40%+ flow efficiency.", category: "delivery", xp: 400, icon: "Waves" },
+  { id: "wip-disciplined", title: "WIP Disciplined", description: "Stay under WIP limits for a full day.", category: "delivery", xp: 200, icon: "ShieldCheck" },
+
+  // ───── Discovery (5) ────────────────────────────────────────────────────
+  { id: "hypothesis-valid", title: "Validated Bet", description: "Validate a hypothesis.", category: "discovery", xp: 300, icon: "Lightbulb" },
+  { id: "hypothesis-invalid", title: "Better to Know", description: "Invalidate a hypothesis gracefully.", category: "discovery", xp: 250, icon: "XCircle" },
+  { id: "interview-ten", title: "Research-Driven", description: "Log 10 user interviews.", category: "discovery", xp: 400, icon: "Quote" },
+  { id: "opportunity-deep", title: "Root Thinker", description: "Build an opportunity tree 4 levels deep.", category: "discovery", xp: 300, icon: "Workflow" },
+  { id: "premortem-complete", title: "Foresight", description: "Complete a premortem with actions.", category: "discovery", xp: 250, icon: "ScrollText" },
+
+  // ───── Streak (4) ───────────────────────────────────────────────────────
+  { id: "streak-3", title: "Three-day Itch", description: "3-day activity streak.", category: "streak", xp: 100, icon: "Flame" },
+  { id: "streak-7", title: "Week Warrior", description: "7-day activity streak.", category: "streak", xp: 300, icon: "Flame" },
+  { id: "streak-30", title: "Monthly Devotion", description: "30-day activity streak.", category: "streak", xp: 1500, icon: "Trophy" },
+  { id: "streak-100", title: "Centurion", description: "100-day activity streak.", category: "streak", xp: 5000, icon: "Crown" },
+
+  // ───── Meta (8) — settings, preferences, self-care ──────────────────────
+  { id: "audio-on", title: "Audiophile", description: "Enable sonification.", category: "meta", xp: 25, icon: "Volume2" },
+  { id: "audio-modes", title: "Mode Explorer", description: "Try all three sonification modes.", category: "meta", xp: 100, icon: "Music" },
+  { id: "theme-toggle", title: "Chameleon", description: "Toggle between light and dark.", category: "meta", xp: 50, icon: "SunMoon" },
+  { id: "workspace-import", title: "Data Migrator", description: "Import data from the shared workspace.", category: "meta", xp: 100, icon: "Download" },
+  { id: "prompt-copier", title: "Prompt Engineer", description: "Copy an AI prompt.", category: "meta", xp: 75, icon: "Copy" },
+  { id: "export-master", title: "Data Archivist", description: "Export to all three formats (PNG, CSV, JSON).", category: "meta", xp: 150, icon: "Download" },
+  { id: "reduce-motion", title: "Steady Hand", description: "Enable reduced-motion mode.", category: "meta", xp: 50, icon: "Accessibility" },
+  { id: "level-ten", title: "Tenth Ring", description: "Reach level 10.", category: "meta", xp: 500, icon: "Star" },
+
+  // ───── Secret (9) — hidden until unlocked ──────────────────────────────
+  { id: "konami", title: "Secret Code", description: "You know the one.", category: "secret", xp: 500, icon: "Gamepad2", hidden: true },
+  { id: "logo-whisperer", title: "Logo Whisperer", description: "Hover the AT logo ten times.", category: "secret", xp: 100, icon: "Sparkles", hidden: true },
+  { id: "triple-tap", title: "Triple Tap", description: "Triple-click any tool card.", category: "secret", xp: 75, icon: "MousePointerClick", hidden: true },
+  { id: "footer-click", title: "Easter Egg Hunter", description: "Click the footer year.", category: "secret", xp: 50, icon: "Egg", hidden: true },
+  { id: "type-agile", title: "Invocation", description: "Type 'agile' in the command palette.", category: "secret", xp: 150, icon: "Terminal", hidden: true },
+  { id: "type-scrum", title: "Rugby Formation", description: "Type 'scrum' somewhere.", category: "secret", xp: 150, icon: "Terminal", hidden: true },
+  { id: "silent-run", title: "Zen Master", description: "Complete a session with silent-mode on.", category: "secret", xp: 200, icon: "Volume1", hidden: true },
+  { id: "midnight-commit", title: "Midnight Commit", description: "Interact at exactly midnight.", category: "secret", xp: 250, icon: "Clock", hidden: true },
+  { id: "prestige-one", title: "Ascended", description: "Prestige once.", category: "secret", xp: 2000, icon: "Crown", hidden: true },
+];
+
+export function getAchievement(id: string): Achievement | undefined {
+  return achievements.find((a) => a.id === id);
+}
+
+export function achievementsByCategory() {
+  const map = new Map<string, Achievement[]>();
+  for (const a of achievements) {
+    const list = map.get(a.category) ?? [];
+    list.push(a);
+    map.set(a.category, list);
+  }
+  return map;
+}

@@ -1,0 +1,299 @@
+"use client";
+
+import { useMemo, useState, useRef } from "react";
+import { nanoid } from "nanoid";
+import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { ExportButton } from "@/components/shared/export-button";
+import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Plus, Trash2, BarChart as BarIcon } from "lucide-react";
+import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
+import { chartTheme } from "@/components/charts/chart-theme";
+import { zScoreAnomalies } from "@/lib/analytics/anomaly";
+import { generateNpsCsatPrompts } from "@/lib/ai-prompts/nps-csat";
+import { emit as sonify } from "@/lib/sonification/emit";
+import { usePersisted } from "@/lib/utils/use-persisted";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { NPS_CSAT_ACTIONS } from "@/lib/history/event-actions";
+import { ActionRow } from "@/components/shared/action-row";
+import { StatCard } from "@/components/shared/stat-card";
+import { KpiGrid } from "@/components/shared/kpi-grid";
+
+type Kind = "nps" | "csat";
+
+interface Entry {
+  id: string;
+  kind: Kind;
+  date: string;
+  score: number;
+  respondent?: string;
+  verbatim?: string;
+}
+
+function npsCategory(score: number): "promoter" | "passive" | "detractor" {
+  if (score >= 9) return "promoter";
+  if (score >= 7) return "passive";
+  return "detractor";
+}
+
+function npsScore(entries: Entry[]): number {
+  const nps = entries.filter((e) => e.kind === "nps");
+  if (nps.length === 0) return 0;
+  const promoters = nps.filter((e) => e.score >= 9).length;
+  const detractors = nps.filter((e) => e.score <= 6).length;
+  return Math.round(((promoters - detractors) / nps.length) * 100);
+}
+
+function csatAvg(entries: Entry[]): number {
+  const csat = entries.filter((e) => e.kind === "csat");
+  if (csat.length === 0) return 0;
+  return csat.reduce((a, b) => a + b.score, 0) / csat.length;
+}
+
+export function NpsCsatClient() {
+  const [entries, setEntries] = usePersisted<Entry[]>("agile-toolkit:nps-csat", []);
+  const [draft, setDraft] = useState<Entry>(() => ({
+    id: nanoid(6),
+    kind: "nps",
+    date: todayLocalISO(),
+    score: 8,
+  }));
+  const chartRef = useRef<HTMLDivElement>(null);
+  const { log } = useHistoryLogger("nps-csat");
+
+  const add = () => {
+    if (draft.kind === "nps") {
+      if (draft.score >= 9) sonify("nps-csat", "score-promoter");
+      else if (draft.score >= 7) sonify("nps-csat", "score-passive");
+      else sonify("nps-csat", "score-detractor");
+    } else {
+      if (draft.score >= 4) sonify("nps-csat", "score-promoter");
+      else if (draft.score >= 3) sonify("nps-csat", "score-passive");
+      else sonify("nps-csat", "score-detractor");
+    }
+    setEntries((e) => [...e, draft]);
+    log(NPS_CSAT_ACTIONS.SURVEY_ADDED, {
+      kind: draft.kind,
+      score: draft.score,
+      date: draft.date,
+    });
+    setDraft({
+      id: nanoid(6),
+      kind: draft.kind,
+      date: todayLocalISO(),
+      score: draft.kind === "nps" ? 8 : 4,
+    });
+  };
+  const remove = (id: string) => {
+    const removed = entries.find((e) => e.id === id);
+    setEntries((e) => e.filter((x) => x.id !== id));
+    log(NPS_CSAT_ACTIONS.SURVEY_REMOVED, {
+      kind: removed?.kind,
+      score: removed?.score,
+    });
+  };
+
+  const nps = useMemo(() => npsScore(entries), [entries]);
+  const csat = useMemo(() => csatAvg(entries), [entries]);
+
+  const trendData = useMemo(() => {
+    const sums = new Map<
+      string,
+      { date: string; npsSum: number; npsCount: number; csatSum: number; csatCount: number }
+    >();
+    for (const e of entries) {
+      const cur =
+        sums.get(e.date) ?? { date: e.date, npsSum: 0, npsCount: 0, csatSum: 0, csatCount: 0 };
+      if (e.kind === "nps") {
+        cur.npsSum += e.score;
+        cur.npsCount += 1;
+      } else {
+        cur.csatSum += e.score;
+        cur.csatCount += 1;
+      }
+      sums.set(e.date, cur);
+    }
+    return Array.from(sums.values())
+      .map((d) => ({
+        date: d.date,
+        nps: d.npsCount > 0 ? d.npsSum / d.npsCount : undefined,
+        csat: d.csatCount > 0 ? d.csatSum / d.csatCount : undefined,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [entries]);
+
+  const anomalies = useMemo(() => {
+    const scores = entries.filter((e) => e.kind === "nps").map((e) => e.score);
+    return zScoreAnomalies(scores, 2);
+  }, [entries]);
+
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "NPS/CSAT Tracker",
+      prompts: generateNpsCsatPrompts({ entries, nps, csat }),
+    }),
+    [entries, nps, csat]
+  );
+
+  return (
+    <ToolPageWrapper
+      toolId="nps-csat"
+      title="NPS / CSAT Tracker"
+      description="Collect Net Promoter Scores and Customer Satisfaction over time with anomaly detection."
+      category="Outcomes & Pulse"
+    >
+      <ActionRow>
+        <AiPromptGenerator config={promptConfig} />
+        <ExportButton
+          filename="nps-csat"
+          csvData={{
+            headers: ["Date", "Kind", "Score", "Respondent", "Verbatim"],
+            rows: entries.map((e) => [e.date, e.kind, e.score, e.respondent ?? "", e.verbatim ?? ""]),
+          }}
+          jsonData={entries}
+          targetRef={chartRef}
+        />
+      </ActionRow>
+
+      <KpiGrid cols={3} gap="lg">
+        <StatCard
+          variant="compact"
+          label="NPS"
+          value={nps}
+          valueClassName="text-4xl text-accent"
+          hint={`${entries.filter((e) => e.kind === "nps").length} responses`}
+        />
+        <StatCard
+          variant="compact"
+          label="CSAT"
+          value={csat.toFixed(1)}
+          valueClassName="text-4xl text-accent"
+          hint={`${entries.filter((e) => e.kind === "csat").length} responses (1-5)`}
+        />
+        <StatCard
+          variant="compact"
+          label="Anomalies"
+          value={anomalies.length}
+          valueClassName="text-4xl text-text"
+          hint="z-score > 2 in NPS scores"
+        />
+      </KpiGrid>
+
+      <Card className="bg-surface border-border mb-6">
+        <CardContent className="p-4 space-y-3">
+          <div className="text-sm font-semibold text-text flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            Add response
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-[120px_140px_120px_1fr_auto] gap-2">
+            <Select value={draft.kind} onValueChange={(v) => setDraft((d) => ({ ...d, kind: v as Kind }))}>
+              <SelectTrigger className="bg-bg border-border">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="nps">NPS (0-10)</SelectItem>
+                <SelectItem value="csat">CSAT (1-5)</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              type="date"
+              value={draft.date}
+              onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
+              className="bg-bg border-border"
+            />
+            <Input
+              type="number"
+              min={draft.kind === "nps" ? 0 : 1}
+              max={draft.kind === "nps" ? 10 : 5}
+              value={draft.score}
+              onChange={(e) => setDraft((d) => ({ ...d, score: Number(e.target.value) }))}
+              className="bg-bg border-border font-data"
+            />
+            <Input
+              value={draft.respondent ?? ""}
+              onChange={(e) => setDraft((d) => ({ ...d, respondent: e.target.value }))}
+              placeholder="Respondent (optional)"
+              className="bg-bg border-border"
+            />
+            <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
+              <Plus className="w-4 h-4" />
+              Add
+            </Button>
+          </div>
+          <Textarea
+            rows={2}
+            value={draft.verbatim ?? ""}
+            onChange={(e) => setDraft((d) => ({ ...d, verbatim: e.target.value }))}
+            placeholder="Verbatim comment (optional)"
+            className="bg-bg border-border"
+          />
+        </CardContent>
+      </Card>
+
+      {trendData.length > 0 && (
+        <Card className="bg-surface border-border mb-6">
+          <CardContent className="p-4" ref={chartRef as React.RefObject<HTMLDivElement>}>
+            <div className="flex items-center gap-2 mb-3">
+              <BarIcon className="w-4 h-4 text-accent" />
+              <h3 className="text-sm font-semibold text-text">Score Trend</h3>
+            </div>
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={trendData}>
+                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
+                <XAxis dataKey="date" stroke={chartTheme.axisColor} />
+                <YAxis stroke={chartTheme.axisColor} />
+                <Tooltip contentStyle={chartTheme.tooltipStyle} />
+                <Line type="monotone" dataKey="nps" stroke={chartTheme.colors.cyan} name="NPS" />
+                <Line type="monotone" dataKey="csat" stroke={chartTheme.colors.purple} name="CSAT" />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="space-y-2">
+        {entries
+          .slice()
+          .sort((a, b) => b.date.localeCompare(a.date))
+          .map((e) => (
+            <div
+              key={e.id}
+              className="flex items-center gap-3 rounded-lg border border-border bg-surface p-3"
+            >
+              <span className="text-xs text-sub font-data w-24">{e.date}</span>
+              <span className="text-xs uppercase tracking-wider w-14 text-accent">{e.kind}</span>
+              <span className="font-data text-text w-10">{e.score}</span>
+              {e.kind === "nps" && (
+                <span
+                  className={`text-xs uppercase tracking-wider w-20 ${
+                    npsCategory(e.score) === "promoter"
+                      ? "text-green-400"
+                      : npsCategory(e.score) === "passive"
+                      ? "text-amber-300"
+                      : "text-danger"
+                  }`}
+                >
+                  {npsCategory(e.score)}
+                </span>
+              )}
+              <span className="text-sm text-text/80 flex-1 truncate">{e.verbatim || e.respondent || "—"}</span>
+              <Button variant="ghost" size="sm" onClick={() => remove(e.id)} className="text-sub hover:text-danger">
+                <Trash2 className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          ))}
+      </div>
+    </ToolPageWrapper>
+  );
+}

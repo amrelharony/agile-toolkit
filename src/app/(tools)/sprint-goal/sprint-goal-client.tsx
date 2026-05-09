@@ -6,6 +6,8 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateSprintGoalPrompts } from "@/lib/ai-prompts/sprint-goal";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { SPRINT_GOAL_ACTIONS } from "@/lib/history/event-actions";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -68,7 +70,13 @@ function validateSmart(
   const text = criterion.text.trim();
   const words = text.toLowerCase().split(/\s+/);
 
-  const hasVague = words.some((w) => VAGUE_WORDS.includes(w));
+  // Match by stem so "improving" / "optimization" / "enhanced" still trip
+  // the vague-word detector. Strip simple verb/noun suffixes before testing.
+  const stem = (w: string) => w.replace(/(?:ing|ed|es|s|ation|ment|ly)$/, "");
+  const hasVague = words.some((w) => {
+    const s = stem(w);
+    return VAGUE_WORDS.some((vague) => s === vague || s.startsWith(vague));
+  });
   const hasConcreteNoun = text.length > 10 && !hasVague;
 
   const specific = hasConcreteNoun;
@@ -123,6 +131,12 @@ export function SprintGoalClient() {
     { id: genId(), text: "", relevantChecked: false },
   ]);
   const [keyResults, setKeyResults] = useState<string[]>([""]);
+  const { log } = useHistoryLogger("sprint-goal");
+  // Track whether we've already logged a GOAL_SAVED milestone for this
+  // session of edits. Reset whenever the user mutates the goal/objective so
+  // saving a *changed* goal logs a fresh milestone, but ping-ponging back
+  // and forth across the final step doesn't.
+  const goalSavedSnapshotRef = useRef<string | null>(null);
 
   const previewRef = useRef<HTMLDivElement>(null);
 
@@ -131,10 +145,26 @@ export function SprintGoalClient() {
   const currentIndex = STEPS.indexOf(activeStep);
 
   const goNext = useCallback(() => {
-    if (currentIndex < STEPS.length - 1) {
-      setActiveStep(STEPS[currentIndex + 1]);
-    }
-  }, [currentIndex]);
+    if (currentIndex >= STEPS.length - 1) return;
+    const next = STEPS[currentIndex + 1];
+    setActiveStep(next);
+    if (next !== STEPS[STEPS.length - 1]) return;
+    // Compute a content hash so re-entering the final step without changes
+    // doesn't refire the milestone.
+    const contentKey = JSON.stringify({
+      businessObjective,
+      sprintGoal,
+      criteria: criteria.map((c) => c.text),
+      keyResults,
+    });
+    if (goalSavedSnapshotRef.current === contentKey) return;
+    goalSavedSnapshotRef.current = contentKey;
+    log(SPRINT_GOAL_ACTIONS.GOAL_SAVED, {
+      objective: businessObjective,
+      goal: sprintGoal,
+      criteriaCount: criteria.length,
+    });
+  }, [currentIndex, log, businessObjective, sprintGoal, criteria, keyResults]);
 
   const goPrev = useCallback(() => {
     if (currentIndex > 0) {
@@ -144,14 +174,18 @@ export function SprintGoalClient() {
 
   // ── Criteria helpers ────────────────────────────────────────────────────
 
-  const addCriterion = () =>
+  const addCriterion = () => {
     setCriteria((prev) => [
       ...prev,
       { id: genId(), text: "", relevantChecked: false },
     ]);
+    log(SPRINT_GOAL_ACTIONS.CRITERION_ADDED, {});
+  };
 
-  const removeCriterion = (id: string) =>
+  const removeCriterion = (id: string) => {
     setCriteria((prev) => (prev.length > 1 ? prev.filter((c) => c.id !== id) : prev));
+    log(SPRINT_GOAL_ACTIONS.CRITERION_REMOVED, { criterionId: id });
+  };
 
   const updateCriterionText = (id: string, text: string) =>
     setCriteria((prev) =>
@@ -246,6 +280,7 @@ export function SprintGoalClient() {
 
   return (
     <ToolPageWrapper
+      toolId="sprint-goal"
       title="Sprint Goal Builder"
       description="Craft focused, SMART sprint goals with acceptance criteria and measurable key results."
       category="Sprint Planning & Estimation"

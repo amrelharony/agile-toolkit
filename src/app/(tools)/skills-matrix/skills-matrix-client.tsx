@@ -1,15 +1,17 @@
 "use client";
 
-import { useRef, useMemo, useState, useEffect, useCallback } from "react";
+import { useRef, useMemo, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateSkillsMatrixPrompts } from "@/lib/ai-prompts/skills-matrix";
+import { EditableName } from "@/components/shared/editable-name";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { SKILLS_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { SectionCard } from "@/components/shared/section-card";
 import { Badge } from "@/components/ui/badge";
 import {
   Users,
@@ -237,77 +239,7 @@ const useSkillsStore = create<SkillsMatrixStore>()(
   )
 );
 
-/* -------------------------------------------------------------------------- */
-/*  Editable name cell                                                        */
-/* -------------------------------------------------------------------------- */
-
-function EditableName({
-  value,
-  onChange,
-  placeholder,
-  className,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  className?: string;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setDraft(value);
-  }, [value]);
-
-  useEffect(() => {
-    if (editing) {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }
-  }, [editing]);
-
-  const commit = useCallback(() => {
-    setEditing(false);
-    const trimmed = draft.trim();
-    if (trimmed && trimmed !== value) {
-      onChange(trimmed);
-    } else {
-      setDraft(value);
-    }
-  }, [draft, value, onChange]);
-
-  if (editing) {
-    return (
-      <Input
-        ref={inputRef}
-        value={draft}
-        placeholder={placeholder}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commit();
-          if (e.key === "Escape") {
-            setDraft(value);
-            setEditing(false);
-          }
-        }}
-        className={`h-7 text-sm bg-card border-border text-text focus:border-accent/50 ${className ?? ""}`}
-      />
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => setEditing(true)}
-      title="Click to edit"
-      className={`text-sm text-left truncate hover:text-accent transition-colors cursor-text ${className ?? ""}`}
-    >
-      {value}
-    </button>
-  );
-}
+// EditableName moved to @/components/shared/editable-name.
 
 /* -------------------------------------------------------------------------- */
 /*  Proficiency cell                                                          */
@@ -374,15 +306,71 @@ export function SkillsMatrixClient() {
     members,
     skills,
     grid,
-    addMember,
-    removeMember,
+    addMember: addMemberRaw,
+    removeMember: removeMemberRaw,
     updateMemberName,
-    addSkill,
-    removeSkill,
+    addSkill: addSkillRaw,
+    removeSkill: removeSkillRaw,
     updateSkillName,
-    cycleCell,
-    reset,
+    cycleCell: cycleCellRaw,
+    reset: resetRaw,
   } = useSkillsStore();
+  const { log } = useHistoryLogger("skills-matrix");
+  // Debounce cycleCell logging — users typically click 3-4 times to find the
+  // right rating. Logging each click would flood the audit log. We schedule
+  // a "settled" log 600ms after the last cycleCell call per (memberId, skillId).
+  const cycleCellTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map()
+  );
+  useEffect(() => {
+    const timers = cycleCellTimersRef.current;
+    return () => {
+      timers.forEach((t) => clearTimeout(t));
+      timers.clear();
+    };
+  }, []);
+
+  const addMember: typeof addMemberRaw = (...args) => {
+    addMemberRaw(...args);
+    log(SKILLS_ACTIONS.PERSON_ADDED, {});
+  };
+  const removeMember: typeof removeMemberRaw = (id) => {
+    const m = members.find((x) => x.id === id);
+    removeMemberRaw(id);
+    log(SKILLS_ACTIONS.PERSON_REMOVED, { memberId: id, name: m?.name });
+  };
+  const addSkill: typeof addSkillRaw = (...args) => {
+    addSkillRaw(...args);
+    log(SKILLS_ACTIONS.SKILL_ADDED, {});
+  };
+  const removeSkill: typeof removeSkillRaw = (id) => {
+    const s = skills.find((x) => x.id === id);
+    removeSkillRaw(id);
+    log(SKILLS_ACTIONS.SKILL_REMOVED, { skillId: id, name: s?.name });
+  };
+  const cycleCell: typeof cycleCellRaw = (...args) => {
+    cycleCellRaw(...args);
+    const key = `${args[0]}|${args[1]}`;
+    const timers = cycleCellTimersRef.current;
+    const existing = timers.get(key);
+    if (existing) clearTimeout(existing);
+    const handle = setTimeout(() => {
+      timers.delete(key);
+      // Read the *settled* rating from current grid at fire time.
+      const settled =
+        useSkillsStore.getState().grid[args[0]]?.[args[1]] ?? null;
+      log(SKILLS_ACTIONS.RATING_CHANGED, {
+        memberId: args[0],
+        skillId: args[1],
+        rating: settled,
+      });
+    }, 600);
+    timers.set(key, handle);
+  };
+  const reset = () => {
+    resetRaw();
+    log(SKILLS_ACTIONS.SKILLS_RESET, {});
+  };
 
   const exportRef = useRef<HTMLDivElement>(null);
 
@@ -471,6 +459,7 @@ export function SkillsMatrixClient() {
 
   return (
     <ToolPageWrapper
+      toolId="skills-matrix"
       title="Team Skills Matrix"
       description="Map team proficiency across skills, detect bus factor risks, and identify knowledge gaps at a glance."
       category="Team Health & Maturity"
@@ -510,10 +499,10 @@ export function SkillsMatrixClient() {
               targetRef={exportRef}
             />
             <Button
-              variant="ghost"
+              variant="danger-ghost"
               size="sm"
               onClick={reset}
-              className="gap-1.5 text-sub hover:text-red-400 hover:bg-red-400/10"
+              className="gap-1.5"
             >
               <RotateCcw className="w-4 h-4" />
               Reset
@@ -522,15 +511,13 @@ export function SkillsMatrixClient() {
         </div>
 
         {/* ---- Matrix ----------------------------------------------------- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-4">
-            <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-              <Users className="w-5 h-5 text-accent" />
-              Skills Grid
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div ref={exportRef} className="overflow-x-auto">
+        <SectionCard
+          title="Skills Grid"
+          icon={Users}
+          titleSize="lg"
+          headerClassName="pb-4"
+        >
+          <div ref={exportRef} className="overflow-x-auto">
               <table className="w-full border-collapse">
                 <thead>
                   <tr>
@@ -553,7 +540,7 @@ export function SkillsMatrixClient() {
                             <button
                               type="button"
                               onClick={() => removeMember(member.id)}
-                              className="p-0.5 rounded text-sub hover:text-red-400 hover:bg-red-400/10 transition-colors flex-shrink-0"
+                              className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
                               title="Remove member"
                             >
                               <Trash2 className="w-3 h-3" />
@@ -567,7 +554,7 @@ export function SkillsMatrixClient() {
                         variant="ghost"
                         size="icon"
                         onClick={addMember}
-                        className="h-7 w-7 text-accent hover:bg-accent/10"
+                        className="min-touch-coarse h-7 w-7 text-accent hover:bg-accent/10"
                         title="Add member"
                       >
                         <Plus className="w-4 h-4" />
@@ -616,7 +603,7 @@ export function SkillsMatrixClient() {
                               <button
                                 type="button"
                                 onClick={() => removeSkill(skill.id)}
-                                className="p-0.5 rounded text-sub hover:text-red-400 hover:bg-red-400/10 transition-colors flex-shrink-0"
+                                className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
                                 title="Remove skill"
                               >
                                 <Trash2 className="w-3 h-3" />
@@ -667,20 +654,17 @@ export function SkillsMatrixClient() {
                 </tfoot>
               </table>
             </div>
-          </CardContent>
-        </Card>
+        </SectionCard>
 
         {/* ---- Legend + Risk summary -------------------------------------- */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Proficiency legend */}
-          <Card className="bg-surface border-border">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-display text-text flex items-center gap-2">
-                <Info className="w-4 h-4 text-accent" />
-                Proficiency Levels
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
+          <SectionCard
+            title="Proficiency Levels"
+            icon={Info}
+            titleSize="sm"
+            contentClassName="space-y-2"
+          >
               {PROF_META.map((meta, i) => (
                 <div key={i} className="flex items-center gap-3">
                   <div
@@ -708,18 +692,15 @@ export function SkillsMatrixClient() {
                   </div>
                 </div>
               ))}
-            </CardContent>
-          </Card>
+          </SectionCard>
 
           {/* Risk summary */}
-          <Card className="bg-surface border-border">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-display text-text flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-accent" />
-                Risk Analysis
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
+          <SectionCard
+            title="Risk Analysis"
+            icon={AlertTriangle}
+            titleSize="sm"
+            contentClassName="space-y-3"
+          >
               {analysis.filter((a) => a.isSPOF || a.isBusFactor).length ===
               0 ? (
                 <p className="text-sm text-sub">
@@ -765,8 +746,7 @@ export function SkillsMatrixClient() {
                     ))}
                 </>
               )}
-            </CardContent>
-          </Card>
+          </SectionCard>
         </div>
       </div>
     </ToolPageWrapper>

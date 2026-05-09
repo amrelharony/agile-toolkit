@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 active-press [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -19,12 +19,26 @@ const buttonVariants = cva(
           "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
+        // Toolkit-specific: cyan-tinted "primary action" button used for
+        // Add / Save / Apply throughout the tools (e.g. Add Sprint,
+        // Save to History). Replaces the inline
+        // `bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40`
+        // pattern.
+        toolkit:
+          "bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40 disabled:opacity-40",
+        // Toolkit-specific: muted "icon-only delete" button used in dense
+        // rows (impediments, refinement criteria, sprint-review features).
+        // Replaces the inline `text-sub hover:text-red-400 hover:bg-red-400/10`
+        // pattern.
+        "danger-ghost":
+          "text-sub hover:text-red-400 hover:bg-red-400/10",
       },
       size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-xs",
-        lg: "h-10 rounded-md px-8",
-        icon: "h-9 w-9",
+        // Mobile-first: meet 44px touch target; shrink to 36px on md+ for density
+        default: "min-h-[44px] md:min-h-9 md:h-9 px-4 py-2",
+        sm: "min-h-[36px] md:h-8 rounded-md px-3 text-xs",
+        lg: "min-h-[48px] md:h-10 rounded-md px-8",
+        icon: "min-h-[44px] min-w-[44px] md:h-9 md:w-9 md:min-h-0 md:min-w-0",
       },
     },
     defaultVariants: {
@@ -34,19 +48,39 @@ const buttonVariants = cva(
   }
 )
 
+// Default haptic patterns per variant — consumed by the haptics event-router
+// via the data-haptic attribute set in the component.
+const VARIANT_HAPTIC: Record<string, string | undefined> = {
+  default: "tick",
+  destructive: "impact-heavy",
+  outline: "tick",
+  secondary: "tick",
+  ghost: "tick",
+  link: undefined,
+  toolkit: "tick",
+  "danger-ghost": "tick",
+}
+
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean
+  /** Override the default haptic pattern for this button (e.g., "success", "error"). */
+  haptic?: string
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, haptic, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"
+    const resolvedHaptic = haptic ?? VARIANT_HAPTIC[variant ?? "default"]
+    // `data-variant` drives sonification palette; `data-haptic` drives the
+    // haptics event-router (same global delegated listener).
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
+        data-variant={variant ?? "default"}
+        data-haptic={resolvedHaptic}
         {...props}
       />
     )

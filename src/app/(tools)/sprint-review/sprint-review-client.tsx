@@ -7,8 +7,11 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateSprintReviewPrompts } from "@/lib/ai-prompts/sprint-review";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { SPRINT_REVIEW_ACTIONS } from "@/lib/history/event-actions";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -134,7 +137,7 @@ const DEFAULT_STATE = {
   sprintName: "Sprint Alpha",
   sprintNumber: "1",
   features: DEFAULT_FEATURES,
-  meetingDate: new Date().toISOString().split("T")[0],
+  meetingDate: todayLocalISO(),
   feedbackItems: DEFAULT_FEEDBACK,
   checklistItems: DEFAULT_CHECKLIST,
   committed: 40,
@@ -274,10 +277,24 @@ function DemoScriptTab() {
     features,
     setSprintName,
     setSprintNumber,
-    addFeature,
-    removeFeature,
+    addFeature: addFeatureRaw,
+    removeFeature: removeFeatureRaw,
     updateFeature,
   } = useSprintReviewStore();
+  const { log } = useHistoryLogger("sprint-review");
+
+  const addFeature: typeof addFeatureRaw = (...args) => {
+    addFeatureRaw(...args);
+    log(SPRINT_REVIEW_ACTIONS.ITEM_ADDED, {});
+  };
+  const removeFeature: typeof removeFeatureRaw = (id) => {
+    const feature = features.find((f) => f.id === id);
+    removeFeatureRaw(id);
+    log(SPRINT_REVIEW_ACTIONS.ITEM_REMOVED, {
+      featureId: id,
+      name: feature?.name,
+    });
+  };
 
   const totalMinutes = features.reduce((s, f) => s + (f.timeMinutes || 0), 0);
 
@@ -299,57 +316,49 @@ function DemoScriptTab() {
   return (
     <div className="space-y-6">
       {/* Sprint info */}
-      <Card className="bg-surface border-border">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-display text-text flex items-center gap-2">
-            <Presentation className="w-4 h-4 text-accent" />
-            Sprint Info
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label className="text-sub text-xs">Sprint Name</Label>
-            <Input
-              value={sprintName}
-              onChange={(e) => setSprintName(e.target.value)}
-              placeholder="e.g. Sprint Alpha"
-              className="bg-surface-deep border-border text-text focus:border-accent/50"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-sub text-xs">Sprint Number</Label>
-            <Input
-              value={sprintNumber}
-              onChange={(e) => setSprintNumber(e.target.value)}
-              placeholder="e.g. 12"
-              className="bg-surface-deep border-border text-text focus:border-accent/50"
-            />
-          </div>
-        </CardContent>
-      </Card>
+      <SectionCard
+        title="Sprint Info"
+        icon={Presentation}
+        contentClassName="grid grid-cols-1 sm:grid-cols-2 gap-4"
+      >
+        <div className="space-y-1.5">
+          <Label className="text-sub text-xs">Sprint Name</Label>
+          <Input
+            value={sprintName}
+            onChange={(e) => setSprintName(e.target.value)}
+            placeholder="e.g. Sprint Alpha"
+            className="input-toolkit"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-sub text-xs">Sprint Number</Label>
+          <Input
+            value={sprintNumber}
+            onChange={(e) => setSprintNumber(e.target.value)}
+            placeholder="e.g. 12"
+            className="input-toolkit"
+          />
+        </div>
+      </SectionCard>
 
       {/* Features list */}
-      <Card className="bg-surface border-border">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base font-display text-text flex items-center gap-2">
-              <Clock className="w-4 h-4 text-accent" />
-              Features to Demo
-              <span className="text-sm text-sub font-normal ml-1">
-                — Total: {totalMinutes} min
-              </span>
-            </CardTitle>
-            <Button
-              size="sm"
-              onClick={addFeature}
-              className="gap-1.5 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40"
-            >
-              <Plus className="w-4 h-4" />
-              Add Feature
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <SectionCard
+        title="Features to Demo"
+        icon={Clock}
+        titleSuffix={`— Total: ${totalMinutes} min`}
+        actions={
+          <Button
+            size="sm"
+            variant="toolkit"
+            onClick={addFeature}
+            className="gap-1.5"
+          >
+            <Plus className="w-4 h-4" />
+            Add Feature
+          </Button>
+        }
+        contentClassName="space-y-4"
+      >
           {features.length === 0 && (
             <p className="text-sm text-sub text-center py-4">
               No features yet. Add one above.
@@ -365,10 +374,10 @@ function DemoScriptTab() {
                   Feature {i + 1}
                 </span>
                 <Button
-                  variant="ghost"
+                  variant="danger-ghost"
                   size="icon"
                   onClick={() => removeFeature(f.id)}
-                  className="h-7 w-7 text-sub hover:text-red-400 hover:bg-red-400/10"
+                  className="min-touch-coarse h-7 w-7"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
@@ -382,7 +391,7 @@ function DemoScriptTab() {
                       updateFeature(f.id, { name: e.target.value })
                     }
                     placeholder="e.g. User Login Flow"
-                    className="bg-surface-deep border-border text-text focus:border-accent/50"
+                    className="input-toolkit"
                   />
                 </div>
                 <div className="space-y-1.5 w-28">
@@ -408,7 +417,7 @@ function DemoScriptTab() {
                     updateFeature(f.id, { description: e.target.value })
                   }
                   placeholder="What was built?"
-                  className="bg-surface-deep border-border text-text focus:border-accent/50"
+                  className="input-toolkit"
                 />
               </div>
               <div className="space-y-1.5">
@@ -427,29 +436,20 @@ function DemoScriptTab() {
               </div>
             </div>
           ))}
-        </CardContent>
-      </Card>
+      </SectionCard>
 
       {/* Generated script */}
       {features.length > 0 && (
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base font-display text-text">
-                Generated Demo Script
-              </CardTitle>
-              <ExportButton
-                filename="demo-script"
-                clipboardText={script}
-              />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <pre className="text-sm text-sub whitespace-pre-wrap font-mono leading-relaxed bg-surface-deep/60 rounded-lg p-4 border border-border">
-              {script}
-            </pre>
-          </CardContent>
-        </Card>
+        <SectionCard
+          title="Generated Demo Script"
+          actions={
+            <ExportButton filename="demo-script" clipboardText={script} />
+          }
+        >
+          <pre className="text-sm text-sub whitespace-pre-wrap font-mono leading-relaxed bg-surface-deep/60 rounded-lg p-4 border border-border">
+            {script}
+          </pre>
+        </SectionCard>
       )}
     </div>
   );
@@ -479,24 +479,22 @@ function FeedbackTab() {
 
   return (
     <div className="space-y-6">
-      <Card className="bg-surface border-border">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base font-display text-text flex items-center gap-2">
-              <MessageSquare className="w-4 h-4 text-accent" />
-              Feedback Items
-            </CardTitle>
-            <Button
-              size="sm"
-              onClick={addFeedback}
-              className="gap-1.5 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40"
-            >
-              <Plus className="w-4 h-4" />
-              Add Feedback
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <SectionCard
+        title="Feedback Items"
+        icon={MessageSquare}
+        actions={
+          <Button
+            size="sm"
+            variant="toolkit"
+            onClick={addFeedback}
+            className="gap-1.5"
+          >
+            <Plus className="w-4 h-4" />
+            Add Feedback
+          </Button>
+        }
+        contentClassName="space-y-4"
+      >
           {/* Meeting date */}
           <div className="flex items-center gap-3 pb-2 border-b border-border">
             <Label className="text-sub text-xs whitespace-nowrap">
@@ -530,7 +528,7 @@ function FeedbackTab() {
                       updateFeedback(item.id, { stakeholder: e.target.value })
                     }
                     placeholder="Name / Role"
-                    className="bg-surface-deep border-border text-text focus:border-accent/50"
+                    className="input-toolkit"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -543,7 +541,7 @@ function FeedbackTab() {
                       })
                     }
                   >
-                    <SelectTrigger className="bg-surface-deep border-border text-text focus:border-accent/50">
+                    <SelectTrigger className="input-toolkit">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-surface border-border">
@@ -554,10 +552,10 @@ function FeedbackTab() {
                   </Select>
                 </div>
                 <Button
-                  variant="ghost"
+                  variant="danger-ghost"
                   size="icon"
                   onClick={() => removeFeedback(item.id)}
-                  className="h-9 w-9 text-sub hover:text-red-400 hover:bg-red-400/10"
+                  className="h-9 w-9"
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>
@@ -576,19 +574,12 @@ function FeedbackTab() {
               </div>
             </div>
           ))}
-        </CardContent>
-      </Card>
+      </SectionCard>
 
       {/* Summary grouped by category */}
       {feedbackItems.length > 0 && (
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-display text-text">
-              Feedback Summary
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            {(["positive", "concern", "suggestion"] as FeedbackCategory[]).map(
+        <SectionCard title="Feedback Summary" contentClassName="space-y-5">
+          {(["positive", "concern", "suggestion"] as FeedbackCategory[]).map(
               (cat) =>
                 grouped[cat].length > 0 && (
                   <div key={cat}>
@@ -628,9 +619,8 @@ function FeedbackTab() {
                     </div>
                   </div>
                 )
-            )}
-          </CardContent>
-        </Card>
+          )}
+        </SectionCard>
       )}
     </div>
   );
@@ -667,24 +657,21 @@ function ShowcaseChecklistTab() {
 
   return (
     <div className="space-y-6">
-      <Card className="bg-surface border-border">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base font-display text-text flex items-center gap-2">
-              <CheckSquare className="w-4 h-4 text-accent" />
-              Showcase Checklist
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-sub font-data">
-                {checkedCount}/{checklistItems.length}
-              </span>
-              {progress === 100 && (
-                <CheckCircle2 className="w-4 h-4 text-[#00ff88]" />
-              )}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <SectionCard
+        title="Showcase Checklist"
+        icon={CheckSquare}
+        actions={
+          <>
+            <span className="text-sm text-sub font-data">
+              {checkedCount}/{checklistItems.length}
+            </span>
+            {progress === 100 && (
+              <CheckCircle2 className="w-4 h-4 text-[#00ff88]" />
+            )}
+          </>
+        }
+        contentClassName="space-y-4"
+      >
           {/* Progress bar */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs text-sub">
@@ -740,10 +727,10 @@ function ShowcaseChecklistTab() {
                   }`}
                 />
                 <Button
-                  variant="ghost"
+                  variant="danger-ghost"
                   size="icon"
                   onClick={() => removeChecklistItem(item.id)}
-                  className="h-7 w-7 opacity-0 group-hover:opacity-100 text-sub hover:text-red-400 hover:bg-red-400/10 transition-opacity"
+                  className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
@@ -758,20 +745,20 @@ function ShowcaseChecklistTab() {
               onChange={(e) => setNewItem(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleAdd()}
               placeholder="Add checklist item..."
-              className="bg-surface-deep border-border text-text focus:border-accent/50"
+              className="input-toolkit"
             />
             <Button
               size="sm"
+              variant="toolkit"
               onClick={handleAdd}
               disabled={!newItem.trim()}
-              className="gap-1.5 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40 disabled:opacity-40"
+              className="gap-1.5"
             >
               <Plus className="w-4 h-4" />
               Add
             </Button>
           </div>
-        </CardContent>
-      </Card>
+      </SectionCard>
     </div>
   );
 }
@@ -832,140 +819,120 @@ function VelocitySummaryTab() {
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Sprint velocity inputs */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-display text-text flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-accent" />
-              Sprint Velocity
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-1.5">
-              <Label className="text-sub text-xs">
-                Committed Points
-              </Label>
-              <Input
-                type="number"
-                min={0}
-                value={committed}
-                onChange={(e) =>
-                  setCommitted(Math.max(0, Number(e.target.value)))
-                }
-                className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
-              />
+        <SectionCard
+          title="Sprint Velocity"
+          icon={BarChart3}
+          contentClassName="space-y-4"
+        >
+          <div className="space-y-1.5">
+            <Label className="text-sub text-xs">Committed Points</Label>
+            <Input
+              type="number"
+              min={0}
+              value={committed}
+              onChange={(e) =>
+                setCommitted(Math.max(0, Number(e.target.value)))
+              }
+              className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-sub text-xs">Completed Points</Label>
+            <Input
+              type="number"
+              min={0}
+              value={completed}
+              onChange={(e) =>
+                setCompleted(Math.max(0, Number(e.target.value)))
+              }
+              className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs text-sub">
+              <span>Completion Rate</span>
+              <span
+                className="font-data font-bold"
+                style={{
+                  color:
+                    completionRate >= 90
+                      ? "#00ff88"
+                      : completionRate >= 70
+                      ? "#ffaa00"
+                      : "#ef4444",
+                }}
+              >
+                {completionRate}%
+              </span>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-sub text-xs">
-                Completed Points
-              </Label>
-              <Input
-                type="number"
-                min={0}
-                value={completed}
-                onChange={(e) =>
-                  setCompleted(Math.max(0, Number(e.target.value)))
-                }
-                className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs text-sub">
-                <span>Completion Rate</span>
-                <span
-                  className="font-data font-bold"
-                  style={{
-                    color:
-                      completionRate >= 90
-                        ? "#00ff88"
-                        : completionRate >= 70
-                        ? "#ffaa00"
-                        : "#ef4444",
-                  }}
-                >
-                  {completionRate}%
-                </span>
-              </div>
-              <Progress value={completionRate} className="h-2 bg-card" />
-            </div>
-          </CardContent>
-        </Card>
+            <Progress value={completionRate} className="h-2 bg-card" />
+          </div>
+        </SectionCard>
 
         {/* Release progress inputs */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-display text-text flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-[#00ff88]" />
-              Release Progress
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-1.5">
-              <Label className="text-sub text-xs">
-                Total Backlog Points
-              </Label>
-              <Input
-                type="number"
-                min={0}
-                value={totalBacklog}
-                onChange={(e) =>
-                  setTotalBacklog(Math.max(0, Number(e.target.value)))
-                }
-                className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
-              />
+        <SectionCard
+          title="Release Progress"
+          icon={BarChart3}
+          iconClassName="text-[#00ff88]"
+          contentClassName="space-y-4"
+        >
+          <div className="space-y-1.5">
+            <Label className="text-sub text-xs">Total Backlog Points</Label>
+            <Input
+              type="number"
+              min={0}
+              value={totalBacklog}
+              onChange={(e) =>
+                setTotalBacklog(Math.max(0, Number(e.target.value)))
+              }
+              className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-sub text-xs">Done to Date</Label>
+            <Input
+              type="number"
+              min={0}
+              value={backlogDone}
+              onChange={(e) =>
+                setBacklogDone(Math.max(0, Number(e.target.value)))
+              }
+              className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs text-sub">
+              <span>Release Progress</span>
+              <span
+                className="font-data font-bold"
+                style={{
+                  color:
+                    releaseProgress >= 75
+                      ? "#00ff88"
+                      : releaseProgress >= 40
+                      ? "#ffaa00"
+                      : "#00f0ff",
+                }}
+              >
+                {releaseProgress}%
+              </span>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-sub text-xs">
-                Done to Date
-              </Label>
-              <Input
-                type="number"
-                min={0}
-                value={backlogDone}
-                onChange={(e) =>
-                  setBacklogDone(Math.max(0, Number(e.target.value)))
-                }
-                className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs text-sub">
-                <span>Release Progress</span>
-                <span
-                  className="font-data font-bold"
-                  style={{
-                    color:
-                      releaseProgress >= 75
-                        ? "#00ff88"
-                        : releaseProgress >= 40
-                        ? "#ffaa00"
-                        : "#00f0ff",
-                  }}
-                >
-                  {releaseProgress}%
-                </span>
-              </div>
-              <Progress value={releaseProgress} className="h-2 bg-card" />
-            </div>
-          </CardContent>
-        </Card>
+            <Progress value={releaseProgress} className="h-2 bg-card" />
+          </div>
+        </SectionCard>
       </div>
 
       {/* Generated velocity card */}
-      <Card className="bg-surface border-border">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base font-display text-text">
-              Velocity Summary Card
-            </CardTitle>
-            <ExportButton filename="velocity-summary" clipboardText={card} />
-          </div>
-        </CardHeader>
-        <CardContent>
-          <pre className="text-sm text-sub whitespace-pre-wrap font-mono leading-relaxed bg-surface-deep/60 rounded-lg p-4 border border-border">
-            {card}
-          </pre>
-        </CardContent>
-      </Card>
+      <SectionCard
+        title="Velocity Summary Card"
+        actions={
+          <ExportButton filename="velocity-summary" clipboardText={card} />
+        }
+      >
+        <pre className="text-sm text-sub whitespace-pre-wrap font-mono leading-relaxed bg-surface-deep/60 rounded-lg p-4 border border-border">
+          {card}
+        </pre>
+      </SectionCard>
     </div>
   );
 }
@@ -1095,6 +1062,7 @@ export function SprintReviewClient() {
 
   return (
     <ToolPageWrapper
+      toolId="sprint-review"
       title="Sprint Review Kit"
       description="Generate demo scripts, collect stakeholder feedback, run showcase checklists, and review velocity."
       category="Ceremonies"
@@ -1116,10 +1084,9 @@ export function SprintReviewClient() {
               clipboardText={fullExport}
             />
             <Button
-              variant="ghost"
+              variant="danger-ghost"
               size="sm"
               onClick={reset}
-              className="text-sub hover:text-red-400 hover:bg-red-400/10"
             >
               Reset
             </Button>

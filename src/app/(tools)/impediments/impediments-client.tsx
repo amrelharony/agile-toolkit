@@ -7,8 +7,14 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateImpedimentPrompts } from "@/lib/ai-prompts/impediments";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { emit as sonify } from "@/lib/sonification/emit";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { IMPEDIMENT_ACTIONS } from "@/lib/history/event-actions";
+import { withTimeTravel } from "@/lib/stores/with-time-travel";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { SectionCard } from "@/components/shared/section-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -66,46 +72,61 @@ interface ImpedimentStore {
 
 const useImpedimentStore = create<ImpedimentStore>()(
   persist(
-    (set) => ({
-      impediments: [],
+    withTimeTravel<ImpedimentStore>(
+      { toolId: "impediments" },
+      (set) => ({
+        impediments: [],
 
-      addImpediment: (imp) =>
-        set((s) => ({
-          impediments: [
-            {
-              ...imp,
-              id: crypto.randomUUID(),
-              raisedDate: new Date().toISOString().split("T")[0],
-              status: "Open",
-            },
-            ...s.impediments,
-          ],
-        })),
+        addImpediment: (imp) =>
+          set((s) => ({
+            impediments: [
+              {
+                ...imp,
+                id: crypto.randomUUID(),
+                raisedDate: todayLocalISO(),
+                status: "Open",
+              },
+              ...s.impediments,
+            ],
+          })),
 
-      updateStatus: (id, status, resolvedDate) =>
-        set((s) => ({
-          impediments: s.impediments.map((i) =>
-            i.id === id
-              ? {
-                  ...i,
-                  status,
-                  resolvedDate:
-                    status === "Resolved"
-                      ? resolvedDate || new Date().toISOString().split("T")[0]
-                      : i.resolvedDate,
-                }
-              : i
-          ),
-        })),
+        updateStatus: (id, status, resolvedDate) =>
+          set((s) => ({
+            impediments: s.impediments.map((i) =>
+              i.id === id
+                ? {
+                    ...i,
+                    status,
+                    resolvedDate:
+                      status === "Resolved"
+                        ? resolvedDate || todayLocalISO()
+                        : i.resolvedDate,
+                  }
+                : i
+            ),
+          })),
 
-      remove: (id) =>
-        set((s) => ({
-          impediments: s.impediments.filter((i) => i.id !== id),
-        })),
+        remove: (id) =>
+          set((s) => ({
+            impediments: s.impediments.filter((i) => i.id !== id),
+          })),
 
-      reset: () => set({ impediments: [] }),
-    }),
-    { name: "agile-toolkit:impediments" }
+        reset: () => set({ impediments: [] }),
+      })
+    ),
+    {
+      name: "agile-toolkit:impediments",
+      partialize: (state) => {
+        const {
+          _ttPast,
+          _ttFuture,
+          ...rest
+        } = state as ImpedimentStore & { _ttPast?: unknown; _ttFuture?: unknown };
+        void _ttPast;
+        void _ttFuture;
+        return rest;
+      },
+    }
   )
 );
 
@@ -240,10 +261,18 @@ function LogForm({ onAdd }: { onAdd: () => void }) {
   const { addImpediment } = useImpedimentStore();
   const [form, setForm] = useState(EMPTY_FORM);
   const [open, setOpen] = useState(false);
+  const { log } = useHistoryLogger("impediments");
 
   const handleSubmit = () => {
     if (!form.title.trim()) return;
+    sonify("impediments", "impediment-raised");
     addImpediment(form);
+    log(IMPEDIMENT_ACTIONS.IMPEDIMENT_RAISED, {
+      title: form.title.trim(),
+      category: form.category,
+      severity: form.severity,
+      assignedTo: form.assignedTo || null,
+    });
     setForm(EMPTY_FORM);
     setOpen(false);
     onAdd();
@@ -252,8 +281,9 @@ function LogForm({ onAdd }: { onAdd: () => void }) {
   if (!open) {
     return (
       <Button
+        variant="toolkit"
         onClick={() => setOpen(true)}
-        className="gap-2 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40"
+        className="gap-2"
       >
         <Plus className="w-4 h-4" />
         Log Impediment
@@ -262,31 +292,29 @@ function LogForm({ onAdd }: { onAdd: () => void }) {
   }
 
   return (
-    <Card className="bg-surface border-border">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-display text-text flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-[#ffaa00]" />
-            Log New Impediment
-          </CardTitle>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setOpen(false)}
-            className="h-7 w-7 text-sub hover:text-text"
-          >
-            <X className="w-4 h-4" />
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <SectionCard
+      title="Log New Impediment"
+      icon={AlertTriangle}
+      iconClassName="text-[#ffaa00]"
+      actions={
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setOpen(false)}
+          className="min-touch-coarse h-7 w-7 text-sub hover:text-text"
+        >
+          <X className="w-4 h-4" />
+        </Button>
+      }
+      contentClassName="space-y-4"
+    >
         <div className="space-y-1.5">
           <Label className="text-sub text-xs">Title *</Label>
           <Input
             value={form.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
             placeholder="Short description of the impediment"
-            className="bg-surface-deep border-border text-text focus:border-accent/50"
+            className="input-toolkit"
           />
         </div>
 
@@ -348,7 +376,7 @@ function LogForm({ onAdd }: { onAdd: () => void }) {
               value={form.raisedBy}
               onChange={(e) => setForm({ ...form, raisedBy: e.target.value })}
               placeholder="Name / Role"
-              className="bg-surface-deep border-border text-text focus:border-accent/50"
+              className="input-toolkit"
             />
           </div>
 
@@ -358,16 +386,17 @@ function LogForm({ onAdd }: { onAdd: () => void }) {
               value={form.assignedTo}
               onChange={(e) => setForm({ ...form, assignedTo: e.target.value })}
               placeholder="Name / Role"
-              className="bg-surface-deep border-border text-text focus:border-accent/50"
+              className="input-toolkit"
             />
           </div>
         </div>
 
         <div className="flex gap-2 pt-1">
           <Button
+            variant="toolkit"
             onClick={handleSubmit}
             disabled={!form.title.trim()}
-            className="gap-2 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40 disabled:opacity-40"
+            className="gap-2"
           >
             <Plus className="w-4 h-4" />
             Log Impediment
@@ -383,8 +412,7 @@ function LogForm({ onAdd }: { onAdd: () => void }) {
             Cancel
           </Button>
         </div>
-      </CardContent>
-    </Card>
+    </SectionCard>
   );
 }
 
@@ -395,10 +423,40 @@ function LogForm({ onAdd }: { onAdd: () => void }) {
 function ImpedimentCard({ impediment }: { impediment: Impediment }) {
   const { updateStatus, remove } = useImpedimentStore();
   const age = daysSince(impediment.raisedDate);
+  const { log } = useHistoryLogger("impediments");
 
   const handleResolve = () => {
-    const today = new Date().toISOString().split("T")[0];
+    sonify("impediments", "impediment-resolved");
+    const today = todayLocalISO();
     updateStatus(impediment.id, "Resolved", today);
+    log(IMPEDIMENT_ACTIONS.IMPEDIMENT_RESOLVED, {
+      id: impediment.id,
+      title: impediment.title,
+      ageDays: age,
+    });
+  };
+
+  const handleStatusChange = (next: Status) => {
+    if (next === impediment.status) return;
+    if (next === "Resolved") {
+      handleResolve();
+      return;
+    }
+    updateStatus(impediment.id, next);
+    log(IMPEDIMENT_ACTIONS.IMPEDIMENT_STATUS_CHANGED, {
+      id: impediment.id,
+      title: impediment.title,
+      from: impediment.status,
+      to: next,
+    });
+  };
+
+  const handleRemove = () => {
+    log(IMPEDIMENT_ACTIONS.IMPEDIMENT_REMOVED, {
+      id: impediment.id,
+      title: impediment.title,
+    });
+    remove(impediment.id);
   };
 
   return (
@@ -428,10 +486,10 @@ function ImpedimentCard({ impediment }: { impediment: Impediment }) {
           )}
         </div>
         <Button
-          variant="ghost"
+          variant="danger-ghost"
           size="icon"
-          onClick={() => remove(impediment.id)}
-          className="h-7 w-7 flex-shrink-0 text-sub hover:text-red-400 hover:bg-red-400/10"
+          onClick={handleRemove}
+          className="min-touch-coarse h-7 w-7 flex-shrink-0"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </Button>
@@ -470,9 +528,9 @@ function ImpedimentCard({ impediment }: { impediment: Impediment }) {
         <div className="flex items-center gap-2 pt-1 border-t border-border">
           <Select
             value={impediment.status}
-            onValueChange={(v) => updateStatus(impediment.id, v as Status)}
+            onValueChange={(v) => handleStatusChange(v as Status)}
           >
-            <SelectTrigger className="h-7 text-xs bg-surface-deep border-border text-text w-36">
+            <SelectTrigger className="min-touch-coarse h-7 text-xs bg-surface-deep border-border text-text w-36">
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-surface border-border">
@@ -486,7 +544,7 @@ function ImpedimentCard({ impediment }: { impediment: Impediment }) {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => updateStatus(impediment.id, "Escalated")}
+              onClick={() => handleStatusChange("Escalated")}
               className="h-7 text-xs gap-1 text-[#ffaa00] hover:text-[#ffaa00] hover:bg-[#ffaa00]/10"
             >
               <ArrowUpCircle className="w-3 h-3" />
@@ -604,6 +662,7 @@ export function ImpedimentsClient() {
 
   return (
     <ToolPageWrapper
+      toolId="impediments"
       title="Impediment Tracker"
       description="Log, escalate, and resolve team impediments. Monitor age, severity, and resolution metrics."
       category="Team Health & Maturity"
@@ -752,10 +811,9 @@ export function ImpedimentsClient() {
             )}
             {impediments.length > 0 && (
               <Button
-                variant="ghost"
+                variant="danger-ghost"
                 size="sm"
                 onClick={reset}
-                className="text-sub hover:text-red-400 hover:bg-red-400/10"
               >
                 Reset
               </Button>

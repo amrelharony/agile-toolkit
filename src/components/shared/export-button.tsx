@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Download, Copy, FileJson, FileSpreadsheet, ImageIcon } from "lucide-react";
 import { exportToCSV, exportToJSON, exportToPNG, copyToClipboard } from "@/lib/utils/export";
-import { toast } from "sonner";
+import { toast } from "@/lib/utils/toast";
 
 interface ExportButtonProps {
   filename: string;
@@ -49,13 +49,16 @@ export function ExportButton({
   };
 
   const handlePNG = async () => {
-    if (targetRef?.current) {
-      try {
-        await exportToPNG(targetRef.current, filename);
-        toast.success("PNG exported");
-      } catch {
-        toast.error("Failed to export PNG");
-      }
+    const el = targetRef?.current;
+    if (!el) {
+      toast.error("Chart not ready yet — try again in a moment");
+      return;
+    }
+    try {
+      await exportToPNG(el, filename);
+      toast.success("PNG exported");
+    } catch {
+      toast.error("Failed to export PNG");
     }
   };
 
@@ -93,7 +96,11 @@ export function ExportButton({
             Export JSON
           </DropdownMenuItem>
         )}
-        {targetRef?.current && (
+        {/* Render the PNG option whenever a ref prop is provided; reading
+            `targetRef.current` here only works on the second render (refs are
+            null during the first pass), which made PNG export disappear on
+            initial page load. */}
+        {targetRef && (
           <DropdownMenuItem onClick={handlePNG} className="gap-2 cursor-pointer">
             <ImageIcon className="w-4 h-4" />
             Export PNG

@@ -1,0 +1,119 @@
+"use client";
+
+import type { HapticPatternSpec, PerCategoryOverrides, HapticsMode, HapticCategory, HapticPatternName } from "./types";
+import { isEssential } from "./patterns";
+
+/**
+ * All the gating logic for firing a haptic: enable toggles, mode, reduced-motion,
+ * battery, scroll/input suppression windows, per-element + global cooldowns,
+ * rolling rate-limit. Priority patterns bypass cooldown/rate-limit/suppression.
+ */
+
+export interface GateContext {
+  enabled: boolean;
+  mode: HapticsMode;
+  respectReducedMotion: boolean;
+  perCategory: PerCategoryOverrides;
+  batteryGuardEnabled: boolean;
+  reducedMotion: boolean;
+  batterySnapshot: { level: number; charging: boolean } | null;
+  now: number;
+  patternName: HapticPatternName;
+  pattern: HapticPatternSpec;
+  targetEl?: HTMLElement | null;
+  force?: boolean;
+}
+
+export type GateDecision = "fire" | "suppress" | "downgrade";
+
+// Module-scope state — kept outside the store for fast, synchronous reads
+let lastFireAt = 0;
+let scrollingUntil = 0;
+let typingUntil = 0;
+const perElementLast = new WeakMap<Element, number>();
+const rollingWindow: number[] = []; // timestamps within the last 1000ms
+const ROLLING_WINDOW_MS = 1000;
+const ROLLING_MAX = 8;
+const GLOBAL_COOLDOWN = 40;
+const PER_ELEMENT_COOLDOWN = 50;
+
+/**
+ * Register global scroll + input listeners so subsequent haptics can suppress
+ * themselves. Safe to call multiple times (idempotent via a flag).
+ */
+let listenersRegistered = false;
+export function registerSuppressionListeners() {
+  if (typeof window === "undefined" || listenersRegistered) return;
+  listenersRegistered = true;
+  window.addEventListener(
+    "scroll",
+    () => {
+      scrollingUntil = performance.now() + 250;
+    },
+    { passive: true, capture: true },
+  );
+  window.addEventListener(
+    "input",
+    () => {
+      typingUntil = performance.now() + 150;
+    },
+    { passive: true, capture: true },
+  );
+}
+
+export function shouldFire(ctx: GateContext): GateDecision {
+  const { pattern, patternName, now, targetEl } = ctx;
+
+  if (ctx.force) return "fire";
+
+  if (!ctx.enabled) return "suppress";
+  if (ctx.mode === "off") return "suppress";
+
+  // Essential mode drops everything except high-signal patterns
+  if (ctx.mode === "essential" && !isEssential(patternName)) return "suppress";
+
+  // Reduced-motion: suppress unless pattern is error or timer-end (critical signals)
+  if (ctx.respectReducedMotion && ctx.reducedMotion) {
+    if (!(patternName === "error" || patternName === "timer-end")) return "suppress";
+  }
+
+  // Per-category override
+  const cat = pattern.category as HapticCategory;
+  if (cat && ctx.perCategory[cat] === false) return "suppress";
+
+  // Battery: downgrade instead of suppress so the signal still fires
+  let downgrade = false;
+  if (ctx.batteryGuardEnabled && ctx.batterySnapshot) {
+    const { level, charging } = ctx.batterySnapshot;
+    if (level < 0.15 && !charging) downgrade = true;
+  }
+
+  const isPriority = pattern.priority === true;
+
+  if (!isPriority) {
+    // Global cooldown
+    if (now - lastFireAt < GLOBAL_COOLDOWN) return "suppress";
+    // Per-element cooldown
+    if (targetEl) {
+      const last = perElementLast.get(targetEl) ?? 0;
+      if (now - last < PER_ELEMENT_COOLDOWN) return "suppress";
+    }
+    // Scroll / input suppression
+    if (now < scrollingUntil) return "suppress";
+    if (now < typingUntil) return "suppress";
+    // Rolling rate limit
+    while (rollingWindow.length && now - rollingWindow[0] > ROLLING_WINDOW_MS) {
+      rollingWindow.shift();
+    }
+    if (rollingWindow.length >= ROLLING_MAX) return "suppress";
+  }
+
+  return downgrade ? "downgrade" : "fire";
+}
+
+/** Record a fire — updates cooldown trackers. Call only when a haptic actually runs. */
+export function recordFire(now: number, targetEl?: HTMLElement | null) {
+  lastFireAt = now;
+  if (targetEl) perElementLast.set(targetEl, now);
+  rollingWindow.push(now);
+}

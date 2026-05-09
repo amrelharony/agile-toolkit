@@ -4,9 +4,13 @@ import { useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { InsightsEngine } from "@/components/shared/insights-engine";
 import { generateHealthDashboardPrompts } from "@/lib/ai-prompts/health-dashboard";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { HEALTH_DASHBOARD_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SectionCard } from "@/components/shared/section-card";
 import { Badge } from "@/components/ui/badge";
 import {
   Activity,
@@ -26,6 +30,20 @@ import {
   Copy,
   Check,
 } from "lucide-react";
+import { todayLocalISO } from "@/lib/utils/formatters";
+
+function FullInsightsPanel() {
+  return (
+    <div className="mb-6 rounded-xl border border-accent/20 bg-accent/5 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Activity className="w-4 h-4 text-accent" />
+        <h2 className="text-sm font-semibold text-text">Active Signals</h2>
+        <span className="text-xs text-sub">&mdash; cross-tool intelligence from your workspace</span>
+      </div>
+      <InsightsEngine limit={6} compact />
+    </div>
+  );
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -210,7 +228,7 @@ function extractStandupKPIs(): {
 
   if (!data?.entries) return { openBlockers: null, participationRate: null };
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalISO();
   const allEntries = data.entries;
   const resolvedBlockers = data.resolvedBlockers ?? [];
 
@@ -380,6 +398,7 @@ export function HealthDashboardClient() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [summaryText, setSummaryText] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const { log } = useHistoryLogger("health-dashboard");
 
   /* -- Build all KPIs — memoized, refreshed only when refreshKey changes ---- */
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -546,7 +565,8 @@ export function HealthDashboardClient() {
   const handleRefresh = useCallback(() => {
     setSummaryText(null);
     setRefreshKey((k) => k + 1);
-  }, []);
+    log(HEALTH_DASHBOARD_ACTIONS.DASHBOARD_REFRESHED, {});
+  }, [log]);
 
   /* -- Generate summary ---------------------------------------------------- */
   const handleGenerateSummary = useCallback(() => {
@@ -604,7 +624,13 @@ export function HealthDashboardClient() {
     }
 
     setSummaryText(lines.join("\n"));
-  }, [velocityData, healthCheckData, impedimentData, standupData, cycleTimeData, overallStatus]);
+    log(HEALTH_DASHBOARD_ACTIONS.SUMMARY_GENERATED, {
+      overallStatus,
+      predictability: velocityData.predictability,
+      healthPct: healthCheckData.healthPct,
+      openImpediments: impedimentData.openCount,
+    });
+  }, [velocityData, healthCheckData, impedimentData, standupData, cycleTimeData, overallStatus, log]);
 
   /* -- Copy to clipboard --------------------------------------------------- */
   const handleCopy = useCallback(() => {
@@ -612,16 +638,20 @@ export function HealthDashboardClient() {
     navigator.clipboard.writeText(summaryText).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      log(HEALTH_DASHBOARD_ACTIONS.SUMMARY_COPIED, {});
     });
-  }, [summaryText]);
+  }, [summaryText, log]);
 
   /* -- Render -------------------------------------------------------------- */
   return (
     <ToolPageWrapper
+      toolId="health-dashboard"
       title="Agile Health Dashboard"
-      description="Aggregate team KPIs pulled live from your other Agile Toolkit tools."
+      description="Insights hub with cross-tool anti-pattern detection, forecasts, and aggregate KPIs from your entire workspace."
       category="Metrics & Dashboards"
+      showInsights={false}
     >
+      <FullInsightsPanel />
       {/* Header controls */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
@@ -734,118 +764,113 @@ export function HealthDashboardClient() {
       </div>
 
       {/* Traffic Light Summary */}
-      <Card className="border-border bg-surface-deep mb-8">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base text-text">Traffic Light Summary</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-6 mb-6">
-            {kpis.map((kpi) => (
-              <div key={kpi.id} className="flex flex-col items-center gap-2 min-w-[80px]">
-                {kpi.value !== null ? (
-                  <TrafficCircle status={kpi.status} size={40} />
-                ) : (
-                  <div
-                    className="w-10 h-10 rounded-full border-2 border-dashed border-border"
-                  />
-                )}
-                <span className="text-[10px] text-sub text-center leading-tight max-w-[80px]">
-                  {kpi.name}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {/* Overall score */}
-          <div
-            className="rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-            style={{
-              background: overallScore !== null ? STATUS_BG[overallStatus] : "rgba(255,255,255,0.04)",
-              border: `1px solid ${overallScore !== null ? STATUS_BORDER[overallStatus] : "rgba(255,255,255,0.07)"}`,
-            }}
-          >
-            <div>
-              <p className="text-xs text-sub uppercase tracking-wider mb-1">Overall Health Score</p>
-              <p className="text-xs text-sub/70">
-                Weighted average of {connectedKpis.length} connected KPI{connectedKpis.length !== 1 ? "s" : ""}
-                {connectedKpis.length < kpis.length && ` (${kpis.length - connectedKpis.length} awaiting data)`}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              {overallScore !== null ? (
-                <>
-                  <TrafficCircle status={overallStatus} size={52} />
-                  <div className="text-right">
-                    <p
-                      className="text-4xl font-data font-bold leading-none"
-                      style={{ color: STATUS_COLOR[overallStatus] }}
-                    >
-                      {overallScore}%
-                    </p>
-                    <p className="text-sm mt-1" style={{ color: STATUS_COLOR[overallStatus] }}>
-                      {overallStatus === "green" ? "GOOD" : overallStatus === "amber" ? "MODERATE" : "AT RISK"}
-                    </p>
-                  </div>
-                </>
+      <SectionCard
+        title="Traffic Light Summary"
+        className="border-border bg-surface-deep mb-8"
+      >
+        <div className="flex flex-wrap gap-6 mb-6">
+          {kpis.map((kpi) => (
+            <div key={kpi.id} className="flex flex-col items-center gap-2 min-w-[80px]">
+              {kpi.value !== null ? (
+                <TrafficCircle status={kpi.status} size={40} />
               ) : (
-                <p className="text-sub/70 text-sm">No data connected yet</p>
+                <div
+                  className="w-10 h-10 rounded-full border-2 border-dashed border-border"
+                />
               )}
+              <span className="text-[10px] text-sub text-center leading-tight max-w-[80px]">
+                {kpi.name}
+              </span>
             </div>
+          ))}
+        </div>
+
+        {/* Overall score */}
+        <div
+          className="rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+          style={{
+            background: overallScore !== null ? STATUS_BG[overallStatus] : "rgba(255,255,255,0.04)",
+            border: `1px solid ${overallScore !== null ? STATUS_BORDER[overallStatus] : "rgba(255,255,255,0.07)"}`,
+          }}
+        >
+          <div>
+            <p className="text-xs text-sub uppercase tracking-wider mb-1">Overall Health Score</p>
+            <p className="text-xs text-sub/70">
+              Weighted average of {connectedKpis.length} connected KPI{connectedKpis.length !== 1 ? "s" : ""}
+              {connectedKpis.length < kpis.length && ` (${kpis.length - connectedKpis.length} awaiting data)`}
+            </p>
           </div>
-        </CardContent>
-      </Card>
+          <div className="flex items-center gap-3">
+            {overallScore !== null ? (
+              <>
+                <TrafficCircle status={overallStatus} size={52} />
+                <div className="text-right">
+                  <p
+                    className="text-4xl font-data font-bold leading-none"
+                    style={{ color: STATUS_COLOR[overallStatus] }}
+                  >
+                    {overallScore}%
+                  </p>
+                  <p className="text-sm mt-1" style={{ color: STATUS_COLOR[overallStatus] }}>
+                    {overallStatus === "green" ? "GOOD" : overallStatus === "amber" ? "MODERATE" : "AT RISK"}
+                  </p>
+                </div>
+              </>
+            ) : (
+              <p className="text-sub/70 text-sm">No data connected yet</p>
+            )}
+          </div>
+        </div>
+      </SectionCard>
 
       {/* Executive Summary Generator */}
-      <Card className="border-border bg-surface-deep mb-8">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base text-text flex items-center gap-2">
-              <FileText className="w-4 h-4 text-accent" />
-              Executive Summary
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              {summaryText && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCopy}
-                  className="border-border text-sub hover:text-text hover:border-border gap-1.5 text-xs"
-                >
-                  {copied ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-[#22c55e]" />
-                      Copied
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      Copy
-                    </>
-                  )}
-                </Button>
-              )}
+      <SectionCard
+        title="Executive Summary"
+        icon={FileText}
+        className="border-border bg-surface-deep mb-8"
+        actions={
+          <>
+            {summaryText && (
               <Button
+                variant="outline"
                 size="sm"
-                onClick={handleGenerateSummary}
-                className="bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 text-xs"
+                onClick={handleCopy}
+                className="border-border text-sub hover:text-text hover:border-border gap-1.5 text-xs"
               >
-                Generate Summary
+                {copied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-[#22c55e]" />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    Copy
+                  </>
+                )}
               </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {summaryText ? (
-            <pre className="font-mono text-sm text-text whitespace-pre-wrap bg-card rounded-lg p-4 border border-border leading-relaxed">
-              {summaryText}
-            </pre>
-          ) : (
-            <p className="text-sm text-sub/70 italic">
-              Click &ldquo;Generate Summary&rdquo; to produce a formatted sprint health report from your connected data sources.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+            )}
+            <Button
+              size="sm"
+              variant="toolkit"
+              onClick={handleGenerateSummary}
+              className="text-xs"
+            >
+              Generate Summary
+            </Button>
+          </>
+        }
+      >
+        {summaryText ? (
+          <pre className="font-mono text-sm text-text whitespace-pre-wrap bg-card rounded-lg p-4 border border-border leading-relaxed">
+            {summaryText}
+          </pre>
+        ) : (
+          <p className="text-sm text-sub/70 italic">
+            Click &ldquo;Generate Summary&rdquo; to produce a formatted sprint health report from your connected data sources.
+          </p>
+        )}
+      </SectionCard>
 
       {/* Data Source Status */}
       <div>

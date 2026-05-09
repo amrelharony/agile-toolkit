@@ -4,7 +4,23 @@
       "Bash(npx create-next-app@14 . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm)",
       "Bash(npx create-next-app@14 agile-toolkit --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm)",
       "Bash(npm install:*)",
-      "Bash(npx shadcn@latest init -d)"
+      "Bash(npx shadcn@latest init -d)",
+      "Bash(npx shadcn@latest add card input label select textarea dialog sheet popover tooltip command table tabs badge separator scroll-area dropdown-menu toast progress slider switch avatar breadcrumb collapsible -y)",
+      "Bash(npx shadcn@latest add card input label select textarea dialog sheet popover tooltip command table tabs badge separator scroll-area dropdown-menu progress slider switch avatar breadcrumb collapsible sonner -y)",
+      "Bash(npx next:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(rm -rf src/components/ui)",
+      "Bash(rm components.json)",
+      "Bash(npx shadcn-ui@0.8.0 init 2)",
+      "Bash(1:*)",
+      "Bash(node -e \"try{const p=require\\(''shadcn/package.json''\\);console.log\\(p.version\\)}catch\\(e\\){console.log\\(e.message\\)}\")",
+      "Bash(npm uninstall:*)",
+      "Bash(npx shadcn-ui@latest add button card input label select textarea dialog sheet popover tooltip command table tabs badge separator scroll-area dropdown-menu sonner progress slider switch avatar breadcrumb collapsible --yes)",
+      "Bash(npx shadcn@latest add button card input label select textarea dialog sheet popover tooltip command table tabs badge separator scroll-area dropdown-menu sonner progress slider switch avatar breadcrumb collapsible --yes --style new-york)",
+      "Bash(npx shadcn@latest add button card input label select textarea dialog sheet popover tooltip command table tabs badge separator scroll-area dropdown-menu sonner progress slider switch avatar breadcrumb collapsible --yes)",
+      "Bash(ls \"D:/Claude Desktop/Agile Toolkit/src/app/\\(tools\\)/icebreaker/\")",
+      "Bash(npx tsc *)",
+      "Bash(node -e ' *)"
     ]
   }
 }

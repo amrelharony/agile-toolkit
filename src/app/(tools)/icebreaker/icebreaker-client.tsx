@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Heart, Shuffle, Clock, Users, Zap, Tag, Star } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { ICEBREAKER_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -269,24 +271,39 @@ export function IceBreakerClient() {
   const [selected, setSelected] = useState<IceBreaker | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [isSpinning, setIsSpinning] = useState(false);
+  const { log } = useHistoryLogger("icebreaker");
+  // Track the in-flight shuffle interval so an unmount mid-spin doesn't
+  // keep calling setState on a disposed component.
+  const spinIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Load favorites from localStorage on mount
   useEffect(() => {
     setFavorites(loadFavorites());
   }, []);
 
-  const toggleFavorite = useCallback((id: string) => {
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      saveFavorites(next);
-      return next;
-    });
+  // Clear the spin interval on unmount
+  useEffect(() => {
+    return () => {
+      if (spinIntervalRef.current) clearInterval(spinIntervalRef.current);
+    };
   }, []);
+
+  const toggleFavorite = useCallback(
+    (id: string) => {
+      setFavorites((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+        saveFavorites(next);
+        return next;
+      });
+      log(ICEBREAKER_ACTIONS.PROMPT_FAVORITED, { promptId: id });
+    },
+    [log]
+  );
 
   const filtered = useMemo(() => {
     return icebreakers.filter((ib) => {
@@ -302,6 +319,11 @@ export function IceBreakerClient() {
 
   const handleRandomPick = useCallback(() => {
     if (filtered.length === 0) return;
+    // Cancel any in-flight spin before starting a new one
+    if (spinIntervalRef.current) {
+      clearInterval(spinIntervalRef.current);
+      spinIntervalRef.current = null;
+    }
     setIsSpinning(true);
 
     // Quick shuffle animation: show 5-6 rapid picks, then land on final
@@ -313,16 +335,25 @@ export function IceBreakerClient() {
       count++;
       if (count >= totalFlashes) {
         clearInterval(interval);
+        spinIntervalRef.current = null;
         // Final pick
         const finalIndex = Math.floor(Math.random() * filtered.length);
-        setSelected(filtered[finalIndex]);
+        const final = filtered[finalIndex];
+        setSelected(final);
         setIsSpinning(false);
+        log(ICEBREAKER_ACTIONS.PROMPT_DRAWN, {
+          promptId: final.id,
+          name: final.name,
+          category: final.category,
+        });
       }
     }, 80);
-  }, [filtered]);
+    spinIntervalRef.current = interval;
+  }, [filtered, log]);
 
   return (
     <ToolPageWrapper
+      toolId="icebreaker"
       title="Ice Breaker Generator"
       description="Find the perfect icebreaker for your next Agile ceremony. Filter by time, team size, energy level, and category, or let the randomizer pick one for you."
       category="Ceremonies"

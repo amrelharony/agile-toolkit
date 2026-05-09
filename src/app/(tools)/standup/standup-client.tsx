@@ -7,8 +7,12 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateStandupPrompts } from "@/lib/ai-prompts/standup";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { STANDUP_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { SectionCard } from "@/components/shared/section-card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -95,7 +99,7 @@ const useStandupStore = create<StandupStore>()(
 /* -------------------------------------------------------------------------- */
 
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  return todayLocalISO();
 }
 
 function ageLabel(timestamp: number) {
@@ -588,8 +592,9 @@ export function StandupClient() {
     removeMember,
     addEntry,
     resolveBlocker,
-    reset,
+    reset: resetRaw,
   } = useStandupStore();
+  const { log } = useHistoryLogger("standup");
 
   // Form state
   const [formMember, setFormMember] = useState("");
@@ -604,9 +609,19 @@ export function StandupClient() {
     const member = formMember.trim() || members[0] || "";
     if (!member) return;
     addEntry({ member, date: todayStr(), yesterday, today, blockers });
+    log(STANDUP_ACTIONS.ENTRY_ADDED, {
+      member,
+      date: todayStr(),
+      hasBlocker: blockers.trim().length > 0,
+    });
     setYesterday("");
     setToday("");
     setBlockers("");
+  };
+
+  const reset = () => {
+    resetRaw();
+    log(STANDUP_ACTIONS.STANDUP_RESET, {});
   };
 
   /* -- CSV export of all entries ------------------------------------------ */
@@ -628,6 +643,7 @@ export function StandupClient() {
 
   return (
     <ToolPageWrapper
+      toolId="standup"
       title="Standup Tracker"
       description="Log daily standups, track blockers, and generate digests for async teams."
       category="Ceremonies"
@@ -642,10 +658,9 @@ export function StandupClient() {
           </div>
           <div className="flex items-center gap-2">
             <Button
-              variant="ghost"
+              variant="danger-ghost"
               size="sm"
               onClick={reset}
-              className="text-sub hover:text-red-400 hover:bg-red-400/10"
             >
               Clear Data
             </Button>
@@ -663,14 +678,14 @@ export function StandupClient() {
 
           {/* Entry form */}
           <div className="lg:col-span-2">
-            <Card className="bg-surface border-border h-full">
-              <CardHeader className="pb-4">
-                <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-                  <Mic className="w-5 h-5 text-accent" />
-                  Today&apos;s Standup
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <SectionCard
+              title="Today's Standup"
+              icon={Mic}
+              titleSize="lg"
+              className="h-full"
+              headerClassName="pb-4"
+              contentClassName="space-y-4"
+            >
                 {/* Member selector */}
                 <div>
                   <label className="text-xs text-sub uppercase tracking-wider mb-1.5 block">
@@ -693,7 +708,7 @@ export function StandupClient() {
                       placeholder="Or type name"
                       value={formMember}
                       onChange={(e) => setFormMember(e.target.value)}
-                      className="flex-1 bg-surface-deep border-border text-text focus:border-accent/50"
+                      className="flex-1 input-toolkit"
                     />
                   </div>
                 </div>
@@ -708,7 +723,7 @@ export function StandupClient() {
                     onChange={(e) => setYesterday(e.target.value)}
                     placeholder="What did you complete yesterday?"
                     rows={2}
-                    className="bg-surface-deep border-border text-text focus:border-accent/50 resize-none"
+                    className="input-toolkit resize-none"
                   />
                 </div>
 
@@ -722,7 +737,7 @@ export function StandupClient() {
                     onChange={(e) => setToday(e.target.value)}
                     placeholder="What will you work on today?"
                     rows={2}
-                    className="bg-surface-deep border-border text-text focus:border-accent/50 resize-none"
+                    className="input-toolkit resize-none"
                   />
                 </div>
 
@@ -753,26 +768,24 @@ export function StandupClient() {
                 </div>
 
                 <Button
+                  variant="toolkit"
                   onClick={handleSubmit}
                   disabled={!formMember.trim() && members.length === 0}
-                  className="w-full bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40 disabled:opacity-40"
+                  className="w-full"
                 >
                   Submit Standup
                 </Button>
-              </CardContent>
-            </Card>
+            </SectionCard>
           </div>
 
           {/* Team members */}
           <div>
-            <Card className="bg-surface border-border">
-              <CardHeader className="pb-4">
-                <CardTitle className="flex items-center gap-2 text-base font-display text-text">
-                  <FileText className="w-4 h-4 text-accent" />
-                  Team Members
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
+            <SectionCard
+              title="Team Members"
+              icon={FileText}
+              headerClassName="pb-4"
+              contentClassName="space-y-3"
+            >
                 {/* Add member */}
                 <div className="flex gap-2">
                   <Input
@@ -785,17 +798,18 @@ export function StandupClient() {
                       }
                     }}
                     placeholder="Add member…"
-                    className="bg-surface-deep border-border text-text focus:border-accent/50 text-sm"
+                    className="input-toolkit text-sm"
                   />
                   <Button
                     size="icon"
+                    variant="toolkit"
                     onClick={() => {
                       if (newMember.trim()) {
                         addMember(newMember.trim());
                         setNewMember("");
                       }
                     }}
-                    className="shrink-0 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20"
+                    className="shrink-0"
                   >
                     <Plus className="w-4 h-4" />
                   </Button>
@@ -843,8 +857,7 @@ export function StandupClient() {
                     clipboardText={weeklyDigest}
                   />
                 </div>
-              </CardContent>
-            </Card>
+            </SectionCard>
           </div>
         </div>
 

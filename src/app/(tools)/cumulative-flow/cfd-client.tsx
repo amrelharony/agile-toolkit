@@ -18,6 +18,9 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateCFDPrompts } from "@/lib/ai-prompts/cumulative-flow";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { CFD_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -80,7 +83,7 @@ const DEFAULT_COLUMNS: StatusColumn[] = [
 
 const createEntry = (columns: StatusColumn[]): DataEntry => ({
   id: crypto.randomUUID(),
-  date: new Date().toISOString().slice(0, 10),
+  date: todayLocalISO(),
   counts: Object.fromEntries(columns.map((c) => [c.id, 0])),
 });
 
@@ -235,16 +238,36 @@ export function CFDClient() {
     columns,
     entries,
     wipLimit,
-    addColumn,
-    removeColumn,
+    addColumn: addColumnRaw,
+    removeColumn: removeColumnRaw,
     renameColumn,
-    addEntry,
+    addEntry: addEntryRaw,
     removeEntry,
     updateEntry,
     updateEntryCount,
     setWipLimit,
-    reset,
+    reset: resetRaw,
   } = useCFDStore();
+  const { log } = useHistoryLogger("cumulative-flow");
+
+  const addColumn: typeof addColumnRaw = (name) => {
+    addColumnRaw(name);
+    log(CFD_ACTIONS.COLUMN_ADDED, { name });
+  };
+  const removeColumn: typeof removeColumnRaw = (id) => {
+    const col = columns.find((c) => c.id === id);
+    removeColumnRaw(id);
+    log(CFD_ACTIONS.COLUMN_REMOVED, { name: col?.name });
+  };
+  const addEntry: typeof addEntryRaw = () => {
+    addEntryRaw();
+    const fresh = useCFDStore.getState().entries;
+    log(CFD_ACTIONS.SNAPSHOT_LOGGED, { entryCount: fresh.length });
+  };
+  const reset = () => {
+    resetRaw();
+    log(CFD_ACTIONS.CFD_RESET, {});
+  };
 
   const exportRef = useRef<HTMLDivElement>(null);
   const [newColName, setNewColName] = useState("");
@@ -334,6 +357,7 @@ export function CFDClient() {
   /* -- Render -------------------------------------------------------------- */
   return (
     <ToolPageWrapper
+      toolId="cumulative-flow"
       title="Cumulative Flow Diagram"
       description="Visualize work item flow through your process stages. Widening bands indicate bottlenecks; narrowing bands show increased throughput."
       category="Metrics & Dashboards"
@@ -364,10 +388,9 @@ export function CFDClient() {
                   targetRef={exportRef}
                 />
                 <Button
-                  variant="ghost"
+                  variant="danger-ghost"
                   size="sm"
                   onClick={reset}
-                  className="text-sub hover:text-red-400 hover:bg-red-400/10"
                 >
                   Reset
                 </Button>
@@ -457,9 +480,8 @@ export function CFDClient() {
               {wipLimit !== null && (
                 <Button
                   size="sm"
-                  variant="ghost"
+                  variant="danger-ghost"
                   onClick={() => { setWipLimit(null); setWipInput(""); }}
-                  className="text-sub hover:text-red-400 hover:bg-red-400/10"
                 >
                   Clear
                 </Button>
@@ -525,13 +547,14 @@ export function CFDClient() {
                 value={newColName}
                 onChange={(e) => setNewColName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleAddColumn()}
-                className="bg-surface-deep border-border text-text focus:border-accent/50"
+                className="input-toolkit"
               />
               <Button
                 size="sm"
+                variant="toolkit"
                 onClick={handleAddColumn}
                 disabled={!newColName.trim()}
-                className="gap-1 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 disabled:opacity-40"
+                className="gap-1"
               >
                 <Plus className="w-4 h-4" />
                 Add
@@ -550,8 +573,9 @@ export function CFDClient() {
               </CardTitle>
               <Button
                 size="sm"
+                variant="toolkit"
                 onClick={addEntry}
-                className="gap-1.5 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20"
+                className="gap-1.5"
               >
                 <Plus className="w-4 h-4" />
                 Add Date

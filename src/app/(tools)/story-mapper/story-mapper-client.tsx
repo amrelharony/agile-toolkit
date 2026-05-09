@@ -1,21 +1,24 @@
 "use client";
 
-import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
-  DndContext,
   DragOverlay,
   PointerSensor,
+  KeyboardSensor,
+  useDroppable,
   useSensor,
   useSensors,
   closestCorners,
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
+import { SonifiedDndContext as DndContext } from "@/lib/sonification/sonified-dnd-context";
 import {
   SortableContext,
   useSortable,
+  sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -23,6 +26,9 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateStoryMapperPrompts } from "@/lib/ai-prompts/story-mapper";
+import { EditableName } from "@/components/shared/editable-name";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { STORY_MAPPER_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -317,72 +323,8 @@ const useStoryMapStore = create<StoryMapState>()(
 );
 
 /* -------------------------------------------------------------------------- */
-/*  EditableName                                                               */
+/*  EditableName moved to @/components/shared/editable-name                     */
 /* -------------------------------------------------------------------------- */
-
-function EditableName({
-  value,
-  onChange,
-  className,
-  inputClassName,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  className?: string;
-  inputClassName?: string;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setDraft(value);
-  }, [value]);
-
-  useEffect(() => {
-    if (editing) {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }
-  }, [editing]);
-
-  const commit = useCallback(() => {
-    setEditing(false);
-    const trimmed = draft.trim();
-    if (trimmed && trimmed !== value) onChange(trimmed);
-    else setDraft(value);
-  }, [draft, value, onChange]);
-
-  if (editing) {
-    return (
-      <Input
-        ref={inputRef}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commit();
-          if (e.key === "Escape") {
-            setDraft(value);
-            setEditing(false);
-          }
-        }}
-        className={`h-7 text-sm bg-card border-border text-text focus:border-accent-cyan/50 ${inputClassName ?? ""}`}
-      />
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => setEditing(true)}
-      title="Click to rename"
-      className={`text-left truncate hover:text-accent transition-colors cursor-text ${className ?? ""}`}
-    >
-      {value}
-    </button>
-  );
-}
 
 /* -------------------------------------------------------------------------- */
 /*  CardEditDialog                                                             */
@@ -470,7 +412,7 @@ function CardEditDialog({
                   type="button"
                   title={c.label}
                   onClick={() => setColor(c.value)}
-                  className="w-7 h-7 rounded-full transition-transform hover:scale-110"
+                  className="min-touch-coarse w-7 h-7 rounded-full transition-transform hover:scale-110"
                   style={{
                     backgroundColor: c.value,
                     outline: color === c.value ? `2px solid ${c.value}` : "none",
@@ -509,9 +451,19 @@ function CardEditDialog({
 /*  DraggableCard                                                              */
 /* -------------------------------------------------------------------------- */
 
-/** Encodes the drag id as "sliceId::stepId::cardId" */
+/**
+ * Encodes the drag id as "sliceId::stepId::cardId". The sentinel
+ * `__cell__` is used as cardId for the empty-cell droppable so we can drop
+ * into a step that contains no cards.
+ */
+const EMPTY_CELL_SENTINEL = "__cell__";
+
 function encodeDragId(sliceId: string, stepId: string, cardId: string) {
   return `${sliceId}::${stepId}::${cardId}`;
+}
+
+function encodeCellDropId(sliceId: string, stepId: string) {
+  return `${sliceId}::${stepId}::${EMPTY_CELL_SENTINEL}`;
 }
 
 function decodeDragId(id: string) {
@@ -602,7 +554,7 @@ function DraggableCard({
         <button
           type="button"
           onClick={() => removeCard(sliceId, stepId, card.id)}
-          className="p-1 rounded text-sub hover:text-red-400 hover:bg-red-400/10 transition-colors"
+          className="btn-danger-ghost p-1 rounded"
           title="Delete card"
         >
           <Trash2 className="w-3 h-3" />
@@ -650,11 +602,26 @@ function CellDropZone({
   cards: StoryCard[];
 }) {
   const { addCard } = useStoryMapStore();
-  const sortableIds = cards.map((c) => encodeDragId(sliceId, stepId, c.id));
+  // Memoize: SortableContext reinitializes on identity change of items.
+  const sortableIds = useMemo(
+    () => cards.map((c) => encodeDragId(sliceId, stepId, c.id)),
+    [cards, sliceId, stepId],
+  );
+  // Register the cell itself as droppable so a card can be dragged INTO an
+  // empty step (or to the bottom of a non-empty step). Without this, only
+  // existing cards were valid drop targets and empty cells were unreachable.
+  const { setNodeRef, isOver } = useDroppable({
+    id: encodeCellDropId(sliceId, stepId),
+  });
 
   return (
     <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-      <div className="min-h-[40px] space-y-1.5">
+      <div
+        ref={setNodeRef}
+        className={`min-h-[40px] space-y-1.5 rounded transition-colors ${
+          isOver && cards.length === 0 ? "bg-accent/5 ring-1 ring-accent/30" : ""
+        }`}
+      >
         {cards.map((card) => (
           <DraggableCard
             key={card.id}
@@ -681,19 +648,62 @@ function CellDropZone({
 /* -------------------------------------------------------------------------- */
 
 export function StoryMapperClient() {
-  const { steps, slices, addStep, removeStep, renameStep, addSlice, removeSlice, renameSlice, moveCard, reset } =
-    useStoryMapStore();
+  const {
+    steps,
+    slices,
+    addStep: addStepRaw,
+    removeStep: removeStepRaw,
+    renameStep,
+    addSlice: addSliceRaw,
+    removeSlice: removeSliceRaw,
+    renameSlice,
+    moveCard: moveCardRaw,
+    reset: resetRaw,
+  } = useStoryMapStore();
+  const { log } = useHistoryLogger("story-mapper");
+
+  const addStep: typeof addStepRaw = (...args) => {
+    addStepRaw(...args);
+    log(STORY_MAPPER_ACTIONS.STEP_ADDED, {});
+  };
+  const removeStep: typeof removeStepRaw = (id) => {
+    const step = steps.find((s) => s.id === id);
+    removeStepRaw(id);
+    log(STORY_MAPPER_ACTIONS.STEP_REMOVED, { stepId: id, name: step?.name });
+  };
+  const addSlice: typeof addSliceRaw = (...args) => {
+    addSliceRaw(...args);
+    log(STORY_MAPPER_ACTIONS.SLICE_ADDED, {});
+  };
+  const removeSlice: typeof removeSliceRaw = (id) => {
+    const slice = slices.find((s) => s.id === id);
+    removeSliceRaw(id);
+    log(STORY_MAPPER_ACTIONS.SLICE_REMOVED, { sliceId: id, name: slice?.name });
+  };
+  const moveCard: typeof moveCardRaw = (...args) => {
+    moveCardRaw(...args);
+    log(STORY_MAPPER_ACTIONS.CARD_MOVED, {});
+  };
+  const reset = () => {
+    resetRaw();
+    log(STORY_MAPPER_ACTIONS.STORY_MAP_RESET, {});
+  };
 
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
+  // PointerSensor handles mouse + touch + pen. KeyboardSensor adds a11y so
+  // keyboard-only users can reorder cards (Tab to focus, Space to pick up,
+  // arrows to move, Space to drop).
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
   /* -- Find the card being dragged for the overlay ---- */
   const activeCard = useMemo<StoryCard | null>(() => {
     if (!activeDragId) return null;
     const { sliceId, stepId, cardId } = decodeDragId(activeDragId);
+    if (!sliceId || !stepId || !cardId || cardId === EMPTY_CELL_SENTINEL) return null;
     const slice = slices.find((sl) => sl.id === sliceId);
     if (!slice) return null;
     return (slice.cards[stepId] ?? []).find((c) => c.id === cardId) ?? null;
@@ -711,11 +721,19 @@ export function StoryMapperClient() {
     const from = decodeDragId(String(active.id));
     const to = decodeDragId(String(over.id));
 
-    // Find insert index in target cell
     const targetSlice = slices.find((sl) => sl.id === to.sliceId);
     if (!targetSlice) return;
     const targetCards = targetSlice.cards[to.stepId] ?? [];
-    const toIndex = targetCards.findIndex((c) => c.id === to.cardId);
+
+    // When dropping on the cell sentinel (empty step or below the last card),
+    // append; otherwise insert at the target card's index.
+    let toIndex: number | undefined;
+    if (to.cardId === EMPTY_CELL_SENTINEL) {
+      toIndex = undefined;
+    } else {
+      const idx = targetCards.findIndex((c) => c.id === to.cardId);
+      toIndex = idx >= 0 ? idx : undefined;
+    }
 
     moveCard(
       from.sliceId,
@@ -723,7 +741,7 @@ export function StoryMapperClient() {
       to.sliceId,
       to.stepId,
       from.cardId,
-      toIndex >= 0 ? toIndex : undefined
+      toIndex
     );
   };
 
@@ -776,6 +794,7 @@ export function StoryMapperClient() {
 
   return (
     <ToolPageWrapper
+      toolId="story-mapper"
       title="User Story Mapper"
       description="Map user journeys horizontally as steps, slice vertically by release priority, and fill cells with story cards."
       category="Sprint Planning & Estimation"
@@ -813,10 +832,9 @@ export function StoryMapperClient() {
                 jsonData={jsonData}
               />
               <Button
-                variant="ghost"
+                variant="danger-ghost"
                 size="sm"
                 onClick={reset}
-                className="text-sub hover:text-red-400 hover:bg-red-400/10"
               >
                 Reset
               </Button>
@@ -848,7 +866,7 @@ export function StoryMapperClient() {
                         <button
                           type="button"
                           onClick={() => removeStep(step.id)}
-                          className="flex-shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded text-sub hover:text-red-400 hover:bg-red-400/10 transition-all"
+                          className="btn-danger-ghost flex-shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded"
                           title="Remove step"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -895,7 +913,7 @@ export function StoryMapperClient() {
                         <button
                           type="button"
                           onClick={() => removeSlice(slice.id)}
-                          className="flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 p-0.5 rounded text-sub hover:text-red-400 hover:bg-red-400/10 transition-all"
+                          className="btn-danger-ghost flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 p-0.5 rounded"
                           title="Remove slice"
                         >
                           <Trash2 className="w-3 h-3" />

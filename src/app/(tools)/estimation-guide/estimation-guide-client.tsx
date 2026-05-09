@@ -5,6 +5,8 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateEstimationGuidePrompts } from "@/lib/ai-prompts/estimation-guide";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { ESTIMATION_GUIDE_ACTIONS } from "@/lib/history/event-actions";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import { scales, defaultDescriptions } from "@/lib/constants/scales";
 import { createPersistedStore } from "@/lib/stores/create-persisted-store";
-import { toast } from "sonner";
+import { toast } from "@/lib/utils/toast";
 import { RotateCcw, Share2 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -48,6 +50,7 @@ const useEstimationGuideStore = createPersistedStore<EstimationGuideState>(
 export function EstimationGuideClient() {
   const store = useEstimationGuideStore();
   const gridRef = useRef<HTMLDivElement>(null);
+  const { log } = useHistoryLogger("estimation-guide");
 
   // Hydrate persisted store on mount
   useEffect(() => {
@@ -83,9 +86,13 @@ export function EstimationGuideClient() {
     [store.selectedScale]
   );
 
-  const handleScaleChange = useCallback((value: string) => {
-    useEstimationGuideStore.setState({ selectedScale: value });
-  }, []);
+  const handleScaleChange = useCallback(
+    (value: string) => {
+      useEstimationGuideStore.setState({ selectedScale: value });
+      log(ESTIMATION_GUIDE_ACTIONS.SCALE_CHANGED, { scale: value });
+    },
+    [log]
+  );
 
   const handleDescriptionChange = useCallback(
     (key: string, value: string) => {
@@ -111,7 +118,8 @@ export function EstimationGuideClient() {
       selectedScale: store.selectedScale,
     });
     toast.success("Reset to defaults");
-  }, [store.selectedScale]);
+    log(ESTIMATION_GUIDE_ACTIONS.GUIDE_RESET, {});
+  }, [store.selectedScale, log]);
 
   const handleShare = useCallback(() => {
     const payload = {
@@ -167,6 +175,7 @@ export function EstimationGuideClient() {
 
   return (
     <ToolPageWrapper
+      toolId="estimation-guide"
       title="Estimation Reference Guide"
       description="Interactive story point reference chart with team-specific calibration. Edit descriptions and add examples to build a shared estimation language."
       category="Sprint Planning & Estimation"

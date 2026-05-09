@@ -4,7 +4,6 @@ import { useRef, useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
-  ResponsiveContainer,
   ComposedChart,
   Line,
   CartesianGrid,
@@ -14,15 +13,21 @@ import {
   Legend,
   ReferenceLine,
 } from "recharts";
+import { ChartCard } from "@/components/shared/chart-card";
+import { SectionCard } from "@/components/shared/section-card";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateBurndownPrompts } from "@/lib/ai-prompts/burndown";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { BURNDOWN_ACTIONS } from "@/lib/history/event-actions";
+import { withTimeTravel } from "@/lib/stores/with-time-travel";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { chartTheme } from "@/components/charts/chart-theme";
+import { useChartHeight } from "@/hooks/use-chart-height";
 import {
   BarChart3,
   Plus,
@@ -66,11 +71,20 @@ interface BurndownStore {
 /*  Default data                                                               */
 /* -------------------------------------------------------------------------- */
 
-const defaultConfig: BurndownConfig = {
-  totalPoints: 40,
-  sprintDays: 10,
-  sprintStartDate: new Date().toISOString().slice(0, 10),
-};
+// Defaults are computed lazily so the start-date and entry IDs are bound to
+// the user's actual session — not the moment the JS bundle was loaded (which,
+// with persisted state, can be days or weeks in the past).
+function makeDefaultConfig(): BurndownConfig {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return {
+    totalPoints: 40,
+    sprintDays: 10,
+    sprintStartDate: `${y}-${m}-${day}`,
+  };
+}
 
 function createDefaultEntries(sprintDays: number, totalPoints: number): DayEntry[] {
   return Array.from({ length: sprintDays + 1 }, (_, i) => ({
@@ -87,19 +101,35 @@ function createDefaultEntries(sprintDays: number, totalPoints: number): DayEntry
 
 const useBurndownStore = create<BurndownStore>()(
   persist(
-    (set) => ({
-      config: { ...defaultConfig },
-      entries: createDefaultEntries(defaultConfig.sprintDays, defaultConfig.totalPoints),
+    withTimeTravel<BurndownStore>(
+      { toolId: "burndown" },
+      (set) => {
+      const initialConfig = makeDefaultConfig();
+      return {
+      config: initialConfig,
+      entries: createDefaultEntries(initialConfig.sprintDays, initialConfig.totalPoints),
 
       updateConfig: (updates) =>
         set((s) => {
           const newConfig = { ...s.config, ...updates };
-          // Re-scaffold entries if sprint length changed
+          // Resize entries when sprint length changes — preserve user-entered
+          // values for days that still exist, drop days past the new end, and
+          // append blank entries for new days. Prior implementation wiped all
+          // filled-in remaining-points whenever the user nudged the length.
           if (updates.sprintDays !== undefined && updates.sprintDays !== s.config.sprintDays) {
-            return {
-              config: newConfig,
-              entries: createDefaultEntries(updates.sprintDays, newConfig.totalPoints),
-            };
+            const target = Math.max(1, updates.sprintDays);
+            const byDay = new Map(s.entries.map((e) => [e.day, e]));
+            const next = Array.from({ length: target + 1 }, (_, i) => {
+              const existing = byDay.get(i);
+              if (existing) return existing;
+              return {
+                id: crypto.randomUUID(),
+                day: i,
+                remaining: i === 0 ? newConfig.totalPoints : null,
+                scopeChange: false,
+              };
+            });
+            return { config: newConfig, entries: next };
           }
           return { config: newConfig };
         }),
@@ -135,13 +165,29 @@ const useBurndownStore = create<BurndownStore>()(
           ),
         })),
 
-      reset: () =>
+      reset: () => {
+        const cfg = makeDefaultConfig();
         set({
-          config: { ...defaultConfig },
-          entries: createDefaultEntries(defaultConfig.sprintDays, defaultConfig.totalPoints),
-        }),
-    }),
-    { name: "agile-toolkit:burndown" }
+          config: cfg,
+          entries: createDefaultEntries(cfg.sprintDays, cfg.totalPoints),
+        });
+      },
+    };
+    }
+    ),
+    {
+      name: "agile-toolkit:burndown",
+      partialize: (state) => {
+        const {
+          _ttPast,
+          _ttFuture,
+          ...rest
+        } = state as BurndownStore & { _ttPast?: unknown; _ttFuture?: unknown };
+        void _ttPast;
+        void _ttFuture;
+        return rest;
+      },
+    }
   )
 );
 
@@ -154,19 +200,22 @@ function getIdealValue(day: number, totalPoints: number, sprintDays: number): nu
 }
 
 function computeTodayDay(sprintStartDate: string, sprintDays: number): number | null {
-  try {
-    const start = new Date(sprintStartDate);
-    const today = new Date();
-    // Strip time
-    start.setHours(0, 0, 0, 0);
-    today.setHours(0, 0, 0, 0);
-    const diffMs = today.getTime() - start.getTime();
-    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-    if (diffDays < 0 || diffDays > sprintDays) return null;
-    return diffDays;
-  } catch {
-    return null;
-  }
+  // Parse "YYYY-MM-DD" as a LOCAL calendar date and compare against today's
+  // local calendar date. The previous implementation parsed the ISO string
+  // (UTC midnight) and then called setHours (local), which mis-aligned the
+  // "Today" marker by a day for users east of UTC.
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(sprintStartDate.trim());
+  if (!m) return null;
+  const startY = Number(m[1]);
+  const startM = Number(m[2]) - 1;
+  const startD = Number(m[3]);
+  const start = new Date(startY, startM, startD).getTime();
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(today)) return null;
+  const diffDays = Math.round((today - start) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0 || diffDays > sprintDays) return null;
+  return diffDays;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -243,15 +292,48 @@ export function BurndownClient() {
   const {
     config,
     entries,
-    updateConfig,
-    updateEntry,
-    addEntry,
-    removeEntry,
-    toggleScopeChange,
-    reset,
+    updateConfig: updateConfigRaw,
+    updateEntry: updateEntryRaw,
+    addEntry: addEntryRaw,
+    removeEntry: removeEntryRaw,
+    toggleScopeChange: toggleScopeChangeRaw,
+    reset: resetRaw,
   } = useBurndownStore();
+  const { log } = useHistoryLogger("burndown");
+
+  const updateConfig: typeof updateConfigRaw = (updates) => {
+    updateConfigRaw(updates);
+    log(BURNDOWN_ACTIONS.CONFIG_UPDATED, updates as Record<string, unknown>);
+  };
+  const updateEntry: typeof updateEntryRaw = (id, updates) => {
+    updateEntryRaw(id, updates);
+  };
+  const addEntry: typeof addEntryRaw = () => {
+    addEntryRaw();
+    const fresh = useBurndownStore.getState().entries;
+    const created = fresh[fresh.length - 1];
+    log(BURNDOWN_ACTIONS.DAY_LOGGED, { entryId: created?.id, day: created?.day });
+  };
+  const removeEntry: typeof removeEntryRaw = (id) => {
+    const entry = entries.find((e) => e.id === id);
+    removeEntryRaw(id);
+    log(BURNDOWN_ACTIONS.DAY_REMOVED, { day: entry?.day });
+  };
+  const toggleScopeChange: typeof toggleScopeChangeRaw = (id) => {
+    toggleScopeChangeRaw(id);
+    const entry = useBurndownStore.getState().entries.find((e) => e.id === id);
+    log(BURNDOWN_ACTIONS.SCOPE_CHANGED, {
+      day: entry?.day,
+      scopeChange: entry?.scopeChange,
+    });
+  };
+  const reset = () => {
+    resetRaw();
+    log(BURNDOWN_ACTIONS.BURNDOWN_RESET, {});
+  };
 
   const chartRef = useRef<HTMLDivElement>(null);
+  const chartHeight = useChartHeight({ min: 260, max: 420 });
 
   /* -- Chart data ---------------------------------------------------------- */
 
@@ -339,6 +421,7 @@ export function BurndownClient() {
 
   return (
     <ToolPageWrapper
+      toolId="burndown"
       title="Burndown Generator"
       description="Track sprint progress with ideal vs. actual remaining points, today marker, and scope change annotations."
       category="Metrics & Dashboards"
@@ -375,277 +458,264 @@ export function BurndownClient() {
         </div>
 
         {/* ---- Configuration ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-4">
-            <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-              <Settings2 className="w-5 h-5 text-accent" />
-              Sprint Configuration
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-sub text-xs">Total Story Points</Label>
+        <SectionCard
+          title="Sprint Configuration"
+          icon={Settings2}
+          titleSize="lg"
+          headerClassName="pb-4"
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-sub text-xs">Total Story Points</Label>
+              <Input
+                type="number"
+                min={1}
+                value={config.totalPoints}
+                onChange={(e) => updateConfig({ totalPoints: Math.max(1, Number(e.target.value)) })}
+                className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sub text-xs">Sprint Length (days)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={60}
+                value={config.sprintDays}
+                onChange={(e) =>
+                  updateConfig({ sprintDays: Math.max(1, Math.min(60, Number(e.target.value))) })
+                }
+                className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sub text-xs">Sprint Start Date</Label>
+              <Input
+                type="date"
+                value={config.sprintStartDate}
+                onChange={(e) => updateConfig({ sprintStartDate: e.target.value })}
+                className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+              />
+            </div>
+          </div>
+        </SectionCard>
+
+        {/* ---- Chart ---- */}
+        <ChartCard
+          title="Burndown Chart"
+          icon={BarChart3}
+          height={chartHeight}
+          chartContainerRef={chartRef}
+          headerExtras={
+            <>
+              <AiPromptGenerator config={promptConfig} />
+              <ExportButton
+                filename="burndown-chart"
+                csvData={csvData}
+                targetRef={chartRef}
+              />
+            </>
+          }
+        >
+          <ComposedChart
+            data={chartData}
+            margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke={chartTheme.gridColor}
+              vertical={false}
+            />
+            <XAxis
+              dataKey="day"
+              tickFormatter={(v: number) => `D${v}`}
+              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+              axisLine={{ stroke: chartTheme.gridColor }}
+              tickLine={false}
+              label={{
+                value: "Sprint Day",
+                position: "insideBottomRight",
+                offset: -10,
+                fill: chartTheme.axisColor,
+                fontSize: 11,
+              }}
+            />
+            <YAxis
+              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              label={{
+                value: "Points",
+                angle: -90,
+                position: "insideLeft",
+                fill: chartTheme.axisColor,
+                fontSize: 11,
+                offset: 10,
+              }}
+              domain={[0, "auto"]}
+            />
+            <Tooltip content={<CustomTooltip />} />
+            <Legend
+              wrapperStyle={chartTheme.legendStyle}
+              iconType="line"
+            />
+
+            {/* Scope change markers */}
+            {scopeChangeDays.map((day) => (
+              <ReferenceLine
+                key={`scope-${day}`}
+                x={day}
+                stroke="#ffaa00"
+                strokeDasharray="3 3"
+                strokeWidth={1.5}
+                label={{
+                  value: "Scope",
+                  position: "top",
+                  fill: "#ffaa00",
+                  fontSize: 10,
+                }}
+              />
+            ))}
+
+            {/* Today marker */}
+            {todayDay !== null && (
+              <ReferenceLine
+                x={todayDay}
+                stroke="#ff00aa"
+                strokeWidth={2}
+                strokeDasharray="5 3"
+                label={{
+                  value: "Today",
+                  position: "top",
+                  fill: "#ff00aa",
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+              />
+            )}
+
+            {/* Ideal line */}
+            <Line
+              type="linear"
+              dataKey="ideal"
+              name="Ideal"
+              stroke="#94a3b8"
+              strokeWidth={2}
+              strokeDasharray="6 4"
+              dot={false}
+              activeDot={false}
+              connectNulls
+            />
+
+            {/* Actual line */}
+            <Line
+              type="monotone"
+              dataKey="actual"
+              name="Actual"
+              stroke="#00f0ff"
+              strokeWidth={2.5}
+              dot={{ fill: "#00f0ff", r: 4, strokeWidth: 0 }}
+              activeDot={{ r: 6, fill: "#00f0ff", strokeWidth: 0 }}
+              connectNulls={false}
+            />
+          </ComposedChart>
+        </ChartCard>
+
+        {/* ---- Data Entry Table ---- */}
+        <SectionCard
+          title="Daily Progress"
+          icon={TrendingDown}
+          titleSize="lg"
+          headerClassName="pb-4"
+          actions={
+            <>
+              <Button
+                variant="danger-ghost"
+                size="sm"
+                onClick={reset}
+              >
+                Reset
+              </Button>
+              <Button
+                size="sm"
+                variant="toolkit"
+                onClick={addEntry}
+                className="gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                Add Day
+              </Button>
+            </>
+          }
+        >
+          {/* Header row */}
+          <div className="hidden sm:grid grid-cols-[80px_1fr_120px_auto] gap-3 px-1 pb-2 border-b border-border mb-2">
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">
+              Day
+            </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">
+              Remaining Points
+            </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider flex items-center gap-1">
+              <Flag className="w-3 h-3" /> Scope Change
+            </span>
+            <span className="w-9" />
+          </div>
+
+          <div className="space-y-2">
+            {sortedEntries.map((entry) => (
+              <div
+                key={entry.id}
+                className="grid grid-cols-[80px_1fr_120px_auto] gap-3 items-center"
+              >
+                <div className="flex items-center">
+                  <span className="font-data text-sm font-semibold text-accent">
+                    Day {entry.day}
+                  </span>
+                </div>
+
                 <Input
                   type="number"
-                  min={1}
-                  value={config.totalPoints}
-                  onChange={(e) => updateConfig({ totalPoints: Math.max(1, Number(e.target.value)) })}
-                  className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sub text-xs">Sprint Length (days)</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={60}
-                  value={config.sprintDays}
+                  min={0}
+                  placeholder="— pts"
+                  value={entry.remaining ?? ""}
                   onChange={(e) =>
-                    updateConfig({ sprintDays: Math.max(1, Math.min(60, Number(e.target.value))) })
+                    updateEntry(entry.id, {
+                      remaining: e.target.value === "" ? null : Number(e.target.value),
+                    })
                   }
                   className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
                 />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sub text-xs">Sprint Start Date</Label>
-                <Input
-                  type="date"
-                  value={config.sprintStartDate}
-                  onChange={(e) => updateConfig({ sprintStartDate: e.target.value })}
-                  className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* ---- Chart ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-                <BarChart3 className="w-5 h-5 text-accent" />
-                Burndown Chart
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <AiPromptGenerator config={promptConfig} />
-                <ExportButton
-                  filename="burndown-chart"
-                  csvData={csvData}
-                  targetRef={chartRef}
-                />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div ref={chartRef} className="w-full pt-2">
-              <ResponsiveContainer width="100%" height={400}>
-                <ComposedChart
-                  data={chartData}
-                  margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+                <button
+                  onClick={() => toggleScopeChange(entry.id)}
+                  className={`h-9 px-3 rounded-md text-xs font-medium border transition-colors ${
+                    entry.scopeChange
+                      ? "bg-[#ffaa00]/15 border-[#ffaa00]/40 text-[#ffaa00]"
+                      : "bg-card border-border text-sub hover:border-[#ffaa00]/30 hover:text-[#ffaa00]"
+                  }`}
                 >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke={chartTheme.gridColor}
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="day"
-                    tickFormatter={(v: number) => `D${v}`}
-                    tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                    axisLine={{ stroke: chartTheme.gridColor }}
-                    tickLine={false}
-                    label={{
-                      value: "Sprint Day",
-                      position: "insideBottomRight",
-                      offset: -10,
-                      fill: chartTheme.axisColor,
-                      fontSize: 11,
-                    }}
-                  />
-                  <YAxis
-                    tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                    label={{
-                      value: "Points",
-                      angle: -90,
-                      position: "insideLeft",
-                      fill: chartTheme.axisColor,
-                      fontSize: 11,
-                      offset: 10,
-                    }}
-                    domain={[0, "auto"]}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Legend
-                    wrapperStyle={chartTheme.legendStyle}
-                    iconType="line"
-                  />
+                  {entry.scopeChange ? "Scope Changed" : "Mark Change"}
+                </button>
 
-                  {/* Scope change markers */}
-                  {scopeChangeDays.map((day) => (
-                    <ReferenceLine
-                      key={`scope-${day}`}
-                      x={day}
-                      stroke="#ffaa00"
-                      strokeDasharray="3 3"
-                      strokeWidth={1.5}
-                      label={{
-                        value: "Scope",
-                        position: "top",
-                        fill: "#ffaa00",
-                        fontSize: 10,
-                      }}
-                    />
-                  ))}
-
-                  {/* Today marker */}
-                  {todayDay !== null && (
-                    <ReferenceLine
-                      x={todayDay}
-                      stroke="#ff00aa"
-                      strokeWidth={2}
-                      strokeDasharray="5 3"
-                      label={{
-                        value: "Today",
-                        position: "top",
-                        fill: "#ff00aa",
-                        fontSize: 11,
-                        fontWeight: 600,
-                      }}
-                    />
-                  )}
-
-                  {/* Ideal line */}
-                  <Line
-                    type="linear"
-                    dataKey="ideal"
-                    name="Ideal"
-                    stroke="#94a3b8"
-                    strokeWidth={2}
-                    strokeDasharray="6 4"
-                    dot={false}
-                    activeDot={false}
-                    connectNulls
-                  />
-
-                  {/* Actual line */}
-                  <Line
-                    type="monotone"
-                    dataKey="actual"
-                    name="Actual"
-                    stroke="#00f0ff"
-                    strokeWidth={2.5}
-                    dot={{ fill: "#00f0ff", r: 4, strokeWidth: 0 }}
-                    activeDot={{ r: 6, fill: "#00f0ff", strokeWidth: 0 }}
-                    connectNulls={false}
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* ---- Data Entry Table ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-                <TrendingDown className="w-5 h-5 text-accent" />
-                Daily Progress
-              </CardTitle>
-              <div className="flex items-center gap-2">
                 <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={reset}
-                  className="text-sub hover:text-red-400 hover:bg-red-400/10"
+                  variant="danger-ghost"
+                  size="icon"
+                  onClick={() => removeEntry(entry.id)}
+                  disabled={sortedEntries.length <= 1}
+                  className="h-9 w-9 disabled:opacity-30"
                 >
-                  Reset
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={addEntry}
-                  className="gap-1.5 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Day
+                  <Trash2 className="w-4 h-4" />
                 </Button>
               </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {/* Header row */}
-            <div className="hidden sm:grid grid-cols-[80px_1fr_120px_auto] gap-3 px-1 pb-2 border-b border-border mb-2">
-              <span className="text-xs text-sub font-medium uppercase tracking-wider">
-                Day
-              </span>
-              <span className="text-xs text-sub font-medium uppercase tracking-wider">
-                Remaining Points
-              </span>
-              <span className="text-xs text-sub font-medium uppercase tracking-wider flex items-center gap-1">
-                <Flag className="w-3 h-3" /> Scope Change
-              </span>
-              <span className="w-9" />
-            </div>
+            ))}
+          </div>
 
-            <div className="space-y-2">
-              {sortedEntries.map((entry) => (
-                <div
-                  key={entry.id}
-                  className="grid grid-cols-[80px_1fr_120px_auto] gap-3 items-center"
-                >
-                  <div className="flex items-center">
-                    <span className="font-data text-sm font-semibold text-accent">
-                      Day {entry.day}
-                    </span>
-                  </div>
-
-                  <Input
-                    type="number"
-                    min={0}
-                    placeholder="— pts"
-                    value={entry.remaining ?? ""}
-                    onChange={(e) =>
-                      updateEntry(entry.id, {
-                        remaining: e.target.value === "" ? null : Number(e.target.value),
-                      })
-                    }
-                    className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-                  />
-
-                  <button
-                    onClick={() => toggleScopeChange(entry.id)}
-                    className={`h-9 px-3 rounded-md text-xs font-medium border transition-colors ${
-                      entry.scopeChange
-                        ? "bg-[#ffaa00]/15 border-[#ffaa00]/40 text-[#ffaa00]"
-                        : "bg-card border-border text-sub hover:border-[#ffaa00]/30 hover:text-[#ffaa00]"
-                    }`}
-                  >
-                    {entry.scopeChange ? "Scope Changed" : "Mark Change"}
-                  </button>
-
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeEntry(entry.id)}
-                    disabled={sortedEntries.length <= 1}
-                    className="h-9 w-9 text-sub hover:text-red-400 hover:bg-red-400/10 disabled:opacity-30"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-
-            {/* Hint */}
-            <p className="mt-4 text-xs text-sub">
-              Tip: Leave &quot;Remaining Points&quot; blank for days not yet reached. Day 0 is the sprint start.
-            </p>
-          </CardContent>
-        </Card>
+          {/* Hint */}
+          <p className="mt-4 text-xs text-sub">
+            Tip: Leave &quot;Remaining Points&quot; blank for days not yet reached. Day 0 is the sprint start.
+          </p>
+        </SectionCard>
       </div>
     </ToolPageWrapper>
   );

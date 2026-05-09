@@ -17,8 +17,12 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateHealthCheckPrompts } from "@/lib/ai-prompts/health-check";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { HEALTH_CHECK_ACTIONS } from "@/lib/history/event-actions";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { SectionCard } from "@/components/shared/section-card";
 import { Input } from "@/components/ui/input";
 import { HeartPulse } from "lucide-react";
 
@@ -141,7 +145,7 @@ const useHealthCheckStore = create<HealthCheckStore>()(
         const entry: HistoryEntry = {
           id: crypto.randomUUID(),
           sprintName: current.sprintName || `Check ${history.length + 1}`,
-          date: new Date().toISOString().slice(0, 10),
+          date: todayLocalISO(),
           scores: { ...current.scores },
         };
         set((s) => ({
@@ -263,9 +267,22 @@ export function HealthCheckClient() {
     setSprintName,
     setLight,
     setTrend,
-    saveCheck,
-    reset,
+    saveCheck: saveCheckRaw,
+    reset: resetRaw,
   } = useHealthCheckStore();
+  const { log } = useHistoryLogger("health-check");
+
+  const saveCheck = () => {
+    saveCheckRaw();
+    log(HEALTH_CHECK_ACTIONS.CHECK_SAVED, {
+      sprintName: current?.sprintName,
+      scores: current?.scores,
+    });
+  };
+  const reset = () => {
+    resetRaw();
+    log(HEALTH_CHECK_ACTIONS.HEALTH_CHECK_RESET, {});
+  };
 
   const promptConfig = useMemo(() => ({
     toolName: "Team Health Check",
@@ -309,6 +326,7 @@ export function HealthCheckClient() {
   /* -- Render -------------------------------------------------------------- */
   return (
     <ToolPageWrapper
+      toolId="health-check"
       title="Squad Health Check"
       description="Spotify-model health check — rate each dimension with traffic lights and track trends over time."
       category="Team Health & Maturity"
@@ -316,187 +334,179 @@ export function HealthCheckClient() {
       <div className="space-y-6">
 
         {/* ---- Current Check ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-                <HeartPulse className="w-5 h-5 text-accent" />
-                Current Check
-              </CardTitle>
-              <div className="flex items-center gap-3">
-                <div className="text-sm text-sub">
-                  Health:{" "}
-                  <span
-                    className={`font-data font-bold ${
-                      currentHealth >= 75
-                        ? "text-[#22c55e]"
-                        : currentHealth >= 50
-                        ? "text-[#eab308]"
-                        : "text-[#ef4444]"
-                    }`}
-                  >
-                    {currentHealth}%
-                  </span>
-                </div>
-                <Button
-                  size="sm"
-                  onClick={saveCheck}
-                  className="bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40"
+        <SectionCard
+          title="Current Check"
+          icon={HeartPulse}
+          titleSize="lg"
+          headerClassName="pb-4"
+          actions={
+            <>
+              <div className="text-sm text-sub">
+                Health:{" "}
+                <span
+                  className={`font-data font-bold ${
+                    currentHealth >= 75
+                      ? "text-[#22c55e]"
+                      : currentHealth >= 50
+                      ? "text-[#eab308]"
+                      : "text-[#ef4444]"
+                  }`}
                 >
-                  Save Check
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Sprint name */}
-            <div className="flex items-center gap-3">
-              <label className="text-sm text-sub w-24 shrink-0">
-                Sprint name
-              </label>
-              <Input
-                value={current.sprintName}
-                onChange={(e) => setSprintName(e.target.value)}
-                placeholder="e.g. Sprint 42"
-                className="max-w-xs bg-surface-deep border-border text-text focus:border-accent/50"
-              />
-            </div>
-
-            {/* Dimension rows */}
-            <div className="space-y-2">
-              {/* Header */}
-              <div className="grid grid-cols-[1fr_auto_auto] gap-3 px-1 pb-2 border-b border-border">
-                <span className="text-xs text-sub font-medium uppercase tracking-wider">
-                  Dimension
-                </span>
-                <span className="text-xs text-sub font-medium uppercase tracking-wider w-52 text-center">
-                  Status
-                </span>
-                <span className="text-xs text-sub font-medium uppercase tracking-wider w-48 text-center">
-                  Trend
+                  {currentHealth}%
                 </span>
               </div>
+              <Button
+                size="sm"
+                variant="toolkit"
+                onClick={saveCheck}
+              >
+                Save Check
+              </Button>
+            </>
+          }
+          contentClassName="space-y-4"
+        >
+          {/* Sprint name */}
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-sub w-24 shrink-0">
+              Sprint name
+            </label>
+            <Input
+              value={current.sprintName}
+              onChange={(e) => setSprintName(e.target.value)}
+              placeholder="e.g. Sprint 42"
+              className="max-w-xs input-toolkit"
+            />
+          </div>
 
-              {DIMENSIONS.map((dim) => (
-                <div
-                  key={dim}
-                  className="grid grid-cols-[1fr_auto_auto] gap-3 items-center py-1.5 border-b border-border last:border-0"
-                >
-                  <span className="text-sm text-text font-medium">{dim}</span>
-                  <div className="flex gap-1.5 w-52 justify-center">
-                    {(["green", "yellow", "red"] as TrafficLight[]).map((l) => (
-                      <TrafficButton
-                        key={l}
-                        light={l}
-                        active={current.scores[dim].light === l}
-                        onClick={() => setLight(dim, l)}
-                      />
-                    ))}
-                  </div>
-                  <div className="flex gap-1.5 w-48 justify-center">
-                    {(["up", "same", "down"] as Trend[]).map((t) => (
-                      <TrendButton
-                        key={t}
-                        trend={t}
-                        active={current.scores[dim].trend === t}
-                        onClick={() => setTrend(dim, t)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
+          {/* Dimension rows */}
+          <div className="space-y-2">
+            {/* Header */}
+            <div className="grid grid-cols-[1fr_auto_auto] gap-3 px-1 pb-2 border-b border-border">
+              <span className="text-xs text-sub font-medium uppercase tracking-wider">
+                Dimension
+              </span>
+              <span className="text-xs text-sub font-medium uppercase tracking-wider w-52 text-center">
+                Status
+              </span>
+              <span className="text-xs text-sub font-medium uppercase tracking-wider w-48 text-center">
+                Trend
+              </span>
             </div>
-          </CardContent>
-        </Card>
+
+            {DIMENSIONS.map((dim) => (
+              <div
+                key={dim}
+                className="grid grid-cols-[1fr_auto_auto] gap-3 items-center py-1.5 border-b border-border last:border-0"
+              >
+                <span className="text-sm text-text font-medium">{dim}</span>
+                <div className="flex gap-1.5 w-52 justify-center">
+                  {(["green", "yellow", "red"] as TrafficLight[]).map((l) => (
+                    <TrafficButton
+                      key={l}
+                      light={l}
+                      active={current.scores[dim].light === l}
+                      onClick={() => setLight(dim, l)}
+                    />
+                  ))}
+                </div>
+                <div className="flex gap-1.5 w-48 justify-center">
+                  {(["up", "same", "down"] as Trend[]).map((t) => (
+                    <TrendButton
+                      key={t}
+                      trend={t}
+                      active={current.scores[dim].trend === t}
+                      onClick={() => setTrend(dim, t)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
 
         {/* ---- Trend Chart ---- */}
         {history.length > 0 && (
-          <Card className="bg-surface border-border">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg font-display text-text">
-                  Trend Chart
-                </CardTitle>
-                <div className="flex items-center gap-2">
-                  <AiPromptGenerator config={promptConfig} />
-                  <ExportButton
-                    filename="squad-health-check"
-                    csvData={csvData}
+          <SectionCard
+            title="Trend Chart"
+            titleSize="lg"
+            headerClassName="pb-2"
+            actions={
+              <>
+                <AiPromptGenerator config={promptConfig} />
+                <ExportButton
+                  filename="squad-health-check"
+                  csvData={csvData}
+                />
+              </>
+            }
+          >
+            <p className="text-xs text-sub mb-3">
+              2 = Green &nbsp;·&nbsp; 1 = Yellow &nbsp;·&nbsp; 0 = Red
+            </p>
+            <ResponsiveContainer width="100%" height={360}>
+              <LineChart
+                data={chartData}
+                margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="rgba(255,255,255,0.06)"
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fill: "#94a3b8", fontSize: 12 }}
+                  axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                  tickLine={false}
+                />
+                <YAxis
+                  domain={[0, 2]}
+                  ticks={[0, 1, 2]}
+                  tickFormatter={(v) =>
+                    v === 2 ? "Green" : v === 1 ? "Yellow" : "Red"
+                  }
+                  tick={{ fill: "#94a3b8", fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={56}
+                />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Legend
+                  wrapperStyle={{ paddingTop: "16px", color: "#94a3b8", fontSize: 11 }}
+                />
+                {DIMENSIONS.map((dim) => (
+                  <Line
+                    key={dim}
+                    dataKey={dim}
+                    stroke={DIMENSION_COLORS[dim]}
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: DIMENSION_COLORS[dim] }}
+                    activeDot={{ r: 5 }}
                   />
-                </div>
-              </div>
-              <p className="text-xs text-sub mt-1">
-                2 = Green &nbsp;·&nbsp; 1 = Yellow &nbsp;·&nbsp; 0 = Red
-              </p>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={360}>
-                <LineChart
-                  data={chartData}
-                  margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="rgba(255,255,255,0.06)"
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fill: "#94a3b8", fontSize: 12 }}
-                    axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    domain={[0, 2]}
-                    ticks={[0, 1, 2]}
-                    tickFormatter={(v) =>
-                      v === 2 ? "Green" : v === 1 ? "Yellow" : "Red"
-                    }
-                    tick={{ fill: "#94a3b8", fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={56}
-                  />
-                  <Tooltip contentStyle={TOOLTIP_STYLE} />
-                  <Legend
-                    wrapperStyle={{ paddingTop: "16px", color: "#94a3b8", fontSize: 11 }}
-                  />
-                  {DIMENSIONS.map((dim) => (
-                    <Line
-                      key={dim}
-                      dataKey={dim}
-                      stroke={DIMENSION_COLORS[dim]}
-                      strokeWidth={2}
-                      dot={{ r: 3, fill: DIMENSION_COLORS[dim] }}
-                      activeDot={{ r: 5 }}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </SectionCard>
         )}
 
         {/* ---- History Table ---- */}
         {history.length > 0 ? (
-          <Card className="bg-surface border-border">
-            <CardHeader className="pb-4">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg font-display text-text">
-                  History
-                </CardTitle>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={reset}
-                  className="text-sub hover:text-red-400 hover:bg-red-400/10"
-                >
-                  Clear All
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
+          <SectionCard
+            title="History"
+            titleSize="lg"
+            headerClassName="pb-4"
+            actions={
+              <Button
+                variant="danger-ghost"
+                size="sm"
+                onClick={reset}
+              >
+                Clear All
+              </Button>
+            }
+          >
+            <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border">
@@ -563,8 +573,7 @@ export function HealthCheckClient() {
                   </tbody>
                 </table>
               </div>
-            </CardContent>
-          </Card>
+          </SectionCard>
         ) : (
           <Card className="bg-surface border-border">
             <CardContent className="py-12 text-center text-sub">

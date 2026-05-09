@@ -558,3 +558,305 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   MOBILE FOUNDATION — safe-area, no iOS input zoom, active-press, overscroll
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+@layer base {
+  /* Holiday-engine reserved tokens (injected by HolidayEngine at runtime) */
+  :root {
+    --holiday-accent: transparent;
+    --holiday-accent-2: transparent;
+    --holiday-glow: transparent;
+  }
+
+  /* Kill iOS auto-zoom on input focus — any input < 16px triggers it */
+  @media (max-width: 768px) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+    textarea,
+    select {
+      font-size: max(16px, 1rem);
+    }
+  }
+
+  body {
+    overscroll-behavior-y: none;
+  }
+}
+
+@layer utilities {
+  /* Safe-area insets for notched devices */
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .pl-safe { padding-left: env(safe-area-inset-left); }
+  .pr-safe { padding-right: env(safe-area-inset-right); }
+  .px-safe {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  .py-safe {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .mt-safe { margin-top: env(safe-area-inset-top); }
+  .mb-safe { margin-bottom: env(safe-area-inset-bottom); }
+
+  .overscroll-contain-strict { overscroll-behavior: contain; }
+
+  /* Active-press state — only on touch devices where no hover exists */
+  @media (hover: none) {
+    .active-press:active {
+      transform: scale(0.975);
+      transition: transform 80ms ease-out;
+    }
+  }
+
+  /* Haptics visual fallback (iOS, where navigator.vibrate is unsupported) */
+  [data-haptic-pulse="true"] {
+    transform: scale(0.985);
+    transition: transform 90ms ease-out;
+  }
+
+  /* Holiday accent opt-in helpers */
+  .holiday-accent-text { color: var(--holiday-accent); }
+  .holiday-accent-bg { background: var(--holiday-accent); }
+  .holiday-accent-glow { box-shadow: 0 0 20px var(--holiday-glow); }
+
+  /* Responsive micro-typography */
+  .text-fluid-nano { font-size: clamp(10px, 2.2vw, 11px); }
+  .text-fluid-caption { font-size: clamp(11px, 2.5vw, 13px); }
+  .text-fluid-micro { font-size: clamp(9px, 2vw, 10px); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   RESPONSIVE LAYOUT PRIMITIVES — Mobile-first containers, sections, scrollers
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+@layer components {
+  /**
+   * .container-tool
+   * Drop-in container for any tool page or meta page (history, insights).
+   * Mobile-first padding: 12 → 16 → 24 → 32 → 40px as the viewport grows.
+   * Width is fluid up to 1280px (tool-content), then plateaus.
+   *
+   * Replaces the old per-file `p-3 sm:p-4 md:p-6 max-w-7xl mx-auto w-full`
+   * pattern with a single source of truth.
+   */
+  .container-tool {
+    width: 100%;
+    margin-inline: auto;
+    max-width: 80rem; /* 1280px */
+    padding-inline: 0.75rem;
+    padding-block: 0.75rem;
+  }
+  @media (min-width: 375px) {
+    .container-tool { padding-inline: 1rem; padding-block: 1rem; }
+  }
+  @media (min-width: 768px) {
+    .container-tool { padding-inline: 1.5rem; padding-block: 1.5rem; }
+  }
+  @media (min-width: 1280px) {
+    .container-tool { padding-inline: 2rem; padding-block: 2rem; }
+  }
+
+  /**
+   * .container-meta
+   * Wider variant for the global /history and /insights pages, which need
+   * extra width for tables and dashboards.
+   */
+  .container-meta {
+    width: 100%;
+    margin-inline: auto;
+    max-width: 90rem; /* 1440px */
+    padding-inline: 0.75rem;
+    padding-block: 0.75rem;
+  }
+  @media (min-width: 768px) {
+    .container-meta { padding-inline: 1.5rem; padding-block: 1.5rem; }
+  }
+
+  /**
+   * .stack-section
+   * Vertical rhythm primitive — applies a mobile-first gap between stacked
+   * sections inside a tool page. Matches the design system's 4/8 spacing.
+   */
+  .stack-section > * + * {
+    margin-block-start: 1rem;       /* 16px */
+  }
+  @media (min-width: 768px) {
+    .stack-section > * + * {
+      margin-block-start: 1.5rem;   /* 24px */
+    }
+  }
+
+  /**
+   * .min-touch
+   * Enforces the WCAG 2.2 minimum interactive target (44×44 CSS px) on
+   * mobile, then relaxes on pointer-fine devices (mouse, trackpad) where
+   * 36×36 is acceptable for density.
+   */
+  .min-touch {
+    min-inline-size: 2.75rem;
+    min-block-size: 2.75rem;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .min-touch {
+      min-inline-size: 2.25rem;
+      min-block-size: 2.25rem;
+    }
+  }
+
+  /**
+   * .min-touch-coarse
+   * Mobile-only variant: enforces the 44×44 minimum on coarse-pointer
+   * devices (touch) but imposes NO minimum on fine pointers, so the
+   * element's own `h-* w-*` decides the desktop visual size.
+   *
+   * Use this for icon buttons inside dense rows where 28–32 px is the
+   * intentional desktop density (refinement criteria, impediment rows,
+   * ceremony-timer trash buttons). The tap area expands on touch devices
+   * via the `min-*` properties without changing the rendered glyph.
+   */
+  .min-touch-coarse {
+    /* No minimum on fine-pointer / unknown devices — explicit size wins. */
+  }
+  @media (pointer: coarse) {
+    .min-touch-coarse {
+      min-inline-size: 2.75rem;
+      min-block-size: 2.75rem;
+    }
+  }
+
+  /**
+   * .btn-danger-ghost
+   * Plain HTML `<button>` styling that mirrors the
+   * `<Button variant="danger-ghost">` look — for the dense inline icon
+   * buttons in matrix tools (RACI activity/role removers, story-mapper
+   * step removers, skills-matrix cells) where the surrounding flex
+   * layout makes the shadcn Button's min-height impractical.
+   *
+   * Use on raw `<button>` elements only. For shadcn `<Button>`, use the
+   * `variant="danger-ghost"` prop instead.
+   */
+  .btn-danger-ghost {
+    color: var(--sub);
+    transition: color 150ms ease, background-color 150ms ease;
+  }
+  .btn-danger-ghost:hover {
+    color: #f87171; /* matches Tailwind text-red-400 */
+    background-color: rgba(248, 113, 113, 0.1);
+  }
+
+  /**
+   * .input-toolkit
+   * Standard `<Input>` styling token used across most tools — adds
+   * the deep surface fill, subtle border, and the cyan focus ring
+   * that matches the rest of the design language.
+   *
+   * Replaces the recurring inline pattern:
+   *   `bg-surface-deep border-border text-text focus:border-accent/50`
+   *
+   * Usage: `<Input className="input-toolkit" ... />` or
+   *        `<Textarea className="input-toolkit" ... />`. Compose with
+   *        layout classes (`flex-1`, `font-data`, `max-w-xs`, etc.).
+   */
+  .input-toolkit {
+    background-color: var(--surface-deep);
+    border-color: var(--border);
+    color: var(--text);
+  }
+  .input-toolkit:focus,
+  .input-toolkit:focus-visible {
+    border-color: rgb(0 240 255 / 0.5);
+  }
+
+  /**
+   * .scroll-x-snap / .scroll-x-snap > *
+   * Mobile-friendly horizontal scroll for matrix tools (RACI, kanban,
+   * sprint-compare). Each direct child becomes a snap stop. Hide the
+   * scrollbar on touch devices to give a "swipe between cards" feel.
+   */
+  .scroll-x-snap {
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+    /* Bleed the scroll area to the screen edge on mobile but keep content
+       inside the .container-tool padding via the snap children below. */
+    margin-inline: -0.75rem;
+    padding-inline: 0.75rem;
+    gap: 0.75rem;
+  }
+  @media (min-width: 768px) {
+    .scroll-x-snap {
+      margin-inline: 0;
+      padding-inline: 0;
+      gap: 1rem;
+    }
+  }
+  .scroll-x-snap > * {
+    scroll-snap-align: start;
+    flex: 0 0 auto;
+  }
+  .scroll-x-snap::-webkit-scrollbar { height: 4px; }
+  .scroll-x-snap::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 2px;
+  }
+
+  /**
+   * .table-wrap-responsive
+   * For dense tables that genuinely need horizontal-scroll on small
+   * screens (where stacking-into-cards isn't viable). Adds a thin
+   * gradient hint on the right edge so users know more content exists.
+   */
+  .table-wrap-responsive {
+    position: relative;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .table-wrap-responsive::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0;
+    inline-size: 1.5rem;
+    background: linear-gradient(to left, var(--bg) 0%, transparent 100%);
+    pointer-events: none;
+    opacity: 0.7;
+  }
+  @media (min-width: 768px) {
+    .table-wrap-responsive::after { display: none; }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   PERFORMANCE & A11Y — global tweaks
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+@layer base {
+  /**
+   * Hide a primitive scrollbar look on overflow-y containers nested inside
+   * `.glass-elevated` panels — keeps the design clean on mobile.
+   */
+  .glass-elevated::-webkit-scrollbar { width: 6px; }
+  .glass-elevated::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+  }
+
+  /**
+   * Honour user OS-level font-size preferences. By keying our rem-based
+   * sizes off `html { font-size: 100%; }` (browser default = 16px), users
+   * who bump their system font in OS settings see the entire app scale up.
+   * The fluid clamp() sizes still cap at sensible maxima so layouts don't
+   * break.
+   */
+  html {
+    font-size: 100%; /* explicit — 1rem === 16px (or user preference) */
+  }
+}

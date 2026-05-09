@@ -61,8 +61,10 @@ export const metadata: Metadata = {
       "Curated collection of agile delivery tools, frameworks, and templates.",
   },
   icons: {
-    icon: "/favicon.ico",
-    apple: "/apple-touch-icon.png",
+    icon: [
+      { url: "/AT.svg", type: "image/svg+xml" },
+    ],
+    apple: "/AT.svg",
   },
 };
 
@@ -83,21 +85,20 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <meta name="theme-color" content="#06080f" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
           href="https://fonts.gstatic.com"
           crossOrigin="anonymous"
         />
-        {/* Blocking script: swap to light if saved, before paint; also update theme-color */}
+        {/* Blocking script: swap to light if saved, before paint */}
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=localStorage.getItem("ae-theme");if(t==="light"){document.documentElement.classList.remove("dark");document.documentElement.classList.add("light");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content","#f4f6fb")}}catch(e){}})()`,
           }}
         />
       </head>
-      <body className="font-sans antialiased">
+      <body className="font-sans antialiased touch-manipulation">
         {/* Atmosphere background — 2 mesh blobs, noise overlay (reduced from main site) */}
         <div className="atmosphere" aria-hidden="true">
           <div className="mesh-blob mesh-blob-1" />

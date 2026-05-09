@@ -20,6 +20,8 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateCycleTimePrompts } from "@/lib/ai-prompts/cycle-time";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { CYCLE_TIME_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -201,7 +203,27 @@ function ScatterTooltip({
 /* -------------------------------------------------------------------------- */
 
 export function CycleTimeClient() {
-  const { items, addItem, removeItem, updateItem, reset } = useCycleTimeStore();
+  const {
+    items,
+    addItem: addItemRaw,
+    removeItem: removeItemRaw,
+    updateItem,
+    reset: resetRaw,
+  } = useCycleTimeStore();
+  const { log } = useHistoryLogger("cycle-time");
+
+  const addItem: typeof addItemRaw = (...args) => {
+    addItemRaw(...args);
+    log(CYCLE_TIME_ACTIONS.ITEM_ADDED, {});
+  };
+  const removeItem: typeof removeItemRaw = (id) => {
+    removeItemRaw(id);
+    log(CYCLE_TIME_ACTIONS.ITEM_REMOVED, { itemId: id });
+  };
+  const reset = () => {
+    resetRaw();
+    log(CYCLE_TIME_ACTIONS.CYCLE_TIME_RESET, {});
+  };
   const exportRef = useRef<HTMLDivElement>(null);
   const [targetPct, setTargetPct] = useState(85);
 
@@ -313,6 +335,7 @@ export function CycleTimeClient() {
   /* -- Render -------------------------------------------------------------- */
   return (
     <ToolPageWrapper
+      toolId="cycle-time"
       title="Cycle Time Analyzer"
       description="Analyze how long work items take to complete. Use histogram, scatter plot, and percentile data to set realistic Service Level Expectations."
       category="Metrics & Dashboards"
@@ -620,17 +643,17 @@ export function CycleTimeClient() {
               </CardTitle>
               <div className="flex items-center gap-2">
                 <Button
-                  variant="ghost"
+                  variant="danger-ghost"
                   size="sm"
                   onClick={reset}
-                  className="text-sub hover:text-red-400 hover:bg-red-400/10"
                 >
                   Reset
                 </Button>
                 <Button
                   size="sm"
+                  variant="toolkit"
                   onClick={addItem}
-                  className="gap-1.5 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20"
+                  className="gap-1.5"
                 >
                   <Plus className="w-4 h-4" />
                   Add Item
@@ -666,7 +689,7 @@ export function CycleTimeClient() {
                           placeholder="Feature or story name"
                           value={item.name}
                           onChange={(e) => updateItem(item.id, { name: e.target.value })}
-                          className="h-8 bg-surface-deep border-border text-text focus:border-accent/50"
+                          className="h-8 input-toolkit"
                         />
                       </td>
                       <td className="py-2 px-3">
@@ -674,7 +697,7 @@ export function CycleTimeClient() {
                           type="date"
                           value={item.startDate}
                           onChange={(e) => updateItem(item.id, { startDate: e.target.value })}
-                          className="h-8 w-36 bg-surface-deep border-border text-text focus:border-accent/50"
+                          className="h-8 w-36 input-toolkit"
                         />
                       </td>
                       <td className="py-2 px-3">
@@ -682,7 +705,7 @@ export function CycleTimeClient() {
                           type="date"
                           value={item.endDate}
                           onChange={(e) => updateItem(item.id, { endDate: e.target.value })}
-                          className="h-8 w-36 bg-surface-deep border-border text-text focus:border-accent/50"
+                          className="h-8 w-36 input-toolkit"
                         />
                       </td>
                       <td className="py-2 px-3 text-center">

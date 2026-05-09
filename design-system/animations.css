@@ -1,0 +1,450 @@
+/**
+ * Design DNA Animations — amrelharony.com Ecosystem
+ * All @keyframes + utility classes extracted from the main portfolio site.
+ * Import this file into any ecosystem app's globals.css.
+ */
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   KEYFRAMES — Core Atmosphere
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Mesh blob floating — large background elements that drift slowly */
+@keyframes mf1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(5vw, 8vh) scale(1.1); }
+  66% { transform: translate(-3vw, -5vh) scale(0.95); }
+}
+
+@keyframes mf2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-8vw, -4vh) scale(1.15); }
+  66% { transform: translate(4vw, 6vh) scale(0.9); }
+}
+
+@keyframes mf3 {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-45%, -55%) scale(1.2); }
+}
+
+/* Name/heading gradient background-position shift */
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   KEYFRAMES — Utility Animations
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* 360deg rotation — rings, spinners, borders */
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+
+/* Spotlight/status dot pulse */
+@keyframes pulse-spotlight {
+  0%, 100% { transform: scale(1); opacity: 0.4; }
+  50% { transform: scale(2); opacity: 0; }
+}
+
+/* Horizontal ticker scroll — continuous marquee */
+@keyframes ticker-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   KEYFRAMES — Entrance Animations
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Fade in */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Slide in from below */
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Slide in from above */
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Scale + fade in — command palette, modals */
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.85) translateY(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* Pop in with rotation — toasts, badges */
+@keyframes pop-in {
+  0% { transform: scale(0) rotate(-30deg); }
+  60% { transform: scale(1.3) rotate(5deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+/* Guestbook entry entrance */
+@keyframes entry-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Terminal line entrance */
+@keyframes line-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   KEYFRAMES — Shimmer & Shine Effects
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Card hover shimmer sweep */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Skeleton loading shimmer */
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* XP/progress bar shimmer */
+@keyframes progress-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   KEYFRAMES — Status & Pulse Indicators
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Live/online green pulse */
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+  50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(34, 197, 94, 0); }
+}
+
+/* Cyan attention glow */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 225, 255, 0); }
+  50% { box-shadow: 0 0 12px 2px rgba(0, 225, 255, 0.12); }
+}
+
+/* Voice/recording pulse (red) */
+@keyframes pulse-voice {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.3); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+
+/* Mythic/special glow (cyan intense) */
+@keyframes mythic-pulse {
+  0%, 100% { box-shadow: 0 8px 32px rgba(6, 182, 212, 0.25); }
+  50% { box-shadow: 0 8px 48px rgba(6, 182, 212, 0.5); }
+}
+
+/* General opacity pulse */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Sleep/idle indicator */
+@keyframes pulse-sleep {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.8; }
+}
+
+/* Typing dots */
+@keyframes typing-dot {
+  0%, 100% { opacity: 0.2; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-2px); }
+}
+
+/* Cursor blink */
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   KEYFRAMES — Floating & Movement
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Gentle vertical float — emoji, decorative elements */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+/* Newsletter float variant */
+@keyframes float-gentle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+/* Bubble rise — guestbook, decorative */
+@keyframes bubble-rise {
+  0% { opacity: 0; transform: translateY(0) scale(0.5); }
+  10% { opacity: 0.6; transform: translateY(-20px) scale(1); }
+  90% { opacity: 0.3; transform: translateY(-120px) scale(0.8); }
+  100% { opacity: 0; transform: translateY(-150px) scale(0.6); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   KEYFRAMES — Particle & Decorative
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Particle dispersal (uses CSS custom properties --dx, --dy) */
+@keyframes particle-fly {
+  0% { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(0); opacity: 0; }
+}
+
+/* Coin/reward float up */
+@keyframes coin-fly {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -200px) scale(0.3); opacity: 0; }
+}
+
+/* Confetti fall */
+@keyframes confetti-fall {
+  0% { opacity: 1; transform: translateY(0) rotate(0); }
+  100% { opacity: 0; transform: translateY(100vh) rotate(720deg); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   KEYFRAMES — Glitch & Special Effects
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Terminal glitch effect */
+@keyframes glitch {
+  0% { transform: translateX(0); filter: none; }
+  15% { transform: translateX(-3px); filter: hue-rotate(90deg); }
+  30% { transform: translateX(2px); filter: hue-rotate(-90deg); }
+  45% { transform: translateX(-1px); }
+  60% { transform: translateX(1px); filter: hue-rotate(45deg); }
+  100% { transform: translateX(0); filter: none; }
+}
+
+/* Highlight brightness pulse */
+@keyframes highlight-pulse {
+  0% { filter: brightness(1); }
+  50% { filter: brightness(1.6); }
+  100% { filter: brightness(1); }
+}
+
+/* Widget loading pulse */
+@keyframes widget-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.1); opacity: 1; }
+}
+
+/* Skeleton border spinner */
+@keyframes border-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   UTILITY CLASSES — Apply animations declaratively
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Entrance animations */
+.animate-fade-in {
+  animation: fade-in 0.4s ease-out forwards;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-down {
+  animation: slide-down 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-pop-in {
+  animation: pop-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-entry-in {
+  animation: entry-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Loop animations */
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+.animate-pulse-live {
+  animation: pulse-live 2s ease-in-out infinite;
+}
+
+.animate-pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
+
+.animate-shimmer {
+  animation: shimmer 0.8s ease forwards;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 12s linear infinite;
+}
+
+/* Skeleton loading */
+.animate-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--card, rgba(12, 16, 24, 0.65)) 25%,
+    rgba(255, 255, 255, 0.06) 50%,
+    var(--card, rgba(12, 16, 24, 0.65)) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+/* Gradient text shimmer */
+.animate-gradient-text {
+  background-size: 200% auto;
+  animation: gradient-shift 6s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   STAGGER DELAY UTILITIES — For sequential entrance animations
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.delay-1 { animation-delay: 0.08s; }
+.delay-2 { animation-delay: 0.16s; }
+.delay-3 { animation-delay: 0.24s; }
+.delay-4 { animation-delay: 0.32s; }
+.delay-5 { animation-delay: 0.40s; }
+.delay-6 { animation-delay: 0.48s; }
+.delay-7 { animation-delay: 0.56s; }
+.delay-8 { animation-delay: 0.64s; }
+.delay-9 { animation-delay: 0.72s; }
+.delay-10 { animation-delay: 0.80s; }
+
+/* Start invisible for staggered elements (set opacity 0 initially) */
+.stagger-item {
+  opacity: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TRANSITION UTILITIES — Consistent micro-interaction feel
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.transition-fast {
+  transition: all 0.2s ease;
+}
+
+.transition-default {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.transition-medium {
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.transition-slow {
+  transition: all 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.transition-elastic {
+  transition: all 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.transition-theme {
+  transition: background 0.6s, color 0.6s;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   GLASSMORPHISM UTILITIES
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.glass {
+  background: var(--card);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid var(--border);
+}
+
+.glass-elevated {
+  background: var(--card);
+  backdrop-filter: blur(32px) saturate(1.6);
+  -webkit-backdrop-filter: blur(32px) saturate(1.6);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.glass-max {
+  backdrop-filter: blur(40px) saturate(1.6);
+  -webkit-backdrop-filter: blur(40px) saturate(1.6);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   HOVER INTERACTION PATTERNS
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* Card lift + glow on hover */
+.hover-lift {
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.hover-lift:hover {
+  transform: translateY(-3px);
+  border-color: rgba(0, 225, 255, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 225, 255, 0.1);
+}
+
+/* Subtle scale on hover */
+.hover-scale {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.hover-scale:hover {
+  transform: scale(1.05);
+}
+
+/* Icon hover effect */
+.hover-icon {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.hover-icon:hover {
+  color: var(--accent);
+  transform: translateY(-3px);
+}
+
+/* Button press feedback */
+.active-press:active {
+  transform: scale(0.95);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   ACCESSIBILITY — Reduced Motion
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

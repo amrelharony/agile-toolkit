@@ -1,15 +1,18 @@
 "use client";
 
-import { useRef, useMemo, useState, useEffect, useCallback } from "react";
+import { useRef, useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { EditableName } from "@/components/shared/editable-name";
 import { generateRACIPrompts } from "@/lib/ai-prompts/raci";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { RACI_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
+import { SectionCard } from "@/components/shared/section-card";
 import {
   Select,
   SelectContent,
@@ -257,70 +260,7 @@ function validateMatrix(
 /*  Editable Name Cell                                                        */
 /* -------------------------------------------------------------------------- */
 
-function EditableName({
-  value,
-  onChange,
-  className,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  className?: string;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setDraft(value);
-  }, [value]);
-
-  useEffect(() => {
-    if (editing) {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }
-  }, [editing]);
-
-  const commit = useCallback(() => {
-    setEditing(false);
-    const trimmed = draft.trim();
-    if (trimmed && trimmed !== value) {
-      onChange(trimmed);
-    } else {
-      setDraft(value);
-    }
-  }, [draft, value, onChange]);
-
-  if (editing) {
-    return (
-      <Input
-        ref={inputRef}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commit();
-          if (e.key === "Escape") {
-            setDraft(value);
-            setEditing(false);
-          }
-        }}
-        className={`h-7 text-sm bg-card border-border text-text focus:border-accent/50 focus:ring-accent/20 ${className ?? ""}`}
-      />
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => setEditing(true)}
-      className={`text-sm text-left truncate hover:text-accent transition-colors cursor-text ${className ?? ""}`}
-      title="Click to edit"
-    >
-      {value}
-    </button>
-  );
-}
+// EditableName moved to @/components/shared/editable-name (imported above).
 
 /* -------------------------------------------------------------------------- */
 /*  RACI Cell                                                                 */
@@ -389,15 +329,47 @@ export function RACIClient() {
     roles,
     activities,
     matrix,
-    addRole,
-    removeRole,
+    addRole: addRoleRaw,
+    removeRole: removeRoleRaw,
     updateRoleName,
-    addActivity,
-    removeActivity,
+    addActivity: addActivityRaw,
+    removeActivity: removeActivityRaw,
     updateActivityName,
-    setCellValue,
-    reset,
+    setCellValue: setCellValueRaw,
+    reset: resetRaw,
   } = useRACIStore();
+  const { log } = useHistoryLogger("raci");
+
+  const addRole: typeof addRoleRaw = (...args) => {
+    addRoleRaw(...args);
+    log(RACI_ACTIONS.ROLE_ADDED, {});
+  };
+  const removeRole: typeof removeRoleRaw = (id) => {
+    const role = roles.find((r) => r.id === id);
+    removeRoleRaw(id);
+    log(RACI_ACTIONS.ROLE_REMOVED, { roleId: id, name: role?.name });
+  };
+  const addActivity: typeof addActivityRaw = (...args) => {
+    addActivityRaw(...args);
+    log(RACI_ACTIONS.ACTIVITY_ADDED, {});
+  };
+  const removeActivity: typeof removeActivityRaw = (id) => {
+    const activity = activities.find((a) => a.id === id);
+    removeActivityRaw(id);
+    log(RACI_ACTIONS.ACTIVITY_REMOVED, { activityId: id, name: activity?.name });
+  };
+  const setCellValue: typeof setCellValueRaw = (...args) => {
+    setCellValueRaw(...args);
+    log(RACI_ACTIONS.ASSIGNMENT_CHANGED, {
+      activityId: args[0],
+      roleId: args[1],
+      value: args[2],
+    });
+  };
+  const reset = () => {
+    resetRaw();
+    log(RACI_ACTIONS.RACI_RESET, {});
+  };
 
   const exportRef = useRef<HTMLDivElement>(null);
 
@@ -473,6 +445,7 @@ export function RACIClient() {
 
   return (
     <ToolPageWrapper
+      toolId="raci"
       title="RACI Matrix Builder"
       description="Define roles and activities, then assign Responsible, Accountable, Consulted, or Informed to clarify ownership."
       category="Team Health & Maturity"
@@ -542,35 +515,138 @@ export function RACIClient() {
         )}
 
         {/* ---- Matrix ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-                <Grid3X3 className="w-5 h-5 text-accent" />
-                RACI Matrix
-              </CardTitle>
-              <div className="flex items-center gap-2 flex-wrap">
-                <AiPromptGenerator config={promptConfig} />
-                <ExportButton
-                  filename="raci-matrix"
-                  clipboardText={clipboardText}
-                  csvData={csvData}
-                  jsonData={jsonData}
-                  targetRef={exportRef}
-                />
+        <SectionCard
+          title="RACI Matrix"
+          icon={Grid3X3}
+          titleSize="lg"
+          headerClassName="pb-4"
+          actions={
+            <>
+              <AiPromptGenerator config={promptConfig} />
+              <ExportButton
+                filename="raci-matrix"
+                clipboardText={clipboardText}
+                csvData={csvData}
+                jsonData={jsonData}
+                targetRef={exportRef}
+              />
+              <Button
+                variant="danger-ghost"
+                size="sm"
+                onClick={reset}
+              >
+                Reset
+              </Button>
+            </>
+          }
+        >
+          {/* ── Mobile card view (< md / 768px) ───────────────────────── */}
+            {/* The table needs ≥ 500 px to be readable; on phones we stack
+                each activity into a card with role-by-role rows. Same data,
+                same callbacks — only the visual layout changes. */}
+            <div className="md:hidden space-y-3">
+              {activities.map((activity) => {
+                const hasIssue = issueActivityIds.has(activity.id);
+                return (
+                  <div
+                    key={activity.id}
+                    className={`rounded-lg border bg-surface-deep p-3 space-y-2 ${
+                      hasIssue ? "border-red-500/50" : "border-border"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <EditableName
+                        value={activity.name}
+                        onChange={(name) =>
+                          updateActivityName(activity.id, name)
+                        }
+                        className="flex-1 font-medium text-text"
+                      />
+                      {activities.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeActivity(activity.id)}
+                          className="btn-danger-ghost min-touch -m-2 p-2 rounded flex-shrink-0"
+                          aria-label={`Remove activity ${activity.name}`}
+                        >
+                          <Trash2 className="w-4 h-4" aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 xs:grid-cols-2 gap-2">
+                      {roles.map((role) => (
+                        <div
+                          key={role.id}
+                          className="flex items-center gap-2 rounded-md bg-[var(--bg2)] px-2 py-1.5 border border-border"
+                        >
+                          <span className="text-xs text-sub font-medium truncate flex-1">
+                            {role.name}
+                          </span>
+                          <RACICell
+                            value={matrix[activity.id]?.[role.id] || ""}
+                            onChange={(v) =>
+                              setCellValue(activity.id, role.id, v)
+                            }
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="flex flex-wrap gap-2 pt-1">
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
-                  onClick={reset}
-                  className="text-sub hover:text-red-400 hover:bg-red-400/10"
+                  onClick={addActivity}
+                  className="gap-1.5 flex-1"
                 >
-                  Reset
+                  <Plus className="w-4 h-4" aria-hidden="true" />
+                  Add activity
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={addRole}
+                  className="gap-1.5 flex-1"
+                >
+                  <Plus className="w-4 h-4" aria-hidden="true" />
+                  Add role
                 </Button>
               </div>
+              {roles.length > 1 && (
+                <details className="text-xs text-sub mt-2">
+                  <summary className="cursor-pointer hover:text-text min-touch py-2 inline-block">
+                    Manage roles ({roles.length})
+                  </summary>
+                  <ul className="mt-2 space-y-1 pl-1">
+                    {roles.map((role) => (
+                      <li
+                        key={role.id}
+                        className="flex items-center gap-2 rounded-md border border-border bg-[var(--bg2)] px-2 py-1"
+                      >
+                        <EditableName
+                          value={role.name}
+                          onChange={(name) => updateRoleName(role.id, name)}
+                          className="flex-1 font-medium text-text"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeRole(role.id)}
+                          className="btn-danger-ghost min-touch -m-2 p-2 rounded flex-shrink-0"
+                          aria-label={`Remove role ${role.name}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
+
+            {/* ── Desktop matrix view (md+) ─────────────────────────────── */}
+            <div className="hidden md:block table-wrap-responsive">
               <table className="w-full border-collapse min-w-[500px]">
                 <thead>
                   <tr>
@@ -593,7 +669,7 @@ export function RACIClient() {
                             <button
                               type="button"
                               onClick={() => removeRole(role.id)}
-                              className="p-0.5 rounded text-sub hover:text-red-400 hover:bg-red-400/10 transition-colors flex-shrink-0"
+                              className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
                               title="Remove role"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -607,7 +683,7 @@ export function RACIClient() {
                         variant="ghost"
                         size="icon"
                         onClick={addRole}
-                        className="h-7 w-7 text-accent hover:bg-accent/10"
+                        className="min-touch-coarse h-7 w-7 text-accent hover:bg-accent/10"
                         title="Add role"
                       >
                         <Plus className="w-4 h-4" />
@@ -639,7 +715,7 @@ export function RACIClient() {
                               <button
                                 type="button"
                                 onClick={() => removeActivity(activity.id)}
-                                className="p-0.5 rounded text-sub hover:text-red-400 hover:bg-red-400/10 transition-colors flex-shrink-0"
+                                className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
                                 title="Remove activity"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -689,8 +765,7 @@ export function RACIClient() {
                 </tfoot>
               </table>
             </div>
-          </CardContent>
-        </Card>
+        </SectionCard>
       </div>
     </ToolPageWrapper>
   );

@@ -8,15 +8,17 @@ import {
   PolarGrid,
   PolarAngleAxis,
   Radar,
-  ResponsiveContainer,
   Tooltip,
 } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateMaturityPrompts } from "@/lib/ai-prompts/maturity";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { MATURITY_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SectionCard } from "@/components/shared/section-card";
+import { ChartCard } from "@/components/shared/chart-card";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Award, TrendingUp, ChevronRight, RotateCcw } from "lucide-react";
@@ -84,8 +86,26 @@ function CustomTooltip({
 /* -------------------------------------------------------------------------- */
 
 export function MaturityClient() {
-  const { scores, targetLevel, setScore, setTargetLevel, reset } =
-    useMaturityStore();
+  const {
+    scores,
+    targetLevel,
+    setScore: setScoreRaw,
+    setTargetLevel,
+    reset: resetRaw,
+  } = useMaturityStore();
+  const { log } = useHistoryLogger("maturity");
+
+  const setScore: typeof setScoreRaw = (...args) => {
+    setScoreRaw(...args);
+    log(MATURITY_ACTIONS.RATING_CHANGED, {
+      dimension: args[0],
+      level: args[1],
+    });
+  };
+  const reset = () => {
+    resetRaw();
+    log(MATURITY_ACTIONS.MATURITY_RESET, {});
+  };
   const chartRef = useRef<HTMLDivElement>(null);
 
   /* -- Derived data -------------------------------------------------------- */
@@ -171,6 +191,7 @@ export function MaturityClient() {
 
   return (
     <ToolPageWrapper
+      toolId="maturity"
       title="Agile Maturity Assessment"
       description="Rate your team across 8 Agile dimensions to visualize your current maturity and identify the most impactful next steps."
       category="Team Health & Maturity"
@@ -211,10 +232,10 @@ export function MaturityClient() {
               targetRef={chartRef}
             />
             <Button
-              variant="ghost"
+              variant="danger-ghost"
               size="sm"
               onClick={reset}
-              className="gap-1.5 text-sub hover:text-red-400 hover:bg-red-400/10"
+              className="gap-1.5"
             >
               <RotateCcw className="w-4 h-4" />
               Reset
@@ -225,88 +246,52 @@ export function MaturityClient() {
         {/* ---- Main layout: sliders + radar ------------------------------- */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           {/* Left: dimension sliders */}
-          <Card className="bg-surface border-border">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-lg font-display text-text">
-                Dimension Scores
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              {MATURITY_DIMENSIONS.map((dim) => {
-                const level = scores[dim.id] ?? 1;
-                const levelData = dim.levels.find((l) => l.level === level)!;
-                return (
-                  <div key={dim.id} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-text">
-                        {dim.name}
-                      </span>
-                      <Badge
-                        variant="outline"
-                        className="text-xs border-accent/30 text-accent bg-accent/5"
-                      >
-                        {level} — {levelData.label}
-                      </Badge>
-                    </div>
-                    <Slider
-                      min={1}
-                      max={5}
-                      step={1}
-                      value={[level]}
-                      onValueChange={([v]) => setScore(dim.id, v)}
-                      className="w-full"
-                    />
-                    <p className="text-xs text-sub leading-relaxed">
-                      {levelData.description}
-                    </p>
+          <SectionCard
+            title="Dimension Scores"
+            titleSize="lg"
+            headerClassName="pb-4"
+            contentClassName="space-y-5"
+          >
+            {MATURITY_DIMENSIONS.map((dim) => {
+              const level = scores[dim.id] ?? 1;
+              const levelData = dim.levels.find((l) => l.level === level)!;
+              return (
+                <div key={dim.id} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-text">
+                      {dim.name}
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className="text-xs border-accent/30 text-accent bg-accent/5"
+                    >
+                      {level} — {levelData.label}
+                    </Badge>
                   </div>
-                );
-              })}
-            </CardContent>
-          </Card>
+                  <Slider
+                    min={1}
+                    max={5}
+                    step={1}
+                    value={[level]}
+                    onValueChange={([v]) => setScore(dim.id, v)}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-sub leading-relaxed">
+                    {levelData.description}
+                  </p>
+                </div>
+              );
+            })}
+          </SectionCard>
 
           {/* Right: radar chart */}
           <div className="space-y-4">
-            <Card className="bg-surface border-border">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg font-display text-text">
-                  Maturity Radar
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div ref={chartRef} className="h-[420px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RadarChart
-                      data={radarData}
-                      margin={{ top: 20, right: 30, bottom: 20, left: 30 }}
-                    >
-                      <PolarGrid
-                        gridType="polygon"
-                        stroke="rgba(255,255,255,0.1)"
-                      />
-                      <PolarAngleAxis
-                        dataKey="subject"
-                        tick={{
-                          fill: "#a0aec0",
-                          fontSize: 11,
-                          fontFamily: "Inter, sans-serif",
-                        }}
-                      />
-                      <Radar
-                        name="Maturity"
-                        dataKey="value"
-                        stroke="#00f0ff"
-                        fill="#00f0ff"
-                        fillOpacity={0.15}
-                        strokeWidth={2}
-                        dot={{ r: 4, fill: "#00f0ff", strokeWidth: 0 }}
-                      />
-                      <Tooltip content={<CustomTooltip />} />
-                    </RadarChart>
-                  </ResponsiveContainer>
-                </div>
-                {/* Level legend */}
-                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 justify-center">
+            <ChartCard
+              title="Maturity Radar"
+              height={420}
+              chartContainerRef={chartRef}
+              footer={
+                <div className="flex flex-wrap gap-x-4 gap-y-1 justify-center">
                   {[1, 2, 3, 4, 5].map((l) => (
                     <span key={l} className="text-xs text-sub">
                       <span className="text-text font-medium">{l}</span>{" "}
@@ -314,81 +299,106 @@ export function MaturityClient() {
                     </span>
                   ))}
                 </div>
-              </CardContent>
-            </Card>
+              }
+            >
+              <RadarChart
+                data={radarData}
+                margin={{ top: 20, right: 30, bottom: 20, left: 30 }}
+              >
+                <PolarGrid
+                  gridType="polygon"
+                  stroke="rgba(255,255,255,0.1)"
+                />
+                <PolarAngleAxis
+                  dataKey="subject"
+                  tick={{
+                    fill: "#a0aec0",
+                    fontSize: 11,
+                    fontFamily: "Inter, sans-serif",
+                  }}
+                />
+                <Radar
+                  name="Maturity"
+                  dataKey="value"
+                  stroke="#00f0ff"
+                  fill="#00f0ff"
+                  fillOpacity={0.15}
+                  strokeWidth={2}
+                  dot={{ r: 4, fill: "#00f0ff", strokeWidth: 0 }}
+                />
+                <Tooltip content={<CustomTooltip />} />
+              </RadarChart>
+            </ChartCard>
           </div>
         </div>
 
         {/* ---- Improvement Roadmap ---------------------------------------- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-                <TrendingUp className="w-5 h-5 text-accent" />
-                Improvement Roadmap
-              </CardTitle>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-sub">Target level:</span>
-                <div className="flex gap-1">
-                  {[2, 3, 4, 5].map((l) => (
-                    <button
-                      key={l}
-                      type="button"
-                      onClick={() => setTargetLevel(l)}
-                      className={`w-8 h-8 rounded text-sm font-medium transition-all ${
-                        targetLevel === l
-                          ? "bg-accent text-[#0a0f1e] font-bold"
-                          : "bg-card text-sub hover:bg-cardH border border-border"
-                      }`}
-                    >
-                      {l}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {roadmapItems.length === 0 ? (
-              <div className="text-center py-8 text-sub">
-                <Award className="w-10 h-10 mx-auto mb-3 text-accent opacity-60" />
-                <p className="font-medium text-text">
-                  All dimensions meet or exceed target level {targetLevel}!
-                </p>
-                <p className="text-sm mt-1">
-                  Raise the target to continue improving.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {roadmapItems.map(({ dimension, current, nextLevel }) => (
-                  <div
-                    key={dimension.id}
-                    className="flex gap-3 p-4 rounded-lg bg-card-hover border border-border hover:border-accent/20 transition-colors"
+        <SectionCard
+          title="Improvement Roadmap"
+          icon={TrendingUp}
+          titleSize="lg"
+          headerClassName="pb-4"
+          actions={
+            <>
+              <span className="text-sm text-sub">Target level:</span>
+              <div className="flex gap-1">
+                {[2, 3, 4, 5].map((l) => (
+                  <button
+                    key={l}
+                    type="button"
+                    onClick={() => setTargetLevel(l)}
+                    className={`min-touch-coarse w-8 h-8 rounded text-sm font-medium transition-all ${
+                      targetLevel === l
+                        ? "bg-accent text-[#0a0f1e] font-bold"
+                        : "bg-card text-sub hover:bg-cardH border border-border"
+                    }`}
                   >
-                    <ChevronRight className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
-                    <div className="space-y-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-text text-sm">
-                          {dimension.name}
-                        </span>
-                        <span className="text-xs text-sub">
-                          Level {current} → {current + 1}
-                          {current + 1 < targetLevel && ` (target: ${targetLevel})`}
-                        </span>
-                      </div>
-                      {nextLevel && (
-                        <p className="text-sm text-sub leading-relaxed">
-                          {nextLevel.description}
-                        </p>
-                      )}
-                    </div>
-                  </div>
+                    {l}
+                  </button>
                 ))}
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </>
+          }
+        >
+          {roadmapItems.length === 0 ? (
+            <div className="text-center py-8 text-sub">
+              <Award className="w-10 h-10 mx-auto mb-3 text-accent opacity-60" />
+              <p className="font-medium text-text">
+                All dimensions meet or exceed target level {targetLevel}!
+              </p>
+              <p className="text-sm mt-1">
+                Raise the target to continue improving.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {roadmapItems.map(({ dimension, current, nextLevel }) => (
+                <div
+                  key={dimension.id}
+                  className="flex gap-3 p-4 rounded-lg bg-card-hover border border-border hover:border-accent/20 transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-text text-sm">
+                        {dimension.name}
+                      </span>
+                      <span className="text-xs text-sub">
+                        Level {current} → {current + 1}
+                        {current + 1 < targetLevel && ` (target: ${targetLevel})`}
+                      </span>
+                    </div>
+                    {nextLevel && (
+                      <p className="text-sm text-sub leading-relaxed">
+                        {nextLevel.description}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </SectionCard>
       </div>
     </ToolPageWrapper>
   );

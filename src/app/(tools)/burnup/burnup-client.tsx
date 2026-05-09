@@ -4,7 +4,6 @@ import { useRef, useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
-  ResponsiveContainer,
   ComposedChart,
   Area,
   Line,
@@ -15,12 +14,17 @@ import {
   Legend,
   ReferenceLine,
 } from "recharts";
+import { ChartCard } from "@/components/shared/chart-card";
+import { SectionCard } from "@/components/shared/section-card";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateBurnupPrompts } from "@/lib/ai-prompts/burnup";
+import { todayLocalISO } from "@/lib/utils/formatters";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { BURNUP_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { chartTheme } from "@/components/charts/chart-theme";
@@ -65,10 +69,14 @@ interface BurnupStore {
 /*  Default data                                                               */
 /* -------------------------------------------------------------------------- */
 
-const defaultConfig: BurnupConfig = {
-  sprintDays: 10,
-  sprintStartDate: new Date().toISOString().slice(0, 10),
-};
+// Computed lazily so the start-date reflects the user's actual session, not
+// the moment the JS bundle was first loaded.
+function makeDefaultConfig(): BurnupConfig {
+  return {
+    sprintDays: 10,
+    sprintStartDate: todayLocalISO(),
+  };
+}
 
 function createDefaultEntries(sprintDays: number): DayEntry[] {
   return Array.from({ length: sprintDays + 1 }, (_, i) => ({
@@ -86,8 +94,8 @@ function createDefaultEntries(sprintDays: number): DayEntry[] {
 const useBurnupStore = create<BurnupStore>()(
   persist(
     (set) => ({
-      config: { ...defaultConfig },
-      entries: createDefaultEntries(defaultConfig.sprintDays),
+      config: makeDefaultConfig(),
+      entries: createDefaultEntries(makeDefaultConfig().sprintDays),
 
       updateConfig: (updates) =>
         set((s) => {
@@ -120,11 +128,13 @@ const useBurnupStore = create<BurnupStore>()(
       removeEntry: (id) =>
         set((s) => ({ entries: s.entries.filter((e) => e.id !== id) })),
 
-      reset: () =>
+      reset: () => {
+        const cfg = makeDefaultConfig();
         set({
-          config: { ...defaultConfig },
-          entries: createDefaultEntries(defaultConfig.sprintDays),
-        }),
+          config: cfg,
+          entries: createDefaultEntries(cfg.sprintDays),
+        });
+      },
     }),
     { name: "agile-toolkit:burnup" }
   )
@@ -220,8 +230,36 @@ function StatCard({
 /* -------------------------------------------------------------------------- */
 
 export function BurnupClient() {
-  const { config, entries, updateConfig, updateEntry, addEntry, removeEntry, reset } =
-    useBurnupStore();
+  const {
+    config,
+    entries,
+    updateConfig: updateConfigRaw,
+    updateEntry,
+    addEntry: addEntryRaw,
+    removeEntry: removeEntryRaw,
+    reset: resetRaw,
+  } = useBurnupStore();
+  const { log } = useHistoryLogger("burnup");
+
+  const updateConfig: typeof updateConfigRaw = (updates) => {
+    updateConfigRaw(updates);
+    log(BURNUP_ACTIONS.CONFIG_UPDATED, updates as Record<string, unknown>);
+  };
+  const addEntry: typeof addEntryRaw = () => {
+    addEntryRaw();
+    const fresh = useBurnupStore.getState().entries;
+    const created = fresh[fresh.length - 1];
+    log(BURNUP_ACTIONS.DAY_LOGGED, { entryId: created?.id, day: created?.day });
+  };
+  const removeEntry: typeof removeEntryRaw = (id) => {
+    const entry = entries.find((e) => e.id === id);
+    removeEntryRaw(id);
+    log(BURNUP_ACTIONS.DAY_REMOVED, { day: entry?.day });
+  };
+  const reset = () => {
+    resetRaw();
+    log(BURNUP_ACTIONS.BURNUP_RESET, {});
+  };
 
   const chartRef = useRef<HTMLDivElement>(null);
 
@@ -333,6 +371,7 @@ export function BurnupClient() {
 
   return (
     <ToolPageWrapper
+      toolId="burnup"
       title="Burnup Generator"
       description="Visualise completed work climbing toward total scope. Scope creep is immediately visible when the scope line rises."
       category="Metrics & Dashboards"
@@ -380,63 +419,65 @@ export function BurnupClient() {
         </div>
 
         {/* ---- Configuration ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-4">
-            <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-              <Settings2 className="w-5 h-5 text-accent" />
-              Sprint Configuration
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-sub text-xs">Sprint Length (days)</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={60}
-                  value={config.sprintDays}
-                  onChange={(e) =>
-                    updateConfig({ sprintDays: Math.max(1, Math.min(60, Number(e.target.value))) })
-                  }
-                  className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sub text-xs">Sprint Start Date</Label>
-                <Input
-                  type="date"
-                  value={config.sprintStartDate}
-                  onChange={(e) => updateConfig({ sprintStartDate: e.target.value })}
-                  className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-                />
-              </div>
+        <SectionCard
+          title="Sprint Configuration"
+          icon={Settings2}
+          titleSize="lg"
+          headerClassName="pb-4"
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-sub text-xs">Sprint Length (days)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={60}
+                value={config.sprintDays}
+                onChange={(e) =>
+                  updateConfig({ sprintDays: Math.max(1, Math.min(60, Number(e.target.value))) })
+                }
+                className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+              />
             </div>
-          </CardContent>
-        </Card>
+            <div className="space-y-1.5">
+              <Label className="text-sub text-xs">Sprint Start Date</Label>
+              <Input
+                type="date"
+                value={config.sprintStartDate}
+                onChange={(e) => updateConfig({ sprintStartDate: e.target.value })}
+                className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+              />
+            </div>
+          </div>
+        </SectionCard>
 
         {/* ---- Chart ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-                <BarChart2 className="w-5 h-5 text-accent" />
-                Burnup Chart
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <AiPromptGenerator config={promptConfig} />
-                <ExportButton
-                  filename="burnup-chart"
-                  csvData={csvData}
-                  targetRef={chartRef}
-                />
+        <ChartCard
+          title="Burnup Chart"
+          icon={BarChart2}
+          height={400}
+          chartContainerRef={chartRef}
+          headerExtras={
+            <>
+              <AiPromptGenerator config={promptConfig} />
+              <ExportButton
+                filename="burnup-chart"
+                csvData={csvData}
+                targetRef={chartRef}
+              />
+            </>
+          }
+          footer={
+            stats.scopeCreep > 0 ? (
+              <div className="flex items-center gap-2 text-xs text-[#ffaa00] bg-[#ffaa00]/8 border border-[#ffaa00]/20 rounded-md px-3 py-2">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                Scope creep detected: scope increased by {stats.scopeCreep} pts (
+                {stats.initialScope} → {stats.maxScope}).
               </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div ref={chartRef} className="w-full pt-2">
-              <ResponsiveContainer width="100%" height={400}>
-                <ComposedChart
+            ) : null
+          }
+        >
+          <ComposedChart
                   data={chartData}
                   margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
                 >
@@ -521,119 +562,104 @@ export function BurnupClient() {
                     activeDot={{ r: 5, fill: "#ff00aa", strokeWidth: 0 }}
                     connectNulls
                   />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Legend annotation */}
-            {stats.scopeCreep > 0 && (
-              <div className="mt-3 flex items-center gap-2 text-xs text-[#ffaa00] bg-[#ffaa00]/8 border border-[#ffaa00]/20 rounded-md px-3 py-2">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                Scope creep detected: scope increased by {stats.scopeCreep} pts (
-                {stats.initialScope} → {stats.maxScope}).
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          </ComposedChart>
+        </ChartCard>
 
         {/* ---- Data Entry Table ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-                <TrendingUp className="w-5 h-5 text-accent" />
-                Daily Data
-              </CardTitle>
-              <div className="flex items-center gap-2">
+        <SectionCard
+          title="Daily Data"
+          icon={TrendingUp}
+          titleSize="lg"
+          headerClassName="pb-4"
+          actions={
+            <>
+              <Button
+                variant="danger-ghost"
+                size="sm"
+                onClick={reset}
+              >
+                Reset
+              </Button>
+              <Button
+                size="sm"
+                variant="toolkit"
+                onClick={addEntry}
+                className="gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                Add Day
+              </Button>
+            </>
+          }
+        >
+          {/* Column headers */}
+          <div className="hidden sm:grid grid-cols-[80px_1fr_1fr_auto] gap-3 px-1 pb-2 border-b border-border mb-2">
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">
+              Day
+            </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">
+              Scope (Total pts)
+            </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">
+              Completed (pts)
+            </span>
+            <span className="w-9" />
+          </div>
+
+          <div className="space-y-2">
+            {sortedEntries.map((entry) => (
+              <div
+                key={entry.id}
+                className="grid grid-cols-[80px_1fr_1fr_auto] gap-3 items-center"
+              >
+                <span className="font-data text-sm font-semibold text-accent">
+                  Day {entry.day}
+                </span>
+
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="— pts"
+                  value={entry.scope ?? ""}
+                  onChange={(e) =>
+                    updateEntry(entry.id, {
+                      scope: e.target.value === "" ? null : Number(e.target.value),
+                    })
+                  }
+                  className="bg-surface-deep border-border text-text font-data focus:border-[#ff00aa]/50 focus:ring-[#ff00aa]/20"
+                />
+
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="— pts"
+                  value={entry.completed ?? ""}
+                  onChange={(e) =>
+                    updateEntry(entry.id, {
+                      completed: e.target.value === "" ? null : Number(e.target.value),
+                    })
+                  }
+                  className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+                />
+
                 <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={reset}
-                  className="text-sub hover:text-red-400 hover:bg-red-400/10"
+                  variant="danger-ghost"
+                  size="icon"
+                  onClick={() => removeEntry(entry.id)}
+                  disabled={sortedEntries.length <= 1}
+                  className="h-9 w-9 disabled:opacity-30"
                 >
-                  Reset
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={addEntry}
-                  className="gap-1.5 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Day
+                  <Trash2 className="w-4 h-4" />
                 </Button>
               </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {/* Column headers */}
-            <div className="hidden sm:grid grid-cols-[80px_1fr_1fr_auto] gap-3 px-1 pb-2 border-b border-border mb-2">
-              <span className="text-xs text-sub font-medium uppercase tracking-wider">
-                Day
-              </span>
-              <span className="text-xs text-sub font-medium uppercase tracking-wider">
-                Scope (Total pts)
-              </span>
-              <span className="text-xs text-sub font-medium uppercase tracking-wider">
-                Completed (pts)
-              </span>
-              <span className="w-9" />
-            </div>
+            ))}
+          </div>
 
-            <div className="space-y-2">
-              {sortedEntries.map((entry) => (
-                <div
-                  key={entry.id}
-                  className="grid grid-cols-[80px_1fr_1fr_auto] gap-3 items-center"
-                >
-                  <span className="font-data text-sm font-semibold text-accent">
-                    Day {entry.day}
-                  </span>
-
-                  <Input
-                    type="number"
-                    min={0}
-                    placeholder="— pts"
-                    value={entry.scope ?? ""}
-                    onChange={(e) =>
-                      updateEntry(entry.id, {
-                        scope: e.target.value === "" ? null : Number(e.target.value),
-                      })
-                    }
-                    className="bg-surface-deep border-border text-text font-data focus:border-[#ff00aa]/50 focus:ring-[#ff00aa]/20"
-                  />
-
-                  <Input
-                    type="number"
-                    min={0}
-                    placeholder="— pts"
-                    value={entry.completed ?? ""}
-                    onChange={(e) =>
-                      updateEntry(entry.id, {
-                        completed: e.target.value === "" ? null : Number(e.target.value),
-                      })
-                    }
-                    className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-                  />
-
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeEntry(entry.id)}
-                    disabled={sortedEntries.length <= 1}
-                    className="h-9 w-9 text-sub hover:text-red-400 hover:bg-red-400/10 disabled:opacity-30"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-
-            <p className="mt-4 text-xs text-sub">
-              Tip: Only enter scope on days when it changes. The chart carries the last known scope
-              value forward. Day 0 is the sprint start.
-            </p>
-          </CardContent>
-        </Card>
+          <p className="mt-4 text-xs text-sub">
+            Tip: Only enter scope on days when it changes. The chart carries the last known scope
+            value forward. Day 0 is the sprint start.
+          </p>
+        </SectionCard>
       </div>
     </ToolPageWrapper>
   );

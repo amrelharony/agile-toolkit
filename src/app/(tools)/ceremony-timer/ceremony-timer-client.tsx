@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +15,9 @@ import {
   ChevronRight,
   Timer,
 } from "lucide-react";
+import { useToolSonification } from "@/lib/sonification/use-sonification";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { CEREMONY_TIMER_ACTIONS } from "@/lib/history/event-actions";
 
 // ---------------------------------------------------------------------------
 // Types & constants
@@ -85,8 +88,8 @@ export function CeremonyTimerClient() {
   const [currentPerson, setCurrentPerson] = useState(0);
   const prevPersonRef = useRef(0);
 
-  // Audio ref for switch alert
-  const audioCtxRef = useRef<AudioContext | null>(null);
+  const sonify = useToolSonification("ceremony-timer");
+  const { log } = useHistoryLogger("ceremony-timer");
 
   // ---------------------------------------------------------------------------
   // Derived
@@ -108,31 +111,6 @@ export function CeremonyTimerClient() {
       : null;
 
   // ---------------------------------------------------------------------------
-  // Audio beep for person switch
-  // ---------------------------------------------------------------------------
-
-  const playBeep = useCallback(() => {
-    try {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new AudioContext();
-      }
-      const ctx = audioCtxRef.current;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = 880;
-      osc.type = "sine";
-      gain.gain.value = 0.3;
-      osc.start();
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-      osc.stop(ctx.currentTime + 0.4);
-    } catch {
-      // Audio not available -- silent fallback
-    }
-  }, []);
-
-  // ---------------------------------------------------------------------------
   // Timer tick
   // ---------------------------------------------------------------------------
 
@@ -142,16 +120,18 @@ export function CeremonyTimerClient() {
       setRemaining((prev) => {
         if (prev <= 1) {
           setRunning(false);
-          playBeep();
+          sonify("finish");
           return 0;
         }
+        if (prev === 11) sonify("ten-seconds");
+        else if (prev % 60 === 0 && prev > 0) sonify("minute-mark");
         return prev - 1;
       });
     }, 1000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [running, playBeep]);
+  }, [running, sonify]);
 
   // Person rotation -- check if we should switch person
   useEffect(() => {
@@ -164,9 +144,9 @@ export function CeremonyTimerClient() {
     if (newPerson !== prevPersonRef.current) {
       prevPersonRef.current = newPerson;
       setCurrentPerson(newPerson);
-      playBeep();
+      sonify("rotate");
     }
-  }, [remaining, rotationMode, participants.length, totalSeconds, perPersonSeconds, playBeep]);
+  }, [remaining, rotationMode, participants.length, totalSeconds, perPersonSeconds, sonify]);
 
   // ---------------------------------------------------------------------------
   // Actions
@@ -181,11 +161,13 @@ export function CeremonyTimerClient() {
     setCurrentPerson(0);
     prevPersonRef.current = 0;
     setShowCustom(false);
+    log(CEREMONY_TIMER_ACTIONS.PRESET_CHANGED, { minutes });
   };
 
   const applyCustom = () => {
-    const mins = parseInt(customMin, 10);
-    if (mins > 0 && mins <= 480) {
+    const trimmed = customMin.trim();
+    const mins = Number(trimmed);
+    if (trimmed && Number.isFinite(mins) && mins > 0 && mins <= 480) {
       selectPreset(mins);
       setShowCustom(false);
     }
@@ -193,8 +175,12 @@ export function CeremonyTimerClient() {
 
   const togglePlay = () => {
     if (remaining <= 0) return;
+    if (!running) sonify("start");
     setStarted(true);
     setRunning((r) => !r);
+    log(running ? CEREMONY_TIMER_ACTIONS.TIMER_PAUSED : CEREMONY_TIMER_ACTIONS.TIMER_STARTED, {
+      remainingSeconds: remaining,
+    });
   };
 
   const reset = () => {
@@ -203,6 +189,7 @@ export function CeremonyTimerClient() {
     setRemaining(totalSeconds);
     setCurrentPerson(0);
     prevPersonRef.current = 0;
+    log(CEREMONY_TIMER_ACTIONS.TIMER_RESET, { totalSeconds });
   };
 
   const addParticipant = () => {
@@ -223,6 +210,7 @@ export function CeremonyTimerClient() {
 
   return (
     <ToolPageWrapper
+      toolId="ceremony-timer"
       title="Ceremony Timer"
       description="Time-box agile ceremonies with preset or custom durations. Optional per-person rotation for standups."
       category="Ceremonies"
@@ -335,7 +323,7 @@ export function CeremonyTimerClient() {
                 <div className="flex gap-1">
                   {participants.map((p, i) => (
                     <div
-                      key={p}
+                      key={`${i}-${p}`}
                       className="flex-1 h-2 rounded-full transition-colors duration-300"
                       style={{
                         backgroundColor:
@@ -470,7 +458,10 @@ export function CeremonyTimerClient() {
                   <div className="flex flex-col gap-1">
                     {participants.map((name, i) => (
                       <div
-                        key={name}
+                        // Index participates in the key so a list of two
+                        // identical names (rare but possible after a future
+                        // rename or paste) doesn't collapse into one row.
+                        key={`${i}-${name}`}
                         className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${
                           started && i === currentPerson
                             ? "bg-accent/10 text-accent"
@@ -488,7 +479,7 @@ export function CeremonyTimerClient() {
                           variant="ghost"
                           onClick={() => removeParticipant(name)}
                           disabled={started && running}
-                          className="h-6 w-6 opacity-40 hover:opacity-100 hover:text-[#ef4444]"
+                          className="min-touch-coarse h-6 w-6 opacity-40 hover:opacity-100 hover:text-[#ef4444]"
                         >
                           <X className="h-3 w-3" />
                         </Button>

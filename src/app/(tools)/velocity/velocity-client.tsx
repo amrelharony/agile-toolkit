@@ -12,14 +12,18 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  ResponsiveContainer,
 } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ChartCard } from "@/components/shared/chart-card";
+import { SectionCard } from "@/components/shared/section-card";
+import { StatCard } from "@/components/shared/stat-card";
 import { generateVelocityPrompts } from "@/lib/ai-prompts/velocity";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { VELOCITY_ACTIONS } from "@/lib/history/event-actions";
+import { withTimeTravel } from "@/lib/stores/with-time-travel";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Plus, Trash2, Activity, TrendingUp, TrendingDown, Minus } from "lucide-react";
 
@@ -65,25 +69,40 @@ const createSprint = (count: number): Sprint => ({
 
 const useVelocityStore = create<VelocityStore>()(
   persist(
-    (set) => ({
-      sprints: DEFAULT_SPRINTS,
+    withTimeTravel<VelocityStore>(
+      { toolId: "velocity" },
+      (set) => ({
+        sprints: DEFAULT_SPRINTS,
 
-      addSprint: () =>
-        set((s) => ({ sprints: [...s.sprints, createSprint(s.sprints.length)] })),
+        addSprint: () =>
+          set((s) => ({ sprints: [...s.sprints, createSprint(s.sprints.length)] })),
 
-      removeSprint: (id) =>
-        set((s) => ({ sprints: s.sprints.filter((sp) => sp.id !== id) })),
+        removeSprint: (id) =>
+          set((s) => ({ sprints: s.sprints.filter((sp) => sp.id !== id) })),
 
-      updateSprint: (id, updates) =>
-        set((s) => ({
-          sprints: s.sprints.map((sp) =>
-            sp.id === id ? { ...sp, ...updates } : sp
-          ),
-        })),
+        updateSprint: (id, updates) =>
+          set((s) => ({
+            sprints: s.sprints.map((sp) =>
+              sp.id === id ? { ...sp, ...updates } : sp
+            ),
+          })),
 
-      reset: () => set({ sprints: DEFAULT_SPRINTS }),
-    }),
-    { name: "agile-toolkit:velocity" }
+        reset: () => set({ sprints: DEFAULT_SPRINTS }),
+      })
+    ),
+    {
+      name: "agile-toolkit:velocity",
+      // Don't persist the time-travel stacks — they're in-memory only.
+      partialize: (state) => {
+        const { _ttPast, _ttFuture, ...rest } = state as VelocityStore & {
+          _ttPast?: unknown;
+          _ttFuture?: unknown;
+        };
+        void _ttPast;
+        void _ttFuture;
+        return rest;
+      },
+    }
   )
 );
 
@@ -123,40 +142,7 @@ function round(v: number, d = 1) {
   return Math.round(v * 10 ** d) / 10 ** d;
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Sub-components                                                            */
-/* -------------------------------------------------------------------------- */
-
-function StatCard({
-  label,
-  value,
-  unit,
-  icon: Icon,
-  iconColor = "#00f0ff",
-}: {
-  label: string;
-  value: string | number;
-  unit?: string;
-  icon: React.ElementType;
-  iconColor?: string;
-}) {
-  return (
-    <Card className="bg-surface border-border">
-      <CardContent className="p-5">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="p-2 rounded-lg" style={{ background: `${iconColor}1a` }}>
-            <Icon className="w-5 h-5" style={{ color: iconColor }} />
-          </div>
-          <span className="text-sm text-sub">{label}</span>
-        </div>
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-3xl font-data font-bold text-text">{value}</span>
-          {unit && <span className="text-sm text-sub">{unit}</span>}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+// StatCard moved to @/components/shared/stat-card — imported above.
 
 const TOOLTIP_STYLE = {
   backgroundColor: "#1a1f36",
@@ -170,8 +156,46 @@ const TOOLTIP_STYLE = {
 /* -------------------------------------------------------------------------- */
 
 export function VelocityClient() {
-  const { sprints, addSprint, removeSprint, updateSprint, reset } =
-    useVelocityStore();
+  const {
+    sprints,
+    addSprint: addSprintRaw,
+    removeSprint: removeSprintRaw,
+    updateSprint,
+    reset: resetRaw,
+  } = useVelocityStore();
+  const { log } = useHistoryLogger("velocity");
+
+  const addSprint = () => {
+    addSprintRaw();
+    const next = useVelocityStore.getState().sprints;
+    const created = next[next.length - 1];
+    log(VELOCITY_ACTIONS.SPRINT_ADDED, {
+      sprintId: created.id,
+      name: created.name,
+    });
+  };
+
+  const removeSprint = (id: string) => {
+    const sprint = sprints.find((s) => s.id === id);
+    removeSprintRaw(id);
+    log(VELOCITY_ACTIONS.SPRINT_REMOVED, {
+      sprintId: id,
+      name: sprint?.name,
+    });
+  };
+
+  const reset = () => {
+    resetRaw();
+    log(VELOCITY_ACTIONS.VELOCITY_RESET, {});
+  };
+
+  const logSprintCommit = (
+    id: string,
+    field: "name" | "committed" | "completed",
+    value: string | number
+  ) => {
+    log(VELOCITY_ACTIONS.SPRINT_UPDATED, { sprintId: id, field, value });
+  };
 
   const exportRef = useRef<HTMLDivElement>(null);
 
@@ -243,6 +267,7 @@ export function VelocityClient() {
 
   return (
     <ToolPageWrapper
+      toolId="velocity"
       title="Velocity Tracker"
       description="Track your team's sprint velocity with rolling averages and trend analysis."
       category="Metrics & Dashboards"
@@ -281,181 +306,180 @@ export function VelocityClient() {
         </div>
 
         {/* ---- Chart ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-                <Activity className="w-5 h-5 text-accent" />
-                Velocity Chart
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <AiPromptGenerator config={promptConfig} />
-                <ExportButton
-                  filename="velocity-tracker"
-                  csvData={csvData}
-                  targetRef={exportRef}
-                />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={350}>
-              <ComposedChart
-                data={chartData}
-                margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgba(255,255,255,0.06)"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="name"
-                  tick={{ fill: "#94a3b8", fontSize: 12 }}
-                  axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fill: "#94a3b8", fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip
-                  contentStyle={TOOLTIP_STYLE}
-                  cursor={{ fill: "rgba(255,255,255,0.04)" }}
-                />
-                <Legend
-                  wrapperStyle={{ paddingTop: "16px", color: "#94a3b8", fontSize: 12 }}
-                />
-                <Bar
-                  dataKey="committed"
-                  name="Committed"
-                  fill="rgba(0,240,255,0.3)"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={60}
-                />
-                <Bar
-                  dataKey="completed"
-                  name="Completed"
-                  fill="#00f0ff"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={60}
-                />
-                <Line
-                  dataKey="rollingAvg"
-                  name="Rolling Avg"
-                  stroke="#ff00aa"
-                  strokeWidth={2}
-                  dot={false}
-                  connectNulls
-                />
-                <Line
-                  dataKey="trend"
-                  name="Trend"
-                  stroke="#ffaa00"
-                  strokeWidth={1.5}
-                  strokeDasharray="4 4"
-                  dot={false}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+        <ChartCard
+          title="Velocity Chart"
+          icon={Activity}
+          height={350}
+          headerExtras={
+            <>
+              <AiPromptGenerator config={promptConfig} />
+              <ExportButton
+                filename="velocity-tracker"
+                csvData={csvData}
+                targetRef={exportRef}
+              />
+            </>
+          }
+        >
+          <ComposedChart
+            data={chartData}
+            margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke="rgba(255,255,255,0.06)"
+              vertical={false}
+            />
+            <XAxis
+              dataKey="name"
+              tick={{ fill: "#94a3b8", fontSize: 12 }}
+              axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+              tickLine={false}
+            />
+            <YAxis
+              tick={{ fill: "#94a3b8", fontSize: 12 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <Tooltip
+              contentStyle={TOOLTIP_STYLE}
+              cursor={{ fill: "rgba(255,255,255,0.04)" }}
+            />
+            <Legend
+              wrapperStyle={{ paddingTop: "16px", color: "#94a3b8", fontSize: 12 }}
+            />
+            <Bar
+              dataKey="committed"
+              name="Committed"
+              fill="rgba(0,240,255,0.3)"
+              radius={[4, 4, 0, 0]}
+              maxBarSize={60}
+            />
+            <Bar
+              dataKey="completed"
+              name="Completed"
+              fill="#00f0ff"
+              radius={[4, 4, 0, 0]}
+              maxBarSize={60}
+            />
+            <Line
+              dataKey="rollingAvg"
+              name="Rolling Avg"
+              stroke="#ff00aa"
+              strokeWidth={2}
+              dot={false}
+              connectNulls
+            />
+            <Line
+              dataKey="trend"
+              name="Trend"
+              stroke="#ffaa00"
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
+              dot={false}
+            />
+          </ComposedChart>
+        </ChartCard>
 
         {/* ---- Data Table ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg font-display text-text">
-                Sprint Data
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={reset}
-                  className="text-sub hover:text-red-400 hover:bg-red-400/10"
-                >
-                  Reset
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={addSprint}
-                  className="gap-1.5 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Sprint
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {/* Header row */}
-            <div className="grid grid-cols-[1fr_0.6fr_0.6fr_auto] gap-3 px-1 pb-2 border-b border-border">
-              <span className="text-xs text-sub font-medium uppercase tracking-wider">Sprint Name</span>
-              <span className="text-xs text-sub font-medium uppercase tracking-wider">Committed</span>
-              <span className="text-xs text-sub font-medium uppercase tracking-wider">Completed</span>
-              <span className="w-9" />
-            </div>
-
-            {sprints.map((sp) => (
-              <div
-                key={sp.id}
-                className="grid grid-cols-[1fr_0.6fr_0.6fr_auto] gap-3 items-center"
+        <SectionCard
+          title="Sprint Data"
+          titleSize="lg"
+          headerClassName="pb-4"
+          contentClassName="space-y-3"
+          actions={
+            <>
+              <Button
+                variant="danger-ghost"
+                size="sm"
+                onClick={reset}
               >
-                <Input
-                  value={sp.name}
-                  onChange={(e) => updateSprint(sp.id, { name: e.target.value })}
-                  className="bg-surface-deep border-border text-text focus:border-accent/50 focus:ring-accent/20"
-                />
-                <Input
-                  type="number"
-                  min={0}
-                  value={sp.committed}
-                  onChange={(e) =>
-                    updateSprint(sp.id, { committed: Math.max(0, Number(e.target.value)) })
-                  }
-                  className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-                />
-                <Input
-                  type="number"
-                  min={0}
-                  value={sp.completed}
-                  onChange={(e) =>
-                    updateSprint(sp.id, { completed: Math.max(0, Number(e.target.value)) })
-                  }
-                  className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  disabled={sprints.length <= 1}
-                  onClick={() => removeSprint(sp.id)}
-                  className="h-9 w-9 text-sub hover:text-red-400 hover:bg-red-400/10 disabled:opacity-30"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
-            ))}
+                Reset
+              </Button>
+              <Button
+                size="sm"
+                variant="toolkit"
+                onClick={addSprint}
+                className="gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                Add Sprint
+              </Button>
+            </>
+          }
+        >
+          {/* Header row */}
+          <div className="grid grid-cols-[1fr_0.6fr_0.6fr_auto] gap-3 px-1 pb-2 border-b border-border">
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">Sprint Name</span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">Committed</span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">Completed</span>
+            <span className="w-9" />
+          </div>
 
-            {/* Predictability note */}
-            <div className="mt-4 pt-4 border-t border-border flex items-center justify-between px-1">
-              <span className="text-sm text-sub">
-                Sprints meeting commitment:{" "}
-                <span className="text-accent font-data font-semibold">
-                  {sprints.filter((s) => s.completed >= s.committed).length}
-                </span>{" "}
-                / {sprints.length}
-              </span>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-2xl font-data font-bold text-accent">
-                  {round(stats.predictability, 0)}%
-                </span>
-                <span className="text-sm text-sub">predictable</span>
-              </div>
+          {sprints.map((sp) => (
+            <div
+              key={sp.id}
+              className="grid grid-cols-[1fr_0.6fr_0.6fr_auto] gap-3 items-center"
+            >
+              <Input
+                value={sp.name}
+                onChange={(e) => updateSprint(sp.id, { name: e.target.value })}
+                onBlur={(e) => logSprintCommit(sp.id, "name", e.target.value)}
+                className="input-toolkit focus:ring-accent/20"
+              />
+              <Input
+                type="number"
+                min={0}
+                value={sp.committed}
+                onChange={(e) =>
+                  updateSprint(sp.id, { committed: Math.max(0, Number(e.target.value)) })
+                }
+                onBlur={(e) =>
+                  logSprintCommit(sp.id, "committed", Math.max(0, Number(e.target.value)))
+                }
+                className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+              />
+              <Input
+                type="number"
+                min={0}
+                value={sp.completed}
+                onChange={(e) =>
+                  updateSprint(sp.id, { completed: Math.max(0, Number(e.target.value)) })
+                }
+                onBlur={(e) =>
+                  logSprintCommit(sp.id, "completed", Math.max(0, Number(e.target.value)))
+                }
+                className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+              />
+              <Button
+                variant="danger-ghost"
+                size="icon"
+                disabled={sprints.length <= 1}
+                onClick={() => removeSprint(sp.id)}
+                className="h-9 w-9 disabled:opacity-30"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
             </div>
-          </CardContent>
-        </Card>
+          ))}
+
+          {/* Predictability note */}
+          <div className="mt-4 pt-4 border-t border-border flex items-center justify-between px-1">
+            <span className="text-sm text-sub">
+              Sprints meeting commitment:{" "}
+              <span className="text-accent font-data font-semibold">
+                {sprints.filter((s) => s.completed >= s.committed).length}
+              </span>{" "}
+              / {sprints.length}
+            </span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-data font-bold text-accent">
+                {round(stats.predictability, 0)}%
+              </span>
+              <span className="text-sm text-sub">predictable</span>
+            </div>
+          </div>
+        </SectionCard>
       </div>
     </ToolPageWrapper>
   );

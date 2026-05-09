@@ -18,6 +18,9 @@ import {
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateRetroPrompts } from "@/lib/ai-prompts/retro";
+import { emit as sonify } from "@/lib/sonification/emit";
+import { useHistoryLogger, type HistoryLogger } from "@/lib/history/use-history-logger";
+import { RETRO_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -306,7 +309,7 @@ function RetroCardItem({
             value={card.groupedWith ?? "__none__"}
             onValueChange={(val) => onGroup(card.id, val === "__none__" ? null : val)}
           >
-            <SelectTrigger className="h-6 text-[10px] bg-cardH border-border text-sub">
+            <SelectTrigger className="min-touch-coarse h-6 text-[10px] bg-cardH border-border text-sub">
               <SelectValue placeholder="Group with…" />
             </SelectTrigger>
             <SelectContent className="bg-card border-border">
@@ -464,7 +467,7 @@ function RetroColumnPanel({
               variant="ghost"
               onClick={handleSubmit}
               disabled={!inputVal.trim()}
-              className="h-8 w-8 p-0 text-sub hover:text-accent hover:bg-accent-cyan/10"
+              className="min-touch-coarse h-8 w-8 p-0 text-sub hover:text-accent hover:bg-accent-cyan/10"
             >
               <Plus className="w-4 h-4" />
             </Button>
@@ -480,6 +483,7 @@ function RetroColumnPanel({
 function FormatSelector({ onSelect }: { onSelect: (format: RetroFormat) => void }) {
   return (
     <ToolPageWrapper
+      toolId="retro"
       title="Retro Board"
       description="Run collaborative retrospectives with your team. Choose a format to get started — multiplayer sync coming soon."
       category="Ceremonies"
@@ -602,11 +606,14 @@ function Board({
   state,
   onUpdate,
   onReset,
+  logger,
 }: {
   state: BoardState;
   onUpdate: (updater: (prev: BoardState) => BoardState) => void;
   onReset: () => void;
+  logger: HistoryLogger;
 }) {
+  const { log } = logger;
   const [copied, setCopied] = useState(false);
 
   // Timer tick — only depend on timerRunning, not timerSeconds, to avoid
@@ -624,22 +631,28 @@ function Board({
   }, [state.timerRunning, onUpdate]);
 
   const handleAdvancePhase = useCallback(() => {
+    let transition: { from: BoardPhase; to: BoardPhase } | null = null;
     onUpdate((prev) => {
       const idx = PHASES.findIndex((p) => p.key === prev.phase);
       const next = PHASES[idx + 1];
       if (!next) return prev;
+      sonify("retro", "phase-advance");
+      transition = { from: prev.phase, to: next.key };
       return { ...prev, phase: next.key };
     });
-  }, [onUpdate]);
+    if (transition) log(RETRO_ACTIONS.PHASE_ADVANCED, transition);
+  }, [onUpdate, log]);
 
   const handleAddCard = useCallback(
     (columnKey: string, text: string) => {
+      sonify("retro", "card-add");
+      const cardId = makeId();
       onUpdate((prev) => ({
         ...prev,
         cards: [
           ...prev.cards,
           {
-            id: makeId(),
+            id: cardId,
             columnKey,
             text,
             votes: 0,
@@ -650,15 +663,20 @@ function Board({
           },
         ],
       }));
+      log(RETRO_ACTIONS.CARD_ADDED, { cardId, columnKey, text });
     },
-    [onUpdate]
+    [onUpdate, log]
   );
 
   const handleVote = useCallback(
     (id: string) => {
+      let nextVoteCount: number | null = null;
       onUpdate((prev) => {
         if (prev.phase !== "vote") return prev;
         if (prev.userVotes >= MAX_VOTES) return prev;
+        sonify("retro", "vote");
+        const card = prev.cards.find((c) => c.id === id);
+        nextVoteCount = (card?.votes ?? 0) + 1;
         return {
           ...prev,
           userVotes: prev.userVotes + 1,
@@ -667,42 +685,107 @@ function Board({
           ),
         };
       });
+      // Log AFTER the updater runs (post-commit) so StrictMode's double-invoke
+      // of the pure updater doesn't double-log.
+      if (nextVoteCount !== null) {
+        log(RETRO_ACTIONS.CARD_VOTED, { cardId: id, voteCount: nextVoteCount });
+      }
     },
-    [onUpdate]
+    [onUpdate, log]
   );
 
   const handleDelete = useCallback(
     (id: string) => {
-      onUpdate((prev) => ({
-        ...prev,
-        cards: prev.cards.filter((c) => c.id !== id && c.groupedWith !== id),
-      }));
+      let cascadedCount = 0;
+      onUpdate((prev) => {
+        // Collect every id that should disappear: the deleted card and every
+        // card grouped under it. Then sweep groupedWith on survivors so a
+        // parent that pointed at a now-deleted child doesn't keep a dangling
+        // reference (used by exports and the AI prompt).
+        const removed = new Set<string>([id]);
+        for (const c of prev.cards) if (c.groupedWith === id) removed.add(c.id);
+        cascadedCount = removed.size - 1;
+        return {
+          ...prev,
+          cards: prev.cards
+            .filter((c) => !removed.has(c.id))
+            .map((c) =>
+              c.groupedWith && removed.has(c.groupedWith) ? { ...c, groupedWith: null } : c
+            ),
+        };
+      });
+      log(RETRO_ACTIONS.CARD_REMOVED, { cardId: id, cascadedCount });
     },
-    [onUpdate]
+    [onUpdate, log]
   );
 
   const handleGroup = useCallback(
     (id: string, parentId: string | null) => {
-      onUpdate((prev) => ({
-        ...prev,
-        cards: prev.cards.map((c) =>
-          c.id === id ? { ...c, groupedWith: parentId } : c
-        ),
-      }));
+      // Track which branch the updater took so we can log post-commit.
+      // Use distinct nullable refs instead of a single union variable so
+      // TS's control-flow analysis (which doesn't cross closures) doesn't
+      // narrow the variable to its initial literal.
+      let didGroup: { sourceId: string; targetId: string } | null = null;
+      let didUngroup: { cardId: string } | null = null;
+      onUpdate((prev) => {
+        if (parentId === null) {
+          didUngroup = { cardId: id };
+          return {
+            ...prev,
+            cards: prev.cards.map((c) => (c.id === id ? { ...c, groupedWith: null } : c)),
+          };
+        }
+        // Reject self-grouping and reject grouping under a card that doesn't
+        // exist or sits in another column. Walk the parent chain to also
+        // reject cycles — without this, an imported state can produce a
+        // groupedWith loop that the renderer hides but every consumer
+        // (export, AI prompt, multiplayer sync) trips over.
+        const child = prev.cards.find((c) => c.id === id);
+        const parent = prev.cards.find((c) => c.id === parentId);
+        if (!child || !parent || parent.id === id) return prev;
+        if (parent.columnKey !== child.columnKey) return prev;
+        let cursor: string | null = parent.groupedWith;
+        const seen = new Set<string>([parent.id]);
+        while (cursor) {
+          if (cursor === id || seen.has(cursor)) return prev;
+          seen.add(cursor);
+          cursor = prev.cards.find((c) => c.id === cursor)?.groupedWith ?? null;
+        }
+        didGroup = { sourceId: id, targetId: parentId };
+        return {
+          ...prev,
+          cards: prev.cards.map((c) =>
+            c.id === id ? { ...c, groupedWith: parentId } : c
+          ),
+        };
+      });
+      if (didGroup) log(RETRO_ACTIONS.CARDS_GROUPED, didGroup);
+      else if (didUngroup) log(RETRO_ACTIONS.CARDS_UNGROUPED, didUngroup);
     },
-    [onUpdate]
+    [onUpdate, log]
   );
 
   const handleToggleAction = useCallback(
     (id: string) => {
-      onUpdate((prev) => ({
-        ...prev,
-        cards: prev.cards.map((c) =>
-          c.id === id ? { ...c, isActionItem: !c.isActionItem } : c
-        ),
-      }));
+      let nextIsActionItem: boolean | null = null;
+      onUpdate((prev) => {
+        const card = prev.cards.find((c) => c.id === id);
+        nextIsActionItem = !(card?.isActionItem ?? false);
+        return {
+          ...prev,
+          cards: prev.cards.map((c) =>
+            c.id === id ? { ...c, isActionItem: !c.isActionItem } : c
+          ),
+        };
+      });
+      if (nextIsActionItem !== null) {
+        log(RETRO_ACTIONS.ACTION_TOGGLED, {
+          cardId: id,
+          isActionItem: nextIsActionItem,
+        });
+      }
     },
-    [onUpdate]
+    [onUpdate, log]
   );
 
   const handleAssigneeChange = useCallback(
@@ -739,7 +822,8 @@ function Board({
       // ignore clipboard errors
     }
 
-    // Download JSON
+    // Download JSON. Revoke is deferred — Firefox/Safari can cancel the
+    // download if the blob URL is revoked synchronously after click().
     const blob = new Blob([JSON.stringify(json, null, 2)], {
       type: "application/json",
     });
@@ -748,7 +832,7 @@ function Board({
     a.href = url;
     a.download = `retro-${state.format.id}-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [state]);
 
   const totalCards = state.cards.filter((c) => c.groupedWith === null).length;
@@ -766,6 +850,7 @@ function Board({
 
   return (
     <ToolPageWrapper
+      toolId="retro"
       title={`Retro Board — ${state.format.name}`}
       description={state.format.description}
       category="Ceremonies"
@@ -902,22 +987,28 @@ function Board({
 
 export function RetroClient() {
   const [boardState, setBoardState] = useState<BoardState | null>(null);
+  const logger = useHistoryLogger("retro");
 
-  const handleSelectFormat = useCallback((format: RetroFormat) => {
-    setBoardState({
-      format,
-      phase: "write",
-      cards: [],
-      userVotes: 0,
-      timerSeconds: 300,
-      timerRunning: false,
-      discussingIndex: 0,
-    });
-  }, []);
+  const handleSelectFormat = useCallback(
+    (format: RetroFormat) => {
+      setBoardState({
+        format,
+        phase: "write",
+        cards: [],
+        userVotes: 0,
+        timerSeconds: 300,
+        timerRunning: false,
+        discussingIndex: 0,
+      });
+      logger.log(RETRO_ACTIONS.FORMAT_CHANGED, { format: format.name });
+    },
+    [logger]
+  );
 
   const handleReset = useCallback(() => {
     setBoardState(null);
-  }, []);
+    logger.log(RETRO_ACTIONS.RETRO_RESET, {});
+  }, [logger]);
 
   const handleUpdate = useCallback(
     (updater: (prev: BoardState) => BoardState) => {
@@ -935,6 +1026,7 @@ export function RetroClient() {
       state={boardState}
       onUpdate={handleUpdate}
       onReset={handleReset}
+      logger={logger}
     />
   );
 }

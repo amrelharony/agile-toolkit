@@ -10,15 +10,18 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ChartCard } from "@/components/shared/chart-card";
+import { SectionCard } from "@/components/shared/section-card";
 import { generateRefinementPrompts } from "@/lib/ai-prompts/refinement";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { REFINEMENT_ACTIONS } from "@/lib/history/event-actions";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -147,7 +150,7 @@ const useRefinementStore = create<RefinementStore>()(
         const save: StorySave = {
           id: crypto.randomUUID(),
           storyName: storyName.trim(),
-          date: new Date().toISOString().split("T")[0],
+          date: todayLocalISO(),
           checks: criteria.map((c) => ({
             criterionId: c.id,
             checked: !!currentChecks[c.id],
@@ -282,7 +285,7 @@ function CriterionRow({
             variant="ghost"
             size="icon"
             onClick={commitEdit}
-            className="h-7 w-7 text-[#00ff88] hover:bg-[#00ff88]/10"
+            className="min-touch-coarse h-7 w-7 text-[#00ff88] hover:bg-[#00ff88]/10"
           >
             <Check className="w-3.5 h-3.5" />
           </Button>
@@ -290,7 +293,7 @@ function CriterionRow({
             variant="ghost"
             size="icon"
             onClick={() => setEditing(false)}
-            className="h-7 w-7 text-sub hover:bg-cardH"
+            className="min-touch-coarse h-7 w-7 text-sub hover:bg-cardH"
           >
             <X className="w-3.5 h-3.5" />
           </Button>
@@ -316,15 +319,15 @@ function CriterionRow({
               setDraft(criterion.label);
               setEditing(true);
             }}
-            className="h-7 w-7 text-sub hover:text-accent hover:bg-accent/10"
+            className="min-touch-coarse h-7 w-7 text-sub hover:text-accent hover:bg-accent/10"
           >
             <Pencil className="w-3 h-3" />
           </Button>
           <Button
-            variant="ghost"
+            variant="danger-ghost"
             size="icon"
             onClick={onRemove}
-            className="h-7 w-7 text-sub hover:text-red-400 hover:bg-red-400/10"
+            className="min-touch-coarse h-7 w-7"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
@@ -349,12 +352,22 @@ export function RefinementClient() {
     removeCriterion,
     setStoryName,
     toggleCheck,
-    saveStory,
+    saveStory: saveStoryRaw,
     removeHistory,
     clearHistory,
     resetCurrent,
-    reset,
+    reset: resetRaw,
   } = useRefinementStore();
+  const { log } = useHistoryLogger("refinement");
+
+  const saveStory: typeof saveStoryRaw = (...args) => {
+    saveStoryRaw(...args);
+    log(REFINEMENT_ACTIONS.STORY_ADDED, { storyName });
+  };
+  const reset = () => {
+    resetRaw();
+    log(REFINEMENT_ACTIONS.REFINEMENT_RESET, {});
+  };
 
   const metCount = criteria.filter((c) => currentChecks[c.id]).length;
   const pct =
@@ -401,6 +414,7 @@ export function RefinementClient() {
 
   return (
     <ToolPageWrapper
+      toolId="refinement"
       title="Refinement Checklist"
       description="Track Definition of Ready compliance per story and monitor your team's refinement pass rate over time."
       category="Ceremonies"
@@ -419,10 +433,9 @@ export function RefinementClient() {
             )}
           </div>
           <Button
-            variant="ghost"
+            variant="danger-ghost"
             size="sm"
             onClick={reset}
-            className="text-sub hover:text-red-400 hover:bg-red-400/10"
           >
             Reset All
           </Button>
@@ -432,53 +445,45 @@ export function RefinementClient() {
           {/* Left — DoR criteria + per-story check */}
           <div className="space-y-4">
             {/* Criteria management */}
-            <Card className="bg-surface border-border">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base font-display text-text flex items-center gap-2">
-                    <CheckSquare className="w-4 h-4 text-accent" />
-                    Definition of Ready
-                  </CardTitle>
-                  <Button
-                    size="sm"
-                    onClick={addCriterion}
-                    className="gap-1.5 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {criteria.map((c) => (
-                  <CriterionRow
-                    key={c.id}
-                    criterion={c}
-                    checked={false}
-                    onLabelChange={(label) => setCriterion(c.id, label)}
-                    onRemove={() => removeCriterion(c.id)}
-                    showCheckbox={false}
-                  />
-                ))}
-                {criteria.length === 0 && (
-                  <p className="text-sm text-sub text-center py-4">
-                    No criteria yet. Add some above.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+            <SectionCard
+              title="Definition of Ready"
+              icon={CheckSquare}
+              actions={
+                <Button
+                  size="sm"
+                  variant="toolkit"
+                  onClick={addCriterion}
+                  className="gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add
+                </Button>
+              }
+              contentClassName="space-y-2"
+            >
+              {criteria.map((c) => (
+                <CriterionRow
+                  key={c.id}
+                  criterion={c}
+                  checked={false}
+                  onLabelChange={(label) => setCriterion(c.id, label)}
+                  onRemove={() => removeCriterion(c.id)}
+                  showCheckbox={false}
+                />
+              ))}
+              {criteria.length === 0 && (
+                <p className="text-sm text-sub text-center py-4">
+                  No criteria yet. Add some above.
+                </p>
+              )}
+            </SectionCard>
 
             {/* Per-story checklist */}
-            <Card className="bg-surface border-border">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base font-display text-text">
-                    Check Story
-                  </CardTitle>
-                  <ReadinessIndicator pct={pct} />
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <SectionCard
+              title="Check Story"
+              actions={<ReadinessIndicator pct={pct} />}
+              contentClassName="space-y-4"
+            >
                 <div className="space-y-1.5">
                   <Label className="text-sub text-xs">
                     Story Name / ID
@@ -487,7 +492,7 @@ export function RefinementClient() {
                     value={storyName}
                     onChange={(e) => setStoryName(e.target.value)}
                     placeholder="e.g. USER-42 — Add dark mode toggle"
-                    className="bg-surface-deep border-border text-text focus:border-accent/50"
+                    className="input-toolkit"
                   />
                 </div>
 
@@ -544,9 +549,10 @@ export function RefinementClient() {
 
                 <div className="flex gap-2 pt-1">
                   <Button
+                    variant="toolkit"
                     onClick={saveStory}
                     disabled={!storyName.trim()}
-                    className="flex-1 gap-2 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40 disabled:opacity-40"
+                    className="flex-1 gap-2"
                   >
                     <Save className="w-4 h-4" />
                     Save to History
@@ -559,115 +565,100 @@ export function RefinementClient() {
                     Clear
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
+            </SectionCard>
           </div>
 
           {/* Right — history + chart */}
           <div className="space-y-4">
             {/* Pass rate chart */}
             {chartData.length > 1 && (
-              <Card className="bg-surface border-border">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base font-display text-text flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-accent" />
-                    Pass Rate Trend
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <LineChart
-                      data={chartData}
-                      margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                    >
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        stroke="rgba(255,255,255,0.06)"
-                        vertical={false}
-                      />
-                      <XAxis
-                        dataKey="name"
-                        tick={{ fill: "#94a3b8", fontSize: 11 }}
-                        axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        domain={[0, 100]}
-                        tick={{ fill: "#94a3b8", fontSize: 11 }}
-                        axisLine={false}
-                        tickLine={false}
-                        tickFormatter={(v) => `${v}%`}
-                      />
-                      <Tooltip
-                        contentStyle={TOOLTIP_STYLE}
-                        formatter={(v, _name, props) => [
-                          `${v}%`,
-                          props.payload.story,
-                        ]}
-                      />
-                      <ReferenceLine
-                        y={80}
-                        stroke="#00ff88"
-                        strokeDasharray="4 4"
-                        strokeOpacity={0.5}
-                        label={{
-                          value: "80% target",
-                          fill: "#00ff88",
-                          fontSize: 10,
-                          position: "right",
-                        }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="passRate"
-                        name="Pass Rate"
-                        stroke="#00f0ff"
-                        strokeWidth={2}
-                        dot={{ fill: "#00f0ff", r: 3 }}
-                        activeDot={{ r: 5 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
+              <ChartCard
+                title="Pass Rate Trend"
+                icon={TrendingUp}
+                height={200}
+              >
+                <LineChart
+                  data={chartData}
+                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="rgba(255,255,255,0.06)"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fill: "#94a3b8", fontSize: 11 }}
+                    axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    domain={[0, 100]}
+                    tick={{ fill: "#94a3b8", fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => `${v}%`}
+                  />
+                  <Tooltip
+                    contentStyle={TOOLTIP_STYLE}
+                    formatter={(v, _name, props) => [
+                      `${v}%`,
+                      props.payload.story,
+                    ]}
+                  />
+                  <ReferenceLine
+                    y={80}
+                    stroke="#00ff88"
+                    strokeDasharray="4 4"
+                    strokeOpacity={0.5}
+                    label={{
+                      value: "80% target",
+                      fill: "#00ff88",
+                      fontSize: 10,
+                      position: "right",
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="passRate"
+                    name="Pass Rate"
+                    stroke="#00f0ff"
+                    strokeWidth={2}
+                    dot={{ fill: "#00f0ff", r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                </LineChart>
+              </ChartCard>
             )}
 
             {/* History table */}
-            <Card className="bg-surface border-border">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base font-display text-text flex items-center gap-2">
-                    <History className="w-4 h-4 text-accent" />
-                    Story History
-                    {history.length > 0 && (
-                      <span className="text-sm text-sub font-normal">
-                        ({history.length})
-                      </span>
-                    )}
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    {history.length > 0 && (
-                      <>
-                        <AiPromptGenerator config={promptConfig} />
-                        <ExportButton
-                          filename="refinement-history"
-                          csvData={csvData}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={clearHistory}
-                          className="text-sub hover:text-red-400 hover:bg-red-400/10 text-xs"
-                        >
-                          Clear
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {history.length === 0 ? (
+            <SectionCard
+              title="Story History"
+              icon={History}
+              titleSuffix={
+                history.length > 0 ? `(${history.length})` : undefined
+              }
+              actions={
+                history.length > 0 ? (
+                  <>
+                    <AiPromptGenerator config={promptConfig} />
+                    <ExportButton
+                      filename="refinement-history"
+                      csvData={csvData}
+                    />
+                    <Button
+                      variant="danger-ghost"
+                      size="sm"
+                      onClick={clearHistory}
+                      className="text-xs"
+                    >
+                      Clear
+                    </Button>
+                  </>
+                ) : undefined
+              }
+            >
+              {history.length === 0 ? (
                   <p className="text-sm text-sub text-center py-8">
                     No stories saved yet. Check a story above and click &ldquo;Save to
                     History&rdquo;.
@@ -726,10 +717,10 @@ export function RefinementClient() {
                             </td>
                             <td className="py-2.5">
                               <Button
-                                variant="ghost"
+                                variant="danger-ghost"
                                 size="icon"
                                 onClick={() => removeHistory(h.id)}
-                                className="h-7 w-7 opacity-0 group-hover:opacity-100 text-sub hover:text-red-400 hover:bg-red-400/10 transition-opacity"
+                                className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </Button>
@@ -740,8 +731,7 @@ export function RefinementClient() {
                     </table>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+            </SectionCard>
           </div>
         </div>
       </div>

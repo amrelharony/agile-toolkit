@@ -7,8 +7,11 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateCapacityPrompts } from "@/lib/ai-prompts/capacity-planner";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { CAPACITY_ACTIONS } from "@/lib/history/event-actions";
+import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -174,14 +177,26 @@ function ConfigField({
   step?: number;
   suffix?: string;
 }) {
+  // Clamp user input to the declared min/max so pasted or long-typed values
+  // can't drive derived calcs (focus factor, ceremony hours) out of range.
+  const handleChange = (raw: string) => {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return onChange(min ?? 0);
+    let next = n;
+    if (typeof min === "number") next = Math.max(min, next);
+    if (typeof max === "number") next = Math.min(max, next);
+    onChange(next);
+  };
+
   return (
     <div className="space-y-1.5">
       <Label className="text-sub text-xs">{label}</Label>
       <div className="relative">
         <Input
           type="number"
+          inputMode="decimal"
           value={value}
-          onChange={(e) => onChange(Number(e.target.value))}
+          onChange={(e) => handleChange(e.target.value)}
           min={min}
           max={max}
           step={step}
@@ -273,11 +288,11 @@ function MemberRow({
       <div className="space-y-1.5">
         <Label className="text-sub text-xs invisible">Del</Label>
         <Button
-          variant="ghost"
+          variant="danger-ghost"
           size="icon"
           disabled={!canRemove}
           onClick={onRemove}
-          className="h-9 w-9 text-sub hover:text-red-400 hover:bg-red-400/10 disabled:opacity-30"
+          className="h-9 w-9 disabled:opacity-30"
         >
           <Trash2 className="w-4 h-4" />
         </Button>
@@ -291,8 +306,32 @@ function MemberRow({
 /* -------------------------------------------------------------------------- */
 
 export function CapacityPlannerClient() {
-  const { members, config, addMember, removeMember, updateMember, updateConfig, reset } =
-    useCapacityStore();
+  const {
+    members,
+    config,
+    addMember: addMemberRaw,
+    removeMember: removeMemberRaw,
+    updateMember,
+    updateConfig,
+    reset: resetRaw,
+  } = useCapacityStore();
+  const { log } = useHistoryLogger("capacity-planner");
+
+  const addMember: typeof addMemberRaw = (...args) => {
+    addMemberRaw(...args);
+    const list = useCapacityStore.getState().members;
+    const created = list[list.length - 1];
+    log(CAPACITY_ACTIONS.MEMBER_ADDED, { memberId: created?.id, name: created?.name });
+  };
+  const removeMember: typeof removeMemberRaw = (id) => {
+    const member = members.find((m) => m.id === id);
+    removeMemberRaw(id);
+    log(CAPACITY_ACTIONS.MEMBER_REMOVED, { memberId: id, name: member?.name });
+  };
+  const reset = () => {
+    resetRaw();
+    log(CAPACITY_ACTIONS.CAPACITY_RESET, {});
+  };
 
   const exportRef = useRef<HTMLDivElement>(null);
 
@@ -366,6 +405,7 @@ export function CapacityPlannerClient() {
 
   return (
     <ToolPageWrapper
+      toolId="capacity-planner"
       title="Sprint Capacity Planner"
       description="Calculate your team's effective sprint capacity based on availability, time off, ceremony overhead, and focus factor."
       category="Sprint Planning & Estimation"
@@ -400,136 +440,131 @@ export function CapacityPlannerClient() {
         </div>
 
         {/* ---- Sprint Configuration ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-4">
-            <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-              <Settings2 className="w-5 h-5 text-accent" />
-              Sprint Configuration
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <ConfigField
-                label="Sprint Length"
-                value={config.sprintDays}
-                onChange={(v) => updateConfig({ sprintDays: v })}
-                min={1}
-                max={30}
-                step={1}
-                suffix="days"
-              />
-              <ConfigField
-                label="Ceremony Overhead"
-                value={config.ceremonyOverhead}
-                onChange={(v) => updateConfig({ ceremonyOverhead: v })}
-                min={0}
-                max={100}
-                step={1}
-                suffix="%"
-              />
-              <ConfigField
-                label="Focus Factor"
-                value={config.focusFactor}
-                onChange={(v) => updateConfig({ focusFactor: v })}
-                min={0}
-                max={1}
-                step={0.05}
-              />
-              <ConfigField
-                label="Hours per Day"
-                value={config.hoursPerDay}
-                onChange={(v) => updateConfig({ hoursPerDay: v })}
-                min={1}
-                max={24}
-                step={0.5}
-                suffix="hrs"
-              />
-            </div>
-          </CardContent>
-        </Card>
+        <SectionCard
+          title="Sprint Configuration"
+          icon={Settings2}
+          titleSize="lg"
+          headerClassName="pb-4"
+        >
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <ConfigField
+              label="Sprint Length"
+              value={config.sprintDays}
+              onChange={(v) => updateConfig({ sprintDays: v })}
+              min={1}
+              max={30}
+              step={1}
+              suffix="days"
+            />
+            <ConfigField
+              label="Ceremony Overhead"
+              value={config.ceremonyOverhead}
+              onChange={(v) => updateConfig({ ceremonyOverhead: v })}
+              min={0}
+              max={100}
+              step={1}
+              suffix="%"
+            />
+            <ConfigField
+              label="Focus Factor"
+              value={config.focusFactor}
+              onChange={(v) => updateConfig({ focusFactor: v })}
+              min={0}
+              max={1}
+              step={0.05}
+            />
+            <ConfigField
+              label="Hours per Day"
+              value={config.hoursPerDay}
+              onChange={(v) => updateConfig({ hoursPerDay: v })}
+              min={1}
+              max={24}
+              step={0.5}
+              suffix="hrs"
+            />
+          </div>
+        </SectionCard>
 
         {/* ---- Team Members ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
-                <Users className="w-5 h-5 text-accent" />
-                Team Members
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <AiPromptGenerator config={promptConfig} />
-                <ExportButton
-                  filename="sprint-capacity"
-                  clipboardText={clipboardText}
-                  csvData={csvData}
-                  jsonData={jsonData}
-                  targetRef={exportRef}
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={reset}
-                  className="text-sub hover:text-red-400 hover:bg-red-400/10"
-                >
-                  Reset
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={addMember}
-                  className="gap-1.5 bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Member
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {/* Column headers (visible on md+) */}
-            <div className="hidden md:grid grid-cols-[1fr_1fr_0.6fr_0.5fr_0.6fr_auto] gap-3 px-1 pb-1 border-b border-border">
-              <span className="text-xs text-sub font-medium uppercase tracking-wider">
-                Name
-              </span>
-              <span className="text-xs text-sub font-medium uppercase tracking-wider">
-                Role
-              </span>
-              <span className="text-xs text-sub font-medium uppercase tracking-wider">
-                Availability
-              </span>
-              <span className="text-xs text-sub font-medium uppercase tracking-wider">
-                Days Off
-              </span>
-              <span className="text-xs text-sub font-medium uppercase tracking-wider">
-                Eff. Hours
-              </span>
-              <span className="w-9" />
-            </div>
-
-            {calculations.perMember.map((m) => (
-              <MemberRow
-                key={m.id}
-                member={m}
-                effectiveHours={m.effectiveHours}
-                onUpdate={(updates) => updateMember(m.id, updates)}
-                onRemove={() => removeMember(m.id)}
-                canRemove={members.length > 1}
+        <SectionCard
+          title="Team Members"
+          icon={Users}
+          titleSize="lg"
+          headerClassName="pb-4"
+          contentClassName="space-y-3"
+          actions={
+            <>
+              <AiPromptGenerator config={promptConfig} />
+              <ExportButton
+                filename="sprint-capacity"
+                clipboardText={clipboardText}
+                csvData={csvData}
+                jsonData={jsonData}
+                targetRef={exportRef}
               />
-            ))}
+              <Button
+                variant="danger-ghost"
+                size="sm"
+                onClick={reset}
+              >
+                Reset
+              </Button>
+              <Button
+                size="sm"
+                variant="toolkit"
+                onClick={addMember}
+                className="gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                Add Member
+              </Button>
+            </>
+          }
+        >
+          {/* Column headers (visible on md+) */}
+          <div className="hidden md:grid grid-cols-[1fr_1fr_0.6fr_0.5fr_0.6fr_auto] gap-3 px-1 pb-1 border-b border-border">
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">
+              Name
+            </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">
+              Role
+            </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">
+              Availability
+            </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">
+              Days Off
+            </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">
+              Eff. Hours
+            </span>
+            <span className="w-9" />
+          </div>
 
-            {/* Total bar */}
-            <div className="mt-4 pt-4 border-t border-border flex items-center justify-between px-1">
-              <span className="text-sm font-medium text-sub">
-                Sprint Total
+          {calculations.perMember.map((m) => (
+            <MemberRow
+              key={m.id}
+              member={m}
+              effectiveHours={m.effectiveHours}
+              onUpdate={(updates) => updateMember(m.id, updates)}
+              onRemove={() => removeMember(m.id)}
+              canRemove={members.length > 1}
+            />
+          ))}
+
+          {/* Total bar */}
+          <div className="mt-4 pt-4 border-t border-border flex items-center justify-between px-1">
+            <span className="text-sm font-medium text-sub">
+              Sprint Total
+            </span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-data font-bold text-accent">
+                {round(calculations.totalHours)}
               </span>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-2xl font-data font-bold text-accent">
-                  {round(calculations.totalHours)}
-                </span>
-                <span className="text-sm text-sub">hours</span>
-              </div>
+              <span className="text-sm text-sub">hours</span>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </SectionCard>
 
         {/* ---- Per-person Breakdown Cards ---- */}
         {calculations.perMember.some((m) => m.name) && (
