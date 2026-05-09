@@ -85,6 +85,35 @@ export type AnalyticsFeature = "forecast" | "anomaly" | "survival" | "anti-patte
 
 export type ToolAudience = "coach" | "engineering-leader" | "both";
 
+/**
+ * Phase 15+ schema additions for ultra-advanced logic. Each is optional —
+ * tools that don't opt in get the existing behaviour unchanged.
+ */
+
+/** Cross-tool signal subscriptions — declarative pub/sub. */
+export interface ToolSubscription {
+  /** Signal kinds (matches `SignalKind` in src/lib/signals/signal-bus.ts). */
+  kinds: string[];
+  /** One-line rationale for the audit trail. */
+  reason: string;
+}
+
+/** Smart-default predictions registered against (toolId, field) at boot. */
+export interface PredictionSpec {
+  field: string;
+  /** Human label rendered in the SmartInput chip. */
+  description: string;
+}
+
+/** Causal-annotation hints declared on the tool — drive chart overlays. */
+export interface CausalAnnotationSpec {
+  /** Where to source data from — paired with the cross-correlation engine. */
+  source: string;       // e.g., "impediments.raised"
+  target: string;       // e.g., "velocity.changed"
+  /** Optional max lag in days for the cross-correlation lookup. */
+  maxLagDays?: number;
+}
+
 export interface ToolDefinition {
   id: string;
   code: string;
@@ -101,6 +130,14 @@ export interface ToolDefinition {
   analyticsFeatures?: AnalyticsFeature[];
   /** Persona this tool primarily serves. Defaults to "both" if omitted. */
   audience?: ToolAudience;
+  /** Tier 1 (full upgrade), 2 (targeted), 3 (lightweight). Defaults to 3. */
+  analyticsTier?: 1 | 2 | 3;
+  /** Smart-default fields backed by a registered predictor. */
+  predictedDefaults?: PredictionSpec[];
+  /** Cross-tool signal subscriptions (auto-mounted by ToolPageWrapper). */
+  crossToolSubscriptions?: ToolSubscription[];
+  /** Causal annotations to compute and overlay on this tool's charts. */
+  causalAnnotations?: CausalAnnotationSpec[];
 }
 
 export const categories: ToolCategory[] = [

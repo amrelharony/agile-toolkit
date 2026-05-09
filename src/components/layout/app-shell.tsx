@@ -5,6 +5,8 @@ import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { CommandPalette } from "./command-palette";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { installSignalBridge } from "@/lib/signals/signal-bridge";
+import { bootstrapPredictions } from "@/lib/predictions/bootstrap";
 import { SonificationProvider } from "@/lib/sonification/provider";
 import { GamificationProvider } from "@/lib/gamification/provider";
 import { HapticsProvider } from "@/lib/haptics/provider";
@@ -29,6 +31,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // re-read localStorage and triggered re-renders.
   useEffect(() => {
     useWorkspaceStore.persist.rehydrate();
+  }, []);
+
+  // Phase 15: install the cross-tool signal bridge once. Wires
+  // workspace-store mutations to the signal bus so any tool can subscribe
+  // to entity changes (impediment.raised, sprint.completed, etc.).
+  // Also bootstraps the smart-default predictor registry.
+  useEffect(() => {
+    installSignalBridge();
+    bootstrapPredictions();
   }, []);
 
   return (
