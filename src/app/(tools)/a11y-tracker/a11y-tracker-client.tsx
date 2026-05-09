@@ -1,0 +1,575 @@
+"use client";
+
+import { useMemo, useRef, useState } from "react";
+import {
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+} from "recharts";
+import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { ExportButton } from "@/components/shared/export-button";
+import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ActionRow } from "@/components/shared/action-row";
+import { KpiGrid } from "@/components/shared/kpi-grid";
+import { StatCard } from "@/components/shared/stat-card";
+import { SectionCard } from "@/components/shared/section-card";
+import { ChartCard } from "@/components/shared/chart-card";
+import { EmptyState } from "@/components/shared/empty-state";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Plus, Trash2, Eye, Clock, Layers } from "lucide-react";
+import { chartTheme } from "@/components/charts/chart-theme";
+import { generateA11yPrompts } from "@/lib/ai-prompts/a11y-tracker";
+import { usePersisted } from "@/lib/utils/use-persisted";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { A11Y_ACTIONS } from "@/lib/history/event-actions";
+import { todayLocalISO } from "@/lib/utils/formatters";
+
+/* ── Types ──────────────────────────────────────────────────────────────── */
+
+type Severity = "critical" | "serious" | "moderate" | "minor";
+type Status = "open" | "in_progress" | "resolved";
+
+interface A11yIssue {
+  id: string;
+  component: string;
+  wcagCriterion: string;
+  severity: Severity;
+  status: Status;
+  openedAt: string;
+  resolvedAt?: string;
+  description?: string;
+}
+
+interface A11yState {
+  issues: A11yIssue[];
+}
+
+const DEFAULT_STATE: A11yState = { issues: [] };
+
+const SEVERITY_OPTIONS: { value: Severity; label: string }[] = [
+  { value: "critical", label: "Critical" },
+  { value: "serious", label: "Serious" },
+  { value: "moderate", label: "Moderate" },
+  { value: "minor", label: "Minor" },
+];
+
+const SEVERITY_COLOR: Record<Severity, string> = {
+  critical: "#ef4444",
+  serious: "#f59e0b",
+  moderate: "#facc15",
+  minor: "#34d399",
+};
+
+const SEVERITY_RANK: Record<Severity, number> = {
+  critical: 4,
+  serious: 3,
+  moderate: 2,
+  minor: 1,
+};
+
+const STATUS_OPTIONS: { value: Status; label: string }[] = [
+  { value: "open", label: "Open" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "resolved", label: "Resolved" },
+];
+
+/* ── Helpers ────────────────────────────────────────────────────────────── */
+
+function dayDiff(fromIso: string, toIso?: string): number {
+  const m1 = /^(\d{4})-(\d{2})-(\d{2})/.exec(fromIso);
+  if (!m1) return 0;
+  const from = new Date(Number(m1[1]), Number(m1[2]) - 1, Number(m1[3])).getTime();
+  let to: number;
+  if (toIso) {
+    const m2 = /^(\d{4})-(\d{2})-(\d{2})/.exec(toIso);
+    if (!m2) return 0;
+    to = new Date(Number(m2[1]), Number(m2[2]) - 1, Number(m2[3])).getTime();
+  } else {
+    const now = new Date();
+    to = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  }
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return 0;
+  return Math.max(0, Math.round((to - from) / (1000 * 60 * 60 * 24)));
+}
+
+function ageDays(i: A11yIssue): number {
+  return dayDiff(i.openedAt, i.resolvedAt);
+}
+
+/* ── Main client ────────────────────────────────────────────────────────── */
+
+export function A11yTrackerClient() {
+  const [state, setState] = usePersisted<A11yState>(
+    "agile-toolkit:a11y-tracker",
+    DEFAULT_STATE
+  );
+  const { log } = useHistoryLogger("a11y-tracker");
+  const chartRef = useRef<HTMLDivElement>(null);
+
+  // Add-form draft state.
+  const [component, setComponent] = useState("");
+  const [wcagCriterion, setWcagCriterion] = useState("");
+  const [severity, setSeverity] = useState<Severity>("serious");
+  const [description, setDescription] = useState("");
+
+  const addIssue = () => {
+    if (!component.trim() || !wcagCriterion.trim()) return;
+    const issue: A11yIssue = {
+      id: crypto.randomUUID(),
+      component: component.trim(),
+      wcagCriterion: wcagCriterion.trim(),
+      severity,
+      status: "open",
+      openedAt: todayLocalISO(),
+      description: description.trim() || undefined,
+    };
+    setState((s) => ({ issues: [issue, ...s.issues] }));
+    log(A11Y_ACTIONS.ISSUE_ADDED, {
+      issueId: issue.id,
+      component: issue.component,
+      wcagCriterion: issue.wcagCriterion,
+      severity: issue.severity,
+      description: issue.description,
+    });
+    setComponent("");
+    setWcagCriterion("");
+    setDescription("");
+    setSeverity("serious");
+  };
+
+  const setStatus = (id: string, status: Status) => {
+    const prev = state.issues.find((i) => i.id === id);
+    setState((s) => ({
+      issues: s.issues.map((i) =>
+        i.id === id
+          ? {
+              ...i,
+              status,
+              resolvedAt:
+                status === "resolved"
+                  ? i.resolvedAt ?? todayLocalISO()
+                  : undefined,
+            }
+          : i
+      ),
+    }));
+    if (status === "resolved") {
+      log(A11Y_ACTIONS.ISSUE_RESOLVED, {
+        issueId: id,
+        component: prev?.component,
+        wcagCriterion: prev?.wcagCriterion,
+        ageDays: prev
+          ? ageDays({ ...prev, status, resolvedAt: todayLocalISO() })
+          : undefined,
+      });
+    } else {
+      log(A11Y_ACTIONS.ISSUE_UPDATED, { issueId: id, fields: ["status"] });
+    }
+  };
+
+  const remove = (id: string) => {
+    const i = state.issues.find((x) => x.id === id);
+    setState((s) => ({ issues: s.issues.filter((x) => x.id !== id) }));
+    log(A11Y_ACTIONS.ISSUE_REMOVED, {
+      issueId: id,
+      component: i?.component,
+      wcagCriterion: i?.wcagCriterion,
+    });
+  };
+
+  /* ── Aggregations ───────────────────────────────────────────────────── */
+
+  const totalOpen = useMemo(
+    () => state.issues.filter((i) => i.status !== "resolved").length,
+    [state.issues]
+  );
+
+  const bySeverity = useMemo(() => {
+    const counts: Record<Severity, number> = {
+      critical: 0,
+      serious: 0,
+      moderate: 0,
+      minor: 0,
+    };
+    for (const i of state.issues) {
+      if (i.status === "resolved") continue;
+      counts[i.severity]++;
+    }
+    return counts;
+  }, [state.issues]);
+
+  const componentsAffected = useMemo(
+    () =>
+      new Set(
+        state.issues
+          .filter((i) => i.status !== "resolved")
+          .map((i) => i.component)
+      ).size,
+    [state.issues]
+  );
+
+  const avgAge = useMemo(() => {
+    const open = state.issues.filter((i) => i.status !== "resolved");
+    if (open.length === 0) return 0;
+    return open.reduce((acc, i) => acc + ageDays(i), 0) / open.length;
+  }, [state.issues]);
+
+  // Per-component coverage table (group by component, list issue count + worst severity).
+  const componentRollup = useMemo(() => {
+    const map = new Map<string, { count: number; worst: Severity }>();
+    for (const i of state.issues) {
+      if (i.status === "resolved") continue;
+      const cur = map.get(i.component);
+      if (!cur) {
+        map.set(i.component, { count: 1, worst: i.severity });
+      } else {
+        cur.count++;
+        if (SEVERITY_RANK[i.severity] > SEVERITY_RANK[cur.worst]) {
+          cur.worst = i.severity;
+        }
+      }
+    }
+    return Array.from(map.entries())
+      .map(([component, v]) => ({ component, ...v }))
+      .sort((a, b) => {
+        const r = SEVERITY_RANK[b.worst] - SEVERITY_RANK[a.worst];
+        if (r !== 0) return r;
+        return b.count - a.count;
+      });
+  }, [state.issues]);
+
+  // Open issues over time, by severity (line chart).
+  const chartData = useMemo(() => {
+    if (state.issues.length === 0) return [];
+    const dateSet = new Set<string>();
+    for (const i of state.issues) {
+      dateSet.add(i.openedAt);
+      if (i.resolvedAt) dateSet.add(i.resolvedAt);
+    }
+    dateSet.add(todayLocalISO());
+    const dates = Array.from(dateSet).sort();
+    return dates.map((d) => {
+      const counts: Record<Severity, number> = {
+        critical: 0,
+        serious: 0,
+        moderate: 0,
+        minor: 0,
+      };
+      for (const i of state.issues) {
+        const opened = i.openedAt <= d;
+        const resolved = i.resolvedAt ? i.resolvedAt <= d : false;
+        if (opened && !resolved) counts[i.severity]++;
+      }
+      return { date: d, ...counts };
+    });
+  }, [state.issues]);
+
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Accessibility Audit Tracker",
+      prompts: generateA11yPrompts({
+        issues: state.issues.map((i) => ({
+          component: i.component,
+          wcagCriterion: i.wcagCriterion,
+          severity: i.severity,
+          status: i.status,
+          ageDays: ageDays(i),
+          description: i.description,
+        })),
+        totalOpen,
+        bySeverity: { ...bySeverity },
+        componentsAffected,
+        avgAge,
+      }),
+    }),
+    [state.issues, totalOpen, bySeverity, componentsAffected, avgAge]
+  );
+
+  return (
+    <ToolPageWrapper
+      toolId="a11y-tracker"
+      title="Accessibility Audit Tracker"
+      description="Log WCAG issues by severity, track per-component coverage, and watch the burn-down line chart over time."
+      category="Security & Compliance"
+    >
+      <ActionRow>
+        <AiPromptGenerator config={promptConfig} />
+        <ExportButton
+          filename="a11y-tracker"
+          csvData={{
+            headers: [
+              "Component",
+              "WCAG Criterion",
+              "Severity",
+              "Status",
+              "Opened",
+              "Resolved",
+              "Age (d)",
+              "Description",
+            ],
+            rows: state.issues.map((i) => [
+              i.component,
+              i.wcagCriterion,
+              i.severity,
+              i.status,
+              i.openedAt,
+              i.resolvedAt ?? "",
+              ageDays(i),
+              i.description ?? "",
+            ]),
+          }}
+          jsonData={state}
+          targetRef={chartRef}
+        />
+      </ActionRow>
+
+      <KpiGrid cols={4}>
+        <StatCard
+          variant="compact"
+          icon={Eye}
+          label="Open issues"
+          value={totalOpen}
+          valueClassName="text-accent"
+        />
+        <StatCard
+          variant="compact"
+          label="Critical / Serious"
+          value={bySeverity.critical + bySeverity.serious}
+          tone={
+            bySeverity.critical + bySeverity.serious > 0 ? "danger" : "default"
+          }
+        />
+        <StatCard
+          variant="compact"
+          icon={Clock}
+          label="Avg age"
+          value={`${avgAge.toFixed(1)}d`}
+        />
+        <StatCard
+          variant="compact"
+          icon={Layers}
+          label="Components affected"
+          value={componentsAffected}
+        />
+      </KpiGrid>
+
+      <SectionCard
+        title="Log a11y issue"
+        icon={Eye}
+        className="mb-6 bg-surface border-border"
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs text-sub">Component</Label>
+            <Input
+              value={component}
+              onChange={(e) => setComponent(e.target.value)}
+              placeholder="Header, ProductCard, Modal..."
+              className="bg-bg border-border"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-sub">WCAG criterion</Label>
+            <Input
+              value={wcagCriterion}
+              onChange={(e) => setWcagCriterion(e.target.value)}
+              placeholder="1.4.3, 2.1.1..."
+              className="bg-bg border-border font-data"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-sub">Severity</Label>
+            <Select value={severity} onValueChange={(v) => setSeverity(v as Severity)}>
+              <SelectTrigger className="bg-bg border-border capitalize">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SEVERITY_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-end">
+            <Button
+              onClick={addIssue}
+              disabled={!component.trim() || !wcagCriterion.trim()}
+              className="gap-2 w-full bg-accent text-bg hover:bg-accent/90 disabled:opacity-40"
+            >
+              <Plus className="w-4 h-4" />
+              Add issue
+            </Button>
+          </div>
+          <div className="sm:col-span-2 lg:col-span-4 space-y-1">
+            <Label className="text-xs text-sub">Description (optional)</Label>
+            <Textarea
+              rows={2}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What fails, who's affected, repro steps..."
+              className="bg-bg border-border text-sm"
+            />
+          </div>
+        </div>
+      </SectionCard>
+
+      {chartData.length > 0 && (
+        <ChartCard
+          title="Open issues over time (by severity)"
+          icon={Eye}
+          height={280}
+          chartContainerRef={chartRef}
+          className="mb-6"
+        >
+          <LineChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
+            <XAxis
+              dataKey="date"
+              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+              axisLine={{ stroke: chartTheme.gridColor }}
+              tickLine={false}
+            />
+            <YAxis
+              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              allowDecimals={false}
+            />
+            <Tooltip contentStyle={chartTheme.tooltipStyle} />
+            <Legend wrapperStyle={chartTheme.legendStyle} />
+            <Line type="monotone" dataKey="critical" stroke={SEVERITY_COLOR.critical} strokeWidth={2} dot={false} name="Critical" />
+            <Line type="monotone" dataKey="serious" stroke={SEVERITY_COLOR.serious} strokeWidth={2} dot={false} name="Serious" />
+            <Line type="monotone" dataKey="moderate" stroke={SEVERITY_COLOR.moderate} strokeWidth={2} dot={false} name="Moderate" />
+            <Line type="monotone" dataKey="minor" stroke={SEVERITY_COLOR.minor} strokeWidth={2} dot={false} name="Minor" />
+          </LineChart>
+        </ChartCard>
+      )}
+
+      {componentRollup.length > 0 && (
+        <SectionCard
+          title="Per-component coverage"
+          icon={Layers}
+          className="mb-6 bg-surface border-border"
+        >
+          <ul className="divide-y divide-border">
+            {componentRollup.map((c) => (
+              <li
+                key={c.component}
+                className="flex items-center justify-between py-2 text-xs"
+              >
+                <span className="text-text font-medium truncate">
+                  {c.component}
+                </span>
+                <span className="flex items-center gap-2 shrink-0">
+                  <span className="font-data text-sub">{c.count} open</span>
+                  <Badge
+                    variant="outline"
+                    className="font-data text-[10px] capitalize"
+                    style={{
+                      color: SEVERITY_COLOR[c.worst],
+                      borderColor: `${SEVERITY_COLOR[c.worst]}66`,
+                    }}
+                  >
+                    worst: {c.worst}
+                  </Badge>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </SectionCard>
+      )}
+
+      <div className="space-y-2">
+        {state.issues
+          .slice()
+          .sort((a, b) => {
+            // Open + worst severity first.
+            const aOpen = a.status === "resolved" ? 0 : 1;
+            const bOpen = b.status === "resolved" ? 0 : 1;
+            if (aOpen !== bOpen) return bOpen - aOpen;
+            return SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity];
+          })
+          .map((i) => (
+            <Card key={i.id} className="bg-surface border-border">
+              <CardContent className="p-3 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className="font-data uppercase tracking-wider text-[10px]"
+                    style={{
+                      color: SEVERITY_COLOR[i.severity],
+                      borderColor: `${SEVERITY_COLOR[i.severity]}66`,
+                    }}
+                  >
+                    {i.severity}
+                  </Badge>
+                  <span className="font-data text-xs text-text">
+                    WCAG {i.wcagCriterion}
+                  </span>
+                  <span className="text-text font-medium text-sm flex-1 min-w-0 truncate">
+                    {i.component}
+                  </span>
+                  <span className="text-xs text-sub font-data">
+                    {ageDays(i)}d
+                  </span>
+                  <Select value={i.status} onValueChange={(v) => setStatus(i.id, v as Status)}>
+                    <SelectTrigger
+                      className="h-8 w-32 bg-bg border-border text-xs capitalize"
+                      aria-label={`Status for ${i.component}`}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => remove(i.id)}
+                    className="text-sub hover:text-danger"
+                    aria-label="Remove issue"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+                {i.description && (
+                  <div className="text-xs text-sub whitespace-pre-wrap break-words">
+                    {i.description}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        {state.issues.length === 0 && (
+          <EmptyState icon={Eye}>
+            No accessibility issues logged. Add a component + WCAG criterion above
+            to start tracking remediation.
+          </EmptyState>
+        )}
+      </div>
+    </ToolPageWrapper>
+  );
+}

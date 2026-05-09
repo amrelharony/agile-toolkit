@@ -1,0 +1,425 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { ExportButton } from "@/components/shared/export-button";
+import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ActionRow } from "@/components/shared/action-row";
+import { KpiGrid } from "@/components/shared/kpi-grid";
+import { StatCard } from "@/components/shared/stat-card";
+import { EmptyState } from "@/components/shared/empty-state";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Plus, Trash2, User, Layers, GitBranch, AlertCircle } from "lucide-react";
+import { usePersisted } from "@/lib/utils/use-persisted";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { JTBD_ACTIONS } from "@/lib/history/event-actions";
+import { generateJtbdPrompts } from "@/lib/ai-prompts/jtbd-mapper";
+
+interface JobStory {
+  id: string;
+  situation: string;
+  motivation: string;
+  outcome: string;
+  parentJobId?: string;
+  description?: string;
+}
+
+const STORAGE_KEY = "agile-toolkit:jtbd-mapper";
+
+function renderJobLabel(j: JobStory): string {
+  return `When ${j.situation || "(situation)"}, I want to ${j.motivation || "(motivation)"}, so I can ${j.outcome || "(outcome)"}.`;
+}
+
+/**
+ * Compute the deepest descendant chain. Uses a visited set so a corrupted
+ * import with cyclic parentJobId doesn't loop forever.
+ */
+function computeMaxDepth(jobs: JobStory[]): number {
+  const childrenByParent = new Map<string, JobStory[]>();
+  for (const j of jobs) {
+    if (j.parentJobId) {
+      const list = childrenByParent.get(j.parentJobId) ?? [];
+      list.push(j);
+      childrenByParent.set(j.parentJobId, list);
+    }
+  }
+  const roots = jobs.filter((j) => !j.parentJobId);
+  let maxDepth = roots.length === 0 ? 0 : 1;
+
+  const walk = (id: string, depth: number, visited: Set<string>) => {
+    if (visited.has(id)) return;
+    visited.add(id);
+    if (depth > maxDepth) maxDepth = depth;
+    for (const c of childrenByParent.get(id) ?? []) {
+      walk(c.id, depth + 1, visited);
+    }
+  };
+  for (const r of roots) walk(r.id, 1, new Set());
+  return maxDepth;
+}
+
+export function JtbdMapperClient() {
+  const [jobs, setJobs] = usePersisted<JobStory[]>(STORAGE_KEY, []);
+  const { log } = useHistoryLogger("jtbd-mapper");
+
+  // Form state for adding a new story.
+  const [situation, setSituation] = useState("");
+  const [motivation, setMotivation] = useState("");
+  const [outcome, setOutcome] = useState("");
+  const [description, setDescription] = useState("");
+  const [parentJobId, setParentJobId] = useState<string>("__none__");
+
+  // Editing state — track which job is being edited.
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string, JobStory[]>();
+    for (const j of jobs) {
+      if (j.parentJobId) {
+        const list = map.get(j.parentJobId) ?? [];
+        list.push(j);
+        map.set(j.parentJobId, list);
+      }
+    }
+    return map;
+  }, [jobs]);
+
+  const rootJobs = useMemo(() => jobs.filter((j) => !j.parentJobId), [jobs]);
+  const maxDepth = useMemo(() => computeMaxDepth(jobs), [jobs]);
+  const jobsWithoutChildren = useMemo(
+    () => jobs.filter((j) => !childrenByParent.has(j.id)).length,
+    [jobs, childrenByParent]
+  );
+
+  const addJob = () => {
+    if (!situation.trim() && !motivation.trim() && !outcome.trim()) return;
+    const id = crypto.randomUUID();
+    const desc = description.trim();
+    const job: JobStory = {
+      id,
+      situation: situation.trim(),
+      motivation: motivation.trim(),
+      outcome: outcome.trim(),
+      parentJobId:
+        parentJobId === "__none__" || !parentJobId ? undefined : parentJobId,
+      description: desc.length > 0 ? desc : undefined,
+    };
+    setJobs((s) => [...s, job]);
+    log(JTBD_ACTIONS.JOB_STORY_ADDED, {
+      jobId: id,
+      situation: job.situation,
+      motivation: job.motivation,
+      outcome: job.outcome,
+      parentJobId: job.parentJobId,
+      description: job.description,
+    });
+    setSituation("");
+    setMotivation("");
+    setOutcome("");
+    setDescription("");
+    setParentJobId("__none__");
+  };
+
+  const updateJob = (id: string, patch: Partial<JobStory>) => {
+    setJobs((s) => s.map((j) => (j.id === id ? { ...j, ...patch } : j)));
+    log(JTBD_ACTIONS.JOB_STORY_UPDATED, { jobId: id, patch });
+  };
+
+  const removeJob = (id: string) => {
+    const job = jobs.find((j) => j.id === id);
+    // Remove this job and any descendants. Walk inside the updater to read
+    // the freshest state; bail on cycles via a visited set.
+    setJobs((s) => {
+      const toDelete = new Set<string>([id]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const j of s) {
+          if (j.parentJobId && toDelete.has(j.parentJobId) && !toDelete.has(j.id)) {
+            toDelete.add(j.id);
+            grew = true;
+          }
+        }
+      }
+      return s.filter((j) => !toDelete.has(j.id));
+    });
+    log(JTBD_ACTIONS.JOB_STORY_REMOVED, {
+      jobId: id,
+      situation: job?.situation,
+      motivation: job?.motivation,
+      outcome: job?.outcome,
+    });
+  };
+
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Job Story Mapper",
+      prompts: generateJtbdPrompts({ jobs }),
+    }),
+    [jobs]
+  );
+
+  const csvData = useMemo(
+    () => ({
+      headers: ["Situation", "Motivation", "Outcome", "Parent", "Description"],
+      rows: jobs.map((j) => {
+        const parent = j.parentJobId
+          ? jobs.find((p) => p.id === j.parentJobId)
+          : undefined;
+        return [
+          j.situation,
+          j.motivation,
+          j.outcome,
+          parent ? renderJobLabel(parent) : "",
+          j.description ?? "",
+        ];
+      }),
+    }),
+    [jobs]
+  );
+
+  const renderRow = (job: JobStory, depth: number): React.ReactNode => {
+    const isEditing = editingId === job.id;
+    const children = childrenByParent.get(job.id) ?? [];
+    return (
+      <div key={job.id} className="space-y-2">
+        <div
+          className="rounded-lg border border-border bg-bg p-3"
+          style={{ borderLeftColor: "#a855f7", borderLeftWidth: 3 }}
+        >
+          {isEditing ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <Input
+                  value={job.situation}
+                  onChange={(e) =>
+                    updateJob(job.id, { situation: e.target.value })
+                  }
+                  placeholder="When..."
+                  className="bg-surface border-border text-xs"
+                  aria-label="When (situation)"
+                />
+                <Input
+                  value={job.motivation}
+                  onChange={(e) =>
+                    updateJob(job.id, { motivation: e.target.value })
+                  }
+                  placeholder="I want to..."
+                  className="bg-surface border-border text-xs"
+                  aria-label="I want to (motivation)"
+                />
+                <Input
+                  value={job.outcome}
+                  onChange={(e) =>
+                    updateJob(job.id, { outcome: e.target.value })
+                  }
+                  placeholder="So I can..."
+                  className="bg-surface border-border text-xs"
+                  aria-label="So I can (outcome)"
+                />
+              </div>
+              <Input
+                value={job.description ?? ""}
+                onChange={(e) => {
+                  const trimmed = e.target.value.trim();
+                  updateJob(job.id, {
+                    description: trimmed.length > 0 ? e.target.value : undefined,
+                  });
+                }}
+                placeholder="Description (optional)"
+                className="bg-surface border-border text-xs"
+                aria-label="Description"
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setEditingId(null)}
+                  className="text-sub"
+                >
+                  Done
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2">
+              <User className="w-4 h-4 mt-0.5 shrink-0 text-[#a855f7]" />
+              <div className="flex-1 min-w-0 space-y-1">
+                <p className="text-sm text-text break-words">
+                  <span className="text-sub">When </span>
+                  <span className="font-medium">
+                    {job.situation || "(situation)"}
+                  </span>
+                  <span className="text-sub">, I want to </span>
+                  <span className="font-medium">
+                    {job.motivation || "(motivation)"}
+                  </span>
+                  <span className="text-sub">, so I can </span>
+                  <span className="font-medium">
+                    {job.outcome || "(outcome)"}
+                  </span>
+                  <span className="text-sub">.</span>
+                </p>
+                {job.description && (
+                  <p className="text-xs text-sub whitespace-pre-wrap break-words">
+                    {job.description}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setEditingId(job.id)}
+                  className="h-7 px-2 text-xs text-sub hover:text-accent"
+                  aria-label={`Edit job story`}
+                >
+                  Edit
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeJob(job.id)}
+                  className="h-7 w-7 p-0 text-sub hover:text-danger"
+                  aria-label="Remove job story"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+        {children.length > 0 && (
+          <div className="pl-6 space-y-2 border-l border-border ml-2">
+            {children.map((c) => renderRow(c, depth + 1))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <ToolPageWrapper
+      toolId="jtbd-mapper"
+      title="Job Story Mapper"
+      description='"When ___ I want to ___ so I can ___" job-story builder linked to opportunities.'
+      category="Sprint Planning & Estimation"
+    >
+      <ActionRow>
+        <AiPromptGenerator config={promptConfig} />
+        <ExportButton filename="jtbd-mapper" csvData={csvData} jsonData={jobs} />
+      </ActionRow>
+
+      <KpiGrid cols={4} gap="lg">
+        <StatCard
+          variant="compact"
+          icon={User}
+          label="Job stories"
+          value={jobs.length}
+          valueClassName="text-accent"
+        />
+        <StatCard
+          variant="compact"
+          icon={GitBranch}
+          label="Top-level"
+          value={rootJobs.length}
+        />
+        <StatCard
+          variant="compact"
+          icon={Layers}
+          label="Max depth"
+          value={maxDepth}
+        />
+        <StatCard
+          variant="compact"
+          icon={AlertCircle}
+          label="Without children"
+          value={jobsWithoutChildren}
+          hint="leaf jobs"
+        />
+      </KpiGrid>
+
+      <div className="rounded-lg border border-border bg-surface p-4 mb-4">
+        <div className="text-xs uppercase tracking-wider text-sub mb-3">
+          Add job story
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
+          <Input
+            value={situation}
+            onChange={(e) => setSituation(e.target.value)}
+            placeholder="When... (situation)"
+            className="bg-bg border-border text-sm"
+            aria-label="When (situation)"
+          />
+          <Input
+            value={motivation}
+            onChange={(e) => setMotivation(e.target.value)}
+            placeholder="I want to... (motivation)"
+            className="bg-bg border-border text-sm"
+            aria-label="I want to (motivation)"
+          />
+          <Input
+            value={outcome}
+            onChange={(e) => setOutcome(e.target.value)}
+            placeholder="So I can... (outcome)"
+            className="bg-bg border-border text-sm"
+            aria-label="So I can (outcome)"
+          />
+        </div>
+        <Textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Description (optional)..."
+          rows={2}
+          className="bg-bg border-border text-sm resize-none mb-2"
+          aria-label="Description"
+        />
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Select value={parentJobId} onValueChange={setParentJobId}>
+            <SelectTrigger
+              className="bg-bg border-border text-sm sm:flex-1"
+              aria-label="Parent job (optional)"
+            >
+              <SelectValue placeholder="Parent job (optional)" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">No parent (top-level)</SelectItem>
+              {jobs.map((j) => (
+                <SelectItem key={j.id} value={j.id} className="text-xs">
+                  {renderJobLabel(j).slice(0, 80)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            onClick={addJob}
+            className="gap-2 bg-accent text-bg hover:bg-accent/90 sm:w-auto w-full"
+          >
+            <Plus className="w-4 h-4" aria-hidden="true" />
+            Add
+          </Button>
+        </div>
+      </div>
+
+      {jobs.length === 0 ? (
+        <EmptyState icon={User}>
+          No job stories yet. Capture your first one above using the
+          when/want/so format.
+        </EmptyState>
+      ) : (
+        <div className="space-y-2">
+          {rootJobs.map((j) => renderRow(j, 0))}
+        </div>
+      )}
+    </ToolPageWrapper>
+  );
+}

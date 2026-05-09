@@ -331,6 +331,253 @@ export const DEPENDENCY_MAP_ACTIONS = {
   MAP_RESET: "map_reset", // milestone
 } as const;
 
+// ── Phase 12-14: Engineering Excellence ──────────────────────────────
+export const DORA_ACTIONS = {
+  SAMPLE_LOGGED: "sample_logged",
+  SAMPLE_REMOVED: "sample_removed",
+  TARGET_UPDATED: "target_updated",
+  DORA_RESET: "dora_reset", // milestone
+} as const;
+
+export const SPACE_ACTIONS = {
+  SCORE_LOGGED: "score_logged",
+  SCORE_REMOVED: "score_removed",
+  SPACE_RESET: "space_reset", // milestone
+} as const;
+
+export const DEVEX_ACTIONS = {
+  RESPONSE_LOGGED: "response_logged",
+  RESPONSE_REMOVED: "response_removed",
+  DEVEX_RESET: "devex_reset", // milestone
+} as const;
+
+export const SLO_ACTIONS = {
+  SLO_ADDED: "slo_added",
+  SLO_REMOVED: "slo_removed",
+  SLO_UPDATED: "slo_updated",
+  BURN_LOGGED: "burn_logged",
+  SLO_RESET: "slo_reset", // milestone
+} as const;
+
+export const PLATFORM_MATURITY_ACTIONS = {
+  ASSESSMENT_SAVED: "assessment_saved", // milestone
+  RATING_CHANGED: "rating_changed",
+  PLATFORM_RESET: "platform_reset",
+} as const;
+
+// ── Phase 12-14: Incidents & Reliability ─────────────────────────────
+export const INCIDENT_ACTIONS = {
+  INCIDENT_OPENED: "incident_opened", // milestone
+  INCIDENT_UPDATED: "incident_updated",
+  INCIDENT_RESOLVED: "incident_resolved", // milestone
+  ROLE_ASSIGNED: "role_assigned",
+  TIMELINE_LOGGED: "timeline_logged",
+  INCIDENT_RESET: "incident_reset",
+} as const;
+
+export const POST_MORTEM_ACTIONS = {
+  POSTMORTEM_ADDED: "postmortem_added",
+  POSTMORTEM_UPDATED: "postmortem_updated",
+  POSTMORTEM_REMOVED: "postmortem_removed",
+  ACTION_ADDED: "action_added",
+  POSTMORTEM_PUBLISHED: "postmortem_published", // milestone
+  POSTMORTEM_RESET: "postmortem_reset",
+} as const;
+
+export const ONCALL_ACTIONS = {
+  SHIFT_ADDED: "shift_added",
+  SHIFT_REMOVED: "shift_removed",
+  PAGE_LOGGED: "page_logged",
+  ONCALL_RESET: "oncall_reset", // milestone
+} as const;
+
+export const RELEASE_READINESS_ACTIONS = {
+  RELEASE_ADDED: "release_added",
+  GATE_TOGGLED: "gate_toggled",
+  RELEASE_SHIPPED: "release_shipped", // milestone
+  RELEASE_REMOVED: "release_removed",
+  READINESS_RESET: "readiness_reset",
+} as const;
+
+export const RUNBOOK_SCORER_ACTIONS = {
+  RUNBOOK_ADDED: "runbook_added",
+  RUNBOOK_REMOVED: "runbook_removed",
+  RUNBOOK_SCORED: "runbook_scored",
+  RUNBOOK_RESET: "runbook_reset", // milestone
+} as const;
+
+// ── Phase 12-14: Security & Compliance ───────────────────────────────
+export const THREAT_MODEL_ACTIONS = {
+  THREAT_ADDED: "threat_added",
+  THREAT_REMOVED: "threat_removed",
+  THREAT_UPDATED: "threat_updated",
+  MITIGATION_ADDED: "mitigation_added",
+  THREAT_RESET: "threat_reset", // milestone
+} as const;
+
+export const VULN_ACTIONS = {
+  VULN_ADDED: "vuln_added",
+  VULN_REMOVED: "vuln_removed",
+  VULN_RESOLVED: "vuln_resolved", // milestone
+  VULN_UPDATED: "vuln_updated",
+  VULN_RESET: "vuln_reset",
+} as const;
+
+export const CONTROL_MAP_ACTIONS = {
+  CONTROL_ADDED: "control_added",
+  CONTROL_REMOVED: "control_removed",
+  CONTROL_UPDATED: "control_updated",
+  EVIDENCE_ADDED: "evidence_added",
+  CONTROL_RESET: "control_reset", // milestone
+} as const;
+
+export const A11Y_ACTIONS = {
+  ISSUE_ADDED: "issue_added",
+  ISSUE_REMOVED: "issue_removed",
+  ISSUE_RESOLVED: "issue_resolved", // milestone
+  ISSUE_UPDATED: "issue_updated",
+  A11Y_RESET: "a11y_reset",
+} as const;
+
+// ── Phase 12-14: Quality Engineering ─────────────────────────────────
+export const TEST_PYRAMID_ACTIONS = {
+  COUNT_UPDATED: "count_updated",
+  PYRAMID_RESET: "pyramid_reset", // milestone
+} as const;
+
+export const FLAKY_TEST_ACTIONS = {
+  TEST_ADDED: "test_added",
+  TEST_REMOVED: "test_removed",
+  TEST_UPDATED: "test_updated",
+  TEST_QUARANTINED: "test_quarantined", // milestone
+  TEST_FIXED: "test_fixed", // milestone
+  FLAKY_RESET: "flaky_reset",
+} as const;
+
+export const CODE_REVIEW_ACTIONS = {
+  PR_LOGGED: "pr_logged",
+  PR_REMOVED: "pr_removed",
+  CODE_REVIEW_RESET: "code_review_reset", // milestone
+} as const;
+
+export const QUALITY_COST_ACTIONS = {
+  COST_UPDATED: "cost_updated",
+  QUALITY_COST_RESET: "quality_cost_reset", // milestone
+} as const;
+
+// ── Phase 12-14: Workshops & Facilitation ────────────────────────────
+export const WORKING_AGREEMENT_ACTIONS = {
+  RULE_ADDED: "rule_added",
+  RULE_REMOVED: "rule_removed",
+  RULE_UPDATED: "rule_updated",
+  CHARTER_PUBLISHED: "charter_published", // milestone
+  CHARTER_RESET: "charter_reset",
+} as const;
+
+export const LIBERATING_STRUCTURES_ACTIONS = {
+  STRUCTURE_VIEWED: "structure_viewed",
+  STRUCTURE_FAVORITED: "structure_favorited",
+  FILTER_CHANGED: "filter_changed",
+} as const;
+
+export const DESIGN_SPRINT_ACTIONS = {
+  SPRINT_STARTED: "sprint_started", // milestone
+  TASK_TOGGLED: "task_toggled",
+  ARTIFACT_LOGGED: "artifact_logged",
+  SPRINT_COMPLETED: "sprint_completed", // milestone
+  SPRINT_RESET: "sprint_reset",
+} as const;
+
+export const RISKIEST_ASSUMPTION_ACTIONS = {
+  ASSUMPTION_ADDED: "assumption_added",
+  ASSUMPTION_REMOVED: "assumption_removed",
+  ASSUMPTION_UPDATED: "assumption_updated",
+  TEST_GENERATED: "test_generated", // milestone
+  CANVAS_RESET: "canvas_reset",
+} as const;
+
+export const WARDLEY_ACTIONS = {
+  COMPONENT_ADDED: "component_added",
+  COMPONENT_REMOVED: "component_removed",
+  COMPONENT_MOVED: "component_moved",
+  LINK_ADDED: "link_added",
+  LINK_REMOVED: "link_removed",
+  WARDLEY_RESET: "wardley_reset", // milestone
+} as const;
+
+// ── Phase 12-14: Additions to existing categories ────────────────────
+export const JTBD_ACTIONS = {
+  JOB_STORY_ADDED: "job_story_added",
+  JOB_STORY_REMOVED: "job_story_removed",
+  JOB_STORY_UPDATED: "job_story_updated",
+  JTBD_RESET: "jtbd_reset", // milestone
+} as const;
+
+export const ASYNC_STANDUP_ACTIONS = {
+  UPDATE_POSTED: "update_posted",
+  UPDATE_REMOVED: "update_removed",
+  DIGEST_GENERATED: "digest_generated", // milestone
+  ASYNC_STANDUP_RESET: "async_standup_reset",
+} as const;
+
+export const ONE_ON_ONE_ACTIONS = {
+  MEETING_LOGGED: "meeting_logged",
+  MEETING_REMOVED: "meeting_removed",
+  AGENDA_ITEM_ADDED: "agenda_item_added",
+  ACTION_TOGGLED: "action_toggled",
+  ONE_ON_ONE_RESET: "one_on_one_reset", // milestone
+} as const;
+
+export const PSYCH_SAFETY_ACTIONS = {
+  ASSESSMENT_SAVED: "assessment_saved", // milestone
+  RESPONSE_LOGGED: "response_logged",
+  PSYCH_SAFETY_RESET: "psych_safety_reset",
+} as const;
+
+export const TECH_RADAR_ACTIONS = {
+  BLIP_ADDED: "blip_added",
+  BLIP_REMOVED: "blip_removed",
+  BLIP_MOVED: "blip_moved", // milestone
+  RADAR_RESET: "radar_reset",
+} as const;
+
+export const ONBOARDING_TRACKER_ACTIONS = {
+  PERSON_ADDED: "person_added",
+  PERSON_REMOVED: "person_removed",
+  MILESTONE_LOGGED: "milestone_logged", // milestone
+  ONBOARDING_RESET: "onboarding_reset",
+} as const;
+
+export const RFC_TRACKER_ACTIONS = {
+  RFC_ADDED: "rfc_added",
+  RFC_REMOVED: "rfc_removed",
+  RFC_UPDATED: "rfc_updated",
+  RFC_DECIDED: "rfc_decided", // milestone
+  RFC_RESET: "rfc_reset",
+} as const;
+
+export const STAKEHOLDER_MAP_ACTIONS = {
+  STAKEHOLDER_ADDED: "stakeholder_added",
+  STAKEHOLDER_REMOVED: "stakeholder_removed",
+  STAKEHOLDER_UPDATED: "stakeholder_updated",
+  STAKEHOLDER_RESET: "stakeholder_reset", // milestone
+} as const;
+
+export const ADKAR_ACTIONS = {
+  INITIATIVE_ADDED: "initiative_added",
+  INITIATIVE_REMOVED: "initiative_removed",
+  STAGE_ADVANCED: "stage_advanced", // milestone
+  ADKAR_RESET: "adkar_reset",
+} as const;
+
+export const FEATURE_FLAG_ACTIONS = {
+  FLAG_ADDED: "flag_added",
+  FLAG_REMOVED: "flag_removed",
+  FLAG_UPDATED: "flag_updated",
+  FLAG_RETIRED: "flag_retired", // milestone
+  FEATURE_FLAG_RESET: "feature_flag_reset",
+} as const;
+
 /**
  * Set of (toolId, action) pairs that should be marked as milestones —
  * used by the logger to auto-flag without each call site having to know.
@@ -379,6 +626,47 @@ const MILESTONE_PAIRS: ReadonlySet<string> = new Set([
   `estimation-guide:${ESTIMATION_GUIDE_ACTIONS.GUIDE_RESET}`,
   `health-dashboard:${HEALTH_DASHBOARD_ACTIONS.SUMMARY_GENERATED}`,
   `dependency-map:${DEPENDENCY_MAP_ACTIONS.MAP_RESET}`,
+  // Phase 12-14 — engineering excellence
+  `dora-scorecard:${DORA_ACTIONS.DORA_RESET}`,
+  `space-pulse:${SPACE_ACTIONS.SPACE_RESET}`,
+  `devex-survey:${DEVEX_ACTIONS.DEVEX_RESET}`,
+  `slo-builder:${SLO_ACTIONS.SLO_RESET}`,
+  `platform-maturity:${PLATFORM_MATURITY_ACTIONS.ASSESSMENT_SAVED}`,
+  // Phase 12-14 — incidents & reliability
+  `incident-commander:${INCIDENT_ACTIONS.INCIDENT_OPENED}`,
+  `incident-commander:${INCIDENT_ACTIONS.INCIDENT_RESOLVED}`,
+  `post-mortem:${POST_MORTEM_ACTIONS.POSTMORTEM_PUBLISHED}`,
+  `oncall-roster:${ONCALL_ACTIONS.ONCALL_RESET}`,
+  `release-readiness:${RELEASE_READINESS_ACTIONS.RELEASE_SHIPPED}`,
+  `runbook-scorer:${RUNBOOK_SCORER_ACTIONS.RUNBOOK_RESET}`,
+  // Phase 13-14 — security & compliance
+  `threat-model:${THREAT_MODEL_ACTIONS.THREAT_RESET}`,
+  `vuln-burndown:${VULN_ACTIONS.VULN_RESOLVED}`,
+  `control-map:${CONTROL_MAP_ACTIONS.CONTROL_RESET}`,
+  `a11y-tracker:${A11Y_ACTIONS.ISSUE_RESOLVED}`,
+  // Phase 13-14 — quality engineering
+  `test-pyramid:${TEST_PYRAMID_ACTIONS.PYRAMID_RESET}`,
+  `flaky-tests:${FLAKY_TEST_ACTIONS.TEST_QUARANTINED}`,
+  `flaky-tests:${FLAKY_TEST_ACTIONS.TEST_FIXED}`,
+  `code-review-metrics:${CODE_REVIEW_ACTIONS.CODE_REVIEW_RESET}`,
+  `quality-cost:${QUALITY_COST_ACTIONS.QUALITY_COST_RESET}`,
+  // Phase 12-14 — workshops & facilitation
+  `working-agreement:${WORKING_AGREEMENT_ACTIONS.CHARTER_PUBLISHED}`,
+  `design-sprint:${DESIGN_SPRINT_ACTIONS.SPRINT_STARTED}`,
+  `design-sprint:${DESIGN_SPRINT_ACTIONS.SPRINT_COMPLETED}`,
+  `riskiest-assumption:${RISKIEST_ASSUMPTION_ACTIONS.TEST_GENERATED}`,
+  `wardley-map:${WARDLEY_ACTIONS.WARDLEY_RESET}`,
+  // Phase 12-14 — additions to existing categories
+  `jtbd-mapper:${JTBD_ACTIONS.JTBD_RESET}`,
+  `async-standup:${ASYNC_STANDUP_ACTIONS.DIGEST_GENERATED}`,
+  `one-on-one:${ONE_ON_ONE_ACTIONS.ONE_ON_ONE_RESET}`,
+  `psych-safety:${PSYCH_SAFETY_ACTIONS.ASSESSMENT_SAVED}`,
+  `tech-radar:${TECH_RADAR_ACTIONS.BLIP_MOVED}`,
+  `onboarding-tracker:${ONBOARDING_TRACKER_ACTIONS.MILESTONE_LOGGED}`,
+  `rfc-tracker:${RFC_TRACKER_ACTIONS.RFC_DECIDED}`,
+  `stakeholder-map:${STAKEHOLDER_MAP_ACTIONS.STAKEHOLDER_RESET}`,
+  `adkar:${ADKAR_ACTIONS.STAGE_ADVANCED}`,
+  `feature-flag-tracker:${FEATURE_FLAG_ACTIONS.FLAG_RETIRED}`,
 ]);
 
 export function isMilestoneAction(toolId: string, action: string): boolean {
