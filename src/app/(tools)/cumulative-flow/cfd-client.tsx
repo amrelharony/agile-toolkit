@@ -12,6 +12,7 @@ import {
   Tooltip,
   Legend,
   ReferenceLine,
+  ReferenceDot,
   ResponsiveContainer,
   LineChart,
   Line,
@@ -21,7 +22,7 @@ import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { generateCFDPrompts } from "@/lib/ai-prompts/cumulative-flow";
-import { xmrLimits } from "@/lib/analytics/control-chart";
+import { xmrLimits, westernElectricRules } from "@/lib/analytics/control-chart";
 import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -381,9 +382,19 @@ export function CFDClient() {
 
   // XmR control limits — needs ≥2 observations to compute a moving range.
   const wipLimits = useMemo(
-    () => (wipValues.length >= 2 ? xmrLimits(wipValues) : null),
+    // WIP is a non-negative count; clamp LCL at 0.
+    () => (wipValues.length >= 2 ? xmrLimits(wipValues, true) : null),
     [wipValues]
   );
+
+  // Western Electric out-of-control signals on the WIP series. We only run
+  // the rules when xmrLimits returned valid (non-degenerate) limits — rule-1
+  // ("point beyond ±3σ") is meaningless when ucl == centerLine.
+  const wipSignals = useMemo(() => {
+    if (!wipLimits || wipValues.length < 2) return [] as ReturnType<typeof westernElectricRules>;
+    if (wipLimits.ucl <= wipLimits.centerLine) return [] as ReturnType<typeof westernElectricRules>;
+    return westernElectricRules(wipValues, wipLimits);
+  }, [wipValues, wipLimits]);
 
   // CUSUM regime shifts on WIP — primitive guards length<4 internally.
   const wipCusumAnnotations = useMemo<CausalAnnotationData[]>(() => {
@@ -660,6 +671,26 @@ export function CFDClient() {
                     {wipCusumAnnotations.map((a, i) => (
                       <CausalLine key={i} annotation={a} />
                     ))}
+                    {/* Western Electric out-of-control markers — small red
+                        dots at the offending sample. Hover hint via the SVG
+                        title shows which rule fired. */}
+                    {wipSignals.map((sig) => {
+                      const point = wipSeries[sig.index];
+                      if (!point) return null;
+                      return (
+                        <ReferenceDot
+                          key={`we-${sig.index}-${sig.rule}`}
+                          x={point.date}
+                          y={point.value}
+                          r={4}
+                          fill="var(--destructive)"
+                          stroke="var(--destructive)"
+                          ifOverflow="extendDomain"
+                        >
+                          <title>{`${sig.rule}: ${sig.description}`}</title>
+                        </ReferenceDot>
+                      );
+                    })}
                     <Line
                       type="monotone"
                       dataKey="value"

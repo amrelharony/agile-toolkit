@@ -74,7 +74,7 @@ export function generateThreatModelPrompts(
           "Threat Model Registry",
           `${data.totalOpen} open threat(s) across ${data.servicesCount} service(s). Mitigation rate ${(data.mitigationRate * 100).toFixed(0)}%.`
         ) +
-        `## STRIDE Coverage Matrix\n\n${matrixTable}\n\n## Threats\n\n${threatTable}\n\n## Questions\n\n1. Which (service, STRIDE category) cells are empty and probably under-modeled? Not every cell has to be 1+, but flag the systemic blind spots.\n2. Which services have zero coverage in any category — are they out of scope or just unmodeled?\n3. Recommend the next 1-2 threat-modeling sessions and what to focus on.${context}`,
+        `## STRIDE Coverage Matrix\n\n${matrixTable}\n\n## Threats\n\n${threatTable}${context}\n\n## Questions\n\n1. Which (service, STRIDE category) cells are empty and probably under-modeled? Not every cell has to be 1+, but flag the systemic blind spots.\n2. Which services have zero coverage in any category — are they out of scope or just unmodeled?\n3. Recommend the next 1-2 threat-modeling sessions and what to focus on.`,
     },
     {
       id: "threat-model-prioritization",
@@ -86,7 +86,7 @@ export function generateThreatModelPrompts(
           "Threat Model Registry",
           `${data.totalOpen} open threat(s); mitigation rate ${(data.mitigationRate * 100).toFixed(0)}%.`
         ) +
-        `## Threats\n\n${threatTable}\n\n## Questions\n\n1. Rank the top 5 open threats by mitigation priority. Use severity × likelihood × blast radius (call out your reasoning).\n2. Identify any 'accepted' threats that should probably be re-examined.\n3. Suggest concrete mitigations for the top 3, in plain engineering terms.${context}`,
+        `## Threats\n\n${threatTable}${context}\n\n## Questions\n\n1. Rank the top 5 open threats by mitigation priority. Use severity × likelihood × blast radius (call out your reasoning).\n2. Identify any 'accepted' threats that should probably be re-examined.\n3. Suggest concrete mitigations for the top 3, in plain engineering terms.`,
     },
   ];
 }

@@ -26,6 +26,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { BURNUP_ACTIONS } from "@/lib/history/event-actions";
 import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
 import { cusum } from "@/lib/analytics/changepoint";
+import { mannKendall } from "@/lib/analytics/trend-test";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -355,20 +356,47 @@ export function BurnupClient() {
       .filter((x): x is { day: number; direction: "up" | "down" } => Number.isFinite(x.day));
   }, [changepoints, sortedEntries]);
 
+  // Mann-Kendall trend test on completed-points series. Needs n>=5 to be
+  // informative; renders as a chip near the chart title only when the trend
+  // is statistically significant at α=0.05 (matching kanban/velocity).
+  const trendTest = useMemo(() => {
+    if (completedSeries.length < 5) return null;
+    return mannKendall(completedSeries);
+  }, [completedSeries]);
+
   const chartData = useMemo(() => {
     const map = new Map<number, DayEntry>();
     sortedEntries.forEach((e) => map.set(e.day, e));
 
+    // Two-pass build so the forecast band's upper-cap reads the explicit
+    // carry-forward scope from the row we're about to emit — not a value
+    // captured by closure that could go stale if the iteration order ever
+    // changed (e.g. parallel/lazy callback variants of Array.from).
+    type Row = {
+      day: number;
+      scope: number | null;
+      completed: number | null;
+      forecast: number | undefined;
+      band80Lower: number | undefined;
+      band80Upper: number | undefined;
+      description: string;
+    };
+
+    const rows: Row[] = [];
     let lastScope: number | null = null;
-    return Array.from({ length: config.sprintDays + 1 }, (_, day) => {
+    for (let day = 0; day <= config.sprintDays; day++) {
       const entry = map.get(day);
       if (entry?.scope !== null && entry?.scope !== undefined) {
         lastScope = entry.scope;
       }
       const fc = forecastByDay.get(day);
-      return {
+      // Read the carry-forward scope for THIS row before applying the upper
+      // cap — this is the same value we're about to write into `scope`, not
+      // a stale upstream variable.
+      const rowScope = lastScope;
+      rows.push({
         day,
-        scope: lastScope,
+        scope: rowScope,
         completed: entry?.completed ?? null,
         forecast: fc ? parseFloat(fc.yHat.toFixed(1)) : undefined,
         // Clamp lower band at 0 — completed points can't be negative; clamp
@@ -377,12 +405,16 @@ export function BurnupClient() {
         band80Lower: fc ? parseFloat(Math.max(0, fc.lower80).toFixed(1)) : undefined,
         band80Upper: fc
           ? parseFloat(
-              (lastScope !== null ? Math.min(lastScope, Math.max(0, fc.upper80)) : Math.max(0, fc.upper80)).toFixed(1)
+              (rowScope !== null
+                ? Math.min(rowScope, Math.max(0, fc.upper80))
+                : Math.max(0, fc.upper80)
+              ).toFixed(1)
             )
           : undefined,
         description: entry?.description ?? "",
-      };
-    });
+      });
+    }
+    return rows;
   }, [sortedEntries, config.sprintDays, forecastByDay]);
 
   const todayDay = useMemo(
@@ -714,6 +746,29 @@ export function BurnupClient() {
                   ))}
           </ComposedChart>
         </ChartCard>
+
+        {/* ---- Mann-Kendall trend chip ----
+            Only renders when the test has enough samples (n>=5) AND the trend
+            is statistically significant at α=0.05. Tone-coded so a
+            significant-up shows as accent ("good"), significant-down as
+            destructive ("alert worth investigating"). */}
+        {trendTest?.significant && (
+          <div className="flex items-center justify-end -mt-2">
+            <span
+              className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+                trendTest.trend === "up"
+                  ? "bg-accent/15 text-accent border-accent/40"
+                  : "bg-destructive/15 text-destructive border-destructive/40"
+              }`}
+              title={`Mann-Kendall p=${trendTest.pValue.toFixed(3)}`}
+            >
+              <span>
+                {trendTest.trend === "up" ? "↗" : "↘"} trend significant
+              </span>
+              <span className="opacity-60">p={trendTest.pValue.toFixed(2)}</span>
+            </span>
+          </div>
+        )}
 
         {/* ---- Data Entry Table ---- */}
         <SectionCard

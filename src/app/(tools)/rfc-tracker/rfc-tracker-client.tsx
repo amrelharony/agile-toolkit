@@ -34,6 +34,7 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RFC_TRACKER_ACTIONS } from "@/lib/history/event-actions";
 import { generateRfcTrackerPrompts } from "@/lib/ai-prompts/rfc-tracker";
+import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { toast } from "@/lib/utils/toast";
@@ -75,18 +76,22 @@ function daysSince(iso: string): number {
 export function RfcTrackerClient() {
   const [rfcs, setRfcs] = usePersisted<Rfc[]>("agile-toolkit:rfc-tracker", []);
   const { log } = useHistoryLogger("rfc-tracker");
-  const workspace = useWorkspaceStore<Workspace>((s) => ({
-    teamMembers: s.teamMembers,
-    sprints: s.sprints,
-    stories: s.stories,
-    impediments: s.impediments,
-    risks: s.risks,
-    okrs: s.okrs,
-    decisions: s.decisions,
-    techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel,
-    teamName: s.teamName,
-  }));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+      })
+    )
+  );
 
   const [newTitle, setNewTitle] = useState("");
   const [newAuthor, setNewAuthor] = useState("");

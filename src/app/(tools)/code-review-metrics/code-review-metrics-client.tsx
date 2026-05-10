@@ -451,7 +451,8 @@ export function CodeReviewMetricsClient() {
 
   // XmR control limits on the weekly cycle-time mean.
   const cycleControl = useMemo(
-    () => (weeklyMeanSeries.length >= 4 ? xmrLimits(weeklyMeanSeries) : null),
+    // Cycle-time hours cannot be negative; clamp LCL at 0.
+    () => (weeklyMeanSeries.length >= 4 ? xmrLimits(weeklyMeanSeries, true) : null),
     [weeklyMeanSeries]
   );
 

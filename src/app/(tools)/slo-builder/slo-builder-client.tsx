@@ -294,14 +294,24 @@ export function SloBuilderClient() {
     }
     if (!best) return null;
 
-    // CUSUM regime shifts on the per-burn series.
+    // CUSUM regime shifts on the per-burn series. Filter out indexes that
+    // would land outside the chart's x-domain — `ifOverflow="extendDomain"`
+    // would otherwise distort the axis. The chart's x-axis is dates from
+    // ALL SLOs combined, so best.dates is always a subset, but we still
+    // filter for safety.
     const cps = cusum(best.values);
-    const annotations: CausalAnnotationData[] = cps.map((cp) => ({
-      x: best!.dates[cp.index] ?? String(cp.index),
-      label: `Burn regime ${cp.direction === "up" ? "↑" : "↓"}`,
-      detail: `CUSUM detected a ${cp.direction === "up" ? "spike" : "drop"} in burn rate for ${best!.name} on ${best!.dates[cp.index]}.`,
-      confidence: "moderate" as const,
-    }));
+    const annotations: CausalAnnotationData[] = cps
+      .map((cp): CausalAnnotationData | null => {
+        const date = best!.dates[cp.index];
+        if (!date) return null;
+        return {
+          x: date,
+          label: `Burn regime ${cp.direction === "up" ? "↑" : "↓"}`,
+          detail: `CUSUM detected a ${cp.direction === "up" ? "spike" : "drop"} in burn rate for ${best!.name} on ${date}.`,
+          confidence: "moderate",
+        };
+      })
+      .filter((a): a is CausalAnnotationData => a !== null);
 
     // Mann-Kendall trend.
     const mk = mannKendall(best.values);
@@ -470,13 +480,26 @@ export function SloBuilderClient() {
                 placeholder="30"
               />
             </div>
-            {/* Suggested error budget chip — accepts the predictor's
-                canonical 99.9 % / 30-day target into the two fields above. */}
+            {/* Suggested error budget chip — translates the predicted budget
+                (in minutes) into the matching target%/window-days pair.
+                Window is fixed at 30 days here because the default predictor
+                returns ~43min for 99.9 % over 30d; we derive target% from the
+                budget to keep the trio internally consistent. */}
             <SmartInput<number>
               predicted={budgetPrediction}
-              onAccept={() =>
-                setSloDraft((d) => ({ ...d, targetPct: "99.9", windowDays: "30" }))
-              }
+              onAccept={(budgetMinutes) => {
+                const windowDays = 30;
+                const totalMinutes = windowDays * 24 * 60;
+                const targetPct = totalMinutes > 0
+                  ? (1 - budgetMinutes / totalMinutes) * 100
+                  : 99.9;
+                setSloDraft((d) => ({
+                  ...d,
+                  // Round to one decimal so 99.9 stays 99.9, not 99.90046…
+                  targetPct: (Math.round(targetPct * 10) / 10).toString(),
+                  windowDays: windowDays.toString(),
+                }));
+              }}
               render={({ chip }) => <div>{chip}</div>}
             />
             <div>

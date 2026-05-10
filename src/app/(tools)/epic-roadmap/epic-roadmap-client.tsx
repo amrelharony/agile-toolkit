@@ -19,6 +19,7 @@ import { CalloutAlert } from "@/components/shared/callout-alert";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { EPIC_ROADMAP_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
+import { useHistoryStore } from "@/lib/history/history-store";
 
 interface Epic {
   id: string;
@@ -229,7 +230,8 @@ export function EpicRoadmapClient() {
   // OKR shifts (whether the epic still maps to current objectives). When
   // either has changed in the last 14 days, prompt the user to revisit the
   // roadmap and update progress / dates.
-  const recentSprintCompletions = useMemo(
+  const events = useHistoryStore((s) => s.events);
+  const recentSprintAdds = useMemo(
     () =>
       selectEvents({
         toolId: "velocity",
@@ -237,9 +239,7 @@ export function EpicRoadmapClient() {
         sinceDays: 14,
         limit: 50,
       }),
-    // history-store mutations cause parent re-render
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [events]
   );
   const recentOkrUpdates = useMemo(
     () =>
@@ -249,8 +249,7 @@ export function EpicRoadmapClient() {
         sinceDays: 14,
         limit: 50,
       }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [events]
   );
 
   return (
@@ -276,9 +275,9 @@ export function EpicRoadmapClient() {
         </Button>
       </ActionRow>
 
-      {(recentSprintCompletions.length > 0 || recentOkrUpdates.length > 0) && (
+      {(recentSprintAdds.length > 0 || recentOkrUpdates.length > 0) && (
         <CalloutAlert tone="info" className="mb-3">
-          {recentSprintCompletions.length} sprint{recentSprintCompletions.length === 1 ? "" : "s"} completed, {recentOkrUpdates.length} OKR update{recentOkrUpdates.length === 1 ? "" : "s"} in last 14 days &mdash; review epic timelines.
+          {recentSprintAdds.length} sprint{recentSprintAdds.length === 1 ? "" : "s"} added, {recentOkrUpdates.length} OKR update{recentOkrUpdates.length === 1 ? "" : "s"} in last 14 days &mdash; review epic timelines.
         </CalloutAlert>
       )}
 

@@ -329,7 +329,8 @@ export function A11yTrackerClient() {
 
   // XmR control limits on the weekly open-issue series.
   const openControl = useMemo(
-    () => (weeklyTotals.length >= 4 ? xmrLimits(weeklyTotals) : null),
+    // Open-issue counts cannot be negative; clamp LCL at 0.
+    () => (weeklyTotals.length >= 4 ? xmrLimits(weeklyTotals, true) : null),
     [weeklyTotals]
   );
 

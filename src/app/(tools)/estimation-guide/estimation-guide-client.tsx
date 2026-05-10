@@ -5,6 +5,7 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateEstimationGuidePrompts } from "@/lib/ai-prompts/estimation-guide";
+import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -167,18 +168,22 @@ export function EstimationGuideClient() {
     };
   }, [activeScale, store.descriptions, store.examples]);
 
-  const workspace = useWorkspaceStore<Workspace>((s) => ({
-    teamMembers: s.teamMembers,
-    sprints: s.sprints,
-    stories: s.stories,
-    impediments: s.impediments,
-    risks: s.risks,
-    okrs: s.okrs,
-    decisions: s.decisions,
-    techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel,
-    teamName: s.teamName,
-  }));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+      })
+    )
+  );
   const promptConfig = useMemo(() => ({
     toolName: "Estimation Guide",
     prompts: generateEstimationGuidePrompts({

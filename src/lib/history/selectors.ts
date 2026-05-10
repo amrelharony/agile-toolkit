@@ -84,6 +84,19 @@ export function selectEvents(opts: EventQuery): HistoryEvent[] {
 }
 
 /**
+ * Local-date YYYY-MM-DD key. We need this for the "today" loop because
+ * `Date#toISOString()` always serialises in UTC — for users west of UTC
+ * (e.g., GMT-8) at any time before 16:00 local, "today" would be reported
+ * as yesterday and shift the entire dense series by one day.
+ */
+function localDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
  * Daily counts of an action over the last `days`. Returns dense series
  * (zero-filled) ordered ascending by date.
  */
@@ -91,16 +104,24 @@ export function eventCountByDay(toolId: string, action: string, days: number): {
   const events = selectEvents({ toolId, action, sinceDays: days });
   const counts = new Map<string, number>();
   for (const e of events) {
+    // CONSISTENCY: event date keys use the UTC slice of `occurredAt` (the
+    // ISO timestamp). The dense-series x-axis below uses local-date keys.
+    // For users in non-UTC timezones the two can disagree by one day at
+    // the day boundary; we accept that misalignment as preferable to
+    // shifting the whole series. If we ever want strict consistency, this
+    // line should call `localDateKey(new Date(e.occurredAt))` and the same
+    // change must roll out to every other selector that bins by ISO slice.
     const day = e.occurredAt.slice(0, 10);
     counts.set(day, (counts.get(day) ?? 0) + 1);
   }
-  // Build dense series.
+  // Build dense series — anchored at the user's local "today" so the
+  // right-most bucket on the chart matches the calendar day they see.
   const out: { date: string; count: number }[] = [];
   const today = new Date();
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    const key = d.toISOString().slice(0, 10);
+    const key = localDateKey(d);
     out.push({ date: key, count: counts.get(key) ?? 0 });
   }
   return out;

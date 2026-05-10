@@ -58,7 +58,7 @@ export function generateWorkingAgreementPrompts(
           "Working Agreement Builder",
           `Team "${data.meta.teamName ?? "(unnamed)"}" — version ${data.meta.version}. ${data.rules.length} rules across ${byCat.size} categories (${catSummary}). Latest adherence: ${data.adherencePct.toFixed(0)}%.`
         ) +
-        `## Rules\n\n${ruleTable}\n\n## Questions\n\n1. Which categories are under-developed (e.g. no rule covers conflict)?\n2. Are any rules vague or unmeasurable (e.g. "be respectful" with no behavioural anchor)?\n3. Suggest 3-5 missing rules that would round out the charter.\n4. For rules with no \`agreedBy\` names, what would you do to drive explicit commitment?${context}`,
+        `## Rules\n\n${ruleTable}${context}\n\n## Questions\n\n1. Which categories are under-developed (e.g. no rule covers conflict)?\n2. Are any rules vague or unmeasurable (e.g. "be respectful" with no behavioural anchor)?\n3. Suggest 3-5 missing rules that would round out the charter.\n4. For rules with no \`agreedBy\` names, what would you do to drive explicit commitment?`,
     },
     {
       id: "wa-conflict",
@@ -69,7 +69,7 @@ export function generateWorkingAgreementPrompts(
           "Working Agreement Builder",
           `${data.rules.length} rules currently published. The team has not yet stress-tested the charter against disagreement.`
         ) +
-        `## Existing Rules\n\n${ruleTable}\n\n## Questions\n\n1. Where is the charter silent on what happens when people disagree (technical decisions, sprint scope, on-call swaps)?\n2. Propose 3 specific conflict-handling rules with a clear escalation path.\n3. Suggest a decision-rights model (consent / consensus / advice) the team could adopt.\n4. How should the team revisit and renegotiate rules that stop working (note current "still working?" %).${context}`,
+        `## Existing Rules\n\n${ruleTable}${context}\n\n## Questions\n\n1. Where is the charter silent on what happens when people disagree (technical decisions, sprint scope, on-call swaps)?\n2. Propose 3 specific conflict-handling rules with a clear escalation path.\n3. Suggest a decision-rights model (consent / consensus / advice) the team could adopt.\n4. How should the team revisit and renegotiate rules that stop working (note current "still working?" %).`,
     },
   ];
 }

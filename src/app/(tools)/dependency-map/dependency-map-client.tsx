@@ -22,6 +22,7 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DEPENDENCY_MAP_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
+import { useHistoryStore } from "@/lib/history/history-store";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { CalloutAlert } from "@/components/shared/callout-alert";
@@ -207,6 +208,7 @@ export function DependencyMapClient() {
   // Surface a callout when several blockers were raised in the last 14 days —
   // dependencies often co-occur with blockers, so the user should review
   // whether new impediments map to known dependency edges.
+  const events = useHistoryStore((s) => s.events);
   const recentBlockers = useMemo(
     () =>
       selectEvents({
@@ -215,9 +217,7 @@ export function DependencyMapClient() {
         sinceDays: 14,
         limit: 50,
       }),
-    // history-store mutations cause parent re-render
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [events]
   );
 
   return (

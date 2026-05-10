@@ -61,8 +61,7 @@ export function generatePsychSafetyPrompts(
           lowest
             ? `## Lowest-scoring item\n\n"${lowest.text}" — investigate this dimension first.\n\n`
             : ""
-        }## Questions\n\n1. What 3 underlying behaviours likely explain the lowest score?\n2. Which leader habits could be amplifying the result, intentionally or not?\n3. Suggest 2 conversation openers a manager can try in the next 1:1 to surface specifics.\n4. What evidence would tell you the score is moving in the right direction?` +
-        wsContext,
+        }${wsContext}## Questions\n\n1. What 3 underlying behaviours likely explain the lowest score?\n2. Which leader habits could be amplifying the result, intentionally or not?\n3. Suggest 2 conversation openers a manager can try in the next 1:1 to surface specifics.\n4. What evidence would tell you the score is moving in the right direction?`,
     },
     {
       id: "psych-safety-coaching",
@@ -74,8 +73,7 @@ export function generatePsychSafetyPrompts(
           "Psychological Safety Assessment",
           `Team score ${data.teamScore.toFixed(2)}/5 vs org benchmark ${data.benchmark.toFixed(2)}.`
         ) +
-        `## Per-question results\n\n${table}\n\n## Questions\n\n1. Recommend 3 lightweight rituals (under 30 min/week) to lift the lowest two dimensions.\n2. For the highest-scoring dimension, what's the risk of complacency? How to protect it?\n3. Draft a 2-week coaching plan with weekly check-in prompts and a re-survey trigger.\n4. What anti-patterns should the coach watch for that would signal the interventions are backfiring?` +
-        wsContext,
+        `## Per-question results\n\n${table}${wsContext}\n\n## Questions\n\n1. Recommend 3 lightweight rituals (under 30 min/week) to lift the lowest two dimensions.\n2. For the highest-scoring dimension, what's the risk of complacency? How to protect it?\n3. Draft a 2-week coaching plan with weekly check-in prompts and a re-survey trigger.\n4. What anti-patterns should the coach watch for that would signal the interventions are backfiring?`,
     },
   ];
 }

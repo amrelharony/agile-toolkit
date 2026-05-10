@@ -26,6 +26,7 @@ import {
   Settings2,
   Target,
 } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { bayesianForecastConfidence } from "@/lib/analytics/forecasting-bayesian";
 import { hasRecentChangepoint } from "@/lib/analytics/changepoint";
@@ -366,10 +367,12 @@ export function CapacityPlannerClient() {
   const { log } = useHistoryLogger("capacity-planner");
 
   /* -- Velocity history (from workspace store, which the predictor also uses) */
-  const velocityHistory = useWorkspaceStore((s) =>
-    s.sprints
-      .filter((sp) => sp.status === "completed" && Number.isFinite(sp.pointsCompleted))
-      .map((sp) => sp.pointsCompleted ?? 0),
+  const velocityHistory = useWorkspaceStore(
+    useShallow((s): number[] =>
+      s.sprints
+        .filter((sp) => sp.status === "completed" && Number.isFinite(sp.pointsCompleted))
+        .map((sp) => sp.pointsCompleted ?? 0),
+    ),
   );
 
   const forecastConfidence = useMemo(

@@ -9,6 +9,7 @@ import { generateSprintGoalPrompts } from "@/lib/ai-prompts/sprint-goal";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPRINT_GOAL_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
+import { useHistoryStore } from "@/lib/history/history-store";
 import { CalloutAlert } from "@/components/shared/callout-alert";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -255,6 +256,7 @@ export function SprintGoalClient() {
   // ── Cross-tool signal: recent sprint additions in velocity tool ─────────
   // Surface a tiny callout when at least one sprint was added in the last
   // 14 days — prompts the user to revisit the latest sprint's goal.
+  const events = useHistoryStore((s) => s.events);
   const recentSprintAdds = useMemo(
     () =>
       selectEvents({
@@ -263,10 +265,7 @@ export function SprintGoalClient() {
         sinceDays: 14,
         limit: 5,
       }),
-    // Re-evaluates on every parent render which is sufficient to stay fresh
-    // with the history store; eslint-disable for the empty dep array.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [events]
   );
 
   // ── SMART badge renderer ────────────────────────────────────────────────

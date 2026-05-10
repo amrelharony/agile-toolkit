@@ -233,6 +233,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 1,
+    usesWorkspace: true,
     analyticsTier: 3,
   },
   {
@@ -567,6 +568,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 1,
+    usesWorkspace: true,
     analyticsTier: 3,
   },
   {
@@ -695,6 +697,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 7,
+    usesWorkspace: true,
     analyticsTier: 3,
   },
   {
@@ -708,6 +711,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 7,
+    usesWorkspace: true,
     analyticsTier: 3,
   },
 
@@ -750,6 +754,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: true,
     phase: 8,
+    usesWorkspace: true,
     analyticsTier: 3,
   },
   {
@@ -1274,6 +1279,7 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 12,
     audience: "coach",
+    usesWorkspace: true,
     analyticsTier: 3,
   },
   {

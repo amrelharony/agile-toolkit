@@ -10,6 +10,7 @@ import { generateSprintReviewPrompts } from "@/lib/ai-prompts/sprint-review";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPRINT_REVIEW_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
+import { useHistoryStore } from "@/lib/history/history-store";
 import { CalloutAlert } from "@/components/shared/callout-alert";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { SectionCard } from "@/components/shared/section-card";
@@ -1105,7 +1106,9 @@ export function SprintReviewClient() {
 
   // ── Cross-tool signal: review activity in the last 30 days ────────────
   // Counts past demo additions + feedback captures so the user gets a
-  // sense of cadence without leaving the page.
+  // sense of cadence without leaving the page. Subscribes to the history
+  // store's events so external logging is reflected immediately.
+  const events = useHistoryStore((s) => s.events);
   const recentDemoCount = useMemo(
     () =>
       selectEvents({
@@ -1114,8 +1117,7 @@ export function SprintReviewClient() {
         sinceDays: 30,
         limit: 200,
       }).length,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [features.length]
+    [events]
   );
   const recentFeedbackCount = useMemo(
     () =>
@@ -1125,8 +1127,7 @@ export function SprintReviewClient() {
         sinceDays: 30,
         limit: 200,
       }).length,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [feedbackItems.length]
+    [events]
   );
 
   return (

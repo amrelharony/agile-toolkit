@@ -15,7 +15,11 @@ export interface CrossCorrSummary {
 
 /**
  * Pearson cross-correlation across a window of lags. Returns the best lag
- * (rounded toward 0 on ties) and the full curve.
+ * and the full curve. Ties are broken in favour of negative lag
+ * (longer-history alignment wins) — when +k and -k produce equal |r|, the
+ * result reports lag=-k. This matches how the surrounding causal-annotation
+ * logic frames lagged effects ("B leads A" interpretation when both
+ * directions are equally plausible).
  *
  * @param a       series A (e.g., daily blocker counts)
  * @param b       series B (e.g., daily velocity)

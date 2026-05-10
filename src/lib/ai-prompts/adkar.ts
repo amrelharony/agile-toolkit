@@ -65,8 +65,7 @@ export function generateAdkarPrompts(
               : "n/a"
           }.`
         ) +
-        `## Per-stage counts\n\n- Awareness: ${data.perStage.awareness}\n- Desire: ${data.perStage.desire}\n- Knowledge: ${data.perStage.knowledge}\n- Ability: ${data.perStage.ability}\n- Reinforcement: ${data.perStage.reinforcement}\n\n## Initiatives\n\n${initiativeTable}\n\n## Questions\n\n1. Which stage has the largest backlog of initiatives — and what does that imply about org-level change capability?\n2. For each initiative still in Awareness or Desire, what specific intervention would unblock it?\n3. Recommend a 30-day plan for the change-management team based on the distribution.` +
-        wsContext,
+        `## Per-stage counts\n\n- Awareness: ${data.perStage.awareness}\n- Desire: ${data.perStage.desire}\n- Knowledge: ${data.perStage.knowledge}\n- Ability: ${data.perStage.ability}\n- Reinforcement: ${data.perStage.reinforcement}\n\n## Initiatives\n\n${initiativeTable}${wsContext}\n\n## Questions\n\n1. Which stage has the largest backlog of initiatives — and what does that imply about org-level change capability?\n2. For each initiative still in Awareness or Desire, what specific intervention would unblock it?\n3. Recommend a 30-day plan for the change-management team based on the distribution.`,
     },
     {
       id: "adkar-reinforcement",
@@ -78,8 +77,7 @@ export function generateAdkarPrompts(
           "ADKAR Change Tracker",
           "Reinforcement is the stage where 60% of change initiatives quietly fail."
         ) +
-        `## Initiatives\n\n${initiativeTable}\n\n## Questions\n\n1. For each initiative in Ability or Reinforcement, list 3 reinforcement tactics (recognition, metrics, rituals, escalation paths).\n2. Which initiatives are at highest risk of regression and why?\n3. Draft a 1-page reinforcement playbook this team can apply across initiatives.` +
-        wsContext,
+        `## Initiatives\n\n${initiativeTable}${wsContext}\n\n## Questions\n\n1. For each initiative in Ability or Reinforcement, list 3 reinforcement tactics (recognition, metrics, rituals, escalation paths).\n2. Which initiatives are at highest risk of regression and why?\n3. Draft a 1-page reinforcement playbook this team can apply across initiatives.`,
     },
   ];
 }

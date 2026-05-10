@@ -11,7 +11,7 @@ interface DodItem {
 
 interface DodData {
   items: DodItem[];
-  history: { sprintName: string; completedItemIds: string[] }[];
+  history: { sprintName: string; totalRequired: number; completed: number; ts: string }[];
 }
 
 export function generateDodBuilderPrompts(data: DodData): PromptDefinition[] {

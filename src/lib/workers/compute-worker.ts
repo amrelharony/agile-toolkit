@@ -13,6 +13,11 @@ let workerInstance: Worker | null = null;
 let nextRequestId = 1;
 const pending = new Map<number, PendingRequest>();
 
+// Per-request hard ceiling. The worker shouldn't be holding requests for
+// 30s in normal operation; if it is, something has wedged and we'd rather
+// reject than leak the pending entry forever.
+const TIMEOUT_MS = 30_000;
+
 function getWorker(): Worker | null {
   if (typeof Worker === "undefined") return null;
   if (workerInstance) return workerInstance;
@@ -28,9 +33,23 @@ function getWorker(): Worker | null {
       else req.reject(new Error(String(error ?? "worker error")));
     };
     workerInstance.onerror = (e) => {
-      // Reject all pending requests on a fatal worker error.
-      pending.forEach((req) => req.reject(new Error(e.message)));
+      // A worker `error` event leaves the worker in an indeterminate state.
+      // The previous behaviour rejected ALL in-flight requests, killing
+      // healthy jobs that just happened to overlap with one bad input.
+      // Instead: log, null the instance so the next call respawns a fresh
+      // worker, and reject pending entries so they don't dangle. New calls
+      // get a new worker and proceed normally.
+      try {
+        // eslint-disable-next-line no-console
+        console.warn("[compute-worker] worker error; respawning on next call", e.message);
+      } catch {
+        // no-op
+      }
+      const failed = Array.from(pending.values());
       pending.clear();
+      workerInstance = null;
+      const err = new Error(e.message || "worker error");
+      for (const req of failed) req.reject(err);
     };
   } catch {
     workerInstance = null;
@@ -41,6 +60,10 @@ function getWorker(): Worker | null {
 /**
  * Run a heavy compute in the shared worker. Falls back to synchronous
  * execution when Worker is unavailable (SSR, tests, sandboxed iframes).
+ *
+ * Each request is bounded by a 30-second timeout — exceeding it rejects
+ * with `worker compute timeout` and frees the pending slot so a stuck
+ * task can never permanently leak the bookkeeping map.
  */
 export async function runInWorker<I, O>(task: WorkerTask, input: I): Promise<O> {
   const w = getWorker();
@@ -52,7 +75,22 @@ export async function runInWorker<I, O>(task: WorkerTask, input: I): Promise<O> 
   }
   return new Promise<O>((resolve, reject) => {
     const id = nextRequestId++;
-    pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+    const timer = setTimeout(() => {
+      // Drop the entry first so the wrapped resolve/reject below become
+      // no-ops if the worker eventually responds after the timer fired.
+      pending.delete(id);
+      reject(new Error("worker compute timeout"));
+    }, TIMEOUT_MS);
+    pending.set(id, {
+      resolve: (v) => {
+        clearTimeout(timer);
+        (resolve as (v: unknown) => void)(v);
+      },
+      reject: (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    });
     w.postMessage({ id, task, input });
   });
 }

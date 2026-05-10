@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Trash2, ScrollText, ChevronUp, ChevronDown } from "lucide-react";
 import { generatePremortemPrompts } from "@/lib/ai-prompts/premortem";
+import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -153,12 +154,16 @@ export function PremortemClient() {
   // CSV export, but the export now follows display order (preserving manual
   // reorders), so the rank-by-score derivation is no longer needed anywhere.
 
-  const workspace = useWorkspaceStore<Workspace>((s) => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-  }));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
+        impediments: s.impediments, risks: s.risks, okrs: s.okrs,
+        decisions: s.decisions, techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel, teamName: s.teamName,
+      })
+    )
+  );
 
   const promptConfig = useMemo(
     () => ({

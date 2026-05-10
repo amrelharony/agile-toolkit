@@ -11,6 +11,7 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { STANDUP_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
+import { useHistoryStore } from "@/lib/history/history-store";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
@@ -701,7 +702,9 @@ export function StandupClient() {
 
   // ── Cross-tool signal: blocker activity from impediments tool ────────
   // Counts blockers raised in the last 7 days so the standup facilitator
-  // sees external activity at a glance.
+  // sees external activity at a glance. Subscribes to the history store's
+  // events array so external logging is picked up.
+  const events = useHistoryStore((s) => s.events);
   const recentBlockerCount = useMemo(
     () =>
       selectEvents({
@@ -710,10 +713,7 @@ export function StandupClient() {
         sinceDays: 7,
         limit: 100,
       }).length,
-    // Re-evaluates on every parent render; entries.length ensures it
-    // refreshes when the user posts a new standup.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [entries.length]
+    [events]
   );
 
   return (

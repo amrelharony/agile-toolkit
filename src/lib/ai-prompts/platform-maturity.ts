@@ -47,7 +47,7 @@ export function generatePlatformMaturityPrompts(
           "Platform Engineering Maturity",
           `Average maturity ${avg.toFixed(2)}/5 across ${data.dimensions.length} dimensions.`
         ) +
-        `## Dimensions\n\n${dimTable}\n\n## Questions\n\n1. Identify the 2-3 weakest dimensions and the typical consequences of leaving them at this level (developer toil, cognitive load, incident risk, etc.).\n2. Are the gaps clustered (e.g. all "developer self-service") or spread evenly?\n3. What's a 1-paragraph "current state" summary you would share with engineering leadership?${context}`,
+        `## Dimensions\n\n${dimTable}${context}\n\n## Questions\n\n1. Identify the 2-3 weakest dimensions and the typical consequences of leaving them at this level (developer toil, cognitive load, incident risk, etc.).\n2. Are the gaps clustered (e.g. all "developer self-service") or spread evenly?\n3. What's a 1-paragraph "current state" summary you would share with engineering leadership?`,
     },
     {
       id: "platform-investment",

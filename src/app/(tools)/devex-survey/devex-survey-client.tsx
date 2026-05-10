@@ -30,6 +30,7 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DEVEX_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 
@@ -150,18 +151,22 @@ export function DevexSurveyClient() {
     }));
   }, [sorted]);
 
-  const workspace = useWorkspaceStore<Workspace>((s) => ({
-    teamMembers: s.teamMembers,
-    sprints: s.sprints,
-    stories: s.stories,
-    impediments: s.impediments,
-    risks: s.risks,
-    okrs: s.okrs,
-    decisions: s.decisions,
-    techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel,
-    teamName: s.teamName,
-  }));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+      })
+    )
+  );
 
   const promptConfig = useMemo(
     () => ({

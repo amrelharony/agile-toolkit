@@ -26,6 +26,7 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { STAKEHOLDER_MAP_ACTIONS } from "@/lib/history/event-actions";
 import { generateStakeholderMapPrompts } from "@/lib/ai-prompts/stakeholder-map";
+import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 
@@ -300,18 +301,22 @@ export function StakeholderMapClient() {
     []
   );
   const { log } = useHistoryLogger("stakeholder-map");
-  const workspace = useWorkspaceStore<Workspace>((s) => ({
-    teamMembers: s.teamMembers,
-    sprints: s.sprints,
-    stories: s.stories,
-    impediments: s.impediments,
-    risks: s.risks,
-    okrs: s.okrs,
-    decisions: s.decisions,
-    techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel,
-    teamName: s.teamName,
-  }));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+      })
+    )
+  );
 
   // Tooltip on the matrix.
   const [hovered, setHovered] = useState<string | null>(null);

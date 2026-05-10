@@ -205,22 +205,34 @@ export function DoraScorecardClient() {
   const deployControl = useMemo(() => {
     const series = sorted.map((s) => s.deployFreqPerWeek);
     if (series.length < 4) return null;
-    return xmrLimits(series);
+    // Deploys-per-week is a non-negative count; clamp LCL at 0.
+    return xmrLimits(series, true);
   }, [sorted]);
 
   // ── CUSUM markers on the deploy-frequency series ────────────────────────
   // Each detected changepoint becomes a CausalLine on the chart so DORA
   // banding regime shifts ("we crossed into Elite at Q3") are obvious.
+  // Filtered to only changepoints whose quarter is on the chart's x-axis
+  // — `ifOverflow="extendDomain"` would otherwise distort the chart with
+  // phantom ticks for off-domain markers.
   const deployChangepoints = useMemo<CausalAnnotationData[]>(() => {
     const series = sorted.map((s) => s.deployFreqPerWeek);
     if (series.length < 4) return [];
-    const cps = cusum(series);
-    return cps.map((cp) => ({
-      x: sorted[cp.index]?.quarter ?? String(cp.index),
-      label: `Deploy regime ${cp.direction === "up" ? "↑" : "↓"}`,
-      detail: `CUSUM detected a ${cp.direction === "up" ? "lift" : "drop"} in deploy frequency at ${sorted[cp.index]?.quarter}.`,
-      confidence: "moderate" as const,
-    }));
+    const xValuesInChart = new Set(sorted.map((s) => s.quarter));
+    return cusum(series)
+      .map((cp): CausalAnnotationData | null => {
+        const sample = sorted[cp.index];
+        if (!sample) return null;
+        return {
+          x: sample.quarter,
+          label: `Deploy regime ${cp.direction === "up" ? "↑" : "↓"}`,
+          detail: `CUSUM detected a ${cp.direction === "up" ? "lift" : "drop"} in deploy frequency at ${sample.quarter}.`,
+          // Reflect the magnitude of the cumulative statistic — strong signals
+          // should read differently than borderline ones (matches cycle-time/CFD).
+          confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
+        };
+      })
+      .filter((a): a is CausalAnnotationData => a !== null && xValuesInChart.has(a.x as string));
   }, [sorted]);
 
   // ── Mann-Kendall trend chips for each of the four DORA metrics ─────────

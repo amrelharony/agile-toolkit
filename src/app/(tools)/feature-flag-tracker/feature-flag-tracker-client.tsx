@@ -252,8 +252,17 @@ export function FeatureFlagTrackerClient() {
 
   const survivalCurve = useMemo(() => {
     if (retiredAges.length < 4) return [];
+    // A "deprecated" flag with no `retiredAt` should still be treated as a
+    // retirement event for KM purposes — leaving them as censored would
+    // pretend the flag is still alive and bias survival upward. Stamp them
+    // with today's date so they exit the risk set now.
+    const today = todayLocalISO();
     const obs = durationsFromTimeRanges(
-      flags.map((f) => ({ raisedAt: f.createdAt, resolvedAt: f.retiredAt })),
+      flags.map((f) => ({
+        raisedAt: f.createdAt,
+        resolvedAt:
+          f.retiredAt ?? (f.status === "deprecated" ? today : undefined),
+      })),
     );
     return kaplanMeier(obs);
   }, [flags, retiredAges.length]);
@@ -274,28 +283,26 @@ export function FeatureFlagTrackerClient() {
   );
 
   // Mann-Kendall on weekly flag-creation count for the trend chip.
+  // Anchor at today - 26 weeks so the chart always shows the most recent
+  // half-year of activity rather than getting frozen on the team's earliest
+  // ever flag (which would let recent surges drop silently off the right edge).
   const weeklyFlagCount = useMemo(() => {
     if (flags.length === 0) return [];
-    const ts = flags
-      .map((f) => parseLocalDate(f.createdAt)?.getTime() ?? new Date(f.createdAt).getTime())
-      .filter((t) => Number.isFinite(t));
-    if (ts.length === 0) return [];
-    const earliest = new Date(Math.min(...ts));
-    const dayOfWeek = earliest.getUTCDay();
-    const weekStart = new Date(earliest);
-    weekStart.setUTCDate(earliest.getUTCDate() - dayOfWeek);
-    weekStart.setUTCHours(0, 0, 0, 0);
+    const WEEKS = 26;
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
-    const totalWeeks = Math.max(
-      1,
-      Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1,
-    );
-    const cappedWeeks = Math.min(totalWeeks, 26);
-    const counts = new Array(cappedWeeks).fill(0) as number[];
+    const anchor = new Date(today.getTime() - WEEKS * 7 * 86_400_000);
+    const weekStart = new Date(anchor);
+    weekStart.setUTCDate(anchor.getUTCDate() - anchor.getUTCDay());
+    weekStart.setUTCHours(0, 0, 0, 0);
+    const ts = flags
+      .map((f) => parseLocalDate(f.createdAt)?.getTime() ?? new Date(f.createdAt).getTime())
+      .filter((t) => Number.isFinite(t) && t >= weekStart.getTime());
+    if (ts.length === 0) return [];
+    const counts = new Array(WEEKS).fill(0) as number[];
     for (const t of ts) {
       const w = Math.floor((t - weekStart.getTime()) / (7 * 86_400_000));
-      if (w >= 0 && w < cappedWeeks) counts[w] += 1;
+      if (w >= 0 && w < WEEKS) counts[w] += 1;
     }
     return counts;
   }, [flags]);

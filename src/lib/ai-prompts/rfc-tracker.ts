@@ -81,8 +81,7 @@ export function generateRfcTrackerPrompts(
               : "n/a"
           }.`
         ) +
-        `## RFCs\n\n${rfcTable}\n\n## Questions\n\n1. Which RFC titles are vague or framed as solutions instead of problems?\n2. Are reviewers and comment counts proportionate to the scope of the change?\n3. Recommend 3 prompts each author should answer before opening the next RFC.` +
-        wsContext,
+        `## RFCs\n\n${rfcTable}${wsContext}\n\n## Questions\n\n1. Which RFC titles are vague or framed as solutions instead of problems?\n2. Are reviewers and comment counts proportionate to the scope of the change?\n3. Recommend 3 prompts each author should answer before opening the next RFC.`,
     },
     {
       id: "rfc-stale",
@@ -94,8 +93,7 @@ export function generateRfcTrackerPrompts(
           "RFC Tracker",
           "RFCs that linger in draft or review create indecision and shadow-IT workarounds."
         ) +
-        `## Stale RFCs (open >14d)\n\n${staleTable}\n\n## All RFCs\n\n${rfcTable}\n\n## Questions\n\n1. For each stale RFC, suggest the most likely reason it stalled (no DRI, missing data, unclear scope, …).\n2. Recommend the next concrete action for each: split, decide-anyway, withdraw, or escalate.\n3. What policy change would prevent the next batch of RFCs from getting stuck?` +
-        wsContext,
+        `## Stale RFCs (open >14d)\n\n${staleTable}\n\n## All RFCs\n\n${rfcTable}${wsContext}\n\n## Questions\n\n1. For each stale RFC, suggest the most likely reason it stalled (no DRI, missing data, unclear scope, …).\n2. Recommend the next concrete action for each: split, decide-anyway, withdraw, or escalate.\n3. What policy change would prevent the next batch of RFCs from getting stuck?`,
     },
   ];
 }

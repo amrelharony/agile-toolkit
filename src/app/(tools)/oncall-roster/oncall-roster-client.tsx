@@ -352,31 +352,28 @@ export function OncallRosterClient() {
   const topPagedPerson = personStats[0]?.person ?? null;
 
   // ── Tier-2: weekly paging trend + CUSUM changepoints ──────────────
-  // Bucket pages into weeks aligned to the earliest page (cap 26 weeks so
-  // the chart doesn't sprawl with long-running rosters).
+  // Bucket pages into the most recent 26 weeks (anchor weekStart at
+  // today - 26 weeks, aligned to the start of that week). Older pages are
+  // dropped so the chart stays focused on current paging behaviour.
   const weeklyPageSeries = useMemo<{
     counts: number[];
     weekLabels: string[];
   }>(() => {
     if (state.pages.length === 0) return { counts: [], weekLabels: [] };
+    const WEEKS = 26;
+    const today = new Date(now);
+    // Anchor at today - 26 weeks, then snap to the start of that week (Sunday).
+    const anchor = new Date(today.getTime() - WEEKS * 7 * 86_400_000);
+    const weekStart = new Date(anchor);
+    weekStart.setUTCDate(anchor.getUTCDate() - anchor.getUTCDay());
+    weekStart.setUTCHours(0, 0, 0, 0);
     const ts = state.pages
       .map((p) => new Date(p.ts).getTime())
-      .filter((t) => Number.isFinite(t));
+      .filter((t) => Number.isFinite(t) && t >= weekStart.getTime());
     if (ts.length === 0) return { counts: [], weekLabels: [] };
-    const earliest = new Date(Math.min(...ts));
-    const dayOfWeek = earliest.getUTCDay();
-    const weekStart = new Date(earliest);
-    weekStart.setUTCDate(earliest.getUTCDate() - dayOfWeek);
-    weekStart.setUTCHours(0, 0, 0, 0);
-    const today = new Date(now);
-    const totalWeeks = Math.max(
-      1,
-      Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1,
-    );
-    const cappedWeeks = Math.min(totalWeeks, 26);
-    const counts = new Array(cappedWeeks).fill(0) as number[];
+    const counts = new Array(WEEKS).fill(0) as number[];
     const labels: string[] = [];
-    for (let w = 0; w < cappedWeeks; w++) {
+    for (let w = 0; w < WEEKS; w++) {
       const start = new Date(weekStart.getTime() + w * 7 * 86_400_000);
       labels.push(
         `${start.getUTCMonth() + 1}/${String(start.getUTCDate()).padStart(2, "0")}`,
@@ -384,7 +381,7 @@ export function OncallRosterClient() {
     }
     for (const t of ts) {
       const w = Math.floor((t - weekStart.getTime()) / (7 * 86_400_000));
-      if (w >= 0 && w < cappedWeeks) counts[w] += 1;
+      if (w >= 0 && w < WEEKS) counts[w] += 1;
     }
     return { counts, weekLabels: labels };
   }, [state.pages, now]);

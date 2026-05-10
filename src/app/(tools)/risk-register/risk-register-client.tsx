@@ -47,6 +47,7 @@ import { SmartInput } from "@/components/shared/smart-input";
 import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
+import type { PredictedValue } from "@/lib/predictions/registry";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -266,6 +267,37 @@ export function RiskRegisterClient() {
     "mitigationDays",
     14,
   );
+
+  // Pre-compute per-risk SmartInput.predicted objects keyed by risk id so the
+  // inline `{ value: addDaysISO(...) }` is not recreated on every render —
+  // SmartInput compares predicted by identity to decide whether to refresh
+  // the ghost. The map only changes when the prediction outputs or any
+  // risk's raisedAt changes. Type matches SmartInputProps<string>['predicted'].
+  const predictedMitigationByRisk = useMemo(() => {
+    type PredictedDate =
+      | PredictedValue<string>
+      | { value: string; confidence: "none" };
+    const m = new Map<string, PredictedDate>();
+    for (const r of risks) {
+      if (mitigationDaysPrediction.confidence === "none") {
+        m.set(r.id, { value: "", confidence: "none" });
+      } else {
+        m.set(r.id, {
+          value: addDaysISO(r.raisedAt, mitigationDaysPrediction.value),
+          confidence: mitigationDaysPrediction.confidence,
+          source:
+            mitigationDaysPrediction.source ??
+            `${mitigationDaysPrediction.value}-day median lead time`,
+        });
+      }
+    }
+    return m;
+  }, [
+    risks,
+    mitigationDaysPrediction.value,
+    mitigationDaysPrediction.confidence,
+    mitigationDaysPrediction.source,
+  ]);
 
   const handleImport = () => {
     const fresh = workspaceRisks.filter((w) => !risks.find((r) => r.id === w.id));
@@ -549,15 +581,10 @@ export function RiskRegisterClient() {
                       </span>
                       <SmartInput<string>
                         predicted={
-                          mitigationDaysPrediction.confidence === "none"
-                            ? { value: "", confidence: "none" }
-                            : {
-                                value: addDaysISO(r.raisedAt, mitigationDaysPrediction.value),
-                                confidence: mitigationDaysPrediction.confidence,
-                                source:
-                                  mitigationDaysPrediction.source ??
-                                  `${mitigationDaysPrediction.value}-day median lead time`,
-                              }
+                          predictedMitigationByRisk.get(r.id) ?? {
+                            value: "",
+                            confidence: "none",
+                          }
                         }
                         onAccept={(value) => update(r.id, { mitigationDueAt: value })}
                         render={({ ghost, accept, chip }) => (

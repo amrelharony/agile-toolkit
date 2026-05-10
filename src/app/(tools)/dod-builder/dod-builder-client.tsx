@@ -22,7 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { Plus, Trash2, Code, ShieldCheck, FileCode, Gauge, Lock, CircleHelp } from "lucide-react";
+import { Plus, Trash2, Code, ShieldCheck, FileCode, Gauge, Lock, CircleHelp, Camera, Check } from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { generateDodBuilderPrompts } from "@/lib/ai-prompts/dod-builder";
 import { ActionRow } from "@/components/shared/action-row";
@@ -31,6 +31,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DOD_ACTIONS } from "@/lib/history/event-actions";
 import { pChartLimits } from "@/lib/analytics/control-chart";
 import { mannKendall } from "@/lib/analytics/trend-test";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 type CategoryId = "code" | "testing" | "docs" | "performance" | "security" | "other";
 
@@ -40,11 +41,15 @@ interface DodItem {
   description?: string;
   category: CategoryId;
   required: boolean;
+  /** Per-current-sprint completion checkbox; cleared on snapshot. */
+  done?: boolean;
 }
 
 interface SprintAdherence {
   sprintName: string;
-  completedItemIds: string[];
+  totalRequired: number;
+  completed: number;
+  ts: string;
 }
 
 interface DodState {
@@ -75,6 +80,7 @@ export function DodBuilderClient() {
   const [newLabel, setNewLabel] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [activeCategory, setActiveCategory] = useState<CategoryId>("code");
+  const [snapshotName, setSnapshotName] = useState("");
   const { log } = useHistoryLogger("dod-builder");
 
   const addItem = () => {
@@ -111,36 +117,58 @@ export function DodBuilderClient() {
     log(DOD_ACTIONS.CRITERION_REMOVED, { itemId: id, label: item?.label });
   };
 
+  const toggleDone = (id: string) => {
+    setState((s) => ({
+      ...s,
+      items: s.items.map((x) => (x.id === id ? { ...x, done: !x.done } : x)),
+    }));
+  };
+
+  // Snapshot the current sprint's adherence into history. Only required items
+  // count toward the trial-block; clearing `done` after lets the team start
+  // a fresh sprint without losing the historical record.
+  const snapshotSprint = () => {
+    const name = snapshotName.trim();
+    if (!name) return;
+    const required = state.items.filter((i) => i.required);
+    if (required.length === 0) return;
+    const completed = required.filter((i) => i.done === true).length;
+    const entry: SprintAdherence = {
+      sprintName: name,
+      totalRequired: required.length,
+      completed,
+      ts: todayLocalISO(),
+    };
+    setState((s) => ({
+      ...s,
+      history: [...s.history, entry],
+      items: s.items.map((i) => ({ ...i, done: false })),
+    }));
+    log(DOD_ACTIONS.DOD_RESET, {
+      sprintName: name,
+      totalRequired: required.length,
+      completed,
+    });
+    setSnapshotName("");
+  };
+
   const adherence = useMemo(() => {
     if (state.history.length === 0) return null;
     const last = state.history[state.history.length - 1];
-    const required = state.items.filter((i) => i.required);
-    const passed = required.filter((i) => last.completedItemIds.includes(i.id));
-    return required.length > 0 ? passed.length / required.length : 0;
-  }, [state.items, state.history]);
+    return last.totalRequired > 0 ? last.completed / last.totalRequired : 0;
+  }, [state.history]);
 
-  // Per-sprint adherence series, computed against the *current* required set.
-  // We snapshot the trailing 20 sprints so the p-chart limits stay stable as
-  // the team's DoD bar evolves; older sprints are summarised but not plotted.
+  // Per-sprint adherence series, snapshotted at sprint close. We plot the
+  // trailing 20 sprints so the p-chart limits stay stable as the team's DoD
+  // bar evolves; older sprints are summarised but not plotted.
   const adherenceSeries = useMemo(() => {
-    const required = state.items.filter((i) => i.required);
-    const requiredIds = new Set(required.map((i) => i.id));
-    if (required.length === 0) return [] as Array<{
-      sprintName: string;
-      passed: number;
-      required: number;
-      adherencePct: number;
-    }>;
-    return state.history.slice(-20).map((h) => {
-      const passed = h.completedItemIds.filter((id) => requiredIds.has(id)).length;
-      return {
-        sprintName: h.sprintName,
-        passed,
-        required: required.length,
-        adherencePct: (passed / required.length) * 100,
-      };
-    });
-  }, [state.items, state.history]);
+    return state.history.slice(-20).map((h) => ({
+      sprintName: h.sprintName,
+      passed: h.completed,
+      required: h.totalRequired,
+      adherencePct: h.totalRequired > 0 ? (h.completed / h.totalRequired) * 100 : 0,
+    }));
+  }, [state.history]);
 
   // p-chart on per-sprint DoD adherence. Each sprint = one trial-block where
   // `passed` = met requirements, `required.length` = total trials. Returns
@@ -203,6 +231,39 @@ export function DodBuilderClient() {
           </CardContent>
         </Card>
       )}
+
+      {/* Sprint snapshot — captures count of `required && done` items into
+          history, so the p-chart and Mann-Kendall trend below have data. */}
+      <Card className="bg-surface border-border mb-6">
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+            <div className="flex-1">
+              <div className="text-xs text-sub uppercase tracking-wider font-mono mb-1.5">Sprint name</div>
+              <Input
+                value={snapshotName}
+                onChange={(e) => setSnapshotName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && snapshotSprint()}
+                placeholder="e.g. Sprint 42"
+                className="bg-bg border-border"
+              />
+            </div>
+            <div className="text-xs text-sub font-mono whitespace-nowrap">
+              {state.items.filter((i) => i.required && i.done).length}
+              <span className="text-text/40"> / </span>
+              {state.items.filter((i) => i.required).length}
+              <span className="text-text/40"> required done</span>
+            </div>
+            <Button
+              onClick={snapshotSprint}
+              disabled={!snapshotName.trim() || state.items.filter((i) => i.required).length === 0}
+              className="gap-2 bg-accent text-bg hover:bg-accent/90"
+            >
+              <Camera className="w-4 h-4" />
+              Snapshot this sprint
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* p-chart on per-sprint DoD adherence — UCL/X̄/LCL overlay so the team
           can see when adherence drifts outside the natural variation band.
@@ -314,6 +375,21 @@ export function DodBuilderClient() {
                   key={item.id}
                   className="flex items-start gap-3 rounded-lg border border-border bg-surface p-3"
                 >
+                  {/* Per-item done checkbox. Snapshot counts only required-done,
+                      but we show the checkbox for all items so users can track
+                      optional progress too. */}
+                  <button
+                    type="button"
+                    onClick={() => toggleDone(item.id)}
+                    aria-label={item.done ? "Mark not done" : "Mark done"}
+                    className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition ${
+                      item.done
+                        ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-300"
+                        : "border-border text-transparent hover:border-emerald-500/40"
+                    }`}
+                  >
+                    <Check className="w-3 h-3" />
+                  </button>
                   <button
                     type="button"
                     onClick={() => toggleRequired(item.id)}

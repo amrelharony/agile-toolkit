@@ -290,26 +290,27 @@ export function TechDebtClient() {
   }, [items]);
 
   // ── Tier-2 KM survival on resolution time ────────────────────────────
-  // Resolved-only durations feed the bootstrap CI on the median (right-
-  // censoring isn't meaningful here because open items are unbounded).
-  const resolvedDurations = useMemo(() => {
-    return items
-      .filter((i) => i.resolvedAt)
-      .map((i) => {
-        const start = new Date(i.raisedAt).getTime();
-        const end = new Date(i.resolvedAt!).getTime();
-        return Math.max(0, Math.round((end - start) / 86_400_000));
-      })
-      .filter((d) => Number.isFinite(d));
-  }, [items]);
+  // Both the bootstrap CI on the median and the KM curve are derived from
+  // the same observation set so any negative-duration filtering or rounding
+  // applied by `durationsFromTimeRanges` lines up — otherwise the two
+  // medians can disagree on the same data.
+  const survivalObservations = useMemo(
+    () =>
+      durationsFromTimeRanges(
+        items.map((i) => ({ raisedAt: i.raisedAt, resolvedAt: i.resolvedAt })),
+      ),
+    [items],
+  );
+
+  const resolvedDurations = useMemo(
+    () => survivalObservations.filter((o) => o.event).map((o) => o.duration),
+    [survivalObservations],
+  );
 
   const survivalCurve = useMemo(() => {
     if (resolvedDurations.length < 4) return [];
-    const obs = durationsFromTimeRanges(
-      items.map((i) => ({ raisedAt: i.raisedAt, resolvedAt: i.resolvedAt })),
-    );
-    return kaplanMeier(obs);
-  }, [items, resolvedDurations.length]);
+    return kaplanMeier(survivalObservations);
+  }, [survivalObservations, resolvedDurations.length]);
 
   const medianResolutionDays = useMemo(
     () => medianSurvivalTime(survivalCurve),

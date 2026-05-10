@@ -137,5 +137,11 @@ export function kMeansAuto(points: number[][], maxK = 6): KMeansResult {
     const gap = dPrev - dNext;
     if (gap > bestGap) { bestGap = gap; bestIdx = i; }
   }
-  return runs[bestIdx];
+  // Require a meaningful elbow — otherwise tiny numeric jitter on inertia
+  // plateaus picks an arbitrary k. Threshold at 1% of the k=2 inertia keeps
+  // us conservative: we only "see" an elbow when the bend is materially
+  // larger than floating-point noise. If no meaningful elbow exists, fall
+  // back to k=2 (the simplest non-trivial clustering).
+  const minMeaningfulGap = runs[0].inertia * 0.01;
+  return bestGap > minMeaningfulGap ? runs[bestIdx] : runs[0];
 }

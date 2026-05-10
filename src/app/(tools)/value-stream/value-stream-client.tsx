@@ -16,6 +16,7 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { VALUE_STREAM_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
+import { useHistoryStore } from "@/lib/history/history-store";
 import { ActionRow } from "@/components/shared/action-row";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
@@ -155,6 +156,7 @@ export function ValueStreamClient() {
   // changes). Surfaces a small chip when stories have moved through stages
   // recently — reminds the user that lead-time/flow-efficiency may be stale
   // if the value-stream model wasn't updated since.
+  const events = useHistoryStore((s) => s.events);
   const recentStoryMoves = useMemo(
     () =>
       selectEvents({
@@ -163,9 +165,7 @@ export function ValueStreamClient() {
         sinceDays: 7,
         limit: 50,
       }),
-    // history-store mutations cause parent re-render
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [events]
   );
 
   return (

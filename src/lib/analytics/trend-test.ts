@@ -44,7 +44,12 @@ export function mannKendall(series: number[], alpha = 0.05): MannKendallResult {
   // (Abramowitz & Stegun 26.2.17).
   const pValue = 2 * (1 - normalCdf(Math.abs(z)));
 
-  const significant = pValue < alpha;
+  // Below n=10 the normal approximation is unreliable — exact tables show
+  // material disagreement with the asymptotic z. We still compute and
+  // return direction (z, s, pValue) so callers can show a hint, but
+  // `significant` stays false until n is large enough for the p-value to
+  // be trustworthy.
+  const significant = pValue < alpha && n >= 10;
   let trend: "up" | "down" | "none" = "none";
   if (significant) trend = z > 0 ? "up" : "down";
 

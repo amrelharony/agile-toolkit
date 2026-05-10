@@ -200,6 +200,59 @@ export function OkrsClient() {
     [okrs]
   );
 
+  // Hoist per-OKR analytics into a single memo keyed on `okrs`. Previously
+  // these chained five recomputations (Mann-Kendall, Bayesian Holt, CUSUM,
+  // chart data, annotations) on every render *inside* the .map callback —
+  // expensive on multi-OKR boards. The map below now just looks up the
+  // pre-computed result by OKR id.
+  type OkrAnalytics = {
+    mk: ReturnType<typeof mannKendall> | null;
+    fc: ReturnType<typeof forecastBayesianHolt>;
+    fcConfidence: ReturnType<typeof bayesianForecastConfidence> | null;
+    cps: ReturnType<typeof cusum>;
+    krChartData: { kr: string; progressPct: number }[];
+    krAnnotations: CausalAnnotationData[];
+    measurableKrCount: number;
+  };
+  const analyticsByOkr = useMemo(() => {
+    const map = new Map<string, OkrAnalytics>();
+    for (const o of okrs) {
+      // Filter out KRs with target<=0 — those are placeholder/invalid rows
+      // that always evaluate to 0 progress and would bias both Mann-Kendall
+      // and CUSUM toward "down" / spurious changepoints.
+      const measurableKrs = o.keyResults.filter((kr) => kr.target > 0);
+      const progressSeries = measurableKrs.map((kr) => krProgress(kr));
+      const mk = progressSeries.length >= 5 ? mannKendall(progressSeries) : null;
+      const fc =
+        progressSeries.length >= 3
+          ? forecastBayesianHolt(progressSeries, 1, { priorWeight: 1 })
+          : [];
+      const fcConfidence =
+        progressSeries.length >= 3 ? bayesianForecastConfidence(progressSeries) : null;
+      const cps = progressSeries.length >= 4 ? cusum(progressSeries) : [];
+      const krChartData = measurableKrs.map((kr, idx) => ({
+        kr: kr.title.slice(0, 24) || `KR${idx + 1}`,
+        progressPct: Math.round(krProgress(kr) * 100),
+      }));
+      const krAnnotations: CausalAnnotationData[] = cps.map((cp) => ({
+        x: krChartData[cp.index]?.kr ?? String(cp.index),
+        label: `Progress regime ${cp.direction === "up" ? "↑" : "↓"}`,
+        detail: `CUSUM detected a ${cp.direction === "up" ? "lift" : "drop"} in progress at this KR (across the KR sequence — not temporal).`,
+        confidence: "weak" as const,
+      }));
+      map.set(o.id, {
+        mk,
+        fc,
+        fcConfidence,
+        cps,
+        krChartData,
+        krAnnotations,
+        measurableKrCount: measurableKrs.length,
+      });
+    }
+    return map;
+  }, [okrs]);
+
   return (
     <ToolPageWrapper
       toolId="okrs"
@@ -245,36 +298,17 @@ export function OkrsClient() {
         {okrs.map((o) => {
           const health = objectiveHealth(o);
 
-          // ── Per-Okr analytics — applied across the KR sequence. The KR
-          //    order isn't temporal, so we label each chip explicitly with
-          //    "across KR sequence" to avoid the over-claim that previously
-          //    led to the linear-forecast removal.
-          const progressSeries = o.keyResults.map((kr) => krProgress(kr));
-          const mk = progressSeries.length >= 5 ? mannKendall(progressSeries) : null;
-
-          // Bayesian projection of the next-KR progress under the Bayesian
-          // Holt model. Only meaningful at n>=3; we still surface "low"
-          // confidence at smaller n thanks to the primitive's built-in
-          // shrinkage.
-          const fc =
-            progressSeries.length >= 3
-              ? forecastBayesianHolt(progressSeries, 1, { priorWeight: 1 })
-              : [];
-          const fcConfidence =
-            progressSeries.length >= 3 ? bayesianForecastConfidence(progressSeries) : null;
-
-          // CUSUM markers for the KR-progress mini-chart (n>=4 required).
-          const cps = progressSeries.length >= 4 ? cusum(progressSeries) : [];
-          const krChartData = o.keyResults.map((kr, idx) => ({
-            kr: kr.title.slice(0, 24) || `KR${idx + 1}`,
-            progressPct: Math.round(krProgress(kr) * 100),
-          }));
-          const krAnnotations: CausalAnnotationData[] = cps.map((cp) => ({
-            x: krChartData[cp.index]?.kr ?? String(cp.index),
-            label: `Progress regime ${cp.direction === "up" ? "↑" : "↓"}`,
-            detail: `CUSUM detected a ${cp.direction === "up" ? "lift" : "drop"} in progress at this KR (across the KR sequence — not temporal).`,
-            confidence: "weak" as const,
-          }));
+          // Per-OKR analytics now hoisted into `analyticsByOkr` (single useMemo
+          // keyed on `okrs`) — the previous inline computation re-ran 5
+          // analytics primitives on every render. Lookup is O(1) and the
+          // memo is invalidated only when the OKR list itself changes.
+          const a = analyticsByOkr.get(o.id);
+          const mk = a?.mk ?? null;
+          const fc = a?.fc ?? [];
+          const fcConfidence = a?.fcConfidence ?? null;
+          const krChartData = a?.krChartData ?? [];
+          const krAnnotations = a?.krAnnotations ?? [];
+          const measurableKrCount = a?.measurableKrCount ?? 0;
 
           return (
             <Card key={o.id} className="bg-surface border-border">
@@ -431,9 +465,10 @@ export function OkrsClient() {
                   );
                 })}
                 {/* KR-progress mini-chart with CUSUM regime markers, only
-                    when there are enough KRs (n>=4) for the analysis to
-                    mean anything. */}
-                {o.keyResults.length >= 4 && (
+                    when there are enough *measurable* KRs (target>0, n>=4)
+                    for the analysis to mean anything — placeholder rows
+                    with target=0 are excluded from the analytics series. */}
+                {measurableKrCount >= 4 && (
                   <ChartCard
                     title="KR progress (across KR sequence)"
                     height={180}

@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2, Zap, Clock, TrendingUp, Activity } from "lucide-react";
 import { mean, stdDev } from "@/lib/analytics/anomaly";
-import { forecastHolt } from "@/lib/analytics/forecasting";
+import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
 import { xmrLimits } from "@/lib/analytics/control-chart";
 import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
@@ -217,7 +217,12 @@ export function KanbanClient() {
   );
 
   const forecast = useMemo(
-    () => (weeklyThroughput.length >= 2 ? forecastHolt(weeklyThroughput, 1) : []),
+    // Bayesian variant inflates σ on small n — honest 80/95% bands at low
+    // sample sizes rather than the over-confident bands plain Holt produces.
+    () =>
+      weeklyThroughput.length >= 2
+        ? forecastBayesianHolt(weeklyThroughput, 1, { priorWeight: 2 })
+        : [],
     [weeklyThroughput]
   );
 
@@ -225,24 +230,35 @@ export function KanbanClient() {
   // XmR control limits — need at least 2 observations to compute a moving
   // range; below that we suppress the overlay rather than draw a flat line.
   const throughputLimits = useMemo(
-    () => (weeklyThroughput.length >= 2 ? xmrLimits(weeklyThroughput) : null),
+    // Throughput (count of stories closed per week) cannot be negative —
+    // clamp LCL at 0 so the lower band reflects reality.
+    () => (weeklyThroughput.length >= 2 ? xmrLimits(weeklyThroughput, true) : null),
     [weeklyThroughput]
   );
 
   // CUSUM changepoints — primitive guards length<4 internally but we keep
   // the explicit gate for clarity. Map to the chart's x-axis label so the
-  // CausalLine lands on the right tick.
+  // CausalLine lands on the right tick. Annotations whose label isn't in
+  // the chart's x-domain are dropped — `ifOverflow="extendDomain"` would
+  // otherwise distort the axis with phantom ticks.
   const throughputCusumAnnotations = useMemo<CausalAnnotationData[]>(() => {
     if (weeklyThroughput.length < 4) return [];
-    return cusum(weeklyThroughput).map((cp) => {
-      const point = weeklyThroughputSeries[cp.index];
-      return {
-        x: point?.label ?? cp.index,
-        label: cp.direction === "up" ? "Throughput regime up" : "Throughput regime down",
-        detail: `CUSUM detected a ${cp.direction === "up" ? "sustained increase" : "sustained decrease"} in weekly throughput at ${point?.label ?? `week ${cp.index + 1}`}.`,
-        confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
-      };
-    });
+    const xValuesInChart = new Set(weeklyThroughputSeries.map((p) => p.label));
+    return cusum(weeklyThroughput)
+      .map((cp): CausalAnnotationData | null => {
+        const point = weeklyThroughputSeries[cp.index];
+        if (!point) return null;
+        return {
+          x: point.label,
+          label: cp.direction === "up" ? "Throughput regime up" : "Throughput regime down",
+          detail: `CUSUM detected a ${cp.direction === "up" ? "sustained increase" : "sustained decrease"} in weekly throughput at ${point.label}.`,
+          confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
+        };
+      })
+      .filter(
+        (a): a is CausalAnnotationData =>
+          a !== null && typeof a.x === "string" && xValuesInChart.has(a.x),
+      );
   }, [weeklyThroughput, weeklyThroughputSeries]);
 
   // Mann-Kendall trend test — primitive returns trend "none" for n<5.
@@ -546,7 +562,12 @@ export function KanbanClient() {
                             value={wipFor("in_progress")}
                             placeholder={ghost ?? "WIP"}
                             onKeyDown={(e) => {
-                              if (e.key === "Tab" && wipFor("in_progress") === "") {
+                              // Use the raw edit buffer (which is "" when
+                              // the field is blank) — wipFor() falls back to
+                              // String(limit) when the buffer is null, so
+                              // it's always a stringified number and the
+                              // empty-check would never fire.
+                              if (e.key === "Tab" && wipEditBuffer === "") {
                                 e.preventDefault();
                                 accept();
                               }

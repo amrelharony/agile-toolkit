@@ -20,10 +20,19 @@ interface PrioritizerData {
 }
 
 function wsjf(i: PrioritizerData["items"][0]) {
-  return i.jobSize > 0 ? Math.round(((i.businessValue + i.timeCriticality + i.riskReduction) / i.jobSize) * 10) / 10 : 0;
+  // Mirror the client (`Math.max(1, jobSize)`) so a zero or sub-1 jobSize doesn't
+  // explode the score and matches the figure the user sees in the UI.
+  const denom = Math.max(1, i.jobSize);
+  return Math.round(((i.businessValue + i.timeCriticality + i.riskReduction) / denom) * 10) / 10;
 }
 function rice(i: PrioritizerData["items"][0]) {
-  return i.effort > 0 ? Math.round(((i.reach * i.impact * i.confidence) / i.effort) * 10) / 10 : 0;
+  // `confidence` is stored as 0-100 here but the RICE formula expects 0-1.
+  // Without the /100, RICE comes out 100× too high relative to the UI.
+  // Effort is also clamped to ≥0.1 to mirror the client's protection against
+  // div-by-zero on tiny estimates.
+  return i.effort > 0
+    ? Math.round(((i.reach * i.impact * (i.confidence / 100)) / Math.max(0.1, i.effort)) * 10) / 10
+    : 0;
 }
 
 export function generatePrioritizerPrompts(data: PrioritizerData, workspace?: Workspace | null): PromptDefinition[] {

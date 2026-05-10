@@ -27,6 +27,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ONE_ON_ONE_ACTIONS } from "@/lib/history/event-actions";
 import { generateOneOnOnePrompts } from "@/lib/ai-prompts/one-on-one";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 
@@ -305,18 +306,22 @@ export function OneOnOneClient() {
     return count;
   }, [meetings]);
 
-  const workspace = useWorkspaceStore<Workspace>((s) => ({
-    teamMembers: s.teamMembers,
-    sprints: s.sprints,
-    stories: s.stories,
-    impediments: s.impediments,
-    risks: s.risks,
-    okrs: s.okrs,
-    decisions: s.decisions,
-    techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel,
-    teamName: s.teamName,
-  }));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+      })
+    )
+  );
 
   const promptConfig = useMemo(
     () => ({

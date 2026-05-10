@@ -7,8 +7,6 @@ import { INVALIDATION_MATRIX } from "./invalidation";
 interface CacheEntry<T> {
   value: T;
   expiresAt: number;
-  // For LRU eviction: bump on read.
-  lastTouched: number;
 }
 
 const CACHE_CAP = 200;
@@ -38,12 +36,15 @@ function makeKey(prefix: string, deps: unknown[]): string {
 
 function evictIfNeeded(): void {
   if (cache.size <= CACHE_CAP) return;
-  // Evict the 10% least-recently-touched entries in one pass.
-  const entries = Array.from(cache.entries());
-  entries.sort((a, b) => a[1].lastTouched - b[1].lastTouched);
-  const toEvict = Math.ceil(CACHE_CAP * 0.1);
-  for (let i = 0; i < toEvict && i < entries.length; i++) {
-    cache.delete(entries[i][0]);
+  // Maps preserve insertion order; we re-insert on every cache hit
+  // (delete+set in `deriveCached`), so the front of the iterator is the
+  // least-recently-used. Snapshot the keys (deleting while iterating an
+  // active Map iterator is safe in spec, but the project's tsconfig target
+  // is conservative — Array.from costs an array allocation but no sort).
+  const toEvict = cache.size - CACHE_CAP;
+  const keys = Array.from(cache.keys());
+  for (let i = 0; i < toEvict; i++) {
+    cache.delete(keys[i]);
   }
 }
 
@@ -70,11 +71,18 @@ export function deriveCached<T>(
   const now = Date.now();
   const hit = cache.get(key);
   if (hit && hit.expiresAt > now) {
-    hit.lastTouched = now;
+    // Move to back of insertion order so it becomes the most-recently-used;
+    // eviction walks the front (oldest) entries.
+    cache.delete(key);
+    cache.set(key, hit);
     return hit.value as T;
   }
+  // If we hit an expired entry, remove it before reinsert so the new entry
+  // lands at the back of the iteration order, not in the original (older)
+  // slot which would defeat LRU.
+  if (hit) cache.delete(key);
   const value = compute();
-  cache.set(key, { value, expiresAt: now + ttlMs, lastTouched: now });
+  cache.set(key, { value, expiresAt: now + ttlMs });
   evictIfNeeded();
   return value;
 }

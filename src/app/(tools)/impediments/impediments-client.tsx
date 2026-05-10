@@ -42,6 +42,10 @@ import { mannKendall } from "@/lib/analytics/trend-test";
 import { cusum } from "@/lib/analytics/changepoint";
 import { SmartInput } from "@/components/shared/smart-input";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
+import { ChartCard } from "@/components/shared/chart-card";
+import { chartTheme } from "@/components/charts/chart-theme";
+import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -739,6 +743,33 @@ export function ImpedimentsClient() {
     return cusum(openAtWeek);
   }, [openAtWeek]);
 
+  // Weekly chart data for the trend chart (last 26 weeks). Labels are
+  // simple "W{n}" so the x-axis is monotonically ordered and CUSUM
+  // markers anchor to the right week.
+  const weeklyChartData = useMemo(
+    () =>
+      raisedPerWeek.map((count, i) => ({
+        week: `W${i + 1}`,
+        raised: count,
+      })),
+    [raisedPerWeek],
+  );
+
+  // CUSUM markers on raised-per-week, anchored to the chart's week labels
+  // and filtered to only those whose x falls within the chart x-domain.
+  const raisedChangepoints = useMemo<CausalAnnotationData[]>(() => {
+    if (raisedPerWeek.length < 4) return [];
+    const xValuesInChart = new Set(weeklyChartData.map((d) => d.week));
+    return cusum(raisedPerWeek)
+      .map((cp) => ({
+        x: weeklyChartData[cp.index]?.week ?? `W${cp.index + 1}`,
+        label: `Raised ${cp.direction === "up" ? "↑ regime" : "↓ regime"}`,
+        detail: `CUSUM detected a sustained ${cp.direction === "up" ? "increase" : "drop"} in weekly impediments raised at week ${cp.index + 1}.`,
+        confidence: cp.cumulativeStat >= 6 ? ("strong" as const) : ("moderate" as const),
+      }))
+      .filter((a) => xValuesInChart.has(a.x as string));
+  }, [raisedPerWeek, weeklyChartData]);
+
   // Filtered list
   const filtered = useMemo(
     () =>
@@ -910,6 +941,39 @@ export function ImpedimentsClient() {
               </span>
             )}
           </div>
+        )}
+
+        {/* Weekly raised-per-week trend with CUSUM regime-shift markers. */}
+        {weeklyChartData.length >= 4 && (
+          <ChartCard title="Weekly raised" icon={TrendingUp} height={200}>
+            <LineChart data={weeklyChartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey="week"
+                tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                axisLine={{ stroke: chartTheme.gridColor }}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                axisLine={false}
+                tickLine={false}
+                allowDecimals={false}
+              />
+              <Tooltip contentStyle={chartTheme.tooltipStyle} />
+              <Line
+                type="monotone"
+                dataKey="raised"
+                stroke={chartTheme.colors.cyan}
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                name="Raised / week"
+              />
+              {raisedChangepoints.map((cp, i) => (
+                <CausalLine key={`raised-cusum-${i}`} annotation={cp} />
+              ))}
+            </LineChart>
+          </ChartCard>
         )}
 
         {/* Actions + filters row */}

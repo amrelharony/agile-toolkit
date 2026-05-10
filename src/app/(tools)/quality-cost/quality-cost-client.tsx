@@ -23,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DollarSign, ShieldCheck, AlertTriangle } from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { generateQualityCostPrompts } from "@/lib/ai-prompts/quality-cost";
+import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { usePersisted } from "@/lib/utils/use-persisted";
@@ -130,18 +131,22 @@ export function QualityCostClient() {
   );
   const { log } = useHistoryLogger("quality-cost");
   const chartRef = useRef<HTMLDivElement>(null);
-  const workspace = useWorkspaceStore<Workspace>((s) => ({
-    teamMembers: s.teamMembers,
-    sprints: s.sprints,
-    stories: s.stories,
-    impediments: s.impediments,
-    risks: s.risks,
-    okrs: s.okrs,
-    decisions: s.decisions,
-    techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel,
-    teamName: s.teamName,
-  }));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+      })
+    )
+  );
 
   const update = (patch: Partial<QualityCostInput>) => {
     setState((s) => ({ ...s, ...patch }));

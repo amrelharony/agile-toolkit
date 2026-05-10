@@ -392,7 +392,14 @@ export function PostMortemClient() {
     if (publishedDurations.length < 4) return [];
     const obs = durationsFromTimeRanges(
       state.postmortems
-        .filter((p) => p.createdAt || p.incidentDate)
+        // Drop published items missing `publishedAt` entirely — including them
+        // would have `durationsFromTimeRanges` censor them as "still alive
+        // through today", biasing the curve toward longer survival.
+        .filter(
+          (p) =>
+            (p.createdAt || p.incidentDate) &&
+            (p.status !== "published" || p.publishedAt),
+        )
         .map((p) => ({
           raisedAt: p.createdAt ?? p.incidentDate,
           resolvedAt: p.status === "published" ? p.publishedAt : undefined,

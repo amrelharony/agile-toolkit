@@ -16,6 +16,7 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PI_PLANNING_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
+import { useHistoryStore } from "@/lib/history/history-store";
 import { ActionRow } from "@/components/shared/action-row";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
@@ -172,6 +173,7 @@ export function PiPlanningClient() {
   // PI commitments roll forward as constituent sprints complete. Surface a
   // small chip with the count so the user can sanity-check whether the
   // board's iteration count and team velocities still reflect reality.
+  const events = useHistoryStore((s) => s.events);
   const sprintsSincePiStart = useMemo(
     () =>
       selectEvents({
@@ -180,9 +182,7 @@ export function PiPlanningClient() {
         sinceDays: 90,
         limit: 50,
       }),
-    // history-store mutations cause parent re-render
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [events]
   );
 
   return (

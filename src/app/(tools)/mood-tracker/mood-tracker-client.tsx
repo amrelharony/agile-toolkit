@@ -161,15 +161,24 @@ export function MoodTrackerClient() {
   );
   const dailyValues = useMemo(() => dailySeries.map((d) => d.avg), [dailySeries]);
 
-  // CUSUM regime-shift markers on the daily-average series.
+  // CUSUM regime-shift markers on the daily-average series. Drop any
+  // changepoint that doesn't map to a date in `dailySeries` — the chart's
+  // x-axis is `dailySeries[].date`, and the synthetic `String(cp.index)`
+  // fallback would force `ifOverflow="extendDomain"` to add a phantom tick.
   const dailyChangepoints = useMemo<CausalAnnotationData[]>(() => {
     if (dailyValues.length < 4) return [];
-    return cusum(dailyValues).map((cp) => ({
-      x: dailySeries[cp.index]?.date ?? String(cp.index),
-      label: `Mood ${cp.direction === "up" ? "↑ regime" : "↓ regime"}`,
-      detail: `CUSUM detected a sustained ${cp.direction === "up" ? "lift" : "drop"} in daily team mood at ${dailySeries[cp.index]?.date}.`,
-      confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
-    }));
+    return cusum(dailyValues)
+      .map((cp): CausalAnnotationData | null => {
+        const date = dailySeries[cp.index]?.date;
+        if (!date) return null;
+        return {
+          x: date,
+          label: `Mood ${cp.direction === "up" ? "↑ regime" : "↓ regime"}`,
+          detail: `CUSUM detected a sustained ${cp.direction === "up" ? "lift" : "drop"} in daily team mood at ${date}.`,
+          confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
+        };
+      })
+      .filter((a): a is CausalAnnotationData => a !== null);
   }, [dailyValues, dailySeries]);
 
   // Rolling-week mood: 7-point moving average over the daily series. The

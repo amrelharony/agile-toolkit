@@ -278,7 +278,8 @@ export function FlakyTestsClient() {
   // fewer than 4 weeks of data — XmR is unstable on tiny series.
   const weeklyControl = useMemo(() => {
     if (weeklyCounts.length < 4) return null;
-    return xmrLimits(weeklyCounts.map((w) => w.count));
+    // Flaky-test counts cannot be negative; clamp LCL at 0.
+    return xmrLimits(weeklyCounts.map((w) => w.count), true);
   }, [weeklyCounts]);
 
   // Mann-Kendall trend test on the weekly flaky count.

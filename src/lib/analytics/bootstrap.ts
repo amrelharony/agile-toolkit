@@ -41,6 +41,12 @@ export function bootstrapCI(
   confidence = 0.95,
   seed = 12345
 ): BootstrapCI {
+  // Floor at 200. Below this the percentile bounds are visibly jagged
+  // (each iteration moves the lower/upper quantile by ~0.5% of the
+  // distribution) and the CI flickers between renders for the same data.
+  // bootstrapMean and bootstrapQuantile route through this function so
+  // they inherit the floor automatically.
+  iterations = Math.max(iterations, 200);
   if (series.length === 0) {
     return { point: 0, lower: 0, upper: 0, confidence, iterations: 0 };
   }

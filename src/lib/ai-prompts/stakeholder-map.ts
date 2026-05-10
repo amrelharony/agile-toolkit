@@ -74,8 +74,7 @@ export function generateStakeholderMapPrompts(
           "Stakeholder Map",
           `${data.stakeholders.length} stakeholders. Manage closely: ${data.quadrants.manageClosely}, keep satisfied: ${data.quadrants.keepSatisfied}, keep informed: ${data.quadrants.keepInformed}, monitor: ${data.quadrants.monitor}.`
         ) +
-        `## Stakeholders\n\n${stakeholderTable}\n\n## Questions\n\n1. Which stakeholders are misclassified (e.g., a high-authority blocker only being "monitored")?\n2. Are the documented strategies generic or tailored to each person's interest/authority?\n3. Suggest a 2-week engagement plan for the "Manage Closely" quadrant.` +
-        wsContext,
+        `## Stakeholders\n\n${stakeholderTable}${wsContext}\n\n## Questions\n\n1. Which stakeholders are misclassified (e.g., a high-authority blocker only being "monitored")?\n2. Are the documented strategies generic or tailored to each person's interest/authority?\n3. Suggest a 2-week engagement plan for the "Manage Closely" quadrant.`,
     },
     {
       id: "stakeholder-blockers",
@@ -87,8 +86,7 @@ export function generateStakeholderMapPrompts(
           "Stakeholder Map",
           `${data.blockers} blocker(s) currently logged. Conversion is high-leverage but slow.`
         ) +
-        `## Blockers\n\n${blockerTable}\n\n## All stakeholders\n\n${stakeholderTable}\n\n## Questions\n\n1. For each blocker, infer the most likely root cause (lost autonomy, surprise, missed credit, …) and a counter-move.\n2. Which supporter is best positioned to peer-influence each blocker?\n3. What 1-page leadership communication would shift the highest-authority blocker?` +
-        wsContext,
+        `## Blockers\n\n${blockerTable}\n\n## All stakeholders\n\n${stakeholderTable}${wsContext}\n\n## Questions\n\n1. For each blocker, infer the most likely root cause (lost autonomy, surprise, missed credit, …) and a counter-move.\n2. Which supporter is best positioned to peer-influence each blocker?\n3. What 1-page leadership communication would shift the highest-authority blocker?`,
     },
   ];
 }

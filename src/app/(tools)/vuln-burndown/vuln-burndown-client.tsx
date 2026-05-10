@@ -306,12 +306,22 @@ export function VulnBurndownClient() {
 
   const openChangepoints = useMemo<CausalAnnotationData[]>(() => {
     if (openSeries.length < 4) return [];
-    return cusum(openSeries).map((cp) => ({
-      x: chartData[cp.index]?.date ?? String(cp.index),
-      label: `Open vulns ${cp.direction === "up" ? "↑ regime" : "↓ regime"}`,
-      detail: `CUSUM detected a sustained ${cp.direction === "up" ? "increase" : "decrease"} in open vulnerabilities at ${chartData[cp.index]?.date}.`,
-      confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
-    }));
+    // Drop changepoints whose chartData row is missing — using a synthetic
+    // String(cp.index) fallback puts a non-date value on a date axis, which
+    // recharts then expands the domain to fit (`ifOverflow="extendDomain"`),
+    // distorting the chart.
+    return cusum(openSeries)
+      .map((cp): CausalAnnotationData | null => {
+        const date = chartData[cp.index]?.date;
+        if (!date) return null;
+        return {
+          x: date,
+          label: `Open vulns ${cp.direction === "up" ? "↑ regime" : "↓ regime"}`,
+          detail: `CUSUM detected a sustained ${cp.direction === "up" ? "increase" : "decrease"} in open vulnerabilities at ${date}.`,
+          confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
+        };
+      })
+      .filter((a): a is CausalAnnotationData => a !== null);
   }, [openSeries, chartData]);
 
   const openTrend = useMemo(

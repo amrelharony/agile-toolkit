@@ -19,6 +19,7 @@ import { generateSprintComparePrompts } from "@/lib/ai-prompts/sprint-compare";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPRINT_COMPARE_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
+import { useHistoryStore } from "@/lib/history/history-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SectionCard } from "@/components/shared/section-card";
@@ -323,8 +324,9 @@ export function SprintCompareClient() {
 
   // ── Cross-tool signal: most-recent sprint added to velocity tool ──────
   // Surfaces a chip prompting the user to pin the new sprint here.
-  // Re-evaluates on every parent render which is sufficient to stay fresh
-  // with the history store.
+  // Subscribes to the history store's events so we stay fresh whenever a
+  // sibling tool logs a new event.
+  const events = useHistoryStore((s) => s.events);
   const newSprintAvailable = useMemo(
     () =>
       selectEvents({
@@ -333,8 +335,7 @@ export function SprintCompareClient() {
         sinceDays: 7,
         limit: 1,
       }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sprints]
+    [events]
   );
 
   /* -- Render -------------------------------------------------------------- */

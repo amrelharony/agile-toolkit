@@ -25,6 +25,7 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ASYNC_STANDUP_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
+import { useHistoryStore } from "@/lib/history/history-store";
 import { Badge } from "@/components/ui/badge";
 import { generateAsyncStandupPrompts } from "@/lib/ai-prompts/async-standup";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -233,7 +234,9 @@ export function AsyncStandupClient() {
 
   // ── Cross-tool signal: blockers raised in the impediments tool ────────
   // Renders inline with the digest header so async readers see the
-  // blocker pulse without opening another tab.
+  // blocker pulse without opening another tab. Subscribes to the history
+  // store so external logging is reflected immediately.
+  const events = useHistoryStore((s) => s.events);
   const recentImpedimentCount = useMemo(
     () =>
       selectEvents({
@@ -242,8 +245,7 @@ export function AsyncStandupClient() {
         sinceDays: 7,
         limit: 100,
       }).length,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [updates.length]
+    [events]
   );
 
   const csvData = useMemo(

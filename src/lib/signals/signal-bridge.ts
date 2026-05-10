@@ -59,6 +59,24 @@ function emit(kind: SignalKind, toolId: string, payload: unknown): void {
 }
 
 function diffAndEmit(prev: Workspace, next: Workspace): void {
+  // Short-circuit: when only metadata (`teamName`, `maturityLevel`) changed
+  // and every entity-bearing slot still points at the same array reference,
+  // no entity can have been added / changed / removed. Diffing would do a
+  // lot of Map allocation just to find no edges. Zustand uses structural
+  // sharing so reference equality is the right test here.
+  if (
+    prev.sprints === next.sprints &&
+    prev.stories === next.stories &&
+    prev.impediments === next.impediments &&
+    prev.risks === next.risks &&
+    prev.okrs === next.okrs &&
+    prev.decisions === next.decisions &&
+    prev.techDebt === next.techDebt &&
+    prev.teamMembers === next.teamMembers
+  ) {
+    return;
+  }
+
   // Sprints
   diffById(prev.sprints, next.sprints, (s) => s.id, {
     onAdded: (s) => {

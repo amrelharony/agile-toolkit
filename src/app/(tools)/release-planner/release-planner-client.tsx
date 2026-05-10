@@ -315,10 +315,14 @@ export function ReleasePlannerClient() {
     // 15th-percentile velocity gives a P85 sprint count (worst-case 85%).
     const ci = bootstrapQuantile(velocities, 0.15);
     if (ci.point <= 0) return null;
+    // The CI's lower/upper map to *velocity*; when we divide backlog by
+    // velocity to get sprint count, the bounds invert. Re-label so the
+    // result reads as it's used: high velocity → fewer sprints (optimistic)
+    // and low velocity → more sprints (pessimistic).
     return {
       point: Math.ceil(effectiveBacklog / ci.point),
-      lower: Math.ceil(effectiveBacklog / Math.max(ci.upper, 0.01)),
-      upper: Math.ceil(effectiveBacklog / Math.max(ci.lower, 0.01)),
+      optimisticSprints: Math.ceil(effectiveBacklog / Math.max(ci.upper, 0.01)),
+      pessimisticSprints: Math.ceil(effectiveBacklog / Math.max(ci.lower, 0.01)),
     };
   }, [velocities, effectiveBacklog]);
 

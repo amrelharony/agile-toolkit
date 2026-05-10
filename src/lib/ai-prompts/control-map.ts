@@ -61,7 +61,7 @@ export function generateControlMapPrompts(
           "Compliance Control Map",
           `${data.totalControls} controls across ${data.byFramework.length} framework(s). ${data.pctVerified.toFixed(0)}% verified overall.`
         ) +
-        `## Per-framework rollup\n\n${fwTable}\n\n## Controls\n\n${ctlTable}\n\n## Questions\n\n1. Which framework is furthest from full implementation, and which 3 controls within it would lift the score most?\n2. Are there controls with implemented status but zero evidence? Surface those.\n3. Suggest a 30/60/90-day plan to reach 80% verified across the weakest framework.${context}`,
+        `## Per-framework rollup\n\n${fwTable}\n\n## Controls\n\n${ctlTable}${context}\n\n## Questions\n\n1. Which framework is furthest from full implementation, and which 3 controls within it would lift the score most?\n2. Are there controls with implemented status but zero evidence? Surface those.\n3. Suggest a 30/60/90-day plan to reach 80% verified across the weakest framework.`,
     },
     {
       id: "control-map-audit",
@@ -73,7 +73,7 @@ export function generateControlMapPrompts(
           "Compliance Control Map",
           `${data.totalControls} controls; ${data.pctVerified.toFixed(0)}% verified.`
         ) +
-        `## Controls\n\n${ctlTable}\n\n## Questions\n\n1. Which controls would fail an audit this week, and why? (status, evidence, ownership.)\n2. Are there controls owned by no one? Recommend an owner type (team or role) for each.\n3. Recommend the next 5 evidence artifacts to collect for highest audit-confidence lift.${context}`,
+        `## Controls\n\n${ctlTable}${context}\n\n## Questions\n\n1. Which controls would fail an audit this week, and why? (status, evidence, ownership.)\n2. Are there controls owned by no one? Recommend an owner type (team or role) for each.\n3. Recommend the next 5 evidence artifacts to collect for highest audit-confidence lift.`,
     },
   ];
 }

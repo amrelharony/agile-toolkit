@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Trash2, Workflow } from "lucide-react";
 import { generateOpportunityTreePrompts } from "@/lib/ai-prompts/opportunity-tree";
+import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { usePersisted } from "@/lib/utils/use-persisted";
@@ -103,12 +104,16 @@ export function OpportunityTreeClient() {
   }, [nodes]);
   const childrenOf = (pid: string | null) => childrenIndex.get(pid) ?? [];
 
-  const workspace = useWorkspaceStore<Workspace>((s) => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-  }));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
+        impediments: s.impediments, risks: s.risks, okrs: s.okrs,
+        decisions: s.decisions, techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel, teamName: s.teamName,
+      })
+    )
+  );
 
   const promptConfig = useMemo(
     () => ({

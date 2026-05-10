@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo } from "react";
+import { useRef, useMemo, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
@@ -28,8 +28,9 @@ import {
   MATURITY_LEVEL_LABELS,
   getMaturityScore,
 } from "@/lib/constants/maturity-model";
+import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import type { Workspace, MaturityLevel } from "@/lib/stores/workspace-types";
 
 /* -------------------------------------------------------------------------- */
 /*  Store                                                                     */
@@ -132,6 +133,15 @@ export function MaturityClient() {
     return values.reduce((a, b) => a + b, 0) / values.length;
   }, [scores]);
 
+  // Push the rounded average maturity level into the workspace store so other
+  // tools that gate behaviour on team maturity (e.g. AI prompt generators) can
+  // read a consistent figure. Clamped 1-5 because workspace.MaturityLevel is
+  // a 5-tuple type and corrupted persisted scores could otherwise overflow.
+  useEffect(() => {
+    const rounded = Math.min(5, Math.max(1, Math.round(averageLevel))) as MaturityLevel;
+    useWorkspaceStore.getState().setMaturityLevel(rounded);
+  }, [averageLevel]);
+
   const maturityScore = useMemo(
     () => getMaturityScore(averageLevel),
     [averageLevel]
@@ -155,12 +165,16 @@ export function MaturityClient() {
 
   /* -- AI prompts ---------------------------------------------------------- */
 
-  const workspace = useWorkspaceStore<Workspace>((s) => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-  }));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
+        impediments: s.impediments, risks: s.risks, okrs: s.okrs,
+        decisions: s.decisions, techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel, teamName: s.teamName,
+      })
+    )
+  );
 
   const promptConfig = useMemo(() => ({
     toolName: "Agile Maturity Assessment",

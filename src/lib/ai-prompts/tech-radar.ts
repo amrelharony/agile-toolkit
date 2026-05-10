@@ -59,8 +59,7 @@ export function generateTechRadarPrompts(
           "Tech Radar",
           `${data.blips.length} blips: ${byRing.adopt.length} adopt · ${byRing.trial.length} trial · ${byRing.assess.length} assess · ${byRing.hold.length} hold.`
         ) +
-        `## Blips\n\n${blipTable}\n\n## Questions\n\n1. Which Trial blips look ready to move to Adopt this quarter? What's the evidence threshold?\n2. Which Assess blips deserve a small spike vs. waiting?\n3. What's the realistic maximum number of new Adopts per quarter for a team this size?\n4. Recommend a 2-quarter adoption sequence with rationale.` +
-        wsContext,
+        `## Blips\n\n${blipTable}${wsContext}\n\n## Questions\n\n1. Which Trial blips look ready to move to Adopt this quarter? What's the evidence threshold?\n2. Which Assess blips deserve a small spike vs. waiting?\n3. What's the realistic maximum number of new Adopts per quarter for a team this size?\n4. Recommend a 2-quarter adoption sequence with rationale.`,
     },
     {
       id: "tech-radar-hold",
@@ -72,8 +71,7 @@ export function generateTechRadarPrompts(
           "Tech Radar",
           `${byRing.hold.length} blip(s) currently on hold.`
         ) +
-        `## Blips\n\n${blipTable}\n\n## Questions\n\n1. For each Hold blip, is the reason for the hold clear and current?\n2. Which Holds are passive (\"we don't use it anymore\") vs. active warnings (\"don't pick this up\")?\n3. Suggest 1-2 explicit exit criteria for each Hold so it doesn't linger forever.\n4. Which Adopts deserve a re-evaluation given the current Hold list?` +
-        wsContext,
+        `## Blips\n\n${blipTable}${wsContext}\n\n## Questions\n\n1. For each Hold blip, is the reason for the hold clear and current?\n2. Which Holds are passive (\"we don't use it anymore\") vs. active warnings (\"don't pick this up\")?\n3. Suggest 1-2 explicit exit criteria for each Hold so it doesn't linger forever.\n4. Which Adopts deserve a re-evaluation given the current Hold list?`,
     },
   ];
 }

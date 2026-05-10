@@ -18,8 +18,14 @@ export interface OutOfControlSignal {
  * Uses the standard d2 = 1.128 conversion so UCL = X̄ + 2.66 · MR̄.
  * Designed for sprint-by-sprint metrics where each observation is a single
  * value (velocity, deploy frequency, MTTR).
+ *
+ * @param nonNegative  When true, clamps LCL at 0. Use only for metrics that
+ *  genuinely cannot go below zero (counts, durations, WIP). For signed
+ *  metrics like NPS delta or schedule variance, leave false (default) so
+ *  real low-side excursions trigger Western-Electric Rule 1 instead of
+ *  being silently swallowed by the clamp.
  */
-export function xmrLimits(series: number[]): ControlLimits {
+export function xmrLimits(series: number[], nonNegative = false): ControlLimits {
   if (series.length < 2) {
     const c = series[0] ?? 0;
     return { centerLine: c, ucl: c, lcl: c, type: "xmr" };
@@ -30,10 +36,11 @@ export function xmrLimits(series: number[]): ControlLimits {
   for (let i = 1; i < series.length; i++) mr.push(Math.abs(series[i] - series[i - 1]));
   const mrBar = mean(mr);
   const halfWidth = 2.66 * mrBar;
+  const rawLcl = center - halfWidth;
   return {
     centerLine: center,
     ucl: center + halfWidth,
-    lcl: Math.max(0, center - halfWidth),
+    lcl: nonNegative ? Math.max(0, rawLcl) : rawLcl,
     type: "xmr",
   };
 }

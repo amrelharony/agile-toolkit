@@ -384,7 +384,14 @@ export function BurndownClient() {
     const filledDays = sortedEntries
       .filter((e) => e.remaining !== null && Number.isFinite(e.remaining))
       .map((e) => e.day);
-    const lastFilledDay = filledDays.length > 0 ? Math.max(...filledDays) : 0;
+    // Use the last *contiguous* filled day (not Math.max) so the forecast does
+    // not bridge over a hole that already has data when the user fills days
+    // out of order (e.g. day 0, day 5, day 3 → contiguous prefix ends at day 0).
+    const sortedFilled = [...filledDays].sort((a, b) => a - b);
+    const lastFilledDay =
+      sortedFilled.length > 0
+        ? (sortedFilled.find((d, i, arr) => arr[i + 1] !== d + 1) ?? sortedFilled[sortedFilled.length - 1])
+        : 0;
     const horizon = Math.max(1, config.sprintDays - lastFilledDay);
     return forecastBayesianHolt(remainingSeries, horizon);
   }, [remainingSeries, sortedEntries, config.sprintDays]);
@@ -396,7 +403,13 @@ export function BurndownClient() {
     const filledDays = sortedEntries
       .filter((e) => e.remaining !== null && Number.isFinite(e.remaining))
       .map((e) => e.day);
-    const lastFilledDay = filledDays.length > 0 ? Math.max(...filledDays) : 0;
+    // Match the contiguous-prefix logic in `forecast` so the horizon-day
+    // mapping does not skip over a real datapoint.
+    const sortedFilled = [...filledDays].sort((a, b) => a - b);
+    const lastFilledDay =
+      sortedFilled.length > 0
+        ? (sortedFilled.find((d, i, arr) => arr[i + 1] !== d + 1) ?? sortedFilled[sortedFilled.length - 1])
+        : 0;
     const m = new Map<number, (typeof forecast)[number]>();
     forecast.forEach((fp, i) => {
       m.set(lastFilledDay + i + 1, fp);
@@ -412,7 +425,9 @@ export function BurndownClient() {
   }, [remainingSeries]);
 
   // Map changepoint-index (within the dense filled series) → sprint-day so
-  // CausalLine can render at the right x-axis position.
+  // CausalLine can render at the right x-axis position. Filtered to the
+  // chart's actual x-domain (0..sprintDays) so off-chart annotations don't
+  // distort the axis via `ifOverflow="extendDomain"`.
   const changepointDays = useMemo(() => {
     if (changepoints.length === 0) return [] as Array<{ day: number; direction: "up" | "down" }>;
     const filledDays = sortedEntries
@@ -420,8 +435,10 @@ export function BurndownClient() {
       .map((e) => e.day);
     return changepoints
       .map((cp) => ({ day: filledDays[cp.index], direction: cp.direction }))
-      .filter((x): x is { day: number; direction: "up" | "down" } => Number.isFinite(x.day));
-  }, [changepoints, sortedEntries]);
+      .filter((x): x is { day: number; direction: "up" | "down" } =>
+        Number.isFinite(x.day) && x.day >= 0 && x.day <= config.sprintDays,
+      );
+  }, [changepoints, sortedEntries, config.sprintDays]);
 
   const chartData = useMemo(() => {
     const map = new Map<number, DayEntry>();

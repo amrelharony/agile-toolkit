@@ -22,6 +22,7 @@ import { SectionCard } from "@/components/shared/section-card";
 import { StatCard } from "@/components/shared/stat-card";
 import { SmartInput } from "@/components/shared/smart-input";
 import { CausalLine } from "@/components/charts/causal-annotation";
+import { chartTheme } from "@/components/charts/chart-theme";
 import { generateVelocityPrompts } from "@/lib/ai-prompts/velocity";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { VELOCITY_ACTIONS } from "@/lib/history/event-actions";
@@ -351,7 +352,10 @@ export function VelocityClient() {
       data[data.length - 1] = {
         ...last,
         forecast: last.completed ?? undefined,
-        band80Lower: last.completed ?? undefined,
+        // Set bridge band lower to 0 instead of collapsing to last.completed —
+        // with `connectNulls` Recharts v2.x can render a stray fill triangle
+        // from the second-to-last sprint anchor when both bounds collapse.
+        band80Lower: 0,
         band80Upper: last.completed ?? undefined,
       };
       data.push({
@@ -412,10 +416,10 @@ export function VelocityClient() {
 
   const trendColor =
     stats.trendDir === "up"
-      ? "#00f0ff"
+      ? chartTheme.colors.cyan
       : stats.trendDir === "down"
-      ? "#ff00aa"
-      : "#94a3b8";
+      ? chartTheme.colors.magenta
+      : chartTheme.axisColor;
 
   /* -- Render -------------------------------------------------------------- */
 
@@ -435,21 +439,21 @@ export function VelocityClient() {
             value={round(stats.avgVelocity)}
             unit="pts"
             icon={Activity}
-            iconColor="#00f0ff"
+            iconColor={chartTheme.colors.cyan}
           />
           <StatCard
             label="Predictability"
             value={round(stats.predictability, 0)}
             unit="%"
             icon={Activity}
-            iconColor="#00ff88"
+            iconColor={chartTheme.colors.green}
           />
           <StatCard
             label="Std Deviation"
             value={round(stats.sd)}
             unit="pts"
             icon={Activity}
-            iconColor="#ffaa00"
+            iconColor={chartTheme.colors.amber}
           />
           <StatCard
             label="Trend"
@@ -486,12 +490,12 @@ export function VelocityClient() {
             />
             <XAxis
               dataKey="name"
-              tick={{ fill: "#94a3b8", fontSize: 12 }}
+              tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
               axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
               tickLine={false}
             />
             <YAxis
-              tick={{ fill: "#94a3b8", fontSize: 12 }}
+              tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
               axisLine={false}
               tickLine={false}
             />
@@ -500,7 +504,7 @@ export function VelocityClient() {
               cursor={{ fill: "rgba(255,255,255,0.04)" }}
             />
             <Legend
-              wrapperStyle={{ paddingTop: "16px", color: "#94a3b8", fontSize: 12 }}
+              wrapperStyle={{ paddingTop: "16px", color: chartTheme.axisColor, fontSize: 12 }}
             />
             {/* Bayesian 80% band — drawn behind everything so bars stay legible.
                 The lower-mask Area uses var(--bg) at fillOpacity 1 to clip the
@@ -509,7 +513,7 @@ export function VelocityClient() {
               dataKey="band80Upper"
               name="80% forecast"
               stroke="none"
-              fill="#00f0ff"
+              fill={chartTheme.colors.cyan}
               fillOpacity={0.18}
               connectNulls
               isAnimationActive={false}
@@ -517,7 +521,7 @@ export function VelocityClient() {
             <Area
               dataKey="band80Lower"
               stroke="none"
-              fill="var(--bg, #06080f)"
+              fill={chartTheme.background}
               fillOpacity={1}
               legendType="none"
               connectNulls
@@ -533,14 +537,14 @@ export function VelocityClient() {
             <Bar
               dataKey="completed"
               name="Completed"
-              fill="#00f0ff"
+              fill={chartTheme.colors.cyan}
               radius={[4, 4, 0, 0]}
               maxBarSize={60}
             />
             <Line
               dataKey="rollingAvg"
               name="Rolling Avg"
-              stroke="#ff00aa"
+              stroke={chartTheme.colors.magenta}
               strokeWidth={2}
               dot={false}
               connectNulls
@@ -548,7 +552,7 @@ export function VelocityClient() {
             <Line
               dataKey="trend"
               name="Trend"
-              stroke="#ffaa00"
+              stroke={chartTheme.colors.amber}
               strokeWidth={1.5}
               strokeDasharray="4 4"
               dot={false}
@@ -556,7 +560,7 @@ export function VelocityClient() {
             <Line
               dataKey="forecast"
               name="Forecast"
-              stroke="#00f0ff"
+              stroke={chartTheme.colors.cyan}
               strokeWidth={2}
               strokeDasharray="5 5"
               dot={false}

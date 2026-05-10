@@ -66,12 +66,14 @@ export function bootstrapPredictions(): void {
 
   // ── cycle-time / kanban ──────────────────────────────────────────────
   registerPredictor<number>("cycle-time", "sleTargetDays", (ctx) => {
-    // Read from history of cycle-time entries. Workspace doesn't carry these,
-    // but the predictor is forward-compatible: skip if we have no signal.
-    const completed = ctx.workspace.stories.filter((s) => s.status === "done");
-    if (completed.length < 5) return { value: 5, confidence: "none" };
-    // Without per-story timestamps we can only approximate via story count.
-    return { value: 5, confidence: "low", source: "fallback (cycle-time history not in workspace)" };
+    // Read from history of cycle-time entries. Workspace doesn't carry per-
+    // story timestamps, so any value we'd return here is a guess. Always
+    // return confidence: "none" so the predicted-default chip stays hidden
+    // and the local fallback (computed from in-tool entries) wins. Touching
+    // ctx so the registered signature still resolves; remove when the
+    // workspace carries cycle-time history.
+    void ctx;
+    return { value: 5, confidence: "none" };
   });
 
   // ── impediments ──────────────────────────────────────────────────────

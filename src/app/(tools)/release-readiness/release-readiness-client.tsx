@@ -177,10 +177,19 @@ export function ReleaseReadinessClient() {
   const ship = (id: string) => {
     const release = state.releases.find((r) => r.id === id);
     if (!release) return;
-    // Snapshot the open-gate count *before* the all-pass guard so the field
-    // is meaningful even if future versions allow partial-pass shipping.
+    // Snapshot the open-gate count *at* ship time so the p-chart later sees
+    // real variance. Releases shipped with open gates are still recorded —
+    // we only ask for confirmation rather than blocking outright.
     const openAtShip = GATES.filter((g) => !release.gates[g.id]).length;
-    if (openAtShip > 0) return;
+    if (openAtShip > 0) {
+      const proceed =
+        typeof window === "undefined"
+          ? true
+          : window.confirm(
+              `${openAtShip} of ${GATES.length} readiness gates are still open. Ship anyway?`
+            );
+      if (!proceed) return;
+    }
     setState((s) => ({
       releases: s.releases.map((r) =>
         r.id === id
@@ -739,7 +748,8 @@ function ReleaseCard({
         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border">
           <Button
             onClick={onShip}
-            disabled={!allPassed || release.status !== "planning"}
+            disabled={release.status !== "planning"}
+            title={allPassed ? "All gates pass" : "Ship with open gates (you'll be asked to confirm)"}
             className="gap-2 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/40 disabled:opacity-50"
           >
             <Rocket className="w-4 h-4" aria-hidden="true" /> Ship

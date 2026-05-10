@@ -37,8 +37,18 @@ type Listener = (s: Signal) => void;
 
 // Module-level state — there's only one signal bus per app instance.
 const listeners = new Map<SignalKind, Set<Listener>>();
-const ringBuffer: Signal[] = [];
 const RING_CAP = 200;
+// Fixed-size ring buffer with O(1) writes — `Array.shift()` re-indexed
+// the entire backing storage on every emit at capacity.
+const ringBuffer: (Signal | undefined)[] = new Array(RING_CAP);
+let writeHead = 0;
+let bufferSize = 0;
+
+function pushRing(s: Signal): void {
+  ringBuffer[writeHead] = s;
+  writeHead = (writeHead + 1) % RING_CAP;
+  bufferSize = Math.min(bufferSize + 1, RING_CAP);
+}
 
 let pendingFlush = false;
 const queue: Signal[] = [];
@@ -77,8 +87,7 @@ function scheduleFlush(): void {
  * Multiple emits within the same frame are batched.
  */
 export function emitSignal<T>(s: Signal<T>): void {
-  ringBuffer.push(s);
-  if (ringBuffer.length > RING_CAP) ringBuffer.shift();
+  pushRing(s as Signal);
   queue.push(s as Signal);
   scheduleFlush();
 }
@@ -106,15 +115,27 @@ export function useSignal(kinds: SignalKind[], cb: Listener): void {
   useEffect(() => subscribeSignals(kinds, cb), [JSON.stringify(kinds), cb]);
 }
 
-/** Inspector: read recent signals (last 200). For debugging and the future history page. */
+/** Inspector: read recent signals (last 200) in chronological order. For
+ *  debugging and the future history page. */
 export function recentSignals(): readonly Signal[] {
-  return ringBuffer;
+  if (bufferSize === 0) return [];
+  const out: Signal[] = new Array(bufferSize);
+  // Until the buffer fills, entries live at [0, bufferSize). Once wrapped,
+  // the oldest sits at writeHead. Iterate oldest-first so callers can render
+  // a time-ordered list without reversing.
+  const start = bufferSize < RING_CAP ? 0 : writeHead;
+  for (let i = 0; i < bufferSize; i++) {
+    out[i] = ringBuffer[(start + i) % RING_CAP] as Signal;
+  }
+  return out;
 }
 
 /** Test-only: clear all listeners + ring buffer. */
 export function __resetSignalBus(): void {
   listeners.clear();
-  ringBuffer.length = 0;
+  for (let i = 0; i < RING_CAP; i++) ringBuffer[i] = undefined;
+  writeHead = 0;
+  bufferSize = 0;
   queue.length = 0;
   pendingFlush = false;
 }

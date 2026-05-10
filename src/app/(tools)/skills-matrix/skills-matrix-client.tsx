@@ -24,6 +24,7 @@ import {
   RotateCcw,
   Info,
 } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 
@@ -498,12 +499,16 @@ export function SkillsMatrixClient() {
     ].join("\n");
   }, [skills, members, grid, analysis]);
 
-  const workspace = useWorkspaceStore<Workspace>((s) => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-  }));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
+        impediments: s.impediments, risks: s.risks, okrs: s.okrs,
+        decisions: s.decisions, techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel, teamName: s.teamName,
+      })
+    )
+  );
 
   const promptConfig = useMemo(() => ({
     toolName: "Skills Matrix",

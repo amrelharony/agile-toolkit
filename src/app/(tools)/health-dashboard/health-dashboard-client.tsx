@@ -607,6 +607,7 @@ export function HealthDashboardClient() {
         icon: AlertTriangle,
         iconColor: "#eab308",
         description: "Total unresolved impediments",
+        positiveIsGood: false,
       },
       {
         id: "critical-impediments",
@@ -620,6 +621,7 @@ export function HealthDashboardClient() {
         icon: AlertCircle,
         iconColor: "#ef4444",
         description: "Impediments at Critical severity",
+        positiveIsGood: false,
       },
       {
         id: "open-blockers",
@@ -633,6 +635,7 @@ export function HealthDashboardClient() {
         icon: Mic,
         iconColor: "#8b5cf6",
         description: "Unresolved blockers from standup logs",
+        positiveIsGood: false,
       },
       {
         id: "cycle-time-p85",
@@ -646,6 +649,7 @@ export function HealthDashboardClient() {
         icon: Clock,
         iconColor: "#f97316",
         description: "85th percentile cycle time in days",
+        positiveIsGood: false,
       },
     ],
     [velocityData, healthCheckData, impedimentData, standupData, cycleTimeData]
@@ -911,7 +915,7 @@ export function HealthDashboardClient() {
                       </span>
                       <span className="text-sm text-sub mb-1">{kpi.unit}</span>
                       <div className="ml-auto mb-1">
-                        <TrendIcon trend={kpi.trend} positiveIsUp={kpi.id !== "open-impediments" && kpi.id !== "critical-impediments" && kpi.id !== "open-blockers" && kpi.id !== "cycle-time-p85"} />
+                        <TrendIcon trend={kpi.trend} positiveIsUp={kpi.positiveIsGood ?? true} />
                       </div>
                     </div>
                     {kpi.series && kpi.series.length >= 5 && (

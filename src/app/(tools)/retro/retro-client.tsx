@@ -118,7 +118,15 @@ function extractCardFeatures(text: string): number[] {
     if (ch === 33) exclamations++; // !
     else if (ch === 63) questions++; // ?
   }
-  return [text.length / 100, words.length / 20, exclamations, questions];
+  // Affective/curiosity features are clipped to [0,1] so they don't
+  // dominate Euclidean distance over the loosely-bounded length/words
+  // axes — small/raw integer counts otherwise pull all variance.
+  return [
+    text.length / 100,
+    words.length / 20,
+    Math.min(1, exclamations / 5),
+    Math.min(1, questions / 5),
+  ];
 }
 
 // ── Phase Indicator ──────────────────────────────────────────
