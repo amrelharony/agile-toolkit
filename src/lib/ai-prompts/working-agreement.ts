@@ -1,5 +1,7 @@
 import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable } from "./prompt-utils";
+import { buildWorkspaceContext } from "./cross-tool-context";
+import type { Workspace } from "../stores/workspace-types";
 
 interface Rule {
   id: string;
@@ -17,12 +19,16 @@ interface CharterMeta {
   description?: string;
 }
 
-export function generateWorkingAgreementPrompts(data: {
-  rules: Rule[];
-  meta: CharterMeta;
-  adherencePct: number;
-}): PromptDefinition[] {
+export function generateWorkingAgreementPrompts(
+  data: {
+    rules: Rule[];
+    meta: CharterMeta;
+    adherencePct: number;
+  },
+  workspace?: Workspace | null
+): PromptDefinition[] {
   if (data.rules.length === 0) return [];
+  const context = workspace ? buildWorkspaceContext(workspace) : "";
 
   const byCat = new Map<string, number>();
   for (const r of data.rules) byCat.set(r.category, (byCat.get(r.category) ?? 0) + 1);
@@ -52,7 +58,7 @@ export function generateWorkingAgreementPrompts(data: {
           "Working Agreement Builder",
           `Team "${data.meta.teamName ?? "(unnamed)"}" — version ${data.meta.version}. ${data.rules.length} rules across ${byCat.size} categories (${catSummary}). Latest adherence: ${data.adherencePct.toFixed(0)}%.`
         ) +
-        `## Rules\n\n${ruleTable}\n\n## Questions\n\n1. Which categories are under-developed (e.g. no rule covers conflict)?\n2. Are any rules vague or unmeasurable (e.g. "be respectful" with no behavioural anchor)?\n3. Suggest 3-5 missing rules that would round out the charter.\n4. For rules with no \`agreedBy\` names, what would you do to drive explicit commitment?`,
+        `## Rules\n\n${ruleTable}\n\n## Questions\n\n1. Which categories are under-developed (e.g. no rule covers conflict)?\n2. Are any rules vague or unmeasurable (e.g. "be respectful" with no behavioural anchor)?\n3. Suggest 3-5 missing rules that would round out the charter.\n4. For rules with no \`agreedBy\` names, what would you do to drive explicit commitment?${context}`,
     },
     {
       id: "wa-conflict",
@@ -63,7 +69,7 @@ export function generateWorkingAgreementPrompts(data: {
           "Working Agreement Builder",
           `${data.rules.length} rules currently published. The team has not yet stress-tested the charter against disagreement.`
         ) +
-        `## Existing Rules\n\n${ruleTable}\n\n## Questions\n\n1. Where is the charter silent on what happens when people disagree (technical decisions, sprint scope, on-call swaps)?\n2. Propose 3 specific conflict-handling rules with a clear escalation path.\n3. Suggest a decision-rights model (consent / consensus / advice) the team could adopt.\n4. How should the team revisit and renegotiate rules that stop working (note current "still working?" %).`,
+        `## Existing Rules\n\n${ruleTable}\n\n## Questions\n\n1. Where is the charter silent on what happens when people disagree (technical decisions, sprint scope, on-call swaps)?\n2. Propose 3 specific conflict-handling rules with a clear escalation path.\n3. Suggest a decision-rights model (consent / consensus / advice) the team could adopt.\n4. How should the team revisit and renegotiate rules that stop working (note current "still working?" %).${context}`,
     },
   ];
 }

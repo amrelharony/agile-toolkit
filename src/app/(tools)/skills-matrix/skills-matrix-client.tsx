@@ -24,6 +24,8 @@ import {
   RotateCcw,
   Info,
 } from "lucide-react";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 /* -------------------------------------------------------------------------- */
 /*  Types & constants                                                         */
@@ -496,10 +498,17 @@ export function SkillsMatrixClient() {
     ].join("\n");
   }, [skills, members, grid, analysis]);
 
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
+    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
+    decisions: s.decisions, techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel, teamName: s.teamName,
+  }));
+
   const promptConfig = useMemo(() => ({
     toolName: "Skills Matrix",
-    prompts: generateSkillsMatrixPrompts({ members, skills, grid }),
-  }), [members, skills, grid]);
+    prompts: generateSkillsMatrixPrompts({ members, skills, grid }, workspace),
+  }), [members, skills, grid, workspace]);
 
   /* -- Render -------------------------------------------------------------- */
 

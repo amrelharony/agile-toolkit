@@ -28,6 +28,8 @@ import {
   MATURITY_LEVEL_LABELS,
   getMaturityScore,
 } from "@/lib/constants/maturity-model";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 /* -------------------------------------------------------------------------- */
 /*  Store                                                                     */
@@ -153,6 +155,13 @@ export function MaturityClient() {
 
   /* -- AI prompts ---------------------------------------------------------- */
 
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
+    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
+    decisions: s.decisions, techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel, teamName: s.teamName,
+  }));
+
   const promptConfig = useMemo(() => ({
     toolName: "Agile Maturity Assessment",
     prompts: generateMaturityPrompts({
@@ -163,8 +172,8 @@ export function MaturityClient() {
       })),
       overallScore: maturityScore.percentage,
       targetLevel,
-    }),
-  }), [scores, targetLevel, maturityScore.percentage]);
+    }, workspace),
+  }), [scores, targetLevel, maturityScore.percentage, workspace]);
 
   /* -- Export -------------------------------------------------------------- */
 

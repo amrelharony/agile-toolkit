@@ -34,6 +34,8 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RFC_TRACKER_ACTIONS } from "@/lib/history/event-actions";
 import { generateRfcTrackerPrompts } from "@/lib/ai-prompts/rfc-tracker";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 import { toast } from "@/lib/utils/toast";
 import type { Decision } from "@/lib/stores/workspace-types";
 
@@ -73,6 +75,18 @@ function daysSince(iso: string): number {
 export function RfcTrackerClient() {
   const [rfcs, setRfcs] = usePersisted<Rfc[]>("agile-toolkit:rfc-tracker", []);
   const { log } = useHistoryLogger("rfc-tracker");
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
 
   const [newTitle, setNewTitle] = useState("");
   const [newAuthor, setNewAuthor] = useState("");
@@ -286,25 +300,28 @@ export function RfcTrackerClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "RFC Tracker",
-      prompts: generateRfcTrackerPrompts({
-        rfcs: rfcs.map((r) => ({
-          title: r.title,
-          author: r.author,
-          status: r.status,
-          openedAt: r.openedAt,
-          decidedAt: r.decidedAt,
-          decision: r.decision,
-          reviewers: r.reviewers,
-          commentCount: r.comments.length,
-          description: r.description,
-        })),
-        drafts: counts.draft,
-        inReview: counts.in_review,
-        decidedThisMonth,
-        avgTimeToDecide,
-      }),
+      prompts: generateRfcTrackerPrompts(
+        {
+          rfcs: rfcs.map((r) => ({
+            title: r.title,
+            author: r.author,
+            status: r.status,
+            openedAt: r.openedAt,
+            decidedAt: r.decidedAt,
+            decision: r.decision,
+            reviewers: r.reviewers,
+            commentCount: r.comments.length,
+            description: r.description,
+          })),
+          drafts: counts.draft,
+          inReview: counts.in_review,
+          decidedThisMonth,
+          avgTimeToDecide,
+        },
+        workspace
+      ),
     }),
-    [rfcs, counts, decidedThisMonth, avgTimeToDecide]
+    [rfcs, counts, decidedThisMonth, avgTimeToDecide, workspace]
   );
 
   return (

@@ -23,6 +23,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { DollarSign, ShieldCheck, AlertTriangle } from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { generateQualityCostPrompts } from "@/lib/ai-prompts/quality-cost";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { QUALITY_COST_ACTIONS } from "@/lib/history/event-actions";
@@ -128,6 +130,18 @@ export function QualityCostClient() {
   );
   const { log } = useHistoryLogger("quality-cost");
   const chartRef = useRef<HTMLDivElement>(null);
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
 
   const update = (patch: Partial<QualityCostInput>) => {
     setState((s) => ({ ...s, ...patch }));
@@ -167,18 +181,21 @@ export function QualityCostClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Cost of Quality Calculator",
-      prompts: generateQualityCostPrompts({
-        prevention: state.preventionCost,
-        detection: state.detectionCost,
-        internalFailure: state.internalFailureCost,
-        externalFailure: state.externalFailureCost,
-        total,
-        conformance,
-        nonConformance,
-        description: state.description,
-      }),
+      prompts: generateQualityCostPrompts(
+        {
+          prevention: state.preventionCost,
+          detection: state.detectionCost,
+          internalFailure: state.internalFailureCost,
+          externalFailure: state.externalFailureCost,
+          total,
+          conformance,
+          nonConformance,
+          description: state.description,
+        },
+        workspace
+      ),
     }),
-    [state, total, conformance, nonConformance]
+    [state, total, conformance, nonConformance, workspace]
   );
 
   const fmt = (n: number) =>

@@ -30,6 +30,8 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { TECH_RADAR_ACTIONS } from "@/lib/history/event-actions";
 import { generateTechRadarPrompts } from "@/lib/ai-prompts/tech-radar";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 type Ring = "adopt" | "trial" | "assess" | "hold";
 type Quadrant = "languages_frameworks" | "tools" | "platforms" | "techniques";
@@ -150,6 +152,18 @@ function daysSince(iso: string): number {
 export function TechRadarClient() {
   const [blips, setBlips] = usePersisted<Blip[]>(STORAGE_KEY, []);
   const { log } = useHistoryLogger("tech-radar");
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
 
   const [name, setName] = useState("");
   const [ring, setRing] = useState<Ring>("assess");
@@ -223,9 +237,9 @@ export function TechRadarClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Tech Radar",
-      prompts: generateTechRadarPrompts({ blips }),
+      prompts: generateTechRadarPrompts({ blips }, workspace),
     }),
-    [blips]
+    [blips, workspace]
   );
 
   const csvData = useMemo(

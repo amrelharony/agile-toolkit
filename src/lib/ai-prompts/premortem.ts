@@ -1,5 +1,7 @@
 import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable } from "./prompt-utils";
+import type { Workspace } from "../stores/workspace-types";
+import { buildWorkspaceContext } from "./cross-tool-context";
 
 interface Cause {
   text: string;
@@ -10,8 +12,9 @@ interface Cause {
   owner?: string;
 }
 
-export function generatePremortemPrompts(data: { scenario: string; causes: Cause[] }): PromptDefinition[] {
+export function generatePremortemPrompts(data: { scenario: string; causes: Cause[] }, workspace?: Workspace | null): PromptDefinition[] {
   if (data.causes.length === 0 && !data.scenario) return [];
+  const context = workspace ? buildWorkspaceContext(workspace) : "";
   const ranked = data.causes.slice().sort((a, b) => b.likelihood * b.impact - a.likelihood * a.impact);
   const table = formatTable(
     ["Cause", "Description", "L", "I", "Score", "Preventive Action", "Owner"],
@@ -27,7 +30,7 @@ export function generatePremortemPrompts(data: { scenario: string; causes: Cause
           "Premortem",
           "Premortems expand the team's imagination of failure before it happens."
         ) +
-        `## Scenario\n\n${data.scenario || "(not set)"}\n\n## Causes So Far\n\n${table}\n\n## Questions\n\n1. What failure causes are likely missing (e.g., team dynamics, dependencies, external shocks)?\n2. For each top-ranked cause, what leading indicators would signal it's starting?\n3. Are there "silent killers" — slow-accumulating failures that are easy to ignore?`,
+        `## Scenario\n\n${data.scenario || "(not set)"}\n\n## Causes So Far\n\n${table}${context}\n\n## Questions\n\n1. What failure causes are likely missing (e.g., team dynamics, dependencies, external shocks)?\n2. For each top-ranked cause, what leading indicators would signal it's starting?\n3. Are there "silent killers" — slow-accumulating failures that are easy to ignore?`,
     },
     {
       id: "premortem-actions",
@@ -35,7 +38,7 @@ export function generatePremortemPrompts(data: { scenario: string; causes: Cause
       description: "Turn ranked causes into concrete, owned preventive actions.",
       prompt:
         buildPreamble("Premortem", "Good premortems end with specific owned actions, not just worries.") +
-        `## Causes\n\n${table}\n\n## Questions\n\n1. For the top 5 causes, what preventive action has the best cost/benefit ratio?\n2. Who should own each action?\n3. What review cadence keeps these actions alive?`,
+        `## Causes\n\n${table}${context}\n\n## Questions\n\n1. For the top 5 causes, what preventive action has the best cost/benefit ratio?\n2. Who should own each action?\n3. What review cadence keeps these actions alive?`,
     },
   ];
 }

@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Trash2, Workflow } from "lucide-react";
 import { generateOpportunityTreePrompts } from "@/lib/ai-prompts/opportunity-tree";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { OPPORTUNITY_TREE_ACTIONS } from "@/lib/history/event-actions";
@@ -101,12 +103,19 @@ export function OpportunityTreeClient() {
   }, [nodes]);
   const childrenOf = (pid: string | null) => childrenIndex.get(pid) ?? [];
 
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
+    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
+    decisions: s.decisions, techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel, teamName: s.teamName,
+  }));
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Opportunity Solution Tree",
-      prompts: generateOpportunityTreePrompts({ nodes }),
+      prompts: generateOpportunityTreePrompts({ nodes }, workspace),
     }),
-    [nodes]
+    [nodes, workspace]
   );
 
   const renderNode = (node: TreeNode, depth: number): React.ReactNode => (

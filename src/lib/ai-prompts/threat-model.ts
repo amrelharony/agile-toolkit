@@ -1,5 +1,7 @@
 import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable } from "./prompt-utils";
+import { buildWorkspaceContext } from "./cross-tool-context";
+import type { Workspace } from "../stores/workspace-types";
 
 interface ThreatData {
   service: string;
@@ -17,13 +19,17 @@ interface ThreatData {
  * 1. Where are the STRIDE coverage gaps?
  * 2. How should mitigation work be prioritized?
  */
-export function generateThreatModelPrompts(data: {
-  threats: ThreatData[];
-  totalOpen: number;
-  mitigationRate: number;
-  servicesCount: number;
-}): PromptDefinition[] {
+export function generateThreatModelPrompts(
+  data: {
+    threats: ThreatData[];
+    totalOpen: number;
+    mitigationRate: number;
+    servicesCount: number;
+  },
+  workspace?: Workspace | null
+): PromptDefinition[] {
   if (data.threats.length === 0) return [];
+  const context = workspace ? buildWorkspaceContext(workspace) : "";
 
   const services = Array.from(new Set(data.threats.map((t) => t.service))).sort();
   const stride = [
@@ -68,7 +74,7 @@ export function generateThreatModelPrompts(data: {
           "Threat Model Registry",
           `${data.totalOpen} open threat(s) across ${data.servicesCount} service(s). Mitigation rate ${(data.mitigationRate * 100).toFixed(0)}%.`
         ) +
-        `## STRIDE Coverage Matrix\n\n${matrixTable}\n\n## Threats\n\n${threatTable}\n\n## Questions\n\n1. Which (service, STRIDE category) cells are empty and probably under-modeled? Not every cell has to be 1+, but flag the systemic blind spots.\n2. Which services have zero coverage in any category — are they out of scope or just unmodeled?\n3. Recommend the next 1-2 threat-modeling sessions and what to focus on.`,
+        `## STRIDE Coverage Matrix\n\n${matrixTable}\n\n## Threats\n\n${threatTable}\n\n## Questions\n\n1. Which (service, STRIDE category) cells are empty and probably under-modeled? Not every cell has to be 1+, but flag the systemic blind spots.\n2. Which services have zero coverage in any category — are they out of scope or just unmodeled?\n3. Recommend the next 1-2 threat-modeling sessions and what to focus on.${context}`,
     },
     {
       id: "threat-model-prioritization",
@@ -80,7 +86,7 @@ export function generateThreatModelPrompts(data: {
           "Threat Model Registry",
           `${data.totalOpen} open threat(s); mitigation rate ${(data.mitigationRate * 100).toFixed(0)}%.`
         ) +
-        `## Threats\n\n${threatTable}\n\n## Questions\n\n1. Rank the top 5 open threats by mitigation priority. Use severity × likelihood × blast radius (call out your reasoning).\n2. Identify any 'accepted' threats that should probably be re-examined.\n3. Suggest concrete mitigations for the top 3, in plain engineering terms.`,
+        `## Threats\n\n${threatTable}\n\n## Questions\n\n1. Rank the top 5 open threats by mitigation priority. Use severity × likelihood × blast radius (call out your reasoning).\n2. Identify any 'accepted' threats that should probably be re-examined.\n3. Suggest concrete mitigations for the top 3, in plain engineering terms.${context}`,
     },
   ];
 }

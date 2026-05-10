@@ -1,5 +1,7 @@
 import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable } from "./prompt-utils";
+import { buildWorkspaceContext } from "./cross-tool-context";
+import type { Workspace } from "../stores/workspace-types";
 
 interface PlatformDimensionData {
   id: string;
@@ -15,10 +17,14 @@ interface PlatformDimensionData {
  *   1. Where are the gaps?
  *   2. Where to invest next?
  */
-export function generatePlatformMaturityPrompts(data: {
-  dimensions: PlatformDimensionData[];
-}): PromptDefinition[] {
+export function generatePlatformMaturityPrompts(
+  data: {
+    dimensions: PlatformDimensionData[];
+  },
+  workspace?: Workspace | null
+): PromptDefinition[] {
   if (data.dimensions.length === 0) return [];
+  const context = workspace ? buildWorkspaceContext(workspace) : "";
   const avg =
     data.dimensions.reduce((a, d) => a + d.score, 0) / data.dimensions.length;
   const dimTable = formatTable(
@@ -41,7 +47,7 @@ export function generatePlatformMaturityPrompts(data: {
           "Platform Engineering Maturity",
           `Average maturity ${avg.toFixed(2)}/5 across ${data.dimensions.length} dimensions.`
         ) +
-        `## Dimensions\n\n${dimTable}\n\n## Questions\n\n1. Identify the 2-3 weakest dimensions and the typical consequences of leaving them at this level (developer toil, cognitive load, incident risk, etc.).\n2. Are the gaps clustered (e.g. all "developer self-service") or spread evenly?\n3. What's a 1-paragraph "current state" summary you would share with engineering leadership?`,
+        `## Dimensions\n\n${dimTable}\n\n## Questions\n\n1. Identify the 2-3 weakest dimensions and the typical consequences of leaving them at this level (developer toil, cognitive load, incident risk, etc.).\n2. Are the gaps clustered (e.g. all "developer self-service") or spread evenly?\n3. What's a 1-paragraph "current state" summary you would share with engineering leadership?${context}`,
     },
     {
       id: "platform-investment",
@@ -53,7 +59,7 @@ export function generatePlatformMaturityPrompts(data: {
           "Platform Engineering Maturity",
           `Avg ${avg.toFixed(2)}/5 — ${data.dimensions.filter((d) => d.score < 3).length} dimension(s) below "Repeatable" (3).`
         ) +
-        `## Dimensions\n\n${dimTable}\n\n## Questions\n\n1. Pick the 2 highest-leverage dimensions to invest in next quarter and justify the choice.\n2. For each, name 2-3 concrete deliverables that would move it from level N to N+1.\n3. What do we deliberately NOT invest in this quarter, and why?`,
+        `## Dimensions\n\n${dimTable}\n\n## Questions\n\n1. Pick the 2 highest-leverage dimensions to invest in next quarter and justify the choice.\n2. For each, name 2-3 concrete deliverables that would move it from level N to N+1.\n3. What do we deliberately NOT invest in this quarter, and why?${context}`,
     },
   ];
 }

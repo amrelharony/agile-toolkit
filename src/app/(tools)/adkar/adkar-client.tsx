@@ -38,6 +38,8 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ADKAR_ACTIONS } from "@/lib/history/event-actions";
 import { generateAdkarPrompts } from "@/lib/ai-prompts/adkar";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { cn } from "@/lib/utils";
 
@@ -117,6 +119,18 @@ export function AdkarClient() {
     []
   );
   const { log } = useHistoryLogger("adkar");
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
 
   const [name, setName] = useState("");
   const [owner, setOwner] = useState("");
@@ -239,21 +253,24 @@ export function AdkarClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "ADKAR Change Tracker",
-      prompts: generateAdkarPrompts({
-        initiatives: initiatives.map((i) => ({
-          name: i.name,
-          currentStage: i.currentStage,
-          stagesCompleted: i.stagesCompleted,
-          owner: i.owner,
-          startDate: i.startDate,
-          description: i.description,
-        })),
-        perStage,
-        pctReinforcement,
-        avgDaysPerStage,
-      }),
+      prompts: generateAdkarPrompts(
+        {
+          initiatives: initiatives.map((i) => ({
+            name: i.name,
+            currentStage: i.currentStage,
+            stagesCompleted: i.stagesCompleted,
+            owner: i.owner,
+            startDate: i.startDate,
+            description: i.description,
+          })),
+          perStage,
+          pctReinforcement,
+          avgDaysPerStage,
+        },
+        workspace
+      ),
     }),
-    [initiatives, perStage, pctReinforcement, avgDaysPerStage]
+    [initiatives, perStage, pctReinforcement, avgDaysPerStage, workspace]
   );
 
   return (

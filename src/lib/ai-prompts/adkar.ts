@@ -1,5 +1,7 @@
 import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable } from "./prompt-utils";
+import type { Workspace } from "../stores/workspace-types";
+import { buildWorkspaceContext } from "./cross-tool-context";
 
 interface AdkarInitiativeData {
   name: string;
@@ -15,13 +17,17 @@ interface AdkarInitiativeData {
   description?: string;
 }
 
-export function generateAdkarPrompts(data: {
-  initiatives: AdkarInitiativeData[];
-  perStage: Record<string, number>;
-  pctReinforcement: number;
-  avgDaysPerStage: number | null;
-}): PromptDefinition[] {
+export function generateAdkarPrompts(
+  data: {
+    initiatives: AdkarInitiativeData[];
+    perStage: Record<string, number>;
+    pctReinforcement: number;
+    avgDaysPerStage: number | null;
+  },
+  workspace?: Workspace | null
+): PromptDefinition[] {
   if (data.initiatives.length === 0) return [];
+  const wsContext = workspace ? buildWorkspaceContext(workspace) : "";
 
   const initiativeTable = formatTable(
     [
@@ -59,7 +65,8 @@ export function generateAdkarPrompts(data: {
               : "n/a"
           }.`
         ) +
-        `## Per-stage counts\n\n- Awareness: ${data.perStage.awareness}\n- Desire: ${data.perStage.desire}\n- Knowledge: ${data.perStage.knowledge}\n- Ability: ${data.perStage.ability}\n- Reinforcement: ${data.perStage.reinforcement}\n\n## Initiatives\n\n${initiativeTable}\n\n## Questions\n\n1. Which stage has the largest backlog of initiatives — and what does that imply about org-level change capability?\n2. For each initiative still in Awareness or Desire, what specific intervention would unblock it?\n3. Recommend a 30-day plan for the change-management team based on the distribution.`,
+        `## Per-stage counts\n\n- Awareness: ${data.perStage.awareness}\n- Desire: ${data.perStage.desire}\n- Knowledge: ${data.perStage.knowledge}\n- Ability: ${data.perStage.ability}\n- Reinforcement: ${data.perStage.reinforcement}\n\n## Initiatives\n\n${initiativeTable}\n\n## Questions\n\n1. Which stage has the largest backlog of initiatives — and what does that imply about org-level change capability?\n2. For each initiative still in Awareness or Desire, what specific intervention would unblock it?\n3. Recommend a 30-day plan for the change-management team based on the distribution.` +
+        wsContext,
     },
     {
       id: "adkar-reinforcement",
@@ -71,7 +78,8 @@ export function generateAdkarPrompts(data: {
           "ADKAR Change Tracker",
           "Reinforcement is the stage where 60% of change initiatives quietly fail."
         ) +
-        `## Initiatives\n\n${initiativeTable}\n\n## Questions\n\n1. For each initiative in Ability or Reinforcement, list 3 reinforcement tactics (recognition, metrics, rituals, escalation paths).\n2. Which initiatives are at highest risk of regression and why?\n3. Draft a 1-page reinforcement playbook this team can apply across initiatives.`,
+        `## Initiatives\n\n${initiativeTable}\n\n## Questions\n\n1. For each initiative in Ability or Reinforcement, list 3 reinforcement tactics (recognition, metrics, rituals, escalation paths).\n2. Which initiatives are at highest risk of regression and why?\n3. Draft a 1-page reinforcement playbook this team can apply across initiatives.` +
+        wsContext,
     },
   ];
 }

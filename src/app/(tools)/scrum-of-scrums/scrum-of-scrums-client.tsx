@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2, GitBranch } from "lucide-react";
 import { generateScrumOfScrumsPrompts } from "@/lib/ai-prompts/scrum-of-scrums";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -128,12 +130,19 @@ export function ScrumOfScrumsClient() {
     [entries]
   );
 
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
+    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
+    decisions: s.decisions, techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel, teamName: s.teamName,
+  }));
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Scrum of Scrums Tracker",
-      prompts: generateScrumOfScrumsPrompts({ entries, staleBlockers }),
+      prompts: generateScrumOfScrumsPrompts({ entries, staleBlockers }, workspace),
     }),
-    [entries, staleBlockers]
+    [entries, staleBlockers, workspace]
   );
 
   return (

@@ -1,5 +1,7 @@
 import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable } from "./prompt-utils";
+import { buildWorkspaceContext } from "./cross-tool-context";
+import type { Workspace } from "../stores/workspace-types";
 
 interface AgendaItem {
   id: string;
@@ -20,10 +22,14 @@ interface Meeting {
   description?: string;
 }
 
-export function generateOneOnOnePrompts(data: {
-  meetings: Meeting[];
-}): PromptDefinition[] {
+export function generateOneOnOnePrompts(
+  data: {
+    meetings: Meeting[];
+  },
+  workspace?: Workspace | null
+): PromptDefinition[] {
   if (data.meetings.length === 0) return [];
+  const context = workspace ? buildWorkspaceContext(workspace) : "";
 
   const sorted = [...data.meetings].sort((a, b) => b.date.localeCompare(a.date));
   const recent = sorted.slice(0, 8);
@@ -96,7 +102,7 @@ export function generateOneOnOnePrompts(data: {
             data.meetings.map((m) => `${m.manager}-${m.report}`)
           ).size} pair(s).`
         ) +
-        `## Recent meetings\n\n${meetingTable}\n\n## Action items\n\n${actionTable}\n\n## Questions\n\n1. Is the cadence consistent? Where are gaps that suggest skipped 1:1s?\n2. Are agendas getting discussed (vs. perpetually open)?\n3. Are action items closing or piling up?\n4. Recommend 2 changes to the 1:1 ritual to lift signal-to-noise.`,
+        `## Recent meetings\n\n${meetingTable}\n\n## Action items\n\n${actionTable}\n\n## Questions\n\n1. Is the cadence consistent? Where are gaps that suggest skipped 1:1s?\n2. Are agendas getting discussed (vs. perpetually open)?\n3. Are action items closing or piling up?\n4. Recommend 2 changes to the 1:1 ritual to lift signal-to-noise.${context}`,
     },
     {
       id: "one-on-one-career",
@@ -108,7 +114,7 @@ export function generateOneOnOnePrompts(data: {
           "1:1 Meeting Tracker",
           "Career conversations need explicit airtime — they don't happen by accident."
         ) +
-        `## Recent meetings\n\n${meetingTable}\n\n## Questions\n\n1. Suggest 5 career-conversation prompts that complement (not duplicate) the recent agenda.\n2. For each pair, identify a growth theme worth probing in the next 1:1.\n3. What signals in the agenda suggest the report needs more challenge vs. more support?\n4. Recommend a once-a-quarter career-arc check-in template tailored to this manager-report pair.`,
+        `## Recent meetings\n\n${meetingTable}\n\n## Questions\n\n1. Suggest 5 career-conversation prompts that complement (not duplicate) the recent agenda.\n2. For each pair, identify a growth theme worth probing in the next 1:1.\n3. What signals in the agenda suggest the report needs more challenge vs. more support?\n4. Recommend a once-a-quarter career-arc check-in template tailored to this manager-report pair.${context}`,
     },
   ];
 }

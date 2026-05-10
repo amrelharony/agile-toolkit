@@ -1,5 +1,7 @@
 import type { PromptDefinition } from "./types";
 import { buildPreamble } from "./prompt-utils";
+import type { Workspace } from "../stores/workspace-types";
+import { buildWorkspaceContext } from "./cross-tool-context";
 
 interface TreeNode {
   id: string;
@@ -21,8 +23,9 @@ function renderTree(nodes: TreeNode[], parentId: string | null, depth = 0): stri
   return lines.join("\n");
 }
 
-export function generateOpportunityTreePrompts(data: { nodes: TreeNode[] }): PromptDefinition[] {
+export function generateOpportunityTreePrompts(data: { nodes: TreeNode[] }, workspace?: Workspace | null): PromptDefinition[] {
   if (data.nodes.length === 0) return [];
+  const context = workspace ? buildWorkspaceContext(workspace) : "";
   const tree = renderTree(data.nodes, null);
   return [
     {
@@ -31,7 +34,7 @@ export function generateOpportunityTreePrompts(data: { nodes: TreeNode[] }): Pro
       description: "Evaluate whether the tree explores opportunities broadly before narrowing to solutions.",
       prompt:
         buildPreamble("Opportunity Solution Tree", "Healthy trees explore many opportunities before committing to solutions.") +
-        `## Tree\n\n${tree}\n\n## Questions\n\n1. Is the team jumping to solutions too fast?\n2. Are opportunities truly customer problems or disguised solutions?\n3. Where is evidence weak? What should be investigated next?`,
+        `## Tree\n\n${tree}${context}\n\n## Questions\n\n1. Is the team jumping to solutions too fast?\n2. Are opportunities truly customer problems or disguised solutions?\n3. Where is evidence weak? What should be investigated next?`,
     },
     {
       id: "ost-next-bet",
@@ -39,7 +42,7 @@ export function generateOpportunityTreePrompts(data: { nodes: TreeNode[] }): Pro
       description: "Help the team decide which experiment to run next.",
       prompt:
         buildPreamble("Opportunity Solution Tree", "Trees should guide you to the riskiest untested assumption.") +
-        `## Tree\n\n${tree}\n\n## Questions\n\n1. Which leaf has the highest learning value if tested?\n2. Which solutions are over-engineered for their opportunity?\n3. Recommend the next 2 experiments with rationale.`,
+        `## Tree\n\n${tree}${context}\n\n## Questions\n\n1. Which leaf has the highest learning value if tested?\n2. Which solutions are over-engineered for their opportunity?\n3. Recommend the next 2 experiments with rationale.`,
     },
   ];
 }

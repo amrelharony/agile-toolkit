@@ -29,6 +29,9 @@ import { generateWardleyMapPrompts } from "@/lib/ai-prompts/wardley-map";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { WARDLEY_ACTIONS } from "@/lib/history/event-actions";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 interface Component {
   id: string;
@@ -263,15 +266,35 @@ export function WardleyMapClient() {
     };
   }, [state.components, validLinks]);
 
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+      })
+    )
+  );
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Wardley Map Canvas",
-      prompts: generateWardleyMapPrompts({
-        components: state.components,
-        links: validLinks,
-      }),
+      prompts: generateWardleyMapPrompts(
+        {
+          components: state.components,
+          links: validLinks,
+        },
+        workspace
+      ),
     }),
-    [state.components, validLinks]
+    [state.components, validLinks, workspace]
   );
 
   const componentById = (id: string) =>

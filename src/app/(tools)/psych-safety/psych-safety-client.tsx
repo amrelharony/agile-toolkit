@@ -18,6 +18,8 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PSYCH_SAFETY_ACTIONS } from "@/lib/history/event-actions";
 import { generatePsychSafetyPrompts } from "@/lib/ai-prompts/psych-safety";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 type QuestionId = "q1" | "q2" | "q3" | "q4" | "q5" | "q6" | "q7";
 
@@ -139,6 +141,18 @@ function projectRadar(
 export function PsychSafetyClient() {
   const [responses, setResponses] = usePersisted<Response[]>(STORAGE_KEY, []);
   const { log } = useHistoryLogger("psych-safety");
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
 
   const [draftScores, setDraftScores] = useState<Record<QuestionId, number>>(
     defaultScores
@@ -245,25 +259,28 @@ export function PsychSafetyClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Psychological Safety Assessment",
-      prompts: generatePsychSafetyPrompts({
-        questions: QUESTIONS.map((q) => ({
-          id: q.id,
-          text: q.text,
-          reversed: q.reversed,
-        })),
-        perQuestionAvg: perQuestion.map((q) => ({
-          id: q.id,
-          avg: q.avg,
-          reversedScore: q.reversedScore,
-        })),
-        teamScore,
-        benchmark: ORG_BENCHMARK,
-        responseCount: responses.length,
-        lowestQuestionId: lowest?.id,
-        delta,
-      }),
+      prompts: generatePsychSafetyPrompts(
+        {
+          questions: QUESTIONS.map((q) => ({
+            id: q.id,
+            text: q.text,
+            reversed: q.reversed,
+          })),
+          perQuestionAvg: perQuestion.map((q) => ({
+            id: q.id,
+            avg: q.avg,
+            reversedScore: q.reversedScore,
+          })),
+          teamScore,
+          benchmark: ORG_BENCHMARK,
+          responseCount: responses.length,
+          lowestQuestionId: lowest?.id,
+          delta,
+        },
+        workspace
+      ),
     }),
-    [perQuestion, teamScore, responses.length, lowest, delta]
+    [perQuestion, teamScore, responses.length, lowest, delta, workspace]
   );
 
   const csvData = useMemo(

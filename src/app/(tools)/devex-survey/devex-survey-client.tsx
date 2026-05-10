@@ -30,6 +30,8 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DEVEX_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 interface DevexResponse {
   id: string;
@@ -148,17 +150,33 @@ export function DevexSurveyClient() {
     }));
   }, [sorted]);
 
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
+
   const promptConfig = useMemo(
     () => ({
       toolName: "DevEx Survey",
-      prompts: generateDevexPrompts({
-        responses: sorted,
-        avgFlow,
-        avgFeedback,
-        avgCognitive,
-      }),
+      prompts: generateDevexPrompts(
+        {
+          responses: sorted,
+          avgFlow,
+          avgFeedback,
+          avgCognitive,
+        },
+        workspace
+      ),
     }),
-    [sorted, avgFlow, avgFeedback, avgCognitive]
+    [sorted, avgFlow, avgFeedback, avgCognitive, workspace]
   );
 
   return (

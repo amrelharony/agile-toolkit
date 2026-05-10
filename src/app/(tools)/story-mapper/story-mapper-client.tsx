@@ -26,6 +26,8 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateStoryMapperPrompts } from "@/lib/ai-prompts/story-mapper";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 import { EditableName } from "@/components/shared/editable-name";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { STORY_MAPPER_ACTIONS } from "@/lib/history/event-actions";
@@ -788,10 +790,22 @@ export function StoryMapperClient() {
     [steps, slices]
   );
 
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
   const promptConfig = useMemo(() => ({
     toolName: "User Story Map",
-    prompts: generateStoryMapperPrompts({ steps, slices }),
-  }), [steps, slices]);
+    prompts: generateStoryMapperPrompts({ steps, slices }, workspace),
+  }), [steps, slices, workspace]);
 
   const clipboardText = useMemo(() => {
     const lines: string[] = ["User Story Map", ""];

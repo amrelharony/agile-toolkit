@@ -5,6 +5,8 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateEstimationGuidePrompts } from "@/lib/ai-prompts/estimation-guide";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ESTIMATION_GUIDE_ACTIONS } from "@/lib/history/event-actions";
 import { Card, CardContent } from "@/components/ui/card";
@@ -165,14 +167,26 @@ export function EstimationGuideClient() {
     };
   }, [activeScale, store.descriptions, store.examples]);
 
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
   const promptConfig = useMemo(() => ({
     toolName: "Estimation Guide",
     prompts: generateEstimationGuidePrompts({
       selectedScale: store.selectedScale,
       descriptions: store.descriptions,
       examples: store.examples,
-    }),
-  }), [store.selectedScale, store.descriptions, store.examples]);
+    }, workspace),
+  }), [store.selectedScale, store.descriptions, store.examples, workspace]);
 
   // Guard against scales[] being empty so render-time access to
   // `activeScale.values` is safe.

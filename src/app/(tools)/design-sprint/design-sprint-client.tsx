@@ -35,6 +35,9 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DESIGN_SPRINT_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 type DayNumber = 1 | 2 | 3 | 4 | 5;
 
@@ -401,12 +404,29 @@ export function DesignSprintClient() {
     return { total, done, pct, daysLeft };
   }, [state.sprint]);
 
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+      })
+    )
+  );
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Design Sprint Tracker",
-      prompts: generateDesignSprintPrompts({ sprint: state.sprint }),
+      prompts: generateDesignSprintPrompts({ sprint: state.sprint }, workspace),
     }),
-    [state.sprint]
+    [state.sprint, workspace]
   );
 
   if (!state.sprint) {

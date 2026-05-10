@@ -26,6 +26,8 @@ import { generatePlatformMaturityPrompts } from "@/lib/ai-prompts/platform-matur
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PLATFORM_MATURITY_ACTIONS } from "@/lib/history/event-actions";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 type DimensionId =
   | "goldenPaths"
@@ -220,19 +222,35 @@ export function PlatformMaturityClient() {
     [state.dimensions]
   );
 
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Platform Engineering Maturity",
-      prompts: generatePlatformMaturityPrompts({
-        dimensions: DIMENSIONS.map((d) => ({
-          id: d.id,
-          label: d.label,
-          score: Math.min(5, Math.max(1, state.dimensions[d.id] ?? 1)),
-          description: state.notes[d.id]?.trim() || undefined,
-        })),
-      }),
+      prompts: generatePlatformMaturityPrompts(
+        {
+          dimensions: DIMENSIONS.map((d) => ({
+            id: d.id,
+            label: d.label,
+            score: Math.min(5, Math.max(1, state.dimensions[d.id] ?? 1)),
+            description: state.notes[d.id]?.trim() || undefined,
+          })),
+        },
+        workspace
+      ),
     }),
-    [state.dimensions, state.notes]
+    [state.dimensions, state.notes, workspace]
   );
 
   return (

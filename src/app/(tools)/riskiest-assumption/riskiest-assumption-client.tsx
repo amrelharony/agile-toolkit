@@ -33,6 +33,9 @@ import { generateRiskiestAssumptionPrompts } from "@/lib/ai-prompts/riskiest-ass
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RISKIEST_ASSUMPTION_ACTIONS } from "@/lib/history/event-actions";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 type Level = 1 | 2 | 3 | 4 | 5;
 type Status = "untested" | "testing" | "validated" | "invalidated";
@@ -274,14 +277,34 @@ export function RiskiestAssumptionClient() {
     };
   }, [state.assumptions]);
 
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+      })
+    )
+  );
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Riskiest Assumption Canvas",
-      prompts: generateRiskiestAssumptionPrompts({
-        assumptions: state.assumptions,
-      }),
+      prompts: generateRiskiestAssumptionPrompts(
+        {
+          assumptions: state.assumptions,
+        },
+        workspace
+      ),
     }),
-    [state.assumptions]
+    [state.assumptions, workspace]
   );
 
   return (

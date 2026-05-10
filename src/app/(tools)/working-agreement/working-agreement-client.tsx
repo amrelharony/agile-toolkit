@@ -34,6 +34,9 @@ import { generateWorkingAgreementPrompts } from "@/lib/ai-prompts/working-agreem
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { WORKING_AGREEMENT_ACTIONS } from "@/lib/history/event-actions";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 type RuleCategory =
   | "communication"
@@ -356,18 +359,38 @@ export function WorkingAgreementClient() {
     return m;
   }, [state.rules]);
 
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+      })
+    )
+  );
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Working Agreement Builder",
-      prompts: generateWorkingAgreementPrompts({
-        rules: state.rules,
-        meta: state.meta,
-        // The prompt generator expects a numeric adherence; map "no check-ins
-        // yet" (null) to 0 there. The UI separately renders null as "—".
-        adherencePct: adherencePct ?? 0,
-      }),
+      prompts: generateWorkingAgreementPrompts(
+        {
+          rules: state.rules,
+          meta: state.meta,
+          // The prompt generator expects a numeric adherence; map "no check-ins
+          // yet" (null) to 0 there. The UI separately renders null as "—".
+          adherencePct: adherencePct ?? 0,
+        },
+        workspace
+      ),
     }),
-    [state.rules, state.meta, adherencePct]
+    [state.rules, state.meta, adherencePct, workspace]
   );
 
   return (

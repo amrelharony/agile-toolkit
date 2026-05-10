@@ -26,6 +26,8 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { STAKEHOLDER_MAP_ACTIONS } from "@/lib/history/event-actions";
 import { generateStakeholderMapPrompts } from "@/lib/ai-prompts/stakeholder-map";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 type Sentiment =
   | "champion"
@@ -298,6 +300,18 @@ export function StakeholderMapClient() {
     []
   );
   const { log } = useHistoryLogger("stakeholder-map");
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
 
   // Tooltip on the matrix.
   const [hovered, setHovered] = useState<string | null>(null);
@@ -368,26 +382,29 @@ export function StakeholderMapClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Stakeholder Map",
-      prompts: generateStakeholderMapPrompts({
-        stakeholders: stakeholders.map((s) => ({
-          name: s.name,
-          role: s.role,
-          interest: s.interest,
-          authority: s.authority,
-          sentiment: s.sentiment,
-          strategy: s.strategy,
-          description: s.description,
-        })),
-        quadrants: {
-          manageClosely: quadrants.manageClosely.length,
-          keepSatisfied: quadrants.keepSatisfied.length,
-          keepInformed: quadrants.keepInformed.length,
-          monitor: quadrants.monitor.length,
+      prompts: generateStakeholderMapPrompts(
+        {
+          stakeholders: stakeholders.map((s) => ({
+            name: s.name,
+            role: s.role,
+            interest: s.interest,
+            authority: s.authority,
+            sentiment: s.sentiment,
+            strategy: s.strategy,
+            description: s.description,
+          })),
+          quadrants: {
+            manageClosely: quadrants.manageClosely.length,
+            keepSatisfied: quadrants.keepSatisfied.length,
+            keepInformed: quadrants.keepInformed.length,
+            monitor: quadrants.monitor.length,
+          },
+          blockers: sentimentCounts.blocker,
         },
-        blockers: sentimentCounts.blocker,
-      }),
+        workspace
+      ),
     }),
-    [stakeholders, quadrants, sentimentCounts]
+    [stakeholders, quadrants, sentimentCounts, workspace]
   );
 
   const hoveredStakeholder = hovered

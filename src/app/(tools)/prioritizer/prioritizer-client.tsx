@@ -16,6 +16,8 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generatePrioritizerPrompts } from "@/lib/ai-prompts/prioritizer";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PRIORITIZER_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
@@ -1025,10 +1027,22 @@ export function PrioritizerClient() {
     log(PRIORITIZER_ACTIONS.PRIORITIZER_RESET, {});
   };
 
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
   const promptConfig = useMemo(() => ({
     toolName: "Backlog Prioritizer",
-    prompts: generatePrioritizerPrompts({ items }),
-  }), [items]);
+    prompts: generatePrioritizerPrompts({ items }, workspace),
+  }), [items, workspace]);
 
   const csvData = useMemo(
     () => ({

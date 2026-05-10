@@ -1,5 +1,7 @@
 import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable } from "./prompt-utils";
+import type { Workspace } from "../stores/workspace-types";
+import { buildWorkspaceContext } from "./cross-tool-context";
 
 interface StakeholderData {
   name: string;
@@ -18,12 +20,16 @@ interface QuadrantSummary {
   monitor: number;
 }
 
-export function generateStakeholderMapPrompts(data: {
-  stakeholders: StakeholderData[];
-  quadrants: QuadrantSummary;
-  blockers: number;
-}): PromptDefinition[] {
+export function generateStakeholderMapPrompts(
+  data: {
+    stakeholders: StakeholderData[];
+    quadrants: QuadrantSummary;
+    blockers: number;
+  },
+  workspace?: Workspace | null
+): PromptDefinition[] {
   if (data.stakeholders.length === 0) return [];
+  const wsContext = workspace ? buildWorkspaceContext(workspace) : "";
 
   const stakeholderTable = formatTable(
     [
@@ -68,7 +74,8 @@ export function generateStakeholderMapPrompts(data: {
           "Stakeholder Map",
           `${data.stakeholders.length} stakeholders. Manage closely: ${data.quadrants.manageClosely}, keep satisfied: ${data.quadrants.keepSatisfied}, keep informed: ${data.quadrants.keepInformed}, monitor: ${data.quadrants.monitor}.`
         ) +
-        `## Stakeholders\n\n${stakeholderTable}\n\n## Questions\n\n1. Which stakeholders are misclassified (e.g., a high-authority blocker only being "monitored")?\n2. Are the documented strategies generic or tailored to each person's interest/authority?\n3. Suggest a 2-week engagement plan for the "Manage Closely" quadrant.`,
+        `## Stakeholders\n\n${stakeholderTable}\n\n## Questions\n\n1. Which stakeholders are misclassified (e.g., a high-authority blocker only being "monitored")?\n2. Are the documented strategies generic or tailored to each person's interest/authority?\n3. Suggest a 2-week engagement plan for the "Manage Closely" quadrant.` +
+        wsContext,
     },
     {
       id: "stakeholder-blockers",
@@ -80,7 +87,8 @@ export function generateStakeholderMapPrompts(data: {
           "Stakeholder Map",
           `${data.blockers} blocker(s) currently logged. Conversion is high-leverage but slow.`
         ) +
-        `## Blockers\n\n${blockerTable}\n\n## All stakeholders\n\n${stakeholderTable}\n\n## Questions\n\n1. For each blocker, infer the most likely root cause (lost autonomy, surprise, missed credit, …) and a counter-move.\n2. Which supporter is best positioned to peer-influence each blocker?\n3. What 1-page leadership communication would shift the highest-authority blocker?`,
+        `## Blockers\n\n${blockerTable}\n\n## All stakeholders\n\n${stakeholderTable}\n\n## Questions\n\n1. For each blocker, infer the most likely root cause (lost autonomy, surprise, missed credit, …) and a counter-move.\n2. Which supporter is best positioned to peer-influence each blocker?\n3. What 1-page leadership communication would shift the highest-authority blocker?` +
+        wsContext,
     },
   ];
 }

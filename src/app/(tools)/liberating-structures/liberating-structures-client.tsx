@@ -21,6 +21,9 @@ import { generateLiberatingStructuresPrompts } from "@/lib/ai-prompts/liberating
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { LIBERATING_STRUCTURES_ACTIONS } from "@/lib/history/event-actions";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 type GroupSize = "small (2-7)" | "medium (8-30)" | "large (30+)";
 type TimingBucket = "under 15 min" | "15-30 min" | "30+ min";
@@ -278,15 +281,35 @@ export function LiberatingStructuresClient() {
     [state.favorites]
   );
 
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+      })
+    )
+  );
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Liberating Structures Picker",
-      prompts: generateLiberatingStructuresPrompts({
-        catalog: CATALOG,
-        favoriteIds: state.favorites.map((f) => f.structureId),
-      }),
+      prompts: generateLiberatingStructuresPrompts(
+        {
+          catalog: CATALOG,
+          favoriteIds: state.favorites.map((f) => f.structureId),
+        },
+        workspace
+      ),
     }),
-    [state.favorites]
+    [state.favorites, workspace]
   );
 
   const handleGroupFilter = (g: GroupSize | "all") => {

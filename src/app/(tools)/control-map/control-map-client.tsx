@@ -29,6 +29,8 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CONTROL_MAP_ACTIONS } from "@/lib/history/event-actions";
 import { toast } from "@/lib/utils/toast";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 
@@ -433,29 +435,45 @@ export function ControlMapClient() {
     [state.controls]
   );
 
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Compliance Control Map",
-      prompts: generateControlMapPrompts({
-        controls: state.controls.map((c) => ({
-          controlId: c.controlId,
-          framework: FRAMEWORK_LABEL[c.framework],
-          title: c.title,
-          status: c.status,
-          owner: c.owner,
-          evidenceCount: c.evidenceLinks.length,
-          description: c.description,
-        })),
-        totalControls,
-        pctVerified,
-        byFramework: byFramework.map((b) => ({
-          framework: FRAMEWORK_LABEL[b.framework],
-          total: b.total,
-          implemented: b.implemented,
-        })),
-      }),
+      prompts: generateControlMapPrompts(
+        {
+          controls: state.controls.map((c) => ({
+            controlId: c.controlId,
+            framework: FRAMEWORK_LABEL[c.framework],
+            title: c.title,
+            status: c.status,
+            owner: c.owner,
+            evidenceCount: c.evidenceLinks.length,
+            description: c.description,
+          })),
+          totalControls,
+          pctVerified,
+          byFramework: byFramework.map((b) => ({
+            framework: FRAMEWORK_LABEL[b.framework],
+            total: b.total,
+            implemented: b.implemented,
+          })),
+        },
+        workspace
+      ),
     }),
-    [state.controls, totalControls, pctVerified, byFramework]
+    [state.controls, totalControls, pctVerified, byFramework, workspace]
   );
 
   return (

@@ -18,6 +18,8 @@ import {
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generatePlanningPokerPrompts } from "@/lib/ai-prompts/planning-poker";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PLANNING_POKER_ACTIONS } from "@/lib/history/event-actions";
@@ -585,6 +587,18 @@ function SessionScreen({
   // AI prompts — use the persisted scaleType directly. The previous reverse
   // lookup against SCALES (`s.join() === session.scale.join()`) broke as soon
   // as the user customized a preset's values.
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
   const promptConfig = useMemo(() => {
     const scaleName = SCALE_LABELS[session.scaleType] ?? "Custom";
     return {
@@ -600,9 +614,9 @@ function SessionScreen({
           finalEstimate: s.finalEstimate,
         })),
         scaleName,
-      }),
+      }, workspace),
     };
-  }, [session.stories, session.participants, session.scaleType, session.currentStoryIdx, session.revealed]);
+  }, [session.stories, session.participants, session.scaleType, session.currentStoryIdx, session.revealed, workspace]);
 
   // Card rotation for fan effect
   const cardCount = session.scale.length;

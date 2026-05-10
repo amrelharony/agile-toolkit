@@ -1,5 +1,7 @@
 import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable } from "./prompt-utils";
+import { buildWorkspaceContext } from "./cross-tool-context";
+import type { Workspace } from "../stores/workspace-types";
 
 interface SpaceScoreData {
   quarter: string;
@@ -18,10 +20,14 @@ interface SpaceScoreData {
  * is the GitHub/UMass framework for developer productivity. The prompts
  * surface the dimension that needs the most investment.
  */
-export function generateSpacePrompts(data: {
-  scores: SpaceScoreData[];
-}): PromptDefinition[] {
+export function generateSpacePrompts(
+  data: {
+    scores: SpaceScoreData[];
+  },
+  workspace?: Workspace | null
+): PromptDefinition[] {
   if (data.scores.length === 0) return [];
+  const context = workspace ? buildWorkspaceContext(workspace) : "";
   const latest = data.scores[data.scores.length - 1];
   const scoreTable = formatTable(
     [
@@ -55,7 +61,7 @@ export function generateSpacePrompts(data: {
           "SPACE Pulse",
           `Latest scores (${latest.quarter}): satisfaction ${latest.satisfaction}, performance ${latest.performance}, activity ${latest.activity}, communication ${latest.communication}, efficiency ${latest.efficiency} — each 1-5.`
         ) +
-        `## Scores (last ${Math.min(12, data.scores.length)} quarters)\n\n${scoreTable}\n\n## Questions\n\n1. Which dimension is the team's strongest? Which is the weakest, and is the gap growing or shrinking?\n2. What hypotheses might explain the weakest dimension? List 3 plausible drivers.\n3. Which dimensions tend to move together in this team's data?`,
+        `## Scores (last ${Math.min(12, data.scores.length)} quarters)\n\n${scoreTable}\n\n## Questions\n\n1. Which dimension is the team's strongest? Which is the weakest, and is the gap growing or shrinking?\n2. What hypotheses might explain the weakest dimension? List 3 plausible drivers.\n3. Which dimensions tend to move together in this team's data?${context}`,
     },
     {
       id: "space-investments",
@@ -67,7 +73,7 @@ export function generateSpacePrompts(data: {
           "SPACE Pulse",
           `Trend across ${data.scores.length} quarter(s) — most recent ${latest.quarter}.`
         ) +
-        `## Scores\n\n${scoreTable}\n\n## Questions\n\n1. Pick the 1-2 dimensions to invest in next quarter and justify the choice.\n2. Suggest concrete, low-cost interventions for each (rituals, tooling, structural changes).\n3. What measurable signal should we look for in the next survey to know if it worked?`,
+        `## Scores\n\n${scoreTable}\n\n## Questions\n\n1. Pick the 1-2 dimensions to invest in next quarter and justify the choice.\n2. Suggest concrete, low-cost interventions for each (rituals, tooling, structural changes).\n3. What measurable signal should we look for in the next survey to know if it worked?${context}`,
     },
   ];
 }

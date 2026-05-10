@@ -29,6 +29,8 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { THREAT_MODEL_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 
@@ -358,24 +360,40 @@ export function ThreatModelClient() {
     return map;
   }, [state.threats, services]);
 
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Threat Model Registry",
-      prompts: generateThreatModelPrompts({
-        threats: state.threats.map((t) => ({
-          service: t.service,
-          category: t.category,
-          severity: t.severity,
-          status: t.status,
-          mitigation: t.mitigation,
-          description: t.description,
-        })),
-        totalOpen,
-        mitigationRate,
-        servicesCount: services.length,
-      }),
+      prompts: generateThreatModelPrompts(
+        {
+          threats: state.threats.map((t) => ({
+            service: t.service,
+            category: t.category,
+            severity: t.severity,
+            status: t.status,
+            mitigation: t.mitigation,
+            description: t.description,
+          })),
+          totalOpen,
+          mitigationRate,
+          servicesCount: services.length,
+        },
+        workspace
+      ),
     }),
-    [state.threats, totalOpen, mitigationRate, services.length]
+    [state.threats, totalOpen, mitigationRate, services.length, workspace]
   );
 
   return (

@@ -171,6 +171,7 @@ export const tools: ToolDefinition[] = [
     isRealtime: true,
     phase: 3,
     usesWorkspace: true,
+    analyticsTier: 3,
   },
   {
     id: "capacity-planner",
@@ -205,6 +206,7 @@ export const tools: ToolDefinition[] = [
     isRealtime: true,
     phase: 4,
     usesWorkspace: true,
+    analyticsTier: 3,
   },
   {
     id: "prioritizer",
@@ -218,6 +220,7 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 4,
     usesWorkspace: true,
+    analyticsTier: 3,
   },
   {
     id: "estimation-guide",
@@ -230,6 +233,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 1,
+    analyticsTier: 3,
   },
   {
     id: "sprint-goal",
@@ -488,6 +492,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 1,
+    analyticsTier: 3,
   },
   {
     id: "refinement",
@@ -518,6 +523,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 1,
+    analyticsTier: 3,
   },
 
   // Category D: Team Health & Maturity
@@ -534,6 +540,7 @@ export const tools: ToolDefinition[] = [
     phase: 3,
     usesWorkspace: true,
     analyticsFeatures: ["forecast"],
+    analyticsTier: 3,
   },
   {
     id: "maturity",
@@ -547,6 +554,7 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 4,
     usesWorkspace: true,
+    analyticsTier: 3,
   },
   {
     id: "raci",
@@ -559,6 +567,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 1,
+    analyticsTier: 3,
   },
   {
     id: "skills-matrix",
@@ -573,6 +582,7 @@ export const tools: ToolDefinition[] = [
     phase: 4,
     usesWorkspace: true,
     analyticsFeatures: ["anti-pattern"],
+    analyticsTier: 3,
   },
   {
     id: "impediments",
@@ -652,6 +662,7 @@ export const tools: ToolDefinition[] = [
     phase: 6,
     usesWorkspace: true,
     analyticsFeatures: ["anti-pattern"],
+    analyticsTier: 3,
   },
 
   // Category F: Product Discovery (NEW — Phase 7)
@@ -684,6 +695,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 7,
+    analyticsTier: 3,
   },
   {
     id: "opportunity-tree",
@@ -696,6 +708,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: false,
     phase: 7,
+    analyticsTier: 3,
   },
 
   // Category G: Risk & Governance (NEW — Phase 8 + 11)
@@ -737,6 +750,7 @@ export const tools: ToolDefinition[] = [
     requiresAuth: false,
     isRealtime: true,
     phase: 8,
+    analyticsTier: 3,
   },
   {
     id: "tech-debt",
@@ -771,6 +785,7 @@ export const tools: ToolDefinition[] = [
     isRealtime: true,
     phase: 11,
     usesWorkspace: true,
+    analyticsTier: 3,
   },
   {
     id: "dod-builder",
@@ -936,6 +951,7 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["anomaly"],
     audience: "engineering-leader",
+    analyticsTier: 3,
   },
   {
     id: "devex-survey",
@@ -951,6 +967,7 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["anomaly"],
     audience: "engineering-leader",
+    analyticsTier: 3,
   },
   {
     id: "slo-builder",
@@ -983,6 +1000,7 @@ export const tools: ToolDefinition[] = [
     phase: 14,
     usesWorkspace: true,
     audience: "engineering-leader",
+    analyticsTier: 3,
   },
 
   // Category K: Incidents & Reliability (NEW — Phase 12)
@@ -1100,6 +1118,7 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["survival"],
     audience: "engineering-leader",
+    analyticsTier: 3,
   },
   {
     id: "vuln-burndown",
@@ -1136,6 +1155,7 @@ export const tools: ToolDefinition[] = [
     phase: 14,
     usesWorkspace: true,
     audience: "engineering-leader",
+    analyticsTier: 3,
   },
   {
     id: "a11y-tracker",
@@ -1223,6 +1243,7 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 14,
     audience: "both",
+    analyticsTier: 3,
   },
 
   // Category N: Workshops & Facilitation (NEW — Phase 12)
@@ -1239,6 +1260,7 @@ export const tools: ToolDefinition[] = [
     phase: 12,
     usesWorkspace: true,
     audience: "coach",
+    analyticsTier: 3,
   },
   {
     id: "liberating-structures",
@@ -1252,6 +1274,7 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 12,
     audience: "coach",
+    analyticsTier: 3,
   },
   {
     id: "design-sprint",
@@ -1266,6 +1289,7 @@ export const tools: ToolDefinition[] = [
     phase: 13,
     usesWorkspace: true,
     audience: "coach",
+    analyticsTier: 3,
   },
   {
     id: "riskiest-assumption",
@@ -1280,6 +1304,7 @@ export const tools: ToolDefinition[] = [
     phase: 13,
     usesWorkspace: true,
     audience: "coach",
+    analyticsTier: 3,
   },
   {
     id: "wardley-map",
@@ -1294,6 +1319,7 @@ export const tools: ToolDefinition[] = [
     phase: 14,
     usesWorkspace: true,
     audience: "both",
+    analyticsTier: 3,
   },
 
   // Additions to EXISTING categories (Phase 12-14)
@@ -1310,6 +1336,7 @@ export const tools: ToolDefinition[] = [
     phase: 13,
     usesWorkspace: true,
     audience: "coach",
+    analyticsTier: 3,
   },
   {
     id: "async-standup",
@@ -1342,6 +1369,7 @@ export const tools: ToolDefinition[] = [
     isRealtime: false,
     phase: 13,
     audience: "both",
+    analyticsTier: 3,
   },
   {
     id: "psych-safety",
@@ -1357,6 +1385,7 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["anomaly"],
     audience: "coach",
+    analyticsTier: 3,
   },
   {
     id: "tech-radar",
@@ -1371,6 +1400,7 @@ export const tools: ToolDefinition[] = [
     phase: 13,
     usesWorkspace: true,
     audience: "engineering-leader",
+    analyticsTier: 3,
   },
   {
     id: "onboarding-tracker",
@@ -1386,6 +1416,7 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["survival"],
     audience: "engineering-leader",
+    analyticsTier: 3,
   },
   {
     id: "rfc-tracker",
@@ -1401,6 +1432,7 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["survival"],
     audience: "both",
+    analyticsTier: 3,
   },
   {
     id: "stakeholder-map",
@@ -1415,6 +1447,7 @@ export const tools: ToolDefinition[] = [
     phase: 13,
     usesWorkspace: true,
     audience: "both",
+    analyticsTier: 3,
   },
   {
     id: "adkar",
@@ -1429,6 +1462,7 @@ export const tools: ToolDefinition[] = [
     phase: 14,
     usesWorkspace: true,
     audience: "coach",
+    analyticsTier: 3,
   },
   {
     id: "feature-flag-tracker",

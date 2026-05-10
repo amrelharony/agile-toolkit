@@ -23,6 +23,9 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { JTBD_ACTIONS } from "@/lib/history/event-actions";
 import { generateJtbdPrompts } from "@/lib/ai-prompts/jtbd-mapper";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 interface JobStory {
   id: string;
@@ -160,12 +163,29 @@ export function JtbdMapperClient() {
     });
   };
 
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+      })
+    )
+  );
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Job Story Mapper",
-      prompts: generateJtbdPrompts({ jobs }),
+      prompts: generateJtbdPrompts({ jobs }, workspace),
     }),
-    [jobs]
+    [jobs, workspace]
   );
 
   const csvData = useMemo(

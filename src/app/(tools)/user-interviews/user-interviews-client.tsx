@@ -12,6 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Quote, Plus, Trash2, Hash } from "lucide-react";
 import { generateUserInterviewsPrompts } from "@/lib/ai-prompts/user-interviews";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { INTERVIEW_ACTIONS } from "@/lib/history/event-actions";
@@ -154,12 +156,19 @@ export function UserInterviewsClient() {
     }
   }, [editing, interviews]);
 
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
+    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
+    decisions: s.decisions, techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel, teamName: s.teamName,
+  }));
+
   const promptConfig = useMemo(
     () => ({
       toolName: "User Interview Log",
-      prompts: generateUserInterviewsPrompts({ interviews, tagFrequency }),
+      prompts: generateUserInterviewsPrompts({ interviews, tagFrequency }, workspace),
     }),
-    [interviews, tagFrequency]
+    [interviews, tagFrequency, workspace]
   );
 
   return (

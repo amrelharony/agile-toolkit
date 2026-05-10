@@ -29,6 +29,8 @@ import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPACE_ACTIONS } from "@/lib/history/event-actions";
 import { toast } from "@/lib/utils/toast";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 
 // Quarter must be `YYYY-Q[1-4]` so localeCompare yields chronological order.
 // Anything else slips through, but we warn the user at write-time.
@@ -173,12 +175,25 @@ export function SpacePulseClient() {
     }));
   }, [latest]);
 
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
+
   const promptConfig = useMemo(
     () => ({
       toolName: "SPACE Pulse",
-      prompts: generateSpacePrompts({ scores: sorted }),
+      prompts: generateSpacePrompts({ scores: sorted }, workspace),
     }),
-    [sorted]
+    [sorted, workspace]
   );
 
   return (

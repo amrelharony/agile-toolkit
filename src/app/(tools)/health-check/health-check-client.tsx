@@ -17,6 +17,8 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateHealthCheckPrompts } from "@/lib/ai-prompts/health-check";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { HEALTH_CHECK_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -288,10 +290,22 @@ export function HealthCheckClient() {
     log(HEALTH_CHECK_ACTIONS.HEALTH_CHECK_RESET, {});
   };
 
+  const workspace = useWorkspaceStore<Workspace>((s) => ({
+    teamMembers: s.teamMembers,
+    sprints: s.sprints,
+    stories: s.stories,
+    impediments: s.impediments,
+    risks: s.risks,
+    okrs: s.okrs,
+    decisions: s.decisions,
+    techDebt: s.techDebt,
+    maturityLevel: s.maturityLevel,
+    teamName: s.teamName,
+  }));
   const promptConfig = useMemo(() => ({
     toolName: "Team Health Check",
-    prompts: generateHealthCheckPrompts({ current, history }),
-  }), [current, history]);
+    prompts: generateHealthCheckPrompts({ current, history }, workspace),
+  }), [current, history, workspace]);
 
   /* -- CSV export ---------------------------------------------------------- */
   const csvData = useMemo(() => {
