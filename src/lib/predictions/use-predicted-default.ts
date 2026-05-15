@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "../stores/workspace-store";
 import { useHistoryStore } from "../history/history-store";
 import type { Workspace } from "../stores/workspace-types";
@@ -17,19 +18,25 @@ import { lookupPredictor, type PredictResult } from "./registry";
  * `useDerived` internally if it crosses the cost threshold.
  */
 export function usePredictedDefault<T>(toolId: string, field: string, fallback: T): PredictResult<T> {
-  // Project a Workspace-shaped snapshot from the spread store.
-  const workspace = useWorkspaceStore<Workspace>((s) => ({
-    teamMembers: s.teamMembers,
-    sprints: s.sprints,
-    stories: s.stories,
-    impediments: s.impediments,
-    risks: s.risks,
-    okrs: s.okrs,
-    decisions: s.decisions,
-    techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel,
-    teamName: s.teamName,
-  }));
+  // Project a Workspace-shaped snapshot from the spread store. MUST use
+  // useShallow — without it, each render's selector returns a fresh object
+  // literal that fails Object.is against the previous render's snapshot,
+  // and `useSyncExternalStore` (which Zustand sits on) interprets that
+  // as a state change and re-renders, causing an infinite render loop.
+  const workspace = useWorkspaceStore(
+    useShallow((s): Workspace => ({
+      teamMembers: s.teamMembers,
+      sprints: s.sprints,
+      stories: s.stories,
+      impediments: s.impediments,
+      risks: s.risks,
+      okrs: s.okrs,
+      decisions: s.decisions,
+      techDebt: s.techDebt,
+      maturityLevel: s.maturityLevel,
+      teamName: s.teamName,
+    }))
+  );
   const events = useHistoryStore((s) => s.events);
 
   return useMemo(() => {

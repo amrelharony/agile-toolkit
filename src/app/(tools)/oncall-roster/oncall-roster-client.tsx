@@ -116,6 +116,7 @@ function activeShiftAt(shifts: OncallShift[], ts: number): OncallShift | null {
   )[0];
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function burnoutTone(count: number): "default" | "warning" | "danger" {
   if (count > 5) return "danger";
   if (count >= 3) return "warning";

@@ -807,8 +807,8 @@ function PostMortemEditor({
           </div>
           {pm.contributingFactors.length === 0 ? (
             <p className="text-xs text-sub italic mb-2">
-              Add at least 2-3 factors. A single 'root cause' usually means the
-              real story isn't told yet.
+              Add at least 2-3 factors. A single &lsquo;root cause&rsquo; usually means the
+              real story isn&rsquo;t told yet.
             </p>
           ) : (
             <ul className="space-y-1.5 mb-2">

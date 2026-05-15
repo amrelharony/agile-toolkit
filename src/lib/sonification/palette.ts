@@ -287,6 +287,12 @@ const ui: ToolPalette = {
   "focus-input": { voice: "blip", step: 1, octave: 5, velocity: 0.3 },
   "key-confirm": { voice: "pluck", step: 4, octave: 5, velocity: 0.45 },
   "key-dismiss": { voice: "dissonant", steps: [0, -1], octave: 4, velocity: 0.4 },
+  // Typing — soft mechanical-keyboard taps. Quiet velocity + cent jitter so
+  // each keystroke is slightly different pitch and the stream doesn't sound
+  // like a metronome. Use a single short percussive voice for all three.
+  keystroke: { voice: "click", step: 2, octave: 5, velocity: 0.16, jitterCents: 60 },
+  "keystroke-space": { voice: "click", step: 4, octave: 5, velocity: 0.18, jitterCents: 40 },
+  "keystroke-backspace": { voice: "click", step: 0, octave: 4, velocity: 0.2, jitterCents: 30, filter: "muffled" },
   // Radix data-state transitions (MutationObserver)
   "state-open": { voice: "chord", steps: [0, 2, 4], octave: 5, duration: 0.5 },
   "state-close": { voice: "pad", step: 0, octave: 4, duration: 0.6, filter: "warm" },

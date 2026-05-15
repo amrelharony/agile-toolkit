@@ -17,6 +17,7 @@ interface Link {
   toId: string;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const STAGES = ["Genesis", "Custom", "Product", "Commodity"] as const;
 
 function evolutionStage(e: number): (typeof STAGES)[number] {

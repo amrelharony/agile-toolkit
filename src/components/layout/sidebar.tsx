@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -25,8 +25,18 @@ interface SidebarProps {
 export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+
+  // Categories with at least one tool. The registry contains category enum
+  // values reserved for Phase 22+ that have no tools yet — rendering those
+  // as empty <Collapsible> rows looks broken (the trigger collapses nothing).
+  const visibleCategories = useMemo(
+    () =>
+      categories.filter((c) => getToolsByCategory(c).length > 0),
+    []
+  );
+
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(
-    Object.fromEntries(categories.map((c) => [c, true]))
+    () => Object.fromEntries(visibleCategories.map((c) => [c, true]))
   );
   const asideRef = useRef<HTMLElement>(null);
 
@@ -183,7 +193,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
               );
             })}
           </div>
-          {categories.map((category) => {
+          {visibleCategories.map((category) => {
             const categoryTools = getToolsByCategory(category);
             const shortName = category.split(" ")[0];
 

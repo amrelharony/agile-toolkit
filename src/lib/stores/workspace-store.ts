@@ -11,6 +11,37 @@ import type {
   Decision,
   TechDebtItem,
   MaturityLevel,
+  // Phase 19 entity types
+  LLMEval,
+  PromptVersion,
+  Hallucination,
+  TokenSpend,
+  ModelEntry,
+  RedTeamFinding,
+  AgentWorkflow,
+  AgentNode,
+  HitlReview,
+  RlhfPair,
+  VectorCollection,
+  ModelCard,
+  // Phase 20
+  PrioritizationItem,
+  // Phase 21
+  DACIDecision,
+  RAPIDDecision,
+  WeightedOption,
+  WeightedCriterion,
+  SixHatsThought,
+  OODACycle,
+  CynefinItem,
+  StaceyItem,
+  Polarity,
+  PolarityPole,
+  // Phase 22 — Canvas
+  Whiteboard,
+  WhiteboardObject,
+  WhiteboardCommentThread,
+  WhiteboardGroup,
 } from "./workspace-types";
 import { emptyWorkspace } from "./workspace-types";
 
@@ -33,6 +64,66 @@ interface WorkspaceActions {
   upsertTechDebt: (t: TechDebtItem) => void;
   removeTechDebt: (id: string) => void;
   setMaturityLevel: (level: MaturityLevel | undefined) => void;
+  // Phase 19 — AI/LLM PM
+  upsertLLMEval: (x: LLMEval) => void;
+  removeLLMEval: (id: string) => void;
+  upsertPrompt: (x: PromptVersion) => void;
+  removePrompt: (id: string) => void;
+  upsertHallucination: (x: Hallucination) => void;
+  removeHallucination: (id: string) => void;
+  upsertTokenSpend: (x: TokenSpend) => void;
+  removeTokenSpend: (id: string) => void;
+  upsertModel: (x: ModelEntry) => void;
+  removeModel: (id: string) => void;
+  upsertRedTeamFinding: (x: RedTeamFinding) => void;
+  removeRedTeamFinding: (id: string) => void;
+  upsertAgentWorkflow: (x: AgentWorkflow) => void;
+  removeAgentWorkflow: (id: string) => void;
+  upsertAgentNode: (x: AgentNode) => void;
+  removeAgentNode: (id: string) => void;
+  upsertHitlReview: (x: HitlReview) => void;
+  removeHitlReview: (id: string) => void;
+  upsertRlhfPair: (x: RlhfPair) => void;
+  removeRlhfPair: (id: string) => void;
+  upsertVectorCollection: (x: VectorCollection) => void;
+  removeVectorCollection: (id: string) => void;
+  upsertModelCard: (x: ModelCard) => void;
+  removeModelCard: (id: string) => void;
+  // Phase 20 — Prioritization
+  upsertPrioritization: (x: PrioritizationItem) => void;
+  removePrioritization: (id: string) => void;
+  // Phase 21 — Decision Frameworks
+  upsertDACIDecision: (x: DACIDecision) => void;
+  removeDACIDecision: (id: string) => void;
+  upsertRAPIDDecision: (x: RAPIDDecision) => void;
+  removeRAPIDDecision: (id: string) => void;
+  upsertWeightedOption: (x: WeightedOption) => void;
+  removeWeightedOption: (id: string) => void;
+  upsertWeightedCriterion: (x: WeightedCriterion) => void;
+  removeWeightedCriterion: (id: string) => void;
+  upsertSixHatsThought: (x: SixHatsThought) => void;
+  removeSixHatsThought: (id: string) => void;
+  upsertOODACycle: (x: OODACycle) => void;
+  removeOODACycle: (id: string) => void;
+  upsertCynefinItem: (x: CynefinItem) => void;
+  removeCynefinItem: (id: string) => void;
+  upsertStaceyItem: (x: StaceyItem) => void;
+  removeStaceyItem: (id: string) => void;
+  upsertPolarity: (x: Polarity) => void;
+  removePolarity: (id: string) => void;
+  upsertPolarityPole: (x: PolarityPole) => void;
+  removePolarityPole: (id: string) => void;
+  // Phase 22 — Canvas
+  upsertWhiteboard: (x: Whiteboard) => void;
+  removeWhiteboard: (id: string) => void;
+  upsertWhiteboardObject: (x: WhiteboardObject) => void;
+  upsertWhiteboardObjects: (xs: WhiteboardObject[]) => void;
+  removeWhiteboardObject: (id: string) => void;
+  removeWhiteboardObjects: (ids: string[]) => void;
+  upsertWhiteboardCommentThread: (x: WhiteboardCommentThread) => void;
+  removeWhiteboardCommentThread: (id: string) => void;
+  upsertWhiteboardGroup: (x: WhiteboardGroup) => void;
+  removeWhiteboardGroup: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   exportJSON: () => string;
@@ -69,6 +160,143 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       upsertTechDebt: (t) => set({ techDebt: replaceById(get().techDebt, t) }),
       removeTechDebt: (id) => set({ techDebt: get().techDebt.filter((x) => x.id !== id) }),
       setMaturityLevel: (level) => set({ maturityLevel: level }),
+      // Phase 19 — AI/LLM PM
+      upsertLLMEval: (x) => set({ llmEvals: replaceById(get().llmEvals ?? [], x) }),
+      removeLLMEval: (id) => set({ llmEvals: (get().llmEvals ?? []).filter((y) => y.id !== id) }),
+      upsertPrompt: (x) => set({ prompts: replaceById(get().prompts ?? [], x) }),
+      removePrompt: (id) => set({ prompts: (get().prompts ?? []).filter((y) => y.id !== id) }),
+      upsertHallucination: (x) => set({ hallucinations: replaceById(get().hallucinations ?? [], x) }),
+      removeHallucination: (id) => set({ hallucinations: (get().hallucinations ?? []).filter((y) => y.id !== id) }),
+      upsertTokenSpend: (x) => set({ tokenSpend: replaceById(get().tokenSpend ?? [], x) }),
+      removeTokenSpend: (id) => set({ tokenSpend: (get().tokenSpend ?? []).filter((y) => y.id !== id) }),
+      upsertModel: (x) => set({ models: replaceById(get().models ?? [], x) }),
+      removeModel: (id) => set({ models: (get().models ?? []).filter((y) => y.id !== id) }),
+      upsertRedTeamFinding: (x) => set({ redTeamFindings: replaceById(get().redTeamFindings ?? [], x) }),
+      removeRedTeamFinding: (id) => set({ redTeamFindings: (get().redTeamFindings ?? []).filter((y) => y.id !== id) }),
+      upsertAgentWorkflow: (x) => set({ agentWorkflows: replaceById(get().agentWorkflows ?? [], x) }),
+      removeAgentWorkflow: (id) => set({
+        agentWorkflows: (get().agentWorkflows ?? []).filter((y) => y.id !== id),
+        agentNodes: (get().agentNodes ?? []).filter((n) => n.workflowId !== id),
+      }),
+      upsertAgentNode: (x) => set({ agentNodes: replaceById(get().agentNodes ?? [], x) }),
+      removeAgentNode: (id) => set({ agentNodes: (get().agentNodes ?? []).filter((y) => y.id !== id) }),
+      upsertHitlReview: (x) => set({ hitlReviews: replaceById(get().hitlReviews ?? [], x) }),
+      removeHitlReview: (id) => set({ hitlReviews: (get().hitlReviews ?? []).filter((y) => y.id !== id) }),
+      upsertRlhfPair: (x) => set({ rlhfPairs: replaceById(get().rlhfPairs ?? [], x) }),
+      removeRlhfPair: (id) => set({ rlhfPairs: (get().rlhfPairs ?? []).filter((y) => y.id !== id) }),
+      upsertVectorCollection: (x) => set({ vectorCollections: replaceById(get().vectorCollections ?? [], x) }),
+      removeVectorCollection: (id) => set({ vectorCollections: (get().vectorCollections ?? []).filter((y) => y.id !== id) }),
+      upsertModelCard: (x) => set({ modelCards: replaceById(get().modelCards ?? [], x) }),
+      removeModelCard: (id) => set({ modelCards: (get().modelCards ?? []).filter((y) => y.id !== id) }),
+      // Phase 20 — Prioritization
+      upsertPrioritization: (x) => set({ prioritizations: replaceById(get().prioritizations ?? [], x) }),
+      removePrioritization: (id) => set({ prioritizations: (get().prioritizations ?? []).filter((y) => y.id !== id) }),
+      // Phase 21 — Decision Frameworks
+      upsertDACIDecision: (x) => set({ daciDecisions: replaceById(get().daciDecisions ?? [], x) }),
+      removeDACIDecision: (id) => set({ daciDecisions: (get().daciDecisions ?? []).filter((y) => y.id !== id) }),
+      upsertRAPIDDecision: (x) => set({ rapidDecisions: replaceById(get().rapidDecisions ?? [], x) }),
+      removeRAPIDDecision: (id) => set({ rapidDecisions: (get().rapidDecisions ?? []).filter((y) => y.id !== id) }),
+      upsertWeightedOption: (x) => set({ weightedOptions: replaceById(get().weightedOptions ?? [], x) }),
+      removeWeightedOption: (id) => set({ weightedOptions: (get().weightedOptions ?? []).filter((y) => y.id !== id) }),
+      upsertWeightedCriterion: (x) => set({ weightedCriteria: replaceById(get().weightedCriteria ?? [], x) }),
+      removeWeightedCriterion: (id) => set({ weightedCriteria: (get().weightedCriteria ?? []).filter((y) => y.id !== id) }),
+      upsertSixHatsThought: (x) => set({ sixHatsThoughts: replaceById(get().sixHatsThoughts ?? [], x) }),
+      removeSixHatsThought: (id) => set({ sixHatsThoughts: (get().sixHatsThoughts ?? []).filter((y) => y.id !== id) }),
+      upsertOODACycle: (x) => set({ oodaCycles: replaceById(get().oodaCycles ?? [], x) }),
+      removeOODACycle: (id) => set({ oodaCycles: (get().oodaCycles ?? []).filter((y) => y.id !== id) }),
+      upsertCynefinItem: (x) => set({ cynefinItems: replaceById(get().cynefinItems ?? [], x) }),
+      removeCynefinItem: (id) => set({ cynefinItems: (get().cynefinItems ?? []).filter((y) => y.id !== id) }),
+      upsertStaceyItem: (x) => set({ staceyItems: replaceById(get().staceyItems ?? [], x) }),
+      removeStaceyItem: (id) => set({ staceyItems: (get().staceyItems ?? []).filter((y) => y.id !== id) }),
+      upsertPolarity: (x) => set({ polarities: replaceById(get().polarities ?? [], x) }),
+      removePolarity: (id) => set({
+        polarities: (get().polarities ?? []).filter((y) => y.id !== id),
+        polarityPoles: (get().polarityPoles ?? []).filter((p) => p.polarityId !== id),
+      }),
+      upsertPolarityPole: (x) => set({ polarityPoles: replaceById(get().polarityPoles ?? [], x) }),
+      removePolarityPole: (id) => set({ polarityPoles: (get().polarityPoles ?? []).filter((y) => y.id !== id) }),
+      // Phase 22 — Canvas. Deleting a board cascades to all its objects,
+      // comments, and groups so we never leak orphan rows.
+      upsertWhiteboard: (x) => set({ whiteboards: replaceById(get().whiteboards ?? [], x) }),
+      removeWhiteboard: (id) => set({
+        whiteboards: (get().whiteboards ?? []).filter((y) => y.id !== id),
+        whiteboardObjects: (get().whiteboardObjects ?? []).filter((o) => o.boardId !== id),
+        whiteboardCommentThreads: (get().whiteboardCommentThreads ?? []).filter((c) => c.boardId !== id),
+        whiteboardGroups: (get().whiteboardGroups ?? []).filter((g) => g.boardId !== id),
+      }),
+      upsertWhiteboardObject: (x) => set({ whiteboardObjects: replaceById(get().whiteboardObjects ?? [], x) }),
+      // Bulk upsert — used by templates, paste, cross-tool import, and the
+      // diff-sync receiver. Single set() to avoid N re-renders for N objects.
+      upsertWhiteboardObjects: (xs) => set((s) => {
+        const list = s.whiteboardObjects ?? [];
+        const map = new Map(list.map((o) => [o.id, o]));
+        for (const x of xs) map.set(x.id, x);
+        return { whiteboardObjects: Array.from(map.values()) };
+      }),
+      removeWhiteboardObject: (id) => set((s) => {
+        // Cascade in one pass: drop the object AND any connector pinned to
+        // it, AND clear `frameId` on any object that was contained in this
+        // frame (so the contained objects don't keep a dangling reference
+        // that would resurface if the id were ever reused).
+        const objects = s.whiteboardObjects ?? [];
+        const nextObjects: WhiteboardObject[] = [];
+        for (const y of objects) {
+          if (y.id === id) continue; // drop the target itself
+          if (y.type === "connector" && (y.fromId === id || y.toId === id)) continue; // drop dangling connectors
+          if (y.frameId === id) {
+            nextObjects.push({ ...y, frameId: undefined });
+            continue;
+          }
+          nextObjects.push(y);
+        }
+        return {
+          whiteboardObjects: nextObjects,
+          // Also drop comment threads pinned to the deleted object —
+          // orphaned threads would otherwise pile up invisibly
+          // (CommentPins filters by objectId so the UI doesn't render
+          // them, but the store keeps growing indefinitely and they'd
+          // resurface if the object id were ever reused).
+          whiteboardCommentThreads: (s.whiteboardCommentThreads ?? []).filter(
+            (t) => t.objectId !== id,
+          ),
+        };
+      }),
+      removeWhiteboardObjects: (ids) => {
+        const removeSet = new Set(ids);
+        set((s) => {
+          const objects = s.whiteboardObjects ?? [];
+          const nextObjects: WhiteboardObject[] = [];
+          for (const y of objects) {
+            if (removeSet.has(y.id)) continue;
+            if (y.type === "connector" && (removeSet.has(y.fromId) || removeSet.has(y.toId))) continue;
+            // Clear frameId if its frame is being deleted in this batch.
+            if (y.frameId && removeSet.has(y.frameId)) {
+              nextObjects.push({ ...y, frameId: undefined });
+              continue;
+            }
+            nextObjects.push(y);
+          }
+          return {
+            whiteboardObjects: nextObjects,
+            // Keep threads where (a) the thread isn't pinned to an object,
+            // or (b) the pinned object is not being removed. The previous
+            // implementation looked OK at a glance but used OR over the
+            // boolean negations; rewrote as an explicit predicate for
+            // clarity.
+            whiteboardCommentThreads: (s.whiteboardCommentThreads ?? []).filter(
+              (t) => !t.objectId || !removeSet.has(t.objectId),
+            ),
+          };
+        });
+      },
+      upsertWhiteboardCommentThread: (x) => set({ whiteboardCommentThreads: replaceById(get().whiteboardCommentThreads ?? [], x) }),
+      removeWhiteboardCommentThread: (id) => set({ whiteboardCommentThreads: (get().whiteboardCommentThreads ?? []).filter((y) => y.id !== id) }),
+      upsertWhiteboardGroup: (x) => set({ whiteboardGroups: replaceById(get().whiteboardGroups ?? [], x) }),
+      removeWhiteboardGroup: (id) => set({
+        whiteboardGroups: (get().whiteboardGroups ?? []).filter((y) => y.id !== id),
+        // Disassociate any objects that were in this group.
+        whiteboardObjects: (get().whiteboardObjects ?? []).map((o) => o.groupId === id ? { ...o, groupId: undefined } : o),
+      }),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -86,6 +314,37 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           techDebt: s.techDebt,
           maturityLevel: s.maturityLevel,
           teamName: s.teamName,
+          // Phase 19
+          llmEvals: s.llmEvals,
+          prompts: s.prompts,
+          hallucinations: s.hallucinations,
+          tokenSpend: s.tokenSpend,
+          models: s.models,
+          redTeamFindings: s.redTeamFindings,
+          agentWorkflows: s.agentWorkflows,
+          agentNodes: s.agentNodes,
+          hitlReviews: s.hitlReviews,
+          rlhfPairs: s.rlhfPairs,
+          vectorCollections: s.vectorCollections,
+          modelCards: s.modelCards,
+          // Phase 20
+          prioritizations: s.prioritizations,
+          // Phase 21
+          daciDecisions: s.daciDecisions,
+          rapidDecisions: s.rapidDecisions,
+          weightedOptions: s.weightedOptions,
+          weightedCriteria: s.weightedCriteria,
+          sixHatsThoughts: s.sixHatsThoughts,
+          oodaCycles: s.oodaCycles,
+          cynefinItems: s.cynefinItems,
+          staceyItems: s.staceyItems,
+          polarities: s.polarities,
+          polarityPoles: s.polarityPoles,
+          // Phase 22
+          whiteboards: s.whiteboards,
+          whiteboardObjects: s.whiteboardObjects,
+          whiteboardCommentThreads: s.whiteboardCommentThreads,
+          whiteboardGroups: s.whiteboardGroups,
         };
         return JSON.stringify(data, null, 2);
       },
@@ -114,6 +373,37 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
               ? (p.maturityLevel as Workspace["maturityLevel"])
               : undefined,
           teamName: typeof p.teamName === "string" ? p.teamName : undefined,
+          // Phase 19 — accept arrays only; unknown shapes get dropped
+          llmEvals: arr("llmEvals"),
+          prompts: arr("prompts"),
+          hallucinations: arr("hallucinations"),
+          tokenSpend: arr("tokenSpend"),
+          models: arr("models"),
+          redTeamFindings: arr("redTeamFindings"),
+          agentWorkflows: arr("agentWorkflows"),
+          agentNodes: arr("agentNodes"),
+          hitlReviews: arr("hitlReviews"),
+          rlhfPairs: arr("rlhfPairs"),
+          vectorCollections: arr("vectorCollections"),
+          modelCards: arr("modelCards"),
+          // Phase 20
+          prioritizations: arr("prioritizations"),
+          // Phase 21
+          daciDecisions: arr("daciDecisions"),
+          rapidDecisions: arr("rapidDecisions"),
+          weightedOptions: arr("weightedOptions"),
+          weightedCriteria: arr("weightedCriteria"),
+          sixHatsThoughts: arr("sixHatsThoughts"),
+          oodaCycles: arr("oodaCycles"),
+          cynefinItems: arr("cynefinItems"),
+          staceyItems: arr("staceyItems"),
+          polarities: arr("polarities"),
+          polarityPoles: arr("polarityPoles"),
+          // Phase 22 — Canvas
+          whiteboards: arr("whiteboards"),
+          whiteboardObjects: arr("whiteboardObjects"),
+          whiteboardCommentThreads: arr("whiteboardCommentThreads"),
+          whiteboardGroups: arr("whiteboardGroups"),
         };
         // Drop undefined entries so emptyWorkspace defaults stand in for missing keys.
         for (const k of Object.keys(sanitized) as (keyof Workspace)[]) {
@@ -160,6 +450,33 @@ export function getWorkspaceSnapshot(): Workspace {
     techDebt: state.techDebt,
     maturityLevel: state.maturityLevel,
     teamName: state.teamName,
+    llmEvals: state.llmEvals,
+    prompts: state.prompts,
+    hallucinations: state.hallucinations,
+    tokenSpend: state.tokenSpend,
+    models: state.models,
+    redTeamFindings: state.redTeamFindings,
+    agentWorkflows: state.agentWorkflows,
+    agentNodes: state.agentNodes,
+    hitlReviews: state.hitlReviews,
+    rlhfPairs: state.rlhfPairs,
+    vectorCollections: state.vectorCollections,
+    modelCards: state.modelCards,
+    prioritizations: state.prioritizations,
+    daciDecisions: state.daciDecisions,
+    rapidDecisions: state.rapidDecisions,
+    weightedOptions: state.weightedOptions,
+    weightedCriteria: state.weightedCriteria,
+    sixHatsThoughts: state.sixHatsThoughts,
+    oodaCycles: state.oodaCycles,
+    cynefinItems: state.cynefinItems,
+    staceyItems: state.staceyItems,
+    polarities: state.polarities,
+    polarityPoles: state.polarityPoles,
+    whiteboards: state.whiteboards,
+    whiteboardObjects: state.whiteboardObjects,
+    whiteboardCommentThreads: state.whiteboardCommentThreads,
+    whiteboardGroups: state.whiteboardGroups,
   };
 }
 

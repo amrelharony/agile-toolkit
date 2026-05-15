@@ -39,7 +39,7 @@ function kMeansPlusPlusInit(points: number[][], k: number, rand: () => number): 
       return min;
     });
     const total = distances.reduce((a, b) => a + b, 0);
-    if (total === 0) break; // duplicates
+    if (total === 0) break; // all remaining points are duplicates of existing centroids
     let r = rand() * total;
     let chosen = 0;
     for (let i = 0; i < distances.length; i++) {
@@ -48,6 +48,13 @@ function kMeansPlusPlusInit(points: number[][], k: number, rand: () => number): 
     }
     centroids.push(points[chosen].slice());
   }
+  // PAD: if duplicates broke initialization early, callers downstream still
+  // expect `centroids.length === k`. Pad with copies of the first centroid
+  // — these slots will receive zero points during assignment (since every
+  // candidate is already closer to the original), but the slot-count
+  // invariant is preserved so kMeans's `sums[realK]` / `counts[realK]`
+  // allocations don't index-out-of-bounds.
+  while (centroids.length < k) centroids.push(centroids[0].slice());
   return centroids;
 }
 
@@ -66,7 +73,7 @@ export function kMeans(points: number[][], k: number, maxIter = 50, seed = 42): 
   const realK = Math.min(k, sampled.length);
   const rand = mulberry32(seed);
   let centroids = kMeansPlusPlusInit(sampled, realK, rand);
-  let labels = new Array(sampled.length).fill(0);
+  const labels = new Array(sampled.length).fill(0);
   let iterations = 0;
 
   for (let iter = 0; iter < maxIter; iter++) {

@@ -28,7 +28,12 @@ export type HapticPatternName =
   | "refresh"
   | "navigate"
   | "toggle-on"
-  | "toggle-off";
+  | "toggle-off"
+  // Typing — high-frequency, low-amplitude. Designed to be felt while typing
+  // on a touch keyboard without overwhelming the engine on fast typists.
+  | "keystroke"
+  | "keystroke-space"
+  | "keystroke-backspace";
 
 export interface HapticPatternSpec {
   /** ms pattern for navigator.vibrate([on,off,on,...]). */

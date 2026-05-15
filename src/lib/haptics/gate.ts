@@ -89,6 +89,15 @@ export function shouldFire(ctx: GateContext): GateDecision {
   }
 
   const isPriority = pattern.priority === true;
+  // Keystroke haptics are the user *deliberately* asking for typing feedback,
+  // so they must bypass the typing-suppression window (which exists to stop
+  // *other* haptics from interrupting typing) and the rolling rate cap (a
+  // fast typist can fire well past the 8/sec ceiling). Cooldowns still apply
+  // — they protect the OS vibrate queue from a stuck-key flood.
+  const isKeystroke =
+    patternName === "keystroke" ||
+    patternName === "keystroke-space" ||
+    patternName === "keystroke-backspace";
 
   if (!isPriority) {
     // Global cooldown
@@ -98,14 +107,17 @@ export function shouldFire(ctx: GateContext): GateDecision {
       const last = perElementLast.get(targetEl) ?? 0;
       if (now - last < PER_ELEMENT_COOLDOWN) return "suppress";
     }
-    // Scroll / input suppression
+    // Scroll suppression always applies — keystrokes shouldn't fire mid-scroll.
     if (now < scrollingUntil) return "suppress";
-    if (now < typingUntil) return "suppress";
-    // Rolling rate limit
-    while (rollingWindow.length && now - rollingWindow[0] > ROLLING_WINDOW_MS) {
-      rollingWindow.shift();
+    // Typing suppression: applies to non-keystroke patterns only.
+    if (!isKeystroke && now < typingUntil) return "suppress";
+    // Rolling rate limit: bypassed for keystrokes (cooldowns above are enough).
+    if (!isKeystroke) {
+      while (rollingWindow.length && now - rollingWindow[0] > ROLLING_WINDOW_MS) {
+        rollingWindow.shift();
+      }
+      if (rollingWindow.length >= ROLLING_MAX) return "suppress";
     }
-    if (rollingWindow.length >= ROLLING_MAX) return "suppress";
   }
 
   return downgrade ? "downgrade" : "fire";

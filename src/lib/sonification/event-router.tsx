@@ -104,21 +104,65 @@ export function SonificationEventRouter({ enabled }: { enabled: boolean }) {
       }
     };
 
-    // --- keydown (Enter / Escape) --------------------------------------------
+    // --- keydown (Enter / Escape / typing keystrokes) ------------------------
+    // Per-element keystroke rate cap so a key being held doesn't shred the
+    // voice engine. 25ms ≈ 40 keystrokes/sec — well above human top speed
+    // (Guinness record is ~17/sec sustained), so a comfortable cap.
+    const lastKeystrokeAt = new WeakMap<Element, number>();
+    const KEYSTROKE_FLOOR_MS = 25;
+
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (!target || isSuppressed(target)) return;
-      const insideInput =
-        target.tagName.toLowerCase() === "input" ||
-        target.tagName.toLowerCase() === "textarea" ||
-        target.isContentEditable;
+      const tag = target.tagName.toLowerCase();
+      const insideInput = tag === "input" || tag === "textarea" || target.isContentEditable;
+
       if (e.key === "Escape") {
         emit("ui", "key-dismiss");
-      } else if (e.key === "Enter" && !insideInput) {
+        return;
+      }
+      if (e.key === "Enter" && !insideInput) {
         // For any clickable, the browser will synthesize a `click` and our
         // click handler above will emit — avoid double-firing here.
         const clickable = target.closest(CLICK_SELECTOR);
         if (!clickable) emit("ui", "key-confirm");
+        return;
+      }
+
+      // ── Typing sounds: only inside text-entry surfaces, and skip:
+      //   • password inputs (avoid surfacing length/cadence of secrets)
+      //   • keys that don't produce a character (Tab/Arrow/Home/End/Fn/etc.)
+      //   • combos with Ctrl/Meta/Alt (shortcuts shouldn't sound like typing)
+      //   • keys that are auto-repeating beyond the rate cap
+      if (!insideInput) return;
+      if (tag === "input") {
+        const type = (target as HTMLInputElement).type;
+        if (type === "password") return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const now = performance.now();
+      const last = lastKeystrokeAt.get(target) ?? 0;
+      if (now - last < KEYSTROKE_FLOOR_MS) return;
+
+      let event: string | null = null;
+      if (e.key === "Backspace" || e.key === "Delete") {
+        event = "keystroke-backspace";
+      } else if (e.key === " " || e.key === "Spacebar") {
+        event = "keystroke-space";
+      } else if (e.key.length === 1) {
+        // Single-codepoint keys: letters, digits, punctuation, "Enter" stays
+        // 1-char but we want a distinct sound for that — fall through to
+        // key-confirm below.
+        event = "keystroke";
+      } else if (e.key === "Enter") {
+        // Newline inside a textarea — distinct from confirm-as-submit.
+        event = "keystroke-space";
+      }
+
+      if (event) {
+        lastKeystrokeAt.set(target, now);
+        emit("ui", event);
       }
     };
 

@@ -7,6 +7,12 @@ export interface SimplePresence {
   id: string;
   name: string;
   color: string;
+  // Canvas-tool extensions (Phase 22). All optional so existing tools that
+  // don't track them produce an identical presence record.
+  cursor?: { x: number; y: number };               // world coords
+  viewport?: { x: number; y: number; zoom: number; w: number; h: number };
+  selection?: string[];                            // object IDs the peer has selected
+  tool?: string;                                   // current toolbar choice ("select", "sticky", ...)
 }
 
 const AVATAR_COLORS = ["#00f0ff", "#a78bfa", "#34d399", "#f59e0b", "#f87171", "#60a5fa", "#fb923c", "#e879f9"];
@@ -28,12 +34,52 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
     const channel = supabase.channel(channelName, {
       config: { presence: { key: self?.id ?? crypto.randomUUID() } },
     });
-    const isPresence = (v: unknown): v is SimplePresence =>
-      !!v &&
-      typeof v === "object" &&
-      typeof (v as SimplePresence).id === "string" &&
-      typeof (v as SimplePresence).name === "string" &&
-      typeof (v as SimplePresence).color === "string";
+    // Sanitize a presence record from an untrusted peer. The required
+    // fields (id/name/color) must be strings; the optional canvas fields
+    // (cursor/viewport/selection/tool) get individually validated so a
+    // hostile peer can't:
+    //   - inject a 10 MB selection array (DoS by memory)
+    //   - send `cursor: "<script>"` and crash consumers that destructure x/y
+    //   - pass NaN/Infinity coords that propagate into worldToScreen
+    // Anything that fails validation gets dropped from the sanitized
+    // record rather than rejecting the whole peer — better partial UX
+    // than no UX.
+    const SELECTION_CAP = 100; // ids; caps payload while still showing intent
+    const sanitize = (v: unknown): SimplePresence | null => {
+      if (!v || typeof v !== "object") return null;
+      const r = v as Record<string, unknown>;
+      if (typeof r.id !== "string" || typeof r.name !== "string" || typeof r.color !== "string") {
+        return null;
+      }
+      const out: SimplePresence = { id: r.id, name: r.name, color: r.color };
+      if (r.cursor && typeof r.cursor === "object") {
+        const c = r.cursor as { x?: unknown; y?: unknown };
+        if (typeof c.x === "number" && Number.isFinite(c.x) &&
+            typeof c.y === "number" && Number.isFinite(c.y)) {
+          out.cursor = { x: c.x, y: c.y };
+        }
+      }
+      if (r.viewport && typeof r.viewport === "object") {
+        const vp = r.viewport as Record<string, unknown>;
+        if (typeof vp.x === "number" && Number.isFinite(vp.x) &&
+            typeof vp.y === "number" && Number.isFinite(vp.y) &&
+            typeof vp.zoom === "number" && Number.isFinite(vp.zoom) &&
+            typeof vp.w === "number" && Number.isFinite(vp.w) &&
+            typeof vp.h === "number" && Number.isFinite(vp.h)) {
+          out.viewport = { x: vp.x, y: vp.y, zoom: vp.zoom, w: vp.w, h: vp.h };
+        }
+      }
+      if (Array.isArray(r.selection)) {
+        const ids: string[] = [];
+        for (const id of r.selection) {
+          if (typeof id === "string" && id.length < 500) ids.push(id);
+          if (ids.length >= SELECTION_CAP) break;
+        }
+        out.selection = ids;
+      }
+      if (typeof r.tool === "string" && r.tool.length < 50) out.tool = r.tool;
+      return out;
+    };
     channel
       .on("presence", { event: "sync" }, () => {
         const state = channel.presenceState<SimplePresence>();
@@ -41,7 +87,8 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
         for (const key of Object.keys(state)) {
           const metas = state[key];
           const first = Array.isArray(metas) ? metas[0] : undefined;
-          if (isPresence(first)) list.push(first);
+          const clean = sanitize(first);
+          if (clean) list.push(clean);
         }
         setMembers(list);
       })

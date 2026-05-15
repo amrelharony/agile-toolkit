@@ -24,7 +24,43 @@ export type SignalKind =
   | "flag.added"
   | "flag.aged"
   | "stakeholder.changed"
-  | "rfc.decided";
+  | "rfc.decided"
+  // Phase 19 — AI / LLM Product Management
+  | "llmEval.recorded"
+  | "llmEval.regressionDetected"
+  | "prompt.versionPublished"
+  | "hallucination.logged"
+  | "hallucination.resolved"
+  | "tokenCost.threshold"
+  | "model.upgraded"
+  | "redTeam.findingOpened"
+  | "redTeam.findingClosed"
+  | "agentWorkflow.created"
+  | "hitl.reviewLogged"
+  | "rlhf.pairLogged"
+  | "vector.collectionAdded"
+  | "modelCard.published"
+  // Phase 20 — Prioritization Frameworks
+  | "prioritization.scored"
+  | "prioritization.shipped"
+  // Phase 21 — Decision Frameworks
+  | "decision.daciCreated"
+  | "decision.rapidCreated"
+  | "decision.weightedScored"
+  | "decision.cynefinClassified"
+  | "decision.staceyClassified"
+  | "decision.polarityMapped"
+  | "ooda.cycleCompleted"
+  | "sixHats.thoughtLogged"
+  // Phase 22 — Canvas (Miro-like whiteboard)
+  | "whiteboard.boardCreated"
+  | "whiteboard.boardDeleted"
+  | "whiteboard.objectCreated"
+  | "whiteboard.objectMoved"
+  | "whiteboard.objectDeleted"
+  | "whiteboard.commentAdded"
+  | "whiteboard.templateApplied"
+  | "whiteboard.crossToolImport";
 
 export interface Signal<T = unknown> {
   kind: SignalKind;
