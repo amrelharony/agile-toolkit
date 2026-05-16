@@ -42,6 +42,8 @@ import type {
   WhiteboardObject,
   WhiteboardCommentThread,
   WhiteboardGroup,
+  WhiteboardSavedTemplate,
+  WhiteboardActivityEvent,
 } from "./workspace-types";
 import { emptyWorkspace } from "./workspace-types";
 
@@ -124,6 +126,11 @@ interface WorkspaceActions {
   removeWhiteboardCommentThread: (id: string) => void;
   upsertWhiteboardGroup: (x: WhiteboardGroup) => void;
   removeWhiteboardGroup: (id: string) => void;
+  // Phase 31 — saved templates
+  upsertWhiteboardSavedTemplate: (x: WhiteboardSavedTemplate) => void;
+  removeWhiteboardSavedTemplate: (id: string) => void;
+  // Phase 32 — activity log
+  appendWhiteboardActivity: (ev: WhiteboardActivityEvent) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   exportJSON: () => string;
@@ -148,15 +155,49 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       upsertSprint: (s) => set({ sprints: replaceById(get().sprints, s) }),
       removeSprint: (id) => set({ sprints: get().sprints.filter((x) => x.id !== id) }),
       upsertStory: (s) => set({ stories: replaceById(get().stories, s) }),
-      removeStory: (id) => set({ stories: get().stories.filter((x) => x.id !== id) }),
+      removeStory: (id) => set((s) => ({
+        stories: s.stories.filter((x) => x.id !== id),
+        // Phase 26 cascade: any canvas Card pinned to this Story via
+        // sourceRef now points at nothing. Strip the sourceRef so the
+        // card becomes a standalone snapshot; without this, future
+        // sync attempts against the dead id would silently fail and
+        // the link badge ("↳ backlog") would be misleading.
+        whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+          o.type === "card" && o.sourceRef?.tool === "backlog" && o.sourceRef.entityId === id
+            ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
+            : o,
+        ),
+      })),
       upsertImpediment: (i) => set({ impediments: replaceById(get().impediments, i) }),
       removeImpediment: (id) => set({ impediments: get().impediments.filter((x) => x.id !== id) }),
       upsertRisk: (r) => set({ risks: replaceById(get().risks, r) }),
-      removeRisk: (id) => set({ risks: get().risks.filter((x) => x.id !== id) }),
+      removeRisk: (id) => set((s) => ({
+        risks: s.risks.filter((x) => x.id !== id),
+        // Same Phase 26 cascade for risks imported as cards.
+        whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+          o.type === "card" && o.sourceRef?.tool === "risk" && o.sourceRef.entityId === id
+            ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
+            : o,
+        ),
+      })),
       upsertOkr: (o) => set({ okrs: replaceById(get().okrs, o) }),
-      removeOkr: (id) => set({ okrs: get().okrs.filter((x) => x.id !== id) }),
+      removeOkr: (id) => set((s) => ({
+        okrs: s.okrs.filter((x) => x.id !== id),
+        whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+          o.type === "card" && o.sourceRef?.tool === "okr" && o.sourceRef.entityId === id
+            ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
+            : o,
+        ),
+      })),
       upsertDecision: (d) => set({ decisions: replaceById(get().decisions, d) }),
-      removeDecision: (id) => set({ decisions: get().decisions.filter((x) => x.id !== id) }),
+      removeDecision: (id) => set((s) => ({
+        decisions: s.decisions.filter((x) => x.id !== id),
+        whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+          o.type === "card" && o.sourceRef?.tool === "decision" && o.sourceRef.entityId === id
+            ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
+            : o,
+        ),
+      })),
       upsertTechDebt: (t) => set({ techDebt: replaceById(get().techDebt, t) }),
       removeTechDebt: (id) => set({ techDebt: get().techDebt.filter((x) => x.id !== id) }),
       setMaturityLevel: (level) => set({ maturityLevel: level }),
@@ -297,6 +338,28 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         // Disassociate any objects that were in this group.
         whiteboardObjects: (get().whiteboardObjects ?? []).map((o) => o.groupId === id ? { ...o, groupId: undefined } : o),
       }),
+      upsertWhiteboardSavedTemplate: (x) => set({
+        whiteboardSavedTemplates: replaceById(get().whiteboardSavedTemplates ?? [], x),
+      }),
+      removeWhiteboardSavedTemplate: (id) => set({
+        whiteboardSavedTemplates: (get().whiteboardSavedTemplates ?? []).filter((y) => y.id !== id),
+      }),
+      appendWhiteboardActivity: (ev) => set((s) => {
+        // Rolling 200-event ring per board, with global cap at 1000
+        // events total to bound localStorage growth.
+        const log = (s.whiteboardActivityLog ?? []).slice();
+        log.push(ev);
+        // Drop oldest for this board past 200; then global cap.
+        const byBoard = new Map<string, number>();
+        for (let i = log.length - 1; i >= 0; i--) {
+          const e = log[i];
+          const c = (byBoard.get(e.boardId) ?? 0) + 1;
+          byBoard.set(e.boardId, c);
+          if (c > 200) log.splice(i, 1);
+        }
+        const next = log.slice(-1000);
+        return { whiteboardActivityLog: next };
+      }),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -415,11 +478,27 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
     {
       name: "agile-toolkit:workspace",
       storage: createJSONStorage(() => {
-        if (typeof window !== "undefined") return localStorage;
+        if (typeof window === "undefined") {
+          return { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+        }
+        // Wrap localStorage so a QuotaExceededError doesn't crash the
+        // app. Image-heavy boards (Phase 25) can exceed the 5 MB
+        // origin cap; on quota error we warn but keep the in-memory
+        // state alive — the user can still export to JSON.
         return {
-          getItem: () => null,
-          setItem: () => {},
-          removeItem: () => {},
+          getItem: (k: string) => localStorage.getItem(k),
+          setItem: (k: string, v: string) => {
+            try {
+              localStorage.setItem(k, v);
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.warn(
+                "[workspace-store] localStorage quota exceeded — workspace held in memory only. Export to JSON to back it up.",
+                err,
+              );
+            }
+          },
+          removeItem: (k: string) => localStorage.removeItem(k),
         };
       }),
       skipHydration: true,

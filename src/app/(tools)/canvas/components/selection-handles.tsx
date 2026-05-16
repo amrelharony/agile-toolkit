@@ -1,10 +1,12 @@
 "use client";
 
 import { memo } from "react";
+import { RotateCw } from "lucide-react";
 import type { Camera, Rect } from "@/lib/geometry/bbox";
 import type { ResizeHandle } from "../use-canvas-store";
 
 const HANDLE_SIZE = 8;
+const ROTATION_HANDLE_OFFSET = 24; // px above the top edge in screen space
 
 interface SelectionHandlesProps {
   /** World-space union bbox of the selection. */
@@ -13,6 +15,16 @@ interface SelectionHandlesProps {
   /** Hidden for multi-select to keep the math simple in PR 22B. */
   showResizeHandles: boolean;
   onHandlePointerDown: (handle: ResizeHandle, e: React.PointerEvent) => void;
+  /** Called when the user presses on the rotation handle. Optional —
+   * if omitted, the rotation handle isn't rendered. */
+  onRotateStart?: (e: React.PointerEvent) => void;
+  /** Current rotation in degrees of the primary selected object (or
+   * the selection's effective angle for multi). Surfaced via
+   * aria-valuenow so screen readers can announce the current angle. */
+  currentRotationDeg?: number;
+  /** Called with a delta angle in degrees when the user presses ←/→
+   * with the rotation handle focused. Allows keyboard-only rotation. */
+  onRotateByDelta?: (deltaDeg: number) => void;
 }
 
 const HANDLES: { id: ResizeHandle; cursor: string; pos: (b: Rect) => { x: number; y: number } }[] = [
@@ -26,7 +38,7 @@ const HANDLES: { id: ResizeHandle; cursor: string; pos: (b: Rect) => { x: number
   { id: "w",  cursor: "ew-resize",   pos: (b) => ({ x: b.x,             y: b.y + b.h / 2 }) },
 ];
 
-function SelectionHandlesImpl({ bbox, camera, showResizeHandles, onHandlePointerDown }: SelectionHandlesProps) {
+function SelectionHandlesImpl({ bbox, camera, showResizeHandles, onHandlePointerDown, onRotateStart, currentRotationDeg, onRotateByDelta }: SelectionHandlesProps) {
   // Outline rendered in screen space so border thickness is 1px at every zoom.
   const x = (bbox.x - camera.x) * camera.zoom;
   const y = (bbox.y - camera.y) * camera.zoom;
@@ -77,6 +89,79 @@ function SelectionHandlesImpl({ bbox, camera, showResizeHandles, onHandlePointer
             />
           );
         })}
+
+      {/* Rotation handle — circle anchored ROTATION_HANDLE_OFFSET px
+          above the top-centre. Press + drag to rotate every selected
+          object around the union centre. Hold Shift during drag to
+          snap to 15° increments.
+          A11y: role="slider" + aria-valuenow/min/max so screen readers
+          announce the current angle. Tab + ←/→/↑/↓ rotate via
+          keyboard (Shift+arrow = ±15°). */}
+      {showResizeHandles && onRotateStart && (
+        <div
+          tabIndex={0}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onRotateStart(e);
+          }}
+          onKeyDown={(e) => {
+            if (!onRotateByDelta) return;
+            const step = e.shiftKey ? 15 : 1;
+            if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+              e.preventDefault();
+              e.stopPropagation();
+              onRotateByDelta(-step);
+            } else if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+              e.preventDefault();
+              e.stopPropagation();
+              onRotateByDelta(step);
+            }
+          }}
+          role="slider"
+          aria-label="Rotate selection"
+          aria-valuenow={Math.round(currentRotationDeg ?? 0)}
+          aria-valuemin={-180}
+          aria-valuemax={180}
+          aria-valuetext={`${Math.round(currentRotationDeg ?? 0)} degrees`}
+          style={{
+            position: "absolute",
+            left: x + w / 2 - HANDLE_SIZE / 2 - 2,
+            top: y - ROTATION_HANDLE_OFFSET - HANDLE_SIZE / 2 - 2,
+            width: HANDLE_SIZE + 4,
+            height: HANDLE_SIZE + 4,
+            background: "#0b0f17",
+            border: "1.5px solid #00f0ff",
+            borderRadius: "50%",
+            cursor: "grab",
+            zIndex: 10000,
+            touchAction: "none",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#00f0ff",
+            outline: "none",
+          }}
+        >
+          <RotateCw style={{ width: 7, height: 7 }} aria-hidden="true" />
+        </div>
+      )}
+      {/* Tether line from rotation handle to top edge — pure visual cue. */}
+      {showResizeHandles && onRotateStart && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            left: x + w / 2 - 0.5,
+            top: y - ROTATION_HANDLE_OFFSET,
+            width: 1,
+            height: ROTATION_HANDLE_OFFSET,
+            background: "#00f0ff",
+            opacity: 0.4,
+            pointerEvents: "none",
+            zIndex: 9999,
+          }}
+        />
+      )}
     </>
   );
 }
@@ -98,6 +183,9 @@ export const SelectionHandles = memo(SelectionHandlesImpl, (prev, next) => {
     prev.camera.y === next.camera.y &&
     prev.camera.zoom === next.camera.zoom &&
     prev.showResizeHandles === next.showResizeHandles &&
-    prev.onHandlePointerDown === next.onHandlePointerDown
+    prev.onHandlePointerDown === next.onHandlePointerDown &&
+    prev.onRotateStart === next.onRotateStart &&
+    prev.onRotateByDelta === next.onRotateByDelta &&
+    prev.currentRotationDeg === next.currentRotationDeg
   );
 });

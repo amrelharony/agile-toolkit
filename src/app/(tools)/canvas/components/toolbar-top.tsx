@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2, Sparkles, Map, Magnet, Grid3X3 } from "lucide-react";
+import { Plus, Trash2, Sparkles, Map, Magnet, Grid3X3, PlayCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { emitSignal } from "@/lib/signals/signal-bus";
@@ -15,6 +15,7 @@ export function ToolbarTop() {
   const removeBoard = useWorkspaceStore((s) => s.removeWhiteboard);
   const showAIPanel = useCanvasStore((s) => s.showAIPanel);
   const setShowAIPanel = useCanvasStore((s) => s.setShowAIPanel);
+  const setPresentationFrameIndex = useCanvasStore((s) => s.setPresentationFrameIndex);
   const showMiniMap = useCanvasStore((s) => s.showMiniMap);
   const setShowMiniMap = useCanvasStore((s) => s.setShowMiniMap);
   const snapToObjects = useCanvasStore((s) => s.snapToObjects);
@@ -157,6 +158,18 @@ export function ToolbarTop() {
         )}
       >
         <Map className="w-3.5 h-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={() => setPresentationFrameIndex(0)}
+        aria-label="Enter presentation mode"
+        title="Present (frame-by-frame)"
+        className={cn(
+          "w-7 h-7 rounded flex items-center justify-center transition-colors",
+          "text-sub hover:text-text",
+        )}
+      >
+        <PlayCircle className="w-3.5 h-3.5" />
       </button>
       <button
         type="button"

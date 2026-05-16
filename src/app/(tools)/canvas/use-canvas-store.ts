@@ -30,7 +30,12 @@ export type CanvasTool =
   | "freehand"
   | "connector"
   | "frame"
-  | "comment";
+  | "comment"
+  // Phase 25+ tools:
+  | "card"
+  | "timer"
+  | "voting"
+  | "kanban";
 
 /** 8 resize handles + 1 rotation handle (rotation comes in a later PR). */
 export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
@@ -46,9 +51,31 @@ export interface DragState {
 export interface ResizeState {
   handle: ResizeHandle;
   startWorld: Vec2;
-  /** Initial rect of the single resizing object (multi-resize comes later). */
+  /** Initial rect of the primary resizing object — kept for backwards
+   * compatibility with single-object resize math. For multi-object
+   * resize, see {@link initialRects} / {@link initialUnion}. */
   initialRect: Rect;
   objectId: string;
+  /** All initial rects keyed by id — set for multi-object resize so we
+   * can scale every object proportionally to the union bbox change.
+   * Single-object resize leaves this with just one entry. */
+  initialRects?: Record<string, Rect>;
+  /** Union bbox of the initial rects — the scale anchor for multi-
+   * object resize. Single-object resize uses `initialRect`. */
+  initialUnion?: Rect;
+}
+
+/** In-flight rotation. Each object's rotation field is updated by the
+ * delta angle from the pointer's angle relative to the union centre. */
+export interface RotationState {
+  /** World coords of the rotation anchor (union centre of selection). */
+  centerWorld: Vec2;
+  /** Angle in degrees from centre → initial pointer position. The
+   * pointer-move handler subtracts this from the current pointer angle
+   * to produce the rotation delta. */
+  startAngleDeg: number;
+  /** Initial rotation per object, keyed by id. */
+  initialRotations: Record<string, number>;
 }
 
 export interface MarqueeState {
@@ -58,6 +85,11 @@ export interface MarqueeState {
   initialSelection: string[];
   /** When true, the new marquee picks add to (not replace) initialSelection. */
   additive: boolean;
+  /** When set, marquee is in LASSO mode — a freeform polygon instead of
+   * a rectangle. Stored as a flat [x0,y0,x1,y1,…] array in WORLD coords.
+   * Used as the click selection set on pointer-up via point-in-polygon
+   * hit-testing. */
+  lassoPoints?: number[];
 }
 
 interface CanvasUiState {
@@ -73,6 +105,7 @@ interface CanvasUiState {
   /** Ephemeral interaction state — none of this is persisted. */
   drag: DragState | null;
   resize: ResizeState | null;
+  rotation: RotationState | null;
   marquee: MarqueeState | null;
   /** In-progress drawing (line/arrow/freehand/frame drag-to-draw). The
    * canvas renders this same object via ObjectRenderer so the preview
@@ -88,6 +121,19 @@ interface CanvasUiState {
   snapToGrid: boolean;
   /** Snap-to-object alignment guides toggle. */
   snapToObjects: boolean;
+  /** Currently-editing object id (sticky / text / shape with content).
+   * Exactly one object can be in inline-edit mode at a time across the
+   * whole canvas. Ephemeral — never persisted. */
+  editingObjectId: string | null;
+  /** When set, the local camera tracks this peer's viewport on every
+   * presence update. Cleared by any local pan / zoom interaction (so
+   * "follow" feels like a soft beacon — you can break out by moving). */
+  followUserId: string | null;
+  /** Per-board frame bookmarks for fast nav (Phase 29). */
+  frameBookmarks: Record<string, string[]>;
+  /** Presentation mode — when non-null, the canvas renders in
+   * full-bleed mode and arrow keys cycle through frames. */
+  presentationFrameIndex: number | null;
 
   setActiveBoard: (id: string | null) => void;
   setCamera: (c: Camera) => void;
@@ -102,12 +148,17 @@ interface CanvasUiState {
   // Interaction state mutators
   setDrag: (d: DragState | null) => void;
   setResize: (r: ResizeState | null) => void;
+  setRotation: (r: RotationState | null) => void;
   setMarquee: (m: MarqueeState | null) => void;
   setDrawing: (o: WhiteboardObject | null) => void;
   setPendingConnectorFromId: (id: string | null) => void;
   setDragGuides: (g: AlignmentGuide[]) => void;
   setSnapToGrid: (v: boolean) => void;
   setSnapToObjects: (v: boolean) => void;
+  setEditingObjectId: (id: string | null) => void;
+  setFollowUserId: (id: string | null) => void;
+  toggleFrameBookmark: (boardId: string, frameId: string) => void;
+  setPresentationFrameIndex: (i: number | null) => void;
 }
 
 export const useCanvasStore = create<CanvasUiState>()(
@@ -123,12 +174,17 @@ export const useCanvasStore = create<CanvasUiState>()(
       stickyColor: "#fde68a",
       drag: null,
       resize: null,
+      rotation: null,
       marquee: null,
       drawing: null,
       pendingConnectorFromId: null,
       dragGuides: [],
       snapToGrid: false,
       snapToObjects: true,
+      editingObjectId: null,
+      followUserId: null,
+      frameBookmarks: {},
+      presentationFrameIndex: null,
 
       setActiveBoard: (id) => set({ activeBoardId: id, selection: [] }),
       setCamera: (c) => set({ camera: c }),
@@ -150,12 +206,24 @@ export const useCanvasStore = create<CanvasUiState>()(
       setShowAIPanel: (v) => set({ showAIPanel: v }),
       setDrag: (d) => set({ drag: d }),
       setResize: (r) => set({ resize: r }),
+      setRotation: (r) => set({ rotation: r }),
       setMarquee: (m) => set({ marquee: m }),
       setDrawing: (o) => set({ drawing: o }),
       setPendingConnectorFromId: (id) => set({ pendingConnectorFromId: id }),
       setDragGuides: (g) => set({ dragGuides: g }),
       setSnapToGrid: (v) => set({ snapToGrid: v }),
       setSnapToObjects: (v) => set({ snapToObjects: v }),
+      setEditingObjectId: (id) => set({ editingObjectId: id }),
+      setFollowUserId: (id) => set({ followUserId: id }),
+      toggleFrameBookmark: (boardId, frameId) => {
+        const cur = get().frameBookmarks ?? {};
+        const list = cur[boardId] ?? [];
+        const next = list.includes(frameId)
+          ? list.filter((x) => x !== frameId)
+          : [...list, frameId];
+        set({ frameBookmarks: { ...cur, [boardId]: next } });
+      },
+      setPresentationFrameIndex: (i) => set({ presentationFrameIndex: i }),
     }),
     {
       name: "agile-toolkit:canvas",
@@ -174,6 +242,7 @@ export const useCanvasStore = create<CanvasUiState>()(
         stickyColor: s.stickyColor,
         snapToGrid: s.snapToGrid,
         snapToObjects: s.snapToObjects,
+        frameBookmarks: s.frameBookmarks,
       }),
     },
   ),

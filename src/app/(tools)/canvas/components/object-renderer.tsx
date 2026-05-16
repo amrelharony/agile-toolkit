@@ -1,13 +1,124 @@
 "use client";
 
-import { memo } from "react";
+import React, { memo, useEffect, useRef } from "react";
 import { Lock } from "lucide-react";
-import type { WhiteboardObject } from "@/lib/stores/workspace-types";
+import type { WhiteboardObject, WhiteboardTimer, WhiteboardVoting, WhiteboardCard } from "@/lib/stores/workspace-types";
+import { TimerObject } from "./objects/timer-object";
+import { VotingObject } from "./objects/voting-object";
+import { CardObject } from "./objects/card-object";
 
 interface ObjectRendererProps {
   object: WhiteboardObject;
   selected: boolean;
+  /** True when this object is currently being inline-edited (textarea
+   * overlays the static content). Only stickies, text, and shapes with
+   * inner content respond to this flag. */
+  editing?: boolean;
   onPointerDown?: (e: React.PointerEvent, id: string) => void;
+  /** Called on double-click — viewport handles deciding which types are
+   * editable and sets editingObjectId in the canvas store. */
+  onDoubleClick?: (id: string) => void;
+  /** Commit the new text. Called on textarea blur, on Enter (without
+   * Shift), or on Esc (treated as commit; users expect their typing to
+   * stick rather than disappear on accidental Esc). */
+  onCommitEdit?: (id: string, text: string) => void;
+  /** Stateful object mutators (timer / voting / card) — version-bumps
+   * + persists via the canvas's diff-sync upstream. */
+  onMutate?: (id: string, patch: Partial<WhiteboardObject>) => void;
+  /** Current user id — passed to voting widget so it knows which
+   * vote belongs to "me". */
+  selfId?: string;
+}
+
+/**
+ * Inline textarea overlay used by sticky / text / shape edit modes. Auto-
+ * focuses on mount and selects the existing content so a quick type
+ * replaces it (matches Miro / Figma UX).
+ */
+function InlineEditor({
+  initialText,
+  onCommit,
+  background,
+  color,
+  fontSize,
+  fontWeight,
+  align,
+  padding,
+}: {
+  initialText: string;
+  onCommit: (text: string) => void;
+  background?: string;
+  color?: string;
+  fontSize?: number;
+  fontWeight?: number;
+  align?: "left" | "center" | "right";
+  padding?: number;
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  // Track the committed value via ref so blur can read the latest text
+  // even if a fresh keystroke arrives in the same tick as blur.
+  const valueRef = useRef(initialText);
+  useEffect(() => {
+    const ta = ref.current;
+    if (!ta) return;
+    ta.focus();
+    // Select all so the next keystroke replaces placeholder content
+    // ("Sticky note" / "Text"). Empty existing content is a no-op.
+    ta.setSelectionRange(0, ta.value.length);
+  }, []);
+  return (
+    <textarea
+      ref={ref}
+      defaultValue={initialText}
+      onChange={(e) => { valueRef.current = e.target.value; }}
+      onBlur={() => onCommit(valueRef.current)}
+      onKeyDown={(e) => {
+        // Enter (without Shift) commits; Shift+Enter inserts a newline.
+        // Esc also commits — discarding what the user typed feels
+        // hostile and there's no undo from inside the textarea.
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          onCommit(valueRef.current);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          onCommit(valueRef.current);
+        }
+        // Stop bubble so canvas-level shortcuts (V, N, R, …) don't fire
+        // while the user is typing letters that happen to be tool keys.
+        e.stopPropagation();
+      }}
+      // Block pointer-down bubbling so clicking inside the textarea
+      // doesn't kick off a canvas marquee or restart the drag handler
+      // on the underlying div.
+      onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      // The textarea fills the parent. `resize: none` so users don't
+      // accidentally resize the textarea separately from the object's
+      // resize handles.
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        background: background ?? "transparent",
+        color: color ?? "inherit",
+        border: "none",
+        outline: "2px solid #00f0ff",
+        outlineOffset: -1,
+        borderRadius: 6,
+        padding: padding ?? 10,
+        boxSizing: "border-box",
+        fontFamily: "ui-sans-serif, system-ui, sans-serif",
+        fontSize: fontSize ?? 14,
+        fontWeight: fontWeight ?? 400,
+        textAlign: align ?? "left",
+        whiteSpace: "pre-wrap",
+        wordWrap: "break-word",
+        resize: "none",
+        cursor: "text",
+      }}
+    />
+  );
 }
 
 /**
@@ -24,6 +135,56 @@ function safeImageSrc(src: string): string {
   if (/^https?:/i.test(t)) return t;
   if (/^data:image\//i.test(t)) return t;
   return "";
+}
+
+/**
+ * Convert a user-supplied URL into an embeddable iframe URL when we
+ * recognise it. Returns null for unsupported / unsafe sources so the
+ * renderer can fall back to a placeholder instead of embedding raw
+ * HTML. Recognises YouTube, Loom, Figma, Google Docs/Sheets/Slides;
+ * generic https URLs are accepted only when `kind === "generic"`.
+ */
+function embedIframeUrl(src: string, kind: string): string | null {
+  if (typeof src !== "string") return null;
+  const t = src.trim();
+  if (!/^https?:\/\//i.test(t)) return null;
+  try {
+    const u = new URL(t);
+    const host = u.hostname.replace(/^www\./, "");
+    if (host === "youtube.com" || host === "m.youtube.com") {
+      const id = u.searchParams.get("v");
+      if (id && /^[A-Za-z0-9_-]{6,20}$/.test(id)) return `https://www.youtube.com/embed/${id}`;
+      const match = u.pathname.match(/^\/embed\/([A-Za-z0-9_-]{6,20})/);
+      if (match) return `https://www.youtube.com/embed/${match[1]}`;
+    }
+    if (host === "youtu.be") {
+      const id = u.pathname.slice(1);
+      if (/^[A-Za-z0-9_-]{6,20}$/.test(id)) return `https://www.youtube.com/embed/${id}`;
+    }
+    if (host === "loom.com") {
+      const m = u.pathname.match(/^\/share\/([A-Za-z0-9]+)/);
+      if (m) return `https://www.loom.com/embed/${m[1]}`;
+    }
+    if (host === "figma.com") {
+      // Only accept canonical /file/ID, /proto/ID, or /design/ID URLs.
+      // Previously we forwarded the entire user URL as a `url=` query
+      // param to figma.com/embed, which let attackers smuggle arbitrary
+      // strings (including javascript: schemes) past the host check.
+      const m = u.pathname.match(/^\/(?:file|proto|design)\/([A-Za-z0-9]+)/);
+      if (!m) return null;
+      // Re-construct a clean URL from origin + matched path; drop user
+      // query string entirely. Figma's embed endpoint accepts this form.
+      const cleanFigmaUrl = `https://www.figma.com${m[0]}`;
+      return `https://www.figma.com/embed?embed_host=agile-toolkit&url=${encodeURIComponent(cleanFigmaUrl)}`;
+    }
+    if (host === "docs.google.com") {
+      return t.replace(/\/edit.*$/, "/preview");
+    }
+    if (kind === "generic") return t;
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -65,8 +226,10 @@ function LockBadge({ z }: { z: number }) {
  * so future tweaks land cleanly. Memoised so a 100-object board doesn't
  * re-render every object on every camera tick.
  */
-function ObjectRendererImpl({ object: o, selected, onPointerDown }: ObjectRendererProps) {
+function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDoubleClick, onCommitEdit, onMutate, selfId }: ObjectRendererProps) {
   const handle = (e: React.PointerEvent) => onPointerDown?.(e, o.id);
+  const dblClick = () => onDoubleClick?.(o.id);
+  const commitEdit = (text: string) => onCommitEdit?.(o.id, text);
   const selectionStyle = selected
     ? { boxShadow: "0 0 0 2px #00f0ff, 0 0 12px rgba(0,240,255,0.4)" }
     : undefined;
@@ -75,7 +238,8 @@ function ObjectRendererImpl({ object: o, selected, onPointerDown }: ObjectRender
     case "sticky":
       return (
         <div
-          onPointerDown={handle}
+          onPointerDown={editing ? undefined : handle}
+          onDoubleClick={dblClick}
           style={{
             position: "absolute",
             // `transform: translate3d` instead of left/top so the browser
@@ -94,18 +258,28 @@ function ObjectRendererImpl({ object: o, selected, onPointerDown }: ObjectRender
             boxSizing: "border-box",
             borderRadius: 6,
             fontSize: o.fontSize ?? 14,
-            fontFamily: "ui-sans-serif, system-ui, sans-serif",
+            fontFamily: o.fontFamily ?? "ui-sans-serif, system-ui, sans-serif",
             whiteSpace: "pre-wrap",
             wordWrap: "break-word",
-            cursor: o.locked ? "default" : "move",
-            userSelect: "none",
+            cursor: editing ? "text" : (o.locked ? "default" : "move"),
+            userSelect: editing ? "text" : "none",
             boxShadow: selected ? selectionStyle?.boxShadow : "0 1px 3px rgba(0,0,0,0.3)",
             zIndex: o.z,
             opacity: o.locked ? 0.85 : 1,
           }}
         >
-          {o.content || <span style={{ opacity: 0.4 }}>Sticky note</span>}
-          {o.locked && <LockBadge z={o.z} />}
+          {editing ? (
+            <InlineEditor
+              initialText={o.content}
+              onCommit={commitEdit}
+              background="transparent"
+              color={o.textColor ?? "#0b0f17"}
+              fontSize={o.fontSize ?? 14}
+            />
+          ) : (
+            o.content || <span style={{ opacity: 0.4 }}>Sticky note</span>
+          )}
+          {o.locked && !editing && <LockBadge z={o.z} />}
         </div>
       );
 
@@ -116,6 +290,7 @@ function ObjectRendererImpl({ object: o, selected, onPointerDown }: ObjectRender
       const fill = o.fill ?? "transparent";
       const stroke = o.stroke ?? "#94a3b8";
       const strokeWidth = o.strokeWidth ?? 1.5;
+      const strokeDasharray = o.dashed ? "6 4" : undefined;
       let shape: React.ReactNode = null;
       if (o.type === "rect") {
         shape = (
@@ -127,6 +302,7 @@ function ObjectRendererImpl({ object: o, selected, onPointerDown }: ObjectRender
             fill={fill}
             stroke={stroke}
             strokeWidth={strokeWidth}
+            strokeDasharray={strokeDasharray}
             rx={4}
           />
         );
@@ -140,6 +316,7 @@ function ObjectRendererImpl({ object: o, selected, onPointerDown }: ObjectRender
             fill={fill}
             stroke={stroke}
             strokeWidth={strokeWidth}
+            strokeDasharray={strokeDasharray}
           />
         );
       } else if (o.type === "diamond") {
@@ -149,6 +326,7 @@ function ObjectRendererImpl({ object: o, selected, onPointerDown }: ObjectRender
             fill={fill}
             stroke={stroke}
             strokeWidth={strokeWidth}
+            strokeDasharray={strokeDasharray}
           />
         );
       } else {
@@ -158,12 +336,14 @@ function ObjectRendererImpl({ object: o, selected, onPointerDown }: ObjectRender
             fill={fill}
             stroke={stroke}
             strokeWidth={strokeWidth}
+            strokeDasharray={strokeDasharray}
           />
         );
       }
       return (
         <div
-          onPointerDown={handle}
+          onPointerDown={editing ? undefined : handle}
+          onDoubleClick={dblClick}
           style={{
             position: "absolute",
             left: 0,
@@ -171,7 +351,7 @@ function ObjectRendererImpl({ object: o, selected, onPointerDown }: ObjectRender
             transform: `translate3d(${o.x}px, ${o.y}px, 0)${o.rotation ? ` rotate(${o.rotation}deg)` : ""}`,
             width: o.w,
             height: o.h,
-            cursor: o.locked ? "default" : "move",
+            cursor: editing ? "text" : (o.locked ? "default" : "move"),
             opacity: o.locked ? 0.85 : 1,
             ...selectionStyle,
             zIndex: o.z,
@@ -180,7 +360,17 @@ function ObjectRendererImpl({ object: o, selected, onPointerDown }: ObjectRender
           <svg width={o.w} height={o.h} style={{ display: "block" }}>
             {shape}
           </svg>
-          {o.content && (
+          {editing ? (
+            <InlineEditor
+              initialText={o.content ?? ""}
+              onCommit={commitEdit}
+              color="#e5e7eb"
+              fontSize={14}
+              align="center"
+              padding={8}
+            />
+          ) : (
+            o.content && (
             <div
               style={{
                 position: "absolute",
@@ -198,8 +388,8 @@ function ObjectRendererImpl({ object: o, selected, onPointerDown }: ObjectRender
             >
               {o.content}
             </div>
-          )}
-          {o.locked && <LockBadge z={o.z} />}
+          ))}
+          {o.locked && !editing && <LockBadge z={o.z} />}
         </div>
       );
     }
@@ -207,7 +397,8 @@ function ObjectRendererImpl({ object: o, selected, onPointerDown }: ObjectRender
     case "text":
       return (
         <div
-          onPointerDown={handle}
+          onPointerDown={editing ? undefined : handle}
+          onDoubleClick={dblClick}
           style={{
             position: "absolute",
             left: 0,
@@ -219,18 +410,30 @@ function ObjectRendererImpl({ object: o, selected, onPointerDown }: ObjectRender
             fontSize: o.fontSize,
             fontWeight: o.fontWeight ?? 400,
             textAlign: o.align ?? "left",
-            cursor: o.locked ? "default" : "move",
+            cursor: editing ? "text" : (o.locked ? "default" : "move"),
             opacity: o.locked ? 0.85 : 1,
-            userSelect: "none",
-            fontFamily: "ui-sans-serif, system-ui, sans-serif",
+            userSelect: editing ? "text" : "none",
+            fontFamily: o.fontFamily ?? "ui-sans-serif, system-ui, sans-serif",
             whiteSpace: "pre-wrap",
             wordWrap: "break-word",
             ...selectionStyle,
             zIndex: o.z,
           }}
         >
-          {o.content || <span style={{ opacity: 0.4 }}>Text</span>}
-          {o.locked && <LockBadge z={o.z} />}
+          {editing ? (
+            <InlineEditor
+              initialText={o.content}
+              onCommit={commitEdit}
+              color={o.color}
+              fontSize={o.fontSize}
+              fontWeight={o.fontWeight ?? 400}
+              align={o.align ?? "left"}
+              padding={0}
+            />
+          ) : (
+            o.content || <span style={{ opacity: 0.4 }}>Text</span>
+          )}
+          {o.locked && !editing && <LockBadge z={o.z} />}
         </div>
       );
 
@@ -403,7 +606,8 @@ function ObjectRendererImpl({ object: o, selected, onPointerDown }: ObjectRender
       );
     }
 
-    case "embed":
+    case "embed": {
+      const iframeSrc = embedIframeUrl(o.src ?? "", o.kind);
       return (
         <div
           onPointerDown={handle}
@@ -418,16 +622,161 @@ function ObjectRendererImpl({ object: o, selected, onPointerDown }: ObjectRender
             border: "1px solid #475569",
             color: "#94a3b8",
             fontSize: 12,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
             cursor: o.locked ? "default" : "move",
+            zIndex: o.z,
+            opacity: o.locked ? 0.85 : 1,
+            overflow: "hidden",
+            ...selectionStyle,
+          }}
+        >
+          {iframeSrc ? (
+            <>
+              <iframe
+                src={iframeSrc}
+                title={`${o.kind} embed`}
+                // SECURITY: allow-scripts + allow-same-origin together
+                // is officially a "footgun" per HTML spec — it lets
+                // the iframe call parent.postMessage and read top.parent
+                // (i.e. our window). YouTube/Loom/Figma technically work
+                // WITHOUT allow-same-origin in iframe-embed mode; we
+                // drop it to remove the parent-message attack surface.
+                // If a specific embed breaks (e.g. Figma signed-in
+                // editing), users can re-enable per-host later.
+                sandbox="allow-scripts allow-presentation allow-popups-to-escape-sandbox"
+                allow="autoplay; fullscreen; picture-in-picture"
+                referrerPolicy="no-referrer"
+                loading="lazy"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  border: "none",
+                  // Block pointer events when locked or when this is
+                  // not the selected object — otherwise the iframe
+                  // steals every drag attempt.
+                  pointerEvents: selected ? "auto" : "none",
+                }}
+              />
+              {/* Click-shield overlay when not selected so the user
+                  can still drag/select the embed via its outer div
+                  without iframe-captured pointers. */}
+              {!selected && (
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    cursor: o.locked ? "default" : "move",
+                  }}
+                />
+              )}
+            </>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", padding: 8, textAlign: "center" }}>
+              {o.kind}: {(o.src ?? "").slice(0, 60) || "(no source)"}
+            </div>
+          )}
+          {o.locked && <LockBadge z={o.z} />}
+        </div>
+      );
+    }
+
+    case "timer":
+      return (
+        <TimerObject
+          object={o as WhiteboardTimer}
+          selected={selected}
+          onPointerDown={handle}
+          onMutate={(patch) => onMutate?.(o.id, patch as Partial<WhiteboardObject>)}
+        />
+      );
+
+    case "voting":
+      return (
+        <VotingObject
+          object={o as WhiteboardVoting}
+          selected={selected}
+          selfId={selfId ?? "anonymous"}
+          onPointerDown={handle}
+          onMutate={(patch) => onMutate?.(o.id, patch as Partial<WhiteboardObject>)}
+        />
+      );
+
+    case "card":
+      return (
+        <CardObject
+          object={o as WhiteboardCard}
+          selected={selected}
+          editing={editing ?? false}
+          onPointerDown={handle}
+          onDoubleClick={() => onDoubleClick?.(o.id)}
+          onCommitEdit={(text) => onCommitEdit?.(o.id, text)}
+        />
+      );
+
+    case "kanban":
+      // Kanban frames render like Frame but with column dividers; we
+      // reuse the existing frame logic by short-circuiting here.
+      return (
+        <div
+          onPointerDown={handle}
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            transform: `translate3d(${o.x}px, ${o.y}px, 0)`,
+            width: o.w,
+            height: o.h,
+            border: "1.5px dashed #60a5fa",
+            borderRadius: 8,
+            background: "rgba(96, 165, 250, 0.05)",
             zIndex: o.z,
             opacity: o.locked ? 0.85 : 1,
             ...selectionStyle,
           }}
         >
-          {o.kind}: {(o.src ?? "").slice(0, 40)}
+          <div
+            style={{
+              position: "absolute", top: -22, left: 6,
+              fontSize: 12, color: "#60a5fa",
+              fontFamily: "ui-sans-serif, system-ui, sans-serif",
+              background: "#0b0f17", padding: "1px 6px", borderRadius: 3,
+            }}
+          >
+            ▣ {o.label}
+          </div>
+          {/* Column dividers — visual cue for users to drop cards into. */}
+          {o.columns.map((_col, i) => (
+            <React.Fragment key={i}>
+              {i > 0 && (
+                <div
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    left: (i / o.columns.length) * o.w,
+                    top: 0,
+                    width: 1,
+                    height: o.h,
+                    background: "rgba(96, 165, 250, 0.3)",
+                  }}
+                />
+              )}
+              <div
+                style={{
+                  position: "absolute",
+                  left: (i / o.columns.length) * o.w + 6,
+                  top: 8,
+                  fontSize: 10,
+                  color: "#60a5fa",
+                  fontFamily: "ui-sans-serif, system-ui, sans-serif",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  pointerEvents: "none",
+                }}
+              >
+                {(o.columnLabels?.[i] ?? o.columns[i]).replace("_", " ")}
+              </div>
+            </React.Fragment>
+          ))}
           {o.locked && <LockBadge z={o.z} />}
         </div>
       );

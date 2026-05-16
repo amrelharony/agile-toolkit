@@ -162,3 +162,44 @@ export function distance(a: Vec2, b: Vec2): number {
   const dy = a.y - b.y;
   return Math.sqrt(dx * dx + dy * dy);
 }
+
+/**
+ * Point-in-polygon via ray casting. Polygon is a flat [x0,y0,x1,y1,…]
+ * array. Returns true if the point is inside (or on the boundary).
+ *
+ * Used by lasso selection — at < 3 vertices the polygon is degenerate
+ * and the function returns false. Robust to small numerical noise via
+ * an open/closed convention (point on edge counts as inside).
+ */
+export function pointInPolygon(p: Vec2, flat: readonly number[]): boolean {
+  const n = flat.length >> 1;
+  if (n < 3) return false;
+  let inside = false;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = flat[i * 2];
+    const yi = flat[i * 2 + 1];
+    const xj = flat[j * 2];
+    const yj = flat[j * 2 + 1];
+    const intersect =
+      (yi > p.y) !== (yj > p.y) &&
+      p.x < ((xj - xi) * (p.y - yi)) / (yj - yi + 1e-12) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Returns true if at least one corner of the rect (or its centre) is
+ * inside the polygon. We use centre-OR-any-corner as the selection
+ * predicate so a rect partly covered by the lasso still counts —
+ * matches Miro's "loose" lasso intent vs. strict "fully enclosed".
+ */
+export function rectOverlapsPolygon(r: Rect, flat: readonly number[]): boolean {
+  if (flat.length < 6) return false;
+  if (pointInPolygon({ x: r.x + r.w / 2, y: r.y + r.h / 2 }, flat)) return true;
+  if (pointInPolygon({ x: r.x,         y: r.y },         flat)) return true;
+  if (pointInPolygon({ x: r.x + r.w,   y: r.y },         flat)) return true;
+  if (pointInPolygon({ x: r.x,         y: r.y + r.h },   flat)) return true;
+  if (pointInPolygon({ x: r.x + r.w,   y: r.y + r.h },   flat)) return true;
+  return false;
+}

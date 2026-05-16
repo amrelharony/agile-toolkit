@@ -13,6 +13,15 @@ export interface SimplePresence {
   viewport?: { x: number; y: number; zoom: number; w: number; h: number };
   selection?: string[];                            // object IDs the peer has selected
   tool?: string;                                   // current toolbar choice ("select", "sticky", ...)
+  // Phase 23 — ephemeral expressive presence:
+  /** Cursor-chat bubble. Renders next to the cursor; expires at the
+   * given epoch-ms (sender clears it client-side after a few seconds
+   * by clearing the field; receivers also auto-clear by comparing
+   * expiresAt to Date.now()). */
+  chatBubble?: { text: string; expiresAt: number };
+  /** Emoji reaction emitted at a world point; animates up and fades.
+   * Same TTL pattern as chatBubble. */
+  reaction?: { emoji: string; x: number; y: number; expiresAt: number };
 }
 
 const AVATAR_COLORS = ["#00f0ff", "#a78bfa", "#34d399", "#f59e0b", "#f87171", "#60a5fa", "#fb923c", "#e879f9"];
@@ -78,6 +87,47 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
         out.selection = ids;
       }
       if (typeof r.tool === "string" && r.tool.length < 50) out.tool = r.tool;
+      // chatBubble: text length cap (defends against an abusive peer
+      // broadcasting megabyte payloads at 60 ms). expiresAt is an
+      // epoch-ms; we cap it to 30 s from now to avoid sticky messages
+      // that never auto-clear.
+      if (r.chatBubble && typeof r.chatBubble === "object") {
+        const cb = r.chatBubble as { text?: unknown; expiresAt?: unknown };
+        if (
+          typeof cb.text === "string" && cb.text.length > 0 && cb.text.length <= 200 &&
+          typeof cb.expiresAt === "number" && Number.isFinite(cb.expiresAt)
+        ) {
+          const cap = Date.now() + 30_000;
+          out.chatBubble = { text: cb.text, expiresAt: Math.min(cb.expiresAt, cap) };
+        }
+      }
+      // reaction: single-emoji string + finite world coords.
+      // SECURITY: reject control codepoints that can flip layout
+      // direction (U+202A-U+202E, U+2066-U+2069) or invisible
+      // formatting characters that don't render as glyphs but expand
+      // string length deceptively. 8 chars is a generous cap to
+      // accommodate compound emojis like 👨‍👩‍👧‍👦 (4 ZWJ
+      // sequences = ~7 chars).
+      if (r.reaction && typeof r.reaction === "object") {
+        const re = r.reaction as { emoji?: unknown; x?: unknown; y?: unknown; expiresAt?: unknown };
+        const emojiStr = typeof re.emoji === "string" ? re.emoji : null;
+        const hasControlCodes = emojiStr
+          ? /[‪-‮⁦-⁩]/.test(emojiStr)
+          : false;
+        if (
+          emojiStr && emojiStr.length > 0 && emojiStr.length <= 8 && !hasControlCodes &&
+          typeof re.x === "number" && Number.isFinite(re.x) &&
+          typeof re.y === "number" && Number.isFinite(re.y) &&
+          typeof re.expiresAt === "number" && Number.isFinite(re.expiresAt)
+        ) {
+          const cap = Date.now() + 10_000;
+          out.reaction = { emoji: emojiStr, x: re.x, y: re.y, expiresAt: Math.min(re.expiresAt, cap) };
+        }
+      }
+      // chatBubble: also reject RTL/LTR override codepoints.
+      if (out.chatBubble && /[‪-‮⁦-⁩]/.test(out.chatBubble.text)) {
+        delete out.chatBubble;
+      }
       return out;
     };
     channel

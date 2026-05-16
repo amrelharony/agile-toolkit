@@ -45,20 +45,93 @@ const DRIFT_REQUEST_JITTER_MS = 400;
 // Guard each broadcast type before trusting it — a malformed message
 // should be dropped, not crash the receiver.
 
+/** Whitelist of valid WhiteboardObjectKind values. Hostile peers can
+ * send any string for `type`; without this set, a "type: 'pwned'"
+ * payload would pass validation and reach the workspace store as an
+ * unrenderable ghost row. Keep in sync with the WhiteboardObjectKind
+ * union in workspace-types.ts. */
+const VALID_OBJECT_TYPES = new Set([
+  "sticky", "rect", "ellipse", "diamond", "triangle",
+  "line", "arrow", "connector", "text", "freehand",
+  "image", "frame", "embed",
+  "card", "kanban", "timer", "voting",
+]);
+
 function isValidObject(o: unknown): o is WhiteboardObject {
   if (!o || typeof o !== "object") return false;
   const r = o as Record<string, unknown>;
-  return (
-    typeof r.id === "string" &&
-    typeof r.boardId === "string" &&
-    typeof r.type === "string" &&
-    typeof r.x === "number" && Number.isFinite(r.x) &&
-    typeof r.y === "number" && Number.isFinite(r.y) &&
-    typeof r.w === "number" && Number.isFinite(r.w) &&
-    typeof r.h === "number" && Number.isFinite(r.h) &&
-    typeof r.z === "number" && Number.isFinite(r.z) &&
-    typeof r.version === "number" && Number.isFinite(r.version)
-  );
+  if (
+    typeof r.id !== "string" ||
+    typeof r.boardId !== "string" ||
+    typeof r.type !== "string" || !VALID_OBJECT_TYPES.has(r.type) ||
+    typeof r.x !== "number" || !Number.isFinite(r.x) ||
+    typeof r.y !== "number" || !Number.isFinite(r.y) ||
+    typeof r.w !== "number" || !Number.isFinite(r.w) ||
+    typeof r.h !== "number" || !Number.isFinite(r.h) ||
+    typeof r.z !== "number" || !Number.isFinite(r.z) ||
+    typeof r.version !== "number" || !Number.isFinite(r.version)
+  ) return false;
+  // Type-specific field validation. A hostile peer can send
+  // `{type:"timer", durationSec:"hello"}` — the base check passes but
+  // the timer renderer assumes durationSec is a finite number. We
+  // reject malformed type-specific fields here so the workspace store
+  // never sees garbage values.
+  switch (r.type) {
+    case "timer":
+      if (typeof r.durationSec !== "number" || !Number.isFinite(r.durationSec) || r.durationSec < 0) return false;
+      if (r.running !== undefined && typeof r.running !== "boolean") return false;
+      if (r.startedAt !== undefined && (typeof r.startedAt !== "number" || !Number.isFinite(r.startedAt))) return false;
+      if (r.remainingSec !== undefined && (typeof r.remainingSec !== "number" || !Number.isFinite(r.remainingSec))) return false;
+      if (r.label !== undefined && typeof r.label !== "string") return false;
+      break;
+    case "voting":
+      if (typeof r.question !== "string") return false;
+      if (!Array.isArray(r.options)) return false;
+      if (r.options.some((opt: unknown) => typeof opt !== "string" || (opt as string).length > 100)) return false;
+      if (r.options.length > 50) return false; // cap option count
+      if (typeof r.votes !== "object" || r.votes === null) return false;
+      // Votes is a record of voterId → choice. Verify each entry.
+      for (const [k, v] of Object.entries(r.votes as Record<string, unknown>)) {
+        if (typeof k !== "string" || typeof v !== "string") return false;
+      }
+      if (typeof r.revealed !== "boolean") return false;
+      break;
+    case "card":
+      if (typeof r.title !== "string") return false;
+      if (r.description !== undefined && typeof r.description !== "string") return false;
+      if (r.assignee !== undefined && typeof r.assignee !== "string") return false;
+      if (r.due !== undefined && typeof r.due !== "string") return false;
+      if (r.points !== undefined && (typeof r.points !== "number" || !Number.isFinite(r.points))) return false;
+      if (r.status !== undefined && typeof r.status !== "string") return false;
+      if (r.color !== undefined && typeof r.color !== "string") return false;
+      break;
+    case "kanban":
+      if (typeof r.label !== "string") return false;
+      if (!Array.isArray(r.columns)) return false;
+      if (r.columns.some((c: unknown) => typeof c !== "string")) return false;
+      if (r.columns.length > 20) return false;
+      if (r.columnLabels !== undefined) {
+        if (!Array.isArray(r.columnLabels)) return false;
+        if ((r.columnLabels as unknown[]).some((c) => typeof c !== "string")) return false;
+      }
+      break;
+    case "connector":
+      if (typeof r.fromId !== "string" || typeof r.toId !== "string") return false;
+      if (typeof r.stroke !== "string") return false;
+      if (typeof r.strokeWidth !== "number" || !Number.isFinite(r.strokeWidth)) return false;
+      break;
+    case "freehand":
+      if (!Array.isArray(r.points)) return false;
+      if (r.points.length > 10_000) return false;
+      if ((r.points as unknown[]).some((p) => typeof p !== "number" || !Number.isFinite(p))) return false;
+      break;
+    case "image":
+    case "embed":
+      if (typeof r.src !== "string") return false;
+      if (r.src.length > 8 * 1024 * 1024) return false; // 8 MB data URL cap
+      break;
+  }
+  return true;
 }
 
 function isValidPatch(raw: unknown): raw is WhiteboardPatch {

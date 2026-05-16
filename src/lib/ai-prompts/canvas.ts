@@ -9,6 +9,7 @@ import type {
 import { buildWorkspaceContext } from "./cross-tool-context";
 import type { ClusterResult } from "../whiteboard/cluster-bridge";
 import type { BoardInsight } from "../analytics/board-insights";
+import { objectText } from "../whiteboard/search";
 
 interface CanvasPromptData {
   board: Whiteboard;
@@ -20,39 +21,12 @@ interface CanvasPromptData {
 
 /**
  * Compact a board object's content into a single AI-prompt line.
- * Covers every object kind so the AI sees the full board, not just stickies.
- * Returns null only when the object truly carries no textual info.
+ * Wraps the shared `objectText` helper in lib/whiteboard/search.ts so
+ * the AI-prompt path and the UI find-bar agree on what counts as
+ * searchable / promptable text for each object kind.
  */
 function stickyText(o: WhiteboardObject): string | null {
-  switch (o.type) {
-    case "sticky":
-    case "text":
-      return o.content || null;
-    case "rect":
-    case "ellipse":
-    case "diamond":
-    case "triangle":
-      return o.content ?? null;
-    case "frame":
-      return `[Frame: ${o.label}]`;
-    case "connector":
-      // Connector lines carry meaning even without a label — surface the
-      // relationship as A → B so AI can reason about the graph topology.
-      return o.label
-        ? `[Connector: ${o.fromId} ${o.label} ${o.toId}]`
-        : `[Connector: ${o.fromId} → ${o.toId}]`;
-    case "line":
-    case "arrow":
-      return o.type === "arrow" ? "[Arrow]" : "[Line]";
-    case "freehand":
-      return `[Sketch · ${Math.round(o.points.length / 2)} points]`;
-    case "image":
-      return o.alt ? `[Image: ${o.alt}]` : "[Image]";
-    case "embed":
-      return `[Embed (${o.kind}): ${o.src.slice(0, 60)}]`;
-    default:
-      return null;
-  }
+  return objectText(o);
 }
 
 export function generateCanvasPrompts(

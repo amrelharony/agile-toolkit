@@ -377,7 +377,12 @@ export type WhiteboardObjectKind =
   | "freehand"
   | "image"
   | "frame"
-  | "embed";
+  | "embed"
+  // Phase 23+ extensions:
+  | "card"
+  | "kanban"
+  | "timer"
+  | "voting";
 
 export interface WhiteboardObjectBase {
   id: string;
@@ -394,6 +399,10 @@ export interface WhiteboardObjectBase {
   locked?: boolean;
   groupId?: string;
   frameId?: string;
+  /** Free-form tags — shared with Story.tags, Risk.tags, etc. so a
+   * sticky tagged "blocker" surfaces in the same filter as a story
+   * tagged "blocker". Phase 26 addition. */
+  tags?: string[];
   /** Monotonic version for LWW conflict resolution. */
   version: number;
   updatedBy?: string;
@@ -410,6 +419,8 @@ export interface WhiteboardSticky extends WhiteboardObjectBase {
   color: string;
   textColor?: string;
   fontSize?: number;
+  /** Optional font family override. Defaults to ui-sans-serif when unset. */
+  fontFamily?: string;
 }
 
 export interface WhiteboardShape extends WhiteboardObjectBase {
@@ -417,7 +428,11 @@ export interface WhiteboardShape extends WhiteboardObjectBase {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
+  /** Dashed border / outline. Maps to stroke-dasharray "6 4" in SVG. */
+  dashed?: boolean;
   content?: string;
+  /** Inner text color (defaults to a light slate against dark fills). */
+  contentColor?: string;
 }
 
 export interface WhiteboardLine extends WhiteboardObjectBase {
@@ -452,6 +467,8 @@ export interface WhiteboardText extends WhiteboardObjectBase {
   fontWeight?: number;
   color: string;
   align?: "left" | "center" | "right";
+  /** Optional font family override. Defaults to ui-sans-serif when unset. */
+  fontFamily?: string;
 }
 
 export interface WhiteboardFreehand extends WhiteboardObjectBase {
@@ -482,6 +499,67 @@ export interface WhiteboardEmbed extends WhiteboardObjectBase {
   kind: "youtube" | "figma" | "loom" | "generic";
 }
 
+/** Phase 26 — first-class card backed by a Story (or standalone). When
+ * `sourceRef.tool === "backlog"`, edits to the card propagate to the
+ * underlying Story and vice versa via the cross-tool sync layer. */
+export interface WhiteboardCard extends WhiteboardObjectBase {
+  type: "card";
+  title: string;
+  description?: string;
+  assignee?: string;
+  /** ISO date for the due date. */
+  due?: ISODateString;
+  /** Story points or a similar numeric estimate. */
+  points?: number;
+  /** Status: free-form so any tool can map to its own status set. */
+  status?: string;
+  /** Card accent color. Defaults to cyan. */
+  color?: string;
+}
+
+/** Phase 26 — Kanban frame: a frame that auto-layouts contained Cards
+ * into named columns. Children are positioned by the canvas based on
+ * their `status`. */
+export interface WhiteboardKanbanFrame extends WhiteboardObjectBase {
+  type: "kanban";
+  label: string;
+  /** Column status keys in left-to-right order. */
+  columns: string[];
+  /** Optional column display labels (defaults to the status keys). */
+  columnLabels?: string[];
+}
+
+/** Phase 25 — facilitation timer. */
+export interface WhiteboardTimer extends WhiteboardObjectBase {
+  type: "timer";
+  /** Total duration in seconds. */
+  durationSec: number;
+  /** When `running` is true, this is the unix-ms epoch the timer
+   * started counting from. Receivers compute remaining = durationSec
+   * - (now - startedAt)/1000. */
+  startedAt?: number;
+  /** Paused state: pre-paused remaining seconds (0 when freshly created). */
+  remainingSec?: number;
+  running: boolean;
+  /** Optional label shown above the time display. */
+  label?: string;
+}
+
+/** Phase 27 — voting/estimation widget. */
+export interface WhiteboardVoting extends WhiteboardObjectBase {
+  type: "voting";
+  question: string;
+  /** Bidirectional with Story.points when sourceRef points at a story. */
+  storyId?: string;
+  /** Vote tally keyed by user id → choice. Anonymous display until
+   * `revealed` flips true; cleared on reset. */
+  votes: Record<string, string>;
+  /** Vote options, in display order. For Planning Poker: ["1","2","3","5","8","13","?","☕"]. */
+  options: string[];
+  /** When false, render hidden tallies; flip to true to reveal everyone's vote. */
+  revealed: boolean;
+}
+
 export type WhiteboardObject =
   | WhiteboardSticky
   | WhiteboardShape
@@ -491,7 +569,11 @@ export type WhiteboardObject =
   | WhiteboardFreehand
   | WhiteboardImage
   | WhiteboardFrame
-  | WhiteboardEmbed;
+  | WhiteboardEmbed
+  | WhiteboardCard
+  | WhiteboardKanbanFrame
+  | WhiteboardTimer
+  | WhiteboardVoting;
 
 export interface Whiteboard {
   id: string;
@@ -507,6 +589,10 @@ export interface WhiteboardComment {
   author: string;
   text: string;
   at: ISODateString;
+  /** @mention TeamMember ids referenced in this comment. Surfaces in
+   * the cross-tool notification stream via the
+   * `whiteboard.commentMentioned` signal. */
+  mentions?: string[];
 }
 
 export interface WhiteboardCommentThread {
@@ -525,6 +611,23 @@ export interface WhiteboardGroup {
   id: string;
   boardId: string;
   label?: string;
+}
+
+/** Saved-as-template — a snapshot of board objects keyed by id,
+ * accumulated by a workspace so teams can re-apply their own agile
+ * patterns. Phase 31. */
+export interface WhiteboardSavedTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  /** Category for grouping in the gallery: "retro" / "planning" /
+   * "strategy" / "custom" / etc. */
+  category?: string;
+  /** Snapshot of objects with boardId/id stripped (caller assigns
+   * fresh values on apply). */
+  objects: WhiteboardObject[];
+  createdAt: ISODateString;
+  createdBy?: string;
 }
 
 export interface Workspace {
@@ -569,6 +672,24 @@ export interface Workspace {
   whiteboardObjects?: WhiteboardObject[];
   whiteboardCommentThreads?: WhiteboardCommentThread[];
   whiteboardGroups?: WhiteboardGroup[];
+  whiteboardSavedTemplates?: WhiteboardSavedTemplate[];
+  /** Activity log — rolling 200-event ring per board. Phase 32. */
+  whiteboardActivityLog?: WhiteboardActivityEvent[];
+}
+
+/** Per-board activity event (Phase 32). */
+export interface WhiteboardActivityEvent {
+  id: string;
+  boardId: string;
+  /** When (epoch ms). */
+  at: number;
+  /** Who. */
+  author: string;
+  /** Free-form event kind: "added", "removed", "moved", "edited",
+   * "comment", "vote", etc. */
+  kind: string;
+  /** Short preview of what changed — e.g. "3 stickies added". */
+  summary: string;
 }
 
 export const emptyWorkspace: Workspace = {
@@ -614,4 +735,6 @@ export const emptyWorkspace: Workspace = {
   whiteboardObjects: [],
   whiteboardCommentThreads: [],
   whiteboardGroups: [],
+  whiteboardSavedTemplates: [],
+  whiteboardActivityLog: [],
 };

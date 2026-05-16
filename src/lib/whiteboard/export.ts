@@ -11,7 +11,8 @@
  * - JSON export is straight serialisation of (board, objects, comments).
  */
 
-import { toPng } from "html-to-image";
+import { toPng, toJpeg } from "html-to-image";
+import { objectText } from "./search";
 import type {
   Whiteboard,
   WhiteboardObject,
@@ -47,6 +48,95 @@ export async function exportPng(node: HTMLElement, filename = "canvas.png"): Pro
       return !n.hasAttribute("data-canvas-export-ignore");
     },
   });
+  triggerDownload(dataUrl, filename);
+}
+
+/**
+ * JPG export — same html-to-image pipeline as PNG but with lossy
+ * compression. Smaller file, slightly less crisp text. Good for
+ * sharing snapshots over Slack / email.
+ */
+export async function exportJpg(node: HTMLElement, filename = "canvas.jpg"): Promise<void> {
+  const dataUrl = await toJpeg(node, {
+    cacheBust: true,
+    pixelRatio: 2,
+    backgroundColor: "#0b0f17",
+    quality: 0.92,
+    filter: (n) => {
+      if (!(n instanceof HTMLElement)) return true;
+      return !n.hasAttribute("data-canvas-export-ignore");
+    },
+  });
+  triggerDownload(dataUrl, filename);
+}
+
+/**
+ * PDF export — single-page; renders the same html-to-image PNG and
+ * wraps it in a minimal PDF document (no external dep). For multi-
+ * page output the caller should fit-to-content + present mode first.
+ */
+export async function exportPdf(node: HTMLElement, filename = "canvas.pdf"): Promise<void> {
+  // Reuse the PNG path so we get the same toolbar-stripping behaviour.
+  const pngDataUrl = await toPng(node, {
+    cacheBust: true,
+    pixelRatio: 2,
+    backgroundColor: "#0b0f17",
+    filter: (n) => {
+      if (!(n instanceof HTMLElement)) return true;
+      return !n.hasAttribute("data-canvas-export-ignore");
+    },
+  });
+  // Use the browser's print pipeline as a no-dependency PDF route:
+  // open a hidden iframe with the image at full bleed, then trigger
+  // print → user picks "Save as PDF". This avoids shipping a 200 KB
+  // PDF library for a feature most users will rarely touch.
+  if (typeof window === "undefined") return;
+  const win = window.open("", "_blank", "width=900,height=700");
+  if (!win) return;
+  const escName = filename.replace(/[<>&"']/g, "");
+  win.document.write(`<!doctype html>
+<html><head><title>${escName}</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #0b0f17; }
+  img { display: block; width: 100%; height: auto; }
+  @media print { @page { margin: 0; } body { background: #0b0f17; } }
+</style>
+</head><body><img src="${pngDataUrl}" alt="Canvas"/></body></html>`);
+  win.document.close();
+  // Give the image time to decode before triggering print.
+  setTimeout(() => { win.focus(); win.print(); }, 400);
+}
+
+/**
+ * CSV export — one row per text-bearing object. Columns: id, type,
+ * frame (label of containing frame, if any), content, tags, x, y.
+ * Useful for analysing brainstorm output offline.
+ */
+export function exportCsv(
+  objects: readonly { type: string; id: string; x: number; y: number; tags?: string[]; frameId?: string }[] & readonly import("@/lib/stores/workspace-types").WhiteboardObject[],
+  filename = "canvas.csv",
+): void {
+  const frameLabels = new Map<string, string>();
+  for (const o of objects) {
+    if (o.type === "frame" && "label" in o) frameLabels.set(o.id, (o as { label: string }).label || "");
+  }
+  const escapeCsv = (s: string) => `"${s.replace(/"/g, '""')}"`;
+  const rows: string[] = ["id,type,frame,content,tags,x,y"];
+  for (const o of objects) {
+    const text = objectText(o) ?? "";
+    if (text.length === 0 && o.type !== "card") continue;
+    const frame = o.frameId ? frameLabels.get(o.frameId) ?? "" : "";
+    rows.push([
+      escapeCsv(o.id),
+      o.type,
+      escapeCsv(frame),
+      escapeCsv(text.replace(/\n/g, " ").trim()),
+      escapeCsv((o.tags ?? []).join(",")),
+      Math.round(o.x),
+      Math.round(o.y),
+    ].join(","));
+  }
+  const dataUrl = `data:text/csv;charset=utf-8,${encodeURIComponent(rows.join("\n"))}`;
   triggerDownload(dataUrl, filename);
 }
 
@@ -201,7 +291,58 @@ function svgForObject(
 <text x="${x + 12}" y="${y + 20}" font-size="14" fill="#94a3b8">${escapeXml(o.label)}</text></g>`;
     case "embed":
       return `<rect x="${x}" y="${y}" width="${o.w}" height="${o.h}" fill="#1e293b" stroke="#475569" />
-<text x="${x + o.w / 2}" y="${y + o.h / 2}" font-size="12" fill="#94a3b8" text-anchor="middle">${escapeXml(o.kind)}: ${escapeXml(o.src.slice(0, 40))}</text>`;
+<text x="${x + o.w / 2}" y="${y + o.h / 2}" font-size="12" fill="#94a3b8" text-anchor="middle">${escapeXml(o.kind)}: ${escapeXml((o.src ?? "").slice(0, 40))}</text>`;
+    case "timer": {
+      // Static snapshot of the timer's current remaining seconds. The
+      // exported SVG won't tick — exports are point-in-time.
+      const remaining = o.running && o.startedAt
+        ? Math.max(0, o.durationSec - (Date.now() - o.startedAt) / 1000)
+        : o.remainingSec ?? o.durationSec;
+      const m = Math.floor(remaining / 60);
+      const s = Math.floor(remaining % 60);
+      const label = `${m}:${s.toString().padStart(2, "0")}`;
+      return `<g><rect x="${x}" y="${y}" width="${o.w}" height="${o.h}" fill="#0b0f17" stroke="#475569" stroke-width="2" rx="10" />
+<text x="${x + o.w / 2}" y="${y + o.h / 2 + 6}" font-size="${Math.min(36, o.h * 0.45)}" fill="#e5e7eb" text-anchor="middle" font-family="ui-monospace, monospace" font-weight="700">${label}</text>
+${o.label ? `<text x="${x + o.w / 2}" y="${y + 14}" font-size="11" fill="#94a3b8" text-anchor="middle">${escapeXml(o.label)}</text>` : ""}</g>`;
+    }
+    case "voting": {
+      // Render the question + option list. Tallies only shown if revealed.
+      const total = Object.keys(o.votes).length;
+      const optsText = o.options.slice(0, 8).join(" · ");
+      return `<g><rect x="${x}" y="${y}" width="${o.w}" height="${o.h}" fill="#0b0f17" stroke="#475569" stroke-width="2" rx="10" />
+<text x="${x + 10}" y="${y + 20}" font-size="13" fill="#f1f5f9" font-weight="600">${escapeXml((o.question || "Untitled vote").slice(0, 40))}</text>
+<text x="${x + 10}" y="${y + 40}" font-size="11" fill="#94a3b8">${escapeXml(optsText)}</text>
+<text x="${x + 10}" y="${y + o.h - 10}" font-size="10" fill="#94a3b8">${total} vote${total === 1 ? "" : "s"}${o.revealed ? "" : " (hidden)"}</text></g>`;
+    }
+    case "card": {
+      // Static card snapshot: title + chips for assignee/due/points.
+      const cardColor = escapeAttr(o.color ?? "#00f0ff");
+      const chips: string[] = [];
+      if (o.assignee) chips.push(`@${o.assignee}`);
+      if (typeof o.points === "number") chips.push(`${o.points}pt`);
+      if (o.status) chips.push(o.status.replace("_", " "));
+      const chipText = chips.join(" · ");
+      return `<g><rect x="${x}" y="${y}" width="${o.w}" height="${o.h}" fill="#1e293b" stroke="#475569" stroke-width="1" rx="6" />
+<rect x="${x}" y="${y}" width="4" height="${o.h}" fill="${cardColor}" />
+<text x="${x + 10}" y="${y + 18}" font-size="13" fill="#f1f5f9" font-weight="600">${escapeXml((o.title || "Card").slice(0, 50))}</text>
+${o.description ? `<text x="${x + 10}" y="${y + 36}" font-size="11" fill="#94a3b8">${escapeXml(o.description.slice(0, 60))}</text>` : ""}
+${chipText ? `<text x="${x + 10}" y="${y + o.h - 10}" font-size="10" fill="#94a3b8">${escapeXml(chipText)}</text>` : ""}</g>`;
+    }
+    case "kanban": {
+      // Render the frame outline + column dividers + headers.
+      const cols = o.columns;
+      const colWidth = o.w / cols.length;
+      let segments = `<g><rect x="${x}" y="${y}" width="${o.w}" height="${o.h}" fill="rgba(96, 165, 250, 0.05)" stroke="#60a5fa" stroke-width="1.5" stroke-dasharray="6 4" rx="8" />
+<text x="${x + 12}" y="${y - 6}" font-size="14" fill="#60a5fa">▣ ${escapeXml(o.label)}</text>`;
+      for (let i = 0; i < cols.length; i++) {
+        if (i > 0) {
+          segments += `<line x1="${x + i * colWidth}" y1="${y}" x2="${x + i * colWidth}" y2="${y + o.h}" stroke="rgba(96, 165, 250, 0.3)" />`;
+        }
+        const label = (o.columnLabels?.[i] ?? cols[i]).replace("_", " ").toUpperCase();
+        segments += `<text x="${x + i * colWidth + 8}" y="${y + 18}" font-size="10" fill="#60a5fa" letter-spacing="0.5">${escapeXml(label)}</text>`;
+      }
+      return segments + "</g>";
+    }
     default:
       return "";
   }

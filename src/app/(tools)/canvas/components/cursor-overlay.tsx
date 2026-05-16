@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { MousePointer2 } from "lucide-react";
 import type { Camera, Rect } from "@/lib/geometry/bbox";
 import { rectUnion } from "@/lib/geometry/bbox";
@@ -12,6 +12,25 @@ interface CursorOverlayProps {
   selfId: string;
   camera: Camera;
   objectsById: Map<string, WhiteboardObject>;
+}
+
+/**
+ * Tick state on a 250 ms interval so chatBubble + reaction TTL fields
+ * actually animate out — without this, an expired bubble would linger
+ * until the peer broadcast another patch.
+ *
+ * Only ticks when `active` is true. On an empty board with no remote
+ * chat / reactions, the interval is never armed — saves 5 re-renders
+ * per second of pure waste.
+ */
+function useNowTick(intervalMs = 250, active = true): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const h = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(h);
+  }, [intervalMs, active]);
+  return now;
 }
 
 /**
@@ -28,11 +47,54 @@ function CursorOverlayImpl({ members, selfId, camera, objectsById }: CursorOverl
     () => members.filter((m) => m.id !== selfId),
     [members, selfId],
   );
+  // Only tick while at least one remote peer has a chatBubble or
+  // reaction with a non-expired TTL — otherwise the 200ms re-render
+  // is pure waste on idle/solo sessions.
+  const hasEphemeral = useMemo(
+    () => remotes.some((m) => m.chatBubble || m.reaction),
+    [remotes],
+  );
+  const now = useNowTick(200, hasEphemeral);
 
   return (
     <>
       {remotes.map((m) => {
         const items: React.ReactNode[] = [];
+
+        // Emoji reactions — render even when the peer's cursor has
+        // moved past the spawn point. Float up over 6s; opacity fades
+        // in the last 2s.
+        if (m.reaction && m.reaction.expiresAt > now) {
+          const r = m.reaction;
+          const rx = (r.x - camera.x) * camera.zoom;
+          const ry = (r.y - camera.y) * camera.zoom;
+          // Lifetime ratio (0 just emitted → 1 about to expire).
+          const lifeMs = 6000;
+          const remaining = Math.max(0, r.expiresAt - now);
+          const elapsed = lifeMs - remaining;
+          const t = Math.min(1, elapsed / lifeMs);
+          const float = -40 * t;
+          const opacity = t < 0.7 ? 1 : Math.max(0, 1 - (t - 0.7) / 0.3);
+          items.push(
+            <div
+              key={`react-${m.id}-${r.expiresAt}`}
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                left: rx,
+                top: ry + float,
+                transform: "translate(-50%, -50%)",
+                fontSize: 28,
+                pointerEvents: "none",
+                zIndex: 9996,
+                opacity,
+                textShadow: "0 1px 2px rgba(0,0,0,0.6)",
+              }}
+            >
+              {r.emoji}
+            </div>,
+          );
+        }
 
         // Selection outline rendered first so the cursor sits on top.
         if (m.selection && m.selection.length > 0) {
@@ -72,6 +134,7 @@ function CursorOverlayImpl({ members, selfId, camera, objectsById }: CursorOverl
         if (m.cursor) {
           const cx = (m.cursor.x - camera.x) * camera.zoom;
           const cy = (m.cursor.y - camera.y) * camera.zoom;
+          const showBubble = m.chatBubble && m.chatBubble.expiresAt > now;
           items.push(
             <div
               key={`cur-${m.id}`}
@@ -106,6 +169,32 @@ function CursorOverlayImpl({ members, selfId, camera, objectsById }: CursorOverl
               >
                 {m.name}
               </div>
+              {showBubble && m.chatBubble && (
+                <div
+                  // Speech-bubble next to the cursor. Rendered after the
+                  // nameplate so the user's name + chat sit naturally
+                  // stacked. Word-break + max-width caps abusive payloads
+                  // visually (the sanitizer already caps at 200 chars).
+                  style={{
+                    background: "#0b0f17",
+                    color: "#e5e7eb",
+                    fontSize: 12,
+                    fontFamily: "ui-sans-serif, system-ui, sans-serif",
+                    padding: "4px 8px",
+                    borderRadius: 8,
+                    marginTop: 4,
+                    marginLeft: 14,
+                    maxWidth: 240,
+                    border: `1.5px solid ${m.color}`,
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
+                    wordBreak: "break-word",
+                    whiteSpace: "pre-wrap",
+                    width: "fit-content",
+                  }}
+                >
+                  {m.chatBubble.text}
+                </div>
+              )}
             </div>,
           );
         }

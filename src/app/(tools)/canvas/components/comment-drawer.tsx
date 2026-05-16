@@ -1,10 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { X, Send, CheckCircle2 } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { WhiteboardCommentThread } from "@/lib/stores/workspace-types";
 import { emitSignal } from "@/lib/signals/signal-bus";
+
+/**
+ * Resolve @mentions in a comment body against the workspace's
+ * teamMembers. Returns the unique list of TeamMember ids whose
+ * display name matches a `@token`. Tokens are case-insensitive and
+ * match against the first word of each member's name (e.g.
+ * `@alex` resolves to "Alex Smith").
+ */
+function resolveMentions(text: string, members: { id: string; name: string }[]): string[] {
+  const tokens = Array.from(text.matchAll(/@([A-Za-z0-9_-]{1,40})/g)).map((m) => m[1].toLowerCase());
+  if (tokens.length === 0) return [];
+  const hits = new Set<string>();
+  for (const tok of tokens) {
+    for (const m of members) {
+      const first = (m.name || "").split(/\s+/)[0]?.toLowerCase() ?? "";
+      if (first && first === tok) hits.add(m.id);
+    }
+  }
+  return Array.from(hits);
+}
 
 interface Props {
   thread: WhiteboardCommentThread;
@@ -27,6 +47,13 @@ const DRAFT_KEY = (threadId: string) => `agile-toolkit:canvas-draft:${threadId}`
 export function CommentDrawer({ thread, onClose }: Props) {
   const upsert = useWorkspaceStore((s) => s.upsertWhiteboardCommentThread);
   const remove = useWorkspaceStore((s) => s.removeWhiteboardCommentThread);
+  const teamMembers = useWorkspaceStore((s) => s.teamMembers);
+  // Cache member id+name for the @mention resolver — the component
+  // doesn't need the full TeamMember object.
+  const mentionMembers = useMemo(
+    () => teamMembers.map((m) => ({ id: m.id, name: m.name })),
+    [teamMembers],
+  );
   // Initialise from sessionStorage so reopening the drawer restores any
   // in-progress text. The initialiser runs once on mount; we save on
   // every keystroke via the change handler below.
@@ -57,11 +84,16 @@ export function CommentDrawer({ thread, onClose }: Props) {
     const text = draft.trim();
     if (!text) return;
     const now = new Date().toISOString();
+    const mentions = resolveMentions(text, mentionMembers);
     upsert({
       ...thread,
       comments: [
         ...thread.comments,
-        { id: `c_${Math.random().toString(36).slice(2, 9)}`, author, text, at: now },
+        {
+          id: `c_${Math.random().toString(36).slice(2, 9)}`,
+          author, text, at: now,
+          ...(mentions.length > 0 ? { mentions } : {}),
+        },
       ],
     });
     // Cross-tool signal — declared in SignalKind since Phase 22 but had
@@ -80,6 +112,24 @@ export function CommentDrawer({ thread, onClose }: Props) {
         commentCount: thread.comments.length + 1,
       },
     });
+    // Per-mention signal so notification consumers can fan out per
+    // mentioned user. Emit only if there were mentions; consumers
+    // listening to "commentAdded" alone aren't affected.
+    if (mentions.length > 0) {
+      emitSignal({
+        kind: "whiteboard.commentMentioned",
+        at: now,
+        toolId: "canvas",
+        payload: {
+          boardId: thread.boardId,
+          threadId: thread.id,
+          objectId: thread.objectId ?? null,
+          mentions,
+          author,
+          excerpt: text.slice(0, 120),
+        },
+      });
+    }
     setDraft("");
     // Clear the persisted draft now that the message is in the thread.
     if (typeof window !== "undefined") {

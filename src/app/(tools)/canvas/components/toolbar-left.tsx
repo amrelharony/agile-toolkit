@@ -15,6 +15,10 @@ import {
   Frame,
   Hand,
   MessageCircle,
+  CreditCard,
+  Timer as TimerIcon,
+  Vote,
+  Columns,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, type CanvasTool } from "../use-canvas-store";
@@ -30,6 +34,7 @@ const TOOLS: ToolDef[] = [
   { id: "select",   label: "Select",      icon: MousePointer2, shortcut: "V" },
   { id: "hand",     label: "Pan",         icon: Hand,          shortcut: "H" },
   { id: "sticky",   label: "Sticky",      icon: StickyNote,    shortcut: "N" },
+  { id: "card",     label: "Card",        icon: CreditCard,    shortcut: "K" },
   { id: "rect",     label: "Rectangle",   icon: Square,        shortcut: "R" },
   { id: "ellipse",  label: "Ellipse",     icon: Circle,        shortcut: "O" },
   { id: "diamond",  label: "Diamond",     icon: Diamond,       shortcut: "" },
@@ -40,6 +45,9 @@ const TOOLS: ToolDef[] = [
   { id: "freehand", label: "Pen",         icon: PenTool,       shortcut: "P" },
   { id: "connector",label: "Connector",   icon: GitBranch,     shortcut: "C" },
   { id: "frame",    label: "Frame",       icon: Frame,         shortcut: "F" },
+  { id: "kanban",   label: "Kanban",      icon: Columns,       shortcut: "" },
+  { id: "timer",    label: "Timer",       icon: TimerIcon,     shortcut: "" },
+  { id: "voting",   label: "Vote",        icon: Vote,          shortcut: "" },
   { id: "comment",  label: "Comment",     icon: MessageCircle, shortcut: "" },
 ];
 

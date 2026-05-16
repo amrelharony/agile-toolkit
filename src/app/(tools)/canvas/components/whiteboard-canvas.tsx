@@ -5,7 +5,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import { panBy, zoomAt, fitToRects } from "@/lib/whiteboard/canvas-transform";
 import { rafThrottle } from "@/lib/utils/throttle";
-import { aabbIntersect, boundingBoxOfFlatPoints, rectFromCorners, rectUnion } from "@/lib/geometry/bbox";
+import { aabbIntersect, boundingBoxOfFlatPoints, rectFromCorners, rectUnion, rectOverlapsPolygon } from "@/lib/geometry/bbox";
 import type { Rect } from "@/lib/geometry/bbox";
 import { copyObjects, duplicateObjects, readClipboardObjects } from "@/lib/whiteboard/clipboard";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -17,6 +17,12 @@ import { useCanvasStore, type ResizeHandle } from "../use-canvas-store";
 import { ObjectRenderer } from "./object-renderer";
 import { Marquee } from "./marquee";
 import { SelectionHandles } from "./selection-handles";
+import { AlignToolbar } from "./align-toolbar";
+import { PropertyPanel } from "./property-panel";
+import { PresentationMode } from "./presentation-mode";
+import { align as alignFn, distribute as distributeFn, type AlignOp, type DistributeOp } from "@/lib/whiteboard/align";
+import { extractImageFiles, fileToImage, imageToObject } from "@/lib/whiteboard/image-import";
+import { ChatComposer } from "./chat-composer";
 import { ConnectorLayer } from "./connector-layer";
 import { AlignmentGuides } from "./alignment-guides";
 import { ClusterOverlay } from "./cluster-overlay";
@@ -33,6 +39,9 @@ import { CursorOverlay } from "./cursor-overlay";
 interface WhiteboardCanvasProps {
   boardId: string;
   onViewportSize?: (s: { w: number; h: number }) => void;
+  /** When true, viewer mode: render only, no mutations. Pan + zoom
+   * still work. Phase 32. */
+  readOnly?: boolean;
 }
 
 const STICKY_DEFAULT = { w: 200, h: 160 };
@@ -64,7 +73,7 @@ function nextZAbove(existing: readonly WhiteboardObject[]): number {
  * Drag-to-move, marquee select, resize, free-hand, connectors come in
  * later PRs (22B–22G). This PR is "static render + add + select + pan/zoom".
  */
-export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasProps) {
+export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false }: WhiteboardCanvasProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   // Select the stable array reference, then filter inside useMemo. Inline
   // .filter() in the Zustand selector returns a NEW array on every store
@@ -80,6 +89,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
   const upsertMany = useWorkspaceStore((s) => s.upsertWhiteboardObjects);
   const removeMany = useWorkspaceStore((s) => s.removeWhiteboardObjects);
   const upsertCommentThread = useWorkspaceStore((s) => s.upsertWhiteboardCommentThread);
+  const appendActivity = useWorkspaceStore((s) => s.appendWhiteboardActivity);
   const allCommentThreads = useWorkspaceStore((s) => s.whiteboardCommentThreads);
   const commentThreads = useMemo(
     () => (allCommentThreads ?? []).filter((c) => c.boardId === boardId),
@@ -99,6 +109,8 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
   const setDrag = useCanvasStore((s) => s.setDrag);
   const resize = useCanvasStore((s) => s.resize);
   const setResize = useCanvasStore((s) => s.setResize);
+  const rotation = useCanvasStore((s) => s.rotation);
+  const setRotation = useCanvasStore((s) => s.setRotation);
   const marquee = useCanvasStore((s) => s.marquee);
   const setMarquee = useCanvasStore((s) => s.setMarquee);
   const drawing = useCanvasStore((s) => s.drawing);
@@ -112,7 +124,19 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
   const showAIPanel = useCanvasStore((s) => s.showAIPanel);
   const setShowAIPanel = useCanvasStore((s) => s.setShowAIPanel);
   const showMiniMap = useCanvasStore((s) => s.showMiniMap);
+  const editingObjectId = useCanvasStore((s) => s.editingObjectId);
+  const setEditingObjectId = useCanvasStore((s) => s.setEditingObjectId);
+  const followUserId = useCanvasStore((s) => s.followUserId);
+  const setFollowUserId = useCanvasStore((s) => s.setFollowUserId);
+  const presentationFrameIndex = useCanvasStore((s) => s.presentationFrameIndex);
+  const setPresentationFrameIndex = useCanvasStore((s) => s.setPresentationFrameIndex);
   const [activeCommentThreadId, setActiveCommentThreadId] = useState<string | null>(null);
+  // Cursor-chat composer state. When non-null, a small textbox appears
+  // at the last known cursor position; Enter publishes a chatBubble on
+  // presence, Esc cancels. Triggered by pressing "/" on an empty canvas.
+  // The DRAFT lives inside the ChatComposer child component (not here)
+  // so per-keystroke setState doesn't re-render the entire viewport.
+  const [chatComposerScreen, setChatComposerScreen] = useState<{ x: number; y: number } | null>(null);
   const { log } = useHistoryLogger("canvas");
   const { pushSnapshot, undo, redo } = useCanvasUndoStack(boardId);
 
@@ -127,12 +151,14 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
     return () => {
       setDrag(null);
       setResize(null);
+      setRotation(null);
       setMarquee(null);
       setDrawing(null);
       setPendingConnectorFromId(null);
       setDragGuides([]);
+      setEditingObjectId(null);
     };
-  }, [boardId, setDrag, setResize, setMarquee, setDrawing, setPendingConnectorFromId, setDragGuides]);
+  }, [boardId, setDrag, setResize, setRotation, setMarquee, setDrawing, setPendingConnectorFromId, setDragGuides, setEditingObjectId]);
 
   // Tool-switch cleanup: ending the gesture-in-progress when the user
   // presses a tool shortcut (e.g. 'N' for sticky) while a marquee or
@@ -142,9 +168,12 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
   // sticky" code paths. We deliberately do NOT clear `drag` / `resize` /
   // `drawing` here — those have an active pointer capture, and their
   // pointer-up handler is the right place to finalise them.
+  // Also exits text edit mode — switching tools means the user has moved
+  // on from the textarea.
   useEffect(() => {
     setMarquee(null);
     setPendingConnectorFromId(null);
+    setEditingObjectId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tool]);
 
@@ -154,6 +183,24 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
   useCanvasRoom({ toolId: "canvas", roomId: boardId, boardId });
   const channelName = boardId ? `tool:canvas:presence:${boardId}` : null;
   const { members, publish, self } = useCanvasPresence(channelName);
+
+  // Activity-log helper. Coalesces small per-keystroke events into
+  // larger summaries by skipping no-op summaries and only logging
+  // when the caller passes a non-empty `summary`.
+  const logActivity = useCallback(
+    (kind: string, summary: string) => {
+      if (!summary || summary.length === 0) return;
+      appendActivity({
+        id: `act_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+        boardId,
+        at: Date.now(),
+        author: self.name || "Anonymous",
+        kind,
+        summary,
+      });
+    },
+    [appendActivity, boardId, self.name],
+  );
 
   // Publish selection + tool changes to peers. Cursor updates happen
   // inside onCanvasPointerMove so they ride along with the local move.
@@ -205,6 +252,67 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
     return bbox;
   }, [selection, objectsById]);
 
+  // Frames sorted by their position (top-to-bottom, left-to-right) so
+  // presentation order is predictable on a complex board. Memoised
+  // so the order stays stable across non-frame changes.
+  const orderedFrames = useMemo(() => {
+    return objects
+      .filter((o): o is WhiteboardObject & { type: "frame" } => o.type === "frame")
+      .slice()
+      .sort((a, b) => {
+        // Primary: row buckets at 100 px. Secondary: x.
+        const ra = Math.floor(a.y / 100);
+        const rb = Math.floor(b.y / 100);
+        if (ra !== rb) return ra - rb;
+        return a.x - b.x;
+      });
+  }, [objects]);
+
+  // Whenever presentationFrameIndex changes, fit the camera to that frame.
+  useEffect(() => {
+    if (presentationFrameIndex === null) return;
+    if (size.w === 0) return;
+    const frame = orderedFrames[presentationFrameIndex];
+    if (!frame) return;
+    const cam = fitToRects([{ x: frame.x, y: frame.y, w: frame.w, h: frame.h }], size.w, size.h, 0.15);
+    if (cam) setCamera(cam);
+  }, [presentationFrameIndex, orderedFrames, size.w, size.h, setCamera]);
+
+  // Arrow-key navigation while presenting (and Esc to exit). Window-
+  // level so focus doesn't matter.
+  useEffect(() => {
+    if (presentationFrameIndex === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.key === "ArrowRight" || e.key === " ") {
+        e.preventDefault();
+        setPresentationFrameIndex(Math.min(orderedFrames.length - 1, presentationFrameIndex + 1));
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setPresentationFrameIndex(Math.max(0, presentationFrameIndex - 1));
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setPresentationFrameIndex(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [presentationFrameIndex, orderedFrames.length, setPresentationFrameIndex]);
+
+  // Follow-user: when `followUserId` is set, keep the local camera
+  // synced to that peer's viewport. The presence layer broadcasts
+  // viewport on every change, so this effect re-runs and snaps our
+  // camera. A locally-initiated pan/zoom (via onCanvasPointer*) does
+  // NOT clear the follow latch — that's done via `setFollowUserId(null)`
+  // when the user clicks the follow button again.
+  useEffect(() => {
+    if (!followUserId) return;
+    const peer = members.find((m) => m.id === followUserId);
+    if (!peer || !peer.viewport) return;
+    setCamera({ x: peer.viewport.x, y: peer.viewport.y, zoom: peer.viewport.zoom });
+  }, [followUserId, members, setCamera]);
+
   // Track viewport size for fit-to-content + minimap calculations.
   useEffect(() => {
     const el = viewportRef.current;
@@ -220,6 +328,31 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
     ro.observe(el);
     return () => ro.disconnect();
   }, [onViewportSize]);
+
+  // Cancel in-flight interactions when the tab is hidden. Without this,
+  // a user who Cmd-Tabs away mid-drag returns to find the canvas stuck
+  // in "drag" mode forever (the pointer-up never fires on a backgrounded
+  // tab). Visibility-change is a reliable signal for "I'm about to lose
+  // pointer events" — cancel cleanly so the next focus is fresh.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVisibility = () => {
+      if (!document.hidden) return;
+      // Only cancel STATE; don't touch the workspace store. The user's
+      // partial edits stay where they are (the drag handler already
+      // mutated positions as the pointer moved). We just clear the
+      // ephemeral state machine.
+      if (drag) setDrag(null);
+      if (resize) setResize(null);
+      if (rotation) setRotation(null);
+      if (marquee) setMarquee(null);
+      if (drawing) setDrawing(null);
+      if (dragGuides.length > 0) setDragGuides([]);
+      spaceHeldRef.current = false;
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [drag, resize, rotation, marquee, drawing, dragGuides.length, setDrag, setResize, setRotation, setMarquee, setDrawing, setDragGuides]);
 
   // Space-hold = temporary pan mode.
   useEffect(() => {
@@ -377,11 +510,11 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
         // Cancel the in-flight interaction first; user can hit undo a
         // second time to actually step back.
         undo: () => {
-          if (drag || resize || marquee || drawing) return;
+          if (drag || resize || rotation || marquee || drawing) return;
           undo();
         },
         redo: () => {
-          if (drag || resize || marquee || drawing) return;
+          if (drag || resize || rotation || marquee || drawing) return;
           redo();
         },
         cancel: () => {
@@ -391,6 +524,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
           if (pendingConnectorFromId) { setPendingConnectorFromId(null); return; }
           if (drag) { setDrag(null); return; }
           if (resize) { setResize(null); return; }
+          if (rotation) { setRotation(null); return; }
           if (marquee) {
             setSelection(marquee.initialSelection);
             setMarquee(null);
@@ -405,6 +539,103 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [setTool, selection, objects, removeMany, upsertMany, clearSelection, setSelection, boardId, drag, resize, marquee, drawing, pendingConnectorFromId, setDrag, setResize, setMarquee, setDrawing, setPendingConnectorFromId, log, pushSnapshot, undo, redo]);
+
+  // ─── Tab/Shift-Tab to cycle through objects (a11y).
+  // Without this, keyboard-only users can't navigate the board at all —
+  // every object is mouse-pointer driven. Tab moves selection to the
+  // next object in z-order; Shift+Tab moves backwards. After cycling,
+  // the camera pans to keep the new selection visible.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (objects.length === 0) return;
+      e.preventDefault();
+      const ordered = objects.slice().sort((a, b) => a.z - b.z);
+      const currentIdx = selection.length === 1
+        ? ordered.findIndex((o) => o.id === selection[0])
+        : -1;
+      let nextIdx: number;
+      if (e.shiftKey) {
+        nextIdx = currentIdx <= 0 ? ordered.length - 1 : currentIdx - 1;
+      } else {
+        nextIdx = currentIdx >= ordered.length - 1 ? 0 : currentIdx + 1;
+      }
+      const next = ordered[nextIdx];
+      if (!next) return;
+      setSelection([next.id]);
+      // Pan to keep the selection visible (10% margin around the
+      // object's bbox). Don't override zoom unless we're way off.
+      if (size.w > 0) {
+        const cam = fitToRects([{ x: next.x, y: next.y, w: next.w, h: next.h }], size.w, size.h, 1.0);
+        if (cam) setCamera({ x: cam.x, y: cam.y, zoom: Math.min(cam.zoom, camera.zoom) });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [objects, selection, size.w, size.h, camera.zoom, setSelection, setCamera]);
+
+  // ─── Enter key on a selected sticky/text/card → enter edit mode.
+  // Mirrors Miro/Figma convention: select an object, press Enter, start
+  // typing. Without this, users who selected (but didn't double-click)
+  // a sticky and tried to type saw nothing happen — the most common
+  // "I can't type in stickies" complaint.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (editingObjectId) return; // already editing
+      if (selection.length !== 1) return;
+      const obj = objectsById.get(selection[0]);
+      if (!obj || obj.locked) return;
+      const editable = obj.type === "sticky" || obj.type === "text"
+        || obj.type === "card"
+        || obj.type === "rect" || obj.type === "ellipse"
+        || obj.type === "diamond" || obj.type === "triangle";
+      if (!editable) return;
+      e.preventDefault();
+      setEditingObjectId(obj.id);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selection, objectsById, editingObjectId, setEditingObjectId]);
+
+  // ─── Cursor chat (/) + emoji reactions (1-6).
+  // The "/" key opens a small composer floating at the current screen
+  // cursor; type → Enter publishes a `chatBubble` on presence, Esc cancels.
+  // Number keys 1-6 emit emoji reactions at the current world-cursor.
+  const EMOJI_KEYS: Record<string, string> = {
+    "1": "👍", "2": "❤️", "3": "😂", "4": "🎉", "5": "🤔", "6": "👀",
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // "/" opens cursor chat at the last known screen-pointer location.
+      if (e.key === "/" && !chatComposerScreen) {
+        const last = lastPointerRef.current;
+        if (!last) return;
+        e.preventDefault();
+        setChatComposerScreen({ x: last.x, y: last.y });
+        return;
+      }
+      // 1-6 spawn an emoji reaction at the cursor world position.
+      const emoji = EMOJI_KEYS[e.key];
+      if (emoji && lastPointerRef.current) {
+        const world = clientToWorld(lastPointerRef.current.x, lastPointerRef.current.y);
+        publish({
+          reaction: { emoji, x: world.x, y: world.y, expiresAt: Date.now() + 6_000 },
+        });
+        return;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatComposerScreen, publish]);
 
   // ─── Arrow-key nudge — independent handler since `makeShortcutHandler`
   // doesn't model arrow keys with their direction.
@@ -531,6 +762,47 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
             label: "Frame",
           };
           break;
+        case "card":
+          obj = {
+            ...base, type: "card",
+            x: worldX - 100, y: worldY - 60,
+            w: 200, h: 120,
+            title: "New card",
+            color: "#00f0ff",
+          };
+          break;
+        case "kanban":
+          obj = {
+            ...base, type: "kanban",
+            x: worldX - 360, y: worldY - 200,
+            w: 720, h: 400,
+            label: "Kanban",
+            columns: ["todo", "in_progress", "done"],
+            columnLabels: ["To Do", "In Progress", "Done"],
+          };
+          break;
+        case "timer":
+          obj = {
+            ...base, type: "timer",
+            x: worldX - 70, y: worldY - 50,
+            w: 140, h: 100,
+            durationSec: 300, // 5-minute default
+            running: false,
+            remainingSec: 300,
+            label: "Timer",
+          };
+          break;
+        case "voting":
+          obj = {
+            ...base, type: "voting",
+            x: worldX - 140, y: worldY - 90,
+            w: 280, h: 180,
+            question: "How would you estimate this?",
+            options: ["1", "2", "3", "5", "8", "13", "?", "☕"],
+            votes: {},
+            revealed: false,
+          };
+          break;
         default:
           break;
       }
@@ -538,18 +810,39 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
         upsert(obj);
         // After creating an object, revert to select so we don't keep spawning more.
         setTool("select");
+        // Auto-enter edit mode for text-bearing objects so the user can
+        // type immediately after creation (Miro/Figma convention).
+        // Without this, a freshly-created sticky requires a separate
+        // double-click before text input works — users were reporting
+        // "I can't type in stickies" because they assumed creating one
+        // gave focus to it.
+        if (obj.type === "sticky" || obj.type === "text" || obj.type === "card") {
+          setSelection([obj.id]);
+          setEditingObjectId(obj.id);
+        }
       }
     },
     // `objects` is included so newly-added items always land above the
     // current top of the board (see nextZAbove). The deps change on every
     // edit, but addObjectAt isn't passed to a memoized child, so this is
     // cheap.
-    [boardId, stickyColor, tool, upsert, setTool, objects],
+    [boardId, stickyColor, tool, upsert, setTool, objects, setSelection, setEditingObjectId],
   );
 
   // ─── Pointer down on empty canvas ────────────────────────────────────
   const onCanvasPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      // Read-only mode — allow pan via middle-mouse but no other
+      // pointer-down side-effects (no marquee, no draw, no comment-pin
+      // creation, etc.).
+      if (readOnly) {
+        if (e.button === 1) {
+          isPanningRef.current = true;
+          lastPointerRef.current = { x: e.clientX, y: e.clientY };
+          viewportRef.current?.setPointerCapture(e.pointerId);
+        }
+        return;
+      }
       const target = e.target as HTMLElement;
       // Click landed on an object — let its handler deal with it.
       if (target !== viewportRef.current && target !== viewportRef.current?.firstChild) return;
@@ -566,14 +859,19 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
       if (tool === "select") {
         // Start a marquee — additive when shift is held so the user can
         // grow an existing selection by rubber-banding more objects.
+        // ALT-DRAG = lasso (freeform polygon). Holding Alt at pointer-
+        // down switches the marquee into lasso mode; the move handler
+        // appends points, the up handler does polygon hit-test.
         const world = clientToWorld(e.clientX, e.clientY);
         const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+        const lasso = e.altKey;
         if (!additive) clearSelection();
         setMarquee({
           startWorld: world,
           currentWorld: world,
           initialSelection: additive ? selection : [],
           additive,
+          ...(lasso ? { lassoPoints: [world.x, world.y] } : {}),
         });
         viewportRef.current?.setPointerCapture(e.pointerId);
         return;
@@ -658,11 +956,17 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
   // ─── Pointer move — pan, marquee, drag, resize ───────────────────────
   const onCanvasPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      // Pan has priority — it's the only mode that uses lastPointerRef.
-      if (isPanningRef.current && lastPointerRef.current) {
-        const dx = e.clientX - lastPointerRef.current.x;
-        const dy = e.clientY - lastPointerRef.current.y;
-        lastPointerRef.current = { x: e.clientX, y: e.clientY };
+      // Pan needs the previous pointer to compute delta — but we also
+      // capture the latest pointer position for ad-hoc UI that wants
+      // to spawn at the cursor (chat composer "/", emoji reactions
+      // "1-6"). Capture BEFORE the early-return so non-pan paths
+      // also get fresh ref state.
+      const prev = lastPointerRef.current;
+      lastPointerRef.current = { x: e.clientX, y: e.clientY };
+      // Pan has priority — it's the only mode that uses the prev value.
+      if (isPanningRef.current && prev) {
+        const dx = e.clientX - prev.x;
+        const dy = e.clientY - prev.y;
         throttledSetCamera(panBy(camera, dx, dy));
         return;
       }
@@ -719,12 +1023,44 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
 
       // Marquee in progress
       if (marquee) {
-        setMarquee({ ...marquee, currentWorld: world });
-        // Compute selection from marquee rect intersecting objects.
-        const rect = rectFromCorners(marquee.startWorld, world);
+        const lassoActive = !!marquee.lassoPoints;
+        // For lasso, append the latest point ONLY if it's far enough
+        // from the last one — avoids 3000-point paths on a slow drag.
+        // Hard cap at LASSO_MAX_POINTS to prevent runaway memory + the
+        // O(N²) hit-test cost on a malicious 10k-point payload.
+        const LASSO_MAX_POINTS = 1000; // 1000 (x,y) pairs = 2000 numbers
+        let nextLasso: number[] | undefined = marquee.lassoPoints;
+        if (lassoActive && nextLasso && nextLasso.length < LASSO_MAX_POINTS * 2) {
+          const lastX = nextLasso[nextLasso.length - 2];
+          const lastY = nextLasso[nextLasso.length - 1];
+          const dx = world.x - lastX;
+          const dy = world.y - lastY;
+          // Min distance in world units, divided by zoom so it stays
+          // ~3 screen pixels at any zoom. Bigger min-distance on bigger
+          // lassos to amortise the rising hit-test cost.
+          const sizeFactor = 1 + nextLasso.length / 400;
+          const minDist = (3 * sizeFactor) / Math.max(0.001, camera.zoom);
+          if (dx * dx + dy * dy > minDist * minDist) {
+            nextLasso = [...nextLasso, world.x, world.y];
+          }
+        }
+        setMarquee({
+          ...marquee,
+          currentWorld: world,
+          ...(nextLasso ? { lassoPoints: nextLasso } : {}),
+        });
+        // Compute selection: lasso uses point-in-polygon, marquee uses
+        // AABB intersection.
         const hit: string[] = [];
-        for (const o of objects) {
-          if (aabbIntersect(rect, { x: o.x, y: o.y, w: o.w, h: o.h })) hit.push(o.id);
+        if (lassoActive && nextLasso && nextLasso.length >= 6) {
+          for (const o of objects) {
+            if (rectOverlapsPolygon({ x: o.x, y: o.y, w: o.w, h: o.h }, nextLasso)) hit.push(o.id);
+          }
+        } else {
+          const rect = rectFromCorners(marquee.startWorld, world);
+          for (const o of objects) {
+            if (aabbIntersect(rect, { x: o.x, y: o.y, w: o.w, h: o.h })) hit.push(o.id);
+          }
         }
         const next = marquee.additive
           ? Array.from(new Set([...marquee.initialSelection, ...hit]))
@@ -807,19 +1143,86 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
         return;
       }
 
-      // Resize in progress — recompute the single resizing object's bbox.
+      // Rotation in progress — compute pointer angle relative to the
+      // union centre; the delta from the initial angle is added to
+      // each object's initial rotation. Shift snaps to 15° increments.
+      if (rotation) {
+        const angleDeg = (Math.atan2(world.y - rotation.centerWorld.y, world.x - rotation.centerWorld.x) * 180) / Math.PI;
+        let delta = angleDeg - rotation.startAngleDeg;
+        if (e.shiftKey) delta = Math.round(delta / 15) * 15;
+        const updates: WhiteboardObject[] = [];
+        const now = new Date().toISOString();
+        for (const [id, initRot] of Object.entries(rotation.initialRotations)) {
+          const obj = objectsById.get(id);
+          if (!obj) continue;
+          // Normalise to (-180, 180]. The naive `((r+180)%360+360)%360-180`
+          // produces -180 for r=-180 (left-open / right-closed reversal);
+          // we explicitly map -180 → 180 so the interval is consistent.
+          let r = initRot + delta;
+          r = ((r + 180) % 360 + 360) % 360 - 180;
+          if (r === -180) r = 180;
+          updates.push({ ...obj, rotation: r, updatedAt: now } as WhiteboardObject);
+        }
+        if (updates.length === 1) upsert(updates[0]);
+        else if (updates.length > 1) upsertMany(updates);
+        return;
+      }
+
+      // Resize in progress — recompute target union bbox from the
+      // handle's drag delta, then scale every initially-captured rect
+      // proportionally so multi-object resize feels like a uniform
+      // bounding-box scale (matches Miro/Figma).
       if (resize) {
-        const obj = objectsById.get(resize.objectId);
-        if (!obj) return;
         const dx = world.x - resize.startWorld.x;
         const dy = world.y - resize.startWorld.y;
-        const r = resize.initialRect;
-        let nx = r.x, ny = r.y, nw = r.w, nh = r.h;
-        if (resize.handle.includes("e")) nw = Math.max(20, r.w + dx);
-        if (resize.handle.includes("s")) nh = Math.max(20, r.h + dy);
-        if (resize.handle.includes("w")) { nw = Math.max(20, r.w - dx); nx = r.x + (r.w - nw); }
-        if (resize.handle.includes("n")) { nh = Math.max(20, r.h - dy); ny = r.y + (r.h - nh); }
-        upsert({ ...obj, x: nx, y: ny, w: nw, h: nh, updatedAt: new Date().toISOString() });
+        const union = resize.initialUnion ?? resize.initialRect;
+        const initRects = resize.initialRects ?? { [resize.objectId]: resize.initialRect };
+        // Compute new union bbox based on handle direction.
+        let unx = union.x, uny = union.y, unw = union.w, unh = union.h;
+        if (resize.handle.includes("e")) unw = Math.max(20, union.w + dx);
+        if (resize.handle.includes("s")) unh = Math.max(20, union.h + dy);
+        if (resize.handle.includes("w")) { unw = Math.max(20, union.w - dx); unx = union.x + (union.w - unw); }
+        if (resize.handle.includes("n")) { unh = Math.max(20, union.h - dy); uny = union.y + (union.h - unh); }
+        // Shift-constrain aspect ratio: snap to whichever dimension
+        // changed proportionally more (so corner-drag-with-shift
+        // preserves the union's original aspect ratio).
+        if (e.shiftKey && union.w > 0 && union.h > 0) {
+          const sx = unw / union.w;
+          const sy = unh / union.h;
+          const isCorner = resize.handle === "nw" || resize.handle === "ne" || resize.handle === "sw" || resize.handle === "se";
+          if (isCorner) {
+            const s = Math.max(sx, sy);
+            // Anchor the OPPOSITE corner of the handle so the constrained
+            // size grows away from it.
+            const newW = union.w * s;
+            const newH = union.h * s;
+            if (resize.handle.includes("w")) unx = union.x + union.w - newW;
+            if (resize.handle.includes("n")) uny = union.y + union.h - newH;
+            unw = newW;
+            unh = newH;
+          }
+        }
+        const sx = union.w > 0 ? unw / union.w : 1;
+        const sy = union.h > 0 ? unh / union.h : 1;
+        const updates: WhiteboardObject[] = [];
+        const now = new Date().toISOString();
+        for (const [id, ir] of Object.entries(initRects)) {
+          const obj = objectsById.get(id);
+          if (!obj) continue;
+          // Per-rect new x/y: keep its OFFSET from the union anchor scaled.
+          const offX = ir.x - union.x;
+          const offY = ir.y - union.y;
+          const nx = unx + offX * sx;
+          const ny = uny + offY * sy;
+          const nw = Math.max(20, ir.w * sx);
+          const nh = Math.max(20, ir.h * sy);
+          updates.push({ ...obj, x: nx, y: ny, w: nw, h: nh, updatedAt: now } as WhiteboardObject);
+        }
+        if (updates.length === 1) {
+          upsert(updates[0]);
+        } else if (updates.length > 1) {
+          upsertMany(updates);
+        }
         return;
       }
     },
@@ -839,6 +1242,55 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
         // NOTE: pushSnapshot was already called at drag START — calling it
         // here would capture the post-drag state and undo would be a no-op.
         log(CANVAS_ACTIONS.OBJECTS_MOVED, { count: ids.length, ids });
+        // ─── Kanban drop-into-column (Phase 26) ─────────────────────
+        // After a drag, snap any dropped Card to the Kanban column it
+        // landed in. Without this, kanban frames are visual decoration
+        // only. Cards dragged OUT of a kanban have their frameId cleared.
+        const cardUpdates: WhiteboardObject[] = [];
+        for (const id of ids) {
+          const obj = objectsById.get(id);
+          if (!obj || obj.type !== "card") continue;
+          const cx = obj.x + obj.w / 2;
+          const cy = obj.y + obj.h / 2;
+          // Find a Kanban frame whose bounds contain the card's centre.
+          const kanban = objects.find((o) =>
+            o.type === "kanban" &&
+            cx >= o.x && cx <= o.x + o.w &&
+            cy >= o.y && cy <= o.y + o.h,
+          );
+          if (kanban && kanban.type === "kanban" && kanban.columns.length > 0) {
+            const colWidth = kanban.w / kanban.columns.length;
+            const colIdx = Math.min(
+              kanban.columns.length - 1,
+              Math.max(0, Math.floor((cx - kanban.x) / colWidth)),
+            );
+            const newStatus = kanban.columns[colIdx];
+            if (obj.status !== newStatus || obj.frameId !== kanban.id) {
+              cardUpdates.push({
+                ...obj,
+                status: newStatus,
+                frameId: kanban.id,
+                version: obj.version + 1,
+                updatedAt: new Date().toISOString(),
+              } as WhiteboardObject);
+            }
+          } else if (obj.frameId) {
+            // Card moved out of its previously-containing kanban.
+            const prev = objectsById.get(obj.frameId);
+            if (prev?.type === "kanban") {
+              cardUpdates.push({
+                ...obj,
+                frameId: undefined,
+                version: obj.version + 1,
+                updatedAt: new Date().toISOString(),
+              } as WhiteboardObject);
+            }
+          }
+        }
+        if (cardUpdates.length > 0) {
+          upsertMany(cardUpdates);
+          log(CANVAS_ACTIONS.OBJECT_UPDATED, { count: cardUpdates.length, action: "kanban-drop" });
+        }
       }
       setDrag(null);
       if (dragGuides.length > 0) setDragGuides([]);
@@ -847,6 +1299,13 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
       // pushSnapshot was called at resize START — see onResizeHandlePointerDown.
       log(CANVAS_ACTIONS.OBJECT_UPDATED, { id: resize.objectId, action: "resize" });
       setResize(null);
+    }
+    if (rotation) {
+      log(CANVAS_ACTIONS.OBJECT_UPDATED, {
+        count: Object.keys(rotation.initialRotations).length,
+        action: "rotate",
+      });
+      setRotation(null);
     }
     // Commit drawing-in-progress.
     if (drawing) {
@@ -878,6 +1337,12 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
   const onObjectPointerDown = useCallback(
     (e: React.PointerEvent, id: string) => {
       e.stopPropagation();
+      // Read-only: allow selection (so viewers can highlight things to
+      // talk about in chat) but block every mutating side-effect.
+      if (readOnly) {
+        setSelection([id]);
+        return;
+      }
       if (tool === "hand") return;
 
       // Connector tool — two-click flow.
@@ -990,6 +1455,212 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
     [tool, selection, setSelection, clientToWorld, objectsById, setDrag, pendingConnectorFromId, setPendingConnectorFromId, upsert, boardId, objects, log, setTool, pushSnapshot],
   );
 
+  /** Double-click on a sticky / text / shape → enter inline edit mode.
+   * Only those types have an editable `content` field; line/arrow/
+   * freehand/image/embed/frame ignore the gesture. Cancels any active
+   * drag/marquee in flight (a double-click after a long click could
+   * have started a drag). */
+  const onObjectDoubleClick = useCallback(
+    (id: string) => {
+      const obj = objectsById.get(id);
+      if (!obj) return;
+      const editable = obj.type === "sticky" || obj.type === "text"
+        || obj.type === "rect" || obj.type === "ellipse"
+        || obj.type === "diamond" || obj.type === "triangle";
+      if (!editable) return;
+      if (obj.locked) return;
+      // Bail out of any pre-edit gestures so the textarea isn't
+      // fighting a drag mid-mount.
+      setDrag(null);
+      setMarquee(null);
+      setEditingObjectId(id);
+      // Make sure the object is selected so selection chrome lines up
+      // with the editor (and so post-edit Esc clears something sane).
+      if (!(selection.length === 1 && selection[0] === id)) {
+        setSelection([id]);
+      }
+    },
+    [objectsById, selection, setSelection, setDrag, setMarquee, setEditingObjectId],
+  );
+
+  /** Commit edited text into the workspace store, bump version so any
+   * realtime peer sees the change, and exit edit mode. */
+  const onCommitObjectEdit = useCallback(
+    (id: string, text: string) => {
+      const obj = objectsById.get(id);
+      if (!obj) { setEditingObjectId(null); return; }
+      // Skip the upsert when text is unchanged — prevents history clutter
+      // and avoids a no-op realtime patch.
+      const current = "content" in obj ? (obj as { content?: string }).content ?? "" : "";
+      if (current !== text) {
+        pushSnapshot();
+        upsert({
+          ...obj,
+          content: text,
+          version: obj.version + 1,
+          updatedAt: new Date().toISOString(),
+        } as WhiteboardObject);
+        log(CANVAS_ACTIONS.OBJECT_UPDATED, { id, action: "edit-text" });
+      }
+      setEditingObjectId(null);
+    },
+    [objectsById, upsert, log, pushSnapshot, setEditingObjectId],
+  );
+
+  /** Align selected (movable) objects against their union bbox.
+   * Locked objects are filtered out — the toolbar still works on the
+   * remaining selection, matching Miro behaviour. */
+  const onAlign = useCallback(
+    (op: AlignOp) => {
+      const movable = selection
+        .map((id) => objectsById.get(id))
+        .filter((o): o is WhiteboardObject => !!o && !o.locked);
+      if (movable.length < 2) return;
+      pushSnapshot();
+      const result = alignFn(
+        movable.map((o) => ({ id: o.id, rect: { x: o.x, y: o.y, w: o.w, h: o.h } })),
+        op,
+      );
+      const updates = movable
+        .filter((o) => result[o.id])
+        .map((o) => ({
+          ...o,
+          x: result[o.id].x,
+          y: result[o.id].y,
+          version: o.version + 1,
+          updatedAt: new Date().toISOString(),
+        }));
+      if (updates.length > 0) {
+        upsertMany(updates);
+        log(CANVAS_ACTIONS.OBJECTS_MOVED, { count: updates.length, action: op });
+      }
+    },
+    [selection, objectsById, upsertMany, log, pushSnapshot],
+  );
+
+  /** Distribute equal spacing between 3+ selected (movable) objects. */
+  const onDistribute = useCallback(
+    (op: DistributeOp) => {
+      const movable = selection
+        .map((id) => objectsById.get(id))
+        .filter((o): o is WhiteboardObject => !!o && !o.locked);
+      if (movable.length < 3) return;
+      pushSnapshot();
+      const result = distributeFn(
+        movable.map((o) => ({ id: o.id, rect: { x: o.x, y: o.y, w: o.w, h: o.h } })),
+        op,
+      );
+      const updates = movable
+        .filter((o) => result[o.id])
+        .map((o) => ({
+          ...o,
+          x: result[o.id].x,
+          y: result[o.id].y,
+          version: o.version + 1,
+          updatedAt: new Date().toISOString(),
+        }));
+      if (updates.length > 0) {
+        upsertMany(updates);
+        log(CANVAS_ACTIONS.OBJECTS_MOVED, { count: updates.length, action: op });
+      }
+    },
+    [selection, objectsById, upsertMany, log, pushSnapshot],
+  );
+
+  /** Drop / paste-image handler. Accepts any image file, converts it
+   * to a data URL via FileReader, and inserts a WhiteboardImage at
+   * the drop world point. Multiple images stack 24 px apart. */
+  const importImagesAt = useCallback(
+    async (files: File[], worldOrigin: { x: number; y: number }) => {
+      if (files.length === 0) return;
+      pushSnapshot();
+      const updates: WhiteboardObject[] = [];
+      let topZ = 0;
+      for (const o of objects) if (o.z > topZ) topZ = o.z;
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        const result = await fileToImage(f, f.name);
+        if (!result.ok) {
+          // eslint-disable-next-line no-console
+          console.warn("[canvas] image import failed:", result.err);
+          continue;
+        }
+        const obj = imageToObject(result.image, {
+          x: worldOrigin.x + i * 24,
+          y: worldOrigin.y + i * 24,
+        });
+        const id = `wb_${Math.random().toString(36).slice(2, 11)}`;
+        updates.push({ ...obj, id, boardId, z: topZ + i + 1 } as WhiteboardObject);
+      }
+      if (updates.length > 0) {
+        upsertMany(updates);
+        log(CANVAS_ACTIONS.OBJECT_ADDED, { count: updates.length, action: "image-import" });
+        logActivity("image-import", `${updates.length} image${updates.length === 1 ? "" : "s"} imported`);
+        setSelection(updates.map((u) => u.id));
+      }
+    },
+    [boardId, objects, upsertMany, log, pushSnapshot, setSelection, logActivity],
+  );
+
+  // Paste-from-clipboard wiring (Cmd+V on an image). Listens at the
+  // window so it fires regardless of focus inside the canvas. We
+  // intercept BEFORE the canvas-clipboard paste runs by checking for
+  // image files first.
+  //
+  // Skip when:
+  //   - A text input / textarea / contentEditable is focused (the
+  //     focus owner should get first dibs on the paste).
+  //   - A canvas object is in inline-edit mode (sticky / text edit).
+  //   - The cursor-chat composer is open.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      // Check the active element too — the event target can be the
+      // window when nothing's focused.
+      const active = typeof document !== "undefined" ? document.activeElement as HTMLElement | null : null;
+      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) return;
+      if (editingObjectId || chatComposerScreen) return;
+      if (!e.clipboardData) return;
+      const files = extractImageFiles(e.clipboardData.items, e.clipboardData.files);
+      if (files.length === 0) return;
+      e.preventDefault();
+      // Paste at centre of viewport in world coords.
+      const rect = viewportRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const world = clientToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      void importImagesAt(files, world);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [importImagesAt, clientToWorld, editingObjectId, chatComposerScreen]);
+
+  /** Patch the style fields of one or more selected objects from the
+   * floating property panel. Pushes an undo snapshot once per batch,
+   * version-bumps each object so realtime peers see the change, and
+   * upserts in a single mutation to keep the diff-sync broadcast atomic. */
+  const onPatchStyles = useCallback(
+    (entries: { id: string; patch: Partial<WhiteboardObject> }[]) => {
+      if (entries.length === 0) return;
+      const updates: WhiteboardObject[] = [];
+      for (const { id, patch } of entries) {
+        const obj = objectsById.get(id);
+        if (!obj || obj.locked) continue;
+        updates.push({
+          ...obj,
+          ...patch,
+          version: obj.version + 1,
+          updatedAt: new Date().toISOString(),
+        } as WhiteboardObject);
+      }
+      if (updates.length === 0) return;
+      pushSnapshot();
+      upsertMany(updates);
+      log(CANVAS_ACTIONS.OBJECT_UPDATED, { count: updates.length, action: "style" });
+    },
+    [objectsById, upsertMany, log, pushSnapshot],
+  );
+
   /** Click on a connector path — toggle selection (additive with Shift/Cmd).
    * Connectors don't have a draggable bbox, so we don't kick off a drag the
    * way object pointer-down does. Pure selection. */
@@ -1010,9 +1681,26 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
   // ─── Pointer down on a resize handle ─────────────────────────────────
   const onResizeHandlePointerDown = useCallback(
     (handle: ResizeHandle, e: React.PointerEvent) => {
-      if (selection.length !== 1) return; // multi-resize ships in a later PR
-      const obj = objectsById.get(selection[0]);
-      if (!obj) return;
+      if (selection.length === 0) return;
+      // Collect every (non-locked) selected object's initial rect so
+      // multi-object resize can scale each one proportionally to the
+      // union bbox change. Locked objects are excluded — the toolbar
+      // still works for the remaining objects, matching the drag /
+      // align convention.
+      const objs = selection
+        .map((id) => objectsById.get(id))
+        .filter((o): o is WhiteboardObject => !!o && !o.locked);
+      if (objs.length === 0) return;
+      const initialRects: Record<string, Rect> = {};
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const o of objs) {
+        initialRects[o.id] = { x: o.x, y: o.y, w: o.w, h: o.h };
+        if (o.x < minX) minX = o.x;
+        if (o.y < minY) minY = o.y;
+        if (o.x + o.w > maxX) maxX = o.x + o.w;
+        if (o.y + o.h > maxY) maxY = o.y + o.h;
+      }
+      const initialUnion: Rect = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
       const world = clientToWorld(e.clientX, e.clientY);
       // Push undo snapshot BEFORE the resize starts mutating the store.
       // The pointer-move handler edits w/h on every frame; snapshotting
@@ -1021,12 +1709,75 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
       setResize({
         handle,
         startWorld: world,
-        initialRect: { x: obj.x, y: obj.y, w: obj.w, h: obj.h },
-        objectId: obj.id,
+        initialRect: initialRects[objs[0].id],
+        objectId: objs[0].id,
+        initialRects,
+        initialUnion,
       });
       viewportRef.current?.setPointerCapture(e.pointerId);
     },
     [selection, objectsById, clientToWorld, setResize, pushSnapshot],
+  );
+
+  /** Keyboard rotation: increment every selected object's rotation
+   * by the given delta. Used when the rotation slider has focus
+   * (Tab to focus, ←/→ to rotate 1°, Shift+←/→ for 15°). Mirrors
+   * the pointer-drag math but skips the centerWorld dance. */
+  const onRotateByDelta = useCallback(
+    (deltaDeg: number) => {
+      const objs = selection
+        .map((id) => objectsById.get(id))
+        .filter((o): o is WhiteboardObject => !!o && !o.locked);
+      if (objs.length === 0) return;
+      pushSnapshot();
+      const updates: WhiteboardObject[] = [];
+      const now = new Date().toISOString();
+      for (const o of objs) {
+        let r = (o.rotation ?? 0) + deltaDeg;
+        r = ((r + 180) % 360 + 360) % 360 - 180;
+        if (r === -180) r = 180;
+        updates.push({ ...o, rotation: r, updatedAt: now } as WhiteboardObject);
+      }
+      if (updates.length > 0) upsertMany(updates);
+    },
+    [selection, objectsById, upsertMany, pushSnapshot],
+  );
+
+  /** Pointer-down on the rotation handle. Captures the union centre,
+   * the initial pointer angle relative to it, and the starting
+   * rotation of every selected object. The pointer-move handler
+   * subtracts these to compute the per-object delta. */
+  const onRotateStart = useCallback(
+    (e: React.PointerEvent) => {
+      const objs = selection
+        .map((id) => objectsById.get(id))
+        .filter((o): o is WhiteboardObject => !!o && !o.locked);
+      if (objs.length === 0) return;
+      // Union centre in world coords.
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      const initialRotations: Record<string, number> = {};
+      for (const o of objs) {
+        initialRotations[o.id] = o.rotation ?? 0;
+        if (o.x < minX) minX = o.x;
+        if (o.y < minY) minY = o.y;
+        if (o.x + o.w > maxX) maxX = o.x + o.w;
+        if (o.y + o.h > maxY) maxY = o.y + o.h;
+      }
+      const center = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+      const world = clientToWorld(e.clientX, e.clientY);
+      // Angle in degrees from centre → pointer. Math.atan2 returns
+      // radians; we keep degrees for the data model (matches the
+      // existing `rotation` field convention).
+      const startAngleDeg = (Math.atan2(world.y - center.y, world.x - center.x) * 180) / Math.PI;
+      pushSnapshot();
+      setRotation({
+        centerWorld: center,
+        startAngleDeg,
+        initialRotations,
+      });
+      viewportRef.current?.setPointerCapture(e.pointerId);
+    },
+    [selection, objectsById, clientToWorld, setRotation, pushSnapshot],
   );
 
   const cursor =
@@ -1043,6 +1794,21 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
       onPointerMove={onCanvasPointerMove}
       onPointerUp={onCanvasPointerUp}
       onPointerCancel={onCanvasPointerUp}
+      onDragOver={(e) => {
+        // Let the browser know we accept the drop — without this the
+        // default behaviour is to reject and the onDrop never fires.
+        if (e.dataTransfer.types.includes("Files")) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }
+      }}
+      onDrop={(e) => {
+        const files = extractImageFiles(e.dataTransfer.items, e.dataTransfer.files);
+        if (files.length === 0) return;
+        e.preventDefault();
+        const world = clientToWorld(e.clientX, e.clientY);
+        void importImagesAt(files, world);
+      }}
       style={{ cursor }}
     >
       {/* Background grid */}
@@ -1083,7 +1849,12 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
                 key={o.id}
                 object={o}
                 selected={selection.includes(o.id)}
+                editing={editingObjectId === o.id}
                 onPointerDown={onObjectPointerDown}
+                onDoubleClick={onObjectDoubleClick}
+                onCommitEdit={onCommitObjectEdit}
+                onMutate={(id, patch) => onPatchStyles([{ id, patch }])}
+                selfId={self.id}
               />
             ))}
           {/* In-progress drawing preview — rendered through the same
@@ -1100,13 +1871,50 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
       </div>
 
       {/* Selection outline + resize handles — drawn in screen space so
-          1-px-wide borders stay 1-px-wide at any zoom. */}
+          1-px-wide borders stay 1-px-wide at any zoom.
+          Resize handles now render for multi-select too (Phase 24);
+          dragging a corner scales every selected object proportionally
+          to the union bbox change. */}
       {selectionBbox && tool === "select" && (
         <SelectionHandles
           bbox={selectionBbox}
           camera={camera}
-          showResizeHandles={selection.length === 1}
+          showResizeHandles={selection.length >= 1}
           onHandlePointerDown={onResizeHandlePointerDown}
+          onRotateStart={onRotateStart}
+          onRotateByDelta={onRotateByDelta}
+          currentRotationDeg={selection.length === 1
+            ? (objectsById.get(selection[0])?.rotation ?? 0)
+            : 0}
+        />
+      )}
+
+      {/* Floating align toolbar — visible only when 2+ objects are
+          selected, the select tool is active, and no in-flight gesture
+          would compete with it. */}
+      {selectionBbox && tool === "select" && selection.length >= 2 && !drag && !resize && !marquee && (
+        <AlignToolbar
+          selectionBbox={selectionBbox}
+          camera={camera}
+          canDistribute={selection.length >= 3}
+          onAlign={onAlign}
+          onDistribute={onDistribute}
+        />
+      )}
+
+      {/* Property panel — visible whenever any object is selected and
+          no in-flight gesture. Anchored ABOVE the selection bbox;
+          AlignToolbar anchors BELOW so they don't overlap on multi-
+          select. */}
+      {selectionBbox && tool === "select" && selection.length >= 1 && !drag && !resize && !marquee && !editingObjectId && (
+        <PropertyPanel
+          selection={selection
+            .map((id) => objectsById.get(id))
+            .filter((o): o is WhiteboardObject => !!o)}
+          selectionBbox={selectionBbox}
+          camera={camera}
+          viewportHeight={size.h}
+          onPatch={onPatchStyles}
         />
       )}
 
@@ -1125,31 +1933,76 @@ export function WhiteboardCanvas({ boardId, onViewportSize }: WhiteboardCanvasPr
         objectsById={objectsById}
       />
 
-      {/* Presence chips — top-right corner — show who's currently here. */}
+      {/* Cursor-chat composer — extracted into its own component so
+          per-keystroke setState doesn't re-render the entire canvas
+          viewport. Lives inside the viewport div (NOT the world-
+          transform) so it doesn't scale with zoom. */}
+      {chatComposerScreen && viewportRef.current && (
+        <ChatComposer
+          screen={chatComposerScreen}
+          viewportRect={viewportRef.current.getBoundingClientRect()}
+          onPublish={(text) => publish({ chatBubble: { text, expiresAt: Date.now() + 6_000 } })}
+          onClose={() => setChatComposerScreen(null)}
+        />
+      )}
+
+      {/* Presentation mode overlay. */}
+      {presentationFrameIndex !== null && (
+        <PresentationMode
+          frames={orderedFrames as readonly Extract<WhiteboardObject, { type: "frame" }>[]}
+          index={presentationFrameIndex}
+          onPrev={() => setPresentationFrameIndex(Math.max(0, presentationFrameIndex - 1))}
+          onNext={() => setPresentationFrameIndex(Math.min(orderedFrames.length - 1, presentationFrameIndex + 1))}
+          onExit={() => setPresentationFrameIndex(null)}
+        />
+      )}
+
+      {/* Presence chips — top-right corner. Clicking a chip toggles
+          "follow user" so the camera tracks their viewport. The local
+          user's own chip is filtered out. */}
       {members.length > 0 && (
-        <div className="absolute top-3 right-3 z-20 flex items-center gap-1 pointer-events-none">
-          {members.slice(0, 8).map((m) => (
-            <div
-              key={m.id}
-              title={m.name}
-              style={{
-                width: 26,
-                height: 26,
-                borderRadius: "50%",
-                background: m.color,
-                color: "#0b0f17",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 11,
-                fontWeight: 700,
-                border: "2px solid #0b0f17",
-                marginLeft: -6,
-              }}
+        <div className="absolute top-3 right-3 z-20 flex items-center gap-1" data-canvas-export-ignore="true">
+          {members.filter((m) => m.id !== self.id).slice(0, 8).map((m) => {
+            const isFollowing = followUserId === m.id;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                title={isFollowing ? `Stop following ${m.name}` : `Follow ${m.name}`}
+                aria-label={isFollowing ? `Stop following ${m.name}` : `Follow ${m.name}`}
+                onClick={() => setFollowUserId(isFollowing ? null : m.id)}
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: "50%",
+                  background: m.color,
+                  color: "#0b0f17",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  border: isFollowing ? "2px solid #00f0ff" : "2px solid #0b0f17",
+                  marginLeft: -6,
+                  cursor: "pointer",
+                  boxShadow: isFollowing ? "0 0 8px rgba(0,240,255,0.6)" : undefined,
+                }}
+              >
+                {m.name.charAt(0).toUpperCase()}
+              </button>
+            );
+          })}
+          {followUserId && (
+            <button
+              type="button"
+              onClick={() => setFollowUserId(null)}
+              aria-label="Stop following"
+              title="Stop following"
+              className="ml-1 text-[10px] uppercase font-mono text-accent hover:text-text px-2 py-1 rounded bg-surface/95 border border-accent"
             >
-              {m.name.charAt(0).toUpperCase()}
-            </div>
-          ))}
+              following
+            </button>
+          )}
         </div>
       )}
 

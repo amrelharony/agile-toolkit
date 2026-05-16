@@ -59,6 +59,9 @@ export type SignalKind =
   | "whiteboard.objectMoved"
   | "whiteboard.objectDeleted"
   | "whiteboard.commentAdded"
+  | "whiteboard.commentMentioned"
+  | "whiteboard.boardShared"
+  | "whiteboard.activityLogged"
   | "whiteboard.templateApplied"
   | "whiteboard.crossToolImport";
 

@@ -26,6 +26,8 @@ const VALID_KINDS: ReadonlySet<WhiteboardObjectKind> = new Set<WhiteboardObjectK
   "sticky", "rect", "ellipse", "diamond", "triangle",
   "line", "arrow", "connector",
   "text", "freehand", "image", "frame", "embed",
+  // Phase 25-26 additions — paste of these silently dropped before.
+  "card", "kanban", "timer", "voting",
 ]);
 
 /**

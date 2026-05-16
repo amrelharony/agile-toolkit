@@ -8,7 +8,17 @@
 
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 
-export type BoardInsightKind = "abandoned" | "outlier-size" | "disconnected" | "color-scrambled" | "overcrowded";
+export type BoardInsightKind =
+  | "abandoned"
+  | "outlier-size"
+  | "disconnected"
+  | "color-scrambled"
+  | "overcrowded"
+  // Phase 28 additions:
+  | "card-disconnected"   // card with sourceRef.tool === "backlog" whose Story no longer exists
+  | "tag-mismatch"        // tags on canvas objects that don't appear in any workspace entity
+  | "abandoned-cluster"   // cluster with no edits + no connectors for 14d
+  | "missing-frame-label"; // unlabelled frame (empty or whitespace-only label)
 
 export interface BoardInsight {
   id: string;
@@ -138,6 +148,79 @@ export function boardInsights(objects: readonly WhiteboardObject[]): BoardInsigh
         targets: [],
       });
     }
+  }
+
+  // --- Phase 28 rule: cards whose linked Story no longer exists ---
+  // We can't check Story existence from here without the workspace —
+  // exposed via a second exported helper below (`boardInsightsCross`).
+
+  // --- Phase 28 rule: missing frame label ---
+  for (const o of objects) {
+    if (o.type === "frame" && (!o.label || /^\s*$/.test(o.label))) {
+      out.push({
+        id: `missing-frame-label-${o.id}`,
+        kind: "missing-frame-label",
+        severity: "info",
+        title: "Unlabelled frame",
+        detail: "A frame without a label is harder to navigate by Cmd+F or presentation mode.",
+        targets: [o.id],
+      });
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Cross-tool insights — rules that need access to other workspace
+ * entities (Stories, Risks, OKRs, team members). Surfaced alongside
+ * `boardInsights` in the AI panel; caller passes both sets through
+ * the same renderer.
+ */
+export function boardInsightsCross(
+  objects: readonly WhiteboardObject[],
+  workspace?: { stories?: readonly { id: string; tags?: string[] }[]; risks?: readonly { id: string; tags?: string[] }[]; teamMembers?: readonly { id: string }[] } | null,
+): BoardInsight[] {
+  if (!workspace) return [];
+  const out: BoardInsight[] = [];
+
+  // --- Card-disconnected: a card with sourceRef.tool === "backlog"
+  // whose Story has been deleted from the workspace. ---
+  const storyIds = new Set((workspace.stories ?? []).map((s) => s.id));
+  for (const o of objects) {
+    if (o.type === "card" && o.sourceRef?.tool === "backlog" && !storyIds.has(o.sourceRef.entityId)) {
+      out.push({
+        id: `card-disconnected-${o.id}`,
+        kind: "card-disconnected",
+        severity: "warn",
+        title: "Card linked to a deleted story",
+        detail: `This card references story ${o.sourceRef.entityId} which no longer exists. Convert it to a free card or relink to a current story.`,
+        targets: [o.id],
+      });
+    }
+  }
+
+  // --- Tag-mismatch: tags on canvas objects that don't appear in any
+  // workspace entity (story/risk). Surfaces typos + drift. ---
+  const knownTags = new Set<string>();
+  for (const s of workspace.stories ?? []) for (const t of s.tags ?? []) knownTags.add(t);
+  for (const r of workspace.risks ?? []) for (const t of r.tags ?? []) knownTags.add(t);
+  const orphanTagTargets: string[] = [];
+  for (const o of objects) {
+    if (!o.tags || o.tags.length === 0) continue;
+    for (const t of o.tags) {
+      if (!knownTags.has(t)) { orphanTagTargets.push(o.id); break; }
+    }
+  }
+  if (orphanTagTargets.length > 0 && knownTags.size > 0) {
+    out.push({
+      id: "tag-mismatch",
+      kind: "tag-mismatch",
+      severity: "info",
+      title: "Canvas tags don't match workspace tags",
+      detail: `${orphanTagTargets.length} object${orphanTagTargets.length === 1 ? "" : "s"} use tags that don't appear in any story/risk. Likely a typo or stale tag.`,
+      targets: orphanTagTargets,
+    });
   }
 
   return out;

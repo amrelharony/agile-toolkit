@@ -106,6 +106,7 @@ export function defaultCanvasShortcuts(a: Partial<CanvasShortcutActions>): Bindi
   return {
     "v": () => get("setTool")("select"),
     "n": () => get("setTool")("sticky"),
+    "k": () => get("setTool")("card"),
     "r": () => get("setTool")("rect"),
     "o": () => get("setTool")("ellipse"),
     "l": () => get("setTool")("line"),

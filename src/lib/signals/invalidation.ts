@@ -66,6 +66,9 @@ export const INVALIDATION_MATRIX: Record<SignalKind, string[]> = {
   "whiteboard.objectMoved": ["canvas:", "clusters:"],
   "whiteboard.objectDeleted": ["canvas:", "clusters:"],
   "whiteboard.commentAdded": ["canvas:", "comments:"],
+  "whiteboard.commentMentioned": ["canvas:", "comments:", "notifications:"],
+  "whiteboard.boardShared": ["canvas:", "notifications:"],
+  "whiteboard.activityLogged": ["canvas:", "activity:"],
   "whiteboard.templateApplied": ["canvas:"],
   "whiteboard.crossToolImport": ["canvas:", "annotations:"],
 };

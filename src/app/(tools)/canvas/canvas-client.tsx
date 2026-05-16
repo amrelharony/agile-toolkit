@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { LayoutTemplate, FileInput, Download, FileImage, FileCode, FileJson } from "lucide-react";
+import { LayoutTemplate, FileInput, Download, FileImage, FileCode, FileJson, FileText, FileSpreadsheet } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -12,8 +12,9 @@ import { generateCanvasPrompts } from "@/lib/ai-prompts/canvas";
 import { boardInsights } from "@/lib/analytics/board-insights";
 import { clusterObjects } from "@/lib/whiteboard/cluster-bridge";
 import { fitToRects } from "@/lib/whiteboard/canvas-transform";
-import { exportPng, exportSvg, exportJson } from "@/lib/whiteboard/export";
-import { emitSignal } from "@/lib/signals/signal-bus";
+import { exportPng, exportSvg, exportJson, exportJpg, exportPdf, exportCsv } from "@/lib/whiteboard/export";
+import { emitSignal, subscribeSignals } from "@/lib/signals/signal-bus";
+import type { WhiteboardCard, WhiteboardObject } from "@/lib/stores/workspace-types";
 import { useCanvasStore } from "./use-canvas-store";
 import { WhiteboardCanvas } from "./components/whiteboard-canvas";
 import { ToolbarLeft } from "./components/toolbar-left";
@@ -21,8 +22,23 @@ import { ToolbarTop } from "./components/toolbar-top";
 import { ZoomControls } from "./components/zoom-controls";
 import { TemplateGallery } from "./components/template-gallery";
 import { ImportModal } from "./components/import-modal";
+import { FindBar } from "./components/find-bar";
+
+/** Read-only mode is enabled via `?view=readonly` on the URL. When
+ * active, the canvas renders without any toolbars / property panels /
+ * pointer-down handlers — visitors can pan + zoom + read but cannot
+ * mutate. Phase 32. */
+function isReadOnlyMode(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return new URLSearchParams(window.location.search).get("view") === "readonly";
+  } catch {
+    return false;
+  }
+}
 
 export function CanvasClient() {
+  const readOnly = isReadOnlyMode();
   const boards = useWorkspaceStore((s) => s.whiteboards ?? []);
   const upsertBoard = useWorkspaceStore((s) => s.upsertWhiteboard);
   const activeBoardId = useCanvasStore((s) => s.activeBoardId);
@@ -77,6 +93,93 @@ export function CanvasClient() {
   }, [hydrated, boards, activeBoardId, upsertBoard, setActiveBoard]);
 
   const activeBoard = boards.find((b) => b.id === activeBoardId);
+
+  // ─── Card ↔ Story bidirectional sync (Phase 26) ──────────────────────
+  // When a Story changes in another tool (status / title / points),
+  // sync the change down to any Card on the canvas whose sourceRef
+  // points at that Story. We subscribe to the cross-tool signal bus
+  // for the events declared in tools.ts.crossToolSubscriptions — the
+  // subscription was previously declared but never wired.
+  const upsertWhiteboardObjects = useWorkspaceStore((s) => s.upsertWhiteboardObjects);
+  useEffect(() => {
+    if (!hydrated) return;
+    const unsub = subscribeSignals(
+      ["story.statusChanged", "risk.opened", "okr.kr.updated", "decision.recorded"],
+      (signal) => {
+        // We only act when the workspace store has the latest version
+        // of the referenced entity. The signal payload carries the
+        // entity id; we re-read the entity from the store to avoid
+        // race conditions between signal emit and store mutation.
+        const payload = signal.payload as { entityId?: string; storyId?: string; id?: string; status?: string } | null;
+        const entityId = payload?.entityId ?? payload?.storyId ?? payload?.id;
+        if (!entityId) return;
+        const state = useWorkspaceStore.getState();
+        // Find all cards whose sourceRef points at this entity (any board).
+        const matches = (state.whiteboardObjects ?? []).filter((o): o is WhiteboardCard =>
+          o.type === "card" &&
+          o.sourceRef?.entityId === entityId,
+        );
+        if (matches.length === 0) return;
+        const now = new Date().toISOString();
+        const updates: WhiteboardObject[] = [];
+        if (signal.kind === "story.statusChanged") {
+          // Look up the live Story to read the latest title + points
+          // + status. The signal payload only carries the id +
+          // changed status; richer fields come from the store.
+          const story = state.stories.find((s) => s.id === entityId);
+          if (!story) return;
+          for (const card of matches) {
+            updates.push({
+              ...card,
+              title: story.title,
+              points: story.points,
+              status: story.status,
+              version: card.version + 1,
+              updatedAt: now,
+            });
+          }
+        } else if (signal.kind === "risk.opened") {
+          const risk = state.risks.find((r) => r.id === entityId);
+          if (!risk) return;
+          for (const card of matches) {
+            updates.push({
+              ...card,
+              title: risk.title,
+              version: card.version + 1,
+              updatedAt: now,
+            });
+          }
+        } else if (signal.kind === "okr.kr.updated") {
+          // okr.kr.updated payload carries the KR id; we look up the
+          // parent OKR to find the KR's current title.
+          const okr = state.okrs.find((o) => o.keyResults.some((kr) => kr.id === entityId));
+          const kr = okr?.keyResults.find((k) => k.id === entityId);
+          if (!kr) return;
+          for (const card of matches) {
+            updates.push({
+              ...card,
+              title: kr.title,
+              version: card.version + 1,
+              updatedAt: now,
+            });
+          }
+        } else if (signal.kind === "decision.recorded") {
+          const decision = state.decisions.find((d) => d.id === entityId);
+          if (!decision) return;
+          for (const card of matches) {
+            updates.push({
+              ...card,
+              title: decision.title,
+              version: card.version + 1,
+              updatedAt: now,
+            });
+          }
+        }
+        if (updates.length > 0) upsertWhiteboardObjects(updates);
+      },
+    );
+    return unsub;
+  }, [hydrated, upsertWhiteboardObjects]);
 
   // Select the array reference (stable across non-whiteboard mutations), then
   // filter inside useMemo. Doing the filter inline in the Zustand selector
@@ -134,7 +237,29 @@ export function CanvasClient() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showFindBar, setShowFindBar] = useState(false);
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
+
+  // Selection setter pulled from canvas store so the find-bar can
+  // select an object after panning to it.
+  const setSelection = useCanvasStore((s) => s.setSelection);
+
+  // Cmd+F / Ctrl+F opens the find bar. Captured at the window level
+  // so it works regardless of focus inside the canvas. We deliberately
+  // intercept before the browser's native find shortcut would scroll
+  // the page — for an infinite canvas the native browser find is
+  // useless anyway since most text lives in SVGs and absolutely-
+  // positioned divs outside the document flow.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
+        e.preventDefault();
+        setShowFindBar(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const doExportPng = async () => {
     if (!canvasViewportRef.current || !activeBoard) return;
@@ -154,6 +279,26 @@ export function CanvasClient() {
   const doExportJson = () => {
     if (!activeBoard) return;
     exportJson(activeBoard, objects, comments, `${activeBoard.name || "canvas"}.json`);
+  };
+  const doExportJpg = async () => {
+    if (!canvasViewportRef.current || !activeBoard) return;
+    try {
+      await exportJpg(canvasViewportRef.current, `${activeBoard.name || "canvas"}.jpg`);
+    } catch (err) {
+      console.warn("[canvas] JPG export failed:", err);
+    }
+  };
+  const doExportPdf = async () => {
+    if (!canvasViewportRef.current || !activeBoard) return;
+    try {
+      await exportPdf(canvasViewportRef.current, `${activeBoard.name || "canvas"}.pdf`);
+    } catch (err) {
+      console.warn("[canvas] PDF export failed:", err);
+    }
+  };
+  const doExportCsv = () => {
+    if (!activeBoard) return;
+    exportCsv(objects, `${activeBoard.name || "canvas"}.csv`);
   };
 
   return (
@@ -200,6 +345,30 @@ export function CanvasClient() {
               </button>
               <button
                 type="button"
+                onClick={() => { void doExportJpg(); setShowExportMenu(false); }}
+                className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-deep flex items-center gap-2 text-text"
+              >
+                <FileImage className="w-4 h-4 text-sub" />
+                JPG image
+              </button>
+              <button
+                type="button"
+                onClick={() => { void doExportPdf(); setShowExportMenu(false); }}
+                className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-deep flex items-center gap-2 text-text"
+              >
+                <FileText className="w-4 h-4 text-sub" />
+                PDF (print)
+              </button>
+              <button
+                type="button"
+                onClick={() => { doExportCsv(); setShowExportMenu(false); }}
+                className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-deep flex items-center gap-2 text-text"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-sub" />
+                CSV (text rows)
+              </button>
+              <button
+                type="button"
                 onClick={() => { doExportJson(); setShowExportMenu(false); }}
                 className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-deep flex items-center gap-2 text-text"
               >
@@ -219,15 +388,32 @@ export function CanvasClient() {
         className="relative h-[calc(100vh-260px)] min-h-[500px] w-full rounded-lg border border-border overflow-hidden bg-bg"
       >
         {activeBoardId ? (
-          <WhiteboardCanvas boardId={activeBoardId} onViewportSize={setViewportSize} />
+          <WhiteboardCanvas boardId={activeBoardId} onViewportSize={setViewportSize} readOnly={readOnly} />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-sub text-sm">
             Pick or create a board to start.
           </div>
         )}
-        <ToolbarLeft />
-        <ToolbarTop />
+        {!readOnly && <ToolbarLeft />}
+        {!readOnly && <ToolbarTop />}
         <ZoomControls onFit={onFit} viewportSize={viewportSize} />
+        {readOnly && (
+          <div
+            data-canvas-export-ignore="true"
+            className="absolute top-3 left-3 z-20 bg-amber-700/40 text-amber-100 text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded"
+          >
+            Read-only view
+          </div>
+        )}
+        {showFindBar && (
+          <FindBar
+            objects={objects}
+            viewportSize={viewportSize}
+            onPanToRect={setCamera}
+            onSelect={setSelection}
+            onClose={() => setShowFindBar(false)}
+          />
+        )}
       </div>
 
       {insights.length > 0 && (
