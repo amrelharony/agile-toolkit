@@ -16,6 +16,12 @@ export function getAuthServerClient(): SupabaseClient | null {
   const cookieStore = cookies();
 
   return createServerClient(url, anon, {
+    // SECURITY: match the browser client's pkce flow. The verifier
+    // cookie written by the browser must be consumed by a server
+    // client that also expects pkce — a flow-type mismatch would
+    // make `exchangeCodeForSession` fall back to implicit semantics
+    // and bypass the PKCE proof-of-possession check.
+    auth: { flowType: "pkce" },
     cookies: {
       get(name) {
         return cookieStore.get(name)?.value;

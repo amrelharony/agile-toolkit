@@ -6,7 +6,12 @@
  * refactored carelessly in the future.
  */
 
-const SUSPICIOUS_KEYS = /^(token|api[-_]?key|secret|password|authorization|cookie|jwt)$/i;
+// Match exact suspicious key names AND common suffix variants.
+// `^token$` catches "token" but misses "accessToken" / "refreshToken" /
+// "bearerToken" / "idToken" / "csrfToken" / "clientSecret" / "apiSecret"
+// etc. — extending with `(?:[A-Z]\w+)?$` matches both bare and
+// camelCased variants. Same for `*Key`, `*Secret`, `*Password`.
+const SUSPICIOUS_KEYS = /^(?:(?:access|refresh|bearer|id|csrf|auth|session|api|client|app|service|webhook)?(?:token|secret|password|key|jwt)|authorization|cookie|set-cookie)s?$/i;
 // Global flag is required so .replace() redacts every match, not just the first
 // occurrence in a multi-email string. /gi for case-insensitive global.
 const EMAIL_LIKE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;

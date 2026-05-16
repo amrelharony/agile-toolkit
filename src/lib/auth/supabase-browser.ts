@@ -22,7 +22,17 @@ export function getAuthBrowserClient(): SupabaseClient | null {
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anon) return null;
 
-  cached = createBrowserClient(url, anon);
+  // SECURITY: pin the OAuth flow to PKCE. Supabase JS defaults to pkce
+  // on browser clients in current versions, but newer / older
+  // @supabase/ssr revisions have shipped with `implicit` as the
+  // fallback in some build matrices. Implicit flow puts the access
+  // token in the URL fragment (visible in browser history, leaked
+  // via Referer to embedded resources, susceptible to fragment-
+  // hijacking via third-party redirects), so the explicit pin is
+  // worth the one extra line.
+  cached = createBrowserClient(url, anon, {
+    auth: { flowType: "pkce" },
+  });
   return cached;
 }
 
