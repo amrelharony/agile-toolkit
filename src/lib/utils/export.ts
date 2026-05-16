@@ -14,7 +14,16 @@ export function exportToCSV(
     // "null" / "undefined" into the exported file, which then contaminates
     // downstream analysis tools.
     if (cell === null || cell === undefined) return "";
-    const str = String(cell);
+    const raw = String(cell);
+    // SECURITY: Excel / LibreOffice / Sheets evaluate any cell whose first
+    // character is `=`, `+`, `-`, `@`, TAB, or CR as a formula. A user
+    // typing `=cmd|'/c calc'!A0`, `=HYPERLINK(...)`, or `=WEBSERVICE(...)`
+    // into ANY text field on ANY tool would otherwise run arbitrary
+    // spreadsheet code (and exfiltrate data) when the export is opened by
+    // another user. Prefix with a single quote to force literal text —
+    // the leading quote is hidden in the cell but the rest displays
+    // unchanged. Mirrors the same hardening in src/lib/whiteboard/export.ts.
+    const str = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
     return str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")
       ? `"${str.replace(/"/g, '""')}"`
       : str;

@@ -136,7 +136,23 @@ export type ToolAudience = "coach" | "engineering-leader" | "both";
  * tools that don't opt in get the existing behaviour unchanged.
  */
 
-/** Cross-tool signal subscriptions — declarative pub/sub. */
+/** Cross-tool signal subscriptions — declarative pub/sub.
+ *
+ * NOTE: these declarations are CURRENTLY DOCUMENTATION ONLY. The
+ * derived-cache binding in signal-bridge.ts auto-invalidates cached
+ * computations on every emitted signal (via INVALIDATION_MATRIX), so
+ * tools that just need cached chart data to refresh are already
+ * served. UI-level live updates (e.g. burndown re-rendering when a
+ * sprint completes) flow through the Zustand store subscription
+ * driven by the workspace mutation — not through this list.
+ *
+ * The intent was that `ToolPageWrapper` would auto-mount a
+ * `subscribeSignals(kinds, …)` listener at mount time, but no such
+ * mount exists yet (the canvas-client wires its own subscription
+ * manually). Treat this list as a contract for future runtime
+ * wiring + an audit trail of "which tool cares about what kind"
+ * for cross-tool reasoning.
+ */
 export interface ToolSubscription {
   /** Signal kinds (matches `SignalKind` in src/lib/signals/signal-bus.ts). */
   kinds: string[];
@@ -180,7 +196,8 @@ export interface ToolDefinition {
   analyticsTier?: 1 | 2 | 3;
   /** Smart-default fields backed by a registered predictor. */
   predictedDefaults?: PredictionSpec[];
-  /** Cross-tool signal subscriptions (auto-mounted by ToolPageWrapper). */
+  /** Cross-tool signal subscriptions. Currently documentation-only —
+   * see the long-form note on {@link ToolSubscription}. */
   crossToolSubscriptions?: ToolSubscription[];
   /** Causal annotations to compute and overlay on this tool's charts. */
   causalAnnotations?: CausalAnnotationSpec[];

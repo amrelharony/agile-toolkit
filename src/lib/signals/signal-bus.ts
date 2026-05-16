@@ -121,6 +121,80 @@ function scheduleFlush(): void {
 }
 
 /**
+ * Runtime-iterable set of every declared signal kind. Mirrors the
+ * `SignalKind` union above; if you add a kind, add it here too (TS
+ * doesn't let us derive a value-level list from a string union, and
+ * importing `INVALIDATION_MATRIX` keys here would create a cycle
+ * because invalidation.ts imports `SignalKind` from this module).
+ *
+ * Use {@link isValidSignalKind} to validate kinds coming from
+ * untrusted sources (URL params, persisted state, remote events).
+ */
+export const ALL_SIGNAL_KINDS: ReadonlySet<SignalKind> = new Set<SignalKind>([
+  "velocity.changed",
+  "impediment.raised",
+  "impediment.resolved",
+  "risk.opened",
+  "risk.closed",
+  "okr.kr.updated",
+  "techDebt.added",
+  "techDebt.resolved",
+  "decision.recorded",
+  "story.statusChanged",
+  "sprint.completed",
+  "sprint.started",
+  "moodLogged",
+  "incident.opened",
+  "incident.resolved",
+  "vuln.opened",
+  "vuln.closed",
+  "deploy.recorded",
+  "flag.added",
+  "flag.aged",
+  "stakeholder.changed",
+  "rfc.decided",
+  "llmEval.recorded",
+  "llmEval.regressionDetected",
+  "prompt.versionPublished",
+  "hallucination.logged",
+  "hallucination.resolved",
+  "tokenCost.threshold",
+  "model.upgraded",
+  "redTeam.findingOpened",
+  "redTeam.findingClosed",
+  "agentWorkflow.created",
+  "hitl.reviewLogged",
+  "rlhf.pairLogged",
+  "vector.collectionAdded",
+  "modelCard.published",
+  "prioritization.scored",
+  "prioritization.shipped",
+  "decision.daciCreated",
+  "decision.rapidCreated",
+  "decision.weightedScored",
+  "decision.cynefinClassified",
+  "decision.staceyClassified",
+  "decision.polarityMapped",
+  "ooda.cycleCompleted",
+  "sixHats.thoughtLogged",
+  "whiteboard.boardCreated",
+  "whiteboard.boardDeleted",
+  "whiteboard.objectCreated",
+  "whiteboard.objectMoved",
+  "whiteboard.objectDeleted",
+  "whiteboard.commentAdded",
+  "whiteboard.commentMentioned",
+  "whiteboard.boardShared",
+  "whiteboard.activityLogged",
+  "whiteboard.templateApplied",
+  "whiteboard.crossToolImport",
+]);
+
+export function isValidSignalKind(k: unknown): k is SignalKind {
+  return typeof k === "string" && (ALL_SIGNAL_KINDS as ReadonlySet<string>).has(k);
+}
+
+/**
  * Emit a signal. Subscribers are notified on the next animation frame —
  * never synchronously, so the emit site can never trigger a render storm.
  * Multiple emits within the same frame are batched.

@@ -2,8 +2,9 @@
 
 import { useWorkspaceStore } from "../stores/workspace-store";
 import type { Workspace } from "../stores/workspace-types";
-import { emitSignal, type SignalKind } from "./signal-bus";
+import { emitSignal, ALL_SIGNAL_KINDS, type SignalKind } from "./signal-bus";
 import { bindCacheInvalidation } from "./derived-cache";
+import { INVALIDATION_MATRIX } from "./invalidation";
 
 /**
  * Single boot-time wire-up that translates workspace-store mutations into
@@ -19,6 +20,22 @@ let unsubscribeCache: (() => void) | null = null;
 export function installSignalBridge(): void {
   if (installed) return;
   installed = true;
+
+  // Dev-only sanity check — INVALIDATION_MATRIX should have an entry
+  // for every declared kind. If a future kind gets added to the
+  // SignalKind union but not to the matrix, derived-cache won't
+  // invalidate on that kind and the bug is silent. Warn loudly in dev
+  // (production is silent — the entry just means "no cache prefixes
+  // to flush for this kind", which is sometimes intentional).
+  if (process.env.NODE_ENV !== "production") {
+    // forEach (not for-of) so the build doesn't require downlevelIteration.
+    ALL_SIGNAL_KINDS.forEach((k) => {
+      if (!(k in INVALIDATION_MATRIX)) {
+        // eslint-disable-next-line no-console
+        console.warn("[signal-bridge] INVALIDATION_MATRIX missing entry for:", k);
+      }
+    });
+  }
 
   // 1) Cache auto-invalidation via signal subscription.
   unsubscribeCache = bindCacheInvalidation();
