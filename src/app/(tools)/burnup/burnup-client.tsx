@@ -3,6 +3,7 @@
 import { useRef, useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   ComposedChart,
   Area,
@@ -161,7 +162,7 @@ const useBurnupStore = create<BurnupStore>()(
       },
     };
     },
-    { name: "agile-toolkit:burnup" }
+    { name: "agile-toolkit:burnup", storage: safeJSONStorage("burnup") }
   )
 );
 
@@ -441,7 +442,8 @@ export function BurnupClient() {
 
     const initialScope =
       chartData.find((d) => d.scope !== null)?.scope ?? 0;
-    const maxScope = Math.max(...chartData.map((d) => d.scope ?? 0));
+    const scopeVals = chartData.map((d) => d.scope ?? 0);
+    const maxScope = scopeVals.length > 0 ? Math.max(...scopeVals) : 0;
     const scopeCreep = Math.max(0, maxScope - initialScope);
 
     const lastFilledEntry = [...sortedEntries]
@@ -449,8 +451,10 @@ export function BurnupClient() {
       .find((e) => e.completed !== null);
     const latestCompleted = lastFilledEntry?.completed ?? 0;
     const currentScope = chartData[chartData.length - 1]?.scope ?? maxScope;
-    const completionPct =
-      currentScope > 0 ? Math.round((latestCompleted / currentScope) * 100) : 0;
+    const completionPct = Math.max(
+      0,
+      Math.min(100, currentScope > 0 ? Math.round((latestCompleted / currentScope) * 100) : 0),
+    );
 
     // Projected completion: linear extrapolation from last two filled entries
     let projectedDay: number | null = null;
@@ -463,9 +467,16 @@ export function BurnupClient() {
       const prev = completedEntries[n - 2];
       const rate =
         (last.completed! - prev.completed!) / Math.max(1, last.day - prev.day);
-      if (rate > 0) {
+      if (rate > 0 && Number.isFinite(rate)) {
         const daysLeft = (currentScope - latestCompleted) / rate;
-        projectedDay = Math.round(last.day + daysLeft);
+        if (Number.isFinite(daysLeft) && daysLeft >= 0) {
+          // Cap projected day at sprintDays + 365 — beyond that the band is
+          // meaningless and a huge number would clobber the UI.
+          projectedDay = Math.min(
+            config.sprintDays + 365,
+            Math.round(last.day + daysLeft),
+          );
+        }
       }
     }
 
@@ -477,7 +488,7 @@ export function BurnupClient() {
       completionPct,
       projectedDay,
     };
-  }, [sortedEntries, chartData]);
+  }, [sortedEntries, chartData, config.sprintDays]);
 
   /* -- Export data --------------------------------------------------------- */
 
@@ -565,9 +576,10 @@ export function BurnupClient() {
                 min={1}
                 max={60}
                 value={config.sprintDays}
-                onChange={(e) =>
-                  updateConfig({ sprintDays: Math.max(1, Math.min(60, Number(e.target.value))) })
-                }
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (Number.isFinite(n)) updateConfig({ sprintDays: Math.max(1, Math.min(60, n)) });
+                }}
                 className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
               />
             </div>
@@ -832,11 +844,14 @@ export function BurnupClient() {
                   min={0}
                   placeholder="— pts"
                   value={entry.scope ?? ""}
-                  onChange={(e) =>
-                    updateEntry(entry.id, {
-                      scope: e.target.value === "" ? null : Number(e.target.value),
-                    })
-                  }
+                  onChange={(e) => {
+                    if (e.target.value === "") {
+                      updateEntry(entry.id, { scope: null });
+                      return;
+                    }
+                    const n = Number(e.target.value);
+                    if (Number.isFinite(n)) updateEntry(entry.id, { scope: Math.max(0, n) });
+                  }}
                   className="bg-surface-deep border-border text-text font-data focus:border-[#ff00aa]/50 focus:ring-[#ff00aa]/20"
                 />
 
@@ -845,11 +860,14 @@ export function BurnupClient() {
                   min={0}
                   placeholder="— pts"
                   value={entry.completed ?? ""}
-                  onChange={(e) =>
-                    updateEntry(entry.id, {
-                      completed: e.target.value === "" ? null : Number(e.target.value),
-                    })
-                  }
+                  onChange={(e) => {
+                    if (e.target.value === "") {
+                      updateEntry(entry.id, { completed: null });
+                      return;
+                    }
+                    const n = Number(e.target.value);
+                    if (Number.isFinite(n)) updateEntry(entry.id, { completed: Math.max(0, n) });
+                  }}
                   className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
                 />
 

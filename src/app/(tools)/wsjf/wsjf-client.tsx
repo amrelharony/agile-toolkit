@@ -34,11 +34,19 @@ export function WsjfClient() {
 
   function add() {
     if (!title.trim()) return;
-    const score = wsjfScore(parseFloat(bv) || 0, parseFloat(tc) || 0, parseFloat(rrOe) || 0, parseFloat(size) || 1);
+    const fn = (s: string, fb: number) => {
+      const v = parseFloat(s);
+      return Number.isFinite(v) ? v : fb;
+    };
+    const businessValue = fn(bv, 0);
+    const timeCriticality = fn(tc, 0);
+    const rrOeVal = fn(rrOe, 0);
+    const jobSize = fn(size, 1);
+    const score = wsjfScore(businessValue, timeCriticality, rrOeVal, jobSize);
     const item: PrioritizationItem = {
-      id: crypto.randomUUID(), framework: "wsjf", title: title.trim(),
+      id: crypto.randomUUID(), framework: "wsjf", title: title.trim().slice(0, 200),
       score,
-      fields: { businessValue: parseFloat(bv) || 0, timeCriticality: parseFloat(tc) || 0, rrOe: parseFloat(rrOe) || 0, jobSize: parseFloat(size) || 1 },
+      fields: { businessValue, timeCriticality, rrOe: rrOeVal, jobSize },
       status: "scored", updatedAt: new Date().toISOString(),
     };
     upsert(item);

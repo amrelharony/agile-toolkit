@@ -183,8 +183,15 @@ export function HolidayEngine() {
   // but the object identity is the stable signal from the provider.
   const windMultiplier = useMemo(() => {
     if (!weather) return 1;
+    // Defensive: a stub weather provider or a partial API response could send
+    // NaN/undefined and silently zero out particle drift. Fall back to 1 in
+    // those cases so the holiday theme still animates.
+    const ws =
+      typeof weather.windSpeed === "number" && Number.isFinite(weather.windSpeed)
+        ? weather.windSpeed
+        : 3;
     // 3 m/s ≈ normal, 6 m/s → 2x, cap at 3x so gusts don't launch particles off-screen
-    return Math.min(3, Math.max(0.5, weather.windSpeed / 3));
+    return Math.min(3, Math.max(0.5, ws / 3));
   }, [weather]);
 
   const particleOptions = useMemo<ISourceOptions | null>(() => {

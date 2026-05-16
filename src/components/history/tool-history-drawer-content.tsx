@@ -27,7 +27,10 @@ import type { HistoryEvent } from "@/lib/history/types";
 
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
-  const sec = Math.round(diffMs / 1000);
+  // Guard against clock skew (multiplayer sync from a peer with a faster
+  // clock, or system time adjustments) — without this the UI shows
+  // nonsense like "-3s ago" for events that arrived from the future.
+  const sec = Math.max(0, Math.round(diffMs / 1000));
   if (sec < 60) return `${sec}s ago`;
   const min = Math.round(sec / 60);
   if (min < 60) return `${min}m ago`;
@@ -38,11 +41,22 @@ function timeAgo(iso: string): string {
 }
 
 function dayKey(iso: string): string {
-  return new Date(iso).toISOString().slice(0, 10);
+  // `new Date(invalid).toISOString()` throws RangeError, which would
+  // crash the entire history drawer if a single stored event has a
+  // malformed `occurredAt` (corruption, manual storage edit, future
+  // schema migration that drops a field). Guard with isFinite first
+  // and bucket bad entries under "unknown" so they remain visible but
+  // grouped together.
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "unknown";
+  return d.toISOString().slice(0, 10);
 }
 
 function dayLabel(iso: string): string {
   const d = new Date(iso);
+  // Mirror dayKey's invalid-date defence so a malformed timestamp
+  // surfaces as "Unknown date" rather than literal "Invalid Date".
+  if (!Number.isFinite(d.getTime())) return "Unknown date";
   const today = new Date();
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);

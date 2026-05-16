@@ -24,6 +24,10 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      // Skip auto-repeat keydowns — without this, holding Cmd+K toggles
+      // the palette dozens of times per second and traps the user in a
+      // strobing open/close loop.
+      if (e.repeat) return;
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         onOpenChange(!open);

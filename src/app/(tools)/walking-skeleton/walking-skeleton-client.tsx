@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { useShallow } from "zustand/react/shallow";
 import { Boxes, Plus, Trash2, CheckCircle2, Circle } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -34,7 +35,7 @@ const useStore = create<State>()(persist((set) => ({
   add: (text, layer) => set((s) => ({ steps: [...s.steps, { id: crypto.randomUUID(), text, layer, done: false }] })),
   toggle: (id) => set((s) => ({ steps: s.steps.map((st) => st.id === id ? { ...st, done: !st.done } : st) })),
   remove: (id) => set((s) => ({ steps: s.steps.filter((st) => st.id !== id) })),
-}), { name: "agile-toolkit:walking-skeleton" }));
+}), { name: "agile-toolkit:walking-skeleton", storage: safeJSONStorage("walking-skeleton") }));
 
 const LAYERS: Step["layer"][] = ["ui", "api", "data", "infra"];
 const LAYER_COLORS: Record<Step["layer"], string> = {

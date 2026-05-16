@@ -38,7 +38,7 @@ export function CostOfDelayClient() {
     const safeDl = Number.isFinite(dl) ? Math.max(0, dl) : 0;
     const total = safeWk * safeDl;
     const item: PrioritizationItem = {
-      id: crypto.randomUUID(), framework: "cost-of-delay", title: title.trim(),
+      id: crypto.randomUUID(), framework: "cost-of-delay", title: title.trim().slice(0, 200),
       score: total,
       fields: { perWeekUsd: safeWk, weeksDelayed: safeDl, totalCost: total },
       status: "scored", updatedAt: new Date().toISOString(),

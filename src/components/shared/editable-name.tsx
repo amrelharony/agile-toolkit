@@ -85,8 +85,15 @@ export function EditableName({
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
-          if (e.key === "Enter") commit();
+          // Prevent Enter from bubbling to a parent <form> (story-mapper
+          // and raci both render this inside form-grid wrappers) — without
+          // preventDefault a stray submit could fire and reload the page.
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          }
           if (e.key === "Escape") {
+            e.preventDefault();
             setDraft(value);
             setEditing(false);
           }

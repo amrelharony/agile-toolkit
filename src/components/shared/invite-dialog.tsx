@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link2, Copy, Check, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +28,10 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
   const [url, setUrl] = useState("");
   const [copied, setCopied] = useState(false);
   const [available, setAvailable] = useState(false);
+  // Hold the copied-flag timer so we can cancel it on unmount — otherwise a
+  // user who closes the dialog right after copying triggers a setState on
+  // an unmounted component and leaks the timer past dialog teardown.
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setAvailable(isRealtimeAvailable());
@@ -48,6 +52,12 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
     setUrl(u.toString());
   }, [roomId]);
 
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    };
+  }, []);
+
   const handleCreate = () => {
     const fresh = nanoid(10);
     setRoomId(fresh);
@@ -65,7 +75,10 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
     if (ok) {
       setCopied(true);
       toast.success("Invite link copied");
-      setTimeout(() => setCopied(false), 2000);
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
+    } else {
+      toast.error("Failed to copy invite link");
     }
   };
 

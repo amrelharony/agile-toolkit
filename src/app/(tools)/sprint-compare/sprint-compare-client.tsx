@@ -3,6 +3,7 @@
 import { useRef, useMemo, useState, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   RadarChart,
   Radar,
@@ -162,7 +163,7 @@ const useSprintCompareStore = create<SprintCompareStore>()(
 
       reset: () => set({ sprints: DEFAULT_SPRINTS }),
     }),
-    { name: "agile-toolkit:sprint-compare" }
+    { name: "agile-toolkit:sprint-compare", storage: safeJSONStorage("sprint-compare") }
   )
 );
 

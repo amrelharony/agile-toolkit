@@ -3,6 +3,7 @@
 import { useMemo, useRef } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { useShallow } from "zustand/react/shallow";
 import { ShieldHalf, CheckCircle2, Circle } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -24,7 +25,7 @@ const useStore = create<State>()(persist((set) => ({
   checks: {},
   set: (id, v) => set((s) => ({ checks: { ...s.checks, [id]: v } })),
   reset: () => set({ checks: {} }),
-}), { name: "agile-toolkit:ai-safety-checklist" }));
+}), { name: "agile-toolkit:ai-safety-checklist", storage: safeJSONStorage("ai-safety-checklist") }));
 
 const SECTIONS: { title: string; items: { id: string; text: string }[] }[] = [
   { title: "Data Privacy", items: [

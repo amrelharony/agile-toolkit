@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   LineChart,
   Line,
@@ -160,7 +161,7 @@ const useHealthCheckStore = create<HealthCheckStore>()(
       reset: () =>
         set({ current: { ...DEFAULT_CURRENT, scores: defaultScores() }, history: [] }),
     }),
-    { name: "agile-toolkit:health-check" }
+    { name: "agile-toolkit:health-check", storage: safeJSONStorage("health-check") }
   )
 );
 

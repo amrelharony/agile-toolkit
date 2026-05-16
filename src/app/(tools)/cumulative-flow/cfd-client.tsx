@@ -3,6 +3,7 @@
 import { useRef, useMemo, useState, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   AreaChart,
   Area,
@@ -173,7 +174,7 @@ const useCFDStore = create<CFDStore>()(
       reset: () =>
         set({ columns: DEFAULT_COLUMNS, entries: [], wipLimit: null }),
     }),
-    { name: "agile-toolkit:cumulative-flow" }
+    { name: "agile-toolkit:cumulative-flow", storage: safeJSONStorage("cumulative-flow") }
   )
 );
 
@@ -917,9 +918,12 @@ export function CFDClient() {
                               type="number"
                               min={0}
                               value={entry.counts[col.id] ?? 0}
-                              onChange={(e) =>
-                                updateEntryCount(entry.id, col.id, Number(e.target.value))
-                              }
+                              onChange={(e) => {
+                                const n = Number(e.target.value);
+                                if (Number.isFinite(n)) {
+                                  updateEntryCount(entry.id, col.id, Math.max(0, n));
+                                }
+                              }}
                               className="h-8 w-20 mx-auto bg-surface-deep border-border text-text font-data text-center focus:border-accent/50"
                             />
                           </td>

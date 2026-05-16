@@ -63,8 +63,14 @@ function emptyRisk(): Risk {
   };
 }
 
+function clampToScale(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(1, Math.min(5, Math.round(n)));
+}
+
 function riskScore(r: Risk): number {
-  return r.probability * r.impact;
+  return clampToScale(r.probability) * clampToScale(r.impact);
 }
 
 function riskColor(score: number): string {
@@ -181,7 +187,9 @@ export function RiskRegisterClient() {
   const matrix = useMemo(() => {
     const grid = Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => 0));
     for (const r of risks.filter((x) => x.status !== "closed")) {
-      grid[r.probability - 1][r.impact - 1]++;
+      const p = clampToScale(r.probability);
+      const i = clampToScale(r.impact);
+      grid[p - 1][i - 1]++;
     }
     return grid;
   }, [risks]);

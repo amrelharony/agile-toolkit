@@ -3,6 +3,7 @@
 import { useRef, useMemo, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -277,7 +278,7 @@ const useSkillsStore = create<SkillsMatrixStore>()(
         });
       },
     }),
-    { name: "agile-toolkit:skills-matrix" }
+    { name: "agile-toolkit:skills-matrix", storage: safeJSONStorage("skills-matrix") }
   )
 );
 

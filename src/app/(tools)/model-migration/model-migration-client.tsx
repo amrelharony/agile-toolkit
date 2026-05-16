@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { useShallow } from "zustand/react/shallow";
 import { Repeat, Plus, Trash2, CheckCircle2, Circle } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -56,7 +57,7 @@ const useStore = create<State>()(persist((set) => ({
   addStep: (text) => set((s) => ({ steps: [...s.steps, { id: crypto.randomUUID(), text, done: false }] })),
   toggleStep: (id) => set((s) => ({ steps: s.steps.map((st) => st.id === id ? { ...st, done: !st.done } : st) })),
   removeStep: (id) => set((s) => ({ steps: s.steps.filter((st) => st.id !== id) })),
-}), { name: "agile-toolkit:model-migration" }));
+}), { name: "agile-toolkit:model-migration", storage: safeJSONStorage("model-migration") }));
 
 export function ModelMigrationClient() {
   const store = useStore();

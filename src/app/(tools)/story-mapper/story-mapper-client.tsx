@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   DragOverlay,
   PointerSensor,
@@ -344,7 +345,7 @@ const useStoryMapStore = create<StoryMapState>()(
       },
       };
     },
-    { name: "agile-toolkit:story-mapper" }
+    { name: "agile-toolkit:story-mapper", storage: safeJSONStorage("story-mapper") }
   )
 );
 

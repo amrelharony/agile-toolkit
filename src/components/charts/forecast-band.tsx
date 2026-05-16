@@ -28,7 +28,28 @@ interface ForecastBandChartProps {
   height?: number;
 }
 
+// Drop NaN / Infinity / undefined points so Recharts doesn't render
+// silently-broken paths (a single NaN point breaks Area connectNulls
+// behaviour and produces a horizontal-line glitch through the rest of
+// the chart).
+function sanitizeY(y: number | undefined | null): number | undefined {
+  return typeof y === "number" && Number.isFinite(y) ? y : undefined;
+}
+
 export function ForecastBandChart({ series, xLabel, yLabel, height = 320 }: ForecastBandChartProps) {
+  const safeHistorical = (series.historical ?? []).filter(
+    (p) => p != null && sanitizeY(p.y) !== undefined,
+  );
+  const safeForecast = (series.forecast ?? []).filter(
+    (p) =>
+      p != null &&
+      sanitizeY(p.yHat) !== undefined &&
+      sanitizeY(p.lower80) !== undefined &&
+      sanitizeY(p.upper80) !== undefined &&
+      sanitizeY(p.lower95) !== undefined &&
+      sanitizeY(p.upper95) !== undefined,
+  );
+
   const data: Array<{
     x: number | string;
     actual?: number;
@@ -39,12 +60,12 @@ export function ForecastBandChart({ series, xLabel, yLabel, height = 320 }: Fore
     band95Upper?: number;
   }> = [];
 
-  series.historical.forEach((p) => {
+  safeHistorical.forEach((p) => {
     data.push({ x: p.x, actual: p.y });
   });
 
-  if (series.historical.length > 0 && series.forecast.length > 0) {
-    const lastHist = series.historical[series.historical.length - 1];
+  if (safeHistorical.length > 0 && safeForecast.length > 0) {
+    const lastHist = safeHistorical[safeHistorical.length - 1];
     data[data.length - 1] = {
       ...data[data.length - 1],
       yHat: lastHist.y,
@@ -55,7 +76,7 @@ export function ForecastBandChart({ series, xLabel, yLabel, height = 320 }: Fore
     };
   }
 
-  series.forecast.forEach((f) => {
+  safeForecast.forEach((f) => {
     data.push({
       x: f.x,
       yHat: f.yHat,
@@ -67,7 +88,21 @@ export function ForecastBandChart({ series, xLabel, yLabel, height = 320 }: Fore
   });
 
   const boundaryX =
-    series.historical.length > 0 ? series.historical[series.historical.length - 1].x : undefined;
+    safeHistorical.length > 0 ? safeHistorical[safeHistorical.length - 1].x : undefined;
+
+  // Empty-state guard. Without this, Recharts renders an empty axis
+  // skeleton that gets confused with "loading" by users. Show explicit copy.
+  if (data.length === 0) {
+    return (
+      <div
+        className="flex items-center justify-center text-xs text-sub border border-dashed border-border rounded-md"
+        style={{ height }}
+        role="status"
+      >
+        No data to forecast yet.
+      </div>
+    );
+  }
 
   return (
     <ResponsiveContainer width="100%" height={height}>

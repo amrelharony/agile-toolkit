@@ -3,6 +3,7 @@
 import { useRef, useMemo, useState, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -116,7 +117,7 @@ const useCapacityStore = create<CapacityStore>()(
       reset: () =>
         set({ members: [createMember()], config: { ...defaultConfig } }),
     }),
-    { name: "agile-toolkit:capacity-planner" }
+    { name: "agile-toolkit:capacity-planner", storage: safeJSONStorage("capacity-planner") }
   )
 );
 
@@ -288,11 +289,12 @@ function MemberRow({
             min={0}
             max={100}
             value={member.availability}
-            onChange={(e) =>
-              onUpdate({
-                availability: Math.min(100, Math.max(0, Number(e.target.value))),
-              })
-            }
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (Number.isFinite(n)) {
+                onUpdate({ availability: Math.min(100, Math.max(0, n)) });
+              }
+            }}
             className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
           />
         </div>
@@ -303,9 +305,12 @@ function MemberRow({
             type="number"
             min={0}
             value={member.daysOff}
-            onChange={(e) =>
-              onUpdate({ daysOff: Math.max(0, Number(e.target.value)) })
-            }
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (Number.isFinite(n)) {
+                onUpdate({ daysOff: Math.max(0, n) });
+              }
+            }}
             className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
           />
         </div>

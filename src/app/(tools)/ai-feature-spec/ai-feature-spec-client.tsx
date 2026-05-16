@@ -3,6 +3,7 @@
 import { useMemo, useRef } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { useShallow } from "zustand/react/shallow";
 import { FileText } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -38,7 +39,7 @@ const useSpecStore = create<Spec>()(
     ...empty,
     set: (k, v) => set({ [k]: v } as unknown as Partial<Spec>),
     reset: () => set(empty),
-  }), { name: "agile-toolkit:ai-feature-spec" }),
+  }), { name: "agile-toolkit:ai-feature-spec", storage: safeJSONStorage("ai-feature-spec") }),
 );
 
 const FIELDS: Array<{ key: keyof typeof empty; label: string; placeholder: string; rows?: number }> = [

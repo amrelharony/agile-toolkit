@@ -40,7 +40,7 @@ export function MoscowClient() {
   function add() {
     if (!title.trim()) return;
     const item: PrioritizationItem = {
-      id: crypto.randomUUID(), framework: "moscow", title: title.trim(),
+      id: crypto.randomUUID(), framework: "moscow", title: title.trim().slice(0, 200),
       fields: { bucket }, status: "scored", updatedAt: new Date().toISOString(),
     };
     upsert(item);
@@ -63,7 +63,8 @@ export function MoscowClient() {
   const grouped = useMemo(() => {
     const m: Record<Bucket, PrioritizationItem[]> = { must: [], should: [], could: [], wont: [] };
     for (const it of items) {
-      const b = (it.fields?.bucket as Bucket) ?? "must";
+      const raw = it.fields?.bucket as Bucket;
+      const b: Bucket = raw === "must" || raw === "should" || raw === "could" || raw === "wont" ? raw : "must";
       m[b].push(it);
     }
     return m;

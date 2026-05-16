@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   ComposedChart,
   Bar,
@@ -120,6 +121,7 @@ const useVelocityStore = create<VelocityStore>()(
     ),
     {
       name: "agile-toolkit:velocity",
+      storage: safeJSONStorage("velocity"),
       // Don't persist the time-travel stacks — they're in-memory only.
       partialize: (state) => {
         const { _ttPast, _ttFuture, ...rest } = state as VelocityStore & {

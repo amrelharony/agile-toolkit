@@ -3,6 +3,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   LineChart,
   Line,
@@ -206,7 +207,7 @@ const useRefinementStore = create<RefinementStore>()(
           history: [],
         }),
     }),
-    { name: "agile-toolkit:refinement" }
+    { name: "agile-toolkit:refinement", storage: safeJSONStorage("refinement") }
   )
 );
 

@@ -35,7 +35,11 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close on click-outside
+  // Close on click-outside + Escape. Escape was missing originally, which
+  // forced keyboard-only users to tab back to the trigger to dismiss — a
+  // WCAG 2.1.2 (No Keyboard Trap) regression. Mousedown is preferred over
+  // click so the dropdown closes before the next click can refocus the
+  // trigger, eliminating a flicker on rapid double-clicks.
   useEffect(() => {
     if (!mobileOpen) return;
     const handler = (e: MouseEvent) => {
@@ -43,8 +47,15 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
         setMobileOpen(false);
       }
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileOpen(false);
+    };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [mobileOpen]);
 
   return (

@@ -17,10 +17,11 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { TOKEN_COST_ACTIONS } from "@/lib/history/event-actions";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 
 interface Cfg { monthlyBudgetUsd: number; }
 const useCfg = create<Cfg & { setBudget: (v: number) => void }>()(
-  persist((set) => ({ monthlyBudgetUsd: 1000, setBudget: (v) => set({ monthlyBudgetUsd: v }) }), { name: "agile-toolkit:token-cost-cfg" }),
+  persist((set) => ({ monthlyBudgetUsd: 1000, setBudget: (v) => set({ monthlyBudgetUsd: v }) }), { name: "agile-toolkit:token-cost-cfg", storage: safeJSONStorage("token-cost-cfg") }),
 );
 
 export function TokenCostTrackerClient() {

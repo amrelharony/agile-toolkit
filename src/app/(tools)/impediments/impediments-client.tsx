@@ -12,6 +12,7 @@ import { emit as sonify } from "@/lib/sonification/emit";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { IMPEDIMENT_ACTIONS } from "@/lib/history/event-actions";
 import { withTimeTravel } from "@/lib/stores/with-time-travel";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
@@ -128,6 +129,7 @@ const useImpedimentStore = create<ImpedimentStore>()(
     ),
     {
       name: "agile-toolkit:impediments",
+      storage: safeJSONStorage("impediments"),
       partialize: (state) => {
         const {
           _ttPast,

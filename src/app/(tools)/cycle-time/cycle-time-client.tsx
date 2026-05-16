@@ -3,6 +3,7 @@
 import { useRef, useMemo, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   BarChart,
   Bar,
@@ -132,7 +133,7 @@ const useCycleTimeStore = create<CycleTimeStore>()(
 
       reset: () => set({ items: [createItem()] }),
     }),
-    { name: "agile-toolkit:cycle-time" }
+    { name: "agile-toolkit:cycle-time", storage: safeJSONStorage("cycle-time") }
   )
 );
 
@@ -698,8 +699,10 @@ export function CycleTimeClient() {
                           max={99}
                           value={targetPct}
                           onChange={(e) => {
-                            const v = Math.min(99, Math.max(1, Number(e.target.value)));
-                            setTargetPct(v);
+                            const n = Number(e.target.value);
+                            if (Number.isFinite(n)) {
+                              setTargetPct(Math.min(99, Math.max(1, n)));
+                            }
                           }}
                           className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
                         />

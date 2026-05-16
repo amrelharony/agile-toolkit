@@ -25,6 +25,7 @@ import { generateBurndownPrompts } from "@/lib/ai-prompts/burndown";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { BURNDOWN_ACTIONS } from "@/lib/history/event-actions";
 import { withTimeTravel } from "@/lib/stores/with-time-travel";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
 import { cusum } from "@/lib/analytics/changepoint";
@@ -185,6 +186,7 @@ const useBurndownStore = create<BurndownStore>()(
     ),
     {
       name: "agile-toolkit:burndown",
+      storage: safeJSONStorage("burndown"),
       partialize: (state) => {
         const {
           _ttPast,
@@ -209,8 +211,10 @@ function getIdealValue(day: number, totalPoints: number, sprintDays: number): nu
   // produces Infinity/NaN that cascades through the chart's domain calc and
   // crashes Recharts. Return totalPoints (the y-intercept) as a safe fallback
   // so the chart still renders a flat line at full scope.
-  if (!Number.isFinite(sprintDays) || sprintDays <= 0) return totalPoints;
-  return Math.max(0, totalPoints - (totalPoints / sprintDays) * day);
+  const tp = Number.isFinite(totalPoints) ? totalPoints : 0;
+  if (!Number.isFinite(sprintDays) || sprintDays <= 0) return tp;
+  if (!Number.isFinite(day)) return tp;
+  return Math.max(0, tp - (tp / sprintDays) * day);
 }
 
 function computeTodayDay(sprintStartDate: string, sprintDays: number): number | null {
@@ -479,8 +483,9 @@ export function BurndownClient() {
     const idealAtLastDay = getIdealValue(last.day, config.totalPoints, config.sprintDays);
     const variance = parseFloat((idealAtLastDay - (last.remaining ?? 0)).toFixed(1));
     const trend = variance > 0.5 ? "ahead" : variance < -0.5 ? "behind" : "neutral";
-    const completed = config.totalPoints - (last.remaining ?? config.totalPoints);
-    const completionRate = Math.round((completed / config.totalPoints) * 100);
+    const tp = config.totalPoints > 0 ? config.totalPoints : 1;
+    const completed = tp - (last.remaining ?? tp);
+    const completionRate = Math.max(0, Math.min(100, Math.round((completed / tp) * 100)));
     return { variance, trend, completionRate, lastDay: last.day };
   }, [sortedEntries, config]);
 
@@ -597,7 +602,10 @@ export function BurndownClient() {
                           accept();
                         }
                       }}
-                      onChange={(e) => updateConfig({ totalPoints: Math.max(1, Number(e.target.value)) })}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        if (Number.isFinite(n)) updateConfig({ totalPoints: Math.max(1, n) });
+                      }}
                       className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
                       aria-label="Total story points for the sprint"
                     />
@@ -613,9 +621,10 @@ export function BurndownClient() {
                 min={1}
                 max={60}
                 value={config.sprintDays}
-                onChange={(e) =>
-                  updateConfig({ sprintDays: Math.max(1, Math.min(60, Number(e.target.value))) })
-                }
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (Number.isFinite(n)) updateConfig({ sprintDays: Math.max(1, Math.min(60, n)) });
+                }}
                 className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
               />
             </div>
@@ -866,11 +875,14 @@ export function BurndownClient() {
                   min={0}
                   placeholder="— pts"
                   value={entry.remaining ?? ""}
-                  onChange={(e) =>
-                    updateEntry(entry.id, {
-                      remaining: e.target.value === "" ? null : Number(e.target.value),
-                    })
-                  }
+                  onChange={(e) => {
+                    if (e.target.value === "") {
+                      updateEntry(entry.id, { remaining: null });
+                      return;
+                    }
+                    const n = Number(e.target.value);
+                    if (Number.isFinite(n)) updateEntry(entry.id, { remaining: Math.max(0, n) });
+                  }}
                   className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
                 />
 

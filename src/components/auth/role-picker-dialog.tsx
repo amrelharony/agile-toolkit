@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +37,14 @@ export function RolePickerDialog({
 }: RolePickerDialogProps) {
   const [selected, setSelected] = useState<ScrumRole | null>(currentRole);
   const [saving, setSaving] = useState(false);
+
+  // Re-sync the local selection when the dialog opens with a different
+  // currentRole (e.g., parent updated the user's role outside this dialog,
+  // then reopened). Without this, the dialog reflects the role the user
+  // had when the component was first mounted — stale.
+  useEffect(() => {
+    if (open) setSelected(currentRole);
+  }, [open, currentRole]);
 
   const handleSave = async () => {
     if (!selected) return;

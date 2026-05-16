@@ -53,9 +53,14 @@ export function BottomSheet({
                 transition={{ duration: 0.18 }}
               />
             </Dialog.Overlay>
+            {/* Radix auto-wires aria-describedby from <Dialog.Description>
+                when it's a child; manually setting it to undefined here was a
+                no-op leftover. When the caller provides no description we set
+                aria-describedby explicitly to undefined to suppress Radix's
+                runtime warning about missing descriptions. */}
             <Dialog.Content
               asChild
-              aria-describedby={description ? undefined : undefined}
+              {...(description ? {} : { "aria-describedby": undefined })}
             >
               {asSheet ? (
                 <motion.div

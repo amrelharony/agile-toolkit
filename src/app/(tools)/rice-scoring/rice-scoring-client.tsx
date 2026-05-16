@@ -34,14 +34,21 @@ export function RiceScoringClient() {
 
   function add() {
     if (!title.trim()) return;
-    const r = parseFloat(reach), i = parseFloat(impact), c = parseFloat(confidence), e = parseFloat(effort);
-    const score = riceScore(r || 0, i || 0, c || 100, e || 1);
+    const fn = (s: string, fb: number) => {
+      const v = parseFloat(s);
+      return Number.isFinite(v) ? v : fb;
+    };
+    const r = fn(reach, 0);
+    const i = fn(impact, 0);
+    const c = fn(confidence, 100);
+    const e = fn(effort, 1);
+    const score = riceScore(r, i, c, e);
     const item: PrioritizationItem = {
       id: crypto.randomUUID(),
       framework: "rice",
-      title: title.trim(),
+      title: title.trim().slice(0, 200),
       score,
-      fields: { reach: r || 0, impact: i || 0, confidence: c || 100, effort: e || 1 },
+      fields: { reach: r, impact: i, confidence: c, effort: e },
       status: "scored",
       updatedAt: new Date().toISOString(),
     };

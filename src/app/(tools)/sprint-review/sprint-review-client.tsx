@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -239,7 +240,7 @@ const useSprintReviewStore = create<SprintReviewStore>()(
 
       reset: () => set({ ...DEFAULT_STATE }),
     }),
-    { name: "agile-toolkit:sprint-review" }
+    { name: "agile-toolkit:sprint-review", storage: safeJSONStorage("sprint-review") }
   )
 );
 

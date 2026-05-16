@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +27,7 @@ import { fetchLeaderboard, type LeaderboardRow } from "@/lib/gamification/supaba
 import type { AchievementCategory } from "@/lib/gamification/types";
 import { cn } from "@/lib/utils";
 import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
+import { tools as toolRegistry } from "@/lib/constants/tools";
 
 const CATEGORY_LABEL: Record<AchievementCategory, string> = {
   exploration: "Exploration",
@@ -109,7 +110,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
               </div>
               <div>
                 <div className="text-xs text-sub uppercase tracking-wider">Tools</div>
-                <div className="font-data text-xl text-text">{dna.toolsVisited.length} / 42</div>
+                <div className="font-data text-xl text-text">{dna.toolsVisited.length} / {toolRegistry.length}</div>
               </div>
               <div>
                 <div className="text-xs text-sub uppercase tracking-wider">Unlocks</div>
@@ -342,8 +343,20 @@ function LeaderboardTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [available, setAvailable] = useState<boolean>(false);
+  // Track mount state so an in-flight fetch can't setState after the
+  // dialog closes — without this React logs a "setState on unmounted
+  // component" warning every time the user opens, clicks Load, then
+  // closes the dialog before the network round-trip completes.
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
 
   const load = async () => {
+    if (!aliveRef.current) return;
     setAvailable(isRealtimeAvailable());
     if (!isRealtimeAvailable()) {
       setError("Supabase not configured — leaderboard unavailable in local-only mode.");
@@ -353,11 +366,12 @@ function LeaderboardTab() {
     setError(null);
     try {
       const data = await fetchLeaderboard(50);
+      if (!aliveRef.current) return;
       setRows(data);
     } catch {
-      setError("Failed to load leaderboard.");
+      if (aliveRef.current) setError("Failed to load leaderboard.");
     } finally {
-      setLoading(false);
+      if (aliveRef.current) setLoading(false);
     }
   };
 

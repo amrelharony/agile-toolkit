@@ -66,27 +66,36 @@ const BAND_TONE: Record<Band, "success" | "default" | "warning" | "danger"> = {
 /* ── Banding helpers ────────────────────────────────────────────────────── */
 // Per Accelerate / DORA 2023 report. Upper bounds are inclusive (`<=`) so
 // boundary values (e.g. exactly 24h lead time) fall into the better band.
+// Negative/NaN inputs default to the Low band (the safe pessimistic choice).
 function bandDeploy(perWeek: number): Band {
-  // Elite: multiple per day (≥30/wk). High: between weekly and daily.
-  // Medium: between monthly (~0.25/wk) and weekly. Low: less than monthly.
-  if (perWeek >= 30) return "Elite";
+  if (!Number.isFinite(perWeek) || perWeek < 0) return "Low";
+  // Elite: multiple deploys per day (~≥14/wk = 2/weekday). High: weekly to daily.
+  // Medium: monthly (~0.25/wk) to weekly. Low: less than monthly.
+  if (perWeek >= 14) return "Elite";
   if (perWeek >= 1) return "High";
   if (perWeek >= 0.25) return "Medium";
   return "Low";
 }
 function bandLead(hours: number): Band {
-  if (hours <= 1) return "Elite";
-  if (hours <= 24) return "High";
-  if (hours <= 24 * 7) return "Medium";
+  if (!Number.isFinite(hours) || hours < 0) return "Low";
+  // Elite: less than one day. High: one day to one week. Medium: one week to
+  // one month. Low: more than one month.
+  if (hours <= 24) return "Elite";
+  if (hours <= 24 * 7) return "High";
+  if (hours <= 24 * 30) return "Medium";
   return "Low";
 }
 function bandCfr(rate: number): Band {
+  if (!Number.isFinite(rate) || rate < 0) return "Low";
   if (rate <= 0.15) return "Elite";
   if (rate <= 0.30) return "High";
   if (rate <= 0.45) return "Medium";
   return "Low";
 }
 function bandMttr(hours: number): Band {
+  if (!Number.isFinite(hours) || hours < 0) return "Low";
+  // Elite: less than one hour. High: less than one day. Medium: less than
+  // one week. Low: more than one week (per DORA 2023).
   if (hours <= 1) return "Elite";
   if (hours <= 24) return "High";
   if (hours <= 24 * 7) return "Medium";
