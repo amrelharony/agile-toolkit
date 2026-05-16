@@ -124,10 +124,15 @@ export function useCanvasPresence(channelName: string | null, hint?: Partial<Sim
   const [members, setMembers] = useState<SimplePresence[]>([]);
 
   // Self identity — stable across renders. crypto.randomUUID falls back to
-  // a Math.random shim if the global isn't present (older SSR contexts).
+  // a timestamp-anchored Math.random shim if the global isn't present
+  // (older SSR contexts). The previous `Math.random().toString(36).slice(2)`
+  // alone could produce extremely short ids (1 char when the random
+  // encoding terminated early), which collide across same-second joiners.
   const selfRef = useRef<{ id: string; name: string; color: string } | null>(null);
   if (!selfRef.current) {
-    const id = hint?.id ?? (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+    const id = hint?.id ?? (typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9).padEnd(7, "0")}`);
     const name = hint?.name ?? "Anonymous";
     const color = hint?.color ?? colorFor(name);
     selfRef.current = { id, name, color };

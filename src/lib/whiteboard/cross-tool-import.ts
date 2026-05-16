@@ -109,7 +109,12 @@ export function importFromRetro(
         x: f.x + 24 + col * 200,
         y: f.y + 60 + row * 160,
         w: 180, h: 140, z: z(),
-        content: c.title,
+        // Cap title to IMPORT_TEXT_CAP. The peer-validator's 50k
+        // ceiling rejects oversized text at replication; truncating
+        // here keeps local and remote behaviour consistent. A retro
+        // card whose title is the entire transcript shouldn't blow up
+        // every other user's board.
+        content: (c.title ?? "").slice(0, IMPORT_TEXT_CAP),
         color: f.color,
         version: 1, updatedAt: now(), createdAt: now(),
         sourceRef: c.id ? { tool: "retro", entityId: c.id } : undefined,
@@ -218,7 +223,8 @@ export function importFromRisks(boardId: string, risks: readonly Risk[]): Whiteb
       id: id(), boardId, type: "sticky",
       x: 200 + p * cell + 8, y: 60 + i * cell + 8,
       w: cell - 20, h: cell - 20, z: z(),
-      content: r.title,
+      // Cap title — matches the importFromRetro/Stories truncation.
+      content: (r.title ?? "").slice(0, IMPORT_TEXT_CAP),
       color: r.status === "closed" ? "#9ca3af" : "#fde68a",
       version: 1, updatedAt: now(), createdAt: now(),
       sourceRef: { tool: "risk", entityId: r.id },
@@ -247,7 +253,9 @@ export function importFromOkrs(boardId: string, okrs: readonly Okr[]): Whiteboar
   for (const o of okrs) {
     nodes.push({ id: o.id, w: 260, h: 100 });
     parents[o.id] = null;
-    labels[o.id] = o.objective;
+    // Cap label length so a paste-into-objective doesn't blow up the
+    // sticky content. Matches the other importer caps.
+    labels[o.id] = (o.objective ?? "").slice(0, IMPORT_TITLE_CAP);
     compositeToParts.set(o.id, { okrId: o.id, krId: null });
     for (const kr of o.keyResults) {
       const krId = `${o.id}__${kr.id}`;
@@ -259,7 +267,7 @@ export function importFromOkrs(boardId: string, okrs: readonly Okr[]): Whiteboar
       const pct = (kr.target && kr.target > 0)
         ? Math.round((kr.current / kr.target) * 100)
         : 0;
-      labels[krId] = `${kr.title}\n${pct}%`;
+      labels[krId] = `${(kr.title ?? "").slice(0, IMPORT_TITLE_CAP)}\n${pct}%`;
     }
   }
   const layout = treeLayout(nodes, parents, { rowGap: 80, colGap: 32 });

