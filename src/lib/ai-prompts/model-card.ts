@@ -1,14 +1,26 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble } from "./prompt-utils";
+import { buildPreamble, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 import type { ModelCard, Workspace } from "../stores/workspace-types";
 import { buildWorkspaceContext } from "./cross-tool-context";
 
 export function generateModelCardPrompts(data: { items: ModelCard[] }, workspace?: Workspace | null): PromptDefinition[] {
   if (data.items.length === 0) return [];
   const context = workspace ? buildWorkspaceContext(workspace) : "";
-  const body = data.items.slice(0, 5).map((c) =>
-    `### ${c.modelName}\n- Use: ${c.intendedUse ?? "—"}\n- Eval: ${c.evaluation ?? "—"}\n- Limitations: ${c.limitations ?? "—"}\n- License: ${c.license ?? "—"}`
-  ).join("\n\n");
+  // All five card fields are user-typed long-form descriptions —
+  // sanitize each cell and wrap the joined block.
+  const body = wrapUserContent(
+    data.items
+      .slice(0, 5)
+      .map(
+        (c) =>
+          `### ${sanitizePromptCell(c.modelName, 80)}\n` +
+          `- Use: ${sanitizePromptCell(c.intendedUse ?? "—", 300)}\n` +
+          `- Eval: ${sanitizePromptCell(c.evaluation ?? "—", 300)}\n` +
+          `- Limitations: ${sanitizePromptCell(c.limitations ?? "—", 300)}\n` +
+          `- License: ${sanitizePromptCell(c.license ?? "—", 200)}`,
+      )
+      .join("\n\n"),
+  );
   return [
     {
       id: "card-completeness",

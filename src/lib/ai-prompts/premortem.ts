@@ -1,5 +1,5 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble, formatTable } from "./prompt-utils";
+import { buildPreamble, formatTable, sanitizePromptBlock } from "./prompt-utils";
 import type { Workspace } from "../stores/workspace-types";
 import { buildWorkspaceContext } from "./cross-tool-context";
 
@@ -30,7 +30,7 @@ export function generatePremortemPrompts(data: { scenario: string; causes: Cause
           "Premortem",
           "Premortems expand the team's imagination of failure before it happens."
         ) +
-        `## Scenario\n\n${data.scenario || "(not set)"}\n\n## Causes So Far\n\n${table}${context}\n\n## Questions\n\n1. What failure causes are likely missing (e.g., team dynamics, dependencies, external shocks)?\n2. For each top-ranked cause, what leading indicators would signal it's starting?\n3. Are there "silent killers" — slow-accumulating failures that are easy to ignore?`,
+        `## Scenario\n\n${sanitizePromptBlock(data.scenario, 1000) || "(not set)"}\n\n## Causes So Far\n\n${table}${context}\n\n## Questions\n\n1. What failure causes are likely missing (e.g., team dynamics, dependencies, external shocks)?\n2. For each top-ranked cause, what leading indicators would signal it's starting?\n3. Are there "silent killers" — slow-accumulating failures that are easy to ignore?`,
     },
     {
       id: "premortem-actions",

@@ -1,5 +1,5 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble } from "./prompt-utils";
+import { buildPreamble, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 import type { RlhfPair, Workspace } from "../stores/workspace-types";
 import { buildWorkspaceContext } from "./cross-tool-context";
 
@@ -8,8 +8,22 @@ export function generateRlhfPrompts(data: { items: RlhfPair[] }, workspace?: Wor
   const context = workspace ? buildWorkspaceContext(workspace) : "";
   const winA = data.items.filter((x) => x.winner === "A").length;
   const winB = data.items.filter((x) => x.winner === "B").length;
-  const reasonsA = data.items.filter((x) => x.winner === "A" && x.reason).slice(0, 5).map((x) => `- ${x.reason}`).join("\n");
-  const reasonsB = data.items.filter((x) => x.winner === "B" && x.reason).slice(0, 5).map((x) => `- ${x.reason}`).join("\n");
+  // Reasons are typed by human reviewers — sanitize each before
+  // joining, then wrap each block in `<user_content>` delimiters.
+  const reasonsA = wrapUserContent(
+    data.items
+      .filter((x) => x.winner === "A" && x.reason)
+      .slice(0, 5)
+      .map((x) => `- ${sanitizePromptCell(x.reason!, 300)}`)
+      .join("\n") || "_none_",
+  );
+  const reasonsB = wrapUserContent(
+    data.items
+      .filter((x) => x.winner === "B" && x.reason)
+      .slice(0, 5)
+      .map((x) => `- ${sanitizePromptCell(x.reason!, 300)}`)
+      .join("\n") || "_none_",
+  );
   return [
     {
       id: "rlhf-pattern",
@@ -18,7 +32,7 @@ export function generateRlhfPrompts(data: { items: RlhfPair[] }, workspace?: Wor
       prompt:
         buildPreamble("RLHF Feedback Log", "It collects pairwise preference data for model fine-tuning.") +
         `## Wins: A=${winA} · B=${winB} · Ties=${data.items.length - winA - winB}\n\n` +
-        `## Reasons A wins\n${reasonsA || "_none_"}\n\n## Reasons B wins\n${reasonsB || "_none_"}\n` + context +
+        `## Reasons A wins\n${reasonsA}\n\n## Reasons B wins\n${reasonsB}\n` + context +
         `\n## Questions\n\n` +
         `1. What attribute(s) consistently determine the winner?\n` +
         `2. Are there inter-reviewer disagreements? How to surface them?\n` +

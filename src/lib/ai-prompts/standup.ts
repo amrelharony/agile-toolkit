@@ -1,5 +1,5 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble, truncateData } from "./prompt-utils";
+import { buildPreamble, truncateData, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 
 interface StandupData {
   entries: { id: string; member: string; date: string; yesterday: string; today: string; blockers: string }[];
@@ -16,9 +16,21 @@ export function generateStandupPrompts(data: StandupData): PromptDefinition[] {
   const todayEntries = data.entries.filter((e) => e.date === latestDate);
 
   const { data: shown } = truncateData(todayEntries, 15);
-  const entryText = shown
-    .map((e) => `**${e.member}** (${e.date}):\n- Yesterday: ${e.yesterday}\n- Today: ${e.today}\n- Blockers: ${e.blockers || "None"}`)
-    .join("\n\n");
+  // Yesterday/today/blocker fields are entirely user-controlled long-
+  // form text — sanitize and wrap in the guardrail block so the AI
+  // can't be jailbroken by a pasted "ignore previous instructions" in
+  // a blocker field.
+  const entryText = wrapUserContent(
+    shown
+      .map(
+        (e) =>
+          `**${sanitizePromptCell(e.member, 60)}** (${e.date}):\n` +
+          `- Yesterday: ${sanitizePromptCell(e.yesterday, 300)}\n` +
+          `- Today: ${sanitizePromptCell(e.today, 300)}\n` +
+          `- Blockers: ${sanitizePromptCell(e.blockers || "None", 300)}`,
+      )
+      .join("\n\n"),
+  );
 
   const allBlockers = data.entries.filter((e) => e.blockers && e.blockers.trim().length > 0);
   const unresolvedBlockers = allBlockers.filter((e) => !data.resolvedBlockers.includes(e.id));

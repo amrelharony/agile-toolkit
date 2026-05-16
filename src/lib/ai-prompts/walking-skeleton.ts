@@ -1,5 +1,5 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble } from "./prompt-utils";
+import { buildPreamble, sanitizePromptCell, sanitizePromptBlock, wrapUserContent } from "./prompt-utils";
 import type { Workspace } from "../stores/workspace-types";
 import { buildWorkspaceContext } from "./cross-tool-context";
 
@@ -10,7 +10,18 @@ export function generateWalkingSkeletonPrompts(data: Data, workspace?: Workspace
   // skeleton produces low-signal advice.
   if (!data.goal.trim() || data.steps.length === 0) return [];
   const context = workspace ? buildWorkspaceContext(workspace) : "";
-  const lines = data.steps.map((s) => `- [${s.done ? "x" : " "}] (${s.layer}) ${s.text}`).join("\n");
+  // Goal + step text are entirely user-typed — sanitize each and wrap
+  // both as a single `<user_content>` block so a step text saying
+  // "ignore all previous instructions" can't be obeyed.
+  const lines = data.steps
+    .slice(0, 50)
+    .map(
+      (s) =>
+        `- [${s.done ? "x" : " "}] (${sanitizePromptCell(s.layer, 40)}) ${sanitizePromptCell(s.text, 200)}`,
+    )
+    .join("\n");
+  const safeGoal = sanitizePromptBlock(data.goal, 600);
+  const safeBody = wrapUserContent(`## Goal\n${safeGoal || "_undefined_"}\n\n## Steps\n${lines || "_none_"}`);
   return [
     {
       id: "skeleton-review",
@@ -18,7 +29,7 @@ export function generateWalkingSkeletonPrompts(data: Data, workspace?: Workspace
       description: "Audit whether this is a true walking skeleton — minimal but end-to-end.",
       prompt:
         buildPreamble("Walking Skeleton", "It defines the smallest end-to-end implementation that proves the architecture.") +
-        `## Goal\n${data.goal || "_undefined_"}\n\n## Steps\n${lines || "_none_"}\n` + context +
+        safeBody + "\n" + context +
         `\n## Questions\n\n` +
         `1. Does this skeleton truly cover every architectural layer (UI → API → data → infra)?\n` +
         `2. Is anything in here that isn't strictly needed for the walking skeleton?\n` +

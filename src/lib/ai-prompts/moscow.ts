@@ -1,5 +1,5 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble } from "./prompt-utils";
+import { buildPreamble, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 import type { PrioritizationItem, Workspace } from "../stores/workspace-types";
 import { buildWorkspaceContext } from "./cross-tool-context";
 
@@ -7,7 +7,16 @@ export function generateMoscowPrompts(data: { grouped: Record<string, Prioritiza
   const total = Object.values(data.grouped).reduce((s, l) => s + l.length, 0);
   if (total === 0) return [];
   const context = workspace ? buildWorkspaceContext(workspace) : "";
-  const sections = Object.entries(data.grouped).map(([k, v]) => `### ${k.toUpperCase()} (${v.length})\n${v.map((it) => `- ${it.title}`).join("\n") || "_empty_"}`).join("\n\n");
+  const sections = wrapUserContent(
+    Object.entries(data.grouped)
+      .map(
+        ([k, v]) =>
+          `### ${sanitizePromptCell(k, 40).toUpperCase()} (${v.length})\n${
+            v.slice(0, 40).map((it) => `- ${sanitizePromptCell(it.title, 120)}`).join("\n") || "_empty_"
+          }`,
+      )
+      .join("\n\n"),
+  );
   return [
     {
       id: "moscow-balance",

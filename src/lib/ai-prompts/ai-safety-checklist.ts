@@ -1,5 +1,5 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble } from "./prompt-utils";
+import { buildPreamble, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 import type { Workspace } from "../stores/workspace-types";
 import { buildWorkspaceContext } from "./cross-tool-context";
 
@@ -10,10 +10,18 @@ interface Data {
 
 export function generateAISafetyPrompts(data: Data, workspace?: Workspace | null): PromptDefinition[] {
   const context = workspace ? buildWorkspaceContext(workspace) : "";
-  const open = data.sections
-    .flatMap((s) => s.items.filter((i) => !data.checks[i.id]).map((i) => `- [${s.title}] ${i.text}`))
+  // Checklist item text may be user-edited (templates support custom
+  // items). Sanitize each row, wrap the joined list.
+  const lines = data.sections
+    .flatMap((s) =>
+      s.items
+        .filter((i) => !data.checks[i.id])
+        .map((i) => `- [${sanitizePromptCell(s.title, 40)}] ${sanitizePromptCell(i.text, 200)}`),
+    )
+    .slice(0, 200)
     .join("\n");
-  if (!open) return [];
+  if (!lines) return [];
+  const open = wrapUserContent(lines);
   return [
     {
       id: "safety-gap",

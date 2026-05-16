@@ -10,6 +10,11 @@ export function generateHallucinationLogPrompts(data: Data, workspace?: Workspac
   const context = workspace ? buildWorkspaceContext(workspace) : "";
   const open = data.items.filter((x) => !x.resolvedAt);
 
+  // formatTable now sanitizes user-text cells centrally — input,
+  // rootCause and feature can all be derived from end-user prompts and
+  // get the cell-level guardrail (backticks → apostrophes, delimiter
+  // literals stripped, newlines collapsed). Truncation is preserved at
+  // 60 chars so a single noisy log line doesn't dominate.
   const rows = data.items
     .slice(0, 30)
     .map((x) => [

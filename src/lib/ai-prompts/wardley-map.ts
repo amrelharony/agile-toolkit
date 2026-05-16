@@ -1,5 +1,5 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble, formatTable } from "./prompt-utils";
+import { buildPreamble, formatTable, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 import { buildWorkspaceContext } from "./cross-tool-context";
 import type { Workspace } from "../stores/workspace-types";
 
@@ -51,14 +51,16 @@ export function generateWardleyMapPrompts(
   );
 
   const nameById = (id: string) =>
-    data.components.find((c) => c.id === id)?.name ?? id;
+    sanitizePromptCell(data.components.find((c) => c.id === id)?.name ?? id, 80);
   const linkLines =
     data.links.length === 0
       ? "(no links)"
-      : data.links
-          .slice(0, 30)
-          .map((l) => `- ${nameById(l.fromId)} → ${nameById(l.toId)}`)
-          .join("\n");
+      : wrapUserContent(
+          data.links
+            .slice(0, 30)
+            .map((l) => `- ${nameById(l.fromId)} → ${nameById(l.toId)}`)
+            .join("\n"),
+        );
 
   const stageCounts: Record<(typeof STAGES)[number], number> = {
     Genesis: 0,

@@ -1,5 +1,5 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble, formatTable } from "./prompt-utils";
+import { buildPreamble, formatTable, sanitizePromptCell } from "./prompt-utils";
 import type { TokenSpend, Workspace } from "../stores/workspace-types";
 import { buildWorkspaceContext } from "./cross-tool-context";
 
@@ -9,6 +9,7 @@ export function generateTokenCostPrompts(data: Data, workspace?: Workspace | nul
   if (data.items.length === 0) return [];
   const context = workspace ? buildWorkspaceContext(workspace) : "";
 
+  // formatTable sanitizes string cells; rows are pre-sanitized for clarity.
   const rows = [...data.items].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 25)
     .map((x) => [x.date, x.feature, x.model, x.inputTokens.toLocaleString(), x.outputTokens.toLocaleString(), `$${x.costUsd.toFixed(2)}`]);
   const table = formatTable(["Date", "Feature", "Model", "In", "Out", "Cost"], rows);
@@ -17,7 +18,9 @@ export function generateTokenCostPrompts(data: Data, workspace?: Workspace | nul
   const byFeature = Object.entries(
     data.items.reduce<Record<string, number>>((m, x) => { m[x.feature] = (m[x.feature] ?? 0) + x.costUsd; return m; }, {}),
   ).sort((a, b) => b[1] - a[1]).slice(0, 10);
-  const byFeatureLines = byFeature.map(([f, c]) => `- ${f}: $${c.toFixed(2)}`).join("\n");
+  // Feature names are user-typed — sanitize before interpolating into
+  // the freeform bullet list.
+  const byFeatureLines = byFeature.map(([f, c]) => `- ${sanitizePromptCell(f, 60)}: $${c.toFixed(2)}`).join("\n");
 
   return [
     {

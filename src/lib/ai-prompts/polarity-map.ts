@@ -1,16 +1,32 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble } from "./prompt-utils";
+import { buildPreamble, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 import type { Polarity, PolarityPole, Workspace } from "../stores/workspace-types";
 import { buildWorkspaceContext } from "./cross-tool-context";
 
 export function generatePolarityPrompts(data: { polarities: Polarity[]; poles: PolarityPole[] }, workspace?: Workspace | null): PromptDefinition[] {
   if (data.polarities.length === 0) return [];
   const context = workspace ? buildWorkspaceContext(workspace) : "";
-  const lines = data.polarities.map((pol) => {
-    const l = data.poles.find((p) => p.polarityId === pol.id && p.side === "left");
-    const r = data.poles.find((p) => p.polarityId === pol.id && p.side === "right");
-    return `### ${pol.title}\n- Greater purpose: ${pol.greaterPurpose ?? "—"}\n- Deeper fear: ${pol.deeperFear ?? "—"}\n- Left "${l?.label ?? "—"}" upsides: ${(l?.upsides ?? []).join(", ")} | downsides: ${(l?.downsides ?? []).join(", ")}\n- Right "${r?.label ?? "—"}" upsides: ${(r?.upsides ?? []).join(", ")} | downsides: ${(r?.downsides ?? []).join(", ")}`;
-  }).join("\n\n");
+  // Title, purpose, fear, pole labels, upsides, and downsides are all
+  // user-typed. Sanitize each cell and clamp the upside/downside lists
+  // to 10 items so a noisy paste can't overflow the prompt budget.
+  const sanList = (arr: string[]) =>
+    arr.slice(0, 10).map((u) => sanitizePromptCell(u, 80)).join(", ");
+  const lines = wrapUserContent(
+    data.polarities
+      .slice(0, 20)
+      .map((pol) => {
+        const l = data.poles.find((p) => p.polarityId === pol.id && p.side === "left");
+        const r = data.poles.find((p) => p.polarityId === pol.id && p.side === "right");
+        return (
+          `### ${sanitizePromptCell(pol.title, 80)}\n` +
+          `- Greater purpose: ${sanitizePromptCell(pol.greaterPurpose ?? "—", 200)}\n` +
+          `- Deeper fear: ${sanitizePromptCell(pol.deeperFear ?? "—", 200)}\n` +
+          `- Left "${sanitizePromptCell(l?.label ?? "—", 40)}" upsides: ${sanList(l?.upsides ?? [])} | downsides: ${sanList(l?.downsides ?? [])}\n` +
+          `- Right "${sanitizePromptCell(r?.label ?? "—", 40)}" upsides: ${sanList(r?.upsides ?? [])} | downsides: ${sanList(r?.downsides ?? [])}`
+        );
+      })
+      .join("\n\n"),
+  );
   return [
     {
       id: "polarity-warning-signs",

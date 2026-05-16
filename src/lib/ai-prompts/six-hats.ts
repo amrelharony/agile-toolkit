@@ -1,5 +1,5 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble } from "./prompt-utils";
+import { buildPreamble, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 import type { SixHatsThought, Workspace } from "../stores/workspace-types";
 import { buildWorkspaceContext } from "./cross-tool-context";
 
@@ -7,9 +7,19 @@ export function generateSixHatsPrompts(data: { grouped: Record<SixHatsThought["h
   const total = Object.values(data.grouped).reduce((s, l) => s + l.length, 0);
   if (total === 0) return [];
   const context = workspace ? buildWorkspaceContext(workspace) : "";
-  const sections = Object.entries(data.grouped)
-    .map(([hat, list]) => `### ${hat.toUpperCase()} (${list.length})\n${list.map((t) => `- ${t.text}`).join("\n") || "_empty_"}`)
-    .join("\n\n");
+  const sections = wrapUserContent(
+    Object.entries(data.grouped)
+      .map(
+        ([hat, list]) =>
+          `### ${hat.toUpperCase()} (${list.length})\n${
+            list
+              .slice(0, 40)
+              .map((t) => `- ${sanitizePromptCell(t.text, 200)}`)
+              .join("\n") || "_empty_"
+          }`,
+      )
+      .join("\n\n"),
+  );
   return [
     {
       id: "six-hats-synthesis",

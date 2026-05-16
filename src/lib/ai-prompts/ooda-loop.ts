@@ -1,5 +1,5 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble } from "./prompt-utils";
+import { buildPreamble, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 import type { OODACycle, Workspace } from "../stores/workspace-types";
 import { buildWorkspaceContext } from "./cross-tool-context";
 
@@ -7,9 +7,21 @@ export function generateOodaPrompts(data: { items: OODACycle[] }, workspace?: Wo
   if (data.items.length === 0) return [];
   const context = workspace ? buildWorkspaceContext(workspace) : "";
   const open = data.items.filter((c) => !c.completedAt);
-  const recent = data.items.slice(0, 5).map((c) =>
-    `### ${c.topic}\n- Observe: ${c.observe ?? "—"}\n- Orient: ${c.orient ?? "—"}\n- Decide: ${c.decide ?? "—"}\n- Act: ${c.act ?? "—"}`
-  ).join("\n\n");
+  // Topic + the four OODA fields are entirely user-typed. Wrap as
+  // user_content so a paste of "ignore instructions" can't escape.
+  const recent = wrapUserContent(
+    data.items
+      .slice(0, 5)
+      .map(
+        (c) =>
+          `### ${sanitizePromptCell(c.topic, 80)}\n` +
+          `- Observe: ${sanitizePromptCell(c.observe ?? "—", 300)}\n` +
+          `- Orient: ${sanitizePromptCell(c.orient ?? "—", 300)}\n` +
+          `- Decide: ${sanitizePromptCell(c.decide ?? "—", 300)}\n` +
+          `- Act: ${sanitizePromptCell(c.act ?? "—", 300)}`,
+      )
+      .join("\n\n"),
+  );
   return [
     {
       id: "ooda-coaching",
