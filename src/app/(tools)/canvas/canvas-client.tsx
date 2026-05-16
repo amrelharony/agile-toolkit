@@ -14,6 +14,7 @@ import { clusterObjects } from "@/lib/whiteboard/cluster-bridge";
 import { fitToRects } from "@/lib/whiteboard/canvas-transform";
 import { exportPng, exportSvg, exportJson, exportJpg, exportPdf, exportCsv, exportPptx } from "@/lib/whiteboard/export";
 import { resolveShareToken } from "@/lib/whiteboard/share-link";
+import { wbId } from "@/lib/whiteboard/clipboard";
 import { emitSignal, subscribeSignals } from "@/lib/signals/signal-bus";
 import type { WhiteboardCard, WhiteboardObject } from "@/lib/stores/workspace-types";
 import { useCanvasStore } from "./use-canvas-store";
@@ -130,7 +131,7 @@ export function CanvasClient() {
     if (!hydrated) return;
     if (boards.length === 0) {
       const now = new Date().toISOString();
-      const id = `wb_board_${Math.random().toString(36).slice(2, 11)}`;
+      const id = wbId("wb_board");
       upsertBoard({ id, name: "My first board", createdAt: now, updatedAt: now });
       setActiveBoard(id);
       emitSignal({
@@ -167,18 +168,26 @@ export function CanvasClient() {
           // A single generic ?? chain silently dropped sync for every
           // kind except stories, because the others don't pass
           // `storyId` / `id` / `entityId`. Resolve per-kind below.
-          const payload = signal.payload as {
-            storyId?: string;
-            riskId?: string;
-            okrId?: string;
-            krId?: string;
-            decisionId?: string;
-            // Forward-compat aliases for hand-rolled emitters that
-            // adopt a generic shape later.
-            entityId?: string;
-            id?: string;
-          } | null;
-          if (!payload) return;
+          //
+          // Runtime-validate the payload shape before reading it. A
+          // hostile or buggy emitter could send wrong types; doing
+          // typeof checks here means a malformed signal degrades to
+          // a no-op rather than throwing inside the try/catch (which
+          // would still surface in the console under NODE_ENV=dev).
+          const raw: unknown = signal.payload;
+          if (!raw || typeof raw !== "object") return;
+          const p = raw as Record<string, unknown>;
+          const pickStr = (k: string): string | undefined =>
+            typeof p[k] === "string" ? (p[k] as string) : undefined;
+          const payload = {
+            storyId: pickStr("storyId"),
+            riskId: pickStr("riskId"),
+            okrId: pickStr("okrId"),
+            krId: pickStr("krId"),
+            decisionId: pickStr("decisionId"),
+            entityId: pickStr("entityId"),
+            id: pickStr("id"),
+          };
           const state = useWorkspaceStore.getState();
           const now = new Date().toISOString();
           const updates: WhiteboardObject[] = [];

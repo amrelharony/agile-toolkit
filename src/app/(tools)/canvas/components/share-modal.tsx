@@ -25,6 +25,7 @@ import {
   type ShareToken,
 } from "@/lib/whiteboard/share-link";
 import type { WhiteboardSavedTemplate } from "@/lib/stores/workspace-types";
+import { wbId } from "@/lib/whiteboard/clipboard";
 
 interface Props {
   boardId: string;
@@ -377,7 +378,7 @@ function SaveTemplateTab({
 
   const onSave = () => {
     if (!name.trim() || objs.length === 0) return;
-    const id = `wbt_${Math.random().toString(36).slice(2, 11)}`;
+    const id = wbId("wbt");
     const now = new Date().toISOString();
     onSaved({
       id,

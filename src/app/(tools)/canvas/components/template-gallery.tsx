@@ -8,6 +8,7 @@ import { TEMPLATES } from "@/lib/whiteboard/templates";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+import { wbId } from "@/lib/whiteboard/clipboard";
 
 interface Props {
   boardId: string;
@@ -125,7 +126,7 @@ export function TemplateGallery({ boardId, onClose }: Props) {
       // Saved templates carry their own objects array. Assign fresh
       // ids + boardId so they don't collide with the source board.
       const remap: Record<string, string> = {};
-      const freshId = () => `wb_${Math.random().toString(36).slice(2, 11)}`;
+      const freshId = () => wbId("wb");
       for (const o of saved.objects) remap[o.id] = freshId();
       const now = new Date().toISOString();
       seeded = saved.objects.map((o) => {

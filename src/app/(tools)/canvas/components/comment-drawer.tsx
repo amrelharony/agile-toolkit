@@ -5,6 +5,7 @@ import { X, Send, CheckCircle2 } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { WhiteboardCommentThread } from "@/lib/stores/workspace-types";
 import { emitSignal } from "@/lib/signals/signal-bus";
+import { wbId } from "@/lib/whiteboard/clipboard";
 
 /**
  * @mention character class. Uses Unicode property escapes (`\p{L}` =
@@ -55,7 +56,15 @@ const STORAGE_KEY = "agile-toolkit:canvas-author";
 
 function getAuthor(): string {
   if (typeof window === "undefined") return "Anonymous";
-  return localStorage.getItem(STORAGE_KEY) || "You";
+  // `localStorage.getItem` throws a SecurityError in private browsing
+  // (Safari) and on pages where storage is blocked by a partition or
+  // browser setting. Without the guard the whole comment drawer fails
+  // to render on those origins. Fall back to a generic label.
+  try {
+    return localStorage.getItem(STORAGE_KEY) || "You";
+  } catch {
+    return "You";
+  }
 }
 
 /** Per-thread draft cache so closing the drawer mid-type doesn't drop
@@ -157,7 +166,7 @@ export function CommentDrawer({ thread, onClose }: Props) {
       comments: [
         ...thread.comments,
         {
-          id: `c_${Math.random().toString(36).slice(2, 9)}`,
+          id: wbId("c"),
           author, text, at: now,
           ...(mentions.length > 0 ? { mentions } : {}),
         },

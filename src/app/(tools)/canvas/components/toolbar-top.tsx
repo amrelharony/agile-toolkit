@@ -5,6 +5,9 @@ import { Plus, Trash2, Sparkles, Map, Magnet, Grid3X3, PlayCircle } from "lucide
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { emitSignal } from "@/lib/signals/signal-bus";
+import { wbId } from "@/lib/whiteboard/clipboard";
+import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { useCanvasStore } from "../use-canvas-store";
 
 export function ToolbarTop() {
@@ -24,12 +27,17 @@ export function ToolbarTop() {
   const setSnapToGridEnabled = useCanvasStore((s) => s.setSnapToGrid);
   const [editing, setEditing] = useState(false);
   const board = boards.find((b) => b.id === activeBoardId);
+  // History logger — board create/delete are MILESTONE_PAIRS in
+  // event-actions.ts, but until now the toolbar wasn't actually
+  // calling `log()`, so /history filtered to canvas saw nothing.
+  const { log } = useHistoryLogger("canvas");
 
   function createBoard() {
     const now = new Date().toISOString();
-    const id = `wb_board_${Math.random().toString(36).slice(2, 11)}`;
+    const id = wbId("wb_board");
     upsertBoard({ id, name: `Board ${boards.length + 1}`, createdAt: now, updatedAt: now });
     setActiveBoard(id);
+    log(CANVAS_ACTIONS.BOARD_CREATED, { boardId: id, totalBoards: boards.length + 1 });
     // Cross-tool signal — anything subscribed to "whiteboard.boardCreated"
     // (analytics, dashboards) wakes up. Existed in the SignalKind union
     // since Phase 22 but had no emit site, so subscribers never fired.
@@ -44,6 +52,7 @@ export function ToolbarTop() {
   function rename(name: string) {
     if (!board) return;
     upsertBoard({ ...board, name, updatedAt: new Date().toISOString() });
+    log(CANVAS_ACTIONS.BOARD_RENAMED, { boardId: board.id });
   }
 
   function deleteCurrent() {
@@ -53,6 +62,7 @@ export function ToolbarTop() {
     removeBoard(deletedId);
     const next = boards.find((b) => b.id !== deletedId);
     setActiveBoard(next?.id ?? null);
+    log(CANVAS_ACTIONS.BOARD_DELETED, { boardId: deletedId });
     emitSignal({
       kind: "whiteboard.boardDeleted",
       at: new Date().toISOString(),

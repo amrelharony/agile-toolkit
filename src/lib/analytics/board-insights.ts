@@ -216,10 +216,12 @@ export function boardInsightsCross(
 
   // --- Card-disconnected: a card with sourceRef.tool === "backlog" OR
   // "story" whose Story has been deleted from the workspace. Both
-  // labels exist in the wild: cards via the canvas import wizard use
-  // "backlog" (matches workspace-store cascade), while stickies from
-  // `importFromStories` in cross-tool-import.ts emit "story". Accept
-  // both so the insight surfaces correctly regardless of origin. ---
+  // labels exist in the wild: the legacy in-canvas drag-from-sidebar
+  // path used "backlog", while `importFromStories` in
+  // cross-tool-import.ts emits "story". The workspace-store cascade
+  // matches both, so a disconnected card here implies the cascade
+  // already ran (sourceRef was stripped) OR the card pre-dates the
+  // cascade fix; either way, the insight surfaces it. ---
   const storyIds = new Set((workspace.stories ?? []).map((s) => s.id));
   for (const o of objects) {
     if (

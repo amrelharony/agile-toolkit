@@ -66,14 +66,39 @@ export function EstimationGuideClient() {
       const shared = params.get("state");
       if (!shared) return;
       try {
-        const decoded = JSON.parse(atob(shared));
-        if (decoded.selectedScale) {
-          useEstimationGuideStore.setState({
-            selectedScale: decoded.selectedScale,
-            descriptions: { ...defaultDescriptions, ...decoded.descriptions },
-            examples: decoded.examples ?? {},
-          });
-        }
+        // SECURITY: ?state= is an attacker-controlled base64+JSON blob from
+        // any shared link. Validate every field's shape before merging into
+        // the store — without these checks, a hand-crafted payload could
+        // inject:
+        //   - arbitrary `descriptions` or `examples` values (rendered as
+        //     deceptive text — phishing instructions, fake "click here"
+        //     links a teammate would trust because the URL is the tool URL),
+        //   - non-string values that break downstream rendering,
+        //   - unbounded payload sizes that bloat the persisted store.
+        const decoded = JSON.parse(atob(shared)) as unknown;
+        if (!decoded || typeof decoded !== "object") return;
+        const d = decoded as Record<string, unknown>;
+        if (typeof d.selectedScale !== "string" || d.selectedScale.length > 80) return;
+        // descriptions / examples must be plain objects with string→string
+        // entries. Reject anything else outright.
+        const sanitise = (raw: unknown): Record<string, string> => {
+          if (!raw || typeof raw !== "object") return {};
+          const out: Record<string, string> = {};
+          for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+            // Skip prototype-pollution keys defensively.
+            if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+            if (typeof k !== "string" || k.length > 120) continue;
+            if (typeof v !== "string") continue;
+            // Cap per-cell length so a shared link can't balloon the persisted store.
+            out[k] = v.slice(0, 2000);
+          }
+          return out;
+        };
+        useEstimationGuideStore.setState({
+          selectedScale: d.selectedScale,
+          descriptions: { ...defaultDescriptions, ...sanitise(d.descriptions) },
+          examples: sanitise(d.examples),
+        });
         // Clean up URL without reload
         window.history.replaceState({}, "", window.location.pathname);
         toast.success("Loaded shared estimation guide");

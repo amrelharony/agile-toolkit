@@ -663,7 +663,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
       const sel = objectsRef.current.filter((o) => selection.includes(o.id));
       if (sel.length < 2) return;
       pushSnapshot();
-      const gid = `wbg_${Math.random().toString(36).slice(2, 11)}`;
+      const gid = wbId("wbg");
       const updates = sel.map((o) => ({ ...o, groupId: gid, updatedAt: new Date().toISOString() }));
       upsertMany(updates);
     };
@@ -1047,7 +1047,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
 
   const addObjectAt = useCallback(
     (worldX: number, worldY: number) => {
-      const id = `wb_${Math.random().toString(36).slice(2, 11)}`;
+      const id = wbId("wb");
       const now = new Date().toISOString();
       // Use the cached top-z ref. `topZRef.current` is refreshed by an
       // effect on every object-array identity change, so this is O(1)
@@ -1192,7 +1192,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
               x: (e.clientX - rect.left - camera.x) / camera.zoom,
               y: (e.clientY - rect.top - camera.y) / camera.zoom,
             };
-            const threadId = `wbc_${Math.random().toString(36).slice(2, 11)}`;
+            const threadId = wbId("wbc");
             upsertCommentThread({
               id: threadId,
               boardId,
@@ -1250,7 +1250,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
 
       // ─── Drag-to-draw: line / arrow / freehand ───────────────────────
       if (tool === "line" || tool === "arrow") {
-        const id = `wb_${Math.random().toString(36).slice(2, 11)}`;
+        const id = wbId("wb");
         const now = new Date().toISOString();
         // Use the cached top-z ref instead of `nextZAbove(objects)` which
         // was O(n) per pointer-down on the line/arrow tool.
@@ -1265,7 +1265,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
         return;
       }
       if (tool === "freehand") {
-        const id = `wb_${Math.random().toString(36).slice(2, 11)}`;
+        const id = wbId("wb");
         const now = new Date().toISOString();
         // Same O(1) top-z lookup as line/arrow above.
         const topZ = topZRef.current + 1;
@@ -1292,7 +1292,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
       // thread pin. The drawer opens immediately so the user can type
       // the first reply. Reverts to Select tool after.
       if (tool === "comment") {
-        const threadId = `wbc_${Math.random().toString(36).slice(2, 11)}`;
+        const threadId = wbId("wbc");
         upsertCommentThread({
           id: threadId,
           boardId,
@@ -1883,7 +1883,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
           return;
         }
         // Commit a new connector.
-        const newId = `wb_${Math.random().toString(36).slice(2, 11)}`;
+        const newId = wbId("wb");
         const now = new Date().toISOString();
         upsert({
           id: newId,

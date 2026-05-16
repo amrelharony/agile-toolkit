@@ -21,6 +21,12 @@ export interface RankedItem<T = Record<string, number>> extends ScoredItem<T> {
   percentile: number;
 }
 
+/** Coerce a value to a finite number with a fallback. Handles NaN, Infinity, null, undefined. */
+function num(v: unknown, fallback = 0): number {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 /**
  * Compute the RICE score: (Reach * Impact * Confidence) / Effort.
  * Confidence is expressed as a percentage 0..100. Effort floor at 0.5
@@ -32,14 +38,14 @@ export function riceScore(
   confidencePct: number,
   effort: number,
 ): number {
-  const eff = Math.max(0.5, effort);
-  const conf = Math.max(0, Math.min(100, confidencePct)) / 100;
-  return (Math.max(0, reach) * Math.max(0, impact) * conf) / eff;
+  const eff = Math.max(0.5, num(effort, 0.5));
+  const conf = Math.max(0, Math.min(100, num(confidencePct, 0))) / 100;
+  return (Math.max(0, num(reach)) * Math.max(0, num(impact)) * conf) / eff;
 }
 
 /** ICE: Impact * Confidence * Ease, all 1-10. */
 export function iceScore(impact: number, confidence: number, ease: number): number {
-  const clamp = (v: number) => Math.max(1, Math.min(10, v || 0));
+  const clamp = (v: number) => Math.max(1, Math.min(10, num(v, 1)));
   return clamp(impact) * clamp(confidence) * clamp(ease);
 }
 
@@ -53,8 +59,8 @@ export function wsjfScore(
   rrOe: number,
   jobSize: number,
 ): number {
-  const size = Math.max(0.5, jobSize);
-  return (Math.max(0, businessValue) + Math.max(0, timeCriticality) + Math.max(0, rrOe)) / size;
+  const size = Math.max(0.5, num(jobSize, 0.5));
+  return (Math.max(0, num(businessValue)) + Math.max(0, num(timeCriticality)) + Math.max(0, num(rrOe))) / size;
 }
 
 /**
@@ -67,8 +73,8 @@ export function weightedScore(
 ): number {
   let total = 0;
   for (const [criterionId, weight] of Object.entries(criteriaWeights)) {
-    const s = optionScores[criterionId] ?? 0;
-    total += s * (weight ?? 0);
+    const s = num(optionScores[criterionId]);
+    total += s * num(weight);
   }
   return total;
 }
@@ -80,7 +86,11 @@ export function weightedScore(
  */
 export function rank<T>(items: ScoredItem<T>[]): RankedItem<T>[] {
   if (items.length === 0) return [];
-  const indexed = items.map((it, i) => ({ ...it, _i: i }));
+  const indexed = items.map((it, i) => ({
+    ...it,
+    score: num(it.score),
+    _i: i,
+  }));
   indexed.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
     return a._i - b._i;
