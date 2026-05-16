@@ -234,7 +234,16 @@ export function LiberatingStructuresClient() {
   const { log } = useHistoryLogger("liberating-structures");
 
   const favSet = useMemo(
-    () => new Set(state.favorites.map((f) => f.structureId)),
+    // Filter out malformed entries (missing/null structureId) so a corrupt
+    // persisted payload doesn't end up with `Set(undefined)` — that masked
+    // the favorited-state of every card whose id happens to match the
+    // implicit `undefined` lookup.
+    () =>
+      new Set(
+        state.favorites
+          .map((f) => f?.structureId)
+          .filter((id): id is string => typeof id === "string"),
+      ),
     [state.favorites]
   );
 

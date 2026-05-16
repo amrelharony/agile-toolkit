@@ -75,7 +75,16 @@ export function EstimationGuideClient() {
         //     links a teammate would trust because the URL is the tool URL),
         //   - non-string values that break downstream rendering,
         //   - unbounded payload sizes that bloat the persisted store.
-        const decoded = JSON.parse(atob(shared)) as unknown;
+        // Mirror the UTF-8 encoding done by handleShare. Try the new path
+        // (UTF-8 → btoa) first; if it fails, fall back to the legacy plain
+        // base64 path so old share links still resolve.
+        let json: string;
+        try {
+          json = decodeURIComponent(escape(atob(shared)));
+        } catch {
+          json = atob(shared);
+        }
+        const decoded = JSON.parse(json) as unknown;
         if (!decoded || typeof decoded !== "object") return;
         const d = decoded as Record<string, unknown>;
         if (typeof d.selectedScale !== "string" || d.selectedScale.length > 80) return;
@@ -94,8 +103,15 @@ export function EstimationGuideClient() {
           }
           return out;
         };
+        // Only accept a selectedScale that actually exists in the local
+        // `scales` constant — otherwise `scales.find` returns undefined and
+        // the render falls back to `scales[0]`, but the persisted state
+        // would silently disagree with the dropdown selection.
+        const validScale = scales.some((s) => s.name === d.selectedScale)
+          ? d.selectedScale
+          : initialState.selectedScale;
         useEstimationGuideStore.setState({
-          selectedScale: d.selectedScale,
+          selectedScale: validScale,
           descriptions: { ...defaultDescriptions, ...sanitise(d.descriptions) },
           examples: sanitise(d.examples),
         });
@@ -154,12 +170,23 @@ export function EstimationGuideClient() {
       descriptions: store.descriptions,
       examples: store.examples,
     };
-    const encoded = btoa(JSON.stringify(payload));
-    const url = `${window.location.origin}${window.location.pathname}?state=${encoded}`;
-    navigator.clipboard.writeText(url).then(
-      () => toast.success("Share link copied to clipboard"),
-      () => toast.error("Failed to copy share link")
-    );
+    try {
+      // `btoa` throws "InvalidCharacterError" on any code point > 0xFF, so a
+      // description or example containing emoji / non-Latin1 characters
+      // would otherwise crash the share flow. Encode UTF-8 first via
+      // `encodeURIComponent` → `unescape` so the resulting bytes are all
+      // Latin1-safe. `decodeURIComponent(escape(atob(s)))` reverses it on
+      // the reading side (already done in the rehydration effect above).
+      const json = JSON.stringify(payload);
+      const encoded = btoa(unescape(encodeURIComponent(json)));
+      const url = `${window.location.origin}${window.location.pathname}?state=${encoded}`;
+      navigator.clipboard.writeText(url).then(
+        () => toast.success("Share link copied to clipboard"),
+        () => toast.error("Failed to copy share link")
+      );
+    } catch {
+      toast.error("Failed to build share link");
+    }
   }, [store.selectedScale, store.descriptions, store.examples]);
 
   // Build export data

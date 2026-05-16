@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useId } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
@@ -56,6 +56,36 @@ const FIELDS: Array<{ key: keyof typeof empty; label: string; placeholder: strin
   { key: "successMetric", label: "Success metric", placeholder: "30-day retention +5% on cohorts using the feature", rows: 2 },
 ];
 
+/**
+ * Per-field row with proper label-input association via htmlFor + id, and
+ * onBlur-based history logging to avoid emitting an event on every keystroke
+ * (spec fields can hold paragraphs — keystroke logging used to flood the log).
+ */
+function SpecField({
+  field,
+  value,
+  onChange,
+  onCommit,
+}: {
+  field: (typeof FIELDS)[number];
+  value: string;
+  onChange: (v: string) => void;
+  onCommit: () => void;
+}) {
+  const id = useId();
+  const rows = field.rows ?? 1;
+  return (
+    <div>
+      <label htmlFor={id} className="block text-xs uppercase tracking-wider text-sub mb-1">{field.label}</label>
+      {rows > 1 ? (
+        <Textarea id={id} rows={rows} placeholder={field.placeholder} value={value} onChange={(e) => onChange(e.target.value)} onBlur={onCommit} />
+      ) : (
+        <Input id={id} placeholder={field.placeholder} value={value} onChange={(e) => onChange(e.target.value)} onBlur={onCommit} />
+      )}
+    </div>
+  );
+}
+
 export function AIFeatureSpecClient() {
   const spec = useSpecStore();
   const { log } = useHistoryLogger("ai-feature-spec");
@@ -103,23 +133,7 @@ export function AIFeatureSpecClient() {
         >
           <div className="space-y-3">
             {FIELDS.map((f) => (
-              <div key={f.key}>
-                <label className="block text-xs uppercase tracking-wider text-sub mb-1">{f.label}</label>
-                {(f.rows ?? 1) > 1 ? (
-                  <Textarea
-                    rows={f.rows}
-                    placeholder={f.placeholder}
-                    value={(spec as unknown as Record<string, string>)[f.key]}
-                    onChange={(e) => { spec.set(f.key, e.target.value); log(AI_FEATURE_SPEC_ACTIONS.SECTION_UPDATED, { section: f.key }); }}
-                  />
-                ) : (
-                  <Input
-                    placeholder={f.placeholder}
-                    value={(spec as unknown as Record<string, string>)[f.key]}
-                    onChange={(e) => { spec.set(f.key, e.target.value); log(AI_FEATURE_SPEC_ACTIONS.SECTION_UPDATED, { section: f.key }); }}
-                  />
-                )}
-              </div>
+              <SpecField key={f.key} field={f} value={(spec as unknown as Record<string, string>)[f.key]} onChange={(v) => spec.set(f.key, v)} onCommit={() => log(AI_FEATURE_SPEC_ACTIONS.SECTION_UPDATED, { section: f.key })} />
             ))}
           </div>
         </SectionCard>

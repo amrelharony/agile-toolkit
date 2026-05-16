@@ -331,6 +331,7 @@ function MemberRow({
             size="icon"
             disabled={!canRemove}
             onClick={onRemove}
+            aria-label={`Remove member ${member.name || "(unnamed)"}`}
             className="h-9 w-9 disabled:opacity-30"
           >
             <Trash2 className="w-4 h-4" />
@@ -783,7 +784,14 @@ export function CapacityPlannerClient() {
                           </span>
                         </div>
                         {/* Capacity bar */}
-                        <div className="w-full h-2 rounded-full bg-card overflow-hidden">
+                        <div
+                          className="w-full h-2 rounded-full bg-card overflow-hidden"
+                          role="progressbar"
+                          aria-label={`${m.name || "Member"} capacity utilisation`}
+                          aria-valuenow={Math.round(Math.min(pct, 100))}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                        >
                           <div
                             className="h-full rounded-full bg-gradient-to-r from-[#00f0ff]/60 to-[#00f0ff] transition-all duration-300"
                             style={{ width: `${Math.min(pct, 100)}%` }}

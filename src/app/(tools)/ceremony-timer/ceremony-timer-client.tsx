@@ -396,6 +396,8 @@ export function CeremonyTimerClient() {
                 size="lg"
                 onClick={togglePlay}
                 disabled={totalSeconds === 0}
+                aria-label={running ? "Pause timer" : "Start timer"}
+                aria-pressed={running}
                 className="h-14 w-14 rounded-full p-0"
                 style={{
                   backgroundColor: running ? "var(--surface-hover)" : "var(--accent)",
@@ -596,6 +598,7 @@ export function CeremonyTimerClient() {
                           variant="ghost"
                           onClick={() => removeParticipant(name)}
                           disabled={started && running}
+                          aria-label={`Remove ${name}`}
                           className="min-touch-coarse h-6 w-6 opacity-40 hover:opacity-100 hover:text-[var(--destructive)]"
                         >
                           <X className="h-3 w-3" />

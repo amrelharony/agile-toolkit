@@ -392,6 +392,8 @@ export function DodBuilderClient() {
                   </button>
                   <button
                     type="button"
+                    aria-pressed={item.required}
+                    aria-label={`Toggle required for ${item.label}`}
                     onClick={() => toggleRequired(item.id)}
                     className={`px-2 py-0.5 rounded-md text-xs font-mono uppercase tracking-wider border transition mt-0.5 ${
                       item.required
@@ -413,6 +415,7 @@ export function DodBuilderClient() {
                     variant="ghost"
                     size="sm"
                     onClick={() => remove(item.id)}
+                    aria-label={`Remove ${item.label}`}
                     className="text-sub hover:text-danger"
                   >
                     <Trash2 className="w-3.5 h-3.5" />

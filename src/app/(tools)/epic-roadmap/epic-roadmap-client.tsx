@@ -20,6 +20,16 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { EPIC_ROADMAP_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
 import { useHistoryStore } from "@/lib/history/history-store";
+import { SAFE_CSS_COLOR_RE } from "@/lib/whiteboard/object-validator";
+
+/** Hardened color picker — falls back to the default accent color if the
+ * persisted color value doesn't match the strict whitelist (e.g. a
+ * hand-edited localStorage payload that smuggled `;background:url(...)` into
+ * an inline style). Mirrors the same guard used by the whiteboard renderer. */
+function safeColor(c: string | undefined): string {
+  if (typeof c !== "string" || c.length === 0 || c.length > 64) return "#00f0ff";
+  return SAFE_CSS_COLOR_RE.test(c.trim()) ? c : "#00f0ff";
+}
 
 interface Epic {
   id: string;
@@ -114,7 +124,7 @@ function EpicRowEditor({
   return (
     <div className="py-2 pr-2 flex flex-col gap-1.5">
       <div className="flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full" style={{ background: epic.color ?? "#00f0ff" }} />
+        <div className="w-2 h-2 rounded-full" style={{ background: safeColor(epic.color) }} />
         <Input
           value={titleDraft}
           onChange={(ev) => setTitleDraft(ev.target.value)}
@@ -343,14 +353,15 @@ export function EpicRoadmapClient() {
                       else if (prog > cellStartPct) {
                         cellFillPct = ((prog - cellStartPct) / (cellEndPct - cellStartPct)) * 100;
                       }
+                      const color = safeColor(e.color);
                       return (
                         <div key={idx} className="py-3">
                           <div
                             className="h-4 relative overflow-hidden"
                             style={{
-                              background: `${e.color ?? "#00f0ff"}22`,
-                              borderLeft: isStart ? `3px solid ${e.color ?? "#00f0ff"}` : undefined,
-                              borderRight: isEnd ? `3px solid ${e.color ?? "#00f0ff"}` : undefined,
+                              background: `${color}22`,
+                              borderLeft: isStart ? `3px solid ${color}` : undefined,
+                              borderRight: isEnd ? `3px solid ${color}` : undefined,
                               borderTopLeftRadius: isStart ? 4 : 0,
                               borderBottomLeftRadius: isStart ? 4 : 0,
                               borderTopRightRadius: isEnd ? 4 : 0,
@@ -360,7 +371,7 @@ export function EpicRoadmapClient() {
                             <div
                               className="h-full absolute left-0 top-0"
                               style={{
-                                background: e.color ?? "#00f0ff",
+                                background: color,
                                 width: `${cellFillPct}%`,
                                 opacity: 0.45,
                               }}
@@ -368,7 +379,7 @@ export function EpicRoadmapClient() {
                             {idx === Math.floor((start + end) / 2) && (
                               <div
                                 className="absolute inset-0 flex items-center justify-center text-[10px] font-data"
-                                style={{ color: e.color ?? "#00f0ff" }}
+                                style={{ color }}
                               >
                                 {e.progress}%
                               </div>

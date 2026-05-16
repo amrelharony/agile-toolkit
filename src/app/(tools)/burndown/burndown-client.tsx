@@ -633,7 +633,14 @@ export function BurndownClient() {
               <Input
                 type="date"
                 value={config.sprintStartDate}
-                onChange={(e) => updateConfig({ sprintStartDate: e.target.value })}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  // Only accept blank (transient mid-edit) or strict YYYY-MM-DD
+                  // — guards against pasted junk on browsers that allow it.
+                  if (v === "" || /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+                    updateConfig({ sprintStartDate: v });
+                  }
+                }}
                 className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
               />
             </div>
@@ -901,6 +908,9 @@ export function BurndownClient() {
                 />
 
                 <button
+                  type="button"
+                  aria-pressed={entry.scopeChange}
+                  aria-label={`Mark day ${entry.day} as scope change`}
                   onClick={() => toggleScopeChange(entry.id)}
                   className={`h-9 px-3 rounded-md text-xs font-medium border transition-colors ${
                     entry.scopeChange
@@ -916,6 +926,7 @@ export function BurndownClient() {
                   size="icon"
                   onClick={() => removeEntry(entry.id)}
                   disabled={sortedEntries.length <= 1}
+                  aria-label={`Remove day ${entry.day}`}
                   className="h-9 w-9 disabled:opacity-30"
                 >
                   <Trash2 className="w-4 h-4" />

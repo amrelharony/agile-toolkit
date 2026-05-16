@@ -171,13 +171,19 @@ export function DesignSprintClient() {
   }, [state.sprint?.facilitator]);
 
   const startSprint = () => {
-    const name = newSprintName.trim();
+    const name = newSprintName.trim().slice(0, 200);
     if (!name) return;
-    const description = newSprintDesc.trim() || undefined;
+    const description = newSprintDesc.trim().slice(0, 4000) || undefined;
+    // Validate the start date — type="date" accepts an empty string when the
+    // user clears the field, and a hand-crafted shared link could push an
+    // out-of-format string straight into the persisted store.
+    const startDate = /^\d{4}-\d{2}-\d{2}$/.test(newSprintDate)
+      ? newSprintDate
+      : todayISO();
     const sprint: Sprint = {
       id: newId(),
       name,
-      startDate: newSprintDate || todayISO(),
+      startDate,
       currentDay: 1,
       days: buildDays(),
       description,
@@ -290,7 +296,9 @@ export function DesignSprintClient() {
   };
 
   const addTask = (dayNum: DayNumber) => {
-    const text = newTaskText[dayNum].trim();
+    // Cap user-entered task text to keep persisted state bounded; a single
+    // paste-bomb otherwise breaks the line-clamp UI and bloats the export.
+    const text = newTaskText[dayNum].trim().slice(0, 500);
     if (!text || !state.sprint) return;
     const id = newId();
     setState((s) =>
@@ -328,7 +336,10 @@ export function DesignSprintClient() {
   };
 
   const addArtifact = (dayNum: DayNumber) => {
-    const a = newArtifact[dayNum].trim();
+    // Cap artifact URLs / notes — design-sprint artifacts are usually short
+    // links, and the export collapses newlines so very long entries make the
+    // CSV unreadable.
+    const a = newArtifact[dayNum].trim().slice(0, 1000);
     if (!a || !state.sprint) return;
     setState((s) =>
       s.sprint

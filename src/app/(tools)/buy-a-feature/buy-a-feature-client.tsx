@@ -82,8 +82,8 @@ export function BuyAFeatureClient() {
 
         <SectionCard title="Add feature" icon={Plus}>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <Input className="sm:col-span-2" placeholder="Feature" value={title} onChange={(e) => setTitle(e.target.value)} />
-            <Input type="number" placeholder="Price" value={price} onChange={(e) => setPrice(e.target.value)} />
+            <Input className="sm:col-span-2" placeholder="Feature" value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Feature title" />
+            <Input type="number" min={0} placeholder="Price" value={price} onChange={(e) => setPrice(e.target.value)} aria-label="Feature price" />
           </div>
           <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Add</Button>
         </SectionCard>
@@ -110,7 +110,14 @@ export function BuyAFeatureClient() {
                       <span className="font-medium text-text">{it.title}</span>
                       <span className="text-xs text-sub font-mono">${raised}/${price} ({pct}%)</span>
                     </div>
-                    <div className="w-full bg-surface h-2 rounded overflow-hidden mb-2">
+                    <div
+                      className="w-full bg-surface h-2 rounded overflow-hidden mb-2"
+                      role="progressbar"
+                      aria-label={`${it.title} funding progress`}
+                      aria-valuenow={pct}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                    >
                       <div className="h-2 bg-emerald-400" style={{ width: `${pct}%` }} />
                     </div>
                     <div className="flex items-center gap-2">
@@ -132,8 +139,11 @@ function BuyButton({ onBuy }: { onBuy: (n: number) => void }) {
   const [amount, setAmount] = useState("10");
   return (
     <div className="flex items-center gap-1">
-      <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="h-8 w-20 text-xs" />
-      <Button size="sm" onClick={() => onBuy(parseFloat(amount) || 0)}>Buy</Button>
+      <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className="h-8 w-20 text-xs" aria-label="Purchase amount" />
+      <Button size="sm" onClick={() => {
+        const n = parseFloat(amount);
+        if (Number.isFinite(n) && n > 0) onBuy(n);
+      }}>Buy</Button>
     </div>
   );
 }

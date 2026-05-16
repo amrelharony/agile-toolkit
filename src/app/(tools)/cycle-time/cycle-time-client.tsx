@@ -946,6 +946,7 @@ export function CycleTimeClient() {
                         <button
                           onClick={() => removeItem(item.id)}
                           disabled={items.length === 1}
+                          aria-label={`Remove ${item.name || "item"}`}
                           className="text-sub hover:text-red-400 transition-colors p-1 disabled:opacity-30"
                         >
                           <Trash2 className="w-4 h-4" />

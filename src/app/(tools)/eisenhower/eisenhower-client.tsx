@@ -38,13 +38,14 @@ export function EisenhowerClient() {
   const [quadrant, setQuadrant] = useState<Quadrant>("do");
 
   function add() {
-    if (!title.trim()) return;
+    const t = title.trim().slice(0, 240);
+    if (!t) return;
     const item: PrioritizationItem = {
-      id: crypto.randomUUID(), framework: "eisenhower", title: title.trim(),
+      id: crypto.randomUUID(), framework: "eisenhower", title: t,
       fields: { quadrant }, status: "scored", updatedAt: new Date().toISOString(),
     };
     upsert(item);
-    log(EISENHOWER_ACTIONS.TASK_ADDED, { title, quadrant });
+    log(EISENHOWER_ACTIONS.TASK_ADDED, { title: t, quadrant });
     setTitle("");
   }
 
@@ -57,7 +58,15 @@ export function EisenhowerClient() {
 
   const grouped = useMemo(() => {
     const m: Record<Quadrant, PrioritizationItem[]> = { do: [], schedule: [], delegate: [], delete: [] };
-    for (const it of items) m[(it.fields?.quadrant as Quadrant) ?? "do"].push(it);
+    for (const it of items) {
+      // Validate the quadrant against the known set before indexing — a
+      // stale persisted value (or a renamed enum) would otherwise resolve
+      // to `m[unknown]` = undefined and crash with
+      // "Cannot read property 'push' of undefined" on board load.
+      const raw = it.fields?.quadrant;
+      const q: Quadrant = raw === "schedule" || raw === "delegate" || raw === "delete" ? raw : "do";
+      m[q].push(it);
+    }
     return m;
   }, [items]);
 

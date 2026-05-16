@@ -82,9 +82,9 @@ export function CostOfDelayClient() {
       <div ref={exportRef} className="space-y-4">
         <SectionCard title="Add initiative & estimate cost" icon={Plus}>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-            <Input className="sm:col-span-2" placeholder="Initiative" value={title} onChange={(e) => setTitle(e.target.value)} />
-            <Input type="number" step="100" placeholder="Cost per week ($)" value={perWeekUsd} onChange={(e) => setPerWeekUsd(e.target.value)} />
-            <Input type="number" placeholder="Weeks delayed" value={weeksDelayed} onChange={(e) => setWeeksDelayed(e.target.value)} />
+            <Input className="sm:col-span-2" placeholder="Initiative" value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Initiative title" />
+            <Input type="number" min={0} step="100" placeholder="Cost per week ($)" value={perWeekUsd} onChange={(e) => setPerWeekUsd(e.target.value)} aria-label="Cost per week in dollars" />
+            <Input type="number" min={0} placeholder="Weeks delayed" value={weeksDelayed} onChange={(e) => setWeeksDelayed(e.target.value)} aria-label="Weeks delayed" />
           </div>
           <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Add</Button>
         </SectionCard>

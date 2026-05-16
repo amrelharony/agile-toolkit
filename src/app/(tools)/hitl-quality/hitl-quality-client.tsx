@@ -31,17 +31,27 @@ export function HitlQualityClient() {
   const [reason, setReason] = useState("");
 
   function add() {
+    // Require at least one identifying field — feature, reviewer, or reason.
+    // Otherwise the table fills up with rows showing only "anon" + rating,
+    // which is rarely useful and impossible to associate back to context.
+    if (!feature.trim() && !reviewer.trim() && !reason.trim()) return;
+    // Defensive bound on rating in case the casted Select value somehow
+    // landed outside 1..5 (e.g. a corrupt persisted draft that bypassed the
+    // dropdown).
+    const safeRating = (
+      Number.isFinite(rating) && rating >= 1 && rating <= 5 ? rating : 3
+    ) as HitlReview["rating"];
     const item: HitlReview = {
       id: crypto.randomUUID(),
       feature: feature.trim() || undefined,
       reviewer: reviewer.trim() || undefined,
-      rating,
+      rating: safeRating,
       agreedWithModel: agreed,
-      reason: reason.trim() || undefined,
+      reason: reason.trim().slice(0, 4000) || undefined,
       loggedAt: new Date().toISOString(),
     };
     upsert(item);
-    log(HITL_ACTIONS.REVIEW_LOGGED, { rating, agreed });
+    log(HITL_ACTIONS.REVIEW_LOGGED, { rating: safeRating, agreed });
     setReason("");
   }
 
@@ -50,20 +60,36 @@ export function HitlQualityClient() {
     log(HITL_ACTIONS.REVIEW_REMOVED, { id });
   }
 
-  const meanRating = list.length === 0 ? 0 : list.reduce((s, x) => s + x.rating, 0) / list.length;
-  const agreementRate = list.length === 0 ? 0 : Math.round((list.filter((x) => x.agreedWithModel).length / list.length) * 100);
+  // Drop entries with malformed ratings before averaging — a hand-edited
+  // localStorage payload could have a rating outside 1..5, which would
+  // skew the mean indefinitely. Same for trend math below.
+  const validList = useMemo(
+    () => list.filter((x) => Number.isFinite(x.rating) && typeof x.loggedAt === "string"),
+    [list],
+  );
+  const meanRating = validList.length === 0
+    ? 0
+    : validList.reduce((s, x) => s + x.rating, 0) / validList.length;
+  const agreementRate = validList.length === 0
+    ? 0
+    : Math.round((validList.filter((x) => x.agreedWithModel).length / validList.length) * 100);
 
   // Per-day rolling
   const trendData = useMemo(() => {
     const byDay: Record<string, { date: string; mean: number; n: number; sum: number }> = {};
-    for (const x of list) {
-      const day = x.loggedAt.slice(0, 10);
+    for (const x of validList) {
+      // `loggedAt.slice` throws on non-strings; we already filtered above but
+      // re-check defensively so the type narrows cleanly.
+      const day = typeof x.loggedAt === "string" ? x.loggedAt.slice(0, 10) : "";
+      if (!day) continue;
       if (!byDay[day]) byDay[day] = { date: day, mean: 0, n: 0, sum: 0 };
       byDay[day].n++;
       byDay[day].sum += x.rating;
     }
-    return Object.values(byDay).map((d) => ({ ...d, mean: d.sum / d.n })).sort((a, b) => a.date.localeCompare(b.date));
-  }, [list]);
+    return Object.values(byDay)
+      .map((d) => ({ ...d, mean: d.n > 0 ? d.sum / d.n : 0 }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [validList]);
 
   const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
     teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,

@@ -141,17 +141,20 @@ export function FeatureFlagTrackerClient() {
   }, []);
 
   const addFlag = () => {
-    const trimmed = name.trim();
+    // Flag names are typically code identifiers — cap at 200 chars so a
+    // paste of an entire stack trace doesn't end up as the name. Owner
+    // and description are similarly bounded to keep storage in check.
+    const trimmed = name.trim().slice(0, 200);
     if (!trimmed) return;
     const flag: Flag = {
       id: crypto.randomUUID(),
       name: trimmed,
-      owner: owner.trim() || undefined,
+      owner: owner.trim().slice(0, 120) || undefined,
       status: "active",
       createdAt: todayLocalISO(),
       environment,
       purpose,
-      description: description.trim() || undefined,
+      description: description.trim().slice(0, 4000) || undefined,
     };
     setFlags((prev) => [flag, ...prev]);
     log(FEATURE_FLAG_ACTIONS.FLAG_ADDED, {

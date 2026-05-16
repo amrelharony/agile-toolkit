@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Workflow, Plus, Trash2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -69,6 +69,12 @@ export function AgenticWorkflowClient() {
   const activeWf = workflows.find((w) => w.id === activeWfId);
   const wfNodes = useMemo(() => nodes.filter((n) => n.workflowId === activeWfId), [nodes, activeWfId]);
 
+  // Auto-select first workflow after hydration if none selected (race: initial
+  // useState ran before persist rehydrated, so workflows[0] was undefined).
+  useEffect(() => {
+    if (!activeWfId && workflows.length > 0) setActiveWfId(workflows[0]!.id);
+  }, [workflows, activeWfId]);
+
   const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
     teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
     impediments: s.impediments, risks: s.risks, okrs: s.okrs,
@@ -103,18 +109,22 @@ export function AgenticWorkflowClient() {
           {workflows.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
               {workflows.map((wf) => (
-                <button
+                <div
                   key={wf.id}
-                  onClick={() => setActiveWfId(wf.id)}
-                  className={`text-xs px-2 py-1 rounded border ${wf.id === activeWfId ? "bg-accent/20 border-accent text-accent" : "bg-surface-deep border-border text-sub hover:text-text"}`}
+                  className={`inline-flex items-center text-xs rounded border ${wf.id === activeWfId ? "bg-accent/20 border-accent text-accent" : "bg-surface-deep border-border text-sub"}`}
                 >
-                  {wf.name}
                   <button
-                    onClick={(e) => { e.stopPropagation(); removeWf(wf.id); log(AGENTIC_WORKFLOW_ACTIONS.WORKFLOW_REMOVED, { id: wf.id }); }}
-                    className="ml-2 text-sub hover:text-red-400"
-                    aria-label="Remove workflow"
+                    onClick={() => setActiveWfId(wf.id)}
+                    className="px-2 py-1 hover:text-text"
+                  >
+                    {wf.name}
+                  </button>
+                  <button
+                    onClick={() => { removeWf(wf.id); log(AGENTIC_WORKFLOW_ACTIONS.WORKFLOW_REMOVED, { id: wf.id }); if (wf.id === activeWfId) setActiveWfId(""); }}
+                    className="pr-2 py-1 text-sub hover:text-red-400"
+                    aria-label={`Remove workflow ${wf.name}`}
                   ><Trash2 className="w-3 h-3 inline" /></button>
-                </button>
+                </div>
               ))}
             </div>
           )}

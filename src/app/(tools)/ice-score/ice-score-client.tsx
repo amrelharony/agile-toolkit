@@ -32,11 +32,19 @@ export function IceScoreClient() {
 
   function add() {
     if (!title.trim()) return;
-    const i = parseFloat(impact), c = parseFloat(confidence), e = parseFloat(ease);
-    const score = iceScore(i || 5, c || 5, e || 5);
+    // `parseFloat("")` → NaN, `parseFloat("abc")` → NaN.
+    // `|| 5` would also clobber a legitimate `0`, so check NaN explicitly and
+    // fall back to the midpoint only when the user genuinely left the field
+    // empty.  `iceScore` will then clamp into [1, 10].
+    const safeNum = (raw: string): number => {
+      const n = parseFloat(raw);
+      return Number.isFinite(n) ? n : 5;
+    };
+    const i = safeNum(impact), c = safeNum(confidence), e = safeNum(ease);
+    const score = iceScore(i, c, e);
     const item: PrioritizationItem = {
       id: crypto.randomUUID(), framework: "ice", title: title.trim(),
-      score, fields: { impact: i || 5, confidence: c || 5, ease: e || 5 },
+      score, fields: { impact: i, confidence: c, ease: e },
       status: "scored", updatedAt: new Date().toISOString(),
     };
     upsert(item);

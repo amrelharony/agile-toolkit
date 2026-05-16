@@ -127,10 +127,10 @@ export function DaciClient() {
                     <span className="font-medium text-text">{d.title}</span>
                     <span className="flex items-center gap-2">
                       <Select value={d.status} onValueChange={(v) => setStatus(d, v as DACIDecision["status"])}>
-                        <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-7 w-32 text-xs" aria-label={`Status for ${d.title}`}><SelectValue /></SelectTrigger>
                         <SelectContent>{STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
                       </Select>
-                      {d.status === "open" && <button onClick={() => decide(d)} className="text-emerald-400 hover:text-emerald-300"><CheckCircle2 className="w-4 h-4" /></button>}
+                      {d.status === "open" && <button onClick={() => decide(d)} aria-label={`Mark decided: ${d.title}`} title="Mark decided" className="text-emerald-400 hover:text-emerald-300"><CheckCircle2 className="w-4 h-4" /></button>}
                       <button onClick={() => remove(d.id)} aria-label="Remove decision" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
                     </span>
                   </div>

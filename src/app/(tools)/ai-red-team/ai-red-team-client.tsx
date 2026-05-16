@@ -142,7 +142,7 @@ export function AIRedTeamClient() {
                       <span className="text-text truncate">{x.attackVector}</span>
                     </span>
                     <span className="flex items-center gap-2 shrink-0">
-                      {!x.resolvedAt && <button onClick={() => resolve(x.id)} className="text-emerald-400 hover:text-emerald-300"><CheckCircle2 className="w-4 h-4" /></button>}
+                      {!x.resolvedAt && <button onClick={() => resolve(x.id)} aria-label="Mark resolved" title="Mark resolved" className="text-emerald-400 hover:text-emerald-300"><CheckCircle2 className="w-4 h-4" /></button>}
                       <button onClick={() => remove(x.id)} aria-label="Remove finding" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
                     </span>
                   </div>

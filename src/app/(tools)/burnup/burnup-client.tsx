@@ -588,7 +588,12 @@ export function BurnupClient() {
               <Input
                 type="date"
                 value={config.sprintStartDate}
-                onChange={(e) => updateConfig({ sprintStartDate: e.target.value })}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "" || /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+                    updateConfig({ sprintStartDate: v });
+                  }
+                }}
                 className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
               />
             </div>
@@ -890,6 +895,7 @@ export function BurnupClient() {
                   size="icon"
                   onClick={() => removeEntry(entry.id)}
                   disabled={sortedEntries.length <= 1}
+                  aria-label={`Remove day ${entry.day}`}
                   className="h-9 w-9 disabled:opacity-30"
                 >
                   <Trash2 className="w-4 h-4" />

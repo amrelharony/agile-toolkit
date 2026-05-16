@@ -46,12 +46,17 @@ export function HallucinationLogClient() {
 
   function add() {
     if (!input.trim() || !actual.trim()) return;
+    // Cap free-text fields at 8000 chars apiece — that's already 32 KB just
+    // for these three. Without the cap a single mega-paste could bloat
+    // localStorage past the 5 MB origin quota and silently lose every other
+    // tool's state on the next write.
+    const MAX = 8000;
     const item: Hallucination = {
       id: crypto.randomUUID(),
-      feature: feature.trim() || undefined,
-      input: input.trim(),
-      actual: actual.trim(),
-      expected: expected.trim() || undefined,
+      feature: feature.trim().slice(0, 200) || undefined,
+      input: input.trim().slice(0, MAX),
+      actual: actual.trim().slice(0, MAX),
+      expected: expected.trim().slice(0, MAX) || undefined,
       severity,
       rootCause: rootCause || undefined,
       loggedAt: new Date().toISOString(),
@@ -206,7 +211,15 @@ export function HallucinationLogClient() {
                       <span className="flex items-center gap-2 min-w-0">
                         <span
                           className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded"
-                          style={{ backgroundColor: SEVERITY_COLORS[x.severity] + "20", color: SEVERITY_COLORS[x.severity] }}
+                          // Fallback to the medium colour when the persisted
+                          // severity isn't in the known set — otherwise the
+                          // template literal stringifies `undefined` into the
+                          // CSS value, which the browser silently discards
+                          // but linters and screen-readers see as broken.
+                          style={{
+                            backgroundColor: (SEVERITY_COLORS[x.severity] ?? "#ffaa00") + "20",
+                            color: SEVERITY_COLORS[x.severity] ?? "#ffaa00",
+                          }}
                         >
                           {x.severity}
                         </span>

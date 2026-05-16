@@ -42,8 +42,16 @@ export function KanoModelClient() {
 
   function add() {
     if (!title.trim()) return;
-    const sat = parseFloat(satIfPresent) || 0;
-    const dissat = parseFloat(dissatIfAbsent) || 0;
+    // Clamp to the [0, 5] range advertised in the input placeholders. Without
+    // this a stray `e2` keystroke would persist `200` as a satisfaction
+    // score, which then dominates every ranking that uses it downstream.
+    const parseBounded = (raw: string): number => {
+      const n = parseFloat(raw);
+      if (!Number.isFinite(n)) return 0;
+      return Math.max(0, Math.min(5, n));
+    };
+    const sat = parseBounded(satIfPresent);
+    const dissat = parseBounded(dissatIfAbsent);
     const item: PrioritizationItem = {
       id: crypto.randomUUID(), framework: "kano", title: title.trim(),
       score: sat + Math.abs(dissat),
@@ -62,8 +70,15 @@ export function KanoModelClient() {
 
   const grouped = useMemo(() => {
     const m: Record<Category, PrioritizationItem[]> = { "must-be": [], performance: [], attractive: [], indifferent: [], reverse: [] };
+    const known = new Set<Category>(["must-be", "performance", "attractive", "indifferent", "reverse"]);
+    const isCategory = (v: unknown): v is Category =>
+      typeof v === "string" && known.has(v as Category);
     for (const it of items) {
-      const c = (it.fields?.category as Category) ?? "performance";
+      // Defensive lookup: an unknown persisted category (e.g. renamed enum
+      // from an older build) would otherwise resolve to `m[unknown]` =
+      // undefined and crash with "Cannot read property 'push' of undefined".
+      const raw = it.fields?.category;
+      const c: Category = isCategory(raw) ? raw : "performance";
       m[c].push(it);
     }
     return m;

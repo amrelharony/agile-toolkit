@@ -906,10 +906,15 @@ export function CFDClient() {
                           <Input
                             type="date"
                             value={entry.date}
-                            onChange={(e) =>
-                              updateEntry(entry.id, { date: e.target.value })
-                            }
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              // Reject blank — date is required for chart x-axis.
+                              if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+                                updateEntry(entry.id, { date: v });
+                              }
+                            }}
                             className="h-8 w-36 bg-surface-deep border-border text-text text-sm focus:border-accent/50"
+                            aria-label="Snapshot date"
                           />
                         </td>
                         {columns.map((col) => (
@@ -948,6 +953,7 @@ export function CFDClient() {
                         <td className="py-2">
                           <button
                             onClick={() => removeEntry(entry.id)}
+                            aria-label={`Remove snapshot for ${entry.date}`}
                             className="text-sub hover:text-red-400 transition-colors p-1"
                           >
                             <Trash2 className="w-4 h-4" />

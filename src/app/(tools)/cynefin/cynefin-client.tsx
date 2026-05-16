@@ -95,7 +95,7 @@ export function CynefinClient() {
     >
       <div ref={exportRef} className="space-y-4">
         <SectionCard title="Classify a problem" icon={Plus}>
-          <Input placeholder="Problem / decision" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <Input placeholder="Problem / decision" value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Problem or decision title" />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
             <Select value={domain} onValueChange={(v) => setDomain(v as CynefinItem["domain"])}>
               <SelectTrigger><SelectValue /></SelectTrigger>
@@ -129,7 +129,7 @@ export function CynefinClient() {
                   {grouped[d.id].map((it) => (
                     <li key={it.id} className="flex items-center gap-2">
                       <Select value={it.domain} onValueChange={(v) => reclassify(it.id, v as CynefinItem["domain"])}>
-                        <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-7 w-32 text-xs" aria-label={`Cynefin domain for ${it.title}`}><SelectValue /></SelectTrigger>
                         <SelectContent>{DOMAINS.map((opt) => <SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>)}</SelectContent>
                       </Select>
                       <span className="flex-1 truncate text-text">{it.title}</span>

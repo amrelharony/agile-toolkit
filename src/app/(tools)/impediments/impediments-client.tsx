@@ -150,6 +150,10 @@ const useImpedimentStore = create<ImpedimentStore>()(
 
 function daysSince(dateStr: string): number {
   const d = new Date(dateStr).getTime();
+  // Guard against `new Date("garbage")` → NaN; without this the badge below
+  // displayed "NaNd" for any impediment whose raisedDate got corrupted in
+  // localStorage.
+  if (!Number.isFinite(d)) return 0;
   const now = Date.now();
   return Math.max(0, Math.floor((now - d) / (1000 * 60 * 60 * 24)));
 }
@@ -159,12 +163,18 @@ function avgResolutionDays(impediments: Impediment[]): number {
     (i) => i.status === "Resolved" && i.resolvedDate
   );
   if (resolved.length === 0) return 0;
+  let validCount = 0;
   const total = resolved.reduce((sum, i) => {
     const raised = new Date(i.raisedDate).getTime();
     const done = new Date(i.resolvedDate!).getTime();
+    // Skip malformed entries so a single bad row doesn't NaN-poison the avg
+    // (NaN propagates through addition, then `Math.round(NaN)` → NaN, which
+    // surfaced as "NaN days" in the dashboard card).
+    if (!Number.isFinite(raised) || !Number.isFinite(done)) return sum;
+    validCount += 1;
     return sum + Math.max(0, Math.floor((done - raised) / (1000 * 60 * 60 * 24)));
   }, 0);
-  return Math.round(total / resolved.length);
+  return validCount > 0 ? Math.round(total / validCount) : 0;
 }
 
 /** Pull resolution-day durations for resolved impediments, with NaN-guarding. */
@@ -174,6 +184,7 @@ function resolutionDaysSeries(impediments: Impediment[]): number[] {
     .map((i) => {
       const raised = new Date(i.raisedDate).getTime();
       const done = new Date(i.resolvedDate!).getTime();
+      if (!Number.isFinite(raised) || !Number.isFinite(done)) return NaN;
       return Math.max(0, Math.floor((done - raised) / (1000 * 60 * 60 * 24)));
     })
     .filter((d) => Number.isFinite(d));
@@ -493,9 +504,19 @@ function LogForm() {
                     value={form.expectedResolutionDays ?? ""}
                     onChange={(e) => {
                       const v = e.target.value;
+                      const n = Number(v);
+                      // Cap at 3650 days (~10 years) so a stray keystroke
+                      // (e.g. typing 99999999) doesn't bloat the persisted
+                      // store or break downstream forecasting helpers that
+                      // assume "reasonable" lead times.
                       setForm((f) => ({
                         ...f,
-                        expectedResolutionDays: v === "" ? undefined : Math.max(1, Number(v)),
+                        expectedResolutionDays:
+                          v === ""
+                            ? undefined
+                            : Number.isFinite(n)
+                            ? Math.min(3650, Math.max(1, n))
+                            : f.expectedResolutionDays,
                       }));
                     }}
                     onKeyDown={(e) => {

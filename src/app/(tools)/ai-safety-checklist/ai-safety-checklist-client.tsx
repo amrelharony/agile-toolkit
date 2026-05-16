@@ -104,7 +104,14 @@ export function AISafetyChecklistClient() {
             </>
           }
         >
-          <div className="w-full bg-surface-deep h-2 rounded overflow-hidden">
+          <div
+            className="w-full bg-surface-deep h-2 rounded overflow-hidden"
+            role="progressbar"
+            aria-label={`Checklist completion ${done} of ${total}`}
+            aria-valuenow={pct}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
             <div className="h-2 bg-emerald-400" style={{ width: `${pct}%` }} />
           </div>
         </SectionCard>
@@ -117,6 +124,10 @@ export function AISafetyChecklistClient() {
                 return (
                   <li key={it.id}>
                     <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={checked}
+                      aria-label={it.text}
                       onClick={() => { store.set(it.id, !checked); log(AI_SAFETY_ACTIONS.ITEM_TOGGLED, { id: it.id, on: !checked }); }}
                       className="flex items-center gap-2 w-full text-left rounded p-1.5 hover:bg-surface-deep"
                     >

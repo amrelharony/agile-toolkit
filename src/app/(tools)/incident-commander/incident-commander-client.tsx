@@ -164,7 +164,10 @@ export function IncidentCommanderClient() {
   }, []);
 
   const addIncident = () => {
-    const title = draft.title.trim();
+    // Bound user-controlled strings before persisting. Incident commander
+    // boards run live; a runaway paste could trash multi-week incident
+    // history if localStorage's 5 MB quota is exceeded.
+    const title = draft.title.trim().slice(0, 240);
     if (!title) return;
     const incident: Incident = {
       id: crypto.randomUUID(),
@@ -172,9 +175,9 @@ export function IncidentCommanderClient() {
       severity: draft.severity,
       status: "active",
       openedAt: nowIso(),
-      commander: draft.commander.trim() || undefined,
-      scribe: draft.scribe.trim() || undefined,
-      description: draft.description.trim() || undefined,
+      commander: draft.commander.trim().slice(0, 120) || undefined,
+      scribe: draft.scribe.trim().slice(0, 120) || undefined,
+      description: draft.description.trim().slice(0, 4000) || undefined,
       timeline: [],
     };
     setState((s) => ({ incidents: [incident, ...s.incidents] }));
@@ -233,12 +236,15 @@ export function IncidentCommanderClient() {
   };
 
   const addTimelineEntry = (id: string, author: string, text: string) => {
-    const trimmedText = text.trim();
+    // Cap each timeline entry — long incidents can accumulate hundreds, and
+    // a paste-bomb in one entry would otherwise pin the timeline scroll
+    // view and dominate the export.
+    const trimmedText = text.trim().slice(0, 2000);
     if (!trimmedText) return;
     const entry: TimelineEntry = {
       id: crypto.randomUUID(),
       ts: nowIso(),
-      author: author.trim() || "anonymous",
+      author: author.trim().slice(0, 80) || "anonymous",
       text: trimmedText,
     };
     setState((s) => ({
