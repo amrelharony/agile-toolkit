@@ -44,6 +44,13 @@ export function snapToGrid(p: Vec2, size = DEFAULT_GRID_SIZE): Vec2 {
  * triggered the snap, so the canvas can render them.
  *
  * Snaps to: left edge, center x, right edge, top edge, center y, bottom edge.
+ *
+ * Hot path. The previous implementation allocated a 9-element
+ * `[edge, target, newX][]` literal twice per `other` rect, which on a
+ * 1000-object board burned ~18 000 small array allocations per
+ * pointermove (millions/sec under sustained drag). This version unrolls
+ * the candidate list into nine direct `testX` / `testY` calls — no
+ * intermediate arrays, no tuple destructuring, same semantics.
  */
 export function snapToObjects(
   dragging: Rect,
@@ -52,6 +59,12 @@ export function snapToObjects(
 ): { rect: Rect; guides: AlignmentGuide[] } {
   let snapX: number | null = null;
   let snapY: number | null = null;
+  // Best (smallest) absolute deltas seen so far, used to pick the
+  // tightest snap when multiple candidates match within tolerance. Avoids
+  // re-computing the previous candidate's distance inside the loop the
+  // way the old `Math.abs((snapX + (edge - dragLeft)) - target)` did.
+  let bestDx = Infinity;
+  let bestDy = Infinity;
   const guides: AlignmentGuide[] = [];
 
   const dragLeft = dragging.x;
@@ -60,6 +73,8 @@ export function snapToObjects(
   const dragTop = dragging.y;
   const dragBottom = dragging.y + dragging.h;
   const dragCenterY = dragging.y + dragging.h / 2;
+  const halfW = dragging.w / 2;
+  const halfH = dragging.h / 2;
 
   for (const o of others) {
     const oLeft = o.x;
@@ -68,58 +83,63 @@ export function snapToObjects(
     const oTop = o.y;
     const oBottom = o.y + o.h;
     const oCenterY = o.y + o.h / 2;
+    const guideTopY = Math.min(dragTop, oTop) - 20;
+    const guideBotY = Math.max(dragBottom, oBottom) + 20;
+    const guideLeftX = Math.min(dragLeft, oLeft) - 20;
+    const guideRightX = Math.max(dragRight, oRight) + 20;
 
-    // Vertical alignments (constant x)
-    const xCandidates: [number, number, number][] = [
-      [dragLeft, oLeft, oLeft],
-      [dragLeft, oRight, oRight],
-      [dragLeft, oCenterX, oCenterX],
-      [dragRight, oLeft, oLeft - dragging.w],
-      [dragRight, oRight, oRight - dragging.w],
-      [dragRight, oCenterX, oCenterX - dragging.w],
-      [dragCenterX, oLeft, oLeft - dragging.w / 2],
-      [dragCenterX, oRight, oRight - dragging.w / 2],
-      [dragCenterX, oCenterX, oCenterX - dragging.w / 2],
-    ];
-    for (const [edge, target, newX] of xCandidates) {
-      if (Math.abs(edge - target) < tol) {
-        if (snapX === null || Math.abs(edge - target) < Math.abs((snapX + (edge - dragLeft)) - target)) {
-          snapX = newX;
-        }
-        guides.push({
-          orientation: "vertical",
-          position: target,
-          rangeMin: Math.min(dragTop, oTop) - 20,
-          rangeMax: Math.max(dragBottom, oBottom) + 20,
-        });
+    // Vertical alignments (constant x). Each `testX(edge, target, newX)`
+    // is the body of the old candidate-array loop, unrolled and
+    // alloc-free. The branch ordering is left-edge/right-edge/center —
+    // identical semantics to the prior code.
+    const testX = (edge: number, target: number, newX: number) => {
+      const d = Math.abs(edge - target);
+      if (d >= tol) return;
+      if (d < bestDx) {
+        bestDx = d;
+        snapX = newX;
       }
-    }
+      guides.push({
+        orientation: "vertical",
+        position: target,
+        rangeMin: guideTopY,
+        rangeMax: guideBotY,
+      });
+    };
+    testX(dragLeft, oLeft, oLeft);
+    testX(dragLeft, oRight, oRight);
+    testX(dragLeft, oCenterX, oCenterX);
+    testX(dragRight, oLeft, oLeft - dragging.w);
+    testX(dragRight, oRight, oRight - dragging.w);
+    testX(dragRight, oCenterX, oCenterX - dragging.w);
+    testX(dragCenterX, oLeft, oLeft - halfW);
+    testX(dragCenterX, oRight, oRight - halfW);
+    testX(dragCenterX, oCenterX, oCenterX - halfW);
 
-    // Horizontal alignments (constant y)
-    const yCandidates: [number, number, number][] = [
-      [dragTop, oTop, oTop],
-      [dragTop, oBottom, oBottom],
-      [dragTop, oCenterY, oCenterY],
-      [dragBottom, oTop, oTop - dragging.h],
-      [dragBottom, oBottom, oBottom - dragging.h],
-      [dragBottom, oCenterY, oCenterY - dragging.h],
-      [dragCenterY, oTop, oTop - dragging.h / 2],
-      [dragCenterY, oBottom, oBottom - dragging.h / 2],
-      [dragCenterY, oCenterY, oCenterY - dragging.h / 2],
-    ];
-    for (const [edge, target, newY] of yCandidates) {
-      if (Math.abs(edge - target) < tol) {
-        if (snapY === null || Math.abs(edge - target) < Math.abs((snapY + (edge - dragTop)) - target)) {
-          snapY = newY;
-        }
-        guides.push({
-          orientation: "horizontal",
-          position: target,
-          rangeMin: Math.min(dragLeft, oLeft) - 20,
-          rangeMax: Math.max(dragRight, oRight) + 20,
-        });
+    // Horizontal alignments (constant y).
+    const testY = (edge: number, target: number, newY: number) => {
+      const d = Math.abs(edge - target);
+      if (d >= tol) return;
+      if (d < bestDy) {
+        bestDy = d;
+        snapY = newY;
       }
-    }
+      guides.push({
+        orientation: "horizontal",
+        position: target,
+        rangeMin: guideLeftX,
+        rangeMax: guideRightX,
+      });
+    };
+    testY(dragTop, oTop, oTop);
+    testY(dragTop, oBottom, oBottom);
+    testY(dragTop, oCenterY, oCenterY);
+    testY(dragBottom, oTop, oTop - dragging.h);
+    testY(dragBottom, oBottom, oBottom - dragging.h);
+    testY(dragBottom, oCenterY, oCenterY - dragging.h);
+    testY(dragCenterY, oTop, oTop - halfH);
+    testY(dragCenterY, oBottom, oBottom - halfH);
+    testY(dragCenterY, oCenterY, oCenterY - halfH);
   }
 
   // De-dup guides on the same position to keep the render light.

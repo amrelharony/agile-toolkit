@@ -14,9 +14,8 @@
 import { emitSignal } from "@/lib/signals/signal-bus";
 
 const STORAGE_KEY = "agile-toolkit:share-tokens";
-const TOKEN_LENGTH = 12;
 
-export type ShareRole = "editor" | "viewer";
+export type ShareRole = "editor" | "viewer" | "commenter";
 
 export interface ShareToken {
   token: string;
@@ -40,7 +39,29 @@ function load(): StoredTokens {
     if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.tokens)) {
       return { tokens: [] };
     }
-    return parsed as StoredTokens;
+    // C3 — validate every token entry. localStorage is user-writable, so
+    // a hand-crafted payload could otherwise grant editor access on read.
+    const now = Date.now();
+    const oneYearOut = now + 366 * 24 * 60 * 60 * 1000;
+    const valid: ShareToken[] = [];
+    for (const t of parsed.tokens) {
+      if (!t || typeof t !== "object") continue;
+      if (typeof t.token !== "string" || t.token.length === 0 || t.token.length > 100) continue;
+      if (typeof t.boardId !== "string" || t.boardId.length === 0) continue;
+      if (t.role !== "editor" && t.role !== "viewer" && t.role !== "commenter") continue;
+      if (typeof t.expiresAt !== "number" || !Number.isFinite(t.expiresAt)) continue;
+      if (typeof t.createdAt !== "number" || !Number.isFinite(t.createdAt)) continue;
+      // Reject expiresAt > 1 year out — defense against injected immortal tokens.
+      if (t.expiresAt > oneYearOut) continue;
+      valid.push(t);
+    }
+    // H15 — purge expired tokens on read so localStorage doesn't leak.
+    const fresh = valid.filter((t) => t.expiresAt > now);
+    if (fresh.length !== parsed.tokens.length) {
+      // Persist the cleanup so a future read doesn't re-run the same filter.
+      save({ tokens: fresh });
+    }
+    return { tokens: fresh };
   } catch {
     return { tokens: [] };
   }
@@ -56,12 +77,44 @@ function save(state: StoredTokens): void {
 }
 
 function randomToken(): string {
-  const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let out = "";
-  for (let i = 0; i < TOKEN_LENGTH; i++) {
-    out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  if (typeof window !== "undefined" && window.crypto?.getRandomValues) {
+    const bytes = new Uint8Array(12);
+    window.crypto.getRandomValues(bytes);
+    // base62 encode (URL-safe, no padding). 12 bytes = ~16 chars.
+    const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let out = "";
+    for (const b of Array.from(bytes)) out += alphabet[b % alphabet.length];
+    return out;
   }
+  // SSR / no-crypto fallback. Still random enough for non-security use.
+  let out = "";
+  const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  for (let i = 0; i < 12; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
   return out;
+}
+
+/**
+ * Build a share URL for a given board+token+role. Centralised so both
+ * share-link.ts and share-modal.tsx produce identical strings and can't
+ * drift apart (the view= param semantics have to stay in sync with the
+ * canvas reader).
+ */
+export function buildShareUrl(boardId: string, token: string, role: ShareRole): string {
+  if (typeof window === "undefined") return "";
+  // Editors get no view= param; viewers get ?view=readonly (no pointer
+  // mutations at all); commenters get ?view=commenter (read-only objects
+  // but they can drop new comment threads).
+  const viewParam =
+    role === "viewer" ? "&view=readonly" :
+    role === "commenter" ? "&view=commenter" :
+    "";
+  // URL-encode user-controllable inputs. `boardId` is auto-generated
+  // today, but external imports / future user-rename flows could
+  // contain `&`, `#`, `?`, spaces or non-ASCII — without encoding,
+  // those would either split the query string or be silently dropped
+  // by `window.location.origin`. Tokens are alphanumeric today but
+  // encoded for the same defensive reason.
+  return `${window.location.origin}/canvas?board=${encodeURIComponent(boardId)}&share=${encodeURIComponent(token)}${viewParam}`;
 }
 
 /**
@@ -70,7 +123,10 @@ function randomToken(): string {
  */
 export function createShareToken(boardId: string, role: ShareRole, ttlDays = 7): { token: string; url: string } {
   const now = Date.now();
-  const expiresAt = now + ttlDays * 24 * 60 * 60 * 1000;
+  // H14 — clamp ttlDays. Anything <1 day or >365 (or NaN/undefined) is
+  // coerced to a safe window; floors fractional days so the math is clean.
+  const safeDays = Math.max(1, Math.min(365, Math.floor(Number(ttlDays) || 7)));
+  const expiresAt = now + safeDays * 24 * 60 * 60 * 1000;
   const token = randomToken();
   const state = load();
   // Purge expired tokens before persisting the new one — keeps the
@@ -78,14 +134,23 @@ export function createShareToken(boardId: string, role: ShareRole, ttlDays = 7):
   const fresh = state.tokens.filter((t) => t.expiresAt > now);
   fresh.push({ token, boardId, role, expiresAt, createdAt: now });
   save({ tokens: fresh });
-  const url = typeof window !== "undefined"
-    ? `${window.location.origin}/canvas?board=${boardId}&share=${token}${role === "viewer" ? "&view=readonly" : ""}`
-    : "";
+  const url = buildShareUrl(boardId, token, role);
   emitSignal({
     kind: "whiteboard.boardShared",
     at: new Date(now).toISOString(),
     toolId: "canvas",
-    payload: { boardId, role, ttlDays, token },
+    // Do NOT leak the share token into the signal bus — it persists
+    // in the ring buffer (visible to any subscriber and to the future
+    // debug history page) and would let anyone with read access to
+    // recent signals escalate to whatever role the link granted.
+    // Expose only a non-secret fingerprint for correlation in
+    // analytics / activity feeds.
+    payload: {
+      boardId,
+      role,
+      ttlDays: safeDays,
+      tokenPrefix: token.slice(0, 6),
+    },
   });
   return { token, url };
 }

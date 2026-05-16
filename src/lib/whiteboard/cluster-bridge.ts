@@ -133,6 +133,9 @@ export function clusterObjects(
   let vocab: string[] | null = null;
   if (mode === "content") {
     const v = vectorise(subset);
+    // No usable vocab — e.g. every sticky is empty / numeric-only.
+    // Returning [] beats producing one giant degenerate cluster.
+    if (v.vocab.length === 0) return [];
     points = v.vectors;
     vocab = v.vocab;
   } else {

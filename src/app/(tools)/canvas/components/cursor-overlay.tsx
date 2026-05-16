@@ -27,8 +27,19 @@ function useNowTick(intervalMs = 250, active = true): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return;
-    const h = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(h);
+    // Belt-and-suspenders: even though React calls our cleanup when
+    // `active` flips, the tick itself re-checks `active` so a stale
+    // interval (e.g. from a race between unmount + ref dropping)
+    // can't push a setState into an inactive overlay. M21.
+    let stopped = false;
+    const h = setInterval(() => {
+      if (stopped) return;
+      setNow(Date.now());
+    }, intervalMs);
+    return () => {
+      stopped = true;
+      clearInterval(h);
+    };
   }, [intervalMs, active]);
   return now;
 }

@@ -59,6 +59,7 @@ function TimerObjectImpl({ object: o, selected, onPointerDown, onMutate }: Timer
   return (
     <div
       onPointerDown={onPointerDown}
+      data-canvas-object-kind="timer"
       style={{
         position: "absolute",
         left: 0,

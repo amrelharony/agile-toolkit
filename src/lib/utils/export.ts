@@ -41,13 +41,25 @@ function detectIsLightTheme(): boolean {
   // Prefer the explicit class set by the theme toggle / inline boot script.
   // Fall back to the OS preference when neither class is present, otherwise
   // dark-mode users on a fresh visit get a light-coloured PNG (or vice versa).
+  if (typeof document === "undefined") return false;
   const root = document.documentElement;
+  // HC mode is treated as dark (pure black) — without this it would slip
+  // through to prefers-color-scheme and produce an incorrectly-lit PNG.
+  if (root.classList.contains("hc")) return false;
   if (root.classList.contains("light")) return true;
   if (root.classList.contains("dark")) return false;
   if (typeof window !== "undefined" && window.matchMedia) {
     return window.matchMedia("(prefers-color-scheme: light)").matches;
   }
   return false;
+}
+
+function detectPngBg(): string {
+  // HC uses pure black so the exported PNG matches the on-screen contrast.
+  if (typeof document !== "undefined" && document.documentElement.classList.contains("hc")) {
+    return "#000000";
+  }
+  return detectIsLightTheme() ? "#f4f6fb" : "#0a0e1a";
 }
 
 export async function exportToPNG(
@@ -59,7 +71,7 @@ export async function exportToPNG(
   // chart on the first export after navigation.
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   const dataUrl = await toPng(element, {
-    backgroundColor: detectIsLightTheme() ? "#f4f6fb" : "#0a0e1a",
+    backgroundColor: detectPngBg(),
     pixelRatio: 2,
   });
   saveAs(dataUrl, `${filename}.png`);

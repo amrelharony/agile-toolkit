@@ -100,18 +100,48 @@ export function boardInsights(objects: readonly WhiteboardObject[]): BoardInsigh
   // --- Color-coded clusters spatially scrambled ---
   // If stickies of the same color are spread far apart while different
   // colors sit near each other, suggest re-grouping.
+  //
+  // Implementation: spatial-hash the stickies into buckets of side
+  // COLOR_SCRAMBLE_NEIGHBOR_RADIUS, then for each sticky only compare
+  // against stickies in its bucket and the 8 surrounding ones. The radius
+  // check still uses the true squared Euclidean distance — bucketing is
+  // a pre-filter that drops the candidate set from O(n) to O(neighbours).
+  // The naive nested filter was O(n²); on a 1000-sticky board that was
+  // ~2 M hypot calls. Spatial hash takes the worst case to roughly
+  // O(n · k) where k is the local bucket density (~10-30 in practice).
   const stickies = objects.filter((o): o is Extract<WhiteboardObject, { type: "sticky" }> => o.type === "sticky");
   if (stickies.length >= 10) {
+    const cell = COLOR_SCRAMBLE_NEIGHBOR_RADIUS;
+    const buckets = new Map<string, typeof stickies>();
+    for (const s of stickies) {
+      const k = `${Math.floor(s.x / cell)},${Math.floor(s.y / cell)}`;
+      const list = buckets.get(k);
+      if (list) list.push(s); else buckets.set(k, [s]);
+    }
+    const radSq = COLOR_SCRAMBLE_NEIGHBOR_RADIUS * COLOR_SCRAMBLE_NEIGHBOR_RADIUS;
     let scrambled = 0;
     for (const s of stickies) {
-      const sameColorNearby = stickies.filter(
-        (o) => o.id !== s.id && o.color === s.color &&
-          Math.hypot(o.x - s.x, o.y - s.y) < COLOR_SCRAMBLE_NEIGHBOR_RADIUS,
-      ).length;
-      const diffColorNearby = stickies.filter(
-        (o) => o.id !== s.id && o.color !== s.color &&
-          Math.hypot(o.x - s.x, o.y - s.y) < COLOR_SCRAMBLE_NEIGHBOR_RADIUS,
-      ).length;
+      const bx = Math.floor(s.x / cell);
+      const by = Math.floor(s.y / cell);
+      let sameColorNearby = 0;
+      let diffColorNearby = 0;
+      // Walk the 3x3 neighbourhood of buckets — any sticky within
+      // COLOR_SCRAMBLE_NEIGHBOR_RADIUS of s MUST live here, because the
+      // cell size IS the radius. (Two cells away ⇒ distance > radius.)
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const list = buckets.get(`${bx + dx},${by + dy}`);
+          if (!list) continue;
+          for (const o of list) {
+            if (o.id === s.id) continue;
+            const ddx = o.x - s.x;
+            const ddy = o.y - s.y;
+            if (ddx * ddx + ddy * ddy >= radSq) continue;
+            if (o.color === s.color) sameColorNearby++;
+            else diffColorNearby++;
+          }
+        }
+      }
       if (diffColorNearby > sameColorNearby * 2 && diffColorNearby >= 3) scrambled++;
     }
     if (scrambled >= 5) {
@@ -184,11 +214,19 @@ export function boardInsightsCross(
   if (!workspace) return [];
   const out: BoardInsight[] = [];
 
-  // --- Card-disconnected: a card with sourceRef.tool === "backlog"
-  // whose Story has been deleted from the workspace. ---
+  // --- Card-disconnected: a card with sourceRef.tool === "backlog" OR
+  // "story" whose Story has been deleted from the workspace. Both
+  // labels exist in the wild: cards via the canvas import wizard use
+  // "backlog" (matches workspace-store cascade), while stickies from
+  // `importFromStories` in cross-tool-import.ts emit "story". Accept
+  // both so the insight surfaces correctly regardless of origin. ---
   const storyIds = new Set((workspace.stories ?? []).map((s) => s.id));
   for (const o of objects) {
-    if (o.type === "card" && o.sourceRef?.tool === "backlog" && !storyIds.has(o.sourceRef.entityId)) {
+    if (
+      o.type === "card" &&
+      (o.sourceRef?.tool === "backlog" || o.sourceRef?.tool === "story") &&
+      !storyIds.has(o.sourceRef.entityId)
+    ) {
       out.push({
         id: `card-disconnected-${o.id}`,
         kind: "card-disconnected",

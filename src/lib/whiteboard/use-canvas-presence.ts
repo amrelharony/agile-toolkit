@@ -20,6 +20,91 @@ import { throttle, type Throttled } from "@/lib/utils/throttle";
 
 const AVATAR_COLORS = ["#00f0ff", "#a78bfa", "#34d399", "#f59e0b", "#f87171", "#60a5fa", "#fb923c", "#e879f9"];
 
+/** Bidi-override / isolate codepoints — same set as use-presence.ts.
+ * Block these in names/chat/reactions so a hostile peer can't visually
+ * spoof another user's identity by flipping the rendered direction. */
+const RTL_OVERRIDE_RE = /[‪-‮⁦-⁩]/;
+
+/**
+ * Sanitize an inbound peer payload. Mirrors the validator in
+ * use-presence.ts so a hostile peer can't:
+ *  - inject a 10 MB selection / 1000-id selection array (DoS by memory),
+ *  - send `cursor: "<script>"` and crash consumers that destructure x/y,
+ *  - pass NaN/Infinity coords that propagate into worldToScreen,
+ *  - spoof another user's identity via RTL-override characters in name,
+ *  - broadcast a chatBubble/reaction that never auto-clears.
+ *
+ * Anything that fails individual-field validation is dropped from the
+ * sanitized record rather than rejecting the whole peer — better partial
+ * UX than no UX.
+ */
+const SELECTION_CAP = 100;
+const NAME_CAP = 200;
+const ID_CAP = 200;
+const COLOR_CAP = 64;
+function sanitizeCanvasPresence(v: unknown): SimplePresence | null {
+  if (!v || typeof v !== "object") return null;
+  const r = v as Record<string, unknown>;
+  if (
+    typeof r.id !== "string" || r.id.length === 0 || r.id.length > ID_CAP ||
+    typeof r.name !== "string" || r.name.length === 0 || r.name.length > NAME_CAP ||
+    typeof r.color !== "string" || r.color.length === 0 || r.color.length > COLOR_CAP ||
+    RTL_OVERRIDE_RE.test(r.name) || RTL_OVERRIDE_RE.test(r.id)
+  ) return null;
+  const out: SimplePresence = { id: r.id, name: r.name, color: r.color };
+  if (r.cursor && typeof r.cursor === "object") {
+    const c = r.cursor as { x?: unknown; y?: unknown };
+    if (typeof c.x === "number" && Number.isFinite(c.x) &&
+        typeof c.y === "number" && Number.isFinite(c.y)) {
+      out.cursor = { x: c.x, y: c.y };
+    }
+  }
+  if (r.viewport && typeof r.viewport === "object") {
+    const vp = r.viewport as Record<string, unknown>;
+    if (typeof vp.x === "number" && Number.isFinite(vp.x) &&
+        typeof vp.y === "number" && Number.isFinite(vp.y) &&
+        typeof vp.zoom === "number" && Number.isFinite(vp.zoom) &&
+        typeof vp.w === "number" && Number.isFinite(vp.w) &&
+        typeof vp.h === "number" && Number.isFinite(vp.h)) {
+      out.viewport = { x: vp.x, y: vp.y, zoom: vp.zoom, w: vp.w, h: vp.h };
+    }
+  }
+  if (Array.isArray(r.selection)) {
+    const ids: string[] = [];
+    for (const id of r.selection) {
+      if (typeof id === "string" && id.length > 0 && id.length < 500) ids.push(id);
+      if (ids.length >= SELECTION_CAP) break;
+    }
+    out.selection = ids;
+  }
+  if (typeof r.tool === "string" && r.tool.length > 0 && r.tool.length < 50) out.tool = r.tool;
+  if (r.chatBubble && typeof r.chatBubble === "object") {
+    const cb = r.chatBubble as { text?: unknown; expiresAt?: unknown };
+    if (
+      typeof cb.text === "string" && cb.text.length > 0 && cb.text.length <= 200 &&
+      !RTL_OVERRIDE_RE.test(cb.text) &&
+      typeof cb.expiresAt === "number" && Number.isFinite(cb.expiresAt)
+    ) {
+      const cap = Date.now() + 30_000;
+      out.chatBubble = { text: cb.text, expiresAt: Math.min(cb.expiresAt, cap) };
+    }
+  }
+  if (r.reaction && typeof r.reaction === "object") {
+    const re = r.reaction as { emoji?: unknown; x?: unknown; y?: unknown; expiresAt?: unknown };
+    const emojiStr = typeof re.emoji === "string" ? re.emoji : null;
+    if (
+      emojiStr && emojiStr.length > 0 && emojiStr.length <= 8 && !RTL_OVERRIDE_RE.test(emojiStr) &&
+      typeof re.x === "number" && Number.isFinite(re.x) &&
+      typeof re.y === "number" && Number.isFinite(re.y) &&
+      typeof re.expiresAt === "number" && Number.isFinite(re.expiresAt)
+    ) {
+      const cap = Date.now() + 10_000;
+      out.reaction = { emoji: emojiStr, x: re.x, y: re.y, expiresAt: Math.min(re.expiresAt, cap) };
+    }
+  }
+  return out;
+}
+
 function colorFor(seed: string): string {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) hash = (seed.charCodeAt(i) + hash * 31) | 0;
@@ -69,9 +154,14 @@ export function useCanvasPresence(channelName: string | null, hint?: Partial<Sim
         for (const key of Object.keys(state)) {
           const metas = state[key];
           const first = Array.isArray(metas) ? metas[0] : undefined;
-          if (first && typeof first === "object" && typeof first.id === "string") {
-            list.push(first as SimplePresence);
-          }
+          // Run every peer record through the same sanitizer the
+          // basic usePresence hook uses. Without this, the canvas
+          // path skipped validation entirely — a hostile peer could
+          // broadcast 1000-id selections, malformed cursors with
+          // string x/y, or an RTL-spoofed name and the canvas would
+          // render it.
+          const clean = sanitizeCanvasPresence(first);
+          if (clean) list.push(clean);
         }
         setMembers(list);
       })
@@ -98,6 +188,15 @@ export function useCanvasPresence(channelName: string | null, hint?: Partial<Sim
   }, [channelName]);
 
   const publish = (patch: Partial<Omit<SimplePresence, "id">>) => {
+    // Cap outbound selection so a user with a marquee over 5000 objects
+    // doesn't broadcast a 5000-id array on every selection-change.
+    // Peers cap inbound at SELECTION_CAP too, so anything over that
+    // would be silently dropped — capping outbound keeps the broadcast
+    // budget under control. (The local selection state is unaffected;
+    // only what we publish to peers is truncated.)
+    if (patch.selection && patch.selection.length > SELECTION_CAP) {
+      patch = { ...patch, selection: patch.selection.slice(0, SELECTION_CAP) };
+    }
     stateRef.current = { ...stateRef.current, ...patch };
     // Bypass throttle ONLY when the patch carries no cursor — selection/
     // tool/viewport changes are infrequent and the user expects them to

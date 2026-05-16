@@ -19,19 +19,32 @@ import type {
 } from "@/lib/stores/workspace-types";
 import { STICKY_PALETTE } from "./templates";
 import { treeLayout, gridLayout } from "./layout";
+import { wbId } from "./clipboard";
 
 const now = () => new Date().toISOString();
-const id = () => `wb_${Math.random().toString(36).slice(2, 11)}`;
-// zCursor is module-level so a single template build() call produces a
-// monotonic z-sequence. Each importer resets it at entry — without that
-// reset, a second importer in the same session would continue from where
-// the first left off, which is what we want WITHIN one apply but NOT
-// across apply boundaries. Callers should pass `zBase` to offset the
-// emitted z-values past any objects already on the board (the
-// import-modal does this).
-let zCursor = 1;
-const z = () => zCursor++;
-const resetZ = () => { zCursor = 1; };
+const id = () => wbId();
+
+/** Hard cap on imported text content. The peer-validator enforces
+ * MAX_TEXT_LEN (50 000) on text fields; anything larger gets imported
+ * locally but is rejected the moment realtime tries to replicate it.
+ * Capping at import time keeps local + remote behaviour consistent and
+ * guarantees a uniform user experience. */
+const IMPORT_TEXT_CAP = 50_000;
+const IMPORT_TITLE_CAP = 2_000;
+
+/**
+ * Per-call z-counter factory. Previously a module-level `zCursor` with
+ * a `resetZ()` call at the head of each importer made the z-sequence
+ * unsafe under concurrent imports — Promise.all([importFromRetro(...),
+ * importFromStories(...)]) would have one importer reset() mid-way
+ * through the other's emission, producing overlapping z values.
+ *
+ * Per-call factory eliminates the shared state. Each importer creates a
+ * fresh counter on entry; nothing leaks between invocations. */
+function makeZ(): () => number {
+  let z = 1;
+  return () => z++;
+}
 
 /**
  * Import retro cards as stickies arranged into 4-corner Mad/Sad/Glad/Action
@@ -43,7 +56,7 @@ export function importFromRetro(
   boardId: string,
   cards: { category: "mad" | "sad" | "glad" | "action" | string; title: string; id?: string }[],
 ): WhiteboardObject[] {
-  resetZ();
+  const z = makeZ();
   const out: WhiteboardObject[] = [];
   const frames: Record<string, { x: number; y: number; color: string }> = {
     mad:    { x: 80,  y: 80,  color: "#fca5a5" },
@@ -115,7 +128,7 @@ export function importFromRetro(
  * new status value would vanish into a never-rendered bucket.
  */
 export function importFromStories(boardId: string, stories: readonly Story[]): WhiteboardObject[] {
-  resetZ();
+  const z = makeZ();
   const out: WhiteboardObject[] = [];
   const stages: Story["status"][] = ["backlog", "todo", "in_progress", "review", "done"];
   const knownStages = new Set<string>(stages);
@@ -145,11 +158,16 @@ export function importFromStories(boardId: string, stories: readonly Story[]): W
   }
   stages.forEach((stage, i) => {
     (buckets[stage] ?? []).forEach((s, j) => {
+      // Cap sticky content. The peer-validator already enforces a
+      // 50_000-char ceiling on text fields; a runaway Story.title (e.g.
+      // a description pasted into the wrong field) would otherwise be
+      // imported locally but refused to replicate.
+      const content = (s.title + (s.points ? ` · ${s.points}pt` : "")).slice(0, 50_000);
       out.push({
         id: id(), boardId, type: "sticky",
         x: 80 + i * stageW + 16, y: 140 + j * 130,
         w: stageW - 48, h: 110, z: z(),
-        content: s.title + (s.points ? ` · ${s.points}pt` : ""),
+        content,
         color: STICKY_PALETTE[i % STICKY_PALETTE.length],
         version: 1, updatedAt: now(), createdAt: now(),
         sourceRef: { tool: "story", entityId: s.id },
@@ -165,7 +183,7 @@ export function importFromStories(boardId: string, stories: readonly Story[]): W
  * import later.
  */
 export function importFromRisks(boardId: string, risks: readonly Risk[]): WhiteboardObject[] {
-  resetZ();
+  const z = makeZ();
   const out: WhiteboardObject[] = [];
   const cell = 140;
   // Grid cells (same as risk-matrix template, but boardId attached).
@@ -187,8 +205,15 @@ export function importFromRisks(boardId: string, risks: readonly Risk[]): Whiteb
   }
   // Place each risk as a small sticky inside its cell.
   for (const r of risks) {
-    const p = Math.max(1, Math.min(5, r.probability)) - 1;
-    const i = 5 - Math.max(1, Math.min(5, r.impact));
+    // `Math.max(1, Math.min(5, NaN))` is NaN — without the explicit
+    // Number.isFinite gate, a risk whose probability/impact came in as
+    // null/undefined/string would land at coordinate `NaN`, which the
+    // canvas renderer silently drops. Default to centre (3) so unsized
+    // risks still show up on the matrix where the user can fix them.
+    const pRaw = Number.isFinite(r.probability) ? r.probability as number : 3;
+    const iRaw = Number.isFinite(r.impact) ? r.impact as number : 3;
+    const p = Math.max(1, Math.min(5, pRaw)) - 1;
+    const i = 5 - Math.max(1, Math.min(5, iRaw));
     out.push({
       id: id(), boardId, type: "sticky",
       x: 200 + p * cell + 8, y: 60 + i * cell + 8,
@@ -204,7 +229,7 @@ export function importFromRisks(boardId: string, risks: readonly Risk[]): Whiteb
 
 /** Import OKRs as a tree: Objective at top, Key Results as children below. */
 export function importFromOkrs(boardId: string, okrs: readonly Okr[]): WhiteboardObject[] {
-  resetZ();
+  const z = makeZ();
   const out: WhiteboardObject[] = [];
   // Build node + parent maps for treeLayout.
   const nodes: { id: string; w: number; h: number }[] = [];

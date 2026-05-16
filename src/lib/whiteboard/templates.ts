@@ -16,6 +16,7 @@ import type {
   WhiteboardText,
   WhiteboardFrame,
 } from "@/lib/stores/workspace-types";
+import { wbId } from "./clipboard";
 
 export const STICKY_PALETTE = [
   "#fde68a", // amber
@@ -35,77 +36,88 @@ export interface TemplateDef {
   build: () => Omit<WhiteboardObject, "boardId">[];
 }
 
-let zCursor = 1;
-const z = () => zCursor++;
 const now = () => new Date().toISOString();
-const id = () => `wb_${Math.random().toString(36).slice(2, 11)}`;
+const id = () => wbId();
 
-function sticky(
-  x: number, y: number, content: string,
-  color: string = STICKY_PALETTE[0],
-  w = 200, h = 160,
-): Omit<WhiteboardSticky, "boardId"> {
-  return {
-    id: id(),
-    type: "sticky",
-    x, y, w, h, z: z(),
-    content,
-    color,
-    version: 1,
-    updatedAt: now(),
-    createdAt: now(),
-  };
-}
+/**
+ * Per-build helper factory. The z-counter is local to each build()
+ * invocation rather than module-level — two concurrent template applies
+ * (or a re-render that double-invokes build) no longer interfere with
+ * each other's z-ordering.
+ */
+function makeBuilders() {
+  let zCursor = 1;
+  const z = () => zCursor++;
 
-function frame(
-  x: number, y: number, w: number, h: number, label: string, fill?: string,
-): Omit<WhiteboardFrame, "boardId"> {
-  return {
-    id: id(),
-    type: "frame",
-    x, y, w, h, z: z(),
-    label,
-    fill,
-    version: 1,
-    updatedAt: now(),
-    createdAt: now(),
-  };
-}
+  function sticky(
+    x: number, y: number, content: string,
+    color: string = STICKY_PALETTE[0],
+    w = 200, h = 160,
+  ): Omit<WhiteboardSticky, "boardId"> {
+    return {
+      id: id(),
+      type: "sticky",
+      x, y, w, h, z: z(),
+      content,
+      color,
+      version: 1,
+      updatedAt: now(),
+      createdAt: now(),
+    };
+  }
 
-function text(
-  x: number, y: number, content: string,
-  fontSize = 24, color = "#e5e7eb", w = 400, h = 40,
-): Omit<WhiteboardText, "boardId"> {
-  return {
-    id: id(),
-    type: "text",
-    x, y, w, h, z: z(),
-    content,
-    fontSize,
-    color,
-    align: "center",
-    version: 1,
-    updatedAt: now(),
-    createdAt: now(),
-  };
-}
+  function frame(
+    x: number, y: number, w: number, h: number, label: string, fill?: string,
+  ): Omit<WhiteboardFrame, "boardId"> {
+    return {
+      id: id(),
+      type: "frame",
+      x, y, w, h, z: z(),
+      label,
+      fill,
+      version: 1,
+      updatedAt: now(),
+      createdAt: now(),
+    };
+  }
 
-function rect(
-  x: number, y: number, w: number, h: number,
-  fill?: string, stroke = "#475569", strokeWidth = 1, content?: string,
-): Omit<WhiteboardShape, "boardId"> {
-  return {
-    id: id(),
-    type: "rect",
-    x, y, w, h, z: z(),
-    fill,
-    stroke,
-    strokeWidth,
-    content,
-    version: 1,
-    updatedAt: now(),
-    createdAt: now(),
-  };
+  function text(
+    x: number, y: number, content: string,
+    fontSize = 24, color = "#e5e7eb", w = 400, h = 40,
+  ): Omit<WhiteboardText, "boardId"> {
+    return {
+      id: id(),
+      type: "text",
+      x, y, w, h, z: z(),
+      content,
+      fontSize,
+      color,
+      align: "center",
+      version: 1,
+      updatedAt: now(),
+      createdAt: now(),
+    };
+  }
+
+  function rect(
+    x: number, y: number, w: number, h: number,
+    fill?: string, stroke = "#475569", strokeWidth = 1, content?: string,
+  ): Omit<WhiteboardShape, "boardId"> {
+    return {
+      id: id(),
+      type: "rect",
+      x, y, w, h, z: z(),
+      fill,
+      stroke,
+      strokeWidth,
+      content,
+      version: 1,
+      updatedAt: now(),
+      createdAt: now(),
+    };
+  }
+
+  return { sticky, frame, text, rect };
 }
 
 /* ─── Templates ─────────────────────────────────────────────────────── */
@@ -122,7 +134,7 @@ export const TEMPLATES: TemplateDef[] = [
     name: "Mind Map",
     description: "Central topic with 6 radial branches.",
     build: () => {
-      zCursor = 1;
+      const { sticky } = makeBuilders();
       const out: Omit<WhiteboardObject, "boardId">[] = [];
       const cx = 800;
       const cy = 500;
@@ -146,7 +158,7 @@ export const TEMPLATES: TemplateDef[] = [
     name: "Customer Journey",
     description: "5 stages × 5 lanes (Action, Touchpoint, Thinking, Feeling, Opportunity).",
     build: () => {
-      zCursor = 1;
+      const { frame, text } = makeBuilders();
       const out: Omit<WhiteboardObject, "boardId">[] = [];
       const colW = 240;
       const rowH = 140;
@@ -167,7 +179,7 @@ export const TEMPLATES: TemplateDef[] = [
     name: "Retrospective (Mad/Sad/Glad/Action)",
     description: "Classic 4-corner retro frames.",
     build: () => {
-      zCursor = 1;
+      const { frame, text } = makeBuilders();
       const out: Omit<WhiteboardObject, "boardId">[] = [];
       const w = 640, h = 400;
       out.push(text(120, 20, "Retrospective", 28));
@@ -190,7 +202,7 @@ export const TEMPLATES: TemplateDef[] = [
     name: "ECRS",
     description: "Eliminate · Combine · Rearrange · Simplify quadrants.",
     build: () => {
-      zCursor = 1;
+      const { frame } = makeBuilders();
       const out: Omit<WhiteboardObject, "boardId">[] = [];
       const w = 600, h = 360;
       const labels = ["Eliminate", "Combine", "Rearrange", "Simplify"];
@@ -207,7 +219,7 @@ export const TEMPLATES: TemplateDef[] = [
     name: "SCAMPER",
     description: "7 stickies: Substitute / Combine / Adapt / Modify / Put-to-use / Eliminate / Reverse.",
     build: () => {
-      zCursor = 1;
+      const { sticky } = makeBuilders();
       const out: Omit<WhiteboardObject, "boardId">[] = [];
       const labels = ["Substitute", "Combine", "Adapt", "Modify", "Put to use", "Eliminate", "Reverse"];
       labels.forEach((l, i) => {
@@ -221,7 +233,7 @@ export const TEMPLATES: TemplateDef[] = [
     name: "Swimlane",
     description: "5 vertical lanes × 4 horizontal stages.",
     build: () => {
-      zCursor = 1;
+      const { frame, text } = makeBuilders();
       const out: Omit<WhiteboardObject, "boardId">[] = [];
       const lanes = ["Lane A", "Lane B", "Lane C", "Lane D", "Lane E"];
       const stages = ["To do", "In progress", "Review", "Done"];
@@ -242,7 +254,7 @@ export const TEMPLATES: TemplateDef[] = [
     name: "P × I Risk Matrix (5 × 5)",
     description: "Probability × Impact grid with low / med / high color bands.",
     build: () => {
-      zCursor = 1;
+      const { rect, text } = makeBuilders();
       const out: Omit<WhiteboardObject, "boardId">[] = [];
       const cell = 140;
       // Axis labels
@@ -267,7 +279,7 @@ export const TEMPLATES: TemplateDef[] = [
     name: "Empathy Map",
     description: "Says / Thinks / Does / Feels around Pains + Gains.",
     build: () => {
-      zCursor = 1;
+      const { frame, text } = makeBuilders();
       const out: Omit<WhiteboardObject, "boardId">[] = [];
       out.push(text(560, 20, "Empathy Map", 24));
       const quads: [string, number, number][] = [
@@ -304,7 +316,7 @@ export const TEMPLATES: TemplateDef[] = [
 ];
 
 function buildNineBlockCanvas(labels: string[]): Omit<WhiteboardObject, "boardId">[] {
-  zCursor = 1;
+  const { frame } = makeBuilders();
   const out: Omit<WhiteboardObject, "boardId">[] = [];
   const w = 280, h = 220, gap = 8;
   // Lean Canvas / BMC layout:

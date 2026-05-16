@@ -26,6 +26,25 @@ export interface SimplePresence {
 
 const AVATAR_COLORS = ["#00f0ff", "#a78bfa", "#34d399", "#f59e0b", "#f87171", "#60a5fa", "#fb923c", "#e879f9"];
 
+/**
+ * RTL / LTR override codepoints — Unicode bidi format characters that can
+ * flip rendering direction inside a benign-looking string. Using explicit
+ * `\u` escapes here keeps the regex stable across file encodings (the raw
+ * characters are invisible in most editors and frequently get mangled by
+ * normalisation passes / git filters).
+ *
+ *   U+202A  LRE  Left-to-Right Embedding
+ *   U+202B  RLE  Right-to-Left Embedding
+ *   U+202C  PDF  Pop Directional Formatting
+ *   U+202D  LRO  Left-to-Right Override
+ *   U+202E  RLO  Right-to-Left Override
+ *   U+2066  LRI  Left-to-Right Isolate
+ *   U+2067  RLI  Right-to-Left Isolate
+ *   U+2068  FSI  First Strong Isolate
+ *   U+2069  PDI  Pop Directional Isolate
+ */
+const RTL_OVERRIDE_RE = /[‪-‮⁦-⁩]/;
+
 function randomColor(seed: string): string {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) hash = (seed.charCodeAt(i) + hash * 31) | 0;
@@ -54,12 +73,28 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
     // record rather than rejecting the whole peer — better partial UX
     // than no UX.
     const SELECTION_CAP = 100; // ids; caps payload while still showing intent
+    const NAME_CAP = 200;      // display name; caps DoS and bidi-spoof surface
+    const ID_CAP = 200;
+    const COLOR_CAP = 64;
     const sanitize = (v: unknown): SimplePresence | null => {
       if (!v || typeof v !== "object") return null;
       const r = v as Record<string, unknown>;
       if (typeof r.id !== "string" || typeof r.name !== "string" || typeof r.color !== "string") {
         return null;
       }
+      // SECURITY: cap and reject the same bidi codepoints we already
+      // reject on chatBubble / reaction. Without these caps a hostile
+      // peer can broadcast a 10 MB name string (memory DoS) or an
+      // RTL-override name that visually spoofs another user's identity
+      // in the cursor list. ID and color get the same length cap to
+      // bound the presence-state map's worst case.
+      if (
+        r.id.length === 0 || r.id.length > ID_CAP ||
+        r.name.length === 0 || r.name.length > NAME_CAP ||
+        r.color.length === 0 || r.color.length > COLOR_CAP ||
+        RTL_OVERRIDE_RE.test(r.name) ||
+        RTL_OVERRIDE_RE.test(r.id)
+      ) return null;
       const out: SimplePresence = { id: r.id, name: r.name, color: r.color };
       if (r.cursor && typeof r.cursor === "object") {
         const c = r.cursor as { x?: unknown; y?: unknown };
@@ -90,11 +125,14 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
       // chatBubble: text length cap (defends against an abusive peer
       // broadcasting megabyte payloads at 60 ms). expiresAt is an
       // epoch-ms; we cap it to 30 s from now to avoid sticky messages
-      // that never auto-clear.
+      // that never auto-clear. SECURITY: also reject RTL/LTR override
+      // codepoints up front so we never even build the bubble object
+      // for a hostile payload (cheaper than allocating then deleting).
       if (r.chatBubble && typeof r.chatBubble === "object") {
         const cb = r.chatBubble as { text?: unknown; expiresAt?: unknown };
         if (
           typeof cb.text === "string" && cb.text.length > 0 && cb.text.length <= 200 &&
+          !RTL_OVERRIDE_RE.test(cb.text) &&
           typeof cb.expiresAt === "number" && Number.isFinite(cb.expiresAt)
         ) {
           const cap = Date.now() + 30_000;
@@ -112,7 +150,7 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
         const re = r.reaction as { emoji?: unknown; x?: unknown; y?: unknown; expiresAt?: unknown };
         const emojiStr = typeof re.emoji === "string" ? re.emoji : null;
         const hasControlCodes = emojiStr
-          ? /[‪-‮⁦-⁩]/.test(emojiStr)
+          ? RTL_OVERRIDE_RE.test(emojiStr)
           : false;
         if (
           emojiStr && emojiStr.length > 0 && emojiStr.length <= 8 && !hasControlCodes &&
@@ -123,10 +161,6 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
           const cap = Date.now() + 10_000;
           out.reaction = { emoji: emojiStr, x: re.x, y: re.y, expiresAt: Math.min(re.expiresAt, cap) };
         }
-      }
-      // chatBubble: also reject RTL/LTR override codepoints.
-      if (out.chatBubble && /[‪-‮⁦-⁩]/.test(out.chatBubble.text)) {
-        delete out.chatBubble;
       }
       return out;
     };

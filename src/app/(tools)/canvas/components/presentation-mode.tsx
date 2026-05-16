@@ -29,8 +29,17 @@ function PresentationModeImpl({ frames, index, onPrev, onNext, onExit }: Present
   // Window-level keys are handled in whiteboard-canvas.tsx; here we
   // also handle them as a safety net in case focus is inside the
   // presentation control bar.
+  //
+  // INPUT/TEXTAREA/contentEditable guard: Space + ArrowKeys are valid
+  // text-input keys. Without this, hitting Space inside a sticky's
+  // inline editor (which can remain open if the user entered
+  // presentation mode mid-edit) would advance the slide instead of
+  // typing a space. Esc is treated similarly so editing can dismiss
+  // normally before presentation handles the key.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); onNext(); }
       else if (e.key === "ArrowLeft") { e.preventDefault(); onPrev(); }
       else if (e.key === "Escape") { e.preventDefault(); onExit(); }

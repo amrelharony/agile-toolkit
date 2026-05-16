@@ -133,8 +133,46 @@ function safeImageSrc(src: string): string {
   if (typeof src !== "string") return "";
   const t = src.trim();
   if (/^https?:/i.test(t)) return t;
-  if (/^data:image\//i.test(t)) return t;
+  // Narrow to known raster formats. SVG data-URLs are an XSS vector
+  // (embedded <script>) and other `data:` types (text/html,
+  // application/*) never belong in an <img>. Allow only the formats
+  // browsers render safely as bitmaps.
+  if (/^data:image\/(?:png|jpe?g|webp|gif|avif);base64,/i.test(t)) return t;
   return "";
+}
+
+/**
+ * Resolve the sandbox attribute string per embed host. Two tiers:
+ *
+ *   - "strict"   (default) — `allow-scripts allow-presentation allow-popups-to-escape-sandbox`.
+ *     Suitable for YouTube, Google Docs preview, generic embeds. The
+ *     iframe runs scripts in its own origin sandbox and can NOT call
+ *     parent.postMessage with privileges or read top.parent.
+ *
+ *   - "elevated" — adds `allow-same-origin`. Required for Loom (sign-in
+ *     state, video resume) and Figma (signed-in editing). These hosts
+ *     are first-party-trusted; granting same-origin to a third-party
+ *     origin (figma.com, loom.com) does NOT let the iframe break out
+ *     of OUR origin's sandbox — they share their OWN third-party
+ *     cookies, not ours.
+ *
+ * The HTML spec footgun about `allow-scripts allow-same-origin`
+ * applies only when the iframe is served from the SAME origin as the
+ * embedding page; cross-origin embeds keep their sandbox enforcement.
+ */
+function iframeSandboxFor(host: string): string {
+  const base = "allow-scripts allow-presentation allow-popups-to-escape-sandbox";
+  // Hosts that legitimately need same-origin to function properly
+  // (signed-in editing / playback resume). All entries must be exact
+  // hostnames — substring matching would let a "figma.com.evil.tld"
+  // attacker masquerade as Figma.
+  const elevated = new Set([
+    "figma.com",
+    "www.figma.com",
+    "loom.com",
+    "www.loom.com",
+  ]);
+  return elevated.has(host) ? `${base} allow-same-origin` : base;
 }
 
 /**
@@ -153,16 +191,22 @@ function embedIframeUrl(src: string, kind: string): string | null {
     const host = u.hostname.replace(/^www\./, "");
     if (host === "youtube.com" || host === "m.youtube.com") {
       const id = u.searchParams.get("v");
-      if (id && /^[A-Za-z0-9_-]{6,20}$/.test(id)) return `https://www.youtube.com/embed/${id}`;
-      const match = u.pathname.match(/^\/embed\/([A-Za-z0-9_-]{6,20})/);
+      // Real YouTube IDs are exactly 11 chars (base64url-style alphabet).
+      // The previous {6,20} range matched non-IDs and accepted truncated
+      // / over-long strings that 404 on YouTube's embed endpoint.
+      if (id && /^[A-Za-z0-9_-]{11}$/.test(id)) return `https://www.youtube.com/embed/${id}`;
+      const match = u.pathname.match(/^\/embed\/([A-Za-z0-9_-]{11})/);
       if (match) return `https://www.youtube.com/embed/${match[1]}`;
     }
     if (host === "youtu.be") {
       const id = u.pathname.slice(1);
-      if (/^[A-Za-z0-9_-]{6,20}$/.test(id)) return `https://www.youtube.com/embed/${id}`;
+      if (/^[A-Za-z0-9_-]{11}$/.test(id)) return `https://www.youtube.com/embed/${id}`;
     }
     if (host === "loom.com") {
-      const m = u.pathname.match(/^\/share\/([A-Za-z0-9]+)/);
+      // Loom share IDs are 32-hex strings (8-32 covers common renamed
+      // forms). Capping the upper bound avoids forwarding adversarial
+      // input through to the embed endpoint.
+      const m = u.pathname.match(/^\/share\/([A-Za-z0-9]{8,32})$/);
       if (m) return `https://www.loom.com/embed/${m[1]}`;
     }
     if (host === "figma.com") {
@@ -178,6 +222,15 @@ function embedIframeUrl(src: string, kind: string): string | null {
       return `https://www.figma.com/embed?embed_host=agile-toolkit&url=${encodeURIComponent(cleanFigmaUrl)}`;
     }
     if (host === "docs.google.com") {
+      // Restrict to canonical Google Docs / Sheets / Slides / Forms
+      // paths so a bare `docs.google.com` URL with a non-document path
+      // doesn't fall through to the embed slot. Required form:
+      //   /(document|spreadsheets|presentation|forms)/d/<id>[…]
+      // Anything else (calendar, drawings, etc.) returns null so the
+      // renderer shows the broken-embed placeholder instead of an
+      // iframe pointing at a URL we don't trust.
+      const validPath = /^\/(?:document|spreadsheets|presentation|forms)\/d\//.test(u.pathname);
+      if (!validPath) return null;
       return t.replace(/\/edit.*$/, "/preview");
     }
     if (kind === "generic") return t;
@@ -238,6 +291,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
     case "sticky":
       return (
         <div
+          data-canvas-object-kind="sticky"
           onPointerDown={editing ? undefined : handle}
           onDoubleClick={dblClick}
           style={{
@@ -342,6 +396,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
       }
       return (
         <div
+          data-canvas-object-kind={o.type}
           onPointerDown={editing ? undefined : handle}
           onDoubleClick={dblClick}
           style={{
@@ -397,6 +452,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
     case "text":
       return (
         <div
+          data-canvas-object-kind="text"
           onPointerDown={editing ? undefined : handle}
           onDoubleClick={dblClick}
           style={{
@@ -440,6 +496,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
     case "frame":
       return (
         <div
+          data-canvas-object-kind="frame"
           onPointerDown={handle}
           style={{
             position: "absolute",
@@ -491,6 +548,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
       return (
         <div
           onPointerDown={handle}
+          data-canvas-object-kind={o.type}
           style={{
             position: "absolute",
             left: 0,
@@ -538,6 +596,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
       return (
         <div
           onPointerDown={handle}
+          data-canvas-object-kind="freehand"
           style={{
             position: "absolute",
             left: 0,
@@ -576,6 +635,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
       return (
         <div
           onPointerDown={handle}
+          data-canvas-object-kind="image"
           style={{
             position: "absolute",
             left: 0,
@@ -608,9 +668,19 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
 
     case "embed": {
       const iframeSrc = embedIframeUrl(o.src ?? "", o.kind);
+      // Compute per-host sandbox tier from the resolved iframe src
+      // (NOT the user-typed URL) — embedIframeUrl already normalises
+      // figma.com / youtube.com / loom.com to known embed endpoints,
+      // so we read the host off the result for accurate routing.
+      let iframeHost = "";
+      if (iframeSrc) {
+        try { iframeHost = new URL(iframeSrc).hostname; } catch { iframeHost = ""; }
+      }
+      const sandboxAttr = iframeSandboxFor(iframeHost);
       return (
         <div
           onPointerDown={handle}
+          data-canvas-object-kind="embed"
           style={{
             position: "absolute",
             left: 0,
@@ -634,15 +704,15 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
               <iframe
                 src={iframeSrc}
                 title={`${o.kind} embed`}
-                // SECURITY: allow-scripts + allow-same-origin together
-                // is officially a "footgun" per HTML spec — it lets
-                // the iframe call parent.postMessage and read top.parent
-                // (i.e. our window). YouTube/Loom/Figma technically work
-                // WITHOUT allow-same-origin in iframe-embed mode; we
-                // drop it to remove the parent-message attack surface.
-                // If a specific embed breaks (e.g. Figma signed-in
-                // editing), users can re-enable per-host later.
-                sandbox="allow-scripts allow-presentation allow-popups-to-escape-sandbox"
+                // SECURITY: sandbox tier is resolved per-host via
+                // `iframeSandboxFor`. Most hosts (YouTube, Google Docs,
+                // generic embeds) get the strict tier. Figma + Loom
+                // need `allow-same-origin` to retain signed-in state;
+                // since those hosts run in their OWN third-party
+                // origin, the spec's "scripts + same-origin from the
+                // SAME origin lets the iframe drop its sandbox"
+                // footgun does NOT apply.
+                sandbox={sandboxAttr}
                 allow="autoplay; fullscreen; picture-in-picture"
                 referrerPolicy="no-referrer"
                 loading="lazy"
@@ -718,6 +788,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
       // reuse the existing frame logic by short-circuiting here.
       return (
         <div
+          data-canvas-object-kind="kanban"
           onPointerDown={handle}
           style={{
             position: "absolute",

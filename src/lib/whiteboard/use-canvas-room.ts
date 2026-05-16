@@ -17,7 +17,7 @@
  * replacing).
  */
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRoom } from "@/lib/realtime/use-room";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
@@ -30,6 +30,7 @@ import {
   type WhiteboardPatch,
   type WhiteboardRequest,
 } from "./diff-sync";
+import { isValidObject, MAX_ID_LEN, MAX_COORD, MAX_VERSION } from "./object-validator";
 
 const HEARTBEAT_MS = 10_000;
 /** Random jitter ceiling for drift-recovery requests. Each peer that
@@ -38,111 +39,36 @@ const HEARTBEAT_MS = 10_000;
  * prevents N peers from each blasting the same ID list back at the
  * source after a single heartbeat. */
 const DRIFT_REQUEST_JITTER_MS = 400;
+/** Tolerance window for past `expiresAt` on spotlight broadcasts. Without
+ * this, a peer whose clock is even a few seconds behind ours will see
+ * legitimate spotlight events as already-expired and silently drop them.
+ * 30 s comfortably covers typical NTP drift. */
+const SPOTLIGHT_PAST_TOLERANCE_MS = 30_000;
 
 // ─── Runtime payload guards ─────────────────────────────────────────────
 // Remote peers can in principle send anything on the channel (compromised
 // account, mismatched client version, browser extension injecting traffic).
 // Guard each broadcast type before trusting it — a malformed message
 // should be dropped, not crash the receiver.
-
-/** Whitelist of valid WhiteboardObjectKind values. Hostile peers can
- * send any string for `type`; without this set, a "type: 'pwned'"
- * payload would pass validation and reach the workspace store as an
- * unrenderable ghost row. Keep in sync with the WhiteboardObjectKind
- * union in workspace-types.ts. */
-const VALID_OBJECT_TYPES = new Set([
-  "sticky", "rect", "ellipse", "diamond", "triangle",
-  "line", "arrow", "connector", "text", "freehand",
-  "image", "frame", "embed",
-  "card", "kanban", "timer", "voting",
-]);
-
-function isValidObject(o: unknown): o is WhiteboardObject {
-  if (!o || typeof o !== "object") return false;
-  const r = o as Record<string, unknown>;
-  if (
-    typeof r.id !== "string" ||
-    typeof r.boardId !== "string" ||
-    typeof r.type !== "string" || !VALID_OBJECT_TYPES.has(r.type) ||
-    typeof r.x !== "number" || !Number.isFinite(r.x) ||
-    typeof r.y !== "number" || !Number.isFinite(r.y) ||
-    typeof r.w !== "number" || !Number.isFinite(r.w) ||
-    typeof r.h !== "number" || !Number.isFinite(r.h) ||
-    typeof r.z !== "number" || !Number.isFinite(r.z) ||
-    typeof r.version !== "number" || !Number.isFinite(r.version)
-  ) return false;
-  // Type-specific field validation. A hostile peer can send
-  // `{type:"timer", durationSec:"hello"}` — the base check passes but
-  // the timer renderer assumes durationSec is a finite number. We
-  // reject malformed type-specific fields here so the workspace store
-  // never sees garbage values.
-  switch (r.type) {
-    case "timer":
-      if (typeof r.durationSec !== "number" || !Number.isFinite(r.durationSec) || r.durationSec < 0) return false;
-      if (r.running !== undefined && typeof r.running !== "boolean") return false;
-      if (r.startedAt !== undefined && (typeof r.startedAt !== "number" || !Number.isFinite(r.startedAt))) return false;
-      if (r.remainingSec !== undefined && (typeof r.remainingSec !== "number" || !Number.isFinite(r.remainingSec))) return false;
-      if (r.label !== undefined && typeof r.label !== "string") return false;
-      break;
-    case "voting":
-      if (typeof r.question !== "string") return false;
-      if (!Array.isArray(r.options)) return false;
-      if (r.options.some((opt: unknown) => typeof opt !== "string" || (opt as string).length > 100)) return false;
-      if (r.options.length > 50) return false; // cap option count
-      if (typeof r.votes !== "object" || r.votes === null) return false;
-      // Votes is a record of voterId → choice. Verify each entry.
-      for (const [k, v] of Object.entries(r.votes as Record<string, unknown>)) {
-        if (typeof k !== "string" || typeof v !== "string") return false;
-      }
-      if (typeof r.revealed !== "boolean") return false;
-      break;
-    case "card":
-      if (typeof r.title !== "string") return false;
-      if (r.description !== undefined && typeof r.description !== "string") return false;
-      if (r.assignee !== undefined && typeof r.assignee !== "string") return false;
-      if (r.due !== undefined && typeof r.due !== "string") return false;
-      if (r.points !== undefined && (typeof r.points !== "number" || !Number.isFinite(r.points))) return false;
-      if (r.status !== undefined && typeof r.status !== "string") return false;
-      if (r.color !== undefined && typeof r.color !== "string") return false;
-      break;
-    case "kanban":
-      if (typeof r.label !== "string") return false;
-      if (!Array.isArray(r.columns)) return false;
-      if (r.columns.some((c: unknown) => typeof c !== "string")) return false;
-      if (r.columns.length > 20) return false;
-      if (r.columnLabels !== undefined) {
-        if (!Array.isArray(r.columnLabels)) return false;
-        if ((r.columnLabels as unknown[]).some((c) => typeof c !== "string")) return false;
-      }
-      break;
-    case "connector":
-      if (typeof r.fromId !== "string" || typeof r.toId !== "string") return false;
-      if (typeof r.stroke !== "string") return false;
-      if (typeof r.strokeWidth !== "number" || !Number.isFinite(r.strokeWidth)) return false;
-      break;
-    case "freehand":
-      if (!Array.isArray(r.points)) return false;
-      if (r.points.length > 10_000) return false;
-      if ((r.points as unknown[]).some((p) => typeof p !== "number" || !Number.isFinite(p))) return false;
-      break;
-    case "image":
-    case "embed":
-      if (typeof r.src !== "string") return false;
-      if (r.src.length > 8 * 1024 * 1024) return false; // 8 MB data URL cap
-      break;
-  }
-  return true;
-}
+//
+// The object-shape check (`isValidObject`) lives in `./object-validator`
+// so the clipboard / drag-drop ingest paths run the SAME check — a
+// payload that the realtime layer would reject is also rejected at paste
+// time, and vice versa.
 
 function isValidPatch(raw: unknown): raw is WhiteboardPatch {
   if (!raw || typeof raw !== "object") return false;
   const r = raw as Record<string, unknown>;
-  if (typeof r.by !== "string") return false;
+  if (typeof r.by !== "string" || r.by.length === 0 || r.by.length > MAX_ID_LEN) return false;
+  // `at` is required by the WhiteboardPatch contract and stamped by
+  // computePatch. Bound to a sane string length so a hostile peer
+  // can't blow memory with a 50 MB ISO timestamp.
+  if (typeof r.at !== "string" || r.at.length === 0 || r.at.length > 64) return false;
   if (!Array.isArray(r.upserted) || !Array.isArray(r.removed)) return false;
   // Cap the payload to avoid memory blow-up via a hostile peer.
   if (r.upserted.length > 5_000 || r.removed.length > 5_000) return false;
   for (const id of r.removed) {
-    if (typeof id !== "string") return false;
+    if (typeof id !== "string" || id.length === 0 || id.length > MAX_ID_LEN) return false;
   }
   for (const o of r.upserted) {
     if (!isValidObject(o)) return false;
@@ -153,13 +79,25 @@ function isValidPatch(raw: unknown): raw is WhiteboardPatch {
 function isValidHeartbeat(raw: unknown): raw is WhiteboardHeartbeat {
   if (!raw || typeof raw !== "object") return false;
   const r = raw as Record<string, unknown>;
-  if (typeof r.by !== "string") return false;
+  if (typeof r.by !== "string" || r.by.length === 0 || r.by.length > MAX_ID_LEN) return false;
+  // `at` is required by the WhiteboardHeartbeat contract.
+  if (typeof r.at !== "string" || r.at.length === 0 || r.at.length > 64) return false;
   if (!r.versions || typeof r.versions !== "object") return false;
   const vs = r.versions as Record<string, unknown>;
   const keys = Object.keys(vs);
   if (keys.length > 5_000) return false;
   for (const k of keys) {
-    if (typeof vs[k] !== "number" || !Number.isFinite(vs[k] as number)) return false;
+    // Cap key length so a hostile peer can't blow memory with one
+    // 50 MB key — same threat model as MAX_ID_LEN on object IDs.
+    if (k.length === 0 || k.length > MAX_ID_LEN) return false;
+    const v = vs[k];
+    // Versions must be non-negative integers ≤ uint32. Without
+    // Number.isInteger, a peer can send `2.5` and pass Number.isFinite;
+    // without the MAX_VERSION cap (vs MAX_SAFE_INTEGER) a peer can
+    // send 2^53-1, after which no future writer can win the LWW
+    // comparison — the targeted object is locked forever (denial-of-
+    // -write attack).
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > MAX_VERSION) return false;
   }
   return true;
 }
@@ -167,10 +105,10 @@ function isValidHeartbeat(raw: unknown): raw is WhiteboardHeartbeat {
 function isValidRequest(raw: unknown): raw is WhiteboardRequest {
   if (!raw || typeof raw !== "object") return false;
   const r = raw as Record<string, unknown>;
-  if (typeof r.by !== "string") return false;
+  if (typeof r.by !== "string" || r.by.length === 0 || r.by.length > MAX_ID_LEN) return false;
   if (!Array.isArray(r.ids) || r.ids.length > 5_000) return false;
   for (const id of r.ids) {
-    if (typeof id !== "string") return false;
+    if (typeof id !== "string" || id.length === 0 || id.length > MAX_ID_LEN) return false;
   }
   return true;
 }
@@ -182,15 +120,86 @@ export interface CanvasRoomOptions {
   roomId: string | null;
   /** ID of the board this hook is syncing. */
   boardId: string;
+  /** When true, this peer is in viewer/commenter mode — it RECEIVES
+   * patches and presence but does NOT broadcast local store mutations.
+   * Defense-in-depth against a hostile browser extension that flips
+   * `readOnly` in the UI but can't suppress the broadcast effect. */
+  readOnly?: boolean;
 }
 
-export function useCanvasRoom({ toolId = "canvas", roomId, boardId }: CanvasRoomOptions): {
+export interface FocusBroadcast {
+  /** World coords + size of the focus rect. */
+  rect: { x: number; y: number; w: number; h: number };
+  /** Sender — receivers ignore their own broadcasts. */
+  by: string;
+  /** Kind: "snap" forces the camera to fit-to-rect; "spotlight"
+   * dims the surround but doesn't move the camera. */
+  kind: "snap" | "spotlight";
+  /** ISO timestamp. */
+  at: string;
+  /** Spotlight auto-clears after this epoch-ms; ignored for "snap". */
+  expiresAt?: number;
+}
+
+function isValidFocus(raw: unknown): raw is FocusBroadcast {
+  if (!raw || typeof raw !== "object") return false;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.by !== "string" || r.by.length === 0 || r.by.length > MAX_ID_LEN) return false;
+  if (r.kind !== "snap" && r.kind !== "spotlight") return false;
+  if (!r.rect || typeof r.rect !== "object") return false;
+  const rect = r.rect as Record<string, unknown>;
+  // Reject NaN/Infinity AND magnitudes outside world bounds. Without
+  // this, a hostile peer broadcasts {x:1e308,y:1e308}; fitToRects
+  // divides by these and produces zoom ≈ 0 / NaN → recipients lose
+  // their camera state with no recovery short of a page reload.
+  if (
+    typeof rect.x !== "number" || !Number.isFinite(rect.x) || Math.abs(rect.x) > MAX_COORD ||
+    typeof rect.y !== "number" || !Number.isFinite(rect.y) || Math.abs(rect.y) > MAX_COORD ||
+    typeof rect.w !== "number" || !Number.isFinite(rect.w) || rect.w <= 0 || rect.w > MAX_COORD ||
+    typeof rect.h !== "number" || !Number.isFinite(rect.h) || rect.h <= 0 || rect.h > MAX_COORD
+  ) return false;
+  // Spotlight must have a roughly-future expiresAt and can't camp on
+  // screen forever (cap at 60s). Snap doesn't use expiresAt.
+  //
+  // We allow `expiresAt` to be up to SPOTLIGHT_PAST_TOLERANCE_MS in the
+  // past — peers with NTP drift commonly diverge by 5–15 s, and without
+  // the tolerance we silently drop perfectly legitimate spotlights from
+  // those peers. The receive-side TTL effect treats negative TTLs as
+  // already-expired and clears immediately, so accepting a slightly-past
+  // expiresAt is safe.
+  if (r.kind === "spotlight") {
+    if (typeof r.expiresAt !== "number" || !Number.isFinite(r.expiresAt)) return false;
+    const now = Date.now();
+    if (r.expiresAt < now - SPOTLIGHT_PAST_TOLERANCE_MS || r.expiresAt > now + 60_000) return false;
+  }
+  return true;
+}
+
+export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = false }: CanvasRoomOptions): {
   isConnected: boolean;
   userId: string;
+  /** Broadcast a "follow me" / "look here" event to peers. `snap` is
+   * the "Bring everyone to me" gesture — peers' cameras fit to the
+   * supplied rect. `spotlight` highlights the rect without moving
+   * peer cameras. */
+  broadcastFocus: (kind: "snap" | "spotlight", rect: { x: number; y: number; w: number; h: number }) => void;
+  /** Peer focus event from realtime. Receivers use this to render
+   * the spotlight overlay or snap their camera. */
+  remoteFocus: FocusBroadcast | null;
 } {
-  const room = useRoom<unknown>(toolId, roomId, null);
+  // We don't use the `state-sync` channel — all cross-peer data flows
+  // through our own validated `whiteboard:*` broadcast events. By passing
+  // a `validateState` that always rejects, a hostile peer can't trigger
+  // `setStateInternal` re-renders or bloat `latestStateRef` by spamming
+  // `state-sync` payloads on the canvas channel. The validator runs on
+  // every incoming `state-sync`, so dropping them here is the cheapest
+  // possible defense (no React commit, no ref-write, no memory growth).
+  const room = useRoom<unknown>(toolId, roomId, null, {
+    validateState: (_raw): _raw is unknown => false,
+  });
   const upsertMany = useWorkspaceStore((s) => s.upsertWhiteboardObjects);
   const removeMany = useWorkspaceStore((s) => s.removeWhiteboardObjects);
+  const [remoteFocus, setRemoteFocus] = useState<FocusBroadcast | null>(null);
 
   // Snapshot of what we last broadcasted, used to compute diffs locally.
   const lastBroadcastRef = useRef<Map<string, WhiteboardObject>>(new Map());
@@ -217,6 +226,60 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId }: CanvasRoom
     const pendingDriftIds = new Set<string>();
     let driftTimer: ReturnType<typeof setTimeout> | null = null;
 
+    // ─── Inbound-patch coalescer ──────────────────────────────────────
+    // Each incoming `whiteboard:patch` triggers an `applyPatch` against
+    // the live local list (a Map rebuild over up to 1000 objects) plus a
+    // pair of workspace-store mutations (each a full React re-render of
+    // every workspace-store subscriber). With 5 peers each broadcasting
+    // at the 10 patches/sec ceiling, that's 50 patch-applies/sec → 50
+    // store re-renders/sec.
+    //
+    // We instead queue incoming patches into a buffer and flush via
+    // rAF (≤60 Hz, naturally aligned to render cadence) — multiple
+    // patches landing in the same frame are merged before they touch
+    // the store, so even 5 peers contribute at most ONE store mutation
+    // per frame regardless of inbound rate. LWW semantics survive
+    // because `applyPatch` is order-independent in its result (the
+    // higher version wins regardless of arrival order).
+    const inboundQueue: WhiteboardPatch[] = [];
+    let flushRaf: ReturnType<typeof requestAnimationFrame> | null = null;
+    const flushInbound = () => {
+      flushRaf = null;
+      if (inboundQueue.length === 0) return;
+      const batch = inboundQueue.splice(0, inboundQueue.length);
+      // Snapshot the live list ONCE and fold every queued patch into it.
+      // The per-patch board-filter + boardId guard already ran on
+      // ingest; here we just apply the merge.
+      let merged = (useWorkspaceStore.getState().whiteboardObjects ?? []).filter(
+        (o) => o.boardId === boardId,
+      );
+      const localById = new Map(merged.map((o) => [o.id, o]));
+      // Accumulate "what each patch wanted to remove" so the final
+      // ownership check in applyPatch still runs once per patch (each
+      // patch can carry its own `by` author for the removal-permission
+      // check). applyPatch is pure so we just keep folding it.
+      for (const patch of batch) {
+        merged = applyPatch(merged, patch);
+      }
+      const toUpsert: WhiteboardObject[] = [];
+      for (const o of merged) {
+        const existing = localById.get(o.id);
+        if (!existing || existing.version !== o.version) toUpsert.push(o);
+      }
+      const toRemoveSet = new Set(localById.keys());
+      for (const o of merged) toRemoveSet.delete(o.id);
+      const toRemove = Array.from(toRemoveSet);
+      // CRITICAL: update the broadcast snapshot BEFORE the store
+      // mutation. See same rationale below — the local-broadcast
+      // listener fires on the resulting state change and would
+      // otherwise compute a delta that mirrors the incoming patches
+      // back to peers (echo loop).
+      for (const o of merged) lastBroadcastRef.current.set(o.id, o);
+      for (const id of toRemove) lastBroadcastRef.current.delete(id);
+      if (toUpsert.length > 0) upsertMany(toUpsert);
+      if (toRemove.length > 0) removeMany(toRemove);
+    };
+
     const offPatch = roomRef.current.subscribeToEvent("whiteboard:patch", (raw) => {
       if (!isValidPatch(raw)) return;
       const patch = raw;
@@ -229,37 +292,17 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId }: CanvasRoom
       // A peer claimed these ids — if we have pending requests for any
       // of them, the upcoming patch makes the request redundant.
       for (const o of upserted) pendingDriftIds.delete(o.id);
-      const localObjects = (useWorkspaceStore.getState().whiteboardObjects ?? []).filter(
-        (o) => o.boardId === boardId,
-      );
-      const merged = applyPatch(localObjects, { ...patch, upserted });
-      const localById = new Map(localObjects.map((o) => [o.id, o]));
-      const toUpsert: WhiteboardObject[] = [];
-      for (const o of merged) {
-        const existing = localById.get(o.id);
-        if (!existing || existing.version !== o.version) toUpsert.push(o);
+      // Queue + schedule the flush. The same rAF will drain everything
+      // that lands in the next frame window — across all 5 peers, a
+      // single 16 ms window can absorb their entire combined rate.
+      inboundQueue.push({ ...patch, upserted });
+      if (flushRaf === null) {
+        // requestAnimationFrame is undefined during SSR / Jest — fall
+        // back to a microtask boundary so tests still flush deterministically.
+        flushRaf = typeof requestAnimationFrame !== "undefined"
+          ? requestAnimationFrame(flushInbound)
+          : (Promise.resolve().then(flushInbound), 1 as unknown as ReturnType<typeof requestAnimationFrame>);
       }
-      const toRemoveSet = new Set(localObjects.map((o) => o.id));
-      for (const o of merged) toRemoveSet.delete(o.id);
-      const toRemove = Array.from(toRemoveSet);
-      // CRITICAL: update the broadcast snapshot BEFORE the store mutation.
-      // Otherwise the workspace-store subscriber below will fire on the
-      // resulting state change, see lastBroadcastRef.current still
-      // pointing at the pre-merge state, compute a delta that mirrors
-      // this incoming patch, and re-broadcast it back to peers — an
-      // echo loop. The userId guard alone doesn't prevent that loop
-      // because the re-broadcast is sent by us, not the original peer.
-      //
-      // Update the snapshot for the FULL merged state, not just objects
-      // we're about to upsert. Patches whose remote version <= local
-      // version are dropped by applyPatch (LWW), but the peer's
-      // existence-of-that-version is still useful information; without
-      // recording it here, subsequent local edits could compute a delta
-      // that re-broadcasts a stale version against the same object id.
-      for (const o of merged) lastBroadcastRef.current.set(o.id, o);
-      for (const id of toRemove) lastBroadcastRef.current.delete(id);
-      if (toUpsert.length > 0) upsertMany(toUpsert);
-      if (toRemove.length > 0) removeMany(toRemove);
     });
 
     const offHeartbeat = roomRef.current.subscribeToEvent("whiteboard:heartbeat", (raw) => {
@@ -313,16 +356,72 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId }: CanvasRoom
       roomRef.current.broadcast("whiteboard:patch", patch);
     });
 
+    // ─── whiteboard:focus — "Bring everyone to me" / "Spotlight" ───
+    // Host emits a focus rect; peers either snap their camera (kind
+    // === "snap") or render a dimmed spotlight overlay (kind ===
+    // "spotlight"). Spotlight auto-clears at `expiresAt`.
+    const offFocus = roomRef.current.subscribeToEvent("whiteboard:focus", (raw) => {
+      if (!isValidFocus(raw)) return;
+      const me = roomRef.current.userId;
+      if (raw.by === me) return; // ignore our own echo
+      setRemoteFocus(raw);
+    });
+
     return () => {
       offPatch();
       offHeartbeat();
       offRequest();
+      offFocus();
       if (driftTimer !== null) clearTimeout(driftTimer);
     };
     // NOTE: we intentionally omit `room` from the dep list — it's a new
     // object every render. We read through roomRef.current instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, room.isLocalOnly, boardId, upsertMany, removeMany]);
+
+  // Spotlight auto-clear: when `remoteFocus.expiresAt` passes, drop
+  // the local state so the overlay disappears even if no follow-up
+  // event arrives. Snap events don't expire (they're one-shot).
+  useEffect(() => {
+    if (!remoteFocus || remoteFocus.kind !== "spotlight") return;
+    const ttl = (remoteFocus.expiresAt ?? Date.now()) - Date.now();
+    if (ttl <= 0) { setRemoteFocus(null); return; }
+    const h = setTimeout(() => setRemoteFocus(null), ttl);
+    return () => clearTimeout(h);
+  }, [remoteFocus]);
+
+  // Public helper — wraps the broadcast event with sender stamping.
+  const broadcastFocus = useCallback(
+    (kind: "snap" | "spotlight", rect: { x: number; y: number; w: number; h: number }) => {
+      if (!roomRef.current) return;
+      // ReadOnly tier (viewer / commenter) cannot drive peer cameras.
+      // Without this gate, a hostile viewer would be able to spam
+      // `snap` events and lock every editor's camera onto irrelevant
+      // rects — a denial-of-collaboration vector.
+      if (readOnly) return;
+      // Clamp the outgoing rect into the validator's accepted range so
+      // a local pathological zoom (camera.zoom = 0.0005 → rect.w = size*2000)
+      // doesn't produce a payload that peers reject AND wreck their
+      // cameras on the way through. Width / height must stay positive
+      // AND be large enough to produce a usable spotlight (a 1-unit
+      // rect produces zoom ≈ viewport_size / 1 on receivers).
+      const safeRect = {
+        x: Math.max(-MAX_COORD, Math.min(MAX_COORD, rect.x)),
+        y: Math.max(-MAX_COORD, Math.min(MAX_COORD, rect.y)),
+        w: Math.max(100, Math.min(MAX_COORD, rect.w)),
+        h: Math.max(100, Math.min(MAX_COORD, rect.h)),
+      };
+      const payload: FocusBroadcast = {
+        rect: safeRect,
+        by: roomRef.current.userId,
+        kind,
+        at: new Date().toISOString(),
+        ...(kind === "spotlight" ? { expiresAt: Date.now() + 8_000 } : {}),
+      };
+      roomRef.current.broadcast("whiteboard:focus", payload);
+    },
+    [readOnly],
+  );
 
   // Reset the broadcast snapshot whenever the active board changes.
   // Without this, switching from board A → board B leaves the snapshot
@@ -351,6 +450,10 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId }: CanvasRoom
   const BROADCAST_MIN_GAP_MS = 100;
   useEffect(() => {
     if (!roomId || room.isLocalOnly) return;
+    // ReadOnly tier (viewer / commenter): never broadcast local
+    // mutations. Even if a UI handler bypasses its `readOnly` gate, the
+    // network-side broadcast effect is silent. Receive paths still run.
+    if (readOnly) return;
     let prevObjectsRef = useWorkspaceStore.getState().whiteboardObjects;
     let lastSentAt = 0;
     let pendingTimer: ReturnType<typeof setTimeout> | null = null;
@@ -381,7 +484,7 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId }: CanvasRoom
       if (pendingTimer !== null) clearTimeout(pendingTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, room.isLocalOnly, boardId]);
+  }, [roomId, room.isLocalOnly, boardId, readOnly]);
 
   // Periodic heartbeat — only when actually connected AND tab is visible.
   // When the user backgrounds the tab (Cmd-Tab away), the heartbeat
@@ -421,5 +524,10 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId }: CanvasRoom
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, room.isLocalOnly, room.isConnected, boardId]);
 
-  return { isConnected: room.isConnected, userId: room.userId };
+  return {
+    isConnected: room.isConnected,
+    userId: room.userId,
+    broadcastFocus,
+    remoteFocus,
+  };
 }

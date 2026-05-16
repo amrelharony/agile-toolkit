@@ -71,6 +71,7 @@ function VotingObjectImpl({ object: o, selected, selfId, onPointerDown, onMutate
   return (
     <div
       onPointerDown={onPointerDown}
+      data-canvas-object-kind="voting"
       style={{
         position: "absolute",
         left: 0,

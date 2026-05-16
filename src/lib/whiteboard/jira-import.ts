@@ -14,6 +14,7 @@
  */
 
 import type { WhiteboardObject, WhiteboardCard, WhiteboardKanbanFrame } from "@/lib/stores/workspace-types";
+import { wbId } from "./clipboard";
 
 export interface JiraIssue {
   key: string;
@@ -26,6 +27,28 @@ export interface JiraIssue {
   labels?: string[];
   dueDate?: string;
 }
+
+/**
+ * Result of {@link parseJiraCsv}. Wraps the parsed issues with metadata
+ * so callers can surface "your file was truncated" warnings without
+ * silently losing rows.
+ */
+export interface JiraParseResult {
+  issues: JiraIssue[];
+  /** True when the CSV held more than {@link MAX_JIRA_ROWS} usable
+   * rows; `issues` is then capped at the limit. */
+  truncated: boolean;
+  /** True when the input exceeded {@link MAX_JIRA_BYTES} and was rejected;
+   * `issues` is empty. */
+  oversize?: boolean;
+}
+
+/** Hard byte-size cap on Jira CSV input — anything larger is rejected
+ * outright to avoid pegging the parser on adversarial input. */
+const MAX_JIRA_BYTES = 5_000_000;
+/** Hard cap on the number of returned issues. Beyond this we truncate
+ * and signal via {@link JiraParseResult.truncated}. */
+const MAX_JIRA_ROWS = 1000;
 
 /** Map a Jira status to our canonical column. Anything unrecognised
  * falls through to "todo" with a console warning. */
@@ -42,33 +65,46 @@ function normaliseStatus(jiraStatus: string): "todo" | "in_progress" | "done" {
  * "Status", "Assignee", "Story Points", "Priority", "Description".
  * Quoted fields with embedded commas / quotes are common; we
  * parse them out manually rather than pulling in a CSV library.
+ *
+ * Two hard limits keep this safe against adversarial input:
+ *   - byte-size cap ({@link MAX_JIRA_BYTES}) — rejected outright
+ *   - row cap ({@link MAX_JIRA_ROWS}) — returned issues truncated,
+ *     with `truncated: true` signalled on the result
+ *
+ * Field buffering uses array-push + join (not `cell += c`) to keep
+ * tokenisation O(n) instead of O(n^2) on long cells.
  */
-export function parseJiraCsv(text: string): JiraIssue[] {
+export function parseJiraCsv(text: string): JiraParseResult {
+  // Hard size cap — bigger than this and we don't even tokenise.
+  if (text.length > MAX_JIRA_BYTES) {
+    return { issues: [], truncated: false, oversize: true };
+  }
   const rows: string[][] = [];
   let cur: string[] = [];
-  let cell = "";
+  // Array-buffer the field bytes; `cell += c` is O(n^2) under V8.
+  let cellBuf: string[] = [];
   let inQuotes = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (inQuotes) {
-      if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      if (c === '"' && text[i + 1] === '"') { cellBuf.push('"'); i++; }
       else if (c === '"') { inQuotes = false; }
-      else { cell += c; }
+      else { cellBuf.push(c); }
     } else {
       if (c === '"') { inQuotes = true; }
-      else if (c === ",") { cur.push(cell); cell = ""; }
+      else if (c === ",") { cur.push(cellBuf.join("")); cellBuf = []; }
       else if (c === "\n" || c === "\r") {
-        if (cell.length > 0 || cur.length > 0) {
-          cur.push(cell);
+        if (cellBuf.length > 0 || cur.length > 0) {
+          cur.push(cellBuf.join(""));
           rows.push(cur);
-          cur = []; cell = "";
+          cur = []; cellBuf = [];
         }
         if (c === "\r" && text[i + 1] === "\n") i++;
-      } else { cell += c; }
+      } else { cellBuf.push(c); }
     }
   }
-  if (cell.length > 0 || cur.length > 0) { cur.push(cell); rows.push(cur); }
-  if (rows.length < 2) return [];
+  if (cellBuf.length > 0 || cur.length > 0) { cur.push(cellBuf.join("")); rows.push(cur); }
+  if (rows.length < 2) return { issues: [], truncated: false };
   const header = rows[0].map((h) => h.trim().toLowerCase());
   const indexOf = (name: string) => header.findIndex((h) => h === name || h.startsWith(name + " "));
   const iKey = indexOf("issue key") >= 0 ? indexOf("issue key") : indexOf("key");
@@ -81,9 +117,11 @@ export function parseJiraCsv(text: string): JiraIssue[] {
   const iLabels = indexOf("labels");
   const iDue = indexOf("due date");
   const issues: JiraIssue[] = [];
+  let truncated = false;
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
     if (iKey < 0 || !row[iKey]) continue;
+    if (issues.length >= MAX_JIRA_ROWS) { truncated = true; break; }
     const points = iPoints >= 0 && row[iPoints] ? Number(row[iPoints]) : undefined;
     issues.push({
       key: row[iKey].trim(),
@@ -97,7 +135,7 @@ export function parseJiraCsv(text: string): JiraIssue[] {
       dueDate: iDue >= 0 ? row[iDue]?.trim() || undefined : undefined,
     });
   }
-  return issues;
+  return { issues, truncated };
 }
 
 /**
@@ -109,7 +147,7 @@ export function parseJiraCsv(text: string): JiraIssue[] {
 export function issuesToCards(boardId: string, issues: readonly JiraIssue[]): WhiteboardObject[] {
   if (issues.length === 0) return [];
   const out: WhiteboardObject[] = [];
-  const id = () => `wb_${Math.random().toString(36).slice(2, 11)}`;
+  const id = () => wbId();
   const now = new Date().toISOString();
 
   const cols: ("todo" | "in_progress" | "done")[] = ["todo", "in_progress", "done"];

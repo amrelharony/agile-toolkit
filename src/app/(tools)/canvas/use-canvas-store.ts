@@ -129,11 +129,17 @@ interface CanvasUiState {
    * presence update. Cleared by any local pan / zoom interaction (so
    * "follow" feels like a soft beacon — you can break out by moving). */
   followUserId: string | null;
-  /** Per-board frame bookmarks for fast nav (Phase 29). */
-  frameBookmarks: Record<string, string[]>;
+  /** Phase 29 — per-board frame bookmarks. Each entry is a frame
+   * object id. Toggled via Cmd+Shift+B; the toolbar surfaces them as
+   * a quick-jump menu. Persisted so favourites survive reload. */
+  frameBookmarks: Record<string, string[]>; // boardId -> frame ids
   /** Presentation mode — when non-null, the canvas renders in
    * full-bleed mode and arrow keys cycle through frames. */
   presentationFrameIndex: number | null;
+  /** Active tag filter — when non-empty, the canvas dims objects whose
+   * `tags` field doesn't intersect this set. Ephemeral; never persisted
+   * (a filter that survives reload would be a UX trap). Phase 26. */
+  tagFilter: string[];
 
   setActiveBoard: (id: string | null) => void;
   setCamera: (c: Camera) => void;
@@ -159,6 +165,8 @@ interface CanvasUiState {
   setFollowUserId: (id: string | null) => void;
   toggleFrameBookmark: (boardId: string, frameId: string) => void;
   setPresentationFrameIndex: (i: number | null) => void;
+  setTagFilter: (tags: string[]) => void;
+  toggleTagFilter: (tag: string) => void;
 }
 
 export const useCanvasStore = create<CanvasUiState>()(
@@ -185,20 +193,20 @@ export const useCanvasStore = create<CanvasUiState>()(
       followUserId: null,
       frameBookmarks: {},
       presentationFrameIndex: null,
+      tagFilter: [],
 
       setActiveBoard: (id) => set({ activeBoardId: id, selection: [] }),
       setCamera: (c) => set({ camera: c }),
       setTool: (t) => set({ tool: t }),
       setSelection: (ids) => set({ selection: ids }),
-      toggleSelection: (id, additive) => {
-        const cur = get().selection;
+      toggleSelection: (id, additive) => set((state) => {
+        const cur = state.selection;
         if (!additive) {
-          set({ selection: cur.includes(id) && cur.length === 1 ? [] : [id] });
-          return;
+          return { selection: cur.includes(id) && cur.length === 1 ? [] : [id] };
         }
-        if (cur.includes(id)) set({ selection: cur.filter((x) => x !== id) });
-        else set({ selection: [...cur, id] });
-      },
+        if (cur.includes(id)) return { selection: cur.filter((x) => x !== id) };
+        return { selection: [...cur, id] };
+      }),
       clearSelection: () => set({ selection: [] }),
       setStickyColor: (c) => set({ stickyColor: c }),
       setShowGrid: (v) => set({ showGrid: v }),
@@ -224,12 +232,60 @@ export const useCanvasStore = create<CanvasUiState>()(
         set({ frameBookmarks: { ...cur, [boardId]: next } });
       },
       setPresentationFrameIndex: (i) => set({ presentationFrameIndex: i }),
+      setTagFilter: (tags) => set({ tagFilter: tags }),
+      toggleTagFilter: (tag) => set((state) => ({
+        tagFilter: (state.tagFilter ?? []).includes(tag)
+          ? (state.tagFilter ?? []).filter((t) => t !== tag)
+          : [...(state.tagFilter ?? []), tag],
+      })),
     }),
     {
       name: "agile-toolkit:canvas",
       storage: createJSONStorage(() => {
-        if (typeof window !== "undefined") return localStorage;
-        return { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+        if (typeof window === "undefined") {
+          return { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+        }
+        // Match the workspace store's quota / SecurityError handling.
+        // Safari Private Browsing throws on every localStorage access;
+        // a full origin throws QuotaExceededError on setItem. Without
+        // wrapping, either would crash the canvas mount during
+        // hydration. The persisted state here is tiny (camera, tool,
+        // bookmarks) so the only realistic failure mode is the
+        // origin-wide quota being already saturated by the workspace
+        // store / images.
+        return {
+          getItem: (k: string) => {
+            try {
+              return localStorage.getItem(k);
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.warn(
+                "[canvas-store] localStorage.getItem blocked — starting with default UI state.",
+                err,
+              );
+              return null;
+            }
+          },
+          setItem: (k: string, v: string) => {
+            try {
+              localStorage.setItem(k, v);
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.warn(
+                "[canvas-store] localStorage write failed — UI state held in memory only.",
+                err,
+              );
+            }
+          },
+          removeItem: (k: string) => {
+            try {
+              localStorage.removeItem(k);
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.warn("[canvas-store] localStorage.removeItem blocked.", err);
+            }
+          },
+        };
       }),
       // Selection is per-session; don't persist it.
       partialize: (s) => ({

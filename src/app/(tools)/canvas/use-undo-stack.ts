@@ -27,6 +27,44 @@ import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 
 const STACK_LIMIT = 50;
 
+/**
+ * Deep-clone a list of whiteboard objects.
+ *
+ * The previous shallow `({ ...o })` only copied the top-level fields and
+ * shared every nested array/object (tags, votes, points, sourceRef,
+ * columns, options, etc.) with the workspace store. If anything in the
+ * codebase ever mutated those nested structures in-place (e.g. an
+ * accidental `o.tags.push(...)` from a future tool), the mutation would
+ * retroactively rewrite undo history. structuredClone is fast enough for
+ * our snapshot rate (~1 Hz max — one push per drag/resize/paste/delete);
+ * the JSON fallback keeps older runtimes happy without poisoning the
+ * stack with shared references.
+ */
+function deepCloneSlice(slice: WhiteboardObject[]): WhiteboardObject[] {
+  return typeof structuredClone === "function"
+    ? structuredClone(slice)
+    : (JSON.parse(JSON.stringify(slice)) as WhiteboardObject[]);
+}
+
+/**
+ * Cheap equality heuristic for two whiteboard-object snapshots: compare
+ * length + total version sum. Catches the common "user pressed Cmd+S
+ * twice / pushSnapshot ran on a no-op gesture" case without paying the
+ * cost of a full JSON.stringify comparison on 500-object boards. Two
+ * snapshots can theoretically collide on length + version-sum without
+ * being identical (one object's +1 version offsetting another's -1),
+ * but in practice version numbers only ever increase — so a collision
+ * is the snapshot we'd want to drop anyway.
+ */
+function snapshotsEqual(a: WhiteboardObject[], b: WhiteboardObject[]): boolean {
+  if (a.length !== b.length) return false;
+  let aSum = 0;
+  let bSum = 0;
+  for (const o of a) aSum += o.version;
+  for (const o of b) bSum += o.version;
+  return aSum === bSum;
+}
+
 export function useCanvasUndoStack(activeBoardId: string | null) {
   const undoStack = useRef<WhiteboardObject[][]>([]);
   const redoStack = useRef<WhiteboardObject[][]>([]);
@@ -44,7 +82,15 @@ export function useCanvasUndoStack(activeBoardId: string | null) {
   const pushSnapshot = useCallback(() => {
     if (!activeBoardId) return;
     const all = useWorkspaceStore.getState().whiteboardObjects ?? [];
-    const slice = all.filter((o) => o.boardId === activeBoardId).map((o) => ({ ...o }));
+    const filtered = all.filter((o) => o.boardId === activeBoardId);
+    const slice = deepCloneSlice(filtered);
+    // Skip when this snapshot matches the top of the undo stack — no-op
+    // pushes (e.g. an align that returns early, a paste of zero items
+    // wrapped by a snapshot, undo→redo cycles) would otherwise bloat
+    // the stack and force users to mash Cmd+Z through empty entries
+    // before reaching a real edit.
+    const top = undoStack.current[undoStack.current.length - 1];
+    if (top && snapshotsEqual(slice, top)) return;
     undoStack.current.push(slice);
     if (undoStack.current.length > STACK_LIMIT) undoStack.current.shift();
     // Any new edit invalidates the redo stack.
@@ -55,9 +101,11 @@ export function useCanvasUndoStack(activeBoardId: string | null) {
     if (!activeBoardId || undoStack.current.length === 0) return;
     const previous = undoStack.current.pop()!;
     // Stash current state for redo BEFORE applying the previous.
-    const cur = (useWorkspaceStore.getState().whiteboardObjects ?? [])
-      .filter((o) => o.boardId === activeBoardId)
-      .map((o) => ({ ...o }));
+    const cur = deepCloneSlice(
+      (useWorkspaceStore.getState().whiteboardObjects ?? []).filter(
+        (o) => o.boardId === activeBoardId,
+      ),
+    );
     redoStack.current.push(cur);
     applyBoardSlice(activeBoardId, previous);
   }, [activeBoardId]);
@@ -65,9 +113,11 @@ export function useCanvasUndoStack(activeBoardId: string | null) {
   const redo = useCallback(() => {
     if (!activeBoardId || redoStack.current.length === 0) return;
     const next = redoStack.current.pop()!;
-    const cur = (useWorkspaceStore.getState().whiteboardObjects ?? [])
-      .filter((o) => o.boardId === activeBoardId)
-      .map((o) => ({ ...o }));
+    const cur = deepCloneSlice(
+      (useWorkspaceStore.getState().whiteboardObjects ?? []).filter(
+        (o) => o.boardId === activeBoardId,
+      ),
+    );
     undoStack.current.push(cur);
     applyBoardSlice(activeBoardId, next);
   }, [activeBoardId]);
@@ -86,14 +136,35 @@ function applyBoardSlice(boardId: string, slice: WhiteboardObject[]) {
   const store = useWorkspaceStore.getState();
   const all = store.whiteboardObjects ?? [];
   const otherBoards = all.filter((o) => o.boardId !== boardId);
-  const snapshotIds = new Set(slice.map((o) => o.id));
+  // Deep-clone the snapshot before applying. The stack might hand us the
+  // exact same array reference more than once (push→undo→redo→undo), so
+  // upserting raw stack objects would let any subsequent edit on the
+  // workspace store retroactively mutate the cached snapshot.
+  const cloned = typeof structuredClone === "function"
+    ? structuredClone(slice)
+    : (JSON.parse(JSON.stringify(slice)) as WhiteboardObject[]);
+  const snapshotIds = new Set(cloned.map((o) => o.id));
   // Remove any objects on this board that aren't in the snapshot.
-  const currentBoardIds = all.filter((o) => o.boardId === boardId).map((o) => o.id);
-  const toRemove = currentBoardIds.filter((id) => !snapshotIds.has(id));
+  const currentOnBoard = all.filter((o) => o.boardId === boardId);
+  const currentById = new Map<string, WhiteboardObject>();
+  for (const o of currentOnBoard) currentById.set(o.id, o);
+  const toRemove = currentOnBoard.map((o) => o.id).filter((id) => !snapshotIds.has(id));
   if (toRemove.length > 0) store.removeWhiteboardObjects(toRemove);
-  // Upsert the snapshot (version-bumped to win LWW against any stale
-  // realtime patch that fires after the undo).
-  const bumped = slice.map((o) => ({ ...o, version: o.version + 1, updatedAt: new Date().toISOString() }));
+  // Upsert the snapshot, version-bumped against the MAX of:
+  //   - the snapshot's own stored version (so successive undos keep
+  //     monotonically incrementing)
+  //   - the current local object's version (so peers' high versions
+  //     received via realtime drift-recovery don't override our undo
+  //     under LWW the moment we restore)
+  // This anchors the restore to the live local max, which already
+  // incorporates any peer broadcasts processed before the undo.
+  const now = new Date().toISOString();
+  const bumped = cloned.map((o) => {
+    const live = currentById.get(o.id);
+    const liveVersion = live?.version ?? 0;
+    const baseVersion = Math.max(o.version, liveVersion);
+    return { ...o, version: baseVersion + 1, updatedAt: now };
+  });
   if (bumped.length > 0) store.upsertWhiteboardObjects(bumped);
   // otherBoards reference is held just to silence the unused lint; the
   // store's filter-by-id semantics already preserve them.

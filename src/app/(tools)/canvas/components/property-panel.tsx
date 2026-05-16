@@ -26,10 +26,11 @@
  *   embed     → (read-only)
  */
 
-import { memo } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bold, AlignLeft, AlignCenter, AlignRight,
   Minus, MoveRight, MoveLeft, ArrowRightCircle,
+  Tag, X,
 } from "lucide-react";
 import type { Camera, Rect } from "@/lib/geometry/bbox";
 import type {
@@ -57,6 +58,9 @@ interface PropertyPanelProps {
    * upserts. Each entry is a partial of the object that's merged on top
    * of the existing one. */
   onPatch: (updates: { id: string; patch: Partial<WhiteboardObject> }[]) => void;
+  /** Open the card detail modal. Surface as a pill on the panel when a
+   * single card is selected. */
+  onOpenCardDetail?: (cardId: string) => void;
 }
 
 /** Sticky palette — matches templates.ts STICKY_PALETTE. */
@@ -91,7 +95,7 @@ function anchorScreenY(bbox: Rect, camera: Camera, viewportHeight: number): { to
   return { top: 8, below: false };
 }
 
-function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, onPatch }: PropertyPanelProps) {
+function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, onPatch, onOpenCardDetail }: PropertyPanelProps) {
   if (selection.length === 0) return null;
 
   // Project to screen position.
@@ -403,13 +407,23 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
         />
       )}
 
-      {/* ─── Card accent colour (Phase 26) ─────────────────── */}
+      {/* ─── Card accent colour + edit-details pill (Phase 26) ──── */}
       {cards.length > 0 && (
         <PaletteRow
           label="Accent"
           colors={PAINT_COLORS}
           onPick={(c) => patchAll(cards, { color: c } as Partial<WhiteboardCard>)}
         />
+      )}
+      {cards.length === 1 && onOpenCardDetail && (
+        <button
+          type="button"
+          onClick={() => onOpenCardDetail(cards[0].id)}
+          title="Open full card details (Cmd+E)"
+          className="text-[10px] uppercase font-mono px-2 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10 transition-colors"
+        >
+          Details
+        </button>
       )}
 
       {/* ─── Timer presets (Phase 25) ─────────────────── */}
@@ -533,6 +547,209 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
           <ArrowRightCircle className="w-3 h-3 inline-block mr-1" />
           embed (no style)
         </span>
+      )}
+
+      {/* ─── Tags (Phase 26) — common to all object types ────────────
+       * Tags are read across the union of selected objects' tags. When
+       * a single object is selected we show its tags; when multiple
+       * objects with mixed tag sets are selected, we still show the
+       * full union and each add/remove fans out across all of them.
+       * The same tag namespace is shared with Story.tags / Risk.tags
+       * so a sticky tagged "blocker" surfaces in the same filter. */}
+      {selection.length > 0 && !types.has("embed") && (
+        <TagsEditor
+          selection={selection}
+          onPatch={onPatch}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Inline tag chip editor. Shows union of selected objects' tags as
+ * removable chips, plus an inline input for adding a new tag.
+ *
+ * Add behaviour: appends to every selected object's tags array
+ * (deduped). Remove behaviour: strips the tag from every object that
+ * has it. */
+function TagsEditor({
+  selection,
+  onPatch,
+}: {
+  selection: readonly WhiteboardObject[];
+  onPatch: (updates: { id: string; patch: Partial<WhiteboardObject> }[]) => void;
+}) {
+  const [input, setInput] = useState("");
+  const [open, setOpen] = useState(false);
+  const [capWarning, setCapWarning] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Union of all tags currently on the selection — sorted for stable
+  // chip order regardless of selection order. Memoised so we don't
+  // rebuild the Set on every parent re-render.
+  const tags = useMemo(() => {
+    const set = new Set<string>();
+    for (const o of selection) for (const t of o.tags ?? []) set.add(t);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [selection]);
+
+  // Close dropdown on outside click. setTimeout defers binding so the
+  // same click that opened the dropdown doesn't immediately close it.
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const h = setTimeout(() => document.addEventListener("click", onDocClick), 0);
+    return () => {
+      clearTimeout(h);
+      document.removeEventListener("click", onDocClick);
+    };
+  }, [open]);
+
+  // Manual focus on initial open — replaces autoFocus so the input
+  // doesn't steal focus on every re-render while typing.
+  useEffect(() => {
+    if (open && inputRef.current) inputRef.current.focus();
+  }, [open]);
+
+  // Auto-clear cap warning after 3 s.
+  useEffect(() => {
+    if (!capWarning) return;
+    const h = setTimeout(() => setCapWarning(false), 3000);
+    return () => clearTimeout(h);
+  }, [capWarning]);
+
+  const addTag = (raw: string) => {
+    // Strip zero-width / invisible chars before normalisation so users
+    // can't bypass dedupe by pasting "blocker​" as a "new" tag. Covers
+    // ZWSP, ZWNJ, ZWJ, Word Joiner (U+2060), ZWNBSP/BOM, soft hyphen,
+    // and emoji Variation Selector-16 (U+FE0F).
+    const t = raw.trim().toLowerCase().replace(/[​-‍⁠﻿­️]/g, "").slice(0, 24);
+    if (!t) return;
+    const updates: { id: string; patch: Partial<WhiteboardObject> }[] = [];
+    let anyAtCap = false;
+    for (const o of selection) {
+      const existing = o.tags ?? [];
+      if (existing.includes(t)) continue;
+      // Cap at 8 tags per object — keeps chip overflow predictable.
+      if (existing.length >= 8) {
+        anyAtCap = true;
+        continue;
+      }
+      updates.push({ id: o.id, patch: { tags: [...existing, t] } });
+    }
+    if (updates.length > 0) {
+      onPatch(updates);
+      setCapWarning(false);
+    } else if (anyAtCap) {
+      // Nothing got added AND at least one object was at the cap —
+      // surface a visible notice so users don't think the add silently
+      // succeeded.
+      setCapWarning(true);
+    }
+    setInput("");
+  };
+
+  const removeTag = (t: string) => {
+    const updates: { id: string; patch: Partial<WhiteboardObject> }[] = [];
+    for (const o of selection) {
+      if (!o.tags?.includes(t)) continue;
+      updates.push({ id: o.id, patch: { tags: o.tags.filter((x) => x !== t) } });
+    }
+    if (updates.length > 0) onPatch(updates);
+  };
+
+  return (
+    <div ref={containerRef} className="flex items-center gap-1 relative">
+      <div className="w-px h-5 bg-border mx-1" />
+      <button
+        type="button"
+        aria-label="Tags"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        title="Tags"
+        onClick={() => setOpen((v) => !v)}
+        className={`w-7 h-7 rounded flex items-center justify-center transition-colors ${
+          tags.length > 0 || open
+            ? "text-accent bg-accent/10"
+            : "text-sub hover:text-text hover:bg-surface-deep"
+        }`}
+      >
+        <Tag className="w-3.5 h-3.5" aria-hidden="true" />
+        {tags.length > 0 && (
+          <span className="text-[9px] font-mono ml-0.5">{tags.length}</span>
+        )}
+      </button>
+      {open && (
+        <div
+          className="absolute top-full right-0 mt-1 bg-surface border border-border rounded-lg shadow-lg p-2 min-w-[200px] max-w-[280px] z-[9998]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {tags.length > 0 ? (
+            <div className="flex flex-wrap gap-1 mb-2">
+              {tags.map((t) => (
+                <span
+                  key={t}
+                  className="inline-flex items-center gap-1 bg-accent/15 text-accent border border-accent/30 rounded-full px-2 py-0.5 text-[10px] font-mono"
+                >
+                  {t}
+                  <button
+                    type="button"
+                    aria-label={`Remove tag ${t}`}
+                    onClick={() => removeTag(t)}
+                    className="text-accent/70 hover:text-accent"
+                  >
+                    <X className="w-2.5 h-2.5" aria-hidden="true" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[10px] text-sub italic mb-2">No tags yet.</p>
+          )}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              addTag(input);
+            }}
+            className="flex items-center gap-1"
+          >
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                // Comma also commits — Miro / Linear convention.
+                if (e.key === ",") {
+                  e.preventDefault();
+                  addTag(input);
+                }
+                if (e.key === "Escape") setOpen(false);
+              }}
+              maxLength={24}
+              placeholder="Add tag…"
+              className="flex-1 bg-surface-deep border border-border rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-accent"
+            />
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              className="text-[10px] uppercase font-mono text-sub hover:text-accent px-2 py-1 disabled:opacity-30"
+            >
+              Add
+            </button>
+            {capWarning && (
+              <span
+                role="status"
+                className="text-[9px] font-mono text-amber-400 ml-1"
+              >
+                ⚠ Some objects at 8-tag limit
+              </span>
+            )}
+          </form>
+        </div>
       )}
     </div>
   );

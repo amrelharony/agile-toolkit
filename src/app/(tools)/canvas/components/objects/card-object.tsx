@@ -44,6 +44,7 @@ function CardObjectImpl({ object: o, selected, editing, onPointerDown, onDoubleC
 
   return (
     <div
+      data-canvas-object-kind="card"
       onPointerDown={editing ? undefined : onPointerDown}
       onDoubleClick={onDoubleClick}
       style={{

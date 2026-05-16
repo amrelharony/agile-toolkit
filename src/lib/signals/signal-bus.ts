@@ -126,6 +126,23 @@ function scheduleFlush(): void {
  * Multiple emits within the same frame are batched.
  */
 export function emitSignal<T>(s: Signal<T>): void {
+  // Bound payload size — a runaway emitter shouldn't blow up the ring.
+  // JSON-stringify is the simplest size estimate; reject signals over
+  // 50KB serialized.
+  let serialized = "";
+  try { serialized = JSON.stringify(s.payload); } catch {}
+  if (serialized.length > 50_000) {
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.warn("[signal-bus] dropping oversized signal:", s.kind, serialized.length);
+    }
+    return;
+  }
+  // Shallow-freeze to discourage mutation by subscribers leaking back
+  // into the ring buffer history.
+  if (s.payload && typeof s.payload === "object") {
+    try { Object.freeze(s.payload); } catch {}
+  }
   pushRing(s as Signal);
   queue.push(s as Signal);
   scheduleFlush();
@@ -149,9 +166,27 @@ export function subscribeSignals(kinds: SignalKind[], cb: Listener): () => void 
   };
 }
 
-/** React hook variant. Auto-cleans up on unmount. */
+/** React hook variant. Auto-cleans up on unmount.
+ *
+ * The callback is held in a ref so callers don't have to memoise it
+ * with `useCallback` — passing an inline `(s) => …` would otherwise
+ * recreate the function on every render, blow the deps comparison,
+ * and re-subscribe (tearing down + adding a listener) every render.
+ * That's both a perf hit and racy under StrictMode double-invoke. */
+import { useRef } from "react";
 export function useSignal(kinds: SignalKind[], cb: Listener): void {
-  useEffect(() => subscribeSignals(kinds, cb), [JSON.stringify(kinds), cb]);
+  const cbRef = useRef(cb);
+  // Keep ref in lockstep with the latest callback — no deps array so
+  // it always points at the current render's closure.
+  cbRef.current = cb;
+  // Subscribe ONLY when the kinds list changes (compared by JSON
+  // identity, since arrays are typically rebuilt each render). The
+  // listener forwards through the ref, so callback churn no longer
+  // re-subscribes.
+  useEffect(() => {
+    return subscribeSignals(kinds, (s) => cbRef.current(s));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(kinds)]);
 }
 
 /** Inspector: read recent signals (last 200) in chronological order. For

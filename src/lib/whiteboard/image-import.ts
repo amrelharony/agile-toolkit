@@ -42,6 +42,14 @@ export interface ImageImportResult {
  * unsupported MIME or oversized payload. Resolves with a useful error
  * via the `err` field so callers can show a toast. */
 export async function fileToImage(file: File | Blob, name = "image"): Promise<{ ok: true; image: ImageImportResult } | { ok: false; err: string }> {
+  // Reject empty / 0-byte files up front. FileReader resolves them to
+  // an empty data URL which the renderer would happily mount as a
+  // broken image; the natural-dimensions probe then falls back to the
+  // 240×160 default, giving the user a confusing "image" they didn't
+  // intend to drop.
+  if (file.size === 0) {
+    return { ok: false, err: "Image is empty (0 bytes)." };
+  }
   if (file.size > IMAGE_MAX_BYTES) {
     return { ok: false, err: `Image is ${(file.size / 1024 / 1024).toFixed(1)} MB — limit is ${(IMAGE_MAX_BYTES / 1024 / 1024).toFixed(1)} MB.` };
   }

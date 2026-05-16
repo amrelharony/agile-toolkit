@@ -1,10 +1,30 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { X, Send, CheckCircle2 } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { WhiteboardCommentThread } from "@/lib/stores/workspace-types";
 import { emitSignal } from "@/lib/signals/signal-bus";
+
+/**
+ * @mention character class. Uses Unicode property escapes (`\p{L}` =
+ * any letter, `\p{N}` = any number) so non-ASCII first names — Müller,
+ * 张, José, Ülkü — match the autocomplete and the parser. The previous
+ * `[A-Za-z0-9_-]` class silently excluded every international team
+ * member whose name didn't transliterate to ASCII.
+ *
+ * We construct via `new RegExp(..., "u")` rather than a literal `/.../u`
+ * because the project's `tsc` target is the implicit default (ES3),
+ * which rejects the literal `u` flag (TS1501). The runtime is modern
+ * (Next.js / browsers), so the regex still evaluates correctly.
+ */
+const MENTION_TOKEN_RE = new RegExp("@([\\p{L}\\p{N}_-]{1,40})", "gu");
+// {1,40} not {0,40} — a bare `@` with no characters after it would
+// otherwise match an empty group and flood the suggestion dropdown
+// with every workspace member every time the user types `@`. Requiring
+// at least one character makes the suggestions narrow as the user types.
+const MENTION_TRAILING_RE = new RegExp("(?:^|\\s)@([\\p{L}\\p{N}_-]{1,40})$", "u");
+const MENTION_SPLIT_RE = new RegExp("(.*?)@([\\p{L}\\p{N}_-]*)$", "u");
 
 /**
  * Resolve @mentions in a comment body against the workspace's
@@ -14,7 +34,7 @@ import { emitSignal } from "@/lib/signals/signal-bus";
  * `@alex` resolves to "Alex Smith").
  */
 function resolveMentions(text: string, members: { id: string; name: string }[]): string[] {
-  const tokens = Array.from(text.matchAll(/@([A-Za-z0-9_-]{1,40})/g)).map((m) => m[1].toLowerCase());
+  const tokens = Array.from(text.matchAll(MENTION_TOKEN_RE)).map((m) => m[1].toLowerCase());
   if (tokens.length === 0) return [];
   const hits = new Set<string>();
   for (const tok of tokens) {
@@ -65,20 +85,67 @@ export function CommentDrawer({ thread, onClose }: Props) {
       return "";
     }
   });
+  // Two-step inline delete: first click arms the confirm state and
+  // restyles the button red ("Confirm delete"); a second click within
+  // 3 s actually removes the thread. Avoids the native `confirm()`
+  // dialog, which blocks the JS thread, can be suppressed by browsers
+  // after repeated use, and looks jarringly different from the rest of
+  // the canvas chrome. The ref tracks the timeout so unmounting mid-arm
+  // doesn't fire a stray `setConfirmDelete(false)` on a torn-down
+  // component.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    };
+  }, []);
   const author = getAuthor();
 
-  // Esc closes the drawer. Captured so the canvas Esc handler doesn't
-  // also clear the selection or end an unrelated gesture.
+  // Stable callback ref so the keydown effect doesn't re-register on
+  // every parent render — the canvas typically passes an inline
+  // arrow function for `onClose`, which changes identity each render.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Esc closes the drawer. Bubble phase (not capture) so that form
+  // fields inside the drawer — most importantly the reply textarea —
+  // get first crack at the key (IME composition, native autocomplete
+  // dismissal). Capture-phase fights between stacked modals were
+  // closing whichever modal mounted last regardless of focus.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
+      if (e.key !== "Escape") return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
       }
+      // Stop propagation only after we've decided to act so a parent
+      // modal doesn't also close on the same keystroke.
+      e.stopPropagation();
+      onCloseRef.current();
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Focus restore — when the drawer unmounts, return focus to whatever
+  // element was focused before it opened.
+  useEffect(() => {
+    const prev = typeof document !== "undefined"
+      ? (document.activeElement as HTMLElement | null)
+      : null;
+    return () => {
+      prev?.focus?.();
+    };
+  }, []);
 
   const sendReply = () => {
     const text = draft.trim();
@@ -142,7 +209,20 @@ export function CommentDrawer({ thread, onClose }: Props) {
   };
 
   const deleteThread = () => {
-    if (!confirm("Delete this comment thread? This can't be undone via Cmd+Z.")) return;
+    // Two-step delete: first click arms the confirm state and changes
+    // the button label. A second click within the 3 s window actually
+    // deletes the thread. Avoids the native blocking `confirm()` and
+    // keeps the canvas chrome consistent.
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = setTimeout(() => setConfirmDelete(false), 3000);
+      return;
+    }
+    if (confirmTimerRef.current) {
+      clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = null;
+    }
     remove(thread.id);
     onClose();
   };
@@ -153,6 +233,13 @@ export function CommentDrawer({ thread, onClose }: Props) {
       // few thousand), comment pins (z=9990), AI panel (z=30), and modals
       // (z=50). Without this, a tall sticky with z > 40 would clip over
       // the drawer text.
+      //
+      // `role="complementary"` is the accurate landmark — the drawer is
+      // a non-modal side panel (no backdrop, no focus trap), the canvas
+      // behind remains interactive. Screen readers expose it as a peer
+      // region rather than a blocking dialog.
+      role="complementary"
+      aria-label={`Comment thread${thread.resolved ? " (resolved)" : ""}`}
       className="fixed right-3 top-20 bottom-3 w-[320px] z-[60] bg-surface border border-border rounded-lg shadow-xl flex flex-col"
       data-canvas-export-ignore="true"
     >
@@ -183,15 +270,30 @@ export function CommentDrawer({ thread, onClose }: Props) {
         ))}
       </div>
 
-      <div className="p-3 border-t border-border space-y-2">
+      <div className="p-3 border-t border-border space-y-2 relative">
+        {/* @mention autocomplete dropdown. Triggered when the user's
+            caret is right after `@<letters>` AND the prefix matches
+            at least one team member. */}
+        <MentionAutocomplete
+          draft={draft}
+          members={mentionMembers}
+          onPick={(name) => {
+            // Replace the trailing @prefix with @firstName + space.
+            const m = draft.match(MENTION_SPLIT_RE);
+            if (!m) return;
+            const before = m[1];
+            const next = `${before}@${name.split(/\s+/)[0]} `;
+            setDraft(next);
+            if (typeof window !== "undefined") {
+              try { window.sessionStorage.setItem(DRAFT_KEY(thread.id), next); } catch { /* noop */ }
+            }
+          }}
+        />
         <textarea
           value={draft}
           onChange={(e) => {
             const v = e.target.value;
             setDraft(v);
-            // Persist draft so closing/reopening (or switching board)
-            // doesn't drop in-progress typing. Wrapped in try/catch
-            // because sessionStorage throws in some private modes.
             if (typeof window !== "undefined") {
               try { window.sessionStorage.setItem(DRAFT_KEY(thread.id), v); } catch { /* noop */ }
             }
@@ -202,7 +304,7 @@ export function CommentDrawer({ thread, onClose }: Props) {
               sendReply();
             }
           }}
-          placeholder="Reply… (Cmd+Enter to send)"
+          placeholder="Reply… (use @name to mention. Cmd+Enter to send)"
           className="w-full h-16 bg-surface-deep border border-border rounded p-2 text-xs text-text resize-none focus:outline-none focus:border-accent"
         />
         <div className="flex items-center gap-2">
@@ -226,12 +328,68 @@ export function CommentDrawer({ thread, onClose }: Props) {
           <button
             type="button"
             onClick={deleteThread}
-            className="ml-auto text-xs text-sub hover:text-red-400"
+            aria-pressed={confirmDelete}
+            className={`ml-auto text-xs transition-colors ${
+              confirmDelete
+                ? "text-red-300 bg-red-500/15 border border-red-500/40 px-2 py-1 rounded font-semibold"
+                : "text-sub hover:text-red-400"
+            }`}
           >
-            Delete
+            {confirmDelete ? "Confirm delete" : "Delete"}
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Tiny @mention autocomplete. Appears above the textarea when the user
+ * has just typed `@<letters>` and there's a matching team member. Click
+ * a row to insert; arrow keys + Enter handled in the textarea. */
+function MentionAutocomplete({
+  draft,
+  members,
+  onPick,
+}: {
+  draft: string;
+  members: { id: string; name: string }[];
+  onPick: (name: string) => void;
+}) {
+  // Detect a trailing @prefix at the end of the draft. Spaces in the
+  // prefix terminate the match so the picker disappears after the
+  // user types past the name.
+  const match = draft.match(MENTION_TRAILING_RE);
+  if (!match) return null;
+  const prefix = match[1].toLowerCase();
+  const filtered = members
+    .filter((m) => {
+      const first = (m.name || "").split(/\s+/)[0]?.toLowerCase() ?? "";
+      return prefix === "" || first.startsWith(prefix);
+    })
+    .slice(0, 6);
+  if (filtered.length === 0) return null;
+  return (
+    <div
+      role="listbox"
+      aria-label="Mention a teammate"
+      className="absolute left-3 right-3 bottom-[120px] bg-surface border border-border rounded-md shadow-lg z-10 overflow-hidden"
+    >
+      {filtered.map((m) => (
+        <button
+          key={m.id}
+          type="button"
+          role="option"
+          aria-selected="false"
+          onClick={() => onPick(m.name)}
+          className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-deep flex items-center gap-2"
+        >
+          <span className="w-5 h-5 rounded-full bg-accent/30 text-accent flex items-center justify-center text-[10px] font-bold">
+            {(m.name || "?").charAt(0).toUpperCase()}
+          </span>
+          <span className="flex-1 truncate">{m.name}</span>
+          <span className="text-[9px] text-sub font-mono">@{m.name.split(/\s+/)[0]?.toLowerCase()}</span>
+        </button>
+      ))}
     </div>
   );
 }

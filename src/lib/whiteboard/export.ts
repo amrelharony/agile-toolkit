@@ -22,6 +22,42 @@ import { boundingBoxOfFlatPoints, boundingBoxOfPoints } from "@/lib/geometry/bbo
 import { routeConnector, arrowheadPoints } from "@/lib/geometry/path-routing";
 
 /**
+ * Escape a user-controlled string for safe interpolation into HTML markup
+ * (NOT XML/SVG — see `escapeXml` for that). Maps the five HTML-significant
+ * characters to entity references. Used by `exportPdf` and `exportPptx`
+ * where board names / filenames flow into `<title>`, `<h1>`, and `alt`
+ * attributes; without escaping, a board named `<img onerror=...>` would
+ * inject runnable HTML when the exported document is opened in a browser.
+ */
+function escapeHtml(s: string): string {
+  return s.replace(/[<>&"']/g, (c) => {
+    switch (c) {
+      case "<": return "&lt;";
+      case ">": return "&gt;";
+      case "&": return "&amp;";
+      case "\"": return "&quot;";
+      case "'": return "&#39;";
+      default: return c;
+    }
+  });
+}
+
+/**
+ * Choose the canvas background colour for raster exports so the PNG/JPG
+ * matches the user's active theme. Without this every export bakes in the
+ * default dark palette, which is wrong on HC (pure black) and looks dirty
+ * on light. SSR contexts (no `document`) fall back to the dark canvas
+ * surface so the helper stays safe to call anywhere.
+ */
+function bgColor(): string {
+  if (typeof document === "undefined") return "#0b0f17";
+  const root = document.documentElement;
+  if (root.classList.contains("hc")) return "#000000";
+  if (root.classList.contains("light")) return "#f4f6fb";
+  return "#0b0f17";
+}
+
+/**
  * Export `node` (typically the canvas viewport) as a PNG.
  *
  * NOTE: this captures whatever's CURRENTLY rendered — the viewport's CSS
@@ -42,7 +78,7 @@ export async function exportPng(node: HTMLElement, filename = "canvas.png"): Pro
   const dataUrl = await toPng(node, {
     cacheBust: true,
     pixelRatio: 2,
-    backgroundColor: "#0b0f17",
+    backgroundColor: bgColor(),
     filter: (n) => {
       if (!(n instanceof HTMLElement)) return true;
       return !n.hasAttribute("data-canvas-export-ignore");
@@ -60,7 +96,7 @@ export async function exportJpg(node: HTMLElement, filename = "canvas.jpg"): Pro
   const dataUrl = await toJpeg(node, {
     cacheBust: true,
     pixelRatio: 2,
-    backgroundColor: "#0b0f17",
+    backgroundColor: bgColor(),
     quality: 0.92,
     filter: (n) => {
       if (!(n instanceof HTMLElement)) return true;
@@ -80,7 +116,7 @@ export async function exportPdf(node: HTMLElement, filename = "canvas.pdf"): Pro
   const pngDataUrl = await toPng(node, {
     cacheBust: true,
     pixelRatio: 2,
-    backgroundColor: "#0b0f17",
+    backgroundColor: bgColor(),
     filter: (n) => {
       if (!(n instanceof HTMLElement)) return true;
       return !n.hasAttribute("data-canvas-export-ignore");
@@ -93,7 +129,11 @@ export async function exportPdf(node: HTMLElement, filename = "canvas.pdf"): Pro
   if (typeof window === "undefined") return;
   const win = window.open("", "_blank", "width=900,height=700");
   if (!win) return;
-  const escName = filename.replace(/[<>&"']/g, "");
+  // SECURITY: `filename` is user-controlled (board name → filename),
+  // so we map HTML-significant chars to entities instead of stripping
+  // them (stripping silently mangles names like "AT&T plan"). The
+  // escaped value is safe in both <title> and attribute contexts.
+  const escName = escapeHtml(filename);
   win.document.write(`<!doctype html>
 <html><head><title>${escName}</title>
 <style>
@@ -108,9 +148,116 @@ export async function exportPdf(node: HTMLElement, filename = "canvas.pdf"): Pro
 }
 
 /**
+ * Exports an .html file that PowerPoint can import — NOT a real .pptx.
+ *
+ * PowerPoint reads SVG natively (since 2016) and we already produce
+ * clean SVG via `exportSvg`. The exported HTML embeds the SVG and uses
+ * Office's `mso-` prefixed XML mime so opening with `Open With →
+ * PowerPoint` is recognised as a single-slide presentation. The user
+ * then saves back as .pptx. Not perfect, but avoids shipping
+ * `pptxgenjs` (~80 KB) for a feature most users will rarely touch.
+ */
+export function exportPptx(
+  board: import("@/lib/stores/workspace-types").Whiteboard,
+  objects: readonly import("@/lib/stores/workspace-types").WhiteboardObject[],
+  filename = "canvas.html",
+): void {
+  // Reuse the SVG export to get the same XSS-safe attribute escaping
+  // and full type coverage. The browser saves SVG as base64 inside the
+  // anchor, but that breaks Office's HTML reader; we inline the SVG.
+  const allPoints: { x: number; y: number }[] = [];
+  for (const o of objects) {
+    allPoints.push({ x: o.x, y: o.y });
+    allPoints.push({ x: o.x + o.w, y: o.y + o.h });
+  }
+  if (allPoints.length === 0) return;
+  // Re-derive a fresh SVG string using the same walker as exportSvg.
+  // We could refactor exportSvg to return the string instead of
+  // download, but inline here for brevity.
+  // SECURITY: board.name is user-controlled (and interpolated into
+  // <title>, <h1>, and the <img alt=…> attribute below). Use the
+  // shared `escapeHtml` helper rather than an ad-hoc inline map so the
+  // mapping stays consistent with `exportPdf`.
+  const escName = escapeHtml(board.name || "Canvas");
+  // Use the SVG export internals — we duplicate the bbox/walker logic
+  // rather than refactor because the export.ts SVG path writes directly
+  // to a data URL. For PowerPoint we need the inline string.
+  // Simpler: rely on the actual SVG download as a sibling step, and
+  // produce an HTML wrapper that references it would be cross-origin.
+  // Inline it here directly:
+  const dataUrl = svgDataUrlOf(board, objects);
+  const html = `<!doctype html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns:m="http://schemas.microsoft.com/office/2004/12/omml"
+      xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="ProgId" content="PowerPoint.Slide" />
+  <meta name="Generator" content="agile-toolkit canvas" />
+  <title>${escName}</title>
+  <style>
+    body { margin: 0; background: #0b0f17; }
+    img { max-width: 100%; display: block; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <h1 style="font-family: ui-sans-serif, system-ui, sans-serif; color: #e5e7eb; padding: 20px;">${escName}</h1>
+  <img src="${dataUrl}" alt="${escName}" />
+  <p style="font-family: ui-sans-serif, system-ui, sans-serif; color: #94a3b8; padding: 20px; font-size: 12px;">
+    Open this file with PowerPoint or import via "Insert → Picture" to embed the canvas as a slide.
+  </p>
+</body>
+</html>`;
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  triggerDownload(url, filename);
+  // 60s revoke window — slow browsers (Safari iOS) and "Save As…" dialogs
+  // can hold the blob URL for tens of seconds before the download
+  // actually starts. The earlier 1s timeout occasionally raced the
+  // download on slow networks and produced an empty file.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** Internal helper: reuse the same SVG generator as exportSvg but
+ * return a data URL instead of triggering a download. */
+function svgDataUrlOf(
+  board: import("@/lib/stores/workspace-types").Whiteboard,
+  objects: readonly import("@/lib/stores/workspace-types").WhiteboardObject[],
+): string {
+  const allPoints: { x: number; y: number }[] = [];
+  for (const o of objects) {
+    allPoints.push({ x: o.x, y: o.y });
+    allPoints.push({ x: o.x + o.w, y: o.y + o.h });
+  }
+  const bbox = boundingBoxOfPoints(allPoints);
+  const pad = 40;
+  const W = Math.max(800, bbox.w + pad * 2);
+  const H = Math.max(600, bbox.h + pad * 2);
+  const offX = -bbox.x + pad;
+  const offY = -bbox.y + pad;
+  const elems: string[] = [];
+  const objectById = new Map(objects.map((o) => [o.id, o]));
+  const ordered = [...objects].sort((a, b) => a.z - b.z);
+  for (const o of ordered) elems.push(svgForObject(o, offX, offY, objectById));
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<rect x="0" y="0" width="${W}" height="${H}" fill="#0b0f17"/>
+<title>${escapeXml(board.name)}</title>
+${elems.join("\n")}
+</svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+/**
  * CSV export — one row per text-bearing object. Columns: id, type,
  * frame (label of containing frame, if any), content, tags, x, y.
  * Useful for analysing brainstorm output offline.
+ *
+ * The output is prefixed with a UTF-8 BOM (`﻿`) so Excel/LibreOffice
+ * detect the encoding instead of defaulting to the OS locale codepage —
+ * without the BOM, accented characters (José, Müller, naïve) render as
+ * mojibake when the file is double-clicked open in Excel on Windows.
  */
 export function exportCsv(
   objects: readonly { type: string; id: string; x: number; y: number; tags?: string[]; frameId?: string }[] & readonly import("@/lib/stores/workspace-types").WhiteboardObject[],
@@ -120,7 +267,17 @@ export function exportCsv(
   for (const o of objects) {
     if (o.type === "frame" && "label" in o) frameLabels.set(o.id, (o as { label: string }).label || "");
   }
-  const escapeCsv = (s: string) => `"${s.replace(/"/g, '""')}"`;
+  // Excel / LibreOffice / Sheets interpret a cell as a formula when its
+  // first character is `=`, `+`, `-`, `@`, TAB, or CR. A board exported by
+  // one user and opened by another could otherwise be a vector for
+  // arbitrary spreadsheet formulae (`=cmd|'/c calc'!A0`, `=HYPERLINK(...)`,
+  // exfiltration via `=WEBSERVICE(...)`). Prefixing with a single quote
+  // forces literal interpretation — the leading quote is hidden in the
+  // cell but the rest of the value displays unchanged.
+  const escapeCsv = (s: string) => {
+    const sanitized = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+    return `"${sanitized.replace(/"/g, '""')}"`;
+  };
   const rows: string[] = ["id,type,frame,content,tags,x,y"];
   for (const o of objects) {
     const text = objectText(o) ?? "";
@@ -136,7 +293,10 @@ export function exportCsv(
       Math.round(o.y),
     ].join(","));
   }
-  const dataUrl = `data:text/csv;charset=utf-8,${encodeURIComponent(rows.join("\n"))}`;
+  // U+FEFF BOM — Excel's CSV importer reads this as the UTF-8 sniff
+  // marker and treats the rest of the file as UTF-8 instead of cp1252.
+  const csvText = "﻿" + rows.join("\n");
+  const dataUrl = `data:text/csv;charset=utf-8,${encodeURIComponent(csvText)}`;
   triggerDownload(dataUrl, filename);
 }
 

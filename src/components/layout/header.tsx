@@ -11,7 +11,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { Search, Moon, Sun, Menu } from "lucide-react";
+import { Search, Moon, Sun, Menu, Contrast } from "lucide-react";
 import { SonificationToggle } from "@/components/shared/sonification-toggle";
 import { TrophyButton } from "@/components/gamification/trophy-button";
 import { StatusBadge, WeatherWidget } from "@/lib/weather/widget";
@@ -28,12 +28,26 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
   const tool = getToolByPath(pathname);
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  // Theme cycle: dark → light → hc (high-contrast) → dark.
+  // High-contrast mode (Phase 33) — WCAG AAA palette with maximised
+  // text/bg contrast, solid borders, and visible focus rings for
+  // keyboard-only users.
+  type Theme = "dark" | "light" | "hc";
+  const [theme, setTheme] = useState<Theme>("dark");
   const [isMac, setIsMac] = useState(false);
 
   useEffect(() => {
-    const saved = (localStorage.getItem("ae-theme") as "dark" | "light") || "dark";
-    setTheme(saved);
+    // getItem can throw SecurityError in Safari Private Browsing /
+    // some corporate-managed Chromes. The inline boot script in
+    // layout.tsx already swallows the same error, so mirror that here.
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem("ae-theme");
+    } catch {
+      saved = null;
+    }
+    const valid: Theme = saved === "light" || saved === "hc" || saved === "dark" ? saved : "dark";
+    setTheme(valid);
     setIsMac(
       navigator.platform.toUpperCase().includes("MAC") ||
         navigator.userAgent.includes("Mac")
@@ -42,10 +56,27 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
   }, []);
 
   useEffect(() => {
+    // Class-based selectors (.light / .hc) and data-theme attribute
+    // are both honoured by globals.css — set both for compatibility
+    // with any inline test snippets that check classList.
     document.documentElement.classList.toggle("light", theme === "light");
     document.documentElement.classList.toggle("dark", theme === "dark");
-    localStorage.setItem("ae-theme", theme);
+    document.documentElement.classList.toggle("hc", theme === "hc");
+    document.documentElement.setAttribute("data-theme", theme);
+    // Wrap setItem — Safari Private Browsing throws SecurityError on
+    // every localStorage write, and a full workspace store can push
+    // the origin over quota. Either case would crash the theme effect
+    // (which renders on every page load) without the guard.
+    try {
+      localStorage.setItem("ae-theme", theme);
+    } catch {
+      /* quota or private mode — preference stays per-session only */
+    }
   }, [theme]);
+
+  const cycleTheme = () => {
+    setTheme((t) => (t === "dark" ? "light" : t === "light" ? "hc" : "dark"));
+  };
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -158,18 +189,20 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
           <SonificationToggle />
         </div>
         <button
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          onClick={cycleTheme}
           data-no-sound="true"
           className="w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
-          aria-label="Toggle theme"
-          aria-pressed={theme === "light"}
+          aria-label={`Switch theme (currently ${theme === "dark" ? "dark" : theme === "light" ? "light" : "high contrast"})`}
+          title={`Theme: ${theme === "dark" ? "Dark" : theme === "light" ? "Light" : "High contrast"} — click to cycle`}
         >
           {!mounted ? (
             <div className="w-4 h-4" aria-hidden="true" />
           ) : theme === "dark" ? (
             <Moon className="w-4 h-4" aria-hidden="true" />
-          ) : (
+          ) : theme === "light" ? (
             <Sun className="w-4 h-4" aria-hidden="true" />
+          ) : (
+            <Contrast className="w-4 h-4" aria-hidden="true" />
           )}
         </button>
         <UserMenu />

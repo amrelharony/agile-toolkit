@@ -10,75 +10,81 @@
  * denied).
  */
 
-import type { WhiteboardObject, WhiteboardObjectKind } from "@/lib/stores/workspace-types";
+import type { WhiteboardObject } from "@/lib/stores/workspace-types";
+import { isValidObject } from "./object-validator";
 
 const SCHEMA = "agile-toolkit/canvas-clipboard/v1";
 const PASTE_OFFSET = 24;
+
+/**
+ * Stable whiteboard-object id helper. Shared across clipboard /
+ * templates / imports so we get a single source of truth.
+ *
+ * - Prefer `crypto.randomUUID()` (always 32 hex chars after stripping
+ *   hyphens — collision-resistant on a busy board).
+ * - Fall back to a timestamp-anchored hybrid that is always ≥ 16 chars
+ *   total (Date.now is ~8 chars in base36 + padded 7-char random tail).
+ *   The previous `Math.random().toString(36).slice(2, 11)` form could
+ *   produce as little as 1 character when the random encoding was short.
+ */
+export function wbId(prefix = "wb"): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `${prefix}_${crypto.randomUUID().replace(/-/g, "")}`;
+  }
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9).padEnd(7, "0")}`;
+}
 
 interface ClipboardEnvelope {
   schema: typeof SCHEMA;
   objects: WhiteboardObject[];
 }
 
-/** All accepted object kinds — anything else is dropped as a defensive
- * measure against future-typed payloads or attacker-crafted clipboards. */
-const VALID_KINDS: ReadonlySet<WhiteboardObjectKind> = new Set<WhiteboardObjectKind>([
-  "sticky", "rect", "ellipse", "diamond", "triangle",
-  "line", "arrow", "connector",
-  "text", "freehand", "image", "frame", "embed",
-  // Phase 25-26 additions — paste of these silently dropped before.
-  "card", "kanban", "timer", "voting",
-]);
-
 /**
  * Validate one object from an untrusted source (clipboard, drag-drop, JSON
  * import). Returns the object cast to WhiteboardObject if it passes, else
- * null. We reject:
- *   - missing/non-string id, type, boardId
- *   - non-numeric x/y/w/h/z/version
- *   - unknown `type` values
- *   - dangerous URI schemes on image.src / embed.src (javascript:, vbscript:,
- *     data:text/html…). Whitelist is http(s), data:image/*, data:application/* .
+ * null.
  *
- * This is the trust boundary between system-clipboard text and the workspace
- * store. Any object that survives this function is treated as schema-clean.
+ * Body delegates to {@link isValidObject} — the same shared validator the
+ * realtime patch handler uses — so a payload hostile enough to be
+ * rejected over the wire is ALSO rejected at paste time, and vice
+ * versa. Without parity, an attacker can side-step the realtime guards
+ * by encoding a malicious envelope and luring a user into pasting it.
+ *
+ * Image / embed `src` gets an extra URI-scheme whitelist on top of the
+ * shared shape check — paste is a high-blast-radius surface for XSS
+ * because the renderer will fetch the URL and the SVG export bakes it
+ * into an attribute. The realtime path doesn't currently re-fetch a
+ * remote peer's data URL, so this stricter check belongs here.
+ *
+ * This is the trust boundary between system-clipboard text and the
+ * workspace store. Any object that survives this function is treated
+ * as schema-clean.
  */
 function validateClipboardObject(raw: unknown): WhiteboardObject | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  if (typeof r.id !== "string" || r.id.length === 0 || r.id.length > 200) return null;
-  if (typeof r.type !== "string" || !VALID_KINDS.has(r.type as WhiteboardObjectKind)) return null;
-  if (typeof r.boardId !== "string") return null;
-  if (typeof r.x !== "number" || !Number.isFinite(r.x)) return null;
-  if (typeof r.y !== "number" || !Number.isFinite(r.y)) return null;
-  if (typeof r.w !== "number" || !Number.isFinite(r.w)) return null;
-  if (typeof r.h !== "number" || !Number.isFinite(r.h)) return null;
-  if (typeof r.z !== "number" || !Number.isFinite(r.z)) return null;
-  if (typeof r.version !== "number" || !Number.isFinite(r.version)) return null;
-
-  // Per-type URI sanitization. Image / embed URLs are the highest-risk
-  // path because the renderer will fetch them and the SVG export will
-  // bake the URL into an attribute.
-  if (r.type === "image") {
-    if (typeof r.src !== "string" || !isSafeUrl(r.src)) return null;
-  }
-  if (r.type === "embed") {
-    if (typeof r.src !== "string" || !isSafeUrl(r.src)) return null;
+  if (!isValidObject(raw)) return null;
+  // Image / embed URLs are the highest-risk path because the renderer
+  // will fetch them and the SVG export will bake the URL into an
+  // attribute. Apply the stricter clipboard-only URI whitelist.
+  if (raw.type === "image" || raw.type === "embed") {
+    if (typeof raw.src !== "string" || !isSafeUrl(raw.src)) return null;
   }
   // Connectors must reference known endpoint IDs but we don't check that
   // here — the id-remapping in readClipboardObjects already drops
   // connectors whose endpoints aren't in the paste set.
-
-  return raw as WhiteboardObject;
+  return raw;
 }
 
 function isSafeUrl(url: string): boolean {
   const trimmed = url.trim();
-  if (/^https?:/i.test(trimmed)) return true;
-  if (/^data:image\//i.test(trimmed)) return true;
-  // Embeds (youtube/figma/loom) are http(s) so the data-image whitelist
-  // is enough. Reject everything else including javascript:/vbscript:/
-  // data:text/html.
+  if (/^https?:\/\//i.test(trimmed)) return true;
+  // Whitelist of raster image data-URLs only. SVG data-URLs are an XSS
+  // vector — embedded <script> tags execute when the SVG loads as an
+  // image inside an <img> *or* an <object>, and our SVG export will
+  // bake the entire data-URL into a `xlink:href` attribute. Allow only
+  // formats that have no script-execution surface.
+  if (/^data:image\/(png|jpe?g|webp|gif|avif)[;,]/i.test(trimmed)) return true;
+  // Reject everything else: javascript:/vbscript:/data:text/html/
+  // data:image/svg+xml/file:/etc.
   return false;
 }
 
@@ -166,9 +172,7 @@ export async function readClipboardObjects(
   // Remap connector endpoint IDs to the new pasted IDs so connectors
   // continue to land on their pasted copies (not the originals).
   const idMap = new Map<string, string>();
-  const newId = () =>
-    `wb_${Math.random().toString(36).slice(2, 11)}_${Date.now().toString(36).slice(-4)}`;
-  for (const o of env.objects) idMap.set(o.id, newId());
+  for (const o of env.objects) idMap.set(o.id, wbId());
 
   const now = new Date().toISOString();
   return env.objects.map((o) => {
@@ -199,10 +203,8 @@ export function duplicateObjects(
   objects: readonly WhiteboardObject[],
   targetBoardId: string,
 ): WhiteboardObject[] {
-  const newId = () =>
-    `wb_${Math.random().toString(36).slice(2, 11)}_${Date.now().toString(36).slice(-4)}`;
   const idMap = new Map<string, string>();
-  for (const o of objects) idMap.set(o.id, newId());
+  for (const o of objects) idMap.set(o.id, wbId());
   const now = new Date().toISOString();
   return objects.map((o) => {
     const next: WhiteboardObject = {

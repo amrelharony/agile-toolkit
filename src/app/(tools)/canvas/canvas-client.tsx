@@ -1,18 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { LayoutTemplate, FileInput, Download, FileImage, FileCode, FileJson, FileText, FileSpreadsheet } from "lucide-react";
+import { LayoutTemplate, FileInput, Download, FileImage, FileCode, FileJson, FileText, FileSpreadsheet, Share2, Activity, Presentation } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { Button } from "@/components/ui/button";
 import { generateCanvasPrompts } from "@/lib/ai-prompts/canvas";
-import { boardInsights } from "@/lib/analytics/board-insights";
+import { boardInsights, boardInsightsCross } from "@/lib/analytics/board-insights";
 import { clusterObjects } from "@/lib/whiteboard/cluster-bridge";
 import { fitToRects } from "@/lib/whiteboard/canvas-transform";
-import { exportPng, exportSvg, exportJson, exportJpg, exportPdf, exportCsv } from "@/lib/whiteboard/export";
+import { exportPng, exportSvg, exportJson, exportJpg, exportPdf, exportCsv, exportPptx } from "@/lib/whiteboard/export";
+import { resolveShareToken } from "@/lib/whiteboard/share-link";
 import { emitSignal, subscribeSignals } from "@/lib/signals/signal-bus";
 import type { WhiteboardCard, WhiteboardObject } from "@/lib/stores/workspace-types";
 import { useCanvasStore } from "./use-canvas-store";
@@ -23,22 +24,75 @@ import { ZoomControls } from "./components/zoom-controls";
 import { TemplateGallery } from "./components/template-gallery";
 import { ImportModal } from "./components/import-modal";
 import { FindBar } from "./components/find-bar";
+import { ShareModal } from "./components/share-modal";
+import { ActivityStream } from "./components/activity-stream";
+import { TagFilterRow } from "./components/tag-filter-row";
+import { VoiceInputButton } from "./components/voice-input-button";
 
-/** Read-only mode is enabled via `?view=readonly` on the URL. When
- * active, the canvas renders without any toolbars / property panels /
- * pointer-down handlers — visitors can pan + zoom + read but cannot
- * mutate. Phase 32. */
-function isReadOnlyMode(): boolean {
-  if (typeof window === "undefined") return false;
+/** Per-board access mode. Resolved from the URL with `?share=<token>`
+ * winning over `?view=<role>` — the token's role is the source of
+ * truth (it's signed-into-localStorage and validated). The `?view=`
+ * param is consulted only when no token is present (preserves
+ * permalink shares that pre-date the token system AND lets developers
+ * test viewer/commenter modes without minting a token).
+ *
+ * Without this token check, a user handed a `?view=readonly&share=…`
+ * link could simply delete `&view=readonly` from the address bar to
+ * escape into editor mode — the share-link's role was never
+ * consulted.
+ *
+ * Tiers:
+ *   - `editor`    (default): full read + write
+ *   - `commenter`: read-only objects, can drop new comment threads
+ *   - `viewer`   : pure read-only
+ */
+type CanvasMode = "editor" | "commenter" | "viewer";
+function getCanvasMode(): CanvasMode {
+  if (typeof window === "undefined") return "editor";
   try {
-    return new URLSearchParams(window.location.search).get("view") === "readonly";
+    const params = new URLSearchParams(window.location.search);
+    // Token-derived role wins. resolveShareToken returns null for
+    // missing / expired / corrupted tokens — fall through to ?view= or
+    // editor in that case.
+    const token = params.get("share");
+    if (token) {
+      const hit = resolveShareToken(token);
+      if (hit) {
+        if (hit.role === "viewer") return "viewer";
+        if (hit.role === "commenter") return "commenter";
+        return "editor";
+      }
+      // Token present but invalid — DEMOTE to viewer rather than
+      // silently granting editor. This matches the principle of least
+      // privilege when a link is stale or tampered with.
+      return "viewer";
+    }
+    const v = params.get("view");
+    if (v === "readonly") return "viewer";
+    if (v === "commenter") return "commenter";
+    return "editor";
   } catch {
-    return false;
+    return "editor";
   }
 }
 
 export function CanvasClient() {
-  const readOnly = isReadOnlyMode();
+  // Treat the URL-driven mode as STATE so client-side navigation (Next.js
+  // router.push / back / forward) refreshes it. Reading it once at the
+  // top of the component left users stuck in the wrong tier after a
+  // popstate (e.g. closing a shared `?view=readonly` link via Back).
+  const [mode, setMode] = useState<CanvasMode>(() => getCanvasMode());
+  useEffect(() => {
+    const onPop = () => setMode(getCanvasMode());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const readOnly = mode !== "editor";
+  const canComment = mode !== "viewer";
+  // Subscribe to AI panel visibility so we only run the expensive
+  // TF-IDF clusterObjects call when the user actually has the panel
+  // open. Solo edit sessions with the panel closed pay nothing.
+  const showAIPanel = useCanvasStore((s) => s.showAIPanel);
   const boards = useWorkspaceStore((s) => s.whiteboards ?? []);
   const upsertBoard = useWorkspaceStore((s) => s.upsertWhiteboard);
   const activeBoardId = useCanvasStore((s) => s.activeBoardId);
@@ -106,76 +160,104 @@ export function CanvasClient() {
     const unsub = subscribeSignals(
       ["story.statusChanged", "risk.opened", "okr.kr.updated", "decision.recorded"],
       (signal) => {
-        // We only act when the workspace store has the latest version
-        // of the referenced entity. The signal payload carries the
-        // entity id; we re-read the entity from the store to avoid
-        // race conditions between signal emit and store mutation.
-        const payload = signal.payload as { entityId?: string; storyId?: string; id?: string; status?: string } | null;
-        const entityId = payload?.entityId ?? payload?.storyId ?? payload?.id;
-        if (!entityId) return;
-        const state = useWorkspaceStore.getState();
-        // Find all cards whose sourceRef points at this entity (any board).
-        const matches = (state.whiteboardObjects ?? []).filter((o): o is WhiteboardCard =>
-          o.type === "card" &&
-          o.sourceRef?.entityId === entityId,
-        );
-        if (matches.length === 0) return;
-        const now = new Date().toISOString();
-        const updates: WhiteboardObject[] = [];
-        if (signal.kind === "story.statusChanged") {
-          // Look up the live Story to read the latest title + points
-          // + status. The signal payload only carries the id +
-          // changed status; richer fields come from the store.
-          const story = state.stories.find((s) => s.id === entityId);
-          if (!story) return;
-          for (const card of matches) {
-            updates.push({
-              ...card,
-              title: story.title,
-              points: story.points,
-              status: story.status,
-              version: card.version + 1,
-              updatedAt: now,
-            });
+        try {
+          // Each signal kind carries its id under a different field
+          // name (storyId, riskId, krId, decisionId — set by
+          // signal-bridge.ts when it diffs the workspace store).
+          // A single generic ?? chain silently dropped sync for every
+          // kind except stories, because the others don't pass
+          // `storyId` / `id` / `entityId`. Resolve per-kind below.
+          const payload = signal.payload as {
+            storyId?: string;
+            riskId?: string;
+            okrId?: string;
+            krId?: string;
+            decisionId?: string;
+            // Forward-compat aliases for hand-rolled emitters that
+            // adopt a generic shape later.
+            entityId?: string;
+            id?: string;
+          } | null;
+          if (!payload) return;
+          const state = useWorkspaceStore.getState();
+          const now = new Date().toISOString();
+          const updates: WhiteboardObject[] = [];
+
+          // Helper — filter cards whose sourceRef points at a given
+          // entity. Inline to avoid closing over stale state.
+          const cardsFor = (entityId: string): WhiteboardCard[] =>
+            (state.whiteboardObjects ?? []).filter((o): o is WhiteboardCard =>
+              o.type === "card" && o.sourceRef?.entityId === entityId,
+            );
+
+          if (signal.kind === "story.statusChanged") {
+            const id = payload.storyId ?? payload.entityId ?? payload.id;
+            if (!id) return;
+            const story = state.stories.find((s) => s.id === id);
+            if (!story) return;
+            for (const card of cardsFor(id)) {
+              updates.push({
+                ...card,
+                title: story.title,
+                points: story.points,
+                status: story.status,
+                version: card.version + 1,
+                updatedAt: now,
+              });
+            }
+          } else if (signal.kind === "risk.opened") {
+            const id = payload.riskId ?? payload.entityId ?? payload.id;
+            if (!id) return;
+            const risk = state.risks.find((r) => r.id === id);
+            if (!risk) return;
+            for (const card of cardsFor(id)) {
+              updates.push({
+                ...card,
+                title: risk.title,
+                version: card.version + 1,
+                updatedAt: now,
+              });
+            }
+          } else if (signal.kind === "okr.kr.updated") {
+            // Cards link to KRs by KR id (not the parent OKR id),
+            // so match `krId` first, not `okrId`.
+            const krId = payload.krId ?? payload.entityId ?? payload.id;
+            if (!krId) return;
+            const okr = state.okrs.find((o) => o.keyResults.some((k) => k.id === krId));
+            const kr = okr?.keyResults.find((k) => k.id === krId);
+            if (!kr) return;
+            for (const card of cardsFor(krId)) {
+              updates.push({
+                ...card,
+                title: kr.title,
+                version: card.version + 1,
+                updatedAt: now,
+              });
+            }
+          } else if (signal.kind === "decision.recorded") {
+            const id = payload.decisionId ?? payload.entityId ?? payload.id;
+            if (!id) return;
+            const decision = state.decisions.find((d) => d.id === id);
+            if (!decision) return;
+            for (const card of cardsFor(id)) {
+              updates.push({
+                ...card,
+                title: decision.title,
+                version: card.version + 1,
+                updatedAt: now,
+              });
+            }
           }
-        } else if (signal.kind === "risk.opened") {
-          const risk = state.risks.find((r) => r.id === entityId);
-          if (!risk) return;
-          for (const card of matches) {
-            updates.push({
-              ...card,
-              title: risk.title,
-              version: card.version + 1,
-              updatedAt: now,
-            });
-          }
-        } else if (signal.kind === "okr.kr.updated") {
-          // okr.kr.updated payload carries the KR id; we look up the
-          // parent OKR to find the KR's current title.
-          const okr = state.okrs.find((o) => o.keyResults.some((kr) => kr.id === entityId));
-          const kr = okr?.keyResults.find((k) => k.id === entityId);
-          if (!kr) return;
-          for (const card of matches) {
-            updates.push({
-              ...card,
-              title: kr.title,
-              version: card.version + 1,
-              updatedAt: now,
-            });
-          }
-        } else if (signal.kind === "decision.recorded") {
-          const decision = state.decisions.find((d) => d.id === entityId);
-          if (!decision) return;
-          for (const card of matches) {
-            updates.push({
-              ...card,
-              title: decision.title,
-              version: card.version + 1,
-              updatedAt: now,
-            });
+          if (updates.length > 0) upsertWhiteboardObjects(updates);
+        } catch (err) {
+          // Belt-and-braces: signal-bus already wraps dispatch in a
+          // try/catch so a throw here won't break the bus, but log
+          // in dev so the failure is visible during local testing.
+          if (process.env.NODE_ENV !== "production") {
+            // eslint-disable-next-line no-console
+            console.warn("[canvas] card sync handler failed:", err);
           }
         }
-        if (updates.length > 0) upsertWhiteboardObjects(updates);
       },
     );
     return unsub;
@@ -215,8 +297,29 @@ export function CanvasClient() {
     ),
   );
 
-  const insights = useMemo(() => boardInsights(objects), [objects]);
-  const clusters = useMemo(() => clusterObjects(objects), [objects]);
+  // Merge baseline anti-patterns with cross-tool rules (card-disconnected,
+  // tag-mismatch). Cross-tool rules need the workspace state — pass
+  // through the same snapshot the AI prompts use so both surfaces stay
+  // in sync.
+  const insights = useMemo(() => [
+    ...boardInsights(objects),
+    ...boardInsightsCross(objects, workspace),
+  ], [objects, workspace]);
+  // Use content-aware (TF-IDF bag-of-words) clustering by default —
+  // semantic clusters tend to be more useful than positional clusters
+  // on brainstorm boards where users rarely arrange by topic from the
+  // start. clusterObjects falls back to spatial mode when there's not
+  // enough text to compute meaningful TF-IDF.
+  //
+  // Gate on `showAIPanel` so we don't run TF-IDF on every object-array
+  // mutation (which is, during a drag, every single pointer-move) when
+  // the AI panel isn't even open. The WhiteboardCanvas computes its own
+  // gated clusters for the overlay; this copy feeds the AI prompt
+  // generator and is only meaningful while the user is looking at it.
+  const clusters = useMemo(
+    () => (showAIPanel ? clusterObjects(objects, { mode: "content" }) : []),
+    [showAIPanel, objects],
+  );
 
   const promptConfig = useMemo(() => ({
     toolName: "Canvas",
@@ -233,11 +336,27 @@ export function CanvasClient() {
     if (camera) setCamera(camera);
   };
 
+  // World-space centre of the current viewport — passed into the voice
+  // input button so dictated stickies land where the user is looking
+  // when they tapped the mic. Memoised so the prop identity stays
+  // stable across renders that don't change viewport size (otherwise
+  // VoiceInputButton's `start` callback re-creates on every render,
+  // invalidating refs the recognizer's lifetime handlers rely on).
+  const voiceWorldCenter = useCallback(() => {
+    const camera = useCanvasStore.getState().camera;
+    return {
+      x: viewportSize.w > 0 ? camera.x + viewportSize.w / 2 / camera.zoom : camera.x + 400,
+      y: viewportSize.h > 0 ? camera.y + viewportSize.h / 2 / camera.zoom : camera.y + 300,
+    };
+  }, [viewportSize.w, viewportSize.h]);
+
   // ─── Template / Import / Export wiring ───────────────────────────────
   const [showTemplates, setShowTemplates] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showFindBar, setShowFindBar] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
   const canvasViewportRef = useRef<HTMLDivElement | null>(null);
 
   // Selection setter pulled from canvas store so the find-bar can
@@ -250,12 +369,19 @@ export function CanvasClient() {
   // the page — for an infinite canvas the native browser find is
   // useless anyway since most text lives in SVGs and absolutely-
   // positioned divs outside the document flow.
+  //
+  // INPUT/TEXTAREA/contentEditable guard: while a user is editing a
+  // sticky / card title / comment textarea, Cmd+F is text-input
+  // territory (some browsers offer in-field find, and we shouldn't
+  // hijack typed input). Without this, hitting Cmd+F while editing a
+  // sticky would yank focus away from the editor.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
-        e.preventDefault();
-        setShowFindBar(true);
-      }
+      if (!((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F"))) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      e.preventDefault();
+      setShowFindBar(true);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -299,6 +425,10 @@ export function CanvasClient() {
   const doExportCsv = () => {
     if (!activeBoard) return;
     exportCsv(objects, `${activeBoard.name || "canvas"}.csv`);
+  };
+  const doExportPptx = () => {
+    if (!activeBoard) return;
+    exportPptx(activeBoard, objects, `${activeBoard.name || "canvas"}.html`);
   };
 
   return (
@@ -369,6 +499,15 @@ export function CanvasClient() {
               </button>
               <button
                 type="button"
+                onClick={() => { doExportPptx(); setShowExportMenu(false); }}
+                className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-deep flex items-center gap-2 text-text"
+                title="Saves an .html file. Open with PowerPoint (Right-click → Open with) to embed as a slide."
+              >
+                <Presentation className="w-4 h-4 text-sub" />
+                PowerPoint slide
+              </button>
+              <button
+                type="button"
                 onClick={() => { doExportJson(); setShowExportMenu(false); }}
                 className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-deep flex items-center gap-2 text-text"
               >
@@ -378,6 +517,14 @@ export function CanvasClient() {
             </div>
           )}
         </div>
+        <Button variant="outline" size="sm" onClick={() => setShowShare(true)} disabled={!activeBoardId}>
+          <Share2 className="w-4 h-4 mr-1.5" />
+          Share
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => setShowActivity((v) => !v)} disabled={!activeBoardId}>
+          <Activity className="w-4 h-4 mr-1.5" />
+          Activity
+        </Button>
         <Button variant="outline" size="sm" onClick={onFit} disabled={objects.length === 0}>
           Fit to content
         </Button>
@@ -388,7 +535,12 @@ export function CanvasClient() {
         className="relative h-[calc(100vh-260px)] min-h-[500px] w-full rounded-lg border border-border overflow-hidden bg-bg"
       >
         {activeBoardId ? (
-          <WhiteboardCanvas boardId={activeBoardId} onViewportSize={setViewportSize} readOnly={readOnly} />
+          <WhiteboardCanvas
+            boardId={activeBoardId}
+            onViewportSize={setViewportSize}
+            readOnly={readOnly}
+            canComment={canComment}
+          />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-sub text-sm">
             Pick or create a board to start.
@@ -396,13 +548,32 @@ export function CanvasClient() {
         )}
         {!readOnly && <ToolbarLeft />}
         {!readOnly && <ToolbarTop />}
+        {!readOnly && <TagFilterRow objects={objects} />}
+        {/* Voice input button — pinned to top-right next to ZoomControls
+            so it stays one click away during retros / standups.
+            Phase 33. */}
+        {!readOnly && activeBoardId && (
+          <div
+            className="absolute top-3 right-3 z-20 bg-surface/95 border border-border rounded-lg p-0.5 shadow-md backdrop-blur-sm"
+            data-canvas-export-ignore="true"
+          >
+            <VoiceInputButton
+              boardId={activeBoardId}
+              worldCenter={voiceWorldCenter}
+            />
+          </div>
+        )}
         <ZoomControls onFit={onFit} viewportSize={viewportSize} />
         {readOnly && (
           <div
             data-canvas-export-ignore="true"
-            className="absolute top-3 left-3 z-20 bg-amber-700/40 text-amber-100 text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded"
+            className={`absolute top-3 left-3 z-20 text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded ${
+              mode === "commenter"
+                ? "bg-cyan-700/40 text-cyan-100"
+                : "bg-amber-700/40 text-amber-100"
+            }`}
           >
-            Read-only view
+            {mode === "commenter" ? "Commenter view — drop comments only" : "Read-only view"}
           </div>
         )}
         {showFindBar && (
@@ -452,6 +623,19 @@ export function CanvasClient() {
       )}
       {showImport && activeBoardId && (
         <ImportModal boardId={activeBoardId} onClose={() => setShowImport(false)} />
+      )}
+      {showShare && activeBoardId && activeBoard && (
+        <ShareModal
+          boardId={activeBoardId}
+          boardName={activeBoard.name}
+          onClose={() => setShowShare(false)}
+        />
+      )}
+      {showActivity && activeBoardId && (
+        <ActivityStream
+          boardId={activeBoardId}
+          onClose={() => setShowActivity(false)}
+        />
       )}
     </ToolPageWrapper>
   );

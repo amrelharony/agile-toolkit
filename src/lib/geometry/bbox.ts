@@ -124,11 +124,23 @@ export function boundingBoxOfPoints(points: readonly Vec2[]): Rect {
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
-/** AABB for a flat [x0,y0,x1,y1,...] coordinate array — useful for freehand. */
+/** AABB for a flat [x0,y0,x1,y1,...] coordinate array — useful for freehand.
+ *
+ * Defensive against odd-length inputs (orphan trailing x with no y). The
+ * validator rejects odd-length freehand arrays at ingest, but this
+ * function is also called from in-progress drawing where a half-recorded
+ * pair can briefly exist between pointermove ticks. Round DOWN to the
+ * nearest even count so we never read `undefined` from `flat[i+1]` (which
+ * would seed `minY = undefined` and produce a `{y: undefined, h: NaN}`
+ * rect that propagates through every downstream camera/snap calculation).
+ */
 export function boundingBoxOfFlatPoints(flat: readonly number[]): Rect {
-  if (flat.length < 2) return { x: 0, y: 0, w: 0, h: 0 };
+  // Need at least one (x, y) pair. An odd-length array is rounded down
+  // to the nearest even count.
+  const n = (flat.length >> 1) * 2;
+  if (n < 2) return { x: 0, y: 0, w: 0, h: 0 };
   let minX = flat[0], minY = flat[1], maxX = flat[0], maxY = flat[1];
-  for (let i = 0; i < flat.length; i += 2) {
+  for (let i = 0; i < n; i += 2) {
     const x = flat[i];
     const y = flat[i + 1];
     if (x < minX) minX = x;

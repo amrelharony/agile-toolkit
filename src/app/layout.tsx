@@ -94,7 +94,7 @@ export default function RootLayout({
         {/* Blocking script: swap to light if saved, before paint */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("ae-theme");if(t==="light"){document.documentElement.classList.remove("dark");document.documentElement.classList.add("light");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content","#f4f6fb")}}catch(e){}})()`,
+            __html: `(function(){try{var t=localStorage.getItem("ae-theme");if(t==="light"){document.documentElement.classList.remove("dark");document.documentElement.classList.add("light");document.documentElement.setAttribute("data-theme","light");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content","#f4f6fb")}else if(t==="hc"){document.documentElement.classList.remove("dark");document.documentElement.classList.add("hc");document.documentElement.setAttribute("data-theme","hc")}}catch(e){}})()`,
           }}
         />
       </head>

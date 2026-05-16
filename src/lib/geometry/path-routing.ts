@@ -37,6 +37,23 @@ export interface RoutedPath {
  *
  * Anchor sides default to "auto" — autoAnchor picks the closest face.
  */
+/** Degenerate-rect guard. A connector whose endpoint rect has a non-finite
+ * coordinate or zero/negative dimension would otherwise propagate NaN
+ * through resolveAnchors → start/end → the `d` string, rendering as
+ * `<path d="M NaN NaN L NaN NaN">` (browser swallows it silently but
+ * Chrome devtools spam warnings). Bail to an empty path that React renders
+ * as a no-op rather than crashing the surrounding SVG layer. */
+function rectIsValid(r: Rect): boolean {
+  return (
+    Number.isFinite(r.x) &&
+    Number.isFinite(r.y) &&
+    Number.isFinite(r.w) &&
+    Number.isFinite(r.h) &&
+    r.w > 0 &&
+    r.h > 0
+  );
+}
+
 export function routeConnector(
   fromRect: Rect,
   toRect: Rect,
@@ -44,6 +61,13 @@ export function routeConnector(
   fromAnchor: ConnectorAnchor = "auto",
   toAnchor: ConnectorAnchor = "auto",
 ): RoutedPath {
+  if (!rectIsValid(fromRect) || !rectIsValid(toRect)) {
+    // Degenerate: emit an empty path. The renderer's <path d=""> is a
+    // no-op in every major browser, and a zero tangent keeps any
+    // downstream arrowhead math from producing NaNs.
+    const zero: Vec2 = { x: 0, y: 0 };
+    return { d: "", start: zero, end: zero, endTangent: { x: 1, y: 0 } };
+  }
   const { from, to } = resolveAnchors(fromRect, toRect, fromAnchor, toAnchor);
   // Inset endpoints slightly along their normal so the line stops at the
   // rectangle border rather than buried under it.

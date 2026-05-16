@@ -155,49 +155,75 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       upsertSprint: (s) => set({ sprints: replaceById(get().sprints, s) }),
       removeSprint: (id) => set({ sprints: get().sprints.filter((x) => x.id !== id) }),
       upsertStory: (s) => set({ stories: replaceById(get().stories, s) }),
-      removeStory: (id) => set((s) => ({
-        stories: s.stories.filter((x) => x.id !== id),
+      removeStory: (id) => set((s) => {
         // Phase 26 cascade: any canvas Card pinned to this Story via
         // sourceRef now points at nothing. Strip the sourceRef so the
         // card becomes a standalone snapshot; without this, future
         // sync attempts against the dead id would silently fail and
         // the link badge ("↳ backlog") would be misleading.
-        whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
-          o.type === "card" && o.sourceRef?.tool === "backlog" && o.sourceRef.entityId === id
-            ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
-            : o,
-        ),
-      })),
+        // Pre-check so the common case (zero refs) doesn't allocate
+        // a fresh whiteboardObjects array via .map().
+        const affected = (s.whiteboardObjects ?? []).some((o) =>
+          o.type === "card" && o.sourceRef?.tool === "backlog" && o.sourceRef.entityId === id,
+        );
+        if (!affected) return { stories: s.stories.filter((x) => x.id !== id) };
+        return {
+          stories: s.stories.filter((x) => x.id !== id),
+          whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+            o.type === "card" && o.sourceRef?.tool === "backlog" && o.sourceRef.entityId === id
+              ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
+              : o,
+          ),
+        };
+      }),
       upsertImpediment: (i) => set({ impediments: replaceById(get().impediments, i) }),
       removeImpediment: (id) => set({ impediments: get().impediments.filter((x) => x.id !== id) }),
       upsertRisk: (r) => set({ risks: replaceById(get().risks, r) }),
-      removeRisk: (id) => set((s) => ({
-        risks: s.risks.filter((x) => x.id !== id),
+      removeRisk: (id) => set((s) => {
         // Same Phase 26 cascade for risks imported as cards.
-        whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
-          o.type === "card" && o.sourceRef?.tool === "risk" && o.sourceRef.entityId === id
-            ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
-            : o,
-        ),
-      })),
+        const affected = (s.whiteboardObjects ?? []).some((o) =>
+          o.type === "card" && o.sourceRef?.tool === "risk" && o.sourceRef.entityId === id,
+        );
+        if (!affected) return { risks: s.risks.filter((x) => x.id !== id) };
+        return {
+          risks: s.risks.filter((x) => x.id !== id),
+          whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+            o.type === "card" && o.sourceRef?.tool === "risk" && o.sourceRef.entityId === id
+              ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
+              : o,
+          ),
+        };
+      }),
       upsertOkr: (o) => set({ okrs: replaceById(get().okrs, o) }),
-      removeOkr: (id) => set((s) => ({
-        okrs: s.okrs.filter((x) => x.id !== id),
-        whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
-          o.type === "card" && o.sourceRef?.tool === "okr" && o.sourceRef.entityId === id
-            ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
-            : o,
-        ),
-      })),
+      removeOkr: (id) => set((s) => {
+        const affected = (s.whiteboardObjects ?? []).some((o) =>
+          o.type === "card" && o.sourceRef?.tool === "okr" && o.sourceRef.entityId === id,
+        );
+        if (!affected) return { okrs: s.okrs.filter((x) => x.id !== id) };
+        return {
+          okrs: s.okrs.filter((x) => x.id !== id),
+          whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+            o.type === "card" && o.sourceRef?.tool === "okr" && o.sourceRef.entityId === id
+              ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
+              : o,
+          ),
+        };
+      }),
       upsertDecision: (d) => set({ decisions: replaceById(get().decisions, d) }),
-      removeDecision: (id) => set((s) => ({
-        decisions: s.decisions.filter((x) => x.id !== id),
-        whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
-          o.type === "card" && o.sourceRef?.tool === "decision" && o.sourceRef.entityId === id
-            ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
-            : o,
-        ),
-      })),
+      removeDecision: (id) => set((s) => {
+        const affected = (s.whiteboardObjects ?? []).some((o) =>
+          o.type === "card" && o.sourceRef?.tool === "decision" && o.sourceRef.entityId === id,
+        );
+        if (!affected) return { decisions: s.decisions.filter((x) => x.id !== id) };
+        return {
+          decisions: s.decisions.filter((x) => x.id !== id),
+          whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+            o.type === "card" && o.sourceRef?.tool === "decision" && o.sourceRef.entityId === id
+              ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
+              : o,
+          ),
+        };
+      }),
       upsertTechDebt: (t) => set({ techDebt: replaceById(get().techDebt, t) }),
       removeTechDebt: (id) => set({ techDebt: get().techDebt.filter((x) => x.id !== id) }),
       setMaturityLevel: (level) => set({ maturityLevel: level }),
@@ -345,6 +371,17 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         whiteboardSavedTemplates: (get().whiteboardSavedTemplates ?? []).filter((y) => y.id !== id),
       }),
       appendWhiteboardActivity: (ev) => set((s) => {
+        // Reject malformed events to avoid polluting the rolling log with
+        // garbage (e.g. from a buggy AI prompt feeding the log). Each
+        // string field has a length cap matched by the import validator,
+        // so we don't drift between the two surfaces.
+        if (!ev || typeof ev !== "object") return s;
+        if (typeof ev.id !== "string" || ev.id.length > 100) return s;
+        if (typeof ev.boardId !== "string" || ev.boardId.length > 100) return s;
+        if (typeof ev.at !== "number" || !Number.isFinite(ev.at)) return s;
+        if (typeof ev.author !== "string" || ev.author.length > 200) return s;
+        if (typeof ev.kind !== "string" || ev.kind.length > 64) return s;
+        if (typeof ev.summary !== "string" || ev.summary.length > 1000) return s;
         // Rolling 200-event ring per board, with global cap at 1000
         // events total to bound localStorage growth.
         const log = (s.whiteboardActivityLog ?? []).slice();
@@ -408,6 +445,11 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           whiteboardObjects: s.whiteboardObjects,
           whiteboardCommentThreads: s.whiteboardCommentThreads,
           whiteboardGroups: s.whiteboardGroups,
+          // Phase 31/32 — these were silently omitted from export, so a
+          // round-trip import/export lost the user's saved templates and
+          // per-board activity log. Include them so backups are faithful.
+          whiteboardSavedTemplates: s.whiteboardSavedTemplates,
+          whiteboardActivityLog: s.whiteboardActivityLog,
         };
         return JSON.stringify(data, null, 2);
       },
@@ -467,6 +509,33 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           whiteboardObjects: arr("whiteboardObjects"),
           whiteboardCommentThreads: arr("whiteboardCommentThreads"),
           whiteboardGroups: arr("whiteboardGroups"),
+          // Phase 31 — saved templates. Pure array; nested objects keep
+          // their original shape (we trust the export came from us).
+          whiteboardSavedTemplates: arr("whiteboardSavedTemplates"),
+          // Phase 32 — activity log. Validate per-entry: a malformed
+          // export (or a buggy AI prompt that fed garbage into the
+          // append action prior to validation) would otherwise pollute
+          // the rolling ring. Caps mirror appendWhiteboardActivity().
+          whiteboardActivityLog: Array.isArray(p.whiteboardActivityLog)
+            ? (p.whiteboardActivityLog as unknown[])
+                // Cap total imported events at the rolling-ring limit
+                // (1000 global). A malicious export with 100k × 1000-char
+                // summaries would otherwise blow ~100MB into memory and
+                // localStorage. We slice BEFORE validation so the filter
+                // doesn't waste cycles on dropped entries.
+                .slice(-1000)
+                .filter((e): e is import("./workspace-types").WhiteboardActivityEvent => {
+                  if (!e || typeof e !== "object") return false;
+                  const ev = e as Record<string, unknown>;
+                  if (typeof ev.id !== "string" || ev.id.length > 100) return false;
+                  if (typeof ev.boardId !== "string" || ev.boardId.length > 100) return false;
+                  if (typeof ev.at !== "number" || !Number.isFinite(ev.at)) return false;
+                  if (typeof ev.author !== "string" || ev.author.length > 200) return false;
+                  if (typeof ev.kind !== "string" || ev.kind.length > 64) return false;
+                  if (typeof ev.summary !== "string" || ev.summary.length > 1000) return false;
+                  return true;
+                })
+            : undefined,
         };
         // Drop undefined entries so emptyWorkspace defaults stand in for missing keys.
         for (const k of Object.keys(sanitized) as (keyof Workspace)[]) {
@@ -477,6 +546,29 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
     }),
     {
       name: "agile-toolkit:workspace",
+      // Phase 31/32 added `whiteboardSavedTemplates` and
+      // `whiteboardActivityLog`. Zustand's default shallow merge fills
+      // missing top-level keys from the initial state (emptyWorkspace
+      // defaults to []), so existing v0 payloads load fine — but we
+      // tag this as v1 explicitly so any FUTURE schema break can hook a
+      // proper `migrate` here without a guessing game about which
+      // shape a given persisted blob represents. `merge` is left at the
+      // default; the migration runs only when the persisted version
+      // is older than `version`.
+      version: 1,
+      migrate: (persistedState, fromVersion) => {
+        // v0 → v1: ensure the new array slices exist. Default merge
+        // already handles this via initial state, but pre-loading the
+        // defaults defensively avoids a transient render with the
+        // arrays as `undefined` if a consumer reads them before the
+        // store fully resolves.
+        if (fromVersion < 1 && persistedState && typeof persistedState === "object") {
+          const p = persistedState as Record<string, unknown>;
+          if (!Array.isArray(p.whiteboardSavedTemplates)) p.whiteboardSavedTemplates = [];
+          if (!Array.isArray(p.whiteboardActivityLog)) p.whiteboardActivityLog = [];
+        }
+        return persistedState as Workspace & WorkspaceActions;
+      },
       storage: createJSONStorage(() => {
         if (typeof window === "undefined") {
           return { getItem: () => null, setItem: () => {}, removeItem: () => {} };
@@ -485,8 +577,25 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         // app. Image-heavy boards (Phase 25) can exceed the 5 MB
         // origin cap; on quota error we warn but keep the in-memory
         // state alive — the user can still export to JSON.
+        //
+        // We also guard getItem/removeItem: Safari in Private Browsing
+        // mode (and certain corporate-managed Chromes) can throw
+        // SecurityError on every localStorage access. Without the
+        // try/catch, the persist middleware would surface that during
+        // hydration and crash the page on load.
         return {
-          getItem: (k: string) => localStorage.getItem(k),
+          getItem: (k: string) => {
+            try {
+              return localStorage.getItem(k);
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.warn(
+                "[workspace-store] localStorage.getItem blocked — starting with empty workspace.",
+                err,
+              );
+              return null;
+            }
+          },
           setItem: (k: string, v: string) => {
             try {
               localStorage.setItem(k, v);
@@ -498,7 +607,14 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
               );
             }
           },
-          removeItem: (k: string) => localStorage.removeItem(k),
+          removeItem: (k: string) => {
+            try {
+              localStorage.removeItem(k);
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.warn("[workspace-store] localStorage.removeItem blocked.", err);
+            }
+          },
         };
       }),
       skipHydration: true,
@@ -556,6 +672,10 @@ export function getWorkspaceSnapshot(): Workspace {
     whiteboardObjects: state.whiteboardObjects,
     whiteboardCommentThreads: state.whiteboardCommentThreads,
     whiteboardGroups: state.whiteboardGroups,
+    // Phase 31/32 — surfaced in snapshots so analytics / AI-prompt
+    // builders see the same workspace the user does.
+    whiteboardSavedTemplates: state.whiteboardSavedTemplates,
+    whiteboardActivityLog: state.whiteboardActivityLog,
   };
 }
 
