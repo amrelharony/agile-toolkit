@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { CircuitBoard, Plus, Trash2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -16,6 +16,50 @@ import { generatePolarityPrompts } from "@/lib/ai-prompts/polarity-map";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { POLARITY_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+
+/**
+ * Per-pole textarea that holds a local draft of newline-separated bullet
+ * lines, only committing on blur. The previous behavior called `upsertPole`
+ * (and split-filter mid-edit) on every keystroke — that wrote the whole
+ * workspace store on each character AND silently consumed empty interior
+ * lines as the user typed (because `.filter(Boolean)` runs on every change).
+ */
+function PoleListTextarea({
+  initial,
+  rows = 3,
+  placeholder,
+  onCommit,
+}: {
+  initial: string[];
+  rows?: number;
+  placeholder?: string;
+  onCommit: (lines: string[]) => void;
+}) {
+  const joined = initial.join("\n");
+  const [draft, setDraft] = useState(joined);
+  const committedRef = useRef(joined);
+  useEffect(() => {
+    if (joined !== committedRef.current) {
+      setDraft(joined);
+      committedRef.current = joined;
+    }
+  }, [joined]);
+  const commit = () => {
+    if (draft === committedRef.current) return;
+    const lines = draft.split("\n").map((s) => s.trim()).filter(Boolean);
+    committedRef.current = lines.join("\n");
+    onCommit(lines);
+  };
+  return (
+    <Textarea
+      rows={rows}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      placeholder={placeholder}
+    />
+  );
+}
 
 export function PolarityMapClient() {
   const polarities = useWorkspaceStore((s) => s.polarities ?? []);
@@ -43,8 +87,7 @@ export function PolarityMapClient() {
     setTitle(""); setLeftLabel(""); setRightLabel(""); setGreater(""); setDeeper("");
   }
 
-  function updatePole(p: PolarityPole, kind: "upsides" | "downsides", text: string) {
-    const lines = text.split("\n").map((s) => s.trim()).filter(Boolean);
+  function updatePoleLines(p: PolarityPole, kind: "upsides" | "downsides", lines: string[]) {
     upsertPole({ ...p, [kind]: lines });
     log(POLARITY_ACTIONS.POLE_UPDATED, { id: p.id, kind });
   }
@@ -110,9 +153,19 @@ export function PolarityMapClient() {
                   <div key={p.id} className="border border-border rounded p-3 bg-surface-deep">
                     <div className="font-bold text-sm mb-2" style={{ color: p.side === "left" ? "#00f0ff" : "#ff00aa" }}>{p.label}</div>
                     <label className="block text-[10px] uppercase text-emerald-400 mb-1">Upsides (one per line)</label>
-                    <Textarea rows={3} value={p.upsides.join("\n")} onChange={(e) => updatePole(p, "upsides", e.target.value)} placeholder="What goes well at this pole?" />
+                    <PoleListTextarea
+                      key={`up-${p.id}`}
+                      initial={p.upsides}
+                      onCommit={(lines) => updatePoleLines(p, "upsides", lines)}
+                      placeholder="What goes well at this pole?"
+                    />
                     <label className="block text-[10px] uppercase text-red-400 mt-2 mb-1">Downsides (one per line)</label>
-                    <Textarea rows={3} value={p.downsides.join("\n")} onChange={(e) => updatePole(p, "downsides", e.target.value)} placeholder="What goes wrong when over-focused on this pole?" />
+                    <PoleListTextarea
+                      key={`dn-${p.id}`}
+                      initial={p.downsides}
+                      onCommit={(lines) => updatePoleLines(p, "downsides", lines)}
+                      placeholder="What goes wrong when over-focused on this pole?"
+                    />
                   </div>
                 ))}
               </div>

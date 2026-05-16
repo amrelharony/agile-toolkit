@@ -549,7 +549,10 @@ export function PsychSafetyClient() {
                     <div
                       className="h-full"
                       style={{
-                        width: `${((q.reversedScore - 1) / 4) * 100}%`,
+                        // Clamp to [0, 100] so an empty-response state
+                        // (reversedScore = 0) doesn't produce a negative
+                        // width percent that some browsers render unevenly.
+                        width: `${Math.max(0, Math.min(100, ((q.reversedScore - 1) / 4) * 100))}%`,
                         background: "var(--accent)",
                       }}
                     />

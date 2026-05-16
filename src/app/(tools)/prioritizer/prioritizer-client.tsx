@@ -100,9 +100,14 @@ function createDefaultItem(): BacklogItem {
   };
 }
 
+// Stable IDs for the default items so SSR/CSR hydration doesn't mismatch.
+// Using crypto.randomUUID() at module load (the previous behavior) generated
+// different IDs on server and client, producing a hydration warning on
+// every fresh visit. The persist layer overwrites these once localStorage
+// rehydrates, but they need to be deterministic until then.
 const defaultItems: BacklogItem[] = [
   {
-    id: crypto.randomUUID(),
+    id: "default-user-auth",
     name: "User authentication",
     moscow: "must",
     businessValue: 9,
@@ -117,7 +122,7 @@ const defaultItems: BacklogItem[] = [
     matrixEffort: 3,
   },
   {
-    id: crypto.randomUUID(),
+    id: "default-dashboard-redesign",
     name: "Dashboard redesign",
     moscow: "should",
     businessValue: 7,
@@ -132,7 +137,7 @@ const defaultItems: BacklogItem[] = [
     matrixEffort: 5,
   },
   {
-    id: crypto.randomUUID(),
+    id: "default-pdf-export",
     name: "Export to PDF",
     moscow: "could",
     businessValue: 4,
@@ -147,7 +152,7 @@ const defaultItems: BacklogItem[] = [
     matrixEffort: 2,
   },
   {
-    id: crypto.randomUUID(),
+    id: "default-dark-mode",
     name: "Dark mode toggle",
     moscow: "could",
     businessValue: 3,
@@ -162,7 +167,7 @@ const defaultItems: BacklogItem[] = [
     matrixEffort: 1,
   },
   {
-    id: crypto.randomUUID(),
+    id: "default-legacy-api",
     name: "Legacy API migration",
     moscow: "wont",
     businessValue: 2,

@@ -129,12 +129,18 @@ export function PromptRegistryClient() {
             }
           >
             <ul className="space-y-2">
-              {[...list].sort((a, b) => a.name.localeCompare(b.name) || b.version.localeCompare(a.version)).map((p) => (
+              {[...list].sort((a, b) => a.name.localeCompare(b.name) || b.version.localeCompare(a.version)).map((p) => {
+                // Defensive lookup — a corrupted persisted record could carry
+                // an unknown status string ("staging", "wip" from a future
+                // schema, etc.). Falling back to draft's grey keeps the badge
+                // readable rather than rendering broken CSS like `#undefined20`.
+                const statusColor = STATUS_COLORS[p.status] ?? STATUS_COLORS.draft;
+                return (
                 <li key={p.id} className="border border-border bg-surface-deep rounded p-3">
                   <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
                     <span className="flex items-center gap-2 min-w-0">
                       <span className="font-mono text-sm text-text">{p.name}@{p.version}</span>
-                      <span className="text-[10px] uppercase px-1.5 py-0.5 rounded font-bold" style={{ backgroundColor: STATUS_COLORS[p.status] + "20", color: STATUS_COLORS[p.status] }}>
+                      <span className="text-[10px] uppercase px-1.5 py-0.5 rounded font-bold" style={{ backgroundColor: statusColor + "20", color: statusColor }}>
                         {p.status}
                       </span>
                       {typeof p.evalScore === "number" && <span className="text-xs text-sub">eval: {(p.evalScore * 100).toFixed(0)}%</span>}
@@ -157,7 +163,8 @@ export function PromptRegistryClient() {
                   {p.changeNote && <p className="text-xs text-sub italic mb-1">{p.changeNote}</p>}
                   <pre className="text-xs text-sub bg-surface rounded p-2 overflow-x-auto whitespace-pre-wrap">{p.body.slice(0, 400)}{p.body.length > 400 ? "…" : ""}</pre>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </SectionCard>
         )}

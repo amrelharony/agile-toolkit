@@ -126,9 +126,15 @@ function isThisQuarter(iso: string): boolean {
 
 function isOverdue(a: ActionItem): boolean {
   if (a.status === "done" || !a.dueDate) return false;
-  const due = new Date(a.dueDate);
-  if (Number.isNaN(due.getTime())) return false;
-  return due.getTime() < Date.now();
+  // Parse YYYY-MM-DD as a local calendar date — `new Date("2026-05-16")`
+  // returns midnight UTC, which would mark items "overdue" hours before
+  // local midnight in eastern timezones. The end-of-day check below means
+  // an item is overdue only after the user's local day has ended.
+  const parsed = parseLocalDate(a.dueDate);
+  if (!parsed) return false;
+  // End-of-day: 23:59:59.999 local — gives the owner the entire due day.
+  parsed.setHours(23, 59, 59, 999);
+  return parsed.getTime() < Date.now();
 }
 
 interface NewPMDraft {

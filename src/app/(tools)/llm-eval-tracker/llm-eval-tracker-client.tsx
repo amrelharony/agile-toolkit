@@ -93,8 +93,17 @@ export function LLMEvalTrackerClient() {
   }, [regressionFindings]);
 
   // Build chart data: one series per dataset, x = chronological index.
+  // Recharts treats `dataKey` as a lodash get-path (a.b.c reaches point.a.b.c),
+  // so any user-typed dataset name with a `.` or `[` would silently fail to
+  // resolve. We assign each dataset a synthetic sanitized key and keep a
+  // parallel label lookup for the legend / tooltips.
+  const datasetSeries = useMemo(() => {
+    const names = Array.from(new Set(evals.map((e) => e.dataset)));
+    return names.map((name, i) => ({ key: `ds${i}`, label: name }));
+  }, [evals]);
+
   const chartData = useMemo(() => {
-    const datasets = Array.from(new Set(evals.map((e) => e.dataset)));
+    const keyByName = new Map(datasetSeries.map((d) => [d.label, d.key]));
     const sorted = [...evals].sort(
       (a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime(),
     );
@@ -103,17 +112,11 @@ export function LLMEvalTrackerClient() {
         idx: i + 1,
         date: e.recordedAt.slice(0, 10),
       };
-      for (const d of datasets) {
-        if (e.dataset === d) point[d] = e.score;
-      }
+      const k = keyByName.get(e.dataset);
+      if (k) point[k] = e.score;
       return point;
     });
-  }, [evals]);
-
-  const datasetSeries = useMemo(
-    () => Array.from(new Set(evals.map((e) => e.dataset))),
-    [evals],
-  );
+  }, [evals, datasetSeries]);
 
   const workspace = useWorkspaceStore(
     useShallow(
@@ -249,8 +252,9 @@ export function LLMEvalTrackerClient() {
                   <ReferenceLine y={0.8} stroke="#00ff88" strokeDasharray="4 4" />
                   {datasetSeries.map((d, i) => (
                     <Line
-                      key={d}
-                      dataKey={d}
+                      key={d.key}
+                      dataKey={d.key}
+                      name={d.label}
                       stroke={COLORS[i % COLORS.length]}
                       strokeWidth={2}
                       dot={{ r: 3 }}

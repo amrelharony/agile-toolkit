@@ -41,14 +41,17 @@ export function TokenCostTrackerClient() {
 
   function add() {
     const it = parseFloat(inputTokens), ot = parseFloat(outputTokens), c = parseFloat(costUsd);
-    if (!feature.trim() || !model.trim() || !Number.isFinite(c)) return;
+    // Reject obviously-bad inputs at the entry point: negative tokens / cost
+    // would otherwise sneak into totals and the projection (which is the
+    // budget signal), where a single typo turns the alert green forever.
+    if (!feature.trim() || !model.trim() || !Number.isFinite(c) || c < 0) return;
     const item: TokenSpend = {
       id: crypto.randomUUID(),
       feature: feature.trim(),
       model: model.trim(),
       date,
-      inputTokens: Number.isFinite(it) ? it : 0,
-      outputTokens: Number.isFinite(ot) ? ot : 0,
+      inputTokens: Number.isFinite(it) && it >= 0 ? it : 0,
+      outputTokens: Number.isFinite(ot) && ot >= 0 ? ot : 0,
       costUsd: c,
     };
     upsert(item);
@@ -78,10 +81,22 @@ export function TokenCostTrackerClient() {
     return Object.entries(m).map(([feature, cost]) => ({ feature, cost })).sort((a, b) => b.cost - a.cost);
   }, [list]);
 
-  const totalSpend = list.reduce((s, x) => s + x.costUsd, 0);
+  // Guard against NaN in totals: a corrupted persisted entry with non-finite
+  // costUsd would otherwise poison every downstream KPI and the budget badge.
+  const totalSpend = list.reduce(
+    (s, x) => s + (Number.isFinite(x.costUsd) ? x.costUsd : 0),
+    0,
+  );
   const last30Spend = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
     const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-    return list.filter((x) => x.date >= cutoff).reduce((s, x) => s + x.costUsd, 0);
+    // Bound the window on BOTH sides — without an upper bound, future-dated
+    // entries (typos like 2099-01-01, or imports from a wrong-locale ISO
+    // export) would inflate the "last 30 days" projection used by the budget
+    // alert. The CSV import path doesn't validate dates, so this is reachable.
+    return list
+      .filter((x) => x.date >= cutoff && x.date <= today)
+      .reduce((s, x) => s + (Number.isFinite(x.costUsd) ? x.costUsd : 0), 0);
   }, [list]);
   const projected = last30Spend; // simple linear projection — last 30 days = next 30 days
   const overBudget = projected > cfg.monthlyBudgetUsd;

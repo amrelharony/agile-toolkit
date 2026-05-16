@@ -40,22 +40,38 @@ export function ModelComparisonClient() {
 
   function add() {
     if (!name.trim() || !vendor.trim()) return;
+    // Use `Number.isFinite(parsed) ? parsed : undefined` rather than the
+    // `parsed || undefined` shortcut so a legitimate zero (free-tier model,
+    // sub-millisecond latency benchmark) doesn't get coerced to "missing".
+    const parseFloatField = (s: string): number | undefined => {
+      const n = parseFloat(s);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const parseIntField = (s: string): number | undefined => {
+      const n = parseInt(s, 10);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const trimmedName = name.trim();
     const item: ModelEntry = {
       id: crypto.randomUUID(),
-      name: name.trim(),
+      name: trimmedName,
       vendor: vendor.trim(),
-      inputCostPer1k: parseFloat(inputCost) || undefined,
-      outputCostPer1k: parseFloat(outputCost) || undefined,
-      contextWindow: parseInt(contextWin, 10) || undefined,
-      latencyP50Ms: parseInt(latencyP50, 10) || undefined,
-      latencyP95Ms: parseInt(latencyP95, 10) || undefined,
-      evalScore: parseFloat(evalScore) || undefined,
+      inputCostPer1k: parseFloatField(inputCost),
+      outputCostPer1k: parseFloatField(outputCost),
+      contextWindow: parseIntField(contextWin),
+      latencyP50Ms: parseIntField(latencyP50),
+      latencyP95Ms: parseIntField(latencyP95),
+      evalScore: parseFloatField(evalScore),
       status,
     };
-    const prior = list.find((m) => m.name === item.name);
+    // Match by name (the existing dedup signal) so re-entering an existing
+    // model genuinely triggers `model.upgraded`. The previous check compared
+    // against a brand-new UUID, making `prior.id !== item.id` always true and
+    // emitting the signal even for a fresh entry where nothing was upgraded.
+    const prior = list.find((m) => m.name === trimmedName);
     upsert(item);
     log(MODEL_COMPARISON_ACTIONS.MODEL_ADDED, { name: item.name });
-    if (prior && prior.id !== item.id) {
+    if (prior) {
       emitSignal({ kind: "model.upgraded", at: new Date().toISOString(), toolId: "model-comparison", payload: { name: item.name } });
     }
     setName(""); setVendor(""); setInputCost(""); setOutputCost(""); setContextWin("");

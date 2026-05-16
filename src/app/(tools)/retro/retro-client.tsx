@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/select";
 import { retroFormats, type RetroFormat, type RetroColumn } from "@/lib/constants/retro-formats";
 import { kMeansAuto } from "@/lib/analytics/clustering";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -968,7 +969,7 @@ function Board({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `retro-${state.format.id}-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `retro-${state.format.id}-${todayLocalISO()}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [state]);

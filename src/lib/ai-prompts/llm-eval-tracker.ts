@@ -1,5 +1,5 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble, formatTable } from "./prompt-utils";
+import { buildPreamble, formatTable, sanitizePromptCell } from "./prompt-utils";
 import type { LLMEval, Workspace } from "../stores/workspace-types";
 import type { RegressionFinding } from "../analytics/eval-regression";
 import { buildWorkspaceContext } from "./cross-tool-context";
@@ -24,12 +24,17 @@ export function generateLLMEvalPrompts(data: Data, workspace?: Workspace | null)
       e.promptVersion ?? "—",
       `${(e.score * 100).toFixed(1)}%`,
     ]);
+  // formatTable auto-sanitizes string cells so model/dataset/promptVersion
+  // are scrubbed of backticks and `<user_content>` delimiter literals.
   const evalTable = formatTable(["Date", "Model", "Dataset", "Prompt v", "Score"], recentRows);
 
   const regressionLines = data.regressions
     .map(
       (r) =>
-        `- ${r.group}: ${(r.baselineMean * 100).toFixed(1)}% → ${(r.recentMean * 100).toFixed(1)}% (Δ ${(r.delta * 100).toFixed(1)} pts · ${(r.confidence * 100).toFixed(0)}% conf)`,
+        // r.group is `${promptVersion}|${dataset}` — both user-supplied.
+        // Sanitize so a pasted "ignore previous instructions" in a dataset
+        // label can't reach the model as a directive.
+        `- ${sanitizePromptCell(r.group, 120)}: ${(r.baselineMean * 100).toFixed(1)}% → ${(r.recentMean * 100).toFixed(1)}% (Δ ${(r.delta * 100).toFixed(1)} pts · ${(r.confidence * 100).toFixed(0)}% conf)`,
     )
     .join("\n");
 

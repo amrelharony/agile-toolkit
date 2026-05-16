@@ -34,7 +34,14 @@ export function WeightedDecisionClient() {
 
   function addCriterion() {
     if (!criterionName.trim()) return;
-    const c: WeightedCriterion = { id: crypto.randomUUID(), name: criterionName.trim(), weight: parseFloat(criterionWeight) || 1 };
+    // `parseFloat("0") || 1` collapses an explicit 0 (a temporarily-disabled
+    // criterion held in the matrix) to weight 1 — the operator would then
+    // appear to "ignore" the weight box. Coerce with Number.isFinite so
+    // intentional zeros survive. We still floor at 0 to keep the bar chart
+    // and total honest.
+    const wRaw = parseFloat(criterionWeight);
+    const weight = Number.isFinite(wRaw) ? Math.max(0, wRaw) : 1;
+    const c: WeightedCriterion = { id: crypto.randomUUID(), name: criterionName.trim(), weight };
     upsertCriterion(c);
     log(WEIGHTED_DECISION_ACTIONS.CRITERION_ADDED, { name: c.name });
     setCriterionName(""); setCriterionWeight("1");

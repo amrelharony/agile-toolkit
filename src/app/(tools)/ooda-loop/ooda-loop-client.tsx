@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Activity, Plus, Trash2, CheckCircle2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -16,6 +16,51 @@ import { generateOodaPrompts } from "@/lib/ai-prompts/ooda-loop";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { OODA_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+
+/**
+ * Per-stage textarea with a local string draft so typing doesn't fire
+ * `upsert` (writes workspace store) + history log on every keystroke. The
+ * draft commits on blur or after a short debounce — the previous behavior
+ * fired one localStorage write and one history event per character which
+ * tanked perf on multi-cycle boards and flooded the audit log.
+ */
+function StageTextarea({
+  value,
+  placeholder,
+  rows = 2,
+  onCommit,
+}: {
+  value: string;
+  placeholder?: string;
+  rows?: number;
+  onCommit: (next: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const committedRef = useRef(value);
+  useEffect(() => {
+    // External updates (other tab, sync, etc.) should refresh the draft —
+    // but only when we're not in the middle of an edit. Compare against the
+    // last committed value to detect outside changes.
+    if (value !== committedRef.current) {
+      setDraft(value);
+      committedRef.current = value;
+    }
+  }, [value]);
+  const commit = () => {
+    if (draft === committedRef.current) return;
+    committedRef.current = draft;
+    onCommit(draft);
+  };
+  return (
+    <Textarea
+      rows={rows}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      placeholder={placeholder}
+    />
+  );
+}
 
 export function OodaLoopClient() {
   const list = useWorkspaceStore((s) => s.oodaCycles ?? []);
@@ -106,19 +151,19 @@ export function OodaLoopClient() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                     <div>
                       <label className="block text-cyan-400 font-bold mb-1">Observe</label>
-                      <Textarea rows={2} value={c.observe ?? ""} onChange={(e) => update(c, "observe", e.target.value)} placeholder="What's happening?" />
+                      <StageTextarea value={c.observe ?? ""} onCommit={(v) => update(c, "observe", v)} placeholder="What's happening?" />
                     </div>
                     <div>
                       <label className="block text-emerald-400 font-bold mb-1">Orient</label>
-                      <Textarea rows={2} value={c.orient ?? ""} onChange={(e) => update(c, "orient", e.target.value)} placeholder="What does it mean? Context, biases, mental models." />
+                      <StageTextarea value={c.orient ?? ""} onCommit={(v) => update(c, "orient", v)} placeholder="What does it mean? Context, biases, mental models." />
                     </div>
                     <div>
                       <label className="block text-amber-400 font-bold mb-1">Decide</label>
-                      <Textarea rows={2} value={c.decide ?? ""} onChange={(e) => update(c, "decide", e.target.value)} placeholder="What's the call?" />
+                      <StageTextarea value={c.decide ?? ""} onCommit={(v) => update(c, "decide", v)} placeholder="What's the call?" />
                     </div>
                     <div>
                       <label className="block text-pink-400 font-bold mb-1">Act</label>
-                      <Textarea rows={2} value={c.act ?? ""} onChange={(e) => update(c, "act", e.target.value)} placeholder="What did we do? Outcome." />
+                      <StageTextarea value={c.act ?? ""} onCommit={(v) => update(c, "act", v)} placeholder="What did we do? Outcome." />
                     </div>
                   </div>
                 </li>

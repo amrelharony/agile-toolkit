@@ -115,7 +115,18 @@ function currentQuarter(): string {
 }
 
 function krProgress(kr: KeyResult): number {
-  if (kr.target === 0) return 0;
+  // Defensive: corrupted imports (or schema drift) can land with
+  // non-numeric `current`/`target` values, which would yield NaN through
+  // division — that NaN then propagates into Math.min/max and ultimately
+  // into the <Progress> bar (crashes on NaN width). Treat anything
+  // non-finite, zero, or negative as "no progress measurable yet".
+  if (
+    !Number.isFinite(kr.current) ||
+    !Number.isFinite(kr.target) ||
+    kr.target <= 0
+  ) {
+    return 0;
+  }
   return Math.max(0, Math.min(1, kr.current / kr.target));
 }
 

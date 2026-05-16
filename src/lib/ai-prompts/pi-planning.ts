@@ -1,5 +1,5 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble, formatTable } from "./prompt-utils";
+import { buildPreamble, formatTable, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 
 interface PiTeam {
   id: string;
@@ -27,12 +27,27 @@ export function generatePiPlanningPrompts(data: {
   const teamName = (id: string) => data.teams.find((t) => t.id === id)?.name ?? id;
   const table = formatTable(
     ["Team", "Iteration", "Planned", "Capacity", "%"],
-    data.overloads.map((o) => [teamName(o.teamId), o.iteration + 1, o.planned, o.capacity, `${Math.round((o.planned / o.capacity) * 100)}%`])
+    data.overloads.map((o) => [teamName(o.teamId), o.iteration + 1, o.planned, o.capacity,
+      // Guard against div-by-zero — capacity is filtered to >0 in the client,
+      // but a corrupted persisted state could surface a 0 here.
+      o.capacity > 0 ? `${Math.round((o.planned / o.capacity) * 100)}%` : "n/a"])
   );
   const teamTable = formatTable(
     ["Team", "Velocity", "Description"],
     data.teams.map((t) => [t.name, t.velocity, (t.description ?? "—").slice(0, 80)])
   );
+  // Item titles, descriptions, and (resolved) team names are user-typed.
+  // Sanitize each and wrap the whole block in <user_content> so the AI
+  // treats them as data rather than instructions.
+  const risksDeps = data.items.filter((i) => i.kind !== "feature");
+  const risksBlock = risksDeps.length === 0
+    ? "(none tracked)"
+    : wrapUserContent(
+        risksDeps
+          .slice(0, 50)
+          .map((i) => `- [${i.kind}] ${sanitizePromptCell(i.title, 120)}${i.description ? ` — ${sanitizePromptCell(i.description, 80)}` : ""} (${sanitizePromptCell(teamName(i.teamId), 40)}, iter ${i.iteration + 1})`)
+          .join("\n"),
+      );
   return [
     {
       id: "pi-balance",
@@ -48,7 +63,7 @@ export function generatePiPlanningPrompts(data: {
       description: "Surface hidden risks and cross-team dependencies.",
       prompt:
         buildPreamble("PI Planning Board", "Cross-team dependencies are the top cause of PI failure.") +
-        `## Risks/Deps\n\n${data.items.filter((i) => i.kind !== "feature").map((i) => `- [${i.kind}] ${i.title}${i.description ? ` — ${i.description.slice(0, 80)}` : ""} (${teamName(i.teamId)}, iter ${i.iteration + 1})`).join("\n") || "(none tracked)"}\n\n## Questions\n\n1. Which dependencies should be resolved before PI start?\n2. Which risks warrant an owner and mitigation plan?\n3. What's one structural change that would reduce cross-team coupling?`,
+        `## Risks/Deps\n\n${risksBlock}\n\n## Questions\n\n1. Which dependencies should be resolved before PI start?\n2. Which risks warrant an owner and mitigation plan?\n3. What's one structural change that would reduce cross-team coupling?`,
     },
   ];
 }

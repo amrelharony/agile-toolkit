@@ -42,7 +42,17 @@ export function ValueEffortMatrixClient() {
 
   function add() {
     if (!title.trim()) return;
-    const v = parseFloat(value) || 5, e = parseFloat(effort) || 5;
+    // parseFloat("0") returns 0, which falls through `|| 5` to 5 — meaning a
+    // user who explicitly enters 0 silently gets value=5/effort=5 and ends
+    // up in the wrong quadrant. Coerce to a finite number first, then clamp
+    // into the documented 1-10 range so out-of-range typos can't drag the
+    // ReferenceLine math off-axis either.
+    const clamp = (raw: string) => {
+      const n = parseFloat(raw);
+      if (!Number.isFinite(n)) return 5;
+      return Math.min(10, Math.max(1, n));
+    };
+    const v = clamp(value), e = clamp(effort);
     const item: PrioritizationItem = {
       id: crypto.randomUUID(), framework: "value-effort", title: title.trim(),
       score: v - e,
@@ -55,12 +65,30 @@ export function ValueEffortMatrixClient() {
     setTitle(""); setValue(""); setEffort("");
   }
 
-  const scatterData = items.map((it) => ({
-    title: it.title, x: Number(it.fields?.effort) || 0, y: Number(it.fields?.value) || 0, quadrant: String(it.fields?.quadrant ?? ""),
-  }));
+  // Memoize derived shapes — without this, both `scatterData` and `grouped`
+  // are recomputed on every render, and any consumer that takes them in a
+  // dep array (the AI promptConfig below) re-builds its payload every keystroke.
+  const scatterData = useMemo(
+    () =>
+      items.map((it) => ({
+        title: it.title,
+        x: Number(it.fields?.effort) || 0,
+        y: Number(it.fields?.value) || 0,
+        quadrant: String(it.fields?.quadrant ?? ""),
+      })),
+    [items],
+  );
 
-  const grouped: Record<string, PrioritizationItem[]> = { "Quick Wins": [], "Big Bets": [], "Fill-Ins": [], "Time Wasters": [] };
-  for (const it of items) grouped[String(it.fields?.quadrant ?? "Fill-Ins")]?.push(it);
+  const grouped = useMemo(() => {
+    const g: Record<string, PrioritizationItem[]> = {
+      "Quick Wins": [],
+      "Big Bets": [],
+      "Fill-Ins": [],
+      "Time Wasters": [],
+    };
+    for (const it of items) g[String(it.fields?.quadrant ?? "Fill-Ins")]?.push(it);
+    return g;
+  }, [items]);
 
   const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
     teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,

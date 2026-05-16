@@ -250,10 +250,12 @@ export function RfcTrackerClient() {
       const updated = [decision, ...existing];
       const serialized = JSON.stringify(updated);
       window.localStorage.setItem(STORAGE_KEY, serialized);
-      // Decision Log lives in another tab/route under usePersisted, which
-      // only listens to native `storage` events (cross-tab). Same-tab writes
-      // don't fire one — dispatch a synthetic event so an open Decision Log
-      // page picks up the new entry without a manual refresh.
+      // usePersisted reads localStorage once on mount only — it does not
+      // currently subscribe to native `storage` events, so a same-tab open
+      // Decision Log won't repaint until the next mount. We still dispatch a
+      // synthetic event so any future cross-tool listener picks up the
+      // change without coupling here; cross-tab natural events also keep
+      // working unchanged.
       window.dispatchEvent(
         new StorageEvent("storage", {
           key: STORAGE_KEY,

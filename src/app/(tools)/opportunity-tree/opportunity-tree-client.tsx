@@ -123,16 +123,27 @@ export function OpportunityTreeClient() {
     [nodes, workspace]
   );
 
-  const renderNode = (node: TreeNode, depth: number): React.ReactNode => (
+  const renderNode = (node: TreeNode, depth: number): React.ReactNode => {
+    // Cap recursion at 30 plies. The UI only creates 4 levels via
+    // `CHILD_KIND`, but a corrupted persisted state (or a future schema)
+    // could land with a pathological chain — without a cap we'd blow the
+    // stack instead of just truncating the render. The AI prompt
+    // (renderTree in lib/ai-prompts/opportunity-tree.ts) applies the same
+    // cap; keep these aligned.
+    if (depth > 30) return null;
+    // Defensive lookup — corrupted state could land an unknown kind here.
+    // Default to outcome's cyan rather than rendering broken inline CSS.
+    const kindColor = KIND_COLORS[node.kind] ?? KIND_COLORS.outcome;
+    return (
     <div key={node.id} className="space-y-2">
       <div
         className="rounded-lg border bg-bg p-3"
-        style={{ borderColor: `${KIND_COLORS[node.kind]}66`, borderLeftWidth: 3, borderLeftColor: KIND_COLORS[node.kind] }}
+        style={{ borderColor: `${kindColor}66`, borderLeftWidth: 3, borderLeftColor: kindColor }}
       >
         <div className="flex items-start gap-2">
           <span
             className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded font-data"
-            style={{ background: `${KIND_COLORS[node.kind]}22`, color: KIND_COLORS[node.kind] }}
+            style={{ background: `${kindColor}22`, color: kindColor }}
           >
             {node.kind}
           </span>
@@ -182,7 +193,8 @@ export function OpportunityTreeClient() {
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   const rootNodes = childrenOf(null);
 

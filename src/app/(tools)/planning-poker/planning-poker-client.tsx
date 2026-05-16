@@ -121,7 +121,12 @@ function avatarColor(name: string): string {
 }
 
 function isNumeric(v: string): boolean {
-  return !isNaN(Number(v)) && v !== "?" && v !== "∞" && v !== "";
+  // `Number(" ")` and `Number("\t")` both return 0, so a whitespace-only
+  // card would pass `!isNaN`. Require the trimmed value to be non-empty to
+  // exclude that edge case while still allowing legitimate "0".
+  const trimmed = v.trim();
+  if (trimmed === "" || trimmed === "?" || trimmed === "∞") return false;
+  return Number.isFinite(Number(trimmed));
 }
 
 function calcStats(votes: string[]): {

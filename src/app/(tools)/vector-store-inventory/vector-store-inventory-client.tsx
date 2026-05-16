@@ -31,12 +31,19 @@ export function VectorStoreInventoryClient() {
 
   function add() {
     if (!name.trim() || !model.trim()) return;
+    // Coerce + clamp the numeric fields: parseInt returns NaN for blank input
+    // and || 0 hides that, but a negative-typo on Dim or DocCount would still
+    // sneak into the inventory and later poison `toLocaleString()` displays.
+    const parseNonNeg = (raw: string) => {
+      const n = parseInt(raw, 10);
+      return Number.isFinite(n) && n >= 0 ? n : 0;
+    };
     const item: VectorCollection = {
       id: crypto.randomUUID(),
       name: name.trim(),
       embeddingModel: model.trim(),
-      dim: parseInt(dim, 10) || 0,
-      docCount: parseInt(docs, 10) || 0,
+      dim: parseNonNeg(dim),
+      docCount: parseNonNeg(docs),
       refreshCadence: refresh.trim() || undefined,
       owner: owner.trim() || undefined,
     };
@@ -110,8 +117,8 @@ export function VectorStoreInventoryClient() {
                     <tr key={c.id} className="border-t border-border">
                       <td className="p-2 font-mono text-xs">{c.name}</td>
                       <td className="p-2 text-sub text-xs">{c.embeddingModel}</td>
-                      <td className="p-2 text-right font-mono text-xs">{c.dim}</td>
-                      <td className="p-2 text-right font-mono text-xs">{c.docCount.toLocaleString()}</td>
+                      <td className="p-2 text-right font-mono text-xs">{Number.isFinite(c.dim) ? c.dim : 0}</td>
+                      <td className="p-2 text-right font-mono text-xs">{(Number.isFinite(c.docCount) ? c.docCount : 0).toLocaleString()}</td>
                       <td className="p-2 text-xs">{c.refreshCadence ?? "—"}</td>
                       <td className="p-2 text-xs">{c.owner ?? "—"}</td>
                       <td className="p-2"><button onClick={() => remove(c.id)} aria-label="Remove collection" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button></td>

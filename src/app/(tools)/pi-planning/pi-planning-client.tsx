@@ -82,10 +82,10 @@ export function PiPlanningClient() {
     setState((s) => ({ ...s, items: s.items.map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
     if (patch.iteration !== undefined || patch.teamId !== undefined) {
       log(PI_PLANNING_ACTIONS.ITEM_ASSIGNED, { itemId: id, ...patch });
-    } else {
-      // Otherwise we still want an audit trail for content edits (title,
-      // description, points, kind) — without this branch the history is
-      // silent on every typing edit and only catches reassignments.
+    } else if (patch.kind !== undefined || patch.points !== undefined) {
+      // Only audit structural changes (kind, points) — not per-keystroke
+      // title/description edits, which used to flood the history log with
+      // one event per character and slowed the whole tool on typing.
       log(PI_PLANNING_ACTIONS.ITEM_UPDATED, { itemId: id, ...patch });
     }
   };
@@ -256,7 +256,16 @@ export function PiPlanningClient() {
                 min={1}
                 max={10}
                 value={state.iterations}
-                onChange={(e) => setIterations(Number(e.target.value))}
+                onChange={(e) => {
+                  // Empty input coerces via Number() to 0, which would clamp to
+                  // min=1 and silently delete iteration columns. Keep the
+                  // current value while the field is empty mid-edit so the
+                  // user can retype freely.
+                  const raw = e.target.value;
+                  if (raw === "") return;
+                  const n = Number(raw);
+                  if (Number.isFinite(n)) setIterations(n);
+                }}
                 className="bg-bg border-border font-data w-24"
               />
             </div>
