@@ -127,9 +127,25 @@ export function CanvasClient() {
 
   // Ensure at least one board exists, and one is active. Lazy-create on
   // mount — but only AFTER rehydration so we don't double-create.
+  //
+  // R5: a per-tab ref latches the lazy-create so two tabs of the same
+  // browser don't BOTH hit `boards.length === 0` and both create a
+  // distinct "My first board" entry. Also re-check via getState()
+  // before upserting in case a peer broadcast just landed.
+  const lazyCreatedRef = useRef(false);
   useEffect(() => {
     if (!hydrated) return;
     if (boards.length === 0) {
+      if (lazyCreatedRef.current) return;
+      // Final guard: re-read the workspace store synchronously. If
+      // a parallel tab raced ahead and seeded a board between our
+      // boards-selector re-render and this effect, skip lazy-create.
+      const liveBoards = useWorkspaceStore.getState().whiteboards ?? [];
+      if (liveBoards.length > 0) {
+        setActiveBoard(liveBoards[0].id);
+        return;
+      }
+      lazyCreatedRef.current = true;
       const now = new Date().toISOString();
       const id = wbId("wb_board");
       upsertBoard({ id, name: "My first board", createdAt: now, updatedAt: now });
@@ -396,10 +412,21 @@ export function CanvasClient() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // R5: sanitize the board name when used as a filename. A name like
+  // "Goals / Q1" produces "Goals / Q1.png" which Chrome interprets as
+  // a path component on Windows, dropping the file in a different
+  // directory or failing entirely. Strip the Windows-illegal set plus
+  // trim whitespace; fall back to "canvas" for blank/whitespace names.
+  const exportFilename = (ext: string) => {
+    const raw = (activeBoard?.name ?? "").trim();
+    // eslint-disable-next-line no-control-regex
+    const safe = (raw || "canvas").replace(/[\\/:*?"<>| -]/g, "_").slice(0, 100);
+    return `${safe}.${ext}`;
+  };
   const doExportPng = async () => {
     if (!canvasViewportRef.current || !activeBoard) return;
     try {
-      await exportPng(canvasViewportRef.current, `${activeBoard.name || "canvas"}.png`);
+      await exportPng(canvasViewportRef.current, exportFilename("png"));
     } catch (err) {
       // html-to-image can fail when remote images haven't CORS-loaded.
       // Surface to the user via console only — the toast layer isn't
@@ -409,16 +436,16 @@ export function CanvasClient() {
   };
   const doExportSvg = () => {
     if (!activeBoard) return;
-    exportSvg(activeBoard, objects, `${activeBoard.name || "canvas"}.svg`);
+    exportSvg(activeBoard, objects, exportFilename("svg"));
   };
   const doExportJson = () => {
     if (!activeBoard) return;
-    exportJson(activeBoard, objects, comments, `${activeBoard.name || "canvas"}.json`);
+    exportJson(activeBoard, objects, comments, exportFilename("json"));
   };
   const doExportJpg = async () => {
     if (!canvasViewportRef.current || !activeBoard) return;
     try {
-      await exportJpg(canvasViewportRef.current, `${activeBoard.name || "canvas"}.jpg`);
+      await exportJpg(canvasViewportRef.current, exportFilename("jpg"));
     } catch (err) {
       console.warn("[canvas] JPG export failed:", err);
     }
@@ -426,18 +453,18 @@ export function CanvasClient() {
   const doExportPdf = async () => {
     if (!canvasViewportRef.current || !activeBoard) return;
     try {
-      await exportPdf(canvasViewportRef.current, `${activeBoard.name || "canvas"}.pdf`);
+      await exportPdf(canvasViewportRef.current, exportFilename("pdf"));
     } catch (err) {
       console.warn("[canvas] PDF export failed:", err);
     }
   };
   const doExportCsv = () => {
     if (!activeBoard) return;
-    exportCsv(objects, `${activeBoard.name || "canvas"}.csv`);
+    exportCsv(objects, exportFilename("csv"));
   };
   const doExportPptx = () => {
     if (!activeBoard) return;
-    exportPptx(activeBoard, objects, `${activeBoard.name || "canvas"}.html`);
+    exportPptx(activeBoard, objects, exportFilename("html"));
   };
 
   return (

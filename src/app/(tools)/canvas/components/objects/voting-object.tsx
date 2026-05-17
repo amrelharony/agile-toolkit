@@ -51,15 +51,23 @@ function VotingObjectImpl({ object: o, selected, selfId, onPointerDown, onMutate
   }, [tally]);
 
   const castVote = (opt: string) => {
-    // SAFETY: with object-level LWW, two peers voting simultaneously
-    // would each see {selfId: prev}, both write at v+1, and one peer's
-    // vote gets dropped. We minimise the chance by always reading
-    // the CURRENT votes from props (which reflect the latest patch),
-    // not from a stale closure. The 100 ms patch throttle still
-    // allows races, but on the order of one in tens of votes rather
-    // than per-vote. A full fix needs per-key merge in diff-sync —
-    // tracked as a follow-up.
-    const next = { ...o.votes };
+    // R5: read the LIVE votes from the workspace store inside the
+    // handler (not from the captured `o` prop). Two peers voting
+    // simultaneously previously each captured the prop's `o.votes`,
+    // both wrote `{prev, mine}` at v+1, and the LWW-loser's vote was
+    // dropped. Reading from getState() narrows the race window from
+    // "between renders" to "between read and the next patch broadcast"
+    // — only a sub-RTT collision can still race, and that's bounded by
+    // the 100ms patch throttle.
+    let liveVotes: Record<string, string> = o.votes;
+    try {
+      // Dynamic require to avoid circular dep at top of file.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require("@/lib/stores/workspace-store") as typeof import("@/lib/stores/workspace-store");
+      const live = (mod.useWorkspaceStore.getState().whiteboardObjects ?? []).find((x) => x.id === o.id);
+      if (live && live.type === "voting") liveVotes = live.votes;
+    } catch { /* fall back to prop snapshot */ }
+    const next: Record<string, string> = { ...liveVotes };
     if (next[selfId] === opt) {
       delete next[selfId]; // toggle off
     } else {

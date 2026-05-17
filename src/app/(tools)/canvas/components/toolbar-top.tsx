@@ -26,6 +26,12 @@ export function ToolbarTop() {
   const snapToGridEnabled = useCanvasStore((s) => s.snapToGrid);
   const setSnapToGridEnabled = useCanvasStore((s) => s.setSnapToGrid);
   const [editing, setEditing] = useState(false);
+  // R5: inline two-step confirm replaces the blocking `confirm()` call
+  // (which froze the JS thread, stalling any in-flight realtime
+  // broadcast for the duration of the modal). When `confirmingDelete`
+  // is true, the Delete button label changes to "Click again to delete"
+  // and a 3s timeout auto-cancels the arming.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const board = boards.find((b) => b.id === activeBoardId);
   // History logger — board create/delete are MILESTONE_PAIRS in
   // event-actions.ts, but until now the toolbar wasn't actually
@@ -57,10 +63,22 @@ export function ToolbarTop() {
 
   function deleteCurrent() {
     if (!board) return;
-    if (!confirm(`Delete board "${board.name}"? This removes all objects on it.`)) return;
+    // R5: arm-then-confirm flow (instead of blocking `confirm()`). First
+    // click sets `confirmingDelete=true` and starts a 3s timer to
+    // auto-cancel; second click within that window actually deletes.
+    if (!confirmingDelete) {
+      setConfirmingDelete(true);
+      window.setTimeout(() => setConfirmingDelete(false), 3000);
+      return;
+    }
+    setConfirmingDelete(false);
     const deletedId = board.id;
     removeBoard(deletedId);
-    const next = boards.find((b) => b.id !== deletedId);
+    // R5: read the LIVE boards list after removal so we don't pick the
+    // board we just deleted (the closure-captured `boards` still
+    // contains it). Use getState() to avoid the stale closure.
+    const liveBoards = useWorkspaceStore.getState().whiteboards ?? [];
+    const next = liveBoards.find((b) => b.id !== deletedId);
     setActiveBoard(next?.id ?? null);
     log(CANVAS_ACTIONS.BOARD_DELETED, { boardId: deletedId });
     emitSignal({
@@ -115,10 +133,14 @@ export function ToolbarTop() {
           <button
             type="button"
             onClick={deleteCurrent}
-            aria-label="Delete current board"
-            className="text-sub hover:text-red-400 transition-colors"
+            aria-label={confirmingDelete ? "Click again to confirm delete" : "Delete current board"}
+            className={cn(
+              "transition-colors",
+              confirmingDelete ? "text-red-400 hover:text-red-300" : "text-sub hover:text-red-400",
+            )}
+            title={confirmingDelete ? "Click again to confirm" : `Delete "${board?.name ?? ""}"`}
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className={cn("w-4 h-4", confirmingDelete && "animate-pulse")} />
           </button>
         </>
       )}

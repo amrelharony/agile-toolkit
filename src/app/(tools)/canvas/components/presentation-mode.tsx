@@ -40,6 +40,13 @@ function PresentationModeImpl({ frames, index, onPrev, onNext, onExit }: Present
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      // R5: WhiteboardCanvas also binds these keys at the window level
+      // (it mounts before PresentationMode does, so its handler runs
+      // first and calls `e.preventDefault()` + `stopPropagation()` —
+      // but `stopPropagation` doesn't stop sibling window listeners).
+      // Bail when defaultPrevented so the same ArrowRight doesn't
+      // advance the frame TWICE.
+      if (e.defaultPrevented) return;
       if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); onNext(); }
       else if (e.key === "ArrowLeft") { e.preventDefault(); onPrev(); }
       else if (e.key === "Escape") { e.preventDefault(); onExit(); }

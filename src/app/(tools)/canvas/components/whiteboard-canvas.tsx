@@ -1743,11 +1743,19 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
           const cx = obj.x + obj.w / 2;
           const cy = obj.y + obj.h / 2;
           // Find a Kanban frame whose bounds contain the card's centre.
-          const kanban = objects.find((o) =>
-            o.type === "kanban" &&
-            cx >= o.x && cx <= o.x + o.w &&
-            cy >= o.y && cy <= o.y + o.h,
-          );
+          // R5: skip rotated kanban frames — the axis-aligned bounds
+          // check no longer matches what the user sees on screen, so
+          // drops land in a column the user didn't intend. Also prefer
+          // the top-most (highest z) when frames overlap so the result
+          // is deterministic, not insertion-order-dependent.
+          const kanban = objects
+            .filter((o) =>
+              o.type === "kanban" &&
+              (!o.rotation || o.rotation === 0) &&
+              cx >= o.x && cx <= o.x + o.w &&
+              cy >= o.y && cy <= o.y + o.h,
+            )
+            .sort((a, b) => b.z - a.z)[0];
           if (kanban && kanban.type === "kanban" && kanban.columns.length > 0) {
             const colWidth = kanban.w / kanban.columns.length;
             const colIdx = Math.min(

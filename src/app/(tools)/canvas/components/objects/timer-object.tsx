@@ -35,14 +35,43 @@ function TimerObjectImpl({ object: o, selected, onPointerDown, onMutate }: Timer
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!o.running) return;
-    const h = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(h);
+    // R5: pause the tick interval when the tab is hidden — setInterval
+    // keeps firing in the background and burns CPU even when no one
+    // is looking. visibilitychange + restart-on-visible is the
+    // standard fix.
+    let h: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (h !== null) return;
+      h = setInterval(() => setNow(Date.now()), 250);
+    };
+    const stop = () => {
+      if (h !== null) { clearInterval(h); h = null; }
+    };
+    const onVis = () => { if (document.visibilityState === "visible") start(); else stop(); };
+    if (typeof document !== "undefined" && document.visibilityState === "visible") start();
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVis);
+    return () => {
+      stop();
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVis);
+    };
   }, [o.running]);
 
   const remaining = o.running && o.startedAt
     ? Math.max(0, o.durationSec - (now - o.startedAt) / 1000)
     : o.remainingSec ?? o.durationSec;
   const finished = remaining <= 0 && o.running;
+
+  // R5: when the running timer reaches 0, persist running=false ONCE so
+  // the next reload doesn't see "running with negative remaining" (the
+  // display previously stayed red forever; the data model said running
+  // but the math said 0). Fire only when transitioning to finished
+  // (running + remaining<=0) to avoid an infinite mutation loop.
+  useEffect(() => {
+    if (finished) {
+      onMutate({ running: false, startedAt: undefined, remainingSec: 0 });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finished]);
 
   const onStart = () => {
     if (o.running) return;

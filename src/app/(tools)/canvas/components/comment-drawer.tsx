@@ -161,10 +161,18 @@ export function CommentDrawer({ thread, onClose }: Props) {
     if (!text) return;
     const now = new Date().toISOString();
     const mentions = resolveMentions(text, mentionMembers);
+    // R5: read the LIVE thread from the workspace store inside the
+    // handler. Previously the captured `thread` prop was used as the
+    // base of the upsert — if a peer had added a reply since this
+    // drawer mounted, the captured `thread.comments` was stale and
+    // the upsert OVERWROTE the entire array, silently dropping the
+    // peer's reply (whole-object LWW). Reading live + appending
+    // narrows the loss window to the patch-broadcast RTT.
+    const live = useWorkspaceStore.getState().whiteboardCommentThreads?.find((t) => t.id === thread.id) ?? thread;
     upsert({
-      ...thread,
+      ...live,
       comments: [
-        ...thread.comments,
+        ...live.comments,
         {
           id: wbId("c"),
           author, text, at: now,
@@ -214,7 +222,10 @@ export function CommentDrawer({ thread, onClose }: Props) {
   };
 
   const toggleResolved = () => {
-    upsert({ ...thread, resolved: !thread.resolved });
+    // R5: same LWW read-live pattern as sendReply — avoid clobbering
+    // peer-added comments that landed between mount and now.
+    const live = useWorkspaceStore.getState().whiteboardCommentThreads?.find((t) => t.id === thread.id) ?? thread;
+    upsert({ ...live, resolved: !live.resolved });
   };
 
   const deleteThread = () => {
