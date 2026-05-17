@@ -57,6 +57,16 @@ export function ImportModal({ boardId, onClose }: Props) {
   const allObjects = useWorkspaceStore((s) => s.whiteboardObjects);
   const { log } = useHistoryLogger("canvas");
 
+  // R10-deferred: filter to THIS board's objects so the importers'
+  // (tool, entityId) → existing-id reuse map only finds matches on
+  // the current board (not stickies for the same Story on a sibling
+  // board). This makes re-imports idempotent: re-running "Stories →
+  // Swimlane" upserts the existing stickies instead of stacking a
+  // second set.
+  const boardObjects = useMemo(
+    () => (allObjects ?? []).filter((o) => o.boardId === boardId),
+    [allObjects, boardId],
+  );
   const sources = useMemo(
     () => [
       {
@@ -64,24 +74,24 @@ export function ImportModal({ boardId, onClose }: Props) {
         label: "Stories → Swimlane",
         count: stories.length,
         description: "Drop all backlog stories onto a 5-stage swimlane (backlog · todo · in progress · review · done).",
-        run: () => importFromStories(boardId, stories),
+        run: () => importFromStories(boardId, stories, boardObjects),
       },
       {
         id: "risks" as const,
         label: "Risks → P × I Matrix",
         count: risks.length,
         description: "Plot every risk on a 5×5 probability × impact grid, colored by score band.",
-        run: () => importFromRisks(boardId, risks),
+        run: () => importFromRisks(boardId, risks, boardObjects),
       },
       {
         id: "okrs" as const,
         label: "OKRs → Tree",
         count: okrs.length,
         description: "Lay out each Objective with its Key Results as a downward tree, connected by orthogonal arrows.",
-        run: () => importFromOkrs(boardId, okrs),
+        run: () => importFromOkrs(boardId, okrs, boardObjects),
       },
     ],
-    [boardId, stories, risks, okrs],
+    [boardId, stories, risks, okrs, boardObjects],
   );
 
   // Jira CSV paste import (Phase 30). The user pastes the export from
@@ -146,7 +156,7 @@ export function ImportModal({ boardId, onClose }: Props) {
     if (text.length === 0) return;
     const { issues } = parseJiraCsv(text);
     if (issues.length === 0) return;
-    const seeded = issuesToCards(boardId, issues);
+    const seeded = issuesToCards(boardId, issues, boardObjects);
     let zBase = 0;
     for (const o of (allObjects ?? [])) {
       if (o.boardId === boardId && o.z > zBase) zBase = o.z;

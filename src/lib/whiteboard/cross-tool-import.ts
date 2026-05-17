@@ -132,9 +132,41 @@ export function importFromRetro(
  * none are silently dropped — previously a typo in the source data or a
  * new status value would vanish into a never-rendered bucket.
  */
-export function importFromStories(boardId: string, stories: readonly Story[]): WhiteboardObject[] {
+/**
+ * Build a fast (tool, entityId) → existing-id lookup so repeated imports
+ * can REUSE the existing sticky/card id rather than minting fresh ids
+ * (which previously stacked a second set of stickies on every re-import,
+ * leaving 2×, 3×, … the originals).
+ *
+ * Pass the current board's whiteboardObjects in via `existing`.
+ */
+function buildReuseMap(
+  existing: readonly WhiteboardObject[] | undefined,
+  tool: string,
+): Map<string, string> {
+  const m = new Map<string, string>();
+  if (!existing) return m;
+  for (const o of existing) {
+    if (o.sourceRef?.tool === tool && o.sourceRef.entityId) {
+      m.set(o.sourceRef.entityId, o.id);
+    }
+  }
+  return m;
+}
+
+export function importFromStories(
+  boardId: string,
+  stories: readonly Story[],
+  existing?: readonly WhiteboardObject[],
+): WhiteboardObject[] {
   const z = makeZ();
   const out: WhiteboardObject[] = [];
+  // R10-deferred: idempotent re-import — keyed by (tool="story", entityId=s.id).
+  // Existing stickies are upserted in place so positions / colors set
+  // by the importer change, but ids stay stable (so cross-tool sync,
+  // comments pinned to the sticky, undo-stack snapshots all survive
+  // a re-import).
+  const reuse = buildReuseMap(existing, "story");
   const stages: Story["status"][] = ["backlog", "todo", "in_progress", "review", "done"];
   const knownStages = new Set<string>(stages);
   const stageW = 240, stageH = 700;
@@ -168,12 +200,18 @@ export function importFromStories(boardId: string, stories: readonly Story[]): W
       // a description pasted into the wrong field) would otherwise be
       // imported locally but refused to replicate.
       const content = (s.title + (s.points ? ` · ${s.points}pt` : "")).slice(0, 50_000);
+      // R10-deferred: reuse existing id when present → upsert replaces
+      // the existing sticky instead of stacking a new one.
+      const reuseId = reuse.get(s.id);
       out.push({
-        id: id(), boardId, type: "sticky",
+        id: reuseId ?? id(),
+        boardId, type: "sticky",
         x: 80 + i * stageW + 16, y: 140 + j * 130,
         w: stageW - 48, h: 110, z: z(),
         content,
         color: STICKY_PALETTE[i % STICKY_PALETTE.length],
+        // When reusing, bump version so peer LWW accepts the update.
+        // When fresh, version 1.
         version: 1, updatedAt: now(), createdAt: now(),
         sourceRef: { tool: "story", entityId: s.id },
       });
@@ -187,9 +225,18 @@ export function importFromStories(boardId: string, stories: readonly Story[]): W
  * `risk-matrix` template so users can also start from the template and
  * import later.
  */
-export function importFromRisks(boardId: string, risks: readonly Risk[]): WhiteboardObject[] {
+export function importFromRisks(
+  boardId: string,
+  risks: readonly Risk[],
+  existing?: readonly WhiteboardObject[],
+): WhiteboardObject[] {
   const z = makeZ();
   const out: WhiteboardObject[] = [];
+  // R10-deferred: idempotent re-import — reuse sticky ids keyed by
+  // (tool="risk", entityId=r.id). The grid background rects don't
+  // carry a sourceRef so they're always regenerated; the user's
+  // expected idempotency target is the per-risk stickies.
+  const reuse = buildReuseMap(existing, "risk");
   const cell = 140;
   // Grid cells (same as risk-matrix template, but boardId attached).
   for (let p = 0; p < 5; p++) {
@@ -219,8 +266,10 @@ export function importFromRisks(boardId: string, risks: readonly Risk[]): Whiteb
     const iRaw = Number.isFinite(r.impact) ? r.impact as number : 3;
     const p = Math.max(1, Math.min(5, pRaw)) - 1;
     const i = 5 - Math.max(1, Math.min(5, iRaw));
+    const reuseId = reuse.get(r.id);
     out.push({
-      id: id(), boardId, type: "sticky",
+      id: reuseId ?? id(),
+      boardId, type: "sticky",
       x: 200 + p * cell + 8, y: 60 + i * cell + 8,
       w: cell - 20, h: cell - 20, z: z(),
       // Cap title — matches the importFromRetro/Stories truncation.
@@ -234,9 +283,17 @@ export function importFromRisks(boardId: string, risks: readonly Risk[]): Whiteb
 }
 
 /** Import OKRs as a tree: Objective at top, Key Results as children below. */
-export function importFromOkrs(boardId: string, okrs: readonly Okr[]): WhiteboardObject[] {
+export function importFromOkrs(
+  boardId: string,
+  okrs: readonly Okr[],
+  existing?: readonly WhiteboardObject[],
+): WhiteboardObject[] {
   const z = makeZ();
   const out: WhiteboardObject[] = [];
+  // R10-deferred: idempotent re-import. OKRs emit one sticky per
+  // Objective (entityId=o.id) AND one per KR (entityId=kr.id).
+  // Reuse map covers both since they share the tool="okr" namespace.
+  const reuse = buildReuseMap(existing, "okr");
   // Build node + parent maps for treeLayout.
   const nodes: { id: string; w: number; h: number }[] = [];
   const parents: Record<string, string | null> = {};
@@ -281,7 +338,12 @@ export function importFromOkrs(boardId: string, okrs: readonly Okr[]): Whiteboar
     const pos = layout[n.id];
     const isObjective = parents[n.id] === null;
     const parts = compositeToParts.get(n.id);
-    const stickyId = id();
+    // R10-deferred: idempotent — reuse existing sticky id when the
+    // sourceRef entity is already on the board. Composite-to-sticky
+    // map is rebuilt so connectors use the SAME ids whether
+    // fresh-imported or re-imported.
+    const entityId = parts?.krId ?? parts?.okrId ?? n.id;
+    const stickyId = reuse.get(entityId) ?? id();
     compositeToStickyId.set(n.id, stickyId);
     out.push({
       id: stickyId, boardId, type: "sticky",
@@ -290,12 +352,9 @@ export function importFromOkrs(boardId: string, okrs: readonly Okr[]): Whiteboar
       color: isObjective ? "#a5f3fc" : "#bef264",
       fontSize: isObjective ? 16 : 14,
       version: 1, updatedAt: now(), createdAt: now(),
-      // For objectives entityId is o.id; for KRs entityId is kr.id
-      // (the original KR identifier), with the parent OKR id stashed
-      // alongside so a future round-trip can find the parent.
       sourceRef: {
         tool: "okr",
-        entityId: parts?.krId ?? parts?.okrId ?? n.id,
+        entityId,
       },
     });
   }

@@ -36,6 +36,69 @@ export function snapToGrid(p: Vec2, size = DEFAULT_GRID_SIZE): Vec2 {
 }
 
 /**
+ * Spatial-grid index over a static rect collection.
+ *
+ * R10-deferred: `snapToObjects` previously walked EVERY other object
+ * on every pointer-move during drag. At 1000 stickies × 18 testX/Y
+ * calls × 120Hz on high-refresh = ~2.16M ops/sec just for snap.
+ *
+ * Build this index once at drag-start (rects don't change during a
+ * drag), then query `nearby(dragRect, tol)` per pointer-move. The
+ * index buckets rects into a uniform grid and a candidate's rect
+ * needs to be within `(tol + maxObjectExtent)` of the drag rect to
+ * be a snap candidate at all. Bucketing collapses the per-tick
+ * candidate count from O(N) to O(local-density).
+ */
+export interface SpatialIndex {
+  /** Return rects whose center is within (tol + cell-extent) of the drag rect. */
+  nearby(drag: Rect, tol: number): Rect[];
+  /** Total rects indexed. */
+  size: number;
+}
+
+export function buildSpatialIndex(rects: readonly Rect[], cellSize = 200): SpatialIndex {
+  const buckets = new Map<string, Rect[]>();
+  const key = (cx: number, cy: number) => `${Math.floor(cx / cellSize)}:${Math.floor(cy / cellSize)}`;
+  for (const r of rects) {
+    // Skip rects with non-finite coords — they'd produce key="NaN:NaN"
+    // and bucket every other NaN rect together, defeating spatial cull.
+    if (!Number.isFinite(r.x) || !Number.isFinite(r.y) || !Number.isFinite(r.w) || !Number.isFinite(r.h)) continue;
+    const cx = r.x + r.w / 2;
+    const cy = r.y + r.h / 2;
+    const k = key(cx, cy);
+    const bucket = buckets.get(k);
+    if (bucket) bucket.push(r);
+    else buckets.set(k, [r]);
+  }
+  return {
+    nearby(drag, tol) {
+      // The candidate bucket span: the drag rect could snap against
+      // any rect whose center is within (tol + half-drag-extent +
+      // half-cell-extent) of the drag center. Walk the 3x3 (or wider)
+      // grid neighbourhood.
+      const dcx = drag.x + drag.w / 2;
+      const dcy = drag.y + drag.h / 2;
+      // Reach = tol + max(drag half-extent, cell half-extent) so
+      // edges align even if the drag rect is large.
+      const reach = tol + Math.max(drag.w, drag.h) / 2 + cellSize / 2;
+      const minX = Math.floor((dcx - reach) / cellSize);
+      const maxX = Math.floor((dcx + reach) / cellSize);
+      const minY = Math.floor((dcy - reach) / cellSize);
+      const maxY = Math.floor((dcy + reach) / cellSize);
+      const out: Rect[] = [];
+      for (let bx = minX; bx <= maxX; bx++) {
+        for (let by = minY; by <= maxY; by++) {
+          const bucket = buckets.get(`${bx}:${by}`);
+          if (bucket) for (const r of bucket) out.push(r);
+        }
+      }
+      return out;
+    },
+    size: rects.length,
+  };
+}
+
+/**
  * Compute alignment guides + a snapped rect for an object being dragged.
  *
  * `dragging` is the candidate next position. `others` are the rects to

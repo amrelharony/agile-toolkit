@@ -149,11 +149,27 @@ export function parseJiraCsv(text: string): JiraParseResult {
  * land above any prior content (combine with the import-modal
  * z-baseline offset).
  */
-export function issuesToCards(boardId: string, issues: readonly JiraIssue[]): WhiteboardObject[] {
+export function issuesToCards(
+  boardId: string,
+  issues: readonly JiraIssue[],
+  existing?: readonly WhiteboardObject[],
+): WhiteboardObject[] {
   if (issues.length === 0) return [];
   const out: WhiteboardObject[] = [];
   const id = () => wbId();
   const now = new Date().toISOString();
+  // R10-deferred: idempotent re-import — reuse card id when a card with
+  // matching (tool="jira", entityId=j.key) already exists on this
+  // board. Re-pasting the same CSV upserts instead of stacking
+  // duplicate cards.
+  const reuse = new Map<string, string>();
+  if (existing) {
+    for (const o of existing) {
+      if (o.sourceRef?.tool === "jira" && o.sourceRef.entityId) {
+        reuse.set(o.sourceRef.entityId, o.id);
+      }
+    }
+  }
 
   const cols: ("todo" | "in_progress" | "done")[] = ["todo", "in_progress", "done"];
   const COL_W = 240;
@@ -184,7 +200,7 @@ export function issuesToCards(boardId: string, issues: readonly JiraIssue[]): Wh
   cols.forEach((col, colIdx) => {
     buckets[col].forEach((j, rowIdx) => {
       const card: WhiteboardCard = {
-        id: id(),
+        id: reuse.get(j.key) ?? id(),
         boardId,
         type: "card",
         x: ORIGIN_X + colIdx * COL_W,

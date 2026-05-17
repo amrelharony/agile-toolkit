@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -13,6 +13,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { IMPEDIMENT_ACTIONS } from "@/lib/history/event-actions";
 import { withTimeTravel } from "@/lib/stores/with-time-travel";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
@@ -721,6 +722,55 @@ function ImpedimentCard({ impediment }: { impediment: Impediment }) {
 
 export function ImpedimentsClient() {
   const { impediments, reset } = useImpedimentStore();
+
+  // R10-deferred: dual-store bridge. Impediments tool was an island —
+  // raising one never fired `impediment.raised` (signal-bridge watches
+  // workspace.impediments, and nothing was writing there). After this
+  // bridge, signal-bus consumers (insights-engine, anti-pattern
+  // detector, dashboards) all wake up on every change.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sevMap: Record<Severity, "low" | "medium" | "high" | "critical"> = {
+      Low: "low", Medium: "medium", High: "high", Critical: "critical",
+    };
+    const sync = (snapshot: Impediment[]) => {
+      const workspace = useWorkspaceStore.getState();
+      const wsItems = workspace.impediments ?? [];
+      const wsById = new Map(wsItems.map((i) => [i.id, i]));
+      const localById = new Map(snapshot.map((i) => [i.id, i]));
+      for (const local of snapshot) {
+        const existing = wsById.get(local.id);
+        const next = {
+          id: local.id,
+          title: local.title,
+          severity: sevMap[local.severity],
+          raisedAt: local.raisedDate,
+          resolvedAt: local.resolvedDate,
+          owner: local.assignedTo || undefined,
+          source: "manual" as const,
+        };
+        if (
+          existing &&
+          existing.title === next.title &&
+          existing.severity === next.severity &&
+          existing.raisedAt === next.raisedAt &&
+          existing.resolvedAt === next.resolvedAt &&
+          existing.owner === next.owner
+        ) continue;
+        workspace.upsertImpediment(next);
+      }
+      // Remove workspace rows we previously owned but the user deleted.
+      for (const ws of wsItems) {
+        if (!localById.has(ws.id) && ws.id.startsWith("imp_")) {
+          workspace.removeImpediment(ws.id);
+        }
+      }
+    };
+    sync(impediments);
+    const unsub = useImpedimentStore.subscribe((state) => sync(state.impediments));
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Filters
   const [filterStatus, setFilterStatus] = useState<Status | "All">("All");

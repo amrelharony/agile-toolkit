@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   ComposedChart,
   Bar,
@@ -251,6 +252,71 @@ export function VelocityClient() {
     reset: resetRaw,
   } = useVelocityStore();
   const { log } = useHistoryLogger("velocity");
+
+  // R10-deferred: dual-store bridge. Velocity's local persisted store is
+  // its source of truth, but cross-tool consumers (capacity-planner,
+  // anti-pattern detectors, signal-bridge, dashboards) read from
+  // `useWorkspaceStore.sprints`. Without this bridge:
+  //   - signal-bridge never fires `sprint.completed` / `velocity.changed`
+  //   - capacity-planner's velocity history is permanently empty
+  //   - anti-pattern detector ignores velocity drops
+  //
+  // Strategy: on every velocity-store change, diff against the
+  // workspace and upsert/remove to converge. We only emit sprints
+  // that have at least one of (completed > 0, committed > 0) so the
+  // initial default 3-sprint seed (all zeros) doesn't pollute the
+  // workspace with empty rows.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sync = (snapshot: typeof sprints) => {
+      const workspace = useWorkspaceStore.getState();
+      const wsSprints = workspace.sprints ?? [];
+      const wsById = new Map(wsSprints.map((s) => [s.id, s]));
+      const localById = new Map(snapshot.map((s) => [s.id, s]));
+      // Upsert active velocity rows into workspace.
+      for (const local of snapshot) {
+        if (local.committed === 0 && local.completed === 0) continue;
+        const existing = wsById.get(local.id);
+        const status: "active" | "completed" | "planned" =
+          local.completed > 0 ? "completed" : "planned";
+        const next = {
+          id: local.id,
+          name: local.name,
+          startDate: existing?.startDate ?? "",
+          endDate: existing?.endDate ?? "",
+          goal: existing?.goal ?? local.description,
+          pointsPlanned: local.committed,
+          pointsCompleted: local.completed,
+          status,
+        } as const;
+        // Skip the upsert when nothing meaningful has changed — avoids
+        // an infinite subscribe → diff → setState → subscribe loop.
+        if (
+          existing &&
+          existing.name === next.name &&
+          existing.pointsPlanned === next.pointsPlanned &&
+          existing.pointsCompleted === next.pointsCompleted &&
+          existing.status === next.status
+        ) continue;
+        workspace.upsertSprint(next);
+      }
+      // Remove workspace sprints that velocity no longer owns. Only
+      // touch rows whose id is in our local set OR was previously
+      // pushed by us (heuristic: velocity sprint ids start with "spr_"
+      // from buildDefaultSprints + createSprint).
+      for (const ws of wsSprints) {
+        if (!localById.has(ws.id) && ws.id.startsWith("spr_")) {
+          workspace.removeSprint(ws.id);
+        }
+      }
+    };
+    // Initial sync.
+    sync(sprints);
+    // Subscribe for future writes.
+    const unsub = useVelocityStore.subscribe((state) => sync(state.sprints));
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const addSprint = () => {
     addSprintRaw();

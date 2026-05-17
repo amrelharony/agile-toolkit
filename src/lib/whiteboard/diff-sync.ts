@@ -73,6 +73,78 @@ export function computePatch(
 }
 
 /**
+ * Stateful Differ — keeps a long-lived `prevById` Map across calls so
+ * we don't rebuild it from the full local array on every patch.
+ *
+ * R10-deferred: the previous `computePatch(prev, next, by)` rebuilt
+ * BOTH maps from scratch on every call. At 60fps drag broadcasts
+ * over a 1000-object board, that's ~120k Map allocations per second
+ * just to compute the diff. The stateful differ amortises this:
+ * after the first call (initial baseline), each subsequent call
+ * iterates only `next` and the running prev map, then mutates the
+ * stored map to the new baseline.
+ *
+ * Usage in use-canvas-room.ts:
+ *
+ *   const differRef = useRef(createDiffer());
+ *   const patch = differRef.current.diff(currentObjects, userId);
+ *   if (!patch.empty) broadcast(patch.value);
+ *
+ * The first call sees an empty prev → everything is "upserted" once;
+ * subsequent calls send only deltas.
+ */
+export interface Differ {
+  /**
+   * Compute the patch from the last-seen state to `next`. Returns
+   * `{ empty: true }` when nothing changed (avoids broadcasting a no-op
+   * patch that just stamps `at` and `by`). Otherwise advances the
+   * internal baseline to `next` automatically.
+   */
+  diff(next: readonly WhiteboardObject[], by: string): { empty: true } | { empty: false; value: WhiteboardPatch };
+  /** Reset the baseline — call on boardId change so the new board's
+   *  initial state isn't diffed against the old board's. */
+  reset(initial?: readonly WhiteboardObject[]): void;
+  /** Read-only view for debugging / heartbeat sampling. */
+  size(): number;
+}
+
+export function createDiffer(initial: readonly WhiteboardObject[] = []): Differ {
+  let prevById = new Map(initial.map((o) => [o.id, o]));
+  return {
+    diff(next, by) {
+      const upserted: WhiteboardObject[] = [];
+      const removed: string[] = [];
+      const nextIds = new Set<string>();
+      for (const o of next) {
+        nextIds.add(o.id);
+        const before = prevById.get(o.id);
+        if (!before || before.version !== o.version) upserted.push(o);
+      }
+      // Walk the smaller side; with mostly-stable IDs `prevById.size`
+      // is approximately `next.length`, so iterating prevById and
+      // checking nextIds keeps the hot path linear in the actual
+      // mutation count rather than the board size.
+      for (const id of Array.from(prevById.keys())) {
+        if (!nextIds.has(id)) removed.push(id);
+      }
+      if (upserted.length === 0 && removed.length === 0) return { empty: true };
+      // Advance the baseline. We rebuild the map from `next` (rather
+      // than mutating prevById incrementally) so the snapshot exactly
+      // matches the array the caller passed in — preventing drift if
+      // the caller mutates the array between calls.
+      prevById = new Map(next.map((o) => [o.id, o]));
+      return { empty: false, value: { upserted, removed, by, at: new Date().toISOString() } };
+    },
+    reset(initial) {
+      prevById = new Map((initial ?? []).map((o) => [o.id, o]));
+    },
+    size() {
+      return prevById.size;
+    },
+  };
+}
+
+/**
  * Apply an incoming patch against a current local list. Returns the merged
  * list. Objects with an older or equal version than the local copy are
  * discarded — LWW.
