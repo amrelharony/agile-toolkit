@@ -96,14 +96,30 @@ export function rank<T>(items: ScoredItem<T>[]): RankedItem<T>[] {
     return a._i - b._i;
   });
   const n = indexed.length;
+  // R8: use DENSE RANK so tied items get the SAME rank + percentile.
+  // Previously two items tied at the top got rank 1 and 2, percentile
+  // 1.0 and 0.5 — same score, different stats. That broke "top decile"
+  // exports + caused render flicker as tied items swapped positions.
+  let denseRank = 0;
+  let prevScore: number | undefined;
+  const ranks: number[] = [];
+  for (let i = 0; i < indexed.length; i++) {
+    if (prevScore === undefined || indexed[i].score !== prevScore) {
+      denseRank++;
+      prevScore = indexed[i].score;
+    }
+    ranks.push(denseRank);
+  }
+  const maxRank = denseRank || 1;
   return indexed.map((it, idx) => ({
     id: it.id,
     title: it.title,
     fields: it.fields,
     score: it.score,
-    rank: idx + 1,
-    // n=1 → percentile 1; otherwise scale so top=1, bottom=1/n.
-    percentile: n === 1 ? 1 : 1 - idx / n,
+    rank: ranks[idx],
+    // Use the dense rank as the percentile source so ties get the same
+    // percentile (1 = top). n=1 → percentile 1.
+    percentile: n === 1 ? 1 : (maxRank - ranks[idx] + 1) / maxRank,
   }));
 }
 

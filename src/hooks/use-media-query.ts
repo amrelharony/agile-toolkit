@@ -14,8 +14,21 @@ export function useMediaQuery(query: string): boolean {
     const mql = window.matchMedia(query);
     setMatches(mql.matches);
     const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
+    // R8: Safari < 14 doesn't support `addEventListener` on
+    // MediaQueryList — it throws `TypeError: undefined is not a
+    // function`. Feature-detect and fall back to the legacy
+    // `addListener` / `removeListener` API.
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", handler);
+      return () => mql.removeEventListener("change", handler);
+    }
+    // Legacy Safari path.
+    const legacy = mql as MediaQueryList & {
+      addListener?: (h: (e: MediaQueryListEvent) => void) => void;
+      removeListener?: (h: (e: MediaQueryListEvent) => void) => void;
+    };
+    legacy.addListener?.(handler);
+    return () => legacy.removeListener?.(handler);
   }, [query]);
 
   return matches;

@@ -30,18 +30,31 @@ export interface CrossCorrSummary {
  * worth surfacing as moderate-strength annotations.
  */
 export function crossCorrelation(a: number[], b: number[], maxLag = 7): CrossCorrSummary {
+  // R8: cap maxLag so the per-lag overlap never collapses below n=3.
+  // Without this, with a.length=5 and maxLag=7, lags ±5..7 had overlap
+  // 0..2 and returned r=0 — those zeros polluted the `bestR` selection.
+  const safeMaxLag = Math.min(maxLag, Math.floor(Math.min(a.length, b.length) / 2));
   const out: LaggedCorrelation[] = [];
-  for (let lag = -maxLag; lag <= maxLag; lag++) {
+  for (let lag = -safeMaxLag; lag <= safeMaxLag; lag++) {
     out.push(correlationAtLag(a, b, lag));
   }
-  let best = out[0];
-  for (const c of out) {
+  // R8: filter out lags where correlation was undefined (NaN) before
+  // picking the best — without this, NaN comparisons could leak into
+  // `Math.abs(NaN)` and the tie-break logic.
+  const defined = out.filter((c) => Number.isFinite(c.r));
+  if (defined.length === 0) {
+    return { bestLag: 0, bestR: 0, byLag: out, strength: "weak" };
+  }
+  let best = defined[0];
+  for (const c of defined) {
     if (Math.abs(c.r) > Math.abs(best.r) || (Math.abs(c.r) === Math.abs(best.r) && Math.abs(c.lag) < Math.abs(best.lag))) {
       best = c;
     }
   }
   const absR = Math.abs(best.r);
-  const strength = absR >= 0.7 ? "strong" : absR >= 0.5 ? "moderate" : "weak";
+  // R8: a 3-sample r=0.6 is meaningless noise. Require n>=6 before
+  // upgrading the strength label beyond "weak".
+  const strength = best.n >= 6 && absR >= 0.7 ? "strong" : best.n >= 6 && absR >= 0.5 ? "moderate" : "weak";
   return { bestLag: best.lag, bestR: best.r, byLag: out, strength };
 }
 
@@ -57,12 +70,14 @@ function correlationAtLag(a: number[], b: number[], lag: number): LaggedCorrelat
     }
   }
   const n = aSlice.length;
-  if (n < 3) return { lag, r: 0, n };
+  // R8: return NaN (not 0) for undefined cases. r=0 was indistinguishable
+  // from "genuinely zero correlation" and polluted strength labelling.
+  if (n < 3) return { lag, r: NaN, n };
   const meanA = mean(aSlice);
   const meanB = mean(bSlice);
   const sdA = stdDev(aSlice);
   const sdB = stdDev(bSlice);
-  if (sdA === 0 || sdB === 0) return { lag, r: 0, n };
+  if (sdA === 0 || sdB === 0) return { lag, r: NaN, n };
   let cov = 0;
   for (let i = 0; i < n; i++) cov += (aSlice[i] - meanA) * (bSlice[i] - meanB);
   cov /= n - 1;

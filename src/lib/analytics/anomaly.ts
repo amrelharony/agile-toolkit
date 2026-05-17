@@ -20,7 +20,12 @@ export function stdDev(series: number[]): number {
 
 export function quantile(sortedSeries: number[], q: number): number {
   if (sortedSeries.length === 0) return 0;
-  const pos = (sortedSeries.length - 1) * q;
+  // R8: clamp q to [0,1]. A caller passing q<0 indexed sorted[NaN] →
+  // undefined → NaN propagated downstream silently. q>1 indexed past
+  // the end and returned `undefined`. Both produced sticky NaN bugs in
+  // forecasts and CI bands.
+  const clamped = Math.max(0, Math.min(1, Number.isFinite(q) ? q : 0));
+  const pos = (sortedSeries.length - 1) * clamped;
   const base = Math.floor(pos);
   const rest = pos - base;
   if (base + 1 < sortedSeries.length) {

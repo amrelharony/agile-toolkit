@@ -26,6 +26,18 @@
 
 import { createJSONStorage } from "zustand/middleware";
 
+// R8: log every blocked-storage warning AT MOST ONCE per label. iOS
+// Safari Private Browsing throws on every read/write, and zustand's
+// persist re-reads on every subscribe → previously flooded the console
+// with thousands of warnings per page load.
+const warnedLabels = new Set<string>();
+function warnOnce(label: string, msg: string, err: unknown): void {
+  if (warnedLabels.has(label)) return;
+  warnedLabels.add(label);
+  // eslint-disable-next-line no-console
+  console.warn(`[${label}] ${msg}`, err);
+}
+
 export function safeJSONStorage(label: string) {
   return createJSONStorage(() => {
     if (typeof window === "undefined") {
@@ -36,8 +48,7 @@ export function safeJSONStorage(label: string) {
         try {
           return localStorage.getItem(k);
         } catch (err) {
-          // eslint-disable-next-line no-console
-          console.warn(`[${label}] localStorage.getItem blocked — starting with defaults.`, err);
+          warnOnce(label, "localStorage.getItem blocked — starting with defaults.", err);
           return null;
         }
       },
@@ -45,16 +56,14 @@ export function safeJSONStorage(label: string) {
         try {
           localStorage.setItem(k, v);
         } catch (err) {
-          // eslint-disable-next-line no-console
-          console.warn(`[${label}] localStorage write failed (quota / private mode) — state held in memory only.`, err);
+          warnOnce(label, "localStorage write failed (quota / private mode) — state held in memory only.", err);
         }
       },
       removeItem: (k: string) => {
         try {
           localStorage.removeItem(k);
         } catch (err) {
-          // eslint-disable-next-line no-console
-          console.warn(`[${label}] localStorage.removeItem blocked.`, err);
+          warnOnce(label, "localStorage.removeItem blocked.", err);
         }
       },
     };

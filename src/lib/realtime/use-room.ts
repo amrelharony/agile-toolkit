@@ -38,7 +38,22 @@ function getOrCreateUser(): { id: string; name: string } {
   const key = "agile-toolkit:user";
   try {
     const existing = localStorage.getItem(key);
-    if (existing) return JSON.parse(existing) as { id: string; name: string };
+    if (existing) {
+      // R8: validate parsed shape — the previous unconditional `as`
+      // cast let a tampered localStorage entry (e.g. `null`, an array,
+      // wrong field types) flow into presence broadcasts. Hostile-peer
+      // payloads then poisoned the presence-state map for every peer.
+      const parsed: unknown = JSON.parse(existing);
+      if (
+        parsed && typeof parsed === "object" &&
+        typeof (parsed as { id?: unknown }).id === "string" &&
+        typeof (parsed as { name?: unknown }).name === "string" &&
+        (parsed as { id: string }).id.length > 0 &&
+        (parsed as { name: string }).name.length > 0
+      ) {
+        return parsed as { id: string; name: string };
+      }
+    }
   } catch {
     /* fall through */
   }

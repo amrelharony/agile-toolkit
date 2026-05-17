@@ -87,7 +87,18 @@ export function runMonteCarlo({
   }
 
   results.sort((a, b) => a - b);
-  const pick = (pct: number) => results[Math.min(Math.floor((pct / 100) * iterations), iterations - 1)];
+  // R8: previously used floor-index → P95 of 10000 iters returned
+  // results[9500], which is actually the 95.01-percentile. Linear-
+  // interpolated quantile gives the published value. The off-by-one
+  // upward bias added a fake ~0.01% to every percentile we report.
+  const pick = (pct: number) => {
+    const pos = (results.length - 1) * (pct / 100);
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    return base + 1 < results.length
+      ? results[base] + rest * (results[base + 1] - results[base])
+      : results[base];
+  };
 
   const percentiles: Record<number, number> = {
     5: pick(5),

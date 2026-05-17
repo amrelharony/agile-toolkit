@@ -62,9 +62,17 @@ export function boardInsights(objects: readonly WhiteboardObject[]): BoardInsigh
   }
 
   // --- Outlier sizes: object area >> median ---
-  const areas = objects.map((o) => o.w * o.h).sort((a, b) => a - b);
+  // R8: previously included connectors / lines (w=h=0) → median skewed
+  // toward 0 → outlier detector flagged every visible object. Filter to
+  // kinds with meaningful bounding boxes.
+  const SIZED_KINDS = new Set(["sticky", "rect", "ellipse", "triangle", "diamond", "frame", "image", "card", "text"]);
+  const areas = objects.filter((o) => SIZED_KINDS.has(o.type)).map((o) => o.w * o.h).sort((a, b) => a - b);
   if (areas.length >= 5) {
-    const median = areas[Math.floor(areas.length / 2)];
+    // R8: proper median for even-n via the average of the two middle
+    // samples. The previous Math.floor(n/2) biased high for even n.
+    const median = areas.length % 2 === 0
+      ? (areas[areas.length / 2 - 1] + areas[areas.length / 2]) / 2
+      : areas[Math.floor(areas.length / 2)];
     // Guard the degenerate median=0 case (every object is a zero-area
     // placeholder e.g. degenerate freehand). Without this guard, any
     // non-zero object trips `area > 0 * mult = 0` and the rule flags

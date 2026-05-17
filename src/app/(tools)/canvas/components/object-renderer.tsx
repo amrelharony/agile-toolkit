@@ -70,9 +70,24 @@ function InlineEditor({
     <textarea
       ref={ref}
       defaultValue={initialText}
-      onChange={(e) => { valueRef.current = e.target.value; }}
+      // R8: skip writing the ref while an IME composition is in flight.
+      // Android Chrome / iOS Safari fire `onChange` with INTERMEDIATE
+      // composed glyph state (half-typed Hangul/Pinyin/Japanese chars).
+      // Persisting mid-composition causes Backspace to delete the
+      // wrong glyph and the IME to drop the candidate menu.
+      onChange={(e) => {
+        const native = e.nativeEvent as InputEvent;
+        if (native && native.isComposing) return;
+        valueRef.current = e.target.value;
+      }}
+      onCompositionEnd={(e) => { valueRef.current = (e.target as HTMLTextAreaElement).value; }}
       onBlur={() => onCommit(valueRef.current)}
       onKeyDown={(e) => {
+        // R8: skip Enter-commits during IME composition — Enter is
+        // supposed to CONFIRM the composed candidate, not submit.
+        // `isComposing` works modern; `keyCode === 229` is the older
+        // Safari/Edge signal.
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
         // Enter (without Shift) commits; Shift+Enter inserts a newline.
         // Esc also commits — discarding what the user typed feels
         // hostile and there's no undo from inside the textarea.

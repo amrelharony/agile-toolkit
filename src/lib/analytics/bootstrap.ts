@@ -41,18 +41,22 @@ export function bootstrapCI(
   confidence = 0.95,
   seed = 12345
 ): BootstrapCI {
-  // Floor at 200. Below this the percentile bounds are visibly jagged
-  // (each iteration moves the lower/upper quantile by ~0.5% of the
-  // distribution) and the CI flickers between renders for the same data.
-  // bootstrapMean and bootstrapQuantile route through this function so
-  // they inherit the floor automatically.
-  iterations = Math.max(iterations, 200);
+  // R8: floor at 1000. The previous 200-rep floor produced 2.5%/97.5%
+  // quantiles at indices stats[5]/stats[195] — each end was a single
+  // bootstrap sample so the CI bounds flickered by ~5% of the data
+  // range across renders. Efron & Tibshirani's rule of thumb is ≥1000
+  // for percentile CIs.
+  iterations = Math.max(iterations, 1000);
   if (series.length === 0) {
     return { point: 0, lower: 0, upper: 0, confidence, iterations: 0 };
   }
   const point = statistic(series);
   if (series.length < 3) {
-    return { point, lower: point, upper: point, confidence, iterations: 0 };
+    // R8: previously returned a zero-width CI (lower=upper=point) which
+    // LIED about uncertainty — n=2 actually has enormous CIs. Return
+    // ±Infinity so consumers render "—" / "no CI" rather than a
+    // fake-precise band.
+    return { point, lower: -Infinity, upper: Infinity, confidence, iterations: 0 };
   }
   const rand = mulberry32(seed);
   const stats: number[] = new Array(iterations);

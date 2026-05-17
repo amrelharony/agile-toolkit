@@ -311,14 +311,33 @@ export function CommentDrawer({ thread, onClose }: Props) {
         />
         <textarea
           value={draft}
+          // R8: IME composition guard — Android/iOS Chinese/Japanese/
+          // Korean keyboards fire onChange mid-composition with the
+          // half-typed character. Persisting & re-reading the value
+          // mid-keystroke causes the IME to drop the candidate menu.
           onChange={(e) => {
+            const native = e.nativeEvent as InputEvent;
+            if (native && native.isComposing) {
+              setDraft(e.target.value);
+              return;
+            }
             const v = e.target.value;
             setDraft(v);
             if (typeof window !== "undefined") {
               try { window.sessionStorage.setItem(DRAFT_KEY(thread.id), v); } catch { /* noop */ }
             }
           }}
+          onCompositionEnd={(e) => {
+            const v = (e.target as HTMLTextAreaElement).value;
+            setDraft(v);
+            if (typeof window !== "undefined") {
+              try { window.sessionStorage.setItem(DRAFT_KEY(thread.id), v); } catch { /* noop */ }
+            }
+          }}
           onKeyDown={(e) => {
+            // R8: skip Cmd-Enter send during IME composition (Enter is
+            // supposed to confirm the composed candidate, not submit).
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
               sendReply();

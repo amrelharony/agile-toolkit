@@ -78,7 +78,15 @@ export function holtSmoothing(series: number[], alpha = 0.5, beta = 0.3): HoltFi
   if (series.length === 1) return { level: series[0], trend: 0, smoothed: [series[0]], residualStd: 0 };
 
   let level = series[0];
-  let trend = series[1] - series[0];
+  // R8: previously seeded `trend` from a single first-difference,
+  // which is highly sensitive to noise at index 0/1 — a single outlier
+  // at index 1 biased the early-period trend estimate dramatically.
+  // Hyndman/Athanasopoulos recommend the mean of the first k differences;
+  // use k=min(n-1, 3) to keep small-series behaviour reasonable.
+  const seedSteps = Math.min(series.length - 1, 3);
+  let diffSum = 0;
+  for (let i = 1; i <= seedSteps; i++) diffSum += series[i] - series[i - 1];
+  let trend = diffSum / seedSteps;
   const smoothed: number[] = [level];
   const residuals: number[] = [];
 

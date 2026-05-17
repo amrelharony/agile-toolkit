@@ -73,7 +73,21 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
     // (channel level) ≠ tracked `me.id` (payload level), breaking any
     // consumer that joins them. Generate the id ONCE per channel mount
     // and reuse for both.
-    const myId = self?.id ?? (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `anon_${Math.random().toString(36).slice(2)}`);
+    // R8: prefer crypto.randomUUID → crypto.getRandomValues (also
+     // available on Safari < 15.4) → Math.random as a last resort.
+     // The Math.random fallback alone collides among same-second
+     // joiners on Safari < 15.4.
+    const generateAnonId = (): string => {
+      const c = (typeof crypto !== "undefined" ? crypto : undefined);
+      if (c?.randomUUID) return c.randomUUID();
+      if (c?.getRandomValues) {
+        const bytes = new Uint8Array(16);
+        c.getRandomValues(bytes);
+        return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+      }
+      return `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+    };
+    const myId = self?.id ?? generateAnonId();
     const channel = supabase.channel(channelName, {
       config: { presence: { key: myId } },
     });

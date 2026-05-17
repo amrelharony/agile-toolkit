@@ -96,6 +96,13 @@ function vectorise(objects: readonly WhiteboardObject[]): { vectors: number[][];
     vocab.push(...singletons);
   }
   const vocabIdx = new Map(vocab.map((t, i) => [t, i] as const));
+  // R8: compute IDF per vocab term so rare-but-distinctive tokens
+  // dominate the vector (this is what makes it TF-IDF instead of plain
+  // TF). The previous code never multiplied by IDF, so all tokens were
+  // weighted equally — defeating the point of using vocabulary at all.
+  // IDF = log(N / df). Smoothed +1 to avoid log(0) when df hits N.
+  const N = docs.length;
+  const idf = vocab.map((t) => Math.log((N + 1) / ((df.get(t) ?? 1) + 1)) + 1);
   const vectors = docs.map((d) => {
     const v = new Array(vocab.length).fill(0);
     if (d.length === 0) return v;
@@ -103,10 +110,20 @@ function vectorise(objects: readonly WhiteboardObject[]): { vectors: number[][];
       const i = vocabIdx.get(t);
       if (i !== undefined) v[i] += 1;
     }
+    // Apply IDF weighting.
+    for (let i = 0; i < v.length; i++) v[i] *= idf[i];
     // L2 normalise so cosine similarity is dot-product.
     let mag = 0;
     for (const x of v) mag += x * x;
-    mag = Math.sqrt(mag) || 1;
+    if (mag === 0) {
+      // R8: zero-vector (object had no in-vocab tokens). Previously
+      // these were normalised by `|| 1` and silently clustered into
+      // centroid 0 — empty/numeric-only stickies all clumped together
+      // arbitrarily. Mark with a sentinel: leave as zero so the
+      // consumer can filter or bucket as "uncategorised".
+      return v;
+    }
+    mag = Math.sqrt(mag);
     for (let i = 0; i < v.length; i++) v[i] /= mag;
     return v;
   });

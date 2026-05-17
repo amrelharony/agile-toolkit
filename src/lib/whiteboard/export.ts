@@ -598,5 +598,10 @@ function triggerDownload(dataUrl: string, filename: string): void {
   const a = document.createElement("a");
   a.href = dataUrl;
   a.download = filename;
+  // R8: Firefox < 92 ignored `.click()` on a detached `<a>`, silently
+  // failing the download. Append to body, click, then remove — the
+  // standard cross-browser-safe pattern.
+  document.body.appendChild(a);
   a.click();
+  a.remove();
 }

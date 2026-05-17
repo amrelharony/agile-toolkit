@@ -59,15 +59,38 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
   }, [pathname]);
 
   // Lock body scroll while the mobile drawer is open.
+  // R8: iOS Safari < 16 IGNORES `overflow: hidden` on body when an
+  // inner scrollable child is touched — the page beneath still
+  // momentum-scrolls. The standard workaround is `position: fixed;
+  // top: -scrollY` and restore the scroll position on close. We
+  // also set `overscroll-behavior: contain` to suppress rubber-band
+  // on browsers that respect it.
   useEffect(() => {
     if (typeof document === "undefined") return;
-    if (mobileOpen) {
-      const prev = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-      return () => {
-        document.body.style.overflow = prev;
-      };
-    }
+    if (!mobileOpen) return;
+    const body = document.body;
+    const html = document.documentElement;
+    const prevOverflow = body.style.overflow;
+    const prevPosition = body.style.position;
+    const prevTop = body.style.top;
+    const prevWidth = body.style.width;
+    const prevOverscroll = html.style.overscrollBehavior;
+    const scrollY = window.scrollY;
+    body.style.overflow = "hidden";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+    html.style.overscrollBehavior = "contain";
+    return () => {
+      body.style.overflow = prevOverflow;
+      body.style.position = prevPosition;
+      body.style.top = prevTop;
+      body.style.width = prevWidth;
+      html.style.overscrollBehavior = prevOverscroll;
+      // Restore the user's scroll position — without this, the page
+      // jumps to the top on close.
+      window.scrollTo(0, scrollY);
+    };
   }, [mobileOpen]);
 
   // Escape key closes the mobile drawer.

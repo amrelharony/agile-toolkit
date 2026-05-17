@@ -94,11 +94,17 @@ export function fitToRects(
   let union = valid[0];
   for (let i = 1; i < valid.length; i++) union = rectUnion(union, valid[i]);
   if (union.w <= 0 || union.h <= 0) {
-    // Single point or zero-area union — center on it at 1×.
-    return centerOn({ x: 0, y: 0, zoom: 1 }, { x: union.x, y: union.y }, screenW, screenH);
+    // R8: previously snapped zoom to 1× on a single-point union, which
+    // SILENTLY reset the camera even when the user was at zoom=4. Return
+    // null so the caller keeps the current camera; presentation-mode
+    // / find-bar already handle null by leaving the camera untouched.
+    return null;
   }
-  const padW = union.w * padding;
-  const padH = union.h * padding;
+  // R8: floor pad at 20px (world units) so a pixel-perfect rect doesn't
+  // fill the entire viewport edge-to-edge. Without this, a 1-pixel rect
+  // computed `padW = 0.1px` → image cropped at the exact boundary.
+  const padW = Math.max(union.w * padding, 20);
+  const padH = Math.max(union.h * padding, 20);
   const targetW = union.w + padW * 2;
   const targetH = union.h + padH * 2;
   const zoom = clampZoom(Math.min(screenW / targetW, screenH / targetH));

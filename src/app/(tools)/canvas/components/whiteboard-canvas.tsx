@@ -1011,19 +1011,39 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   }, [selection, objectsById, upsertMany, readOnly, presentationFrameIndex]);
 
   // Zoom-to-cursor on wheel.
-  const onWheel = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
-      // Read from the cached rect for parity with `clientToWorld`.
+  // R8: React's synthetic wheel listener is PASSIVE in React 17+ so calling
+  // `e.preventDefault()` is a no-op and the browser still scrolls the page
+  // beneath the canvas (Firefox/Safari especially when canvas sits in a
+  // scrollable parent). Attach a native non-passive listener instead via
+  // the effect below so we can prevent default. Also normalises Firefox's
+  // line-mode (deltaMode=1) and page-mode (deltaMode=2) deltas — bare
+  // deltaY varies 1.5× across browsers, making zoom jumpy on Firefox.
+  const onWheel = useCallback(() => { /* handled natively below */ }, []);
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      if (presentationFrameIndex !== null) return;
+      // Only consume wheel when the pointer is over the canvas viewport.
+      e.preventDefault();
       const rect = viewportRectRef.current;
       if (!rect) return;
       const focal = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-      // Trackpad pinch sends ctrlKey+deltaY; mouse wheel sends bare deltaY.
-      // Both should zoom (Figma/Miro convention) — we don't distinguish.
-      const factor = Math.pow(1.0015, -e.deltaY);
+      // Normalise deltaMode: 0=pixel, 1=line (~16px each), 2=page.
+      const pxDelta = e.deltaMode === 1
+        ? e.deltaY * 16
+        : e.deltaMode === 2
+          ? e.deltaY * window.innerHeight
+          : e.deltaY;
+      // Clamp the per-event zoom factor so a runaway driver (some Linux
+      // trackpads emit deltaY > 2000) can't multiply zoom by 20× in one
+      // event. Final clamp still happens inside zoomAt via clampZoom.
+      const factor = Math.max(0.2, Math.min(5, Math.pow(1.0015, -pxDelta)));
       throttledSetCamera(zoomAt(camera, focal, camera.zoom * factor));
-    },
-    [camera, throttledSetCamera],
-  );
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, [camera, throttledSetCamera, presentationFrameIndex]);
 
   // Convert client pointer event to world coords.
   //
@@ -2478,6 +2498,8 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
     <div
       ref={viewportRef}
       className="relative h-full w-full overflow-hidden bg-bg select-none touch-none"
+      // R8: wheel handler is attached natively via useEffect (passive:false)
+      // so we can call preventDefault. React's synthetic onWheel is passive.
       onWheel={onWheel}
       onPointerDown={onCanvasPointerDown}
       onPointerMove={onCanvasPointerMove}
