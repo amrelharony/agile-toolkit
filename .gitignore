@@ -37,3 +37,8 @@ next-env.d.ts
 
 # claude code worktrees
 /.claude/worktrees/
+
+# local claude session artifacts (settings.local.json stays tracked)
+/.claude/launch.json
+/.claude/*.lock
+/.claude/round*-findings.md
