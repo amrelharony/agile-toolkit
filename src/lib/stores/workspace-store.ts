@@ -300,7 +300,39 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           ),
         };
       }),
-      upsertOkr: (o) => set({ okrs: replaceById(get().okrs, o) }),
+      // R10: KR-aware upsert. When an OKR is updated with a SHRUNK
+      // keyResults array (user removed a KR via okrs-client.tsx
+      // `removeKr` which calls upsertOkr with the trimmed list),
+      // cascade-clear any canvas sticky/card pinned to the removed
+      // KR ids. Previously upsertOkr was a plain replaceById and
+      // canvas stickies pointed at dead KR ids forever.
+      upsertOkr: (o) => set((s) => {
+        const prev = s.okrs.find((x) => x.id === o.id);
+        const next: Partial<Workspace> = {
+          okrs: replaceById(s.okrs, o),
+        };
+        if (prev) {
+          const nextKrIds = new Set(o.keyResults.map((k) => k.id));
+          const droppedKrIds = prev.keyResults
+            .map((k) => k.id)
+            .filter((id) => !nextKrIds.has(id));
+          if (droppedKrIds.length > 0) {
+            const dropped = new Set(droppedKrIds);
+            const isOrphan = (w: WhiteboardObject) =>
+              w.sourceRef?.tool === "okr" && dropped.has(w.sourceRef.entityId);
+            const affected = (s.whiteboardObjects ?? []).some(isOrphan);
+            if (affected) {
+              const now = new Date().toISOString();
+              next.whiteboardObjects = (s.whiteboardObjects ?? []).map((w) =>
+                isOrphan(w)
+                  ? { ...w, sourceRef: undefined, version: w.version + 1, updatedAt: now }
+                  : w,
+              );
+            }
+          }
+        }
+        return next;
+      }),
       removeOkr: (id) => set((s) => {
         // OKR import lays down a sticky per Objective (entityId = o.id)
         // AND a sticky per Key Result (entityId = kr.id). On removeOkr

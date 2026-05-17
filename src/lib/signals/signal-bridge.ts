@@ -111,7 +111,16 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
 
   // Impediments
   diffById(prev.impediments, next.impediments, (i) => i.id, {
-    onAdded: (i) => emit("impediment.raised", "workspace", { impedimentId: i.id, severity: i.severity }),
+    onAdded: (i) => {
+      // R10: if an impediment is imported already-resolved (rare via UI
+      // but possible via importJSON), the bridge previously fired only
+      // `raised` and never `resolved` — the resolved-state stayed
+      // invisible to consumers. Fire both so dashboards converge.
+      emit("impediment.raised", "workspace", { impedimentId: i.id, severity: i.severity });
+      if (i.resolvedAt) {
+        emit("impediment.resolved", "workspace", { impedimentId: i.id });
+      }
+    },
     onChanged: (before, after) => {
       if (!before.resolvedAt && after.resolvedAt) {
         emit("impediment.resolved", "workspace", { impedimentId: after.id });
@@ -126,8 +135,15 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
     // here, which JSON-stringified as null and silently broke any
     // subscriber that expected a number.
     onAdded: (r) => {
+      // R10: importing a CLOSED risk previously emitted a spurious
+      // `risk.opened` — dashboards counted it as fresh. Gate on
+      // open-state so closed/accepted imports stay quiet.
       const score = (r.probability ?? 0) * (r.impact ?? 0);
-      emit("risk.opened", "workspace", { riskId: r.id, score: Number.isFinite(score) ? score : 0 });
+      if (r.status === "open" || r.status === "mitigating") {
+        emit("risk.opened", "workspace", { riskId: r.id, score: Number.isFinite(score) ? score : 0 });
+      } else if (r.status === "closed") {
+        emit("risk.closed", "workspace", { riskId: r.id });
+      }
     },
     onChanged: (before, after) => {
       if (before.status !== "closed" && after.status === "closed") {
@@ -142,7 +158,11 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
       const beforeKrs = new Map(before.keyResults.map((k) => [k.id, k]));
       for (const kr of after.keyResults) {
         const b = beforeKrs.get(kr.id);
-        if (b && (b.current !== kr.current || b.target !== kr.target)) {
+        if (!b) continue;
+        // R10: emit on TITLE change too — was previously gated on
+        // current/target only, so renaming a KR left the canvas
+        // sticky/card showing the old title.
+        if (b.current !== kr.current || b.target !== kr.target || b.title !== kr.title) {
           emit("okr.kr.updated", "workspace", { okrId: after.id, krId: kr.id, current: kr.current, target: kr.target });
         }
       }
@@ -162,6 +182,15 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
   // Decisions
   diffById(prev.decisions, next.decisions, (d) => d.id, {
     onAdded: (d) => emit("decision.recorded", "workspace", { decisionId: d.id, status: d.status }),
+    // R10: emit on status flip too. A proposed → accepted transition is
+    // the actual "decision made" event most consumers care about;
+    // without this branch dashboards/cache invalidators only saw the
+    // initial draft creation and stayed stale through approval.
+    onChanged: (before, after) => {
+      if (before.status !== after.status) {
+        emit("decision.recorded", "workspace", { decisionId: after.id, status: after.status });
+      }
+    },
   });
 
   // Stories: status changes
@@ -169,6 +198,18 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
     onChanged: (before, after) => {
       if (before.status !== after.status) {
         emit("story.statusChanged", "workspace", { storyId: after.id, from: before.status, to: after.status });
+      }
+      // R10: also notify on title/points change so canvas card sync
+      // refreshes the sticky/card text — previously only status
+      // changes propagated, so renames left the canvas stale.
+      if (before.title !== after.title || before.points !== after.points) {
+        emit("story.statusChanged", "workspace", {
+          storyId: after.id,
+          from: after.status,
+          to: after.status,
+          titleChanged: before.title !== after.title,
+          pointsChanged: before.points !== after.points,
+        });
       }
     },
   });

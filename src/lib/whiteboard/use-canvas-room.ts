@@ -285,6 +285,13 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
       const patch = raw;
       const me = roomRef.current.userId;
       if (patch.by === me) return;
+      // R10: if the local user (or a peer) deleted this board, drop
+      // inbound patches for it. Without this, a still-alive peer
+      // patch could re-upsert objects whose board no longer exists,
+      // partially undoing the deletion and leaving zombie objects
+      // with dead boardId.
+      const liveBoards = useWorkspaceStore.getState().whiteboards ?? [];
+      if (!liveBoards.some((b) => b.id === boardId)) return;
       // Filter to objects belonging to *this* board.
       const upserted = patch.upserted.filter((o) => o.boardId === boardId);
       const removed = patch.removed;

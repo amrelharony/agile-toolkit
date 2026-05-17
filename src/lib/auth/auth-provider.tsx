@@ -166,8 +166,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     if (!supabase) return;
-    await supabase.auth.signOut();
-    setRolePickerOpen(false);
+    // R10: wrap in try/finally — a failing `signOut()` (network down,
+    // token-revoke 500) previously left `rolePickerOpen` true forever,
+    // freezing the dropdown in a "signing out" limbo. Always close the
+    // picker; surface the error via setState so the UI can show it.
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setState((s) => ({ ...s, error: msg }));
+    } finally {
+      setRolePickerOpen(false);
+    }
   }, [supabase]);
 
   const updateProfile = useCallback(

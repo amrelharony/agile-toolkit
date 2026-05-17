@@ -170,6 +170,11 @@ export function CanvasClient() {
     [boards, activeBoardId],
   );
 
+  // R10: drop the `o.type === "card"` filter — `importFromStories` in
+  // cross-tool-import.ts emits STICKIES (not cards) with
+  // `sourceRef.tool: "story"`. The previous filter missed sticky
+  // updates when a backlog story was renamed, so the canvas kept
+  // showing the stale title. Both types are now refreshed.
   // ─── Card ↔ Story bidirectional sync (Phase 26) ──────────────────────
   // When a Story changes in another tool (status / title / points),
   // sync the change down to any Card on the canvas whose sourceRef
@@ -180,7 +185,23 @@ export function CanvasClient() {
   useEffect(() => {
     if (!hydrated) return;
     const unsub = subscribeSignals(
-      ["story.statusChanged", "risk.opened", "okr.kr.updated", "decision.recorded"],
+      // R10: extended kinds — risk.closed AND the four DACI/RAPID/
+      // weighted/cynefin/stacey/polarity flavours; previously, closing
+      // a risk or making a decision via any of those tools left the
+      // canvas card showing the old title/status indefinitely.
+      [
+        "story.statusChanged",
+        "risk.opened",
+        "risk.closed",
+        "okr.kr.updated",
+        "decision.recorded",
+        "decision.daciCreated",
+        "decision.rapidCreated",
+        "decision.weightedScored",
+        "decision.cynefinClassified",
+        "decision.staceyClassified",
+        "decision.polarityMapped",
+      ],
       (signal) => {
         try {
           // Each signal kind carries its id under a different field
@@ -215,10 +236,32 @@ export function CanvasClient() {
 
           // Helper — filter cards whose sourceRef points at a given
           // entity. Inline to avoid closing over stale state.
+          //
+          // R10: importFromStories/Risks/Okrs/Decisions all emit
+          // STICKIES with `sourceRef`, NOT cards. The previous
+          // `o.type === "card"` gate meant updates to imported
+          // stickies never propagated. We still narrow to `card`
+          // here because the card-specific spreads below assume
+          // card fields (title/points/status). For stickies we
+          // add a parallel updater.
           const cardsFor = (entityId: string): WhiteboardCard[] =>
             (state.whiteboardObjects ?? []).filter((o): o is WhiteboardCard =>
               o.type === "card" && o.sourceRef?.entityId === entityId,
             );
+          // R10: sticky updater — content lives in `content` on
+          // WhiteboardSticky. Syncs the displayed text only (stickies
+          // have no points/status fields).
+          const updateStickyContent = (entityId: string, newContent: string) => {
+            for (const s of (state.whiteboardObjects ?? [])) {
+              if (s.type !== "sticky" || s.sourceRef?.entityId !== entityId) continue;
+              updates.push({
+                ...s,
+                content: newContent,
+                version: s.version + 1,
+                updatedAt: now,
+              });
+            }
+          };
 
           if (signal.kind === "story.statusChanged") {
             const id = payload.storyId ?? payload.entityId ?? payload.id;
@@ -235,7 +278,13 @@ export function CanvasClient() {
                 updatedAt: now,
               });
             }
-          } else if (signal.kind === "risk.opened") {
+            // R10: also refresh stickies (imported via importFromStories
+            // with tool="story"). Display the same title + optional pts.
+            const stickyText = story.points != null
+              ? `${story.title} · ${story.points}pt`
+              : story.title;
+            updateStickyContent(id, stickyText);
+          } else if (signal.kind === "risk.opened" || signal.kind === "risk.closed") {
             const id = payload.riskId ?? payload.entityId ?? payload.id;
             if (!id) return;
             const risk = state.risks.find((r) => r.id === id);
@@ -248,6 +297,7 @@ export function CanvasClient() {
                 updatedAt: now,
               });
             }
+            updateStickyContent(id, risk.title);
           } else if (signal.kind === "okr.kr.updated") {
             // Cards link to KRs by KR id (not the parent OKR id),
             // so match `krId` first, not `okrId`.

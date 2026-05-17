@@ -49,14 +49,17 @@ interface StatCardProps {
 
 const TONE_CARD_CLASS: Record<NonNullable<StatCardProps["tone"]>, string> = {
   default: "bg-surface border-border",
-  danger: "bg-danger/5 border-danger/40",
+  // R10: `danger` is not a defined Tailwind color → these classes
+  // resolved to nothing and danger-tone stat cards had NO tint.
+  // `destructive` is the shadcn-mapped, theme-aware token.
+  danger: "bg-destructive/5 border-destructive/40",
   warning: "bg-amber-500/5 border-amber-500/40",
   success: "bg-emerald-500/5 border-emerald-500/40",
 };
 
 const TONE_VALUE_CLASS: Record<NonNullable<StatCardProps["tone"]>, string> = {
   default: "",
-  danger: "text-danger",
+  danger: "text-destructive",
   warning: "text-amber-300",
   success: "text-emerald-300",
 };

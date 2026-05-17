@@ -221,6 +221,15 @@ export function TechDebtClient() {
   const remove = (id: string) => {
     const item = items.find((x) => x.id === id);
     setItems((s) => s.filter((x) => x.id !== id));
+    // R10: mirror to workspace store so the item disappears for any
+    // downstream consumer (dashboards, anti-pattern detectors, canvas
+    // stickies via the workspace cascade). Previously local-only,
+    // leaving a zombie in `workspace.techDebt` after push.
+    try {
+      useWorkspaceStore.getState().removeTechDebt(id);
+    } catch {
+      /* workspace store may be unavailable in tests */
+    }
     log(TECH_DEBT_ACTIONS.ITEM_REMOVED, { itemId: id, title: item?.title });
   };
 

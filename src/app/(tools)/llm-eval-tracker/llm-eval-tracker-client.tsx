@@ -287,7 +287,12 @@ export function LLMEvalTrackerClient() {
                       stroke={COLORS[i % COLORS.length]}
                       strokeWidth={2}
                       dot={{ r: 3 }}
-                      connectNulls
+                      // R10: do NOT connectNulls. Most rows for a series
+                      // have `undefined` (only a single eval per date).
+                      // Bridging across undefined draws a smooth line
+                      // over weeks of no measurement, falsely implying
+                      // continuous data.
+                      connectNulls={false}
                     />
                   ))}
                 </LineChart>

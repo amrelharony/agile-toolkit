@@ -62,7 +62,13 @@ export function WsjfClient() {
     id: x.id, title: x.title, fields: x.fields ?? {}, score: x.score ?? 0,
   }))), [items]);
 
-  const chartData = ranked.slice(0, 10).map((r) => ({ title: r.title.length > 18 ? r.title.slice(0, 18) + "…" : r.title, score: Number(r.score.toFixed(2)) }));
+  // R10: prefix with rank so two features with the same (or same-truncated)
+  // title don't collapse into one bar — Recharts uses dataKey="title" as
+  // YAxis category and duplicate categories silently merge, hiding scores.
+  const chartData = ranked.slice(0, 10).map((r) => {
+    const t = r.title.length > 18 ? r.title.slice(0, 18) + "…" : r.title;
+    return { title: `#${r.rank} ${t}`, score: Number(r.score.toFixed(2)) };
+  });
 
   const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
     teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,

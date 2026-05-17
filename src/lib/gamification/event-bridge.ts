@@ -101,7 +101,12 @@ export function installEventBridge(): () => void {
   if (initialTool) dispatch({ name: "tool-visit", meta: { toolId: initialTool } });
 
   // --- session minute ticker ----------------------------------------------
+  // R10: gate on document.visibilityState. A backgrounded tab previously
+  // racked up "session minutes" for time the user wasn't actually using
+  // the app, inflating the marathon counters (which now actually bump
+  // since R9). Skip ticks while hidden.
   const minuteTimer = window.setInterval(() => {
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
     dispatch({ name: "session-minute" });
   }, 60_000);
 

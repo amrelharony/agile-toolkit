@@ -108,7 +108,11 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
       {/* Mobile backdrop */}
       <div
         className={cn(
-          "md:hidden fixed inset-0 z-[90] bg-bg/70 backdrop-blur-sm transition-opacity duration-medium",
+          // R10: use bg-black/40 instead of bg-bg/70 — in light mode
+          // `--bg` is near-white so `bg-bg/70` produced ~no darkening
+          // of the underlying page, making it look like the modal
+          // wasn't open at all. Black-40 is the canonical scrim.
+          "md:hidden fixed inset-0 z-[90] bg-black/40 backdrop-blur-sm transition-opacity duration-medium",
           mobileOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
         )}
         onClick={onClose}

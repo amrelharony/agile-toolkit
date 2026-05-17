@@ -1,16 +1,44 @@
 "use client"
 
-import { useTheme } from "next-themes"
+// R10: previously imported `useTheme` from `next-themes`, but no
+// `ThemeProvider` from next-themes is mounted in `layout.tsx` —
+// `useTheme()` returned `{ theme: undefined }` and Sonner defaulted
+// to `"system"`, so a user in HC mode saw OS-light toasts and an app
+// theme switch never updated toasts. The app's source-of-truth lives
+// on `document.documentElement` class list (`.dark` / `.light` / `.hc`,
+// set by the inline boot script in layout.tsx). Read it directly.
+
+import { useEffect, useState } from "react"
 import { Toaster as Sonner } from "sonner"
 
 type ToasterProps = React.ComponentProps<typeof Sonner>
 
+function detectTheme(): "dark" | "light" {
+  if (typeof document === "undefined") return "dark";
+  const el = document.documentElement;
+  // R10: Sonner only understands "light"|"dark"|"system". Map our
+  // app's `.hc` (high-contrast) → dark since HC is dark-on-yellow.
+  if (el.classList.contains("hc")) return "dark";
+  if (el.classList.contains("light")) return "light";
+  return "dark";
+}
+
 const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme()
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  useEffect(() => {
+    setTheme(detectTheme());
+    // Subscribe to class changes on <html> so toasts re-theme when the
+    // user cycles via the header switcher.
+    if (typeof document === "undefined") return;
+    const obs = new MutationObserver(() => setTheme(detectTheme()));
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => obs.disconnect();
+  }, []);
 
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme={theme}
       className="toaster group"
       toastOptions={{
         classNames: {

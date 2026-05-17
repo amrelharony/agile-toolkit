@@ -99,9 +99,19 @@ export function HolidayEngine() {
   // a holiday theme that the user already dismissed.
   useEffect(() => {
     let cancelled = false;
-    void Promise.resolve(useHolidayStore.persist.rehydrate()).then(() => {
-      if (!cancelled) setHydrated(true);
-    });
+    // R10: catch the rehydrate failure path. Corrupt persisted state
+    // previously left `hydrated` false forever — the holiday detection
+    // effect bailed and no theme ever loaded. Better to boot with
+    // defaults than block forever.
+    void Promise.resolve(useHolidayStore.persist.rehydrate())
+      .then(() => { if (!cancelled) setHydrated(true); })
+      .catch((err) => {
+        if (process.env.NODE_ENV !== "production") {
+          // eslint-disable-next-line no-console
+          console.warn("[holiday] rehydrate failed:", err);
+        }
+        if (!cancelled) setHydrated(true);
+      });
     return () => {
       cancelled = true;
     };

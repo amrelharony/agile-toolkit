@@ -69,6 +69,11 @@ function InlineEditor({
   return (
     <textarea
       ref={ref}
+      // R10: maxLength matches the validator cap so a 10MB paste can't
+      // sneak past inline edit, only to be silently rejected by
+      // isValidObject on the next persist round-trip (losing the
+      // user's note entirely).
+      maxLength={50_000}
       defaultValue={initialText}
       // R8: skip writing the ref while an IME composition is in flight.
       // Android Chrome / iOS Safari fire `onChange` with INTERMEDIATE
