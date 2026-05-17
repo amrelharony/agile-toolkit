@@ -43,12 +43,20 @@ const AVATAR_COLORS = ["#00f0ff", "#a78bfa", "#34d399", "#f59e0b", "#f87171", "#
  *   U+2068  FSI  First Strong Isolate
  *   U+2069  PDI  Pop Directional Isolate
  */
-const RTL_OVERRIDE_RE = /[‪-‮⁦-⁩]/;
+// R5: built from a string literal with `\u` escapes so the source
+// stays pure ASCII. The regex-literal form embedded raw bidi chars
+// which the comment itself warns get "mangled by normalisation
+// passes / git filters".
+const RTL_OVERRIDE_RE = new RegExp("[\\u202A-\\u202E\\u2066-\\u2069]");
 
 function randomColor(seed: string): string {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) hash = (seed.charCodeAt(i) + hash * 31) | 0;
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+  // R5: `Math.abs(-2147483648)` stays -2147483648 in JS (no positive 32-bit
+  // counterpart) → `negative % len` is negative → undefined index. Use the
+  // mathematically-correct positive modulo.
+  const len = AVATAR_COLORS.length;
+  return AVATAR_COLORS[((hash % len) + len) % len];
 }
 
 export function usePresence(channelName: string | null, self?: Partial<SimplePresence>): SimplePresence[] {
@@ -59,8 +67,15 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
     const supabase = getSupabaseClient();
     if (!supabase) return;
 
+    // R5: previously `self?.id ?? crypto.randomUUID()` was evaluated
+    // here AND again inside `subscribe()` below. When `self?.id` was
+    // undefined, two DIFFERENT UUIDs were generated → presence key
+    // (channel level) ≠ tracked `me.id` (payload level), breaking any
+    // consumer that joins them. Generate the id ONCE per channel mount
+    // and reuse for both.
+    const myId = self?.id ?? (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `anon_${Math.random().toString(36).slice(2)}`);
     const channel = supabase.channel(channelName, {
-      config: { presence: { key: self?.id ?? crypto.randomUUID() } },
+      config: { presence: { key: myId } },
     });
     // Sanitize a presence record from an untrusted peer. The required
     // fields (id/name/color) must be strings; the optional canvas fields
@@ -196,8 +211,10 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
         // every "real-time multiplayer" tool in the suite would silently
         // show this user as missing to peers.
         if (status === "SUBSCRIBED") {
+          // R5: reuse the SAME id used for the presence-key above so
+          // peers can self-identify (presence-state key === me.id).
           const me: SimplePresence = {
-            id: self?.id ?? crypto.randomUUID(),
+            id: myId,
             name: self?.name ?? "Anonymous",
             color: self?.color ?? randomColor(self?.name ?? "anon"),
           };

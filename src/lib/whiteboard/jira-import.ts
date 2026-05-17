@@ -79,6 +79,11 @@ export function parseJiraCsv(text: string): JiraParseResult {
   if (text.length > MAX_JIRA_BYTES) {
     return { issues: [], truncated: false, oversize: true };
   }
+  // R5: strip UTF-8 BOM (U+FEFF) that Excel-on-Windows prepends to
+  // exported CSVs. Without this, the first header reads `"﻿issue
+  // key"` instead of `"issue key"` → `indexOf("issue key")` misses
+  // and the import silently returns zero issues.
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   const rows: string[][] = [];
   let cur: string[] = [];
   // Array-buffer the field bytes; `cell += c` is O(n^2) under V8.

@@ -200,11 +200,32 @@ export function isValidSignalKind(k: unknown): k is SignalKind {
  * Multiple emits within the same frame are batched.
  */
 export function emitSignal<T>(s: Signal<T>): void {
+  // R5: validate kind against the runtime set. A typo'd or untrusted kind
+  // would otherwise get dispatched + written into the ring + silently
+  // skip cache invalidation (which keys off the matrix).
+  if (!isValidSignalKind(s.kind)) {
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.warn("[signal-bus] dropping unknown signal kind:", s.kind);
+    }
+    return;
+  }
   // Bound payload size — a runaway emitter shouldn't blow up the ring.
   // JSON-stringify is the simplest size estimate; reject signals over
   // 50KB serialized.
+  // R5: cyclic payloads previously slipped through (try/catch swallowed
+  // the error and `serialized` stayed `""`, passing the size check).
+  // Treat unserializable as oversized and drop the signal.
   let serialized = "";
-  try { serialized = JSON.stringify(s.payload); } catch {}
+  let serializeOk = false;
+  try { serialized = JSON.stringify(s.payload); serializeOk = true; } catch { serializeOk = false; }
+  if (!serializeOk) {
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.warn("[signal-bus] dropping unserializable signal:", s.kind);
+    }
+    return;
+  }
   if (serialized.length > 50_000) {
     if (process.env.NODE_ENV !== "production") {
       // eslint-disable-next-line no-console
@@ -212,14 +233,34 @@ export function emitSignal<T>(s: Signal<T>): void {
     }
     return;
   }
-  // Shallow-freeze to discourage mutation by subscribers leaking back
-  // into the ring buffer history.
+  // R5: shallow `Object.freeze` was insufficient — subscribers could
+  // mutate `s.payload.nested.field` and corrupt the ring-buffer history.
+  // Deep-freeze nested plain objects/arrays to lock the entire shape.
   if (s.payload && typeof s.payload === "object") {
-    try { Object.freeze(s.payload); } catch {}
+    deepFreeze(s.payload as object);
   }
   pushRing(s as Signal);
   queue.push(s as Signal);
   scheduleFlush();
+}
+
+// R5: deep freeze helper. Safe against cycles via a visited set, only
+// recurses into plain objects/arrays (skips Date/Map/Set/etc.).
+function deepFreeze(value: object, seen: WeakSet<object> = new WeakSet()): void {
+  if (seen.has(value)) return;
+  seen.add(value);
+  try { Object.freeze(value); } catch { /* already frozen / non-extensible */ }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (item && typeof item === "object") deepFreeze(item, seen);
+    }
+    return;
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return;
+  for (const v of Object.values(value as Record<string, unknown>)) {
+    if (v && typeof v === "object") deepFreeze(v as object, seen);
+  }
 }
 
 /**
@@ -250,9 +291,11 @@ export function subscribeSignals(kinds: SignalKind[], cb: Listener): () => void 
 import { useRef } from "react";
 export function useSignal(kinds: SignalKind[], cb: Listener): void {
   const cbRef = useRef(cb);
-  // Keep ref in lockstep with the latest callback — no deps array so
-  // it always points at the current render's closure.
-  cbRef.current = cb;
+  // R5: previously `cbRef.current = cb` ran during render — a discarded
+  // render in concurrent mode could mutate the ref before the committed
+  // render's effect runs. Sync the ref inside a (no-dep) effect so the
+  // mutation happens AFTER commit, never during render.
+  useEffect(() => { cbRef.current = cb; });
   // Subscribe ONLY when the kinds list changes (compared by JSON
   // identity, since arrays are typically rebuilt each render). The
   // listener forwards through the ref, so callback churn no longer

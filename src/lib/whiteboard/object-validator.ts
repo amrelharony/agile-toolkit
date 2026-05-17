@@ -124,14 +124,20 @@ const ZERO_SIZE_OK: ReadonlySet<string> = new Set(["line", "arrow", "connector"]
 export function isValidObject(o: unknown): o is WhiteboardObject {
   if (!o || typeof o !== "object") return false;
   const r = o as Record<string, unknown>;
+  // R5: line/arrow/connector store ENDPOINT DELTAS in w/h. A line dragged
+  // upward-leftward has negative dx/dy. The previous `r.w < 0` rejection
+  // silently dropped those patches at ingest, so peers' upward-leftward
+  // lines vanished. Allow negative w/h for ZERO_SIZE_OK kinds; positive-
+  // only check still applies to shapes via the later guard.
+  const isDeltaKind = ZERO_SIZE_OK.has(r.type as string);
   if (
     typeof r.id !== "string" || r.id.length === 0 || r.id.length > MAX_ID_LEN ||
     typeof r.boardId !== "string" || r.boardId.length === 0 || r.boardId.length > MAX_ID_LEN ||
     typeof r.type !== "string" || !VALID_OBJECT_TYPES.has(r.type as WhiteboardObjectKind) ||
     typeof r.x !== "number" || !Number.isFinite(r.x) || Math.abs(r.x) > MAX_COORD ||
     typeof r.y !== "number" || !Number.isFinite(r.y) || Math.abs(r.y) > MAX_COORD ||
-    typeof r.w !== "number" || !Number.isFinite(r.w) || r.w < 0 || r.w > MAX_COORD ||
-    typeof r.h !== "number" || !Number.isFinite(r.h) || r.h < 0 || r.h > MAX_COORD ||
+    typeof r.w !== "number" || !Number.isFinite(r.w) || (!isDeltaKind && r.w < 0) || Math.abs(r.w) > MAX_COORD ||
+    typeof r.h !== "number" || !Number.isFinite(r.h) || (!isDeltaKind && r.h < 0) || Math.abs(r.h) > MAX_COORD ||
     typeof r.z !== "number" || !Number.isFinite(r.z) || Math.abs(r.z) > 1e9 ||
     typeof r.version !== "number" || !Number.isInteger(r.version) || r.version < 0 || r.version > MAX_VERSION
   ) return false;
@@ -139,7 +145,7 @@ export function isValidObject(o: unknown): o is WhiteboardObject {
   // be strictly positive. Zero-width/height objects produce division-by-zero
   // in fitToRect, NaN scaling in resize handles, and degenerate hit-test
   // rectangles that swallow pointer events board-wide.
-  if (!ZERO_SIZE_OK.has(r.type)) {
+  if (!isDeltaKind) {
     if (r.w <= 0 || r.h <= 0) return false;
   }
   // Common optional base fields.

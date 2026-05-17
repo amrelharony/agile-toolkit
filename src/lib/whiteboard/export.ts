@@ -274,9 +274,17 @@ export function exportCsv(
   // exfiltration via `=WEBSERVICE(...)`). Prefixing with a single quote
   // forces literal interpretation — the leading quote is hidden in the
   // cell but the rest of the value displays unchanged.
+  // R5: previously checked only the FIRST char. A multi-line cell whose
+  // SECOND line starts with `=` is preserved inside `"..."` quoting and
+  // Excel reads each line of a quoted cell as a continuation — so the
+  // formula on line 2 still executes. Quote-prefix every line that
+  // begins with a dangerous char.
   const escapeCsv = (s: string) => {
-    const sanitized = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
-    return `"${sanitized.replace(/"/g, '""')}"`;
+    const guarded = s
+      .split(/(\r\n|\r|\n)/)
+      .map((part) => (/^[=+\-@\t\r]/.test(part) ? `'${part}` : part))
+      .join("");
+    return `"${guarded.replace(/"/g, '""')}"`;
   };
   const rows: string[] = ["id,type,frame,content,tags,x,y"];
   for (const o of objects) {
@@ -295,7 +303,10 @@ export function exportCsv(
   }
   // U+FEFF BOM — Excel's CSV importer reads this as the UTF-8 sniff
   // marker and treats the rest of the file as UTF-8 instead of cp1252.
-  const csvText = "﻿" + rows.join("\n");
+  // R5: rows joined with `\r\n` (Windows-style) — Excel-on-Windows
+  // expects CRLF between rows; bare `\n` produces a single-line cell
+  // in Excel 2007 and some legacy CSV consumers.
+  const csvText = "﻿" + rows.join("\r\n");
   const dataUrl = `data:text/csv;charset=utf-8,${encodeURIComponent(csvText)}`;
   triggerDownload(dataUrl, filename);
 }

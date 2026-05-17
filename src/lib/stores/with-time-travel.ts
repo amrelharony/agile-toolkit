@@ -165,11 +165,18 @@ export function withTimeTravel<T extends object>(
         setRaw(updater as Partial<Internal>, replace);
         return;
       }
+      // R5: capture _ttPast/_ttFuture BEFORE setRaw, not after. When the
+      // caller passes `replace: true`, Zustand REPLACES the whole state
+      // (not merge) — that blew away `_ttPast`/`_ttFuture`. Reading them
+      // post-setRaw then returned the empty initial values, so the
+      // subsequent push landed in a 1-entry past, silently erasing
+      // history. Snapshot the stacks first so they survive replace mode.
+      const prevPast = (getInternal()._ttPast ?? []).slice();
       const prevSnap = snapshot(getInternal(), exclude) as Record<string, unknown>;
       setRaw(updater as Partial<Internal>, replace);
       const nextSnap = snapshot(getInternal(), exclude) as Record<string, unknown>;
       if (shallowEqualSnapshot(prevSnap, nextSnap)) return;
-      const past = (getInternal()._ttPast ?? []).slice();
+      const past = prevPast;
       past.push(prevSnap as Partial<T>);
       if (past.length > STACK_CAP) past.shift();
       setRaw({

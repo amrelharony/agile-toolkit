@@ -77,20 +77,27 @@ function save(state: StoredTokens): void {
 }
 
 function randomToken(): string {
-  if (typeof window !== "undefined" && window.crypto?.getRandomValues) {
+  // R5: prefer crypto.getRandomValues from BOTH window and globalThis
+  // (Node ≥19 / Edge runtime exposes crypto on globalThis without a
+  // window). The previous Math.random() fallback was a SILENT downgrade
+  // to a predictable PRNG — a token leaked from one session could be
+  // brute-forced for adjacent tokens via the same PRNG state.
+  const cryptoObj =
+    (typeof window !== "undefined" && window.crypto) ||
+    (typeof globalThis !== "undefined" && (globalThis as { crypto?: Crypto }).crypto) ||
+    null;
+  if (cryptoObj?.getRandomValues) {
     const bytes = new Uint8Array(12);
-    window.crypto.getRandomValues(bytes);
+    cryptoObj.getRandomValues(bytes);
     // base62 encode (URL-safe, no padding). 12 bytes = ~16 chars.
     const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let out = "";
     for (const b of Array.from(bytes)) out += alphabet[b % alphabet.length];
     return out;
   }
-  // SSR / no-crypto fallback. Still random enough for non-security use.
-  let out = "";
-  const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  for (let i = 0; i < 12; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
-  return out;
+  // No CSPRNG → fail loud rather than mint a predictable token. Callers
+  // catch and surface "share-link disabled" to the user.
+  throw new Error("share-link: no CSPRNG available; token generation refused");
 }
 
 /**

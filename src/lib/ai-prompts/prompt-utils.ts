@@ -15,11 +15,40 @@
  * `maxLen` defaults to 140 (matches canvas.ts) — callers writing into
  * a table that already has a short column can lower it.
  */
+
+// R5: zero-width / bidi-override / control chars can defeat downstream
+// parsing and visually flip injected text past the closing tag.
+//
+// Built from a STRING literal (with `\u` escapes), not a regex literal,
+// so the source stays pure ASCII. The equivalent regex-literal would
+// embed raw bidi/control chars that editors and git autocrlf passes
+// silently mangle (same failure mode use-presence.ts calls out).
+//
+// Covered:
+//   - U+0000..U+0008, U+000B, U+000C, U+000E..U+001F  C0 controls (excl. \t \n \r)
+//   - U+007F                                          DEL
+//   - U+200B..U+200F                                  zero-width (ZWSP/ZWNJ/ZWJ/LRM/RLM)
+//   - U+202A..U+202E                                  bidi overrides
+//   - U+2060..U+206F                                  word-joiner + invisible formatting
+//   - U+FEFF                                          BOM
+const PROMPT_DANGEROUS_CHARS = new RegExp(
+  "[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F" +
+    "\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\uFEFF]",
+  "g",
+);
+
+// Whitespace-tolerant tag matcher: HTML-tolerant LLMs treat
+// `<user_content >` / `</ user_content>` / `</user_content/>` as the
+// same tag. The previous strict `/<\/?user_content>/gi` left these
+// forms intact so a determined injector could close the wrapper.
+const USER_CONTENT_TAG = /<\s*\/?\s*user_content\s*\/?\s*>/gi;
+
 export function sanitizePromptCell(s: string, maxLen = 140): string {
   return s
     .replace(/\n+/g, " ")
     .replace(/`/g, "'")
-    .replace(/<\/?user_content>/gi, "")
+    .replace(USER_CONTENT_TAG, "")
+    .replace(PROMPT_DANGEROUS_CHARS, "")
     .slice(0, maxLen);
 }
 
@@ -31,7 +60,8 @@ export function sanitizePromptCell(s: string, maxLen = 140): string {
 export function sanitizePromptBlock(s: string, maxLen = 4000): string {
   return s
     .replace(/`/g, "'")
-    .replace(/<\/?user_content>/gi, "")
+    .replace(USER_CONTENT_TAG, "")
+    .replace(PROMPT_DANGEROUS_CHARS, "")
     .slice(0, maxLen);
 }
 
@@ -82,10 +112,14 @@ export function truncateData<T>(
   items: T[],
   maxItems = 20
 ): { data: T[]; truncated: boolean; totalCount: number } {
+  // R5: defensively floor maxItems — a NaN or negative would yield
+  // `.slice(0, NaN) === [...items]` (silently uncapped) or
+  // `.slice(0, -1)` (silently drops the last item).
+  const n = Math.max(0, Math.floor(Number.isFinite(maxItems) ? maxItems : 20));
   return {
-    data: items.slice(0, maxItems),
+    data: items.slice(0, n),
     totalCount: items.length,
-    truncated: items.length > maxItems,
+    truncated: items.length > n,
   };
 }
 

@@ -278,7 +278,12 @@ export function diagramToObjects(
   // per-call epoch so two imports of the same CSV don't accidentally collide
   // with already-placed cards on the same board. (Trade-off: re-importing
   // the same CSV produces fresh cards rather than dedup-merging.)
-  const epoch = Date.now().toString(36);
+  //
+  // R5: two diagrams imported within the same millisecond shared the same
+  // epoch → same labels → same ids → the second import OVERWROTE the first
+  // via upsert. Append a short random suffix so concurrent same-ms calls
+  // get distinct id spaces.
+  const epoch = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`;
   const idFor = (label: string) =>
     `wb_${epoch}_${hashLabel(label)}`;
 

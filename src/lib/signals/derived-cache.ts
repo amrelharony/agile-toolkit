@@ -16,10 +16,28 @@ const cache = new Map<string, CacheEntry<unknown>>();
 
 // FNV-1a hash on a JSON-stable projection of dependency values. Compact
 // and fast for the small dep arrays used by tools (typically <10 entries).
+//
+// R5: `JSON.stringify` does NOT canonicalize object key order, so
+// `{a:1,b:2}` and `{b:2,a:1}` hashed to different keys → cache misses
+// on logically-equal deps and unbounded cache growth from key-reshuffled
+// dep objects. Pre-sort plain-object keys via the replacer so the
+// serialised projection is deterministic.
 function stableHash(deps: unknown[]): string {
   const json = JSON.stringify(deps, (_, v) => {
     if (typeof v === "function") return "[fn]";
     if (v instanceof Date) return v.toISOString();
+    if (
+      v &&
+      typeof v === "object" &&
+      !Array.isArray(v) &&
+      Object.getPrototypeOf(v) === Object.prototype
+    ) {
+      const sorted: Record<string, unknown> = {};
+      for (const k of Object.keys(v).sort()) {
+        sorted[k] = (v as Record<string, unknown>)[k];
+      }
+      return sorted;
+    }
     return v;
   });
   let h = 0x811c9dc5;
@@ -97,9 +115,12 @@ export function useDerived<T>(
   compute: () => T,
   ttlMs = DEFAULT_TTL_MS
 ): T {
-  // useMemo's deps + deriveCached's hash both keep us reactive without
-  // recomputing every render.
-  return useMemo(() => deriveCached(prefix, deps, compute, ttlMs), deps);
+  // R5: passing `deps` directly defeats the cache for any caller whose
+  // dep is an object/array (referential identity changes every render →
+  // useMemo recomputes → defeats cache). Use the stable hash as the
+  // single memo dep so identity-stable structural equality wins.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => deriveCached(prefix, deps, compute, ttlMs), [prefix, stableHash(deps), ttlMs]);
 }
 
 /**

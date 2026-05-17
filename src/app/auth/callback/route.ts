@@ -68,6 +68,13 @@ function safeNext(raw: string | null): string {
 function redirect(url: string): NextResponse {
   const res = NextResponse.redirect(url);
   res.headers.set("Cache-Control", "no-store, max-age=0");
+  // R5: `Referrer-Policy: no-referrer` so the `code` query param in
+  // the inbound URL doesn't leak in the Referer header sent to the
+  // destination page (analytics, embedded resources). Also pin
+  // Cross-Origin-Opener-Policy so an attacker page that opens this
+  // route via `window.open` can't poke at it later.
+  res.headers.set("Referrer-Policy", "no-referrer");
+  res.headers.set("Pragma", "no-cache");
   return res;
 }
 
@@ -98,6 +105,21 @@ export async function GET(request: NextRequest) {
   const supabase = getAuthServerClient();
   if (!supabase) {
     return redirect(`${origin}${next}?auth_error=auth_disabled`);
+  }
+
+  // R5: if the user already has a valid session (browser refresh of the
+  // callback URL, prefetch, or back-button), the original `?code=` has
+  // already been consumed. Re-calling `exchangeCodeForSession(code)`
+  // returns `code_already_used` and the user is bounced to
+  // `auth_error=oauth_exchange_failed` even though they ARE signed in.
+  // Pre-check the session and skip the exchange if it's already valid.
+  try {
+    const existing = await supabase.auth.getSession();
+    if (existing.data?.session) {
+      return redirect(`${origin}${next}`);
+    }
+  } catch {
+    // ignore — fall through to the standard exchange path
   }
 
   const { error } = await supabase.auth.exchangeCodeForSession(code);

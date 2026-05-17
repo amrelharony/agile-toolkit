@@ -22,8 +22,12 @@ const AVATAR_COLORS = ["#00f0ff", "#a78bfa", "#34d399", "#f59e0b", "#f87171", "#
 
 /** Bidi-override / isolate codepoints — same set as use-presence.ts.
  * Block these in names/chat/reactions so a hostile peer can't visually
- * spoof another user's identity by flipping the rendered direction. */
-const RTL_OVERRIDE_RE = /[‪-‮⁦-⁩]/;
+ * spoof another user's identity by flipping the rendered direction.
+ *
+ * R5: built from a string literal with `\u` escapes so the source
+ * stays pure ASCII. Raw bidi chars in a regex literal get mangled by
+ * git autocrlf / editor save passes. */
+const RTL_OVERRIDE_RE = new RegExp("[\\u202A-\\u202E\\u2066-\\u2069]");
 
 /**
  * Sanitize an inbound peer payload. Mirrors the validator in
@@ -108,7 +112,11 @@ function sanitizeCanvasPresence(v: unknown): SimplePresence | null {
 function colorFor(seed: string): string {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) hash = (seed.charCodeAt(i) + hash * 31) | 0;
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+  // R5: `Math.abs(-2147483648)` stays -2147483648 in JS (no positive 32-bit
+  // counterpart) → `negative % len` is negative → `AVATAR_COLORS[neg]` is
+  // `undefined` → React renders no color. Use positive-modulo math.
+  const len = AVATAR_COLORS.length;
+  return AVATAR_COLORS[((hash % len) + len) % len];
 }
 
 export interface CanvasPresenceHook {

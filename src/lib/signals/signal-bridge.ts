@@ -121,7 +121,14 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
 
   // Risks
   diffById(prev.risks, next.risks, (r) => r.id, {
-    onAdded: (r) => emit("risk.opened", "workspace", { riskId: r.id, score: r.probability * r.impact }),
+    // R5: guard product against NaN propagation. A freshly imported
+    // risk with `probability: undefined` (legacy persist) produced NaN
+    // here, which JSON-stringified as null and silently broke any
+    // subscriber that expected a number.
+    onAdded: (r) => {
+      const score = (r.probability ?? 0) * (r.impact ?? 0);
+      emit("risk.opened", "workspace", { riskId: r.id, score: Number.isFinite(score) ? score : 0 });
+    },
     onChanged: (before, after) => {
       if (before.status !== "closed" && after.status === "closed") {
         emit("risk.closed", "workspace", { riskId: after.id });
