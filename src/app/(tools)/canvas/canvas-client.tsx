@@ -163,7 +163,12 @@ export function CanvasClient() {
     }
   }, [hydrated, boards, activeBoardId, upsertBoard, setActiveBoard]);
 
-  const activeBoard = boards.find((b) => b.id === activeBoardId);
+  // R9: memoise activeBoard so unrelated workspace mutations don't
+  // produce a new reference and cascade into `promptConfig`'s deps.
+  const activeBoard = useMemo(
+    () => boards.find((b) => b.id === activeBoardId),
+    [boards, activeBoardId],
+  );
 
   // ─── Card ↔ Story bidirectional sync (Phase 26) ──────────────────────
   // When a Story changes in another tool (status / title / points),

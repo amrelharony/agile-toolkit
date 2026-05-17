@@ -169,7 +169,11 @@ export function clusterObjects(
 
   return Object.entries(grouped).map(([lblStr, ids]) => {
     const lbl = Number(lblStr);
-    const members = subset.filter((o) => ids.includes(o.id));
+    // R9: Set lookup — `ids.includes(o.id)` was O(N×M) per cluster.
+    // With 1000 stickies × 6 clusters that's ~167k compares per cluster
+    // operation; Set.has makes it linear.
+    const idSet = new Set(ids);
+    const members = subset.filter((o) => idSet.has(o.id));
     const centers = members.map((o) => ({ x: o.x + o.w / 2, y: o.y + o.h / 2 }));
     // Cluster bbox derived from member centers + each object's half-extent.
     const memberRects: { x: number; y: number }[] = [];

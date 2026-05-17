@@ -192,8 +192,11 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
           onClick={cycleTheme}
           data-no-sound="true"
           className="w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
-          aria-label={`Switch theme (currently ${theme === "dark" ? "dark" : theme === "light" ? "light" : "high contrast"})`}
-          title={`Theme: ${theme === "dark" ? "Dark" : theme === "light" ? "Light" : "High contrast"} — click to cycle`}
+          // R9: WCAG 3.2.4 — tell the user what mode they'd switch TO.
+          // The previous label only said the current mode, leaving SR
+          // and cognitively-impaired users guessing what the click does.
+          aria-label={`Switch to ${theme === "dark" ? "light" : theme === "light" ? "high contrast" : "dark"} theme (currently ${theme === "dark" ? "dark" : theme === "light" ? "light" : "high contrast"})`}
+          title={`Theme: ${theme === "dark" ? "Dark" : theme === "light" ? "Light" : "High contrast"} — click to switch to ${theme === "dark" ? "Light" : theme === "light" ? "High contrast" : "Dark"}`}
         >
           {!mounted ? (
             <div className="w-4 h-4" aria-hidden="true" />

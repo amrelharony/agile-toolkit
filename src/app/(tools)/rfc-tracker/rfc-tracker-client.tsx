@@ -226,7 +226,13 @@ export function RfcTrackerClient() {
         typeof window !== "undefined"
           ? window.localStorage.getItem(STORAGE_KEY)
           : null;
-      if (raw) existing = JSON.parse(raw) as Decision[];
+      // R9: validate Array shape before treating as Decision[]. A
+      // tampered/older persisted blob containing an object made
+      // `existing.find(...)` crash with "find is not a function".
+      if (raw) {
+        const parsed: unknown = JSON.parse(raw);
+        existing = Array.isArray(parsed) ? (parsed as Decision[]) : [];
+      }
     } catch {
       existing = [];
     }

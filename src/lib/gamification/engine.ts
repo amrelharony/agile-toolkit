@@ -305,17 +305,27 @@ function awardXp(amount: number, source: XpSource, meta?: Record<string, string 
   if (emitDepth >= MAX_EMIT_DEPTH) return; // re-entrant circuit breaker
   emitDepth++;
   try {
-    const s = useVDnaStore.getState();
+    // R9: two concurrent awardXp() calls previously both read the SAME
+    // `s.xp` via `getState()` then computed `nextXp = s.xp + amount`;
+    // the second `apply()` clobbered the first → silently lost XP.
+    // Mirror the bumpCounter fix: compute INSIDE the functional setState
+    // so both reads share one snapshot.
     const combos = getCombo();
     const effectiveAmount = Math.round(amount * combos.multiplier);
-    const nextXp = s.xp + effectiveAmount;
-    const nextLifetime = s.lifetimeXp + effectiveAmount;
-    const leveledUp = awardingCrossesLevel(s.xp, effectiveAmount, s.prestige);
-    const nextLevel = computeLevel(nextXp, s.prestige).level;
-    useVDnaStore.getState().apply({
-      xp: nextXp,
-      lifetimeXp: nextLifetime,
-      level: nextLevel,
+    let nextXp = 0;
+    let nextLevel = 1;
+    let leveledUp = false;
+    let prestigeAtTime = 0;
+    useVDnaStore.setState((s) => {
+      nextXp = s.xp + effectiveAmount;
+      leveledUp = awardingCrossesLevel(s.xp, effectiveAmount, s.prestige);
+      nextLevel = computeLevel(nextXp, s.prestige).level;
+      prestigeAtTime = s.prestige;
+      return {
+        xp: nextXp,
+        lifetimeXp: s.lifetimeXp + effectiveAmount,
+        level: nextLevel,
+      };
     });
     const evt: XpEvent = {
       amount: effectiveAmount,
@@ -329,7 +339,7 @@ function awardXp(amount: number, source: XpSource, meta?: Record<string, string 
     useVDnaStore.getState().pushEvent(evt);
     notify({ kind: "xp", payload: { ...evt } });
     if (leveledUp) {
-      notify({ kind: "level-up", payload: { level: nextLevel, xp: nextXp, prestige: s.prestige } });
+      notify({ kind: "level-up", payload: { level: nextLevel, xp: nextXp, prestige: prestigeAtTime } });
     }
   } finally {
     emitDepth--;
@@ -384,6 +394,19 @@ export function dispatch(event: GamificationEvent) {
     // Counter bumps for any tool:* or named event.
     if (name.startsWith("tool:") || name === "click" || name === "hover" || name === "export-png" || name === "export-csv" || name === "export-json") {
       useVDnaStore.getState().bumpCounter(name, 1);
+    }
+
+    // R9: previously the `session-minute` event dispatched by
+    // event-bridge.ts every 60s was never bumping any counter, leaving
+    // the `marathon-30` / `marathon-60` / `silent-run` achievements
+    // unreachable. Bump the plural-form counter so the achievement
+    // thresholds (defined in plural) match. Silent variant is only
+    // bumped when silentMode is on.
+    if (name === "session-minute") {
+      useVDnaStore.getState().bumpCounter("session-minutes", 1);
+      if (useVDnaStore.getState().silentMode) {
+        useVDnaStore.getState().bumpCounter("session-minutes-silent", 1);
+      }
     }
 
     // Combo tick (only bump for "active" events, not passive hovers).

@@ -154,6 +154,12 @@ export function HolidayEngine() {
 
     return () => {
       cancelled = true;
+      // R9: full unmount (SPA navigation away from where HolidayEngine
+      // mounts) previously left the `<style id="holiday-theme-tokens">`
+      // element on `:root`, persistently overriding the global theme.
+      // Strip it on every cleanup — if the next effect run picks a
+      // theme, it re-injects via `injectThemeStyle`, so this is safe.
+      removeThemeStyle();
     };
   }, [hydrated, enabled, dismissedWindows, previewThemeId, previewParam]);
 

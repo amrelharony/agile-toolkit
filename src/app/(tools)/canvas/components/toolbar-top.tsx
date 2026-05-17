@@ -134,14 +134,27 @@ export function ToolbarTop() {
             type="button"
             onClick={deleteCurrent}
             aria-label={confirmingDelete ? "Click again to confirm delete" : "Delete current board"}
+            // R9: keep an `aria-live` region beside the button so SR
+            // users hear the arming. Without this they hear the same
+            // label twice with no indication the first click had no
+            // effect.
             className={cn(
               "transition-colors",
               confirmingDelete ? "text-red-400 hover:text-red-300" : "text-sub hover:text-red-400",
             )}
             title={confirmingDelete ? "Click again to confirm" : `Delete "${board?.name ?? ""}"`}
           >
-            <Trash2 className={cn("w-4 h-4", confirmingDelete && "animate-pulse")} />
+            {/* R9: drop animate-pulse — `prefers-reduced-motion` only
+                clamps duration to 0.01ms which still ticks every frame
+                forever; semantically the colour change + live region
+                signal the armed state already. */}
+            <Trash2 className="w-4 h-4" />
           </button>
+          {confirmingDelete && (
+            <span role="status" className="sr-only">
+              Click delete again to confirm. Will auto-cancel in 3 seconds.
+            </span>
+          )}
         </>
       )}
       <div className="w-px h-4 bg-border" />

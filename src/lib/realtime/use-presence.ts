@@ -237,8 +237,16 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
       });
 
     return () => {
-      void channel.untrack();
-      void channel.unsubscribe();
+      // R9: chain untrack → unsubscribe → removeChannel so LEAVE lands
+      // before the channel is torn down (otherwise peers see a ghost
+      // presence for ~60s until the server's TTL expires) AND so the
+      // channel is freed from the Supabase client's internal
+      // `channels[]` map. Every channelName change previously leaked
+      // a RealtimeChannel + all its bound handler closures.
+      void Promise.resolve(channel.untrack())
+        .then(() => channel.unsubscribe())
+        .catch(() => {});
+      try { void getSupabaseClient()?.removeChannel(channel); } catch { /* client torn down */ }
     };
     // self is intentionally excluded from deps — callers usually pass an
     // inline object that re-creates each render. Re-subscribing on every

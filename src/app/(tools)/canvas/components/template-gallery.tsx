@@ -49,8 +49,15 @@ export function TemplateGallery({ boardId, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
   const upsertMany = useWorkspaceStore((s) => s.upsertWhiteboardObjects);
-  const objects = useWorkspaceStore((s) =>
-    (s.whiteboardObjects ?? []).filter((o) => o.boardId === boardId),
+  // R9: previously `useWorkspaceStore((s) => (...).filter(...))` returned
+  // a FRESH array per snapshot — Zustand's default equality check sees
+  // identity change and re-renders this gallery on EVERY whiteboard
+  // mutation, even ones from peers on this board. Select the raw array
+  // (reference-stable across unrelated changes) then filter in useMemo.
+  const allObjects = useWorkspaceStore((s) => s.whiteboardObjects);
+  const objects = useMemo(
+    () => (allObjects ?? []).filter((o) => o.boardId === boardId),
+    [allObjects, boardId],
   );
   // Saved templates from the workspace (Phase 31). These appear in a
   // "Custom" category alongside the 11 built-ins.

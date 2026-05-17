@@ -194,8 +194,17 @@ export function useCanvasPresence(channelName: string | null, hint?: Partial<Sim
       throttledTrackRef.current?.cancel();
       throttledTrackRef.current = null;
       trackRef.current = null;
-      void channel.untrack();
-      void channel.unsubscribe();
+      // R9: chain untrack → unsubscribe → removeChannel. The previous
+      // path called .unsubscribe() but NEVER .removeChannel(); the
+      // Supabase v2 client retained the channel in its internal
+      // channels[] map for the page lifetime. Canvas presence churns
+      // hard — every board change / share-link nav leaked a channel
+      // plus all its sanitizer + setMembers closures. After a few
+      // hours of board-hopping this dominated session memory growth.
+      void Promise.resolve(channel.untrack())
+        .then(() => channel.unsubscribe())
+        .catch(() => {});
+      try { void getSupabaseClient()?.removeChannel(channel); } catch { /* client torn down */ }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelName]);

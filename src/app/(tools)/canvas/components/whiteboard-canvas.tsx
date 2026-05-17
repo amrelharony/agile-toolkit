@@ -2369,6 +2369,12 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
     () => objects.slice().sort((a, b) => a.z - b.z),
     [objects],
   );
+  // R9: hoist `.includes` → `Set.has`. The render loop walks N=1000
+  // objects per render; without the Set, each check is O(M selection)
+  // and tagFilter check is O(K tagFilter), making the loop O(N×(M+K))
+  // per render — sluggish at any realistic load.
+  const selectionSet = useMemo(() => new Set(selection), [selection]);
+  const tagFilterSet = useMemo(() => new Set(tagFilter), [tagFilter]);
 
   /** Click on a connector path — toggle selection (additive with Shift/Cmd).
    * Connectors don't have a draggable bbox, so we don't kick off a drag the
@@ -2497,7 +2503,15 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   return (
     <div
       ref={viewportRef}
-      className="relative h-full w-full overflow-hidden bg-bg select-none touch-none"
+      // R9: WCAG 2.1.1 — viewport is now keyboard-focusable. Without this
+      // a keyboard-only user could not access ANY canvas shortcut
+      // (N for sticky, T for text, R for rect, etc.). role="application"
+      // tells SR users that arrow-key + letter shortcuts are app-mode,
+      // not document-navigation.
+      role="application"
+      aria-label="Whiteboard canvas. Press ? for keyboard shortcuts."
+      tabIndex={0}
+      className="relative h-full w-full overflow-hidden bg-bg select-none touch-none focus:outline-none"
       // R8: wheel handler is attached natively via useEffect (passive:false)
       // so we can call preventDefault. React's synthetic onWheel is passive.
       onWheel={onWheel}
@@ -2568,6 +2582,11 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
             onConnectorPointerDown={onConnectorPointerDown}
             viewportWorld={viewportWorld}
           />
+          {/* R9: hoist Set lookups out of the map. Previously each of
+              N=1000 objects ran `selection.includes(o.id)` (O(M selection))
+              AND `tagFilter.includes(t)` per tag — 1000 × 10 = 10k ops
+              per render just for the filter check. Sets get .has() to O(1). */}
+          {(() => null)()}
           {sortedObjects.map((o) => {
             // Tag-filter dimming (Phase 26). When the user has at
             // least one tag in the filter set, any object that
@@ -2577,16 +2596,13 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
             // to grab a dimmed object — Miro's behaviour. When NO
             // tag filter is active (the common case), we skip the
             // wrapping <div> entirely — saving 1000 extra DOM nodes
-            // on a 1000-object board. The previous code wrapped
-            // every object in a <div> with `style={undefined}` even
-            // when no filter was active, which still costs a
-            // reconciliation slot per object.
+            // on a 1000-object board.
             if (tagFilter.length === 0) {
               return (
                 <ObjectRenderer
                   key={o.id}
                   object={o}
-                  selected={selection.includes(o.id)}
+                  selected={selectionSet.has(o.id)}
                   editing={editingObjectId === o.id}
                   onPointerDown={onObjectPointerDown}
                   onDoubleClick={onObjectDoubleClick}
@@ -2596,7 +2612,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
                 />
               );
             }
-            const dimmed = !(o.tags ?? []).some((t) => tagFilter.includes(t));
+            const dimmed = !(o.tags ?? []).some((t) => tagFilterSet.has(t));
             return (
               <div
                 key={o.id}
@@ -2604,7 +2620,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
               >
                 <ObjectRenderer
                   object={o}
-                  selected={selection.includes(o.id)}
+                  selected={selectionSet.has(o.id)}
                   editing={editingObjectId === o.id}
                   onPointerDown={onObjectPointerDown}
                   onDoubleClick={onObjectDoubleClick}

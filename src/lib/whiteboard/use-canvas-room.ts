@@ -373,6 +373,16 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
       offRequest();
       offFocus();
       if (driftTimer !== null) clearTimeout(driftTimer);
+      // R9: cancel the pending rAF too. Previously a queued patch could
+      // fire AFTER teardown, mutating `lastBroadcastRef.current` and
+      // calling `useWorkspaceStore.getState()` on the wrong board.
+      if (flushRaf !== null && typeof cancelAnimationFrame !== "undefined") {
+        cancelAnimationFrame(flushRaf);
+      }
+      flushRaf = null;
+      // R9: drain the queue so the captured patches don't keep alive
+      // closures over the now-dead boardId / handlers.
+      inboundQueue.length = 0;
     };
     // NOTE: we intentionally omit `room` from the dep list — it's a new
     // object every render. We read through roomRef.current instead.

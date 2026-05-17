@@ -328,6 +328,9 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
             transition-all duration-default ease-spring
           "
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          // R9: WCAG 4.1.2 — expose the toggle state so SR users hear
+          // "expanded/collapsed" alongside the label.
+          aria-expanded={!collapsed}
         >
           <ChevronLeft
             className={cn(

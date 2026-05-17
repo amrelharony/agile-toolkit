@@ -99,7 +99,13 @@ function readStore<T>(key: string): T | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     // zustand persist wraps state in { state: {...}, version: N }
-    return (parsed?.state ?? parsed) as T;
+    const result = parsed?.state ?? parsed;
+    // R9: previously cast to `T` unconditionally. If `parsed.state` is
+    // null (legit zustand-persist shape on first write, or a bad blob),
+    // the cast lies and every downstream `data.foo` crashes. Return
+    // null instead so callers get the obvious "no data yet" branch.
+    if (result === null || typeof result !== "object") return null;
+    return result as T;
   } catch {
     return null;
   }

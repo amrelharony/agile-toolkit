@@ -269,7 +269,19 @@ function deepFreeze(value: object, seen: WeakSet<object> = new WeakSet()): void 
  * proxy, etc.).
  */
 export function subscribeSignals(kinds: SignalKind[], cb: Listener): () => void {
+  // R9: validate every kind. emitSignal already validates; subscribe
+  // previously didn't, so a typo'd kind silently created a new bucket
+  // that no emit ever reached — the listener stayed in the listeners
+  // Map forever (module-scope, never reclaimed). Unbounded growth if
+  // callers dynamically build the kinds list.
   for (const k of kinds) {
+    if (!isValidSignalKind(k)) {
+      if (process.env.NODE_ENV !== "production") {
+        // eslint-disable-next-line no-console
+        console.warn("[signal-bus] subscribeSignals dropping unknown kind:", k);
+      }
+      continue;
+    }
     let set = listeners.get(k);
     if (!set) { set = new Set(); listeners.set(k, set); }
     set.add(cb);

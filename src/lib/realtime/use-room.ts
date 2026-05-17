@@ -302,7 +302,16 @@ export function useRoom<T>(
       // promise in `Promise.resolve(...).catch` here is purely belt-
       // and-braces against unhandled rejections that would crash the
       // host in some bundlers.
+      // R9: `unsubscribe()` only sends LEAVE on the wire — the Supabase
+      // v2 client retains the channel in its internal `channels[]` map
+      // until `removeChannel()` is called explicitly. Every roomId
+      // change (board switch, tool re-mount, presentation toggle)
+      // previously appended a dead channel + all its bound handler
+      // closures. In a multi-hour session of canvas + retro + standup
+      // tab-hopping this grew linearly. removeChannel() also implicitly
+      // calls unsubscribe internally.
       void Promise.resolve(channel.unsubscribe()).catch(() => {});
+      try { void getSupabaseClient()?.removeChannel(channel); } catch { /* client torn down */ }
       channelRef.current = null;
       // Clear bound-events tracking so the next channel start re-binds.
       // Don't clear eventHandlersRef itself — subscribers persist across

@@ -796,15 +796,25 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       // is older than `version`.
       version: 1,
       migrate: (persistedState, fromVersion) => {
-        // v0 → v1: ensure the new array slices exist. Default merge
-        // already handles this via initial state, but pre-loading the
-        // defaults defensively avoids a transient render with the
-        // arrays as `undefined` if a consumer reads them before the
-        // store fully resolves.
-        if (fromVersion < 1 && persistedState && typeof persistedState === "object") {
+        // R9: previously MUTATED `persistedState` in place via
+        // `p.whiteboardSavedTemplates = []`. Zustand persist's contract
+        // treats migrate's input as immutable — any cached references
+        // (e.g. zustand-devtools snapshot) could see the mutation.
+        // Spread into a fresh object instead.
+        if (!persistedState || typeof persistedState !== "object") {
+          return persistedState as Workspace & WorkspaceActions;
+        }
+        if (fromVersion < 1) {
           const p = persistedState as Record<string, unknown>;
-          if (!Array.isArray(p.whiteboardSavedTemplates)) p.whiteboardSavedTemplates = [];
-          if (!Array.isArray(p.whiteboardActivityLog)) p.whiteboardActivityLog = [];
+          return {
+            ...p,
+            whiteboardSavedTemplates: Array.isArray(p.whiteboardSavedTemplates)
+              ? p.whiteboardSavedTemplates
+              : [],
+            whiteboardActivityLog: Array.isArray(p.whiteboardActivityLog)
+              ? p.whiteboardActivityLog
+              : [],
+          } as Workspace & WorkspaceActions;
         }
         return persistedState as Workspace & WorkspaceActions;
       },

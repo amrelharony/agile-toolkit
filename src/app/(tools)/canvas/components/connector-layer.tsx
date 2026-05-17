@@ -51,6 +51,11 @@ function ConnectorLayerImpl({ objects, selectedIds, preview, onConnectorPointerD
     [objects],
   );
 
+  // R9: Set lookup for selection — `selectedIds.includes` was O(M) per
+  // connector. With 5k connectors × 100-item selection that's 500k ops
+  // per render of the connector layer.
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+
   // Per-connector path cache. Keyed by stable connector id; the cached
   // entry stores (input-key, routed result). On render, look up the
   // input-key — if it matches, reuse the path. Otherwise recompute and
@@ -143,7 +148,7 @@ function ConnectorLayerImpl({ objects, selectedIds, preview, onConnectorPointerD
           pathCacheRef.current.set(c.id, { key: cacheKey, path });
         }
 
-        const selected = selectedIds.includes(c.id);
+        const selected = selectedSet.has(c.id);
         const stroke = selected ? "#00f0ff" : c.stroke;
         const strokeWidth = selected ? c.strokeWidth + 1 : c.strokeWidth;
         const interactive = !!onConnectorPointerDown;

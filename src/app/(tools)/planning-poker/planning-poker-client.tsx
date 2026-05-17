@@ -211,6 +211,23 @@ function PlayingCard({
   return (
     <motion.div
       onClick={onClick}
+      // R9: keyboard equivalence for click-only cards. Without this a
+      // keyboard-only user couldn't vote at all (WCAG 2.1.1). Cards
+      // without an `onClick` stay non-interactive.
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : -1}
+      aria-pressed={onClick ? selected : undefined}
+      aria-label={onClick ? `${selected ? "Selected" : "Select"} card ${value}` : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
       whileHover={onClick ? { y: -8, scale: 1.05 } : undefined}
       whileTap={onClick ? { scale: 0.97 } : undefined}
       animate={{ rotate: rotation, scale: selected ? 1.12 : 1 }}
