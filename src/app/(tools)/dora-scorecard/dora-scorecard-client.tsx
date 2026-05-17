@@ -155,10 +155,16 @@ export function DoraScorecardClient() {
     const cfr = parsePercent(draft.changeFailRatePct);
     const mttr = parsePositive(draft.mttrHours);
     if (deploy === null || lead === null || cfr === null || mttr === null) return;
-    if (!draft.quarter.trim()) return;
+    const quarterTrimmed = draft.quarter.trim();
+    if (!quarterTrimmed) return;
+    // R5: enforce YYYY-Q[1-4] so localeCompare sorts chronologically.
+    // Free-text like "Q1 2026" or "2026-Q10" sorted wrong + duplicates
+    // broke the chart x-axis (Recharts treats dup keys as one point).
+    if (!/^\d{4}-Q[1-4]$/.test(quarterTrimmed)) return;
+    if (state.samples.some((s) => s.quarter === quarterTrimmed)) return;
     const sample: DoraSample = {
       id: crypto.randomUUID(),
-      quarter: draft.quarter.trim(),
+      quarter: quarterTrimmed,
       deployFreqPerWeek: deploy,
       leadTimeHours: lead,
       changeFailRate: cfr,

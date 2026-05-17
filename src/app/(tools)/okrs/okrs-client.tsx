@@ -179,17 +179,50 @@ export function OkrsClient() {
     }
   };
   const removeKr = (okrId: string, krId: string) => {
-    setOkrs((s) =>
-      s.map((o) => (o.id === okrId ? { ...o, keyResults: o.keyResults.filter((k) => k.id !== krId) } : o))
-    );
+    setOkrs((s) => {
+      const next = s.map((o) =>
+        o.id === okrId ? { ...o, keyResults: o.keyResults.filter((k) => k.id !== krId) } : o,
+      );
+      // R5: after dropping the KR locally, push the updated OKR back to
+      // the workspace store. Otherwise canvas stickies / cards keyed by
+      // KR id keep pointing at a KR that no longer exists in any view.
+      // The workspace `upsertOkr` triggers its own cascade by design.
+      const updated = next.find((o) => o.id === okrId);
+      if (updated) upsertOkr(updated);
+      return next;
+    });
     log(OKR_ACTIONS.KEY_RESULT_REMOVED, { okrId, krId });
   };
 
   const handleImport = () => {
-    const fresh = workspaceOkrs.filter((w) => !okrs.find((o) => o.id === w.id));
-    if (fresh.length === 0) return 0;
-    setOkrs((s) => [...fresh, ...s]);
-    return fresh.length;
+    // R5: previously only pulled OKRs not present locally — workspace
+    // updates to EXISTING ids were silently dropped (e.g., someone
+    // adds a KR via the canvas → comes back here → no merge). Merge
+    // by id with last-write-wins via updatedAt where available.
+    let added = 0;
+    let updated = 0;
+    setOkrs((s) => {
+      const byId = new Map(s.map((o) => [o.id, o]));
+      for (const w of workspaceOkrs) {
+        const local = byId.get(w.id);
+        if (!local) {
+          byId.set(w.id, w);
+          added++;
+          continue;
+        }
+        // Prefer the newer updatedAt when both have one; otherwise prefer
+        // the workspace copy (cross-tool truth).
+        const lu = (local as { updatedAt?: string }).updatedAt;
+        const wu = (w as { updatedAt?: string }).updatedAt;
+        const localNewer = lu && wu && lu > wu;
+        if (!localNewer) {
+          byId.set(w.id, { ...local, ...w });
+          updated++;
+        }
+      }
+      return Array.from(byId.values());
+    });
+    return added + updated;
   };
 
   const handlePush = () => {

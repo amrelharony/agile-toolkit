@@ -210,7 +210,11 @@ function buildWeeklyImpedimentSeries(impediments: Impediment[]): {
     .filter((d): d is Date => d !== null);
   if (dates.length === 0) return { raisedPerWeek: [], openAtWeek: [] };
 
-  const earliest = new Date(Math.min(...dates.map((d) => d.getTime())));
+  // R5: `Math.min(...arr)` blows the JS arg-count limit (RangeError:
+  // Maximum call stack) on lists >~100k. Use reduce so growth doesn't
+  // suddenly crash the page.
+  const earliestMs = dates.reduce((m, d) => Math.min(m, d.getTime()), Infinity);
+  const earliest = new Date(earliestMs);
   const dayOfWeek = earliest.getUTCDay();
   const weekStart = new Date(earliest);
   weekStart.setUTCDate(earliest.getUTCDate() - dayOfWeek);

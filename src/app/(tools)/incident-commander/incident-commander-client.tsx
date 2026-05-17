@@ -359,7 +359,8 @@ export function IncidentCommanderClient() {
       .map((i) => new Date(i.openedAt).getTime())
       .filter((t) => Number.isFinite(t));
     if (opens.length === 0) return [];
-    const earliest = new Date(Math.min(...opens));
+    // R5: spread-Math.min RangeError on lists >~100k. Use reduce.
+    const earliest = new Date(opens.reduce((m, t) => Math.min(m, t), Infinity));
     const dayOfWeek = earliest.getUTCDay();
     const weekStart = new Date(earliest);
     weekStart.setUTCDate(earliest.getUTCDate() - dayOfWeek);

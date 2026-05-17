@@ -458,9 +458,17 @@ export function BurnupClient() {
 
     // Projected completion: linear extrapolation from last two filled entries
     let projectedDay: number | null = null;
-    const completedEntries = sortedEntries
-      .filter((e) => e.completed !== null)
-      .sort((a, b) => a.day - b.day);
+    // R5: dedupe entries by `day` before computing projection. Two entries
+    // on the SAME day (possible if the user clicks "Add Day" twice for
+    // the same idx) produced `Math.max(1, 0) === 1` in the denominator,
+    // yielding a huge spurious rate spike → wildly wrong projection.
+    const dedupedByDay = new Map<number, typeof sortedEntries[number]>();
+    for (const e of sortedEntries) {
+      if (e.completed === null) continue;
+      // Last-write-wins on duplicate days.
+      dedupedByDay.set(e.day, e);
+    }
+    const completedEntries = Array.from(dedupedByDay.values()).sort((a, b) => a.day - b.day);
     if (completedEntries.length >= 2) {
       const n = completedEntries.length;
       const last = completedEntries[n - 1];

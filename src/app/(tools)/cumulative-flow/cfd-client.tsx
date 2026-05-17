@@ -351,10 +351,14 @@ export function CFDClient() {
     const latest = sortedEntries[sortedEntries.length - 1];
     const totalItems = columns.reduce((s, c) => s + (latest.counts[c.id] ?? 0), 0);
 
-    // WIP = everything except first (backlog/todo) and last (done) columns
-    const wipCols = columns.slice(1, columns.length - 1);
+    // WIP = everything except first (backlog/todo) and last (done) columns.
+    // R5: when `columns.length < 3`, `slice(1, len-1)` is empty and the
+    // WIP stats collapse to 0 — but doneItems still counts. The result
+    // was a misleading "0% WIP, 100% efficient" display. Treat <3 cols
+    // as N/A (return null sentinel so the UI can render "—").
+    const wipCols = columns.length >= 3 ? columns.slice(1, columns.length - 1) : [];
     const wipItems = wipCols.reduce((s, c) => s + (latest.counts[c.id] ?? 0), 0);
-    const wipPct = totalItems > 0 ? Math.round((wipItems / totalItems) * 100) : 0;
+    const wipPct = columns.length < 3 ? null : (totalItems > 0 ? Math.round((wipItems / totalItems) * 100) : 0);
 
     const lastCol = columns[columns.length - 1];
     const doneItems = lastCol ? (latest.counts[lastCol.id] ?? 0) : 0;
@@ -486,7 +490,7 @@ export function CFDClient() {
           <StatCard
             label="WIP Items"
             value={stats.wipItems}
-            unit={`(${stats.wipPct}%)`}
+            unit={stats.wipPct === null ? "(n/a — add a middle column)" : `(${stats.wipPct}%)`}
             warning={wipLimit !== null && stats.wipItems > wipLimit}
             trailing={
               wipTrend?.significant ? (

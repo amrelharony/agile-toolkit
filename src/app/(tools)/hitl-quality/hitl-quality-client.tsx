@@ -101,12 +101,18 @@ export function HitlQualityClient() {
 
   const promptConfig = useMemo(() => ({
     toolName: "HITL Quality Tracker",
-    prompts: generateHitlPrompts({ items: list }, workspace),
-  }), [list, workspace]);
+    // R5: pass validList — the prompt should only see well-formed entries.
+    // Mixing in malformed entries previously surfaced inconsistent stats
+    // between prompt and on-screen KPIs.
+    prompts: generateHitlPrompts({ items: validList }, workspace),
+  }), [validList, workspace]);
 
   const csvData = {
     headers: ["Date", "Feature", "Reviewer", "Rating", "Agreed", "Reason"],
-    rows: list.map((x) => [x.loggedAt.slice(0, 10), x.feature ?? "", x.reviewer ?? "", x.rating, x.agreedWithModel ? "yes" : "no", x.reason ?? ""]),
+    // R5: was `list.map(...)` calling `.slice` on a possibly non-string
+    // `loggedAt` (corrupt persisted entry) → CSV export crashed. Use
+    // validList AND coerce defensively.
+    rows: validList.map((x) => [String(x.loggedAt ?? "").slice(0, 10), x.feature ?? "", x.reviewer ?? "", x.rating, x.agreedWithModel ? "yes" : "no", x.reason ?? ""]),
   };
 
   return (

@@ -15,6 +15,7 @@ import type { TokenSpend, Workspace } from "@/lib/stores/workspace-types";
 import { generateTokenCostPrompts } from "@/lib/ai-prompts/token-cost-tracker";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { TOKEN_COST_ACTIONS } from "@/lib/history/event-actions";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
@@ -34,7 +35,10 @@ export function TokenCostTrackerClient() {
 
   const [feature, setFeature] = useState("");
   const [model, setModel] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  // R5: `new Date().toISOString().slice(0, 10)` is the UTC date. In
+  // non-UTC zones near midnight it produced "tomorrow" or "yesterday"
+  // relative to the user's local day. Use the local-day helper.
+  const [date, setDate] = useState(todayLocalISO());
   const [inputTokens, setInputTokens] = useState("");
   const [outputTokens, setOutputTokens] = useState("");
   const [costUsd, setCostUsd] = useState("");
@@ -88,8 +92,13 @@ export function TokenCostTrackerClient() {
     0,
   );
   const last30Spend = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    // R5: previously mixed UTC date strings with local-time entries from
+    // the user input. Use local-day strings consistently so an entry
+    // logged at 11pm local on day-of-cutoff isn't silently filtered out.
+    const today = todayLocalISO();
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 30);
+    const cutoff = todayLocalISO(cutoffDate);
     // Bound the window on BOTH sides — without an upper bound, future-dated
     // entries (typos like 2099-01-01, or imports from a wrong-locale ISO
     // export) would inflate the "last 30 days" projection used by the budget

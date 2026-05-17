@@ -190,12 +190,23 @@ export function AdkarClient() {
       prev.map((i) => {
         if (i.id !== id) return i;
         if (i.currentStage !== from) return i;
+        // R5: previously only pushed `currentStage` (the OUT-going stage)
+        // — when the user reached the final stage `reinforcement`, no
+        // subsequent advance pushed it in. The final stage was never
+        // marked complete. Push BOTH the outgoing AND the incoming stage
+        // so the final stage gets credited when the user lands on it.
+        const isFinal = to === "reinforcement";
+        const completedNext = Array.from(
+          new Set([
+            ...i.stagesCompleted,
+            i.currentStage,
+            ...(isFinal ? [to] : []),
+          ]),
+        );
         return {
           ...i,
           currentStage: to,
-          stagesCompleted: Array.from(
-            new Set([...i.stagesCompleted, i.currentStage])
-          ),
+          stagesCompleted: completedNext,
           stageHistory: [
             ...i.stageHistory,
             { stage: to, enteredAt: todayLocalISO() },

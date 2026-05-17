@@ -53,16 +53,27 @@ function quarterIndex(q: string): number {
   const m = q.match(/(\d{4})\s*Q([1-4])/i);
   if (!m) return 0;
   const year = parseInt(m[1], 10);
+  // R5: require year >= 1900 — without this, a hand-edited or migrated
+  // epic carrying `"0 Q1"` produced index 1 (non-zero, passes the
+  // sentinel check) and the timeline header rendered literal "0 Q1".
+  if (year < 1900 || year > 2200) return 0;
   const qNum = parseInt(m[2], 10); // 1..4
   return year * 4 + qNum; // sentinel-safe: year*4+1..+4
 }
+
+// R5: cap grid columns. A pasted "9999 Q1" through "9999 Q4" produced
+// ~40k iterations and DOM nodes, freezing the tab. 40 quarters = 10
+// years which is well past any reasonable roadmap horizon.
+const MAX_QUARTERS_SPAN = 40;
 
 function quartersBetween(from: string, to: string): string[] {
   const start = quarterIndex(from);
   const end = quarterIndex(to);
   if (start === 0 || end === 0 || end < start) return [];
   const out: string[] = [];
-  for (let i = start; i <= end; i++) {
+  const span = Math.min(end - start + 1, MAX_QUARTERS_SPAN);
+  const stop = start + span - 1;
+  for (let i = start; i <= stop; i++) {
     // Subtract 1 before the divmod so q=4 stays in its own year. e.g.
     // i=8108 (2026 Q4) → (i-1)=8107 → year=2026, q=(8107%4)+1=4.
     const zero = i - 1;

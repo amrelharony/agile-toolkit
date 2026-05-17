@@ -265,15 +265,17 @@ function TrendButton({
 /* -------------------------------------------------------------------------- */
 
 export function HealthCheckClient() {
-  const {
-    current,
-    history,
-    setSprintName,
-    setLight,
-    setTrend,
-    saveCheck: saveCheckRaw,
-    reset: resetRaw,
-  } = useHealthCheckStore();
+  // R5: destructuring `useHealthCheckStore()` re-subscribes the whole
+  // component to every store property — every keystroke on an unrelated
+  // tool sharing the store would re-render this whole page. Use
+  // individual selectors so each field is its own subscription.
+  const current = useHealthCheckStore((s) => s.current);
+  const history = useHealthCheckStore((s) => s.history);
+  const setSprintName = useHealthCheckStore((s) => s.setSprintName);
+  const setLight = useHealthCheckStore((s) => s.setLight);
+  const setTrend = useHealthCheckStore((s) => s.setTrend);
+  const saveCheckRaw = useHealthCheckStore((s) => s.saveCheck);
+  const resetRaw = useHealthCheckStore((s) => s.reset);
   const { log } = useHistoryLogger("health-check");
 
   const saveCheck = () => {

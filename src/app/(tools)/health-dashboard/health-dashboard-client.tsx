@@ -501,16 +501,21 @@ export function HealthDashboardClient() {
   const events = useHistoryStore((s) => s.events);
 
   /* -- Build all KPIs — memoized, refreshed only when refreshKey changes ---- */
+  // R5: depend on `events` too so a fresh history event (sprint completed,
+  // impediment raised, mood logged, etc.) refreshes the KPIs without
+  // requiring a manual click on the refresh button. Previously the
+  // dashboard could show stale KPIs that disagreed with the live
+  // Active Signals panel directly above.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const velocityData = useMemo(() => extractVelocityKPIs(), [refreshKey]);
+  const velocityData = useMemo(() => extractVelocityKPIs(), [refreshKey, events]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const healthCheckData = useMemo(() => extractHealthCheckKPIs(), [refreshKey]);
+  const healthCheckData = useMemo(() => extractHealthCheckKPIs(), [refreshKey, events]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const impedimentData = useMemo(() => extractImpedimentKPIs(), [refreshKey]);
+  const impedimentData = useMemo(() => extractImpedimentKPIs(), [refreshKey, events]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const standupData = useMemo(() => extractStandupKPIs(), [refreshKey]);
+  const standupData = useMemo(() => extractStandupKPIs(), [refreshKey, events]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const cycleTimeData = useMemo(() => extractCycleTimeKPIs(), [refreshKey]);
+  const cycleTimeData = useMemo(() => extractCycleTimeKPIs(), [refreshKey, events]);
 
   /* -- Causal annotations from cross-tool event streams --------------------- */
   // Each correlation is a best-effort: when the source streams are too sparse

@@ -75,20 +75,49 @@ export function LLMEvalTrackerClient() {
   }, [evals]);
 
   // Emit `llmEval.regressionDetected` exactly once per (group, delta) so
-  // downstream tools (hallucination-log, model-migration) can react. The
-  // dedupe set is a ref so it survives renders without retriggering effects.
+  // downstream tools (hallucination-log, model-migration) can react.
+  //
+  // R5: previously the dedupe set was a useRef → cleared on every hard
+  // reload, so the same regression re-fired (and re-notified downstream
+  // consumers) at every page load. Persist the dedupe set in
+  // localStorage so it survives reloads. Cap the persisted set at a
+  // reasonable size — old entries roll off naturally.
+  const DEDUPE_KEY = "agile-toolkit:llm-eval:emitted-regressions:v1";
+  const DEDUPE_CAP = 500;
   const emittedRegressionsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(DEDUPE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) emittedRegressionsRef.current = new Set(parsed.filter((x): x is string => typeof x === "string"));
+      }
+    } catch { /* corrupted or quota — fresh start */ }
+  }, []);
+  useEffect(() => {
+    let added = false;
     for (const f of regressionFindings) {
       const key = `${f.group}|${f.delta.toFixed(3)}`;
       if (emittedRegressionsRef.current.has(key)) continue;
       emittedRegressionsRef.current.add(key);
+      added = true;
       emitSignal({
         kind: "llmEval.regressionDetected",
         at: new Date().toISOString(),
         toolId: "llm-eval-tracker",
         payload: f,
       });
+    }
+    if (added && typeof window !== "undefined") {
+      try {
+        // Cap by keeping only the most recent N entries (Set preserves
+        // insertion order so this is "newest N").
+        const arr = Array.from(emittedRegressionsRef.current);
+        const capped = arr.length > DEDUPE_CAP ? arr.slice(arr.length - DEDUPE_CAP) : arr;
+        if (capped.length !== arr.length) emittedRegressionsRef.current = new Set(capped);
+        window.localStorage.setItem(DEDUPE_KEY, JSON.stringify(capped));
+      } catch { /* SecurityError / quota — silently drop */ }
     }
   }, [regressionFindings]);
 

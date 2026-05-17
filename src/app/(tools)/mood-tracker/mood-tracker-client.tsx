@@ -76,9 +76,10 @@ export function MoodTrackerClient() {
   const upsertMember = useWorkspaceStore((s) => s.upsertTeamMember);
   const { log: logEvent } = useHistoryLogger("mood-tracker");
 
-  useEffect(() => {
-    useWorkspaceStore.persist.rehydrate();
-  }, []);
+  // R5: removed stray `useWorkspaceStore.persist.rehydrate()` — it
+  // wasn't this tool's job to force a workspace-wide rehydrate. Doing
+  // so on mount raced with other tools' in-progress writes (the
+  // workspace store hydrates once at the persist-provider boundary).
 
   const todayISO = todayLocalISO();
   // Memoize on todayISO so the array reference is stable until midnight. With
@@ -98,8 +99,19 @@ export function MoodTrackerClient() {
     // still allow score-only logs so the click-to-log flow stays one tap.
     const note = noteDrafts[memberId]?.trim() || undefined;
     setEntries((e) => {
-      const existing = e.find((x) => x.memberId === memberId && x.date === today);
-      if (existing) return e.map((x) => (x === existing ? { ...x, score, note: note ?? x.note } : x));
+      // R5: previously found `existing` by reference then `.map((x) => x === existing ?…)`.
+      // Under StrictMode (and React 18 concurrent rendering), this updater can
+      // be invoked twice — the second invocation's `e` is the array AFTER the
+      // first call's update, so `existing` (captured from the first `e`) is
+      // no longer in the new array → match-by-reference fails → the second
+      // call silently appends a duplicate. Match by composite (memberId, date)
+      // inside `.map` so it's reference-independent.
+      const idx = e.findIndex((x) => x.memberId === memberId && x.date === today);
+      if (idx >= 0) {
+        const next = e.slice();
+        next[idx] = { ...next[idx], score, note: note ?? next[idx].note };
+        return next;
+      }
       return [...e, { id: nanoid(8), memberId, date: today, score, note }];
     });
     logEvent(MOOD_ACTIONS.MOOD_LOGGED, { memberId, score, date: today, note });

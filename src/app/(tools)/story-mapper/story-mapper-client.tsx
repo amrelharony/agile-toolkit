@@ -110,24 +110,29 @@ function makeId() {
   return crypto.randomUUID();
 }
 
+// R5: deterministic ids for the seed steps so server-render and
+// client-hydrate produce the same DOM. Random UUIDs at module-eval time
+// produced an SSR/client mismatch on the very first visit (before any
+// persisted state existed). User-added steps continue to use makeId().
 function buildDefaultSteps(): Step[] {
   return [
-    { id: makeId(), name: "Discover" },
-    { id: makeId(), name: "Learn" },
-    { id: makeId(), name: "Use" },
+    { id: "story-mapper-step-discover", name: "Discover" },
+    { id: "story-mapper-step-learn", name: "Learn" },
+    { id: "story-mapper-step-use", name: "Use" },
   ];
 }
 
+// R5: deterministic seed ids so SSR + CSR produce identical DOM.
 function buildDefaultSlices(steps: Step[]): Slice[] {
   const [s1, s2, s3] = steps;
   return [
     {
-      id: makeId(),
+      id: "story-mapper-slice-skeleton",
       name: "Walking Skeleton",
       cards: {
         [s1.id]: [
           {
-            id: makeId(),
+            id: "story-mapper-card-browse",
             title: "Browse product catalog",
             description: "Users can view available products in a list.",
             color: "#00f0ff",
@@ -135,7 +140,7 @@ function buildDefaultSlices(steps: Step[]): Slice[] {
         ],
         [s2.id]: [
           {
-            id: makeId(),
+            id: "story-mapper-card-details",
             title: "Read product details",
             description: "Users can click a product to see full details.",
             color: "#a78bfa",
@@ -145,14 +150,14 @@ function buildDefaultSlices(steps: Step[]): Slice[] {
       },
     },
     {
-      id: makeId(),
+      id: "story-mapper-slice-mvp",
       name: "MVP",
       cards: {
         [s1.id]: [],
         [s2.id]: [],
         [s3.id]: [
           {
-            id: makeId(),
+            id: "story-mapper-card-cart",
             title: "Add to cart",
             description: "Users can add items to a shopping cart.",
             color: "#34d399",

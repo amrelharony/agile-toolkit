@@ -268,7 +268,13 @@ export function FeatureFlagTrackerClient() {
       })),
     );
     return kaplanMeier(obs);
-  }, [flags, retiredAges.length]);
+    // R5: dep was `[flags, retiredAges.length]` which missed CONTENT
+    // changes to `flags` whose `retiredAges.length` was unchanged
+    // (e.g., a status flip that re-stamps `retiredAt` on an existing
+    // count). Depend on `flags` only — the survival curve recomputes
+    // exactly when its inputs change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flags]);
 
   const medianFlagAge = useMemo(
     () => medianSurvivalTime(survivalCurve),

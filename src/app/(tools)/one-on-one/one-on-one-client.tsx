@@ -258,10 +258,17 @@ export function OneOnOneClient() {
   const [notesDraft, setNotesDraft] = useState<string>("");
   const notesCommittedRef = useRef<string>("");
   useEffect(() => {
+    // R5: depend ONLY on `activeMeeting?.id`. Including
+    // `activeMeeting?.notes` re-fires the effect every time the local
+    // draft was committed via `updateNotes` → `notes` changed →
+    // `activeMeeting` re-derived → effect re-ran → setNotesDraft
+    // overwrote the user's in-progress typing AFTER they had just
+    // committed. Only sync when the user opens a DIFFERENT meeting.
     const v = activeMeeting?.notes ?? "";
     setNotesDraft(v);
     notesCommittedRef.current = v;
-  }, [activeMeeting?.id, activeMeeting?.notes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMeeting?.id]);
 
   const togglePastExpanded = (id: string) => {
     setExpandedPast((s) => {

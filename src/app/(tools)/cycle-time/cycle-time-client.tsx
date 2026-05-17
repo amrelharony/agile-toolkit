@@ -67,10 +67,24 @@ interface CycleTimeStore {
 /*  Helpers                                                                   */
 /* -------------------------------------------------------------------------- */
 
+// R5: `new Date("YYYY-MM-DD")` parses as UTC midnight; subtracting two
+// UTC midnights and dividing by 86_400_000 SHOULD be exact, but if the
+// input is `YYYY-MM-DDTHH:mm` (datetime-local), the parse is in LOCAL
+// time. Mixing the two formats produces a tz-offset-shifted delta that
+// rounds the wrong way at DST transitions. Parse as local-date when
+// the string matches the date-only shape, else parse as-is.
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+function parseLocalOrIso(s: string): number {
+  if (DATE_ONLY.test(s)) {
+    const [y, m, d] = s.split("-").map(Number);
+    return new Date(y, m - 1, d).getTime();
+  }
+  return new Date(s).getTime();
+}
 function calcCycleTime(start: string, end: string): number | null {
   if (!start || !end) return null;
-  const s = new Date(start).getTime();
-  const e = new Date(end).getTime();
+  const s = parseLocalOrIso(start);
+  const e = parseLocalOrIso(end);
   if (isNaN(s) || isNaN(e) || e < s) return null;
   return Math.round((e - s) / (1000 * 60 * 60 * 24));
 }

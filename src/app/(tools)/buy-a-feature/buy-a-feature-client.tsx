@@ -28,22 +28,34 @@ export function BuyAFeatureClient() {
 
   function add() {
     if (!title.trim()) return;
+    // R5: cap price to non-negative + sane upper bound. Negative prices
+    // produced infinite-funded percentages; an unbounded number could
+    // poison sort + chart axes.
+    const parsedPrice = parseFloat(price);
+    const safePrice = Math.max(
+      0,
+      Math.min(1_000_000_000, Number.isFinite(parsedPrice) ? parsedPrice : 0),
+    );
     const item: PrioritizationItem = {
-      id: crypto.randomUUID(), framework: "buy-feature", title: title.trim(),
+      id: crypto.randomUUID(), framework: "buy-feature", title: title.trim().slice(0, 200),
       score: 0,
-      fields: { price: parseFloat(price) || 0, raised: 0 },
+      fields: { price: safePrice, raised: 0 },
       status: "open", updatedAt: new Date().toISOString(),
     };
     upsert(item);
-    log(BUY_FEATURE_ACTIONS.FEATURE_ADDED, { title, price: item.fields?.price });
+    log(BUY_FEATURE_ACTIONS.FEATURE_ADDED, { title: item.title, price: item.fields?.price });
     setTitle(""); setPrice("");
   }
 
   function buy(it: PrioritizationItem, amount: number) {
     if (amount <= 0) return;
-    const next: PrioritizationItem = { ...it, score: (it.score ?? 0) + amount, fields: { ...(it.fields ?? {}), raised: (Number(it.fields?.raised) || 0) + amount }, updatedAt: new Date().toISOString() };
+    // R5: cap the per-call purchase amount so a hostile click handler
+    // (or a future numeric-input UI bug) can't push score/raised into
+    // Infinity territory.
+    const safeAmount = Math.min(1_000_000, amount);
+    const next: PrioritizationItem = { ...it, score: (it.score ?? 0) + safeAmount, fields: { ...(it.fields ?? {}), raised: (Number(it.fields?.raised) || 0) + safeAmount }, updatedAt: new Date().toISOString() };
     upsert(next);
-    log(BUY_FEATURE_ACTIONS.PURCHASE_RECORDED, { id: it.id, amount });
+    log(BUY_FEATURE_ACTIONS.PURCHASE_RECORDED, { id: it.id, amount: safeAmount });
   }
 
   const sorted = [...items].sort((a, b) => (Number(b.fields?.raised) || 0) - (Number(a.fields?.raised) || 0));

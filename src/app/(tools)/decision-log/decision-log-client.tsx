@@ -91,6 +91,16 @@ export function DecisionLogClient() {
   const removeDecision = (id: string) => {
     const prev = decisions.find((x) => x.id === id);
     setDecisions((d) => d.filter((x) => x.id !== id));
+    // R5: also cascade through the workspace store so any canvas
+    // sticky/card pinned to this decision via sourceRef is cleaned up.
+    // Without this, removing a previously-pushed decision left an
+    // orphan in `workspace.decisions` (and dangling canvas refs)
+    // until the next workspace export/import cycle.
+    try {
+      useWorkspaceStore.getState().removeDecision(id);
+    } catch {
+      /* workspace store may be unavailable in tests */
+    }
     if (editing?.id === id) setEditing(null);
     log(DECISION_ACTIONS.DECISION_REMOVED, {
       decisionId: id,

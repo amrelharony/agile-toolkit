@@ -41,7 +41,10 @@ export function WsjfClient() {
     const businessValue = fn(bv, 0);
     const timeCriticality = fn(tc, 0);
     const rrOeVal = fn(rrOe, 0);
-    const jobSize = fn(size, 1);
+    // R5: a user-typed `0` was previously accepted as jobSize → div/0
+    // in wsjfScore produced Infinity → that feature dominated the rank
+    // chart. Floor jobSize at 0.5 even when the user explicitly typed 0.
+    const jobSize = Math.max(0.5, fn(size, 1));
     const score = wsjfScore(businessValue, timeCriticality, rrOeVal, jobSize);
     const item: PrioritizationItem = {
       id: crypto.randomUUID(), framework: "wsjf", title: title.trim().slice(0, 200),

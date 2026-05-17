@@ -159,7 +159,11 @@ export function WeightedDecisionClient() {
                           <Input
                             type="number"
                             value={o.scores[c.id] ?? ""}
-                            onChange={(e) => setScore(o, c.id, parseFloat(e.target.value) || 0)}
+                            // R5: `|| 0` collapsed an explicit user-typed `0`
+                            // (a valid score) and silently stored 0 for
+                            // junk like "abc". Treat non-finite as 0 but
+                            // preserve legitimate 0 entries.
+                            onChange={(e) => { const n = parseFloat(e.target.value); setScore(o, c.id, Number.isFinite(n) ? n : 0); }}
                             className="h-7 w-16 text-center text-xs"
                           />
                         </td>

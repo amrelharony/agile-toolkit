@@ -88,16 +88,19 @@ const RACI_LABELS: Record<string, string> = {
   I: "Informed",
 };
 
+// R5: deterministic default ids — `crypto.randomUUID()` at module-load
+// time produces different ids on server (SSR) vs client → React
+// hydration mismatch on first visit before persist hydrates.
 const DEFAULT_ROLES: RACIRole[] = [
-  { id: crypto.randomUUID(), name: "Product Owner" },
-  { id: crypto.randomUUID(), name: "Scrum Master" },
-  { id: crypto.randomUUID(), name: "Dev Team" },
+  { id: "raci-role-po", name: "Product Owner" },
+  { id: "raci-role-sm", name: "Scrum Master" },
+  { id: "raci-role-dev", name: "Dev Team" },
 ];
 
 const DEFAULT_ACTIVITIES: RACIActivity[] = [
-  { id: crypto.randomUUID(), name: "Backlog Refinement" },
-  { id: crypto.randomUUID(), name: "Sprint Planning" },
-  { id: crypto.randomUUID(), name: "Daily Standup" },
+  { id: "raci-act-refinement", name: "Backlog Refinement" },
+  { id: "raci-act-planning", name: "Sprint Planning" },
+  { id: "raci-act-standup", name: "Daily Standup" },
 ];
 
 function buildDefaultMatrix(
@@ -127,13 +130,18 @@ const useRACIStore = create<RACIStore>()(
 
       addRole: () => {
         set((s) => {
+          // R5: previously parsed digits from EVERY role name. A
+          // user-renamed role like "Backend 2024" pushed `n` up to
+          // 2024 via the while-loop, blocking the JS thread for
+          // thousands of iterations. Cap the search at `s.roles.length + 1`
+          // so the loop is bounded by the actual list size.
           const used = new Set(
             s.roles
               .map((r) => parseInt(String(r.name).replace(/\D/g, ""), 10))
-              .filter(Number.isFinite)
+              .filter((x) => Number.isFinite(x) && x <= s.roles.length + 1),
           );
           let n = 1;
-          while (used.has(n)) n++;
+          while (used.has(n) && n <= s.roles.length + 1) n++;
           const newRole: RACIRole = {
             id: crypto.randomUUID(),
             name: `Role ${n}`,
@@ -176,13 +184,14 @@ const useRACIStore = create<RACIStore>()(
 
       addActivity: () => {
         set((s) => {
+          // R5: same bounded-search fix as addRole (see comment above).
           const used = new Set(
             s.activities
               .map((a) => parseInt(String(a.name).replace(/\D/g, ""), 10))
-              .filter(Number.isFinite)
+              .filter((x) => Number.isFinite(x) && x <= s.activities.length + 1),
           );
           let n = 1;
-          while (used.has(n)) n++;
+          while (used.has(n) && n <= s.activities.length + 1) n++;
           const newActivity: RACIActivity = {
             id: crypto.randomUUID(),
             name: `Activity ${n}`,

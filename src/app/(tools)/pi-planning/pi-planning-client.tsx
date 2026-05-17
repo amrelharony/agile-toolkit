@@ -98,10 +98,17 @@ export function PiPlanningClient() {
   const setIterations = (n: number) =>
     setState((s) => {
       const next = Math.max(1, Math.min(10, n));
-      // Dropping items pinned to iterations that no longer exist is
-      // destructive — surface a confirm() before silently deleting them.
-      // (If they linger instead, they reappear when the user widens the PI
-      // again, so quietly keeping them isn't a clean alternative either.)
+      // R5: when the user types `0`, `next` clamps to 1 but `next < s.iterations`
+      // (if current is e.g. 2) → destructive prompt + item removal still fires
+      // even though the user's intent was clamped to a value that may equal
+      // current. Skip the destructive path when the clamped value equals
+      // current (no actual shrink happening) and when the typed value was
+      // outside the allowed range entirely (typed 0 / 11 / negative).
+      if (next === s.iterations) return s;
+      if (!Number.isFinite(n) || n < 1 || n > 10) {
+        // Typed value was outside bounds — silently treat as no-op.
+        return s;
+      }
       if (next < s.iterations) {
         const orphans = s.items.filter((i) => i.iteration >= next).length;
         if (orphans > 0) {
