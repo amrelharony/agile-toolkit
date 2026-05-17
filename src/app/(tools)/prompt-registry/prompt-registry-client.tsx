@@ -25,6 +25,22 @@ const STATUS_COLORS: Record<PromptVersion["status"], string> = {
   draft: "#888", review: "#ffaa00", production: "#00ff88", deprecated: "#ff6b6b",
 };
 
+// R5: numeric-segment semver compare in DESC order. The previous
+// `b.version.localeCompare(a.version)` ordered `1.10.0` BEFORE `1.9.0`
+// because the lexicographic compare sees `1` < `9` at position 2. Split
+// on `.` and compare each segment as a number.
+function compareSemverDesc(a: string, b: string): number {
+  const pa = String(a ?? "").split(".").map((x) => parseInt(x, 10) || 0);
+  const pb = String(b ?? "").split(".").map((x) => parseInt(x, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const da = pa[i] ?? 0;
+    const db = pb[i] ?? 0;
+    if (da !== db) return db - da; // descending — newest version first
+  }
+  return 0;
+}
+
 export function PromptRegistryClient() {
   const list = useWorkspaceStore((s) => s.prompts ?? []);
   const upsert = useWorkspaceStore((s) => s.upsertPrompt);
@@ -129,7 +145,7 @@ export function PromptRegistryClient() {
             }
           >
             <ul className="space-y-2">
-              {[...list].sort((a, b) => a.name.localeCompare(b.name) || b.version.localeCompare(a.version)).map((p) => {
+              {[...list].sort((a, b) => a.name.localeCompare(b.name) || compareSemverDesc(a.version, b.version)).map((p) => {
                 // Defensive lookup — a corrupted persisted record could carry
                 // an unknown status string ("staging", "wip" from a future
                 // schema, etc.). Falling back to draft's grey keeps the badge

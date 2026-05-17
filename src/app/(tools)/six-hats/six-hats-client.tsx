@@ -49,7 +49,11 @@ export function SixHatsClient() {
 
   const grouped = useMemo(() => {
     const m: Record<SixHatsThought["hat"], SixHatsThought[]> = { white: [], red: [], black: [], yellow: [], green: [], blue: [] };
-    for (const t of list) m[t.hat].push(t);
+    // R5: skip thoughts whose `hat` is out of schema (legacy persist,
+    // hand-edit). The previous `m[t.hat].push(t)` crashed on undefined.
+    for (const t of list) {
+      if (t.hat && m[t.hat]) m[t.hat].push(t);
+    }
     return m;
   }, [list]);
 

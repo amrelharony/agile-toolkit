@@ -344,19 +344,24 @@ export function IceBreakerClient() {
     }
     setIsSpinning(true);
 
-    // Quick shuffle animation: show 5-6 rapid picks, then land on final
+    // R5: snapshot the filtered list at spin-start. Previously the
+    // interval callback closed over `filtered` from the outer render —
+    // if the user toggled a category filter mid-spin, the final pick
+    // could be an item NOT in the (new) `filtered` set, confusing the
+    // user. Pin the array once.
+    const snapshot = filtered;
     let count = 0;
     const totalFlashes = 6;
     const interval = setInterval(() => {
-      const randomIndex = Math.floor(Math.random() * filtered.length);
-      setSelected(filtered[randomIndex]);
+      const randomIndex = Math.floor(Math.random() * snapshot.length);
+      setSelected(snapshot[randomIndex]);
       count++;
       if (count >= totalFlashes) {
         clearInterval(interval);
         spinIntervalRef.current = null;
         // Final pick
-        const finalIndex = Math.floor(Math.random() * filtered.length);
-        const final = filtered[finalIndex];
+        const finalIndex = Math.floor(Math.random() * snapshot.length);
+        const final = snapshot[finalIndex];
         setSelected(final);
         setIsSpinning(false);
         log(ICEBREAKER_ACTIONS.PROMPT_DRAWN, {

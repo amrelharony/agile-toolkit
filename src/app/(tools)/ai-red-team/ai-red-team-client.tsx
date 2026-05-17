@@ -59,7 +59,15 @@ export function AIRedTeamClient() {
     const next: RedTeamFinding = { ...item, resolvedAt: new Date().toISOString() };
     upsert(next);
     log(AI_RED_TEAM_ACTIONS.FINDING_RESOLVED, { id });
-    emitSignal({ kind: "redTeam.findingClosed", at: next.resolvedAt!, toolId: "ai-red-team", payload: next });
+    // R5: drop the user-typed `promptUsed` from the emitted signal —
+    // it's a potentially-sensitive attack prompt and downstream
+    // subscribers (analytics, console loggers) shouldn't see it.
+    emitSignal({
+      kind: "redTeam.findingClosed",
+      at: next.resolvedAt!,
+      toolId: "ai-red-team",
+      payload: { id: next.id, severity: next.severity, attackVector: next.attackVector },
+    });
   }
 
   function remove(id: string) {

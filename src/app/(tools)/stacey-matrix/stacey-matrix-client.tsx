@@ -60,7 +60,14 @@ export function StaceyMatrixClient() {
   const scatter = list.map((it) => ({ title: it.title, x: it.certainty, y: it.agreement, region: it.region }));
   const grouped = useMemo(() => {
     const m: Record<string, StaceyItem[]> = { simple: [], complicated: [], complex: [], chaotic: [] };
-    for (const it of list) m[it.region ?? "complex"].push(it);
+    // R5: defend against out-of-schema region values (e.g. legacy
+    // `"unknown"` from a pre-migration persist). The previous
+    // `m[bad].push(it)` crashed on undefined. Bucket unknown values
+    // into "complex" so the item still renders.
+    for (const it of list) {
+      const bucket = m[it.region ?? "complex"] ?? m.complex;
+      bucket.push(it);
+    }
     return m;
   }, [list]);
 

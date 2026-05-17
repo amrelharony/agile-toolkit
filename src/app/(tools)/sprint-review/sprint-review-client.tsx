@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
@@ -995,11 +995,20 @@ export function SprintReviewClient() {
 
   // Initialize meetingDate on first client mount to avoid SSR/client time
   // drift. Only set when empty so we don't clobber user edits or persisted data.
+  //
+  // R5: previously re-fired every time `meetingDate` flipped to "" (user
+  // intent to clear), immediately re-stamping today's date back — the
+  // user couldn't ever blank the date input. Guard with a one-shot ref
+  // so the auto-init runs exactly once on first mount.
+  const meetingDateInitRef = useRef(false);
   useEffect(() => {
+    if (meetingDateInitRef.current) return;
+    meetingDateInitRef.current = true;
     if (!meetingDate) {
       setMeetingDate(todayLocalISO());
     }
-  }, [meetingDate, setMeetingDate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Build combined markdown export
   const fullExport = useMemo(() => {

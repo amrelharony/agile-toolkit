@@ -793,12 +793,23 @@ function Board({
     (id: string) => {
       let cascadedCount = 0;
       onUpdate((prev) => {
-        // Collect every id that should disappear: the deleted card and every
-        // card grouped under it. Then sweep groupedWith on survivors so a
-        // parent that pointed at a now-deleted child doesn't keep a dangling
-        // reference (used by exports and the AI prompt).
+        // Collect every id that should disappear. R5: the previous
+        // single-pass collected only direct children. If a card had
+        // grandchildren (possible via the regroup path), the
+        // grandchildren orphaned to `null` instead of cascading.
+        // Loop until the `removed` set stabilises.
         const removed = new Set<string>([id]);
-        for (const c of prev.cards) if (c.groupedWith === id) removed.add(c.id);
+        let grew = true;
+        while (grew) {
+          grew = false;
+          for (const c of prev.cards) {
+            if (removed.has(c.id)) continue;
+            if (c.groupedWith && removed.has(c.groupedWith)) {
+              removed.add(c.id);
+              grew = true;
+            }
+          }
+        }
         cascadedCount = removed.size - 1;
         return {
           ...prev,

@@ -555,7 +555,22 @@ export function RiskRegisterClient() {
                         {[1, 2, 3, 4, 5].map((i) => <SelectItem key={i} value={String(i)}>I{i}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    <Select value={r.status} onValueChange={(v) => update(r.id, { status: v as Risk["status"], resolvedAt: v === "closed" ? todayLocalISO() : undefined })}>
+                    <Select value={r.status} onValueChange={(v) => {
+                      // R5: when REOPENING a previously-closed risk
+                      // (non-closed transition), preserve the existing
+                      // `resolvedAt` rather than wiping it. The K-M
+                      // survival analysis chart relies on the
+                      // historical closure timestamp, and the old
+                      // behaviour of `resolvedAt: undefined` on every
+                      // non-closed transition silently corrupted that
+                      // data the moment a user moved a risk from
+                      // closed → mitigating to add a follow-up note.
+                      const next: Partial<Risk> = { status: v as Risk["status"] };
+                      if (v === "closed" && !r.resolvedAt) {
+                        next.resolvedAt = todayLocalISO();
+                      }
+                      update(r.id, next);
+                    }}>
                       <SelectTrigger className="bg-bg border-border capitalize">
                         <SelectValue />
                       </SelectTrigger>
