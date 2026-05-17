@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { X, Sparkles, Search } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { WhiteboardObject, WhiteboardSavedTemplate } from "@/lib/stores/workspace-types";
@@ -172,11 +173,16 @@ export function TemplateGallery({ boardId, onClose }: Props) {
     onClose();
   };
 
+  // R10-deferred: focus-trap so Tab cycles inside the dialog (WCAG 2.4.3).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, { active: true });
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Template gallery"
+      ref={dialogRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-bg/80 backdrop-blur-sm"
       onClick={onClose}
     >

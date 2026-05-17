@@ -12,7 +12,12 @@
  * `appendWhiteboardActivity`). Persisted to localStorage.
  */
 
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+
+// R10-deferred: render in chunks of 50 instead of mounting up to 200
+// rows at once.
+const ACTIVITY_INITIAL_RENDER = 50;
+const ACTIVITY_RENDER_CHUNK = 50;
 import { X, Activity } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
@@ -30,6 +35,11 @@ function ActivityStreamImpl({ boardId, onClose }: Props) {
       .slice()
       .sort((a, b) => b.at - a.at);
   }, [log, boardId]);
+  const [renderLimit, setRenderLimit] = useState(ACTIVITY_INITIAL_RENDER);
+  // Reset limit when events identity changes (new event lands while open).
+  useEffect(() => {
+    setRenderLimit(ACTIVITY_INITIAL_RENDER);
+  }, [events]);
 
   // Stable callback ref so the keydown effect doesn't re-register on
   // every parent render. The canvas typically passes an inline
@@ -107,22 +117,42 @@ function ActivityStreamImpl({ boardId, onClose }: Props) {
             No activity yet. Drag, edit, or import to see events here.
           </div>
         ) : (
-          <ul className="divide-y divide-border" aria-label="Activity events">
-            {events.map((e) => (
-              <li key={e.id} className="p-3 text-xs">
-                <div className="flex items-baseline justify-between mb-0.5">
-                  <span className="font-semibold text-text">{e.author}</span>
-                  <span className="text-[10px] text-sub font-mono">{relativeTime(e.at)}</span>
+          <>
+            <ul className="divide-y divide-border" aria-label="Activity events">
+              {/* R10-deferred: chunk-render. The activity log can reach
+                  ~200 events per board; mounting them all on every
+                  open burns CPU for items the user won't scroll to.
+                  Default to the most recent N + Load More. */}
+              {events.slice(0, renderLimit).map((e) => (
+                <li key={e.id} className="p-3 text-xs">
+                  <div className="flex items-baseline justify-between mb-0.5">
+                    <span className="font-semibold text-text">{e.author}</span>
+                    <span className="text-[10px] text-sub font-mono">{relativeTime(e.at)}</span>
+                  </div>
+                  <div className="text-sub flex items-center gap-1.5">
+                    <span className="text-[9px] uppercase font-bold text-accent/80 bg-accent/10 px-1.5 py-0.5 rounded">
+                      {e.kind}
+                    </span>
+                    <span className="text-text">{e.summary}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {events.length > renderLimit && (
+              <div className="p-3 text-center border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setRenderLimit((n) => n + ACTIVITY_RENDER_CHUNK)}
+                  className="text-xs text-accent hover:text-accent/80 underline-offset-2 hover:underline"
+                >
+                  Load {Math.min(ACTIVITY_RENDER_CHUNK, events.length - renderLimit)} more
+                </button>
+                <div className="text-[10px] text-sub mt-1">
+                  Showing {renderLimit} of {events.length}
                 </div>
-                <div className="text-sub flex items-center gap-1.5">
-                  <span className="text-[9px] uppercase font-bold text-accent/80 bg-accent/10 px-1.5 py-0.5 rounded">
-                    {e.kind}
-                  </span>
-                  <span className="text-text">{e.summary}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

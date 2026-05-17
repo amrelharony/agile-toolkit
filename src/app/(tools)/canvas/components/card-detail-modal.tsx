@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { X, User, Calendar, Hash, Activity, Tag } from "lucide-react";
 import type { WhiteboardCard, WhiteboardObject } from "@/lib/stores/workspace-types";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -38,6 +39,25 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
   );
   const [status, setStatus] = useState(card.status ?? "");
   const [tagsInput, setTagsInput] = useState((card.tags ?? []).join(", "));
+
+  // R10-deferred: open-snapshot for per-field merge. We compare the
+  // form's eventual values back to THIS snapshot (not the current
+  // `card` prop, which may have moved on via peer updates) to detect
+  // which fields the user actually changed. On Save we send ONLY
+  // those fields — fields the user didn't touch fall through to the
+  // upsert's `...current` spread (see onSave below). Net effect: two
+  // users editing different fields of the same card no longer blast
+  // each other's changes (the previous LWW window covered the entire
+  // card; now it covers only the touched fields).
+  const openSnapshotRef = useRef({
+    title: card.title,
+    description: card.description ?? "",
+    assignee: card.assignee ?? "",
+    due: card.due ?? "",
+    points: typeof card.points === "number" ? String(card.points) : "",
+    status: card.status ?? "",
+    tagsInput: (card.tags ?? []).join(", "),
+  });
 
   // Suggest assignees from the workspace team members list — same data
   // source the rest of the toolkit uses.
@@ -141,23 +161,40 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
     const dueISO = /^\d{4}-\d{2}-\d{2}$/.test(trimmedDue)
       ? `${trimmedDue}T00:00:00.000Z`
       : trimmedDue || undefined;
-    onPatch(card.id, {
-      title: title.trim() || "Untitled card",
-      description: description.trim() || undefined,
-      assignee: assignee.trim() || undefined,
-      due: dueISO,
-      points: validPoints,
-      status: status.trim() || undefined,
-      tags: dedup.length > 0 ? dedup : undefined,
-    } as Partial<WhiteboardCard> as Partial<WhiteboardObject>);
+    // R10-deferred: per-field touch detection. Compare to the
+    // open-snapshot (not the LIVE card, which may have moved via a
+    // peer broadcast) and include ONLY fields the user actually
+    // changed. The store's upsert handler then merges these into the
+    // current state, preserving peer-edited fields the user never
+    // touched.
+    const snap = openSnapshotRef.current;
+    const patch: Partial<WhiteboardCard> = {};
+    if (title !== snap.title) patch.title = title.trim() || "Untitled card";
+    if (description !== snap.description) patch.description = description.trim() || undefined;
+    if (assignee !== snap.assignee) patch.assignee = assignee.trim() || undefined;
+    if (due !== snap.due) patch.due = dueISO;
+    if (points !== snap.points) patch.points = validPoints;
+    if (status !== snap.status) patch.status = status.trim() || undefined;
+    if (tagsInput !== snap.tagsInput) patch.tags = dedup.length > 0 ? dedup : undefined;
+    // Only fire onPatch if SOMETHING actually changed — avoids a
+    // spurious broadcast + history event when the user opened the
+    // modal, looked, and closed without editing.
+    if (Object.keys(patch).length > 0) {
+      onPatch(card.id, patch as Partial<WhiteboardObject>);
+    }
     onClose();
   };
+
+  // R10-deferred: focus-trap (WCAG 2.4.3).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, { active: true });
 
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Card details"
+      ref={dialogRef}
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-bg/80 backdrop-blur-sm"
       onClick={onClose}
     >

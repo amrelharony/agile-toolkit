@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { X, FileInput } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { importFromRisks, importFromStories, importFromOkrs } from "@/lib/whiteboard/cross-tool-import";
@@ -197,11 +198,16 @@ export function ImportModal({ boardId, onClose }: Props) {
     onClose();
   };
 
+  // R10-deferred: focus-trap (WCAG 2.4.3).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, { active: true });
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Import from another tool"
+      ref={dialogRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-bg/80 backdrop-blur-sm"
       onClick={onClose}
     >

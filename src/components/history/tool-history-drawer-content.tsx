@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   SheetContent,
   SheetDescription,
@@ -95,21 +95,39 @@ interface Props {
   onClose: () => void;
 }
 
+// R10-deferred: window the rendered list to avoid mounting 200 button
+// elements + 200 nested JSON panels on open. The drawer is scrollable
+// so users typically only see the top ~10 — render in chunks.
+const INITIAL_RENDER_LIMIT = 50;
+const RENDER_CHUNK = 50;
+
 export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
   const { events, total } = useHistory({ toolId, limit: 200 });
   const [selected, setSelected] = useState<HistoryEvent | null>(null);
+  const [renderLimit, setRenderLimit] = useState(INITIAL_RENDER_LIMIT);
   const timeTravel = useTimeTravel(toolId);
+
+  // R10-deferred: reset render limit when the events identity changes
+  // (e.g., a new event lands while the drawer is open) so we always
+  // start from the top with the chunk size.
+  useEffect(() => {
+    setRenderLimit(INITIAL_RENDER_LIMIT);
+  }, [events]);
 
   const grouped = useMemo(() => {
     const groups = new Map<string, HistoryEvent[]>();
-    for (const event of events) {
+    // R10-deferred: cap at `renderLimit` — the rest is reachable via
+    // "Load more" which expands the limit in chunks.
+    for (const event of events.slice(0, renderLimit)) {
       const k = dayKey(event.occurredAt);
       const arr = groups.get(k) ?? [];
       arr.push(event);
       groups.set(k, arr);
     }
     return Array.from(groups.entries());
-  }, [events]);
+  }, [events, renderLimit]);
+
+  const hasMore = events.length > renderLimit;
 
   const restoreToEvent = (event: HistoryEvent) => {
     if (!timeTravel.controls) {
@@ -247,6 +265,21 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
                 })}
               </div>
             ))}
+            {hasMore && (
+              <div className="p-3 text-center border-t border-border">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRenderLimit((n) => n + RENDER_CHUNK)}
+                  className="text-xs"
+                >
+                  Load {Math.min(RENDER_CHUNK, events.length - renderLimit)} more
+                </Button>
+                <div className="text-[10px] text-sub mt-1">
+                  Showing {renderLimit} of {events.length}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </ScrollArea>

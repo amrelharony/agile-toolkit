@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X, Share2, BookmarkPlus, Copy, Trash2, Check, Send, AlertTriangle } from "lucide-react";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   buildShareUrl,
@@ -105,11 +106,17 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
     setTokens(listShareTokens(boardId));
   }, [boardId]);
 
+  // R10-deferred: focus-trap so Tab cycles inside the dialog instead
+  // of escaping to the underlying canvas (WCAG 2.4.3).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, { active: true });
+
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label="Share or save board"
+      ref={dialogRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-bg/80 backdrop-blur-sm"
       onClick={onClose}
     >
