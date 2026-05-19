@@ -440,21 +440,30 @@ export function HealthCheckClient() {
               >
                 <span className="text-sm text-text font-medium">{dim}</span>
                 <div className="flex gap-1.5 w-52 justify-center">
+                  {/* R11-fix: optional-chain on current.scores[dim].
+                      Persisted state from an older build that's missing
+                      a recently-added dimension would crash on the
+                      direct member access. Default to "red" (worst light)
+                      so a missing/legacy dimension surfaces visibly
+                      rather than silently rendering as no-active. */}
                   {(["green", "yellow", "red"] as TrafficLight[]).map((l) => (
                     <TrafficButton
                       key={l}
                       light={l}
-                      active={current.scores[dim].light === l}
+                      active={(current.scores[dim]?.light ?? "red") === l}
                       onClick={() => setLight(dim, l)}
                     />
                   ))}
                 </div>
                 <div className="flex gap-1.5 w-48 justify-center">
+                  {/* R11-fix: same optional-chain defence as the light
+                      buttons above — missing dimension in persisted
+                      state should fall back to "same" rather than crash. */}
                   {(["up", "same", "down"] as Trend[]).map((t) => (
                     <TrendButton
                       key={t}
                       trend={t}
-                      active={current.scores[dim].trend === t}
+                      active={(current.scores[dim]?.trend ?? "same") === t}
                       onClick={() => setTrend(dim, t)}
                     />
                   ))}

@@ -37,12 +37,22 @@ export function HundredDollarTestClient() {
   }
 
   function setAlloc(it: PrioritizationItem, n: number) {
-    // Clamp to [0, 100]: the $100 test by definition allocates a fixed
-    // budget. Negative values would invert the bar fill, and values >100 on
-    // a single line item make no sense — both are now silently capped.
-    // Also guards against NaN from `parseFloat("abc")` which would otherwise
-    // serialise as `"NaN"` into the persisted store.
-    const safe = Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
+    // Clamp per-item to [0, 100]: negative values invert the bar fill,
+    // values >100 on a single line item make no sense — both silently
+    // capped. NaN from `parseFloat("abc")` also coerces to 0.
+    // R11-fix: ALSO enforce the aggregate $100 budget. The tool's core
+    // premise is "you have $100, allocate it" — without this guard,
+    // users could set every item to 100 and "spend" $1000 across N
+    // items, completely breaking the forced-tradeoff mechanic. We
+    // compute the headroom from OTHER items' allocations and cap the
+    // new value at that headroom.
+    const requested = Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
+    const otherTotal = items.reduce((s, x) => {
+      if (x.id === it.id) return s;
+      return s + (Number(x.fields?.allocation) || 0);
+    }, 0);
+    const headroom = Math.max(0, 100 - otherTotal);
+    const safe = Math.min(requested, headroom);
     upsert({ ...it, score: safe, fields: { ...(it.fields ?? {}), allocation: safe }, updatedAt: new Date().toISOString() });
     log(HUNDRED_DOLLAR_ACTIONS.ALLOCATION_CHANGED, { id: it.id, n: safe });
   }

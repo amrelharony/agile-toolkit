@@ -161,8 +161,17 @@ export function clusterObjects(
 
   const result = kMeans(points, k);
   // `kmeans` returns { labels, centroids, iterations }. Group object IDs by label.
+  // R11-fix: filter the -1 overflow sentinel. When `subset.length > 500`,
+  // kMeans pads the labels array with -1 for the excess rows; the
+  // previous bridge collected those into `grouped[-1]`, producing a
+  // phantom cluster with id=-1. Downstream the renderer did
+  // `CLUSTER_COLORS[-1 % 6] === undefined`, breaking legend/stroke,
+  // and the bbox over those overflow members spanned a misleading
+  // region of the board. Drop them — the user sees only the first
+  // 500 stickies clustered, which matches the kMeans contract.
   const grouped: Record<number, string[]> = {};
   result.labels.forEach((lbl, i) => {
+    if (lbl < 0) return;
     if (!grouped[lbl]) grouped[lbl] = [];
     grouped[lbl].push(subset[i].id);
   });

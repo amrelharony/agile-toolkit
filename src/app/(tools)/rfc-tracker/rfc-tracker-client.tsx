@@ -236,8 +236,20 @@ export function RfcTrackerClient() {
     } catch {
       existing = [];
     }
+    // R11-fix: per-item shape validation. The previous code assumed
+    // every element in `existing` had a string `title`, but a tampered
+    // / older-schema localStorage entry could contain `[{ random:
+    // "junk" }]` — `d.title.toLowerCase()` then crashes with
+    // "Cannot read properties of undefined (reading 'toLowerCase')",
+    // killing the RFC publish flow. Filter to items that match the
+    // shape before scanning.
     if (
-      existing.find((d) => d.title.toLowerCase() === rfc.title.toLowerCase())
+      existing.some(
+        (d) =>
+          d &&
+          typeof (d as { title?: unknown }).title === "string" &&
+          (d as { title: string }).title.toLowerCase() === rfc.title.toLowerCase(),
+      )
     ) {
       toast.error("A decision with this title already exists in the log.");
       return;

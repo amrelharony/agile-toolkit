@@ -177,7 +177,12 @@ export function HitlQualityClient() {
             }
           >
             <ul className="space-y-1.5">
-              {[...list].sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime()).slice(0, 50).map((x) => (
+              {/* R11-fix: render `validList` instead of raw `list`. A
+                  persisted entry with non-string `loggedAt` (older schema
+                  or hand-edited localStorage) crashed `x.loggedAt.slice(0,10)`
+                  here, killing the entire page. `validList` is already
+                  type-narrowed at the top of the component. */}
+              {[...validList].sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime()).slice(0, 50).map((x) => (
                 <li key={x.id} className="flex items-center gap-2 border border-border bg-surface-deep rounded p-2 text-sm">
                   <span className="font-mono text-xs text-sub">{x.loggedAt.slice(0, 10)}</span>
                   <span className="font-bold w-6 text-center" style={{ color: x.rating >= 4 ? "#00ff88" : x.rating <= 2 ? "#ff6b6b" : "#ffaa00" }}>{x.rating}</span>
