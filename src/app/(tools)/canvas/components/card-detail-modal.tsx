@@ -8,10 +8,18 @@
  * the card via Cmd+E (or the "Edit details" pill on the property panel)
  * which opens this modal.
  *
- * Saves write back through `onPatch(id, patch)`. When the card has a
- * `sourceRef.tool === "backlog"` link, the cross-tool-sync layer in
- * `canvas-client.tsx` already mirrors the change into the underlying
- * Story — no extra wiring needed here.
+ * Saves write back through `onPatch(id, patch)`.
+ *
+ * R11-fix: the prior docstring + footer claimed "changes sync back to
+ * the linked entity", but no reverse-direction subscriber exists in
+ * `canvas-client.tsx`. The Story → Card direction works (peer/Story
+ * edits propagate to the card), but Card → Story does NOT. The
+ * footer text and claim have been corrected so users aren't misled
+ * into believing their backlog row updates automatically. Wiring a
+ * proper reverse subscriber is tracked separately (it needs
+ * upsertStory / upsertRisk / upsertOkr / upsertDecision routing,
+ * conflict resolution against peer edits, and a sourceRef-tool
+ * dispatch table).
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -390,7 +398,7 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
           </div>
           {card.sourceRef && (
             <p className="text-[10px] text-sub italic text-center pt-1">
-              Changes also sync back to the linked {card.sourceRef.tool} item.
+              Linked to a {card.sourceRef.tool} item. {card.sourceRef.tool} edits flow into this card; card edits stay on the canvas.
             </p>
           )}
         </form>

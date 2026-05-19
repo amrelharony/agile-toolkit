@@ -126,6 +126,14 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
         emit("impediment.resolved", "workspace", { impedimentId: after.id });
       }
     },
+    // R11-fix: removals fire `resolved` so dashboards / insights cache
+    // invalidate. Previously delete-events were silent — caches stayed
+    // populated until TTL.
+    onRemoved: (i) => {
+      if (!i.resolvedAt) {
+        emit("impediment.resolved", "workspace", { impedimentId: i.id });
+      }
+    },
   });
 
   // Risks
@@ -148,6 +156,13 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
     onChanged: (before, after) => {
       if (before.status !== "closed" && after.status === "closed") {
         emit("risk.closed", "workspace", { riskId: after.id });
+      }
+    },
+    // R11-fix: removals fire `closed`. Survival-curve / open-risk
+    // dashboards otherwise count deleted risks as still-open.
+    onRemoved: (r) => {
+      if (r.status !== "closed") {
+        emit("risk.closed", "workspace", { riskId: r.id });
       }
     },
   });
@@ -177,6 +192,13 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
         emit("techDebt.resolved", "workspace", { itemId: after.id });
       }
     },
+    // R11-fix: removals fire `resolved` so debt-burn-down dashboards
+    // don't keep deleted items in the open-debt count.
+    onRemoved: (t) => {
+      if (!t.resolvedAt) {
+        emit("techDebt.resolved", "workspace", { itemId: t.id });
+      }
+    },
   });
 
   // Decisions
@@ -196,19 +218,22 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
   // Stories: status changes
   diffById(prev.stories, next.stories, (s) => s.id, {
     onChanged: (before, after) => {
-      if (before.status !== after.status) {
-        emit("story.statusChanged", "workspace", { storyId: after.id, from: before.status, to: after.status });
-      }
-      // R10: also notify on title/points change so canvas card sync
-      // refreshes the sticky/card text — previously only status
-      // changes propagated, so renames left the canvas stale.
-      if (before.title !== after.title || before.points !== after.points) {
+      const statusChanged = before.status !== after.status;
+      const titleChanged = before.title !== after.title;
+      const pointsChanged = before.points !== after.points;
+      // R11-fix: avoid double-emit when both status and title/points
+      // change in the same diff. Previously this emitted TWO
+      // `story.statusChanged` events (once for status, once with
+      // `from === to` for title/points), causing canvas card-sync
+      // and any consumer counting "status changes" to double-process.
+      // Now: single emit with combined flags.
+      if (statusChanged || titleChanged || pointsChanged) {
         emit("story.statusChanged", "workspace", {
           storyId: after.id,
-          from: after.status,
+          from: before.status,
           to: after.status,
-          titleChanged: before.title !== after.title,
-          pointsChanged: before.points !== after.points,
+          titleChanged,
+          pointsChanged,
         });
       }
     },

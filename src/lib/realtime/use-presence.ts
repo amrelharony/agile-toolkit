@@ -47,7 +47,15 @@ const AVATAR_COLORS = ["#00f0ff", "#a78bfa", "#34d399", "#f59e0b", "#f87171", "#
 // stays pure ASCII. The regex-literal form embedded raw bidi chars
 // which the comment itself warns get "mangled by normalisation
 // passes / git filters".
-const RTL_OVERRIDE_RE = new RegExp("[\\u202A-\\u202E\\u2066-\\u2069]");
+// R11-fix: also reject C0 control characters (U+0000..U+001F, U+007F).
+// Previously a peer could broadcast `name: "system‪alert"`
+// — the U+202A would have been caught but the bell + other controls
+// slipped through, mangling cursor nameplates and devtools readouts.
+// Additionally reject directional marks (U+200E/F, U+061C) which flip
+// individual character runs even though they aren't overrides.
+const RTL_OVERRIDE_RE = new RegExp(
+  "[\\u0000-\\u001F\\u007F\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]",
+);
 
 function randomColor(seed: string): string {
   let hash = 0;

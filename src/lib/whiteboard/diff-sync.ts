@@ -297,6 +297,20 @@ function mergeVoting(
   incoming: WhiteboardObject & { type: "voting" },
   sender: string,
 ): WhiteboardObject & { type: "voting" } {
+  // R11-fix: defensive default for `votes`. A pre-Phase-25 voting
+  // object imported from an older export may have `votes: undefined`
+  // (the runtime validator rejects this for fresh inbound peer
+  // payloads, but locally-imported workspace state can bypass that
+  // path). Without normalisation, the `... existing.votes` spread + `voter
+  // in existing.votes` checks below throw `Cannot use 'in' on undefined`,
+  // taking down the diff-sync loop for the entire affected user
+  // session.
+  if (!existing.votes || typeof existing.votes !== "object") {
+    existing = { ...existing, votes: {} };
+  }
+  if (!incoming.votes || typeof incoming.votes !== "object") {
+    incoming = { ...incoming, votes: {} };
+  }
   // Higher-version writer wins for non-vote fields (question,
   // options, revealed).
   const baseFromWinner = incoming.version >= existing.version ? incoming : existing;
@@ -313,24 +327,19 @@ function mergeVoting(
     // the carrier's vote map verbatim — a hostile peer could mint a
     // higher-versioned `revealed=true` patch carrying forged victim
     // votes ({alice:"FORGED", carol:"FORGED"}) and the receiver would
-    // otherwise commit those tallies to its local store. Instead:
-    //   1. Start from `existing.votes` (the legitimate pre-reveal
-    //      tally, which was filtered through restrictVotesToSender
-    //      and the per-slot lock-down on each prior write).
-    //   2. Layer in incoming votes ONLY for keys already known
-    //      locally (so the revealer's late writes can update visible
-    //      tallies if a slot legitimately changed) PLUS the sender's
-    //      own slot (so the act of revealing can also commit the
-    //      revealer's own final vote).
-    //   3. Drop any other incoming vote keys — they're either votes
-    //      the revealer hadn't seen yet (which will heartbeat in
-    //      from the holding peer) or fabrications.
-    const safeVotes: Record<string, string> = { ...existing.votes };
-    for (const [voter, choice] of Object.entries(incoming.votes ?? {})) {
-      const allowed = voter === sender || voter in existing.votes;
-      if (allowed && typeof choice === "string") safeVotes[voter] = choice;
-    }
-    return { ...incoming, votes: safeVotes };
+    // otherwise commit those tallies to its local store.
+    //
+    // R11-fix: snapshot the EXISTING votes verbatim at the moment of
+    // reveal. Previously the merge accepted the sender's own slot
+    // change during the reveal — allowing a malicious peer who saw
+    // the pre-reveal tally trending against their preference to flip
+    // revealed=true and simultaneously change their own vote (Planning
+    // Poker integrity attack: "first to reveal wins re-write of
+    // their own slot"). Now the act of revealing freezes the tally
+    // exactly as it stood; vote changes MUST land in a pre-reveal
+    // patch with strictly-lower version. Late writes from any peer
+    // (including the revealer's last-second change) are dropped.
+    return { ...incoming, votes: { ...existing.votes } };
   }
   if (existing.revealed && incoming.revealed) {
     // Both revealed — votes already frozen. Take the higher-version

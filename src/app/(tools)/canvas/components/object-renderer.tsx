@@ -181,7 +181,14 @@ function safeImageSrc(src: string): string {
  * embedding page; cross-origin embeds keep their sandbox enforcement.
  */
 function iframeSandboxFor(host: string): string {
-  const base = "allow-scripts allow-presentation allow-popups-to-escape-sandbox";
+  // R11-fix: removed `allow-popups-to-escape-sandbox` from the base
+  // tier. Even with a sandboxed iframe, this attribute lets the embed
+  // open a top-level un-sandboxed window whose `window.opener` still
+  // references the iframe — a side-channel out of the sandbox for
+  // generic-tier (untrusted) embeds. Only the elevated tier (Figma,
+  // Loom) gets it, paired with `allow-popups` for legit outbound link
+  // navigation from the editor / player.
+  const base = "allow-scripts allow-presentation";
   // Hosts that legitimately need same-origin to function properly
   // (signed-in editing / playback resume). All entries must be exact
   // hostnames — substring matching would let a "figma.com.evil.tld"
@@ -192,7 +199,9 @@ function iframeSandboxFor(host: string): string {
     "loom.com",
     "www.loom.com",
   ]);
-  return elevated.has(host) ? `${base} allow-same-origin` : base;
+  return elevated.has(host)
+    ? `${base} allow-same-origin allow-popups allow-popups-to-escape-sandbox`
+    : base;
 }
 
 /**

@@ -1827,6 +1827,27 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
         if (cardUpdates.length > 0) {
           upsertMany(cardUpdates);
           log(CANVAS_ACTIONS.OBJECT_UPDATED, { count: cardUpdates.length, action: "kanban-drop" });
+          // R11-fix: propagate Card.status → linked Story.status when
+          // the kanban-drop changed `obj.status`. Without this branch
+          // the canvas-kanban view "moves" a card to Done while the
+          // workspace Story stays in its old column → backlog tools +
+          // burndown + velocity all see stale data. Bidirectional sync
+          // does NOT loop: the signal-bridge fires `story.statusChanged`
+          // off the upsert; canvas-client's listener calls upsertCard
+          // with status that matches what we just wrote (no-op due to
+          // version-equal LWW).
+          const ws = useWorkspaceStore.getState();
+          for (const updated of cardUpdates) {
+            if (updated.type !== "card") continue;
+            const ref = updated.sourceRef;
+            if (!ref?.entityId || !updated.status) continue;
+            if (ref.tool === "story" || ref.tool === "backlog") {
+              const story = ws.stories?.find((s) => s.id === ref.entityId);
+              if (story && story.status !== updated.status) {
+                ws.upsertStory({ ...story, status: updated.status as typeof story.status });
+              }
+            }
+          }
         }
       }
       // R11-fix: release the spatial index so the candidate rects can
