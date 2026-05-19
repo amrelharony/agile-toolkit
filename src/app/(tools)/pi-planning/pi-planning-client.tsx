@@ -286,7 +286,16 @@ export function PiPlanningClient() {
             <Input
               type="number"
               value={newTeam.velocity}
-              onChange={(e) => setNewTeam((n) => ({ ...n, velocity: Number(e.target.value) }))}
+              // R11-fix: guard against NaN from non-numeric paste / clear.
+              // The previous `Number(e.target.value)` returned NaN, which
+              // then propagated through overload detection
+              // (`planned > team.velocity * 1.15` → false) silently
+              // disabling the load warning. Now: keep prior value on
+              // invalid input.
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                setNewTeam((nt) => ({ ...nt, velocity: Number.isFinite(n) && n >= 0 ? n : nt.velocity }));
+              }}
               placeholder="Velocity"
               className="bg-bg border-border font-data w-24"
             />
@@ -341,7 +350,12 @@ export function PiPlanningClient() {
                         <Input
                           type="number"
                           value={team.velocity}
-                          onChange={(e) => updateTeam(team.id, { velocity: Number(e.target.value) })}
+                          // R11-fix: NaN-guard. Bad paste silently
+                          // disabled overload detection before.
+                          onChange={(e) => {
+                            const n = Number(e.target.value);
+                            if (Number.isFinite(n) && n >= 0) updateTeam(team.id, { velocity: n });
+                          }}
                           className="bg-bg border-border font-data text-xs h-7 w-20"
                         />
                         <span className="text-xs text-sub">vel</span>
@@ -383,7 +397,14 @@ export function PiPlanningClient() {
                               <Input
                                 type="number"
                                 value={item.points}
-                                onChange={(e) => updateItem(item.id, { points: Number(e.target.value) })}
+                                // R11-fix: NaN-guard. Without this, a
+                                // single bad-paste row poisons the team's
+                                // `planned` reduce → NaN > velocity is
+                                // false → overload silently hidden.
+                                onChange={(e) => {
+                                  const n = Number(e.target.value);
+                                  if (Number.isFinite(n) && n >= 0) updateItem(item.id, { points: n });
+                                }}
                                 className="bg-surface border-border font-data text-[10px] h-6 w-12"
                               />
                               <select

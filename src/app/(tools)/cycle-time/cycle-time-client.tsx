@@ -341,11 +341,19 @@ export function CycleTimeClient() {
     const buckets = new Map<string, number[]>();
     for (const i of itemsWithCT) {
       if (i.cycleTime === null || !i.endDate) continue;
-      const d = new Date(i.endDate);
+      // R11-fix: parse YYYY-MM-DD strings as UTC (Date constructor's
+      // default for date-only ISO) AND use UTC accessors throughout.
+      // The previous code mixed `d.getFullYear/getMonth/getDate` (LOCAL)
+      // with `Date.UTC(...)` (UTC), so a user in negative-UTC zones
+      // logging an endDate near Dec 31 produced a week bucket that
+      // straddled the year boundary (off-by-52-weeks).
+      // Parsing with the explicit "T00:00:00Z" suffix forces UTC even
+      // if a future schema change drops the date-only format.
+      const iso = /^\d{4}-\d{2}-\d{2}$/.test(i.endDate) ? `${i.endDate}T00:00:00Z` : i.endDate;
+      const d = new Date(iso);
       if (Number.isNaN(d.getTime())) continue;
-      // ISO week key (matches kanban's pattern). Inline so we don't need a
-      // shared helper for one consumer.
-      const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      // ISO week key (matches kanban's pattern). Now fully UTC.
+      const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
       date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
       const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
       const week = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);

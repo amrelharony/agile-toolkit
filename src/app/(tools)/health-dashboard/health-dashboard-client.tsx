@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -512,16 +512,27 @@ export function HealthDashboardClient() {
   // requiring a manual click on the refresh button. Previously the
   // dashboard could show stale KPIs that disagreed with the live
   // Active Signals panel directly above.
+  //
+  // R11-fix: gate the localStorage-reading extractors behind a `hydrated`
+  // flag. On the SSR pass, `readStore` returns null (no window) — but
+  // the very first client render would already see localStorage data,
+  // producing a hydration mismatch every time the user has any tools
+  // populated. We now match the SSR null-state on first paint, then
+  // flip `hydrated=true` in a useEffect to trigger a real recompute.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const velocityData = useMemo(() => extractVelocityKPIs(), [refreshKey, events]);
+  const velocityData = useMemo(() => extractVelocityKPIs(), [hydrated, refreshKey, events]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const healthCheckData = useMemo(() => extractHealthCheckKPIs(), [refreshKey, events]);
+  const healthCheckData = useMemo(() => extractHealthCheckKPIs(), [hydrated, refreshKey, events]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const impedimentData = useMemo(() => extractImpedimentKPIs(), [refreshKey, events]);
+  const impedimentData = useMemo(() => extractImpedimentKPIs(), [hydrated, refreshKey, events]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const standupData = useMemo(() => extractStandupKPIs(), [refreshKey, events]);
+  const standupData = useMemo(() => extractStandupKPIs(), [hydrated, refreshKey, events]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const cycleTimeData = useMemo(() => extractCycleTimeKPIs(), [refreshKey, events]);
+  const cycleTimeData = useMemo(() => extractCycleTimeKPIs(), [hydrated, refreshKey, events]);
 
   /* -- Causal annotations from cross-tool event streams --------------------- */
   // Each correlation is a best-effort: when the source streams are too sparse

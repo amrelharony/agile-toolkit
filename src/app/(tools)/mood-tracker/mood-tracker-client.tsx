@@ -131,9 +131,27 @@ export function MoodTrackerClient() {
     const today = todayLocalISO();
     const trimmed = draft.trim();
     setEntries((e) => {
-      const existing = e.find((x) => x.memberId === memberId && x.date === today);
-      if (!existing) return e;
-      return e.map((x) => (x === existing ? { ...x, note: trimmed || undefined } : x));
+      // R11-fix: use findIndex by (memberId, date) instead of comparing
+      // object identity. StrictMode can invoke the updater twice; the
+      // second invocation receives the array AFTER the first call's
+      // map allocated new objects, breaking `x === existing` and
+      // making the note write silently a no-op.
+      const idx = e.findIndex((x) => x.memberId === memberId && x.date === today);
+      if (idx === -1) {
+        // R11-fix: user typed a note BEFORE scoring. Previously the
+        // `if (!existing) return e` early-return silently discarded
+        // the note. Now we create a placeholder entry seeded with
+        // score=3 (Neutral) so the user's input isn't lost. The
+        // existing `log` flow later merges the user's chosen score
+        // onto this entry (carrying the note forward via the
+        // `next[idx].note` preservation in log's setEntries updater).
+        // Tradeoff: a single Neutral score appears in analytics for
+        // members who only typed a note — preferable to silent data
+        // loss.
+        if (trimmed === "") return e;
+        return [...e, { id: nanoid(8), memberId, date: today, score: 3, note: trimmed }];
+      }
+      return e.map((x, i) => (i === idx ? { ...x, note: trimmed || undefined } : x));
     });
   };
 

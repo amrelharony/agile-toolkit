@@ -442,6 +442,22 @@ export function DoraScorecardClient() {
               />
             </div>
             <Button
+              // R11-fix: commit any in-progress NumericField draft
+              // BEFORE the click handler reads parent state. The
+              // inner NumericField components commit-on-blur via
+              // setState, but click handlers in the same event loop
+              // read the OLD closure (React batches the queued
+              // setState until after the handler returns). Pressing
+              // Add without first Tab-ing away would silently drop
+              // the typed value. Using onMouseDown to blur the
+              // active element FIRST flushes the commit into draft
+              // before the click handler runs.
+              onMouseDown={() => {
+                const active = document.activeElement as HTMLElement | null;
+                if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
+                  active.blur();
+                }
+              }}
               onClick={addSample}
               className="gap-2 bg-accent text-bg hover:bg-accent/90 w-full"
             >
