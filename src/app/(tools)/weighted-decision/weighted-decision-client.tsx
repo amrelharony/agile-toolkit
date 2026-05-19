@@ -82,7 +82,19 @@ export function WeightedDecisionClient() {
       .sort((a, b) => b.score - a.score);
   }, [options, weights]);
 
-  const chartData = ranked.map((o) => ({ name: o.name.length > 18 ? o.name.slice(0, 18) + "…" : o.name, score: Number(o.score.toFixed(2)) }));
+  // R11-fix: prefix each label with the rank index (1., 2., …) so
+  // Recharts treats the Y-axis categories as distinct even when the
+  // first 18 chars match. Previously two options like "Vendor
+  // Solution Alpha" and "Vendor Solution Beta" both truncated to
+  // "Vendor Solution Al…" / "Vendor Solution Be…" — actually distinct
+  // here, but on an option named the same followed by a discriminator
+  // beyond char-18 (e.g. "Migration plan — A", "Migration plan — B"),
+  // Recharts silently merged the duplicate Y-categories and dropped a
+  // bar. Same fix pattern as WSJF.
+  const chartData = ranked.map((o, idx) => ({
+    name: `${idx + 1}. ${o.name.length > 18 ? o.name.slice(0, 18) + "…" : o.name}`,
+    score: Number(o.score.toFixed(2)),
+  }));
 
   const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
     teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,

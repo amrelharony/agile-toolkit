@@ -315,7 +315,12 @@ export function OneOnOneClient() {
   // meeting-level notes/description. The KPI label is "Growth themes", so
   // it covers themes mentioned outside discrete agenda items too.
   const growthThemes = useMemo(() => {
-    const re = /growth/i;
+    // R11-fix: word-boundary regex. The previous /growth/i matched
+    // "regrowth", "outgrowth", "growth-hacking" — false positives
+    // that fed into AI prompts as a KPI, misdirecting manager
+    // attention toward themes that weren't actually about employee
+    // growth.
+    const re = /\bgrowth\b/i;
     let count = 0;
     for (const m of meetings) {
       if (re.test(m.notes ?? "") || re.test(m.description ?? "")) count += 1;

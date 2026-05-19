@@ -616,7 +616,17 @@ export function KanbanClient() {
                       type="number"
                       min={0}
                       value={limit}
-                      onChange={(e) => setWip(col.id, Number(e.target.value))}
+                      // R11-fix: NaN-guard. Pasting "abc" or clearing
+                      // the field silently parked the limit at 0 with
+                      // no user feedback (setWip clamps to 0 on NaN).
+                      // Now: ignore invalid input so the prior limit
+                      // is preserved until the user types a valid number.
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === "") return; // user clearing; keep prior limit
+                        const n = Number(raw);
+                        if (Number.isFinite(n) && n >= 0) setWip(col.id, n);
+                      }}
                       placeholder="WIP"
                       className="h-8 sm:h-7 text-xs bg-bg border-border font-data"
                       aria-label={`WIP limit for ${col.label}`}

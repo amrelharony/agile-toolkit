@@ -93,7 +93,16 @@ const SEVERITY_BADGE: Record<Severity, string> = {
 };
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  // R11-fix: use LOCAL date components, not UTC. The previous
+  // `toISOString().slice(0,10)` returned the UTC date — for a PT user
+  // logging a shift at 23:00 local, "today" defaulted to TOMORROW
+  // (UTC). The shift-coverage check uses `parseLocalDate`, so mixing
+  // a UTC default with a local check produced off-by-one shifts.
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 // R5: parse YYYY-MM-DD strings as LOCAL date so the start/end of the

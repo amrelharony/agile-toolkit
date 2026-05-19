@@ -460,8 +460,16 @@ export function VelocityClient() {
 
     const n = sprints.length;
     const avgVelocity = n > 0 ? completedValues.reduce((a, b) => a + b, 0) / n : 0;
-    const predictable = sprints.filter((s) => s.completed >= s.committed).length;
-    const predictability = n > 0 ? (predictable / n) * 100 : 0;
+    // R11-fix: skip n=0 sprints in predictability. Previously a fresh
+    // sprint row with `committed: 0, completed: 0` satisfied `0 >= 0`
+    // and counted toward predictability — adding empty rows
+    // artificially inflated the % because each empty addition
+    // incremented both numerator and denominator.
+    const completedSprints = sprints.filter((s) => s.committed > 0 || s.completed > 0);
+    const predictable = completedSprints.filter((s) => s.completed >= s.committed).length;
+    const predictability = completedSprints.length > 0
+      ? (predictable / completedSprints.length) * 100
+      : 0;
     const sd = stdDev(completedValues);
 
     // Trend direction: compare last 2 trend values, but the deadband is now
