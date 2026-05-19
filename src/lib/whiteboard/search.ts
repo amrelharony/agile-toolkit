@@ -118,8 +118,16 @@ export function searchObjects(
       type: o.type,
       score,
     });
-    if (hits.length >= 200) break; // hard cap before sort to bound CPU
+    // R11-fix: do NOT cap before scoring. The previous early-break at
+    // 200 raw hits dropped any whole-word match in objects 201+, so
+    // on a 1000-object board the user could never find a relevant
+    // sticky that scored low (e.g. exact title match) if 200 partial
+    // matches scored ahead of it. The pre-sort cap traded a tiny CPU
+    // bound for a major UX regression on large boards. Score ALL
+    // hits, then truncate after sort.
   }
   hits.sort((a, b) => a.score - b.score);
+  // Defensive cap after sorting — keeps the rendered list small even
+  // when thousands of matches land on a megaboard.
   return hits.slice(0, 50);
 }

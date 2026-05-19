@@ -43,6 +43,13 @@ export function installSignalBridge(): void {
   // 2) Diff workspace state on every mutation; emit signals for entity changes.
   // The workspace data is spread directly onto the store (not nested under
   // `.workspace`), so we project a Workspace-shaped snapshot from the store.
+  //
+  // R11-fix: include Phase 19+ entities (llmEvals, prompts, hallucinations,
+  // prioritizations, DACI/RAPID/weighted decisions). Previously the
+  // projection covered only Phase ≤18 fields, so every Phase 19+ kind
+  // declared in INVALIDATION_MATRIX never fired its signal — derived
+  // caches keyed on `llmEval:`, `prompt:`, `prioritization:`, etc.
+  // stayed stale until TTL.
   let prev: Workspace | undefined;
   unsubscribeStore = useWorkspaceStore.subscribe((state) => {
     const next: Workspace = {
@@ -56,6 +63,13 @@ export function installSignalBridge(): void {
       techDebt: state.techDebt,
       maturityLevel: state.maturityLevel,
       teamName: state.teamName,
+      llmEvals: state.llmEvals,
+      prompts: state.prompts,
+      hallucinations: state.hallucinations,
+      prioritizations: state.prioritizations,
+      daciDecisions: state.daciDecisions,
+      rapidDecisions: state.rapidDecisions,
+      weightedOptions: state.weightedOptions,
     };
     if (!prev) { prev = next; return; }
     diffAndEmit(prev, next);
@@ -89,7 +103,15 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
     prev.okrs === next.okrs &&
     prev.decisions === next.decisions &&
     prev.techDebt === next.techDebt &&
-    prev.teamMembers === next.teamMembers
+    prev.teamMembers === next.teamMembers &&
+    // R11-fix: extend short-circuit to Phase 19+ entities.
+    prev.llmEvals === next.llmEvals &&
+    prev.prompts === next.prompts &&
+    prev.hallucinations === next.hallucinations &&
+    prev.prioritizations === next.prioritizations &&
+    prev.daciDecisions === next.daciDecisions &&
+    prev.rapidDecisions === next.rapidDecisions &&
+    prev.weightedOptions === next.weightedOptions
   ) {
     return;
   }
@@ -235,6 +257,94 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
           titleChanged,
           pointsChanged,
         });
+      }
+    },
+  });
+
+  // ──────────────────────────────────────────────────────────────────
+  // Phase 19+ entities (R11). Minimal-emit handlers wire the most-
+  // user-visible signals so derived caches invalidate on the right
+  // mutations. Subtle status-transition emits left to follow-on work.
+  // ──────────────────────────────────────────────────────────────────
+
+  // LLM evals — fire `llmEval.recorded` on every add (downstream
+  // anomaly detector decides if it's a regression).
+  diffById(prev.llmEvals, next.llmEvals, (e) => e.id, {
+    onAdded: (e) =>
+      emit("llmEval.recorded", "workspace", {
+        evalId: e.id,
+        model: e.model,
+        dataset: e.dataset,
+        score: e.score,
+      }),
+  });
+
+  // Prompt versions — fire `prompt.versionPublished` on status flip to
+  // production (most-watched lifecycle event).
+  diffById(prev.prompts, next.prompts, (p) => p.id, {
+    onAdded: (p) => {
+      if (p.status === "production") {
+        emit("prompt.versionPublished", "workspace", { promptId: p.id, version: p.version });
+      }
+    },
+    onChanged: (before, after) => {
+      if (before.status !== "production" && after.status === "production") {
+        emit("prompt.versionPublished", "workspace", { promptId: after.id, version: after.version });
+      }
+    },
+  });
+
+  // Hallucinations — fire `logged` on add and `resolved` on resolution.
+  diffById(prev.hallucinations, next.hallucinations, (h) => h.id, {
+    onAdded: (h) => {
+      emit("hallucination.logged", "workspace", { id: h.id, severity: h.severity });
+      if (h.resolvedAt) {
+        emit("hallucination.resolved", "workspace", { id: h.id });
+      }
+    },
+    onChanged: (before, after) => {
+      if (!before.resolvedAt && after.resolvedAt) {
+        emit("hallucination.resolved", "workspace", { id: after.id });
+      }
+    },
+    onRemoved: (h) => {
+      if (!h.resolvedAt) emit("hallucination.resolved", "workspace", { id: h.id });
+    },
+  });
+
+  // Prioritizations — fire scored on every add/change with a non-zero
+  // score (the user's "I evaluated this item" event).
+  diffById(prev.prioritizations, next.prioritizations, (p) => p.id, {
+    onAdded: (p) => {
+      if (Number.isFinite(p.score) && p.score !== 0) {
+        emit("prioritization.scored", "workspace", { itemId: p.id, framework: p.framework, score: p.score });
+      }
+    },
+    onChanged: (before, after) => {
+      if (before.score !== after.score && Number.isFinite(after.score)) {
+        emit("prioritization.scored", "workspace", { itemId: after.id, framework: after.framework, score: after.score });
+      }
+    },
+  });
+
+  // DACI decisions
+  diffById(prev.daciDecisions, next.daciDecisions, (d) => d.id, {
+    onAdded: (d) => emit("decision.daciCreated", "workspace", { id: d.id, title: d.title }),
+  });
+
+  // RAPID decisions
+  diffById(prev.rapidDecisions, next.rapidDecisions, (d) => d.id, {
+    onAdded: (d) => emit("decision.rapidCreated", "workspace", { id: d.id, title: d.title }),
+  });
+
+  // Weighted decisions — fire on score change (most-watched lifecycle
+  // event in this framework).
+  diffById(prev.weightedOptions, next.weightedOptions, (o) => o.id, {
+    onAdded: (o) => emit("decision.weightedScored", "workspace", { id: o.id }),
+    onChanged: (before, after) => {
+      // `scores` is a Record — detect any mutation cheaply via JSON.
+      if (JSON.stringify(before.scores ?? {}) !== JSON.stringify(after.scores ?? {})) {
+        emit("decision.weightedScored", "workspace", { id: after.id });
       }
     },
   });
