@@ -101,12 +101,26 @@ export function distribute(
   const span = horizontal
     ? last.rect.x + last.rect.w - first.rect.x
     : last.rect.y + last.rect.h - first.rect.y;
-  // Clamp gap to 0 when the rects collectively exceed the span — a
-  // negative gap would cause adjacent rects to overlap progressively,
-  // compounding instead of distributing. With gap=0 the rects pack
-  // tight from the leading edge; the trailing rect may still extend
-  // past `last.rect.x + last.rect.w`, but no overlaps form.
-  const gap = Math.max(0, (span - sumSize) / (sorted.length - 1));
+  // R11-fix: when rects collectively exceed the span (sum of widths >
+  // anchor-to-anchor span), the previous code clamped gap to 0 and
+  // packed rects edge-to-edge from the leading anchor. That preserved
+  // the FIRST rect's position but destroyed the LAST rect's — it
+  // could end up far past `last.rect.x + last.rect.w` (audit example:
+  // three 200-wide rects at x=0/50/100 distribute to 0/200/400 even
+  // though the user's anchor-last was x=100).
+  //
+  // Now: when overlap would occur, refuse to distribute and return
+  // the existing positions unchanged. Both Miro and Figma do this
+  // (they show an alert; we just no-op silently). The caller can
+  // detect "no change" by comparing the result map to the inputs
+  // and surface a toast if desired.
+  if (sumSize > span) {
+    for (const t of sorted) {
+      out[t.id] = { x: t.rect.x, y: t.rect.y };
+    }
+    return out;
+  }
+  const gap = (span - sumSize) / (sorted.length - 1);
   // First and last keep their positions; middle ones get redistributed.
   let cursor = horizontal ? first.rect.x : first.rect.y;
   for (const t of sorted) {

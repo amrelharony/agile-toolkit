@@ -1636,8 +1636,20 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
       // union centre; the delta from the initial angle is added to
       // each object's initial rotation. Shift snaps to 15° increments.
       if (rotation) {
-        const angleDeg = (Math.atan2(world.y - rotation.centerWorld.y, world.x - rotation.centerWorld.x) * 180) / Math.PI;
-        let delta = angleDeg - rotation.startAngleDeg;
+        // R11-fix: guard against atan2 indeterminate (0, 0) when the
+        // pointer is dragged exactly through the union center. The
+        // previous code computed `delta = atan2(0,0)=0 - startAngle`,
+        // which yanked the selection to a fixed orientation for one
+        // frame. Skip rotation update when pointer is within 1 world
+        // unit of the center.
+        const dy = world.y - rotation.centerWorld.y;
+        const dx = world.x - rotation.centerWorld.x;
+        if (Math.hypot(dx, dy) < 1) return;
+        const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+        // R11-fix: wrap delta to (−180, 180] so a tiny pointer move
+        // across the ±180 boundary doesn't produce a 358° rotation
+        // jump on the next frame.
+        let delta = ((angleDeg - rotation.startAngleDeg + 540) % 360) - 180;
         if (e.shiftKey) delta = Math.round(delta / 15) * 15;
         const updates: WhiteboardObject[] = [];
         const now = new Date().toISOString();

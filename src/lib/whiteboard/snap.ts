@@ -147,7 +147,21 @@ export function snapToObjects(
   // way the old `Math.abs((snapX + (edge - dragLeft)) - target)` did.
   let bestDx = Infinity;
   let bestDy = Infinity;
-  const guides: AlignmentGuide[] = [];
+  // R11-fix: track candidates instead of emitting guides per match.
+  // The previous loop pushed a guide for EVERY within-tol match across
+  // all candidates, then dedup'd by (orientation, position) at the
+  // end — but the dedup kept FIRST-seen, not the winning-snap-source.
+  // Result: 50 dotted lines on a busy board, only one of which matched
+  // the actual snap. Now: collect candidate guides keyed by their
+  // target position, then keep ONLY the guides whose target equals
+  // the winning snap source (one per axis).
+  type Candidate = { target: number; rangeMin: number; rangeMax: number };
+  const xCandidates: Candidate[] = [];
+  const yCandidates: Candidate[] = [];
+  // Track which targets produced the current best snap (so we emit
+  // guides whose `target === winningTargetX/Y` after the loop).
+  let winningTargetX: number | null = null;
+  let winningTargetY: number | null = null;
 
   const dragLeft = dragging.x;
   const dragRight = dragging.x + dragging.w;
@@ -170,23 +184,15 @@ export function snapToObjects(
     const guideLeftX = Math.min(dragLeft, oLeft) - 20;
     const guideRightX = Math.max(dragRight, oRight) + 20;
 
-    // Vertical alignments (constant x). Each `testX(edge, target, newX)`
-    // is the body of the old candidate-array loop, unrolled and
-    // alloc-free. The branch ordering is left-edge/right-edge/center —
-    // identical semantics to the prior code.
     const testX = (edge: number, target: number, newX: number) => {
       const d = Math.abs(edge - target);
       if (d >= tol) return;
       if (d < bestDx) {
         bestDx = d;
         snapX = newX;
+        winningTargetX = target;
       }
-      guides.push({
-        orientation: "vertical",
-        position: target,
-        rangeMin: guideTopY,
-        rangeMax: guideBotY,
-      });
+      xCandidates.push({ target, rangeMin: guideTopY, rangeMax: guideBotY });
     };
     testX(dragLeft, oLeft, oLeft);
     testX(dragLeft, oRight, oRight);
@@ -198,20 +204,15 @@ export function snapToObjects(
     testX(dragCenterX, oRight, oRight - halfW);
     testX(dragCenterX, oCenterX, oCenterX - halfW);
 
-    // Horizontal alignments (constant y).
     const testY = (edge: number, target: number, newY: number) => {
       const d = Math.abs(edge - target);
       if (d >= tol) return;
       if (d < bestDy) {
         bestDy = d;
         snapY = newY;
+        winningTargetY = target;
       }
-      guides.push({
-        orientation: "horizontal",
-        position: target,
-        rangeMin: guideLeftX,
-        rangeMax: guideRightX,
-      });
+      yCandidates.push({ target, rangeMin: guideLeftX, rangeMax: guideRightX });
     };
     testY(dragTop, oTop, oTop);
     testY(dragTop, oBottom, oBottom);
@@ -224,14 +225,31 @@ export function snapToObjects(
     testY(dragCenterY, oCenterY, oCenterY - halfH);
   }
 
-  // De-dup guides on the same position to keep the render light.
+  // Emit one guide per winning axis, using the union range across all
+  // candidates that match the winning target — gives the user a
+  // single clear line per snap source.
   const dedupedGuides: AlignmentGuide[] = [];
-  const seen = new Set<string>();
-  for (const g of guides) {
-    const key = `${g.orientation}:${g.position}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    dedupedGuides.push(g);
+  if (winningTargetX !== null) {
+    let rangeMin = Infinity;
+    let rangeMax = -Infinity;
+    for (const c of xCandidates) {
+      if (c.target === winningTargetX) {
+        if (c.rangeMin < rangeMin) rangeMin = c.rangeMin;
+        if (c.rangeMax > rangeMax) rangeMax = c.rangeMax;
+      }
+    }
+    dedupedGuides.push({ orientation: "vertical", position: winningTargetX, rangeMin, rangeMax });
+  }
+  if (winningTargetY !== null) {
+    let rangeMin = Infinity;
+    let rangeMax = -Infinity;
+    for (const c of yCandidates) {
+      if (c.target === winningTargetY) {
+        if (c.rangeMin < rangeMin) rangeMin = c.rangeMin;
+        if (c.rangeMax > rangeMax) rangeMax = c.rangeMax;
+      }
+    }
+    dedupedGuides.push({ orientation: "horizontal", position: winningTargetY, rangeMin, rangeMax });
   }
 
   return {

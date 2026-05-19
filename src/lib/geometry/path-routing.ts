@@ -68,6 +68,32 @@ export function routeConnector(
     const zero: Vec2 = { x: 0, y: 0 };
     return { d: "", start: zero, end: zero, endTangent: { x: 1, y: 0 } };
   }
+  // R11-fix: self-loop. When fromRect === toRect (or the rects are
+  // visually coincident — same center within 1 world unit), the
+  // resolveAnchors path picks the same side for both endpoints and
+  // produces a zero-length line. Render an explicit loop arc emerging
+  // from the right side of the rect and returning to the bottom —
+  // matches Miro / draw.io conventions.
+  const sameCenter =
+    Math.abs((fromRect.x + fromRect.w / 2) - (toRect.x + toRect.w / 2)) < 1 &&
+    Math.abs((fromRect.y + fromRect.h / 2) - (toRect.y + toRect.h / 2)) < 1 &&
+    Math.abs(fromRect.w - toRect.w) < 1 &&
+    Math.abs(fromRect.h - toRect.h) < 1;
+  if (sameCenter) {
+    const r = Math.max(20, Math.min(fromRect.w, fromRect.h) * 0.35);
+    const startPt: Vec2 = { x: fromRect.x + fromRect.w, y: fromRect.y + fromRect.h / 2 };
+    const endPt: Vec2 = { x: fromRect.x + fromRect.w / 2, y: fromRect.y + fromRect.h };
+    // SVG path: emerge right → curve out and around → land on the
+    // bottom edge with an arrowhead pointing down-into the rect.
+    const cp1: Vec2 = { x: startPt.x + r * 2, y: startPt.y };
+    const cp2: Vec2 = { x: endPt.x, y: endPt.y + r * 2 };
+    return {
+      d: `M ${startPt.x} ${startPt.y} C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${endPt.x} ${endPt.y}`,
+      start: startPt,
+      end: endPt,
+      endTangent: { x: 0, y: -1 },
+    };
+  }
   const { from, to } = resolveAnchors(fromRect, toRect, fromAnchor, toAnchor);
   // Inset endpoints slightly along their normal so the line stops at the
   // rectangle border rather than buried under it.
