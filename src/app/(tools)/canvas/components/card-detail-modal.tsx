@@ -45,10 +45,15 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
   // `card` prop, which may have moved on via peer updates) to detect
   // which fields the user actually changed. On Save we send ONLY
   // those fields — fields the user didn't touch fall through to the
-  // upsert's `...current` spread (see onSave below). Net effect: two
-  // users editing different fields of the same card no longer blast
-  // each other's changes (the previous LWW window covered the entire
-  // card; now it covers only the touched fields).
+  // upsert's `...current` spread (see onSave below).
+  //
+  // R11-fix: re-baseline the snapshot when a peer edit lands AND the
+  // user hasn't touched that field. The previous behaviour captured
+  // only at mount, so a peer's edit invisible to the user was treated
+  // as "user wants to keep the original value", which could blast the
+  // peer change if the user happened to retype it verbatim. We track
+  // "touched" per field and only re-baseline untouched fields when
+  // `card.version` increments (peer broadcast).
   const openSnapshotRef = useRef({
     title: card.title,
     description: card.description ?? "",
@@ -58,6 +63,31 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
     status: card.status ?? "",
     tagsInput: (card.tags ?? []).join(", "),
   });
+  // Track per-field touch so a peer edit doesn't trample the user's
+  // in-progress changes when re-baselining.
+  const touchedRef = useRef({
+    title: false,
+    description: false,
+    assignee: false,
+    due: false,
+    points: false,
+    status: false,
+    tagsInput: false,
+  });
+  // Re-baseline non-touched fields on every card.version bump (peer
+  // edit). Touched fields keep their original snapshot so the user's
+  // patch still diffs against what they saw when they opened the modal.
+  useEffect(() => {
+    const t = touchedRef.current;
+    const snap = openSnapshotRef.current;
+    if (!t.title) snap.title = card.title;
+    if (!t.description) snap.description = card.description ?? "";
+    if (!t.assignee) snap.assignee = card.assignee ?? "";
+    if (!t.due) snap.due = card.due ?? "";
+    if (!t.points) snap.points = typeof card.points === "number" ? String(card.points) : "";
+    if (!t.status) snap.status = card.status ?? "";
+    if (!t.tagsInput) snap.tagsInput = (card.tags ?? []).join(", ");
+  }, [card.version, card.title, card.description, card.assignee, card.due, card.points, card.status, card.tags]);
 
   // Suggest assignees from the workspace team members list — same data
   // source the rest of the toolkit uses.
@@ -115,15 +145,10 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Focus trap: restore focus to whatever element was focused before
-  // the modal opened, so screen readers / keyboard users land back
-  // where they were when the modal closes.
-  useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null;
-    return () => {
-      prev?.focus?.();
-    };
-  }, []);
+  // R11-fix: removed the standalone focus-restore effect — `useFocusTrap`
+  // below now owns focus capture + restore (with the added
+  // `document.contains` guard against triggers unmounted while the
+  // modal was open).
 
   const onSave = () => {
     // Explicit parse path — `Number(" ")` is 0 (not NaN) so the trim
@@ -242,7 +267,7 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
             <input
               type="text"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => { touchedRef.current.title = true; setTitle(e.target.value); }}
               maxLength={140}
               className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent"
               autoFocus
@@ -253,7 +278,7 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
             <span>Description</span>
             <textarea
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => { touchedRef.current.description = true; setDescription(e.target.value); }}
               maxLength={2000}
               rows={4}
               className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent resize-none"
@@ -267,7 +292,7 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
               <input
                 type="text"
                 value={assignee}
-                onChange={(e) => setAssignee(e.target.value)}
+                onChange={(e) => { touchedRef.current.assignee = true; setAssignee(e.target.value); }}
                 list="card-assignee-suggestions"
                 maxLength={60}
                 className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent"
@@ -293,6 +318,7 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
                   // so "Dec 15" in eastern time re-renders as "Dec 14".
                   // Conversion to a stable full-ISO happens in onSave.
                   const next = e.target.value;
+                  touchedRef.current.due = true;
                   if (!next) {
                     setDue("");
                     return;
@@ -314,7 +340,7 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
                 min={0}
                 step={1}
                 value={points}
-                onChange={(e) => setPoints(e.target.value)}
+                onChange={(e) => { touchedRef.current.points = true; setPoints(e.target.value); }}
                 className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent"
                 placeholder="—"
               />
@@ -324,7 +350,7 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
               <span className="flex items-center gap-1"><Activity className="w-3 h-3" />Status</span>
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value)}
+                onChange={(e) => { touchedRef.current.status = true; setStatus(e.target.value); }}
                 className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent"
               >
                 <option value="">— none —</option>
@@ -340,7 +366,7 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
             <input
               type="text"
               value={tagsInput}
-              onChange={(e) => setTagsInput(e.target.value)}
+              onChange={(e) => { touchedRef.current.tagsInput = true; setTagsInput(e.target.value); }}
               maxLength={200}
               className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent font-mono"
               placeholder="auth, blocker, q1-launch"

@@ -143,12 +143,17 @@ export function importFromRetro(
 function buildReuseMap(
   existing: readonly WhiteboardObject[] | undefined,
   tool: string,
-): Map<string, string> {
-  const m = new Map<string, string>();
+): Map<string, { id: string; version: number }> {
+  // R11-fix: carry the existing object's version so re-imports can
+  // emit `version: existing.version + 1`. The previous shape returned
+  // only the id; re-imports emitted `version: 1` and peer LWW rejected
+  // them (incoming v=1 vs peer's v=47 from intervening edits → re-import
+  // appeared to succeed locally but never replicated).
+  const m = new Map<string, { id: string; version: number }>();
   if (!existing) return m;
   for (const o of existing) {
     if (o.sourceRef?.tool === tool && o.sourceRef.entityId) {
-      m.set(o.sourceRef.entityId, o.id);
+      m.set(o.sourceRef.entityId, { id: o.id, version: o.version });
     }
   }
   return m;
@@ -202,17 +207,20 @@ export function importFromStories(
       const content = (s.title + (s.points ? ` · ${s.points}pt` : "")).slice(0, 50_000);
       // R10-deferred: reuse existing id when present → upsert replaces
       // the existing sticky instead of stacking a new one.
-      const reuseId = reuse.get(s.id);
+      // R11-fix: when reusing, bump version off the existing version so
+      // peer LWW accepts the re-imported state. The previous unconditional
+      // `version: 1` was silently rejected by every peer that had already
+      // edited the sticky (their existing.version > 1).
+      const reuseEntry = reuse.get(s.id);
       out.push({
-        id: reuseId ?? id(),
+        id: reuseEntry?.id ?? id(),
         boardId, type: "sticky",
         x: 80 + i * stageW + 16, y: 140 + j * 130,
         w: stageW - 48, h: 110, z: z(),
         content,
         color: STICKY_PALETTE[i % STICKY_PALETTE.length],
-        // When reusing, bump version so peer LWW accepts the update.
-        // When fresh, version 1.
-        version: 1, updatedAt: now(), createdAt: now(),
+        version: reuseEntry ? reuseEntry.version + 1 : 1,
+        updatedAt: now(), createdAt: now(),
         sourceRef: { tool: "story", entityId: s.id },
       });
     });
@@ -266,16 +274,18 @@ export function importFromRisks(
     const iRaw = Number.isFinite(r.impact) ? r.impact as number : 3;
     const p = Math.max(1, Math.min(5, pRaw)) - 1;
     const i = 5 - Math.max(1, Math.min(5, iRaw));
-    const reuseId = reuse.get(r.id);
+    const reuseEntry = reuse.get(r.id);
     out.push({
-      id: reuseId ?? id(),
+      id: reuseEntry?.id ?? id(),
       boardId, type: "sticky",
       x: 200 + p * cell + 8, y: 60 + i * cell + 8,
       w: cell - 20, h: cell - 20, z: z(),
       // Cap title — matches the importFromRetro/Stories truncation.
       content: (r.title ?? "").slice(0, IMPORT_TEXT_CAP),
       color: r.status === "closed" ? "#9ca3af" : "#fde68a",
-      version: 1, updatedAt: now(), createdAt: now(),
+      // R11-fix: bump off existing version so peer LWW accepts the update.
+      version: reuseEntry ? reuseEntry.version + 1 : 1,
+      updatedAt: now(), createdAt: now(),
       sourceRef: { tool: "risk", entityId: r.id },
     });
   }
@@ -343,7 +353,8 @@ export function importFromOkrs(
     // map is rebuilt so connectors use the SAME ids whether
     // fresh-imported or re-imported.
     const entityId = parts?.krId ?? parts?.okrId ?? n.id;
-    const stickyId = reuse.get(entityId) ?? id();
+    const reuseEntry = reuse.get(entityId);
+    const stickyId = reuseEntry?.id ?? id();
     compositeToStickyId.set(n.id, stickyId);
     out.push({
       id: stickyId, boardId, type: "sticky",
@@ -351,7 +362,9 @@ export function importFromOkrs(
       content: labels[n.id],
       color: isObjective ? "#a5f3fc" : "#bef264",
       fontSize: isObjective ? 16 : 14,
-      version: 1, updatedAt: now(), createdAt: now(),
+      // R11-fix: bump off existing version so peer LWW accepts the update.
+      version: reuseEntry ? reuseEntry.version + 1 : 1,
+      updatedAt: now(), createdAt: now(),
       sourceRef: {
         tool: "okr",
         entityId,

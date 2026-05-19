@@ -162,11 +162,15 @@ export function issuesToCards(
   // matching (tool="jira", entityId=j.key) already exists on this
   // board. Re-pasting the same CSV upserts instead of stacking
   // duplicate cards.
-  const reuse = new Map<string, string>();
+  // R11-fix: carry the existing card version so re-imports emit
+  // `version: existing.version + 1`. Without the bump, peer LWW
+  // rejects the re-imported state (incoming v=1 vs peer's v=N) so
+  // re-imports replicate locally but never reach peers.
+  const reuse = new Map<string, { id: string; version: number }>();
   if (existing) {
     for (const o of existing) {
       if (o.sourceRef?.tool === "jira" && o.sourceRef.entityId) {
-        reuse.set(o.sourceRef.entityId, o.id);
+        reuse.set(o.sourceRef.entityId, { id: o.id, version: o.version });
       }
     }
   }
@@ -199,8 +203,9 @@ export function issuesToCards(
   let z = 2;
   cols.forEach((col, colIdx) => {
     buckets[col].forEach((j, rowIdx) => {
+      const reuseEntry = reuse.get(j.key);
       const card: WhiteboardCard = {
-        id: reuse.get(j.key) ?? id(),
+        id: reuseEntry?.id ?? id(),
         boardId,
         type: "card",
         x: ORIGIN_X + colIdx * COL_W,
@@ -216,7 +221,7 @@ export function issuesToCards(
         status: col,
         color: col === "done" ? "#34d399" : col === "in_progress" ? "#f59e0b" : "#00f0ff",
         tags: j.labels,
-        version: 1,
+        version: reuseEntry ? reuseEntry.version + 1 : 1,
         createdAt: now,
         updatedAt: now,
         sourceRef: { tool: "jira", entityId: j.key },

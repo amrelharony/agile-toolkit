@@ -69,17 +69,9 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Focus restore — when the modal unmounts, return focus to whatever
-  // element was focused before it opened so keyboard / screen-reader
-  // users land back where they were.
-  useEffect(() => {
-    const prev = typeof document !== "undefined"
-      ? (document.activeElement as HTMLElement | null)
-      : null;
-    return () => {
-      prev?.focus?.();
-    };
-  }, []);
+  // R11-fix: removed the standalone focus-restore effect — `useFocusTrap`
+  // below now owns focus capture + restore, with the added `document.contains`
+  // guard for triggers that get unmounted while the modal is open.
 
   const [tab, setTab] = useState<Tab>("share");
   const objects = useWorkspaceStore((s) => s.whiteboardObjects);

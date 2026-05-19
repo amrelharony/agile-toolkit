@@ -36,10 +36,15 @@ function ActivityStreamImpl({ boardId, onClose }: Props) {
       .sort((a, b) => b.at - a.at);
   }, [log, boardId]);
   const [renderLimit, setRenderLimit] = useState(ACTIVITY_INITIAL_RENDER);
-  // Reset limit when events identity changes (new event lands while open).
+  // R11-fix: reset only when the oldest event id changes — proxy for
+  // "filter / board switched", NOT for "a new event arrived". The
+  // previous reset-on-`events`-identity fired on every peer move, drag,
+  // or text edit, bouncing the user back to the first 50 mid-scroll
+  // and making "Load more" unreachable on a busy board.
+  const oldestId = events.length > 0 ? events[events.length - 1].id : null;
   useEffect(() => {
     setRenderLimit(ACTIVITY_INITIAL_RENDER);
-  }, [events]);
+  }, [oldestId, boardId]);
 
   // Stable callback ref so the keydown effect doesn't re-register on
   // every parent render. The canvas typically passes an inline

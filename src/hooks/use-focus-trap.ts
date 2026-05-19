@@ -100,12 +100,33 @@ export function useFocusTrap(
       cancelAnimationFrame(raf);
       document.removeEventListener("keydown", onKeyDown, true);
       // Restore focus to the original trigger element. Guard for the
-      // case where the trigger has been removed from the DOM (rare —
-      // user navigated away with the dialog open).
+      // case where the trigger has been removed from the DOM (peer
+      // deleted the source object, user navigated away with the
+      // dialog open, parent re-mounted). R11-fix: when the trigger is
+      // gone, fall back to a stable landing target rather than letting
+      // focus drop to <body> (where screen readers announce nothing,
+      // violating WCAG 2.4.3 focus-order).
       const prev = previousActiveRef.current;
       if (prev && document.contains(prev) && typeof prev.focus === "function") {
         prev.focus();
+        return;
       }
+      // Fallbacks in order: skip-to-content link, top toolbar, main h1,
+      // or body with tabindex -1 (so SRs at least announce the landmark).
+      const fallback =
+        document.querySelector<HTMLElement>('[data-skip-link="true"]') ??
+        document.querySelector<HTMLElement>("header [role='button'], header button") ??
+        document.querySelector<HTMLElement>("main h1, [role='main'] h1") ??
+        document.body;
+      if (fallback === document.body) {
+        // body isn't focusable by default — promote so SR/keyboard
+        // users have somewhere meaningful to land. Tabindex -1 keeps it
+        // out of the natural Tab order but allows programmatic focus.
+        if (!document.body.hasAttribute("tabindex")) {
+          document.body.setAttribute("tabindex", "-1");
+        }
+      }
+      fallback.focus?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);

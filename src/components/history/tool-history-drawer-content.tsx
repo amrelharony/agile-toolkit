@@ -107,12 +107,18 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
   const [renderLimit, setRenderLimit] = useState(INITIAL_RENDER_LIMIT);
   const timeTravel = useTimeTravel(toolId);
 
-  // R10-deferred: reset render limit when the events identity changes
-  // (e.g., a new event lands while the drawer is open) so we always
-  // start from the top with the chunk size.
+  // R11-fix: reset only when the OLDEST event id changes — proxy for
+  // "the filter / tool / time-travel cursor moved", NOT for "a new
+  // event arrived". The previous reset-on-`events`-identity fired on
+  // every keystroke that produced a history event (the `useHistory`
+  // selector returns a freshly-sorted array each push), bouncing the
+  // user back to the first 50 mid-scroll. Now the limit is sticky
+  // across new-event landings; only an explicit filter change or a
+  // total emptying of the list rewinds it.
+  const oldestId = events.length > 0 ? events[events.length - 1].id : null;
   useEffect(() => {
     setRenderLimit(INITIAL_RENDER_LIMIT);
-  }, [events]);
+  }, [oldestId, toolId]);
 
   const grouped = useMemo(() => {
     const groups = new Map<string, HistoryEvent[]>();
