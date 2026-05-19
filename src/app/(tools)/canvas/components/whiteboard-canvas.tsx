@@ -2448,6 +2448,34 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   // per render — sluggish at any realistic load.
   const selectionSet = useMemo(() => new Set(selection), [selection]);
   const tagFilterSet = useMemo(() => new Set(tagFilter), [tagFilter]);
+  /**
+   * R11-fix: viewport-cull the rendered object list. Previously the
+   * ObjectRenderer JSX iterated every object on the board regardless
+   * of camera position; a 5000-object board mounted 5000 DOM nodes
+   * even when the user was zoomed-in on 20. ConnectorLayer already
+   * culls; this brings ObjectRenderer to parity.
+   *
+   * Always include selected objects + the object being edited even
+   * if they're outside the viewport — keyboard-driven nudges and
+   * peer-sourced selection box should remain renderable. Frames /
+   * kanbans that span the viewport are kept by their AABB test.
+   */
+  const visibleObjects = useMemo(() => {
+    if (!viewportWorld) return sortedObjects;
+    const vw = viewportWorld;
+    return sortedObjects.filter((o) => {
+      if (selectionSet.has(o.id)) return true;
+      if (editingObjectId === o.id) return true;
+      // AABB intersection vs viewport.
+      const right = o.x + o.w;
+      const bottom = o.y + o.h;
+      if (right < vw.x) return false;
+      if (bottom < vw.y) return false;
+      if (o.x > vw.x + vw.w) return false;
+      if (o.y > vw.y + vw.h) return false;
+      return true;
+    });
+  }, [sortedObjects, viewportWorld, selectionSet, editingObjectId]);
 
   /** Click on a connector path — toggle selection (additive with Shift/Cmd).
    * Connectors don't have a draggable bbox, so we don't kick off a drag the
@@ -2666,7 +2694,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
               AND `tagFilter.includes(t)` per tag — 1000 × 10 = 10k ops
               per render just for the filter check. Sets get .has() to O(1). */}
           {(() => null)()}
-          {sortedObjects.map((o) => {
+          {visibleObjects.map((o) => {
             // Tag-filter dimming (Phase 26). When the user has at
             // least one tag in the filter set, any object that
             // doesn't carry one of those tags is rendered at 25%
