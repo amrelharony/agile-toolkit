@@ -11,7 +11,7 @@ import { copyObjects, duplicateObjects, readClipboardObjects, wbId } from "@/lib
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { defaultCanvasShortcuts, makeShortcutHandler } from "@/lib/whiteboard/keyboard";
-import { snapToGrid as snapToGridFn, snapToObjects as snapToObjectsFn, DEFAULT_GRID_SIZE, DEFAULT_GUIDE_TOLERANCE } from "@/lib/whiteboard/snap";
+import { snapToGrid as snapToGridFn, snapToObjects as snapToObjectsFn, buildSpatialIndex, DEFAULT_GRID_SIZE, DEFAULT_GUIDE_TOLERANCE, type SpatialIndex } from "@/lib/whiteboard/snap";
 import { useCanvasUndoStack } from "../use-undo-stack";
 import { useCanvasStore, type ResizeHandle } from "../use-canvas-store";
 import { ObjectRenderer } from "./object-renderer";
@@ -176,6 +176,15 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   // it on visibility-change / pointer-up; we sync the ref via the
   // store's subscribe() API so reads stay fresh without a re-render.
   const dragGuidesRef = useRef(useCanvasStore.getState().dragGuides);
+  // R11-fix: spatial index for snap candidates, built ONCE at
+  // drag-start. Previously the snap path did `objects.filter().map()`
+  // per pointer-move, allocating ~2000 rects/frame at 1000-object
+  // boards × 60-120Hz pointer rate (~120k allocations/sec). The index
+  // is invariant during the drag (the candidate set doesn't change as
+  // the dragged rect moves) so building once at drag-start and
+  // querying `nearby()` per move reduces snap work from O(N) to
+  // O(local-density).
+  const dragSnapIndexRef = useRef<SpatialIndex | null>(null);
   useEffect(() => {
     const unsub = useCanvasStore.subscribe((s) => {
       dragGuidesRef.current = s.dragGuides;
@@ -1559,16 +1568,26 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
         // ones being dragged. The engine returns a snapped rect + guide
         // segments to render.
         if (snapToObjectsEnabled) {
-          const draggingSet = new Set(ids);
-          const others = objects
-            .filter((o) => !draggingSet.has(o.id))
-            .map((o) => ({ x: o.x, y: o.y, w: o.w, h: o.h }));
           // Zoom-adjusted tolerance — the default (6 world units) feels
           // wider when zoomed out and narrower when zoomed in. Dividing
           // by camera.zoom keeps the snap feel constant at ~6 screen
           // pixels regardless of zoom level. Clamped to a minimum so
           // we don't end up with sub-pixel snap windows at extreme zoom.
           const zoomAdjustedTol = Math.max(2, DEFAULT_GUIDE_TOLERANCE / (camera.zoom || 1));
+          // R11-fix: query the pre-built spatial index from drag-start
+          // instead of rebuilding the candidate array per pointer-move.
+          // Fall back to a full walk if the index is missing (shouldn't
+          // happen — drag-start always builds it — but keeps the snap
+          // working defensively).
+          let others: Rect[];
+          if (dragSnapIndexRef.current) {
+            others = dragSnapIndexRef.current.nearby(proposedUnion, zoomAdjustedTol);
+          } else {
+            const draggingSet = new Set(ids);
+            others = objects
+              .filter((o) => !draggingSet.has(o.id))
+              .map((o) => ({ x: o.x, y: o.y, w: o.w, h: o.h }));
+          }
           const { rect: snappedRect, guides } = snapToObjectsFn(proposedUnion, others, zoomAdjustedTol);
           dx += snappedRect.x - proposedUnion.x;
           dy += snappedRect.y - proposedUnion.y;
@@ -1810,6 +1829,9 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
           log(CANVAS_ACTIONS.OBJECT_UPDATED, { count: cardUpdates.length, action: "kanban-drop" });
         }
       }
+      // R11-fix: release the spatial index so the candidate rects can
+      // be GC'd; next drag-start rebuilds with fresh objects.
+      dragSnapIndexRef.current = null;
       setDrag(null);
       // Read guides via the ref instead of a subscribed selector.
       if (dragGuidesRef.current.length > 0) setDragGuides([]);
@@ -1984,6 +2006,17 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
       // pointer-up the store is already at the post-drag state — snapshot
       // there would record post-drag and Cmd+Z would be a no-op.
       pushSnapshot();
+      // R11-fix: build the snap spatial index ONCE for this drag.
+      // The candidate set (every non-dragging object) is invariant
+      // during the drag; rebuilding the rect array per pointer-move
+      // is wasteful.
+      const draggingSet = new Set(Object.keys(initialRects));
+      const candidateRects: Rect[] = [];
+      for (const o of objects) {
+        if (draggingSet.has(o.id)) continue;
+        candidateRects.push({ x: o.x, y: o.y, w: o.w, h: o.h });
+      }
+      dragSnapIndexRef.current = buildSpatialIndex(candidateRects);
       setDrag({ startWorld: world, initialRects });
       viewportRef.current?.setPointerCapture(e.pointerId);
     },

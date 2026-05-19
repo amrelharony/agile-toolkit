@@ -268,44 +268,66 @@ export function VelocityClient() {
   // workspace with empty rows.
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // R11-fix: track ids the bridge has ever upserted. The previous
+    // heuristic `ws.id.startsWith("spr_")` was dead code — velocity ids
+    // come from `crypto.randomUUID()` (buildDefaultSprints + createSprint)
+    // which never produce a "spr_" prefix, so the removal branch never
+    // fired and workspace.sprints accumulated zombies forever.
+    const ownedIds = new Set<string>();
     const sync = (snapshot: typeof sprints) => {
       const workspace = useWorkspaceStore.getState();
       const wsSprints = workspace.sprints ?? [];
       const wsById = new Map(wsSprints.map((s) => [s.id, s]));
       const localById = new Map(snapshot.map((s) => [s.id, s]));
       // Upsert active velocity rows into workspace.
-      for (const local of snapshot) {
-        if (local.committed === 0 && local.completed === 0) continue;
+      // R11-fix: emit synthetic monotonic startDate so workspace-store's
+      // `selectCompletedSprints` sort (uses `new Date(startDate).getTime()`)
+      // doesn't NaN-poison when velocity has no real calendar dates.
+      // Anchor at 2020-01-01 + index days; stable across renders.
+      const SYNTH_EPOCH_MS = Date.UTC(2020, 0, 1);
+      snapshot.forEach((local, index) => {
+        if (local.committed === 0 && local.completed === 0) {
+          // Even un-upserted local sprints are claimed as "ours" so a
+          // later removal doesn't see them as foreign rows.
+          ownedIds.add(local.id);
+          return;
+        }
         const existing = wsById.get(local.id);
         const status: "active" | "completed" | "planned" =
           local.completed > 0 ? "completed" : "planned";
+        const syntheticStart = new Date(SYNTH_EPOCH_MS + index * 86_400_000)
+          .toISOString()
+          .slice(0, 10);
         const next = {
           id: local.id,
           name: local.name,
-          startDate: existing?.startDate ?? "",
+          startDate: existing?.startDate || syntheticStart,
           endDate: existing?.endDate ?? "",
           goal: existing?.goal ?? local.description,
           pointsPlanned: local.committed,
           pointsCompleted: local.completed,
           status,
         } as const;
+        ownedIds.add(local.id);
         // Skip the upsert when nothing meaningful has changed — avoids
         // an infinite subscribe → diff → setState → subscribe loop.
         if (
           existing &&
           existing.name === next.name &&
+          existing.startDate === next.startDate &&
           existing.pointsPlanned === next.pointsPlanned &&
           existing.pointsCompleted === next.pointsCompleted &&
           existing.status === next.status
-        ) continue;
+        ) return;
         workspace.upsertSprint(next);
-      }
-      // Remove workspace sprints that velocity no longer owns. Only
-      // touch rows whose id is in our local set OR was previously
-      // pushed by us (heuristic: velocity sprint ids start with "spr_"
-      // from buildDefaultSprints + createSprint).
+      });
+      // Remove workspace sprints WE previously pushed but the user has
+      // since deleted from the velocity tool. Only touch ids we've
+      // owned at some point (closure-scoped Set above), never trample
+      // sprints written by other tools / imports.
       for (const ws of wsSprints) {
-        if (!localById.has(ws.id) && ws.id.startsWith("spr_")) {
+        if (!localById.has(ws.id) && ownedIds.has(ws.id)) {
+          ownedIds.delete(ws.id);
           workspace.removeSprint(ws.id);
         }
       }

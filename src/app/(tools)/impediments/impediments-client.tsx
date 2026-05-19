@@ -733,6 +733,13 @@ export function ImpedimentsClient() {
     const sevMap: Record<Severity, "low" | "medium" | "high" | "critical"> = {
       Low: "low", Medium: "medium", High: "high", Critical: "critical",
     };
+    // R11-fix: track ids the bridge has ever upserted. The previous
+    // heuristic `ws.id.startsWith("imp_")` was dead code — local
+    // impediment ids come from `crypto.randomUUID()` so the prefix
+    // never matched and workspace.impediments accumulated zombies on
+    // every local delete. Cross-tool consumers (insights-engine,
+    // anti-pattern detector) treated resolved/deleted items as open.
+    const ownedIds = new Set<string>();
     const sync = (snapshot: Impediment[]) => {
       const workspace = useWorkspaceStore.getState();
       const wsItems = workspace.impediments ?? [];
@@ -749,6 +756,7 @@ export function ImpedimentsClient() {
           owner: local.assignedTo || undefined,
           source: "manual" as const,
         };
+        ownedIds.add(local.id);
         if (
           existing &&
           existing.title === next.title &&
@@ -760,8 +768,11 @@ export function ImpedimentsClient() {
         workspace.upsertImpediment(next);
       }
       // Remove workspace rows we previously owned but the user deleted.
+      // Closure-scoped Set ensures we never trample rows that came from
+      // other tools / imports.
       for (const ws of wsItems) {
-        if (!localById.has(ws.id) && ws.id.startsWith("imp_")) {
+        if (!localById.has(ws.id) && ownedIds.has(ws.id)) {
+          ownedIds.delete(ws.id);
           workspace.removeImpediment(ws.id);
         }
       }

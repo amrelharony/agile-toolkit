@@ -109,7 +109,7 @@ export interface Differ {
 }
 
 export function createDiffer(initial: readonly WhiteboardObject[] = []): Differ {
-  let prevById = new Map(initial.map((o) => [o.id, o]));
+  const prevById = new Map(initial.map((o) => [o.id, o]));
   return {
     diff(next, by) {
       const upserted: WhiteboardObject[] = [];
@@ -120,23 +120,29 @@ export function createDiffer(initial: readonly WhiteboardObject[] = []): Differ 
         const before = prevById.get(o.id);
         if (!before || before.version !== o.version) upserted.push(o);
       }
-      // Walk the smaller side; with mostly-stable IDs `prevById.size`
-      // is approximately `next.length`, so iterating prevById and
-      // checking nextIds keeps the hot path linear in the actual
-      // mutation count rather than the board size.
-      for (const id of Array.from(prevById.keys())) {
+      // Find removed by walking prevById (smaller-side iteration; with
+      // mostly-stable IDs `prevById.size` ~= `next.length`, so this is
+      // O(N) in board size but O(mutations) per call after the first).
+      // Use forEach for older lib-es targets that don't support
+      // iterator-spread without downlevelIteration.
+      prevById.forEach((_v, id) => {
         if (!nextIds.has(id)) removed.push(id);
-      }
+      });
       if (upserted.length === 0 && removed.length === 0) return { empty: true };
-      // Advance the baseline. We rebuild the map from `next` (rather
-      // than mutating prevById incrementally) so the snapshot exactly
-      // matches the array the caller passed in — preventing drift if
-      // the caller mutates the array between calls.
-      prevById = new Map(next.map((o) => [o.id, o]));
+      // R11-fix: advance the baseline INCREMENTALLY instead of rebuilding
+      // the entire Map. The previous `new Map(next.map(...))` was O(N) on
+      // every call — defeating the differ's promise of O(mutations).
+      // Now: only touch the slots that actually changed. Shallow-copy
+      // upserted objects so a downstream in-place mutation of `next`
+      // cannot corrupt our baseline (defensive against callers that
+      // bend the immutable contract).
+      for (const o of upserted) prevById.set(o.id, { ...o });
+      for (const id of removed) prevById.delete(id);
       return { empty: false, value: { upserted, removed, by, at: new Date().toISOString() } };
     },
     reset(initial) {
-      prevById = new Map((initial ?? []).map((o) => [o.id, o]));
+      prevById.clear();
+      if (initial) for (const o of initial) prevById.set(o.id, { ...o });
     },
     size() {
       return prevById.size;

@@ -24,8 +24,9 @@ import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import {
   applyPatch,
   buildHeartbeat,
-  computePatch,
+  createDiffer,
   detectDrift,
+  type Differ,
   type WhiteboardHeartbeat,
   type WhiteboardPatch,
   type WhiteboardRequest,
@@ -201,8 +202,15 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
   const removeMany = useWorkspaceStore((s) => s.removeWhiteboardObjects);
   const [remoteFocus, setRemoteFocus] = useState<FocusBroadcast | null>(null);
 
-  // Snapshot of what we last broadcasted, used to compute diffs locally.
-  const lastBroadcastRef = useRef<Map<string, WhiteboardObject>>(new Map());
+  // R11-fix: stateful diffing baseline. Previously this was a plain
+  // Map rebuilt on every broadcast (full O(N) per send); the `Differ`
+  // maintains its own incremental baseline so the hot path is O(mutations).
+  // The differ's reset(initial) is also used for echo-suppression in the
+  // inbound flush: setting the baseline to the post-merge state means
+  // the listener's next diff against the freshly-written workspace
+  // returns empty (no echo loop).
+  const differRef = useRef<Differ | null>(null);
+  if (differRef.current === null) differRef.current = createDiffer();
 
   // Stash the latest room in a ref so the effect doesn't have to
   // depend on it. `useRoom` returns a NEW object every render — passing
@@ -213,6 +221,15 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
   // *boardId* actually change.
   const roomRef = useRef(room);
   roomRef.current = room;
+
+  // R11-fix: authoritative boardId for the board-switch latch in
+  // `sendNow`. A pendingTimer scheduled mid-edit on board A whose timer
+  // callback has already entered the macrotask queue at the moment of
+  // board switch could fire AFTER cleanup runs, broadcasting B's
+  // current objects to A's room. The latch in `sendNow` reads this ref
+  // and bails when the boardId has moved on.
+  const currentBoardIdRef = useRef(boardId);
+  currentBoardIdRef.current = boardId;
 
   // Subscribe to peer patches / heartbeats / requests. The effect only
   // mounts on board / room changes — we read the current room handle
@@ -269,13 +286,13 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
       const toRemoveSet = new Set(localById.keys());
       for (const o of merged) toRemoveSet.delete(o.id);
       const toRemove = Array.from(toRemoveSet);
-      // CRITICAL: update the broadcast snapshot BEFORE the store
-      // mutation. See same rationale below — the local-broadcast
-      // listener fires on the resulting state change and would
-      // otherwise compute a delta that mirrors the incoming patches
-      // back to peers (echo loop).
-      for (const o of merged) lastBroadcastRef.current.set(o.id, o);
-      for (const id of toRemove) lastBroadcastRef.current.delete(id);
+      // CRITICAL: update the broadcast baseline BEFORE the store
+      // mutation. The local-broadcast listener fires on the resulting
+      // state change and would otherwise compute a delta that mirrors
+      // the incoming patches back to peers (echo loop). reset(merged)
+      // primes the differ so its next diff against the freshly-written
+      // workspace state returns empty.
+      differRef.current?.reset(merged);
       if (toUpsert.length > 0) upsertMany(toUpsert);
       if (toRemove.length > 0) removeMany(toRemove);
     };
@@ -446,7 +463,7 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
   // diff against A (every object on A appears removed, every object on
   // B appears added) and broadcasts a huge spurious patch to peers.
   useEffect(() => {
-    lastBroadcastRef.current = new Map();
+    differRef.current?.reset([]);
   }, [boardId]);
 
   // Watch the workspace store for changes on this board; broadcast diffs.
@@ -477,14 +494,18 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
     const sendNow = () => {
       pendingTimer = null;
       lastSentAt = Date.now();
+      // R11-fix: board-switch latch. If a pendingTimer was scheduled
+      // mid-edit on board A and the user switched to board B before it
+      // fired, sendNow runs with closure-captured boardId === A but
+      // reads the live workspace (now showing B's objects). Without
+      // this guard, the timer broadcasts B-board objects under A's
+      // room channel. We compare boardId against the live ref.
+      if (currentBoardIdRef.current !== boardId) return;
       const state = useWorkspaceStore.getState();
       const list = (state.whiteboardObjects ?? []).filter((o) => o.boardId === boardId);
-      const prev = Array.from(lastBroadcastRef.current.values());
-      const patch = computePatch(prev, list, roomRef.current.userId);
-      if (patch.upserted.length === 0 && patch.removed.length === 0) return;
-      // Update snapshot first so a self-echo via the patch handler is a no-op.
-      lastBroadcastRef.current = new Map(list.map((o) => [o.id, o]));
-      roomRef.current.broadcast("whiteboard:patch", patch);
+      const result = differRef.current?.diff(list, roomRef.current.userId);
+      if (!result || result.empty) return;
+      roomRef.current.broadcast("whiteboard:patch", result.value);
     };
     const unsub = useWorkspaceStore.subscribe((state) => {
       if (state.whiteboardObjects === prevObjectsRef) return;

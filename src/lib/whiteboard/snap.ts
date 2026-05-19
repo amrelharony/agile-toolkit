@@ -59,28 +59,47 @@ export interface SpatialIndex {
 export function buildSpatialIndex(rects: readonly Rect[], cellSize = 200): SpatialIndex {
   const buckets = new Map<string, Rect[]>();
   const key = (cx: number, cy: number) => `${Math.floor(cx / cellSize)}:${Math.floor(cy / cellSize)}`;
+  // R11-fix: track the largest candidate half-extent across all
+  // indexed rects. The previous reach formula only added cellSize/2 to
+  // the drag half-extent, but a 600×40 frame sits in one bucket whose
+  // center is 300+ units away from its edges — that candidate would
+  // silently fall out of the candidate list for any drag more than
+  // cellSize/2 from its center. By tracking the max extent, `nearby()`
+  // can expand reach so every legitimately-near candidate is returned.
+  let maxHalfExtent = 0;
   for (const r of rects) {
     // Skip rects with non-finite coords — they'd produce key="NaN:NaN"
     // and bucket every other NaN rect together, defeating spatial cull.
     if (!Number.isFinite(r.x) || !Number.isFinite(r.y) || !Number.isFinite(r.w) || !Number.isFinite(r.h)) continue;
+    // R11-fix: reject negative dimensions. A negative-width rect would
+    // place its center to the LEFT of its origin, bucketing it in the
+    // wrong cell relative to its visual span; consumers would then
+    // snap to an edge that doesn't visually exist.
+    if (r.w < 0 || r.h < 0) continue;
     const cx = r.x + r.w / 2;
     const cy = r.y + r.h / 2;
     const k = key(cx, cy);
     const bucket = buckets.get(k);
     if (bucket) bucket.push(r);
     else buckets.set(k, [r]);
+    const half = Math.max(r.w, r.h) / 2;
+    if (half > maxHalfExtent) maxHalfExtent = half;
   }
   return {
     nearby(drag, tol) {
       // The candidate bucket span: the drag rect could snap against
-      // any rect whose center is within (tol + half-drag-extent +
-      // half-cell-extent) of the drag center. Walk the 3x3 (or wider)
-      // grid neighbourhood.
+      // any rect whose CENTER is within (tol + drag half-extent +
+      // candidate half-extent + cell half-extent) of the drag center.
       const dcx = drag.x + drag.w / 2;
       const dcy = drag.y + drag.h / 2;
-      // Reach = tol + max(drag half-extent, cell half-extent) so
-      // edges align even if the drag rect is large.
-      const reach = tol + Math.max(drag.w, drag.h) / 2 + cellSize / 2;
+      // Use the tracked max candidate extent so wide/tall frames
+      // aren't pruned. Also clamp to a sane upper bound to defend
+      // against pathological tol/cellSize ratios.
+      const dragHalf = Math.max(drag.w, drag.h) / 2;
+      const reach = Math.min(
+        tol + dragHalf + maxHalfExtent + cellSize / 2,
+        cellSize * 50,
+      );
       const minX = Math.floor((dcx - reach) / cellSize);
       const maxX = Math.floor((dcx + reach) / cellSize);
       const minY = Math.floor((dcy - reach) / cellSize);
