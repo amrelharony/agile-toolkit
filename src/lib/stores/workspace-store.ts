@@ -911,6 +911,29 @@ if (typeof window !== "undefined") {
   void Promise.resolve(useWorkspaceStore.persist.rehydrate()).catch(() => {
     /* corrupt persisted state — keep emptyWorkspace defaults */
   });
+
+  // R11-fix: cross-tab synchronisation. Two tabs of the same browser
+  // each load + mutate the workspace independently; the LAST tab to
+  // persist wins, silently clobbering the OTHER tab's work on the
+  // next reload. Now: listen to the `storage` event (only fires in
+  // OTHER tabs when localStorage changes) and trigger a rehydrate
+  // when the workspace key changes. The active tab's in-memory state
+  // is replaced with the latest persisted snapshot — last write wins
+  // semantics but at least both tabs converge live.
+  //
+  // We debounce because rapid mutations in one tab fire many storage
+  // events; rehydrate is heavy (full state replace + every subscriber
+  // re-renders). 250 ms feels live without thrashing.
+  let rehydrateTimer: ReturnType<typeof setTimeout> | null = null;
+  window.addEventListener("storage", (e) => {
+    if (e.key !== "agile-toolkit:workspace") return;
+    if (e.newValue === null) return; // tab cleared storage — leave us alone
+    if (rehydrateTimer !== null) clearTimeout(rehydrateTimer);
+    rehydrateTimer = setTimeout(() => {
+      rehydrateTimer = null;
+      void Promise.resolve(useWorkspaceStore.persist.rehydrate()).catch(() => {});
+    }, 250);
+  });
 }
 
 export function getWorkspaceSnapshot(): Workspace {
