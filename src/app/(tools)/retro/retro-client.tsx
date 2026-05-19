@@ -381,7 +381,7 @@ function RetroCardItem({
           {phase === "write" && (
             <button
               onClick={() => onDelete(card.id)}
-              className="opacity-0 group-hover:opacity-100 p-1 text-sub hover:text-status-red transition-all"
+              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1 text-sub hover:text-status-red transition-all"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>

@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronLeft, History, Activity } from "lucide-react";
 import Image from "next/image";
 import { useSwipeToClose } from "@/hooks/use-swipe-to-close";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 
 interface SidebarProps {
   /** Mobile drawer open state (parent-controlled). */
@@ -47,6 +48,14 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
     enabled: mobileOpen,
     onClose: handleClose,
   });
+
+  // R11-fix: focus-trap the mobile drawer when open. The previous
+  // implementation rendered as a fixed overlay at z-[91] above a
+  // backdrop, but had NO `role="dialog"`, NO `aria-modal`, and NO
+  // focus trap. Tab from any link inside the drawer escaped to the
+  // page underneath (WCAG 2.4.3). The trap is active only on mobile-
+  // open; desktop sidebar is inline and tab-friendly without it.
+  useFocusTrap(asideRef as React.RefObject<HTMLElement>, { active: mobileOpen });
 
   const toggleCategory = (category: string) => {
     setOpenCategories((prev) => ({ ...prev, [category]: !prev[category] }));
@@ -122,6 +131,14 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
       <aside
         ref={asideRef}
         aria-label="Primary navigation"
+        // R11-fix: when open as a mobile overlay, this is functionally
+        // a modal. Add the correct ARIA role + aria-modal so SR users
+        // hear it as a dialog and know Esc / tap-outside dismisses it.
+        // On desktop (mobileOpen always false in that layout path)
+        // it's a peer landmark, so we only set modal semantics when
+        // the overlay is actually visible.
+        role={mobileOpen ? "dialog" : undefined}
+        aria-modal={mobileOpen || undefined}
         className={cn(
           // Shared layout
           "flex flex-col glass-elevated border-r border-border transition-all duration-slow ease-spring overflow-hidden overscroll-contain-strict",

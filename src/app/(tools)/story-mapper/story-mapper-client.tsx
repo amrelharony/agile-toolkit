@@ -541,7 +541,7 @@ function DraggableCard({
       <button
         type="button"
         {...listeners}
-        className="absolute left-1 top-1/2 -translate-y-1/2 text-sub/30 hover:text-sub cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute left-1 top-1/2 -translate-y-1/2 text-sub/30 hover:text-sub cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
         tabIndex={-1}
         aria-label="Drag handle"
       >
@@ -567,7 +567,7 @@ function DraggableCard({
       </div>
 
       {/* Action buttons (top-right) */}
-      <div className="absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
         <CardEditDialog
           card={card}
           sliceId={sliceId}
@@ -914,7 +914,7 @@ export function StoryMapperClient() {
                         <button
                           type="button"
                           onClick={() => removeStep(step.id)}
-                          className="btn-danger-ghost flex-shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded"
+                          className="btn-danger-ghost flex-shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-0.5 rounded"
                           title="Remove step"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -961,7 +961,7 @@ export function StoryMapperClient() {
                         <button
                           type="button"
                           onClick={() => removeSlice(slice.id)}
-                          className="btn-danger-ghost flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 p-0.5 rounded"
+                          className="btn-danger-ghost flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-0.5 rounded"
                           title="Remove slice"
                         >
                           <Trash2 className="w-3 h-3" />

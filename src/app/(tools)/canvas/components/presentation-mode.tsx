@@ -58,7 +58,14 @@ function PresentationModeImpl({ frames, index, onPrev, onNext, onExit }: Present
   if (frames.length === 0) {
     return (
       <div
+        // R11-fix: empty-state IS actually modal (overlays the whole
+        // canvas with backdrop-blur, intercepting pointer events via
+        // the bg-bg/95 backdrop). Keep dialog role but add aria-modal
+        // so screen readers correctly describe it as modal. The
+        // non-empty branch below is NOT modal (pointerEvents: none),
+        // so it's been demoted to role="region".
         role="dialog"
+        aria-modal="true"
         aria-label="Presentation mode"
         data-canvas-export-ignore="true"
         className="absolute inset-0 z-40 bg-bg/95 backdrop-blur-sm flex items-center justify-center"
@@ -84,7 +91,14 @@ function PresentationModeImpl({ frames, index, onPrev, onNext, onExit }: Present
 
   return (
     <div
-      role="dialog"
+      // R11-fix: this branch is NOT modal — pointerEvents: "none" on
+      // the outer wrapper means the canvas behind stays interactive
+      // (multiplayer follow-me / peer activity continues). Using
+      // role="dialog" without aria-modal misled SR users to expect
+      // a focus trap that doesn't exist (WCAG 4.1.2). role="region"
+      // accurately names this as a labelled landmark peer to the
+      // canvas, not a dialog.
+      role="region"
       aria-label={`Presentation mode — frame ${index + 1} of ${frames.length}: ${cur.label}`}
       data-canvas-export-ignore="true"
       style={{

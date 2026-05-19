@@ -71,8 +71,16 @@ function SelectionHandlesImpl({ bbox, camera, showResizeHandles, onHandlePointer
                 e.stopPropagation();
                 onHandlePointerDown(id, e);
               }}
-              role="slider"
-              aria-label={`Resize handle ${id}`}
+              // R11-fix: drop invalid `role="slider"`. WAI-ARIA requires
+              // sliders to be focusable AND expose aria-valuenow/min/max.
+              // Resize handles are decorative pointer-only affordances
+              // (no keyboard support yet); the role announced a slider
+              // that AT couldn't operate. The rotation handle below is
+              // the only legitimate slider (focusable + keyboard + value).
+              // Mark decorative so SR users aren't bounced through 8
+              // un-actionable elements per selected object.
+              role="presentation"
+              aria-hidden="true"
               style={{
                 position: "absolute",
                 left: p.x - HANDLE_SIZE / 2,
@@ -139,7 +147,11 @@ function SelectionHandlesImpl({ bbox, camera, showResizeHandles, onHandlePointer
             alignItems: "center",
             justifyContent: "center",
             color: "#00f0ff",
-            outline: "none",
+            // R11-fix: removed inline `outline: "none"`. Inline styles
+            // win against the global `:focus-visible { outline: ... }`
+            // rule, so Tab-focused keyboard users had no visible
+            // indicator on the rotation handle (WCAG 2.4.7). The
+            // browser's default focus ring is now allowed through.
           }}
         >
           <RotateCw style={{ width: 7, height: 7 }} aria-hidden="true" />

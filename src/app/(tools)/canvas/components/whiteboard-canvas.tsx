@@ -2572,7 +2572,13 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
       role="application"
       aria-label="Whiteboard canvas. Press ? for keyboard shortcuts."
       tabIndex={0}
-      className="relative h-full w-full overflow-hidden bg-bg select-none touch-none focus:outline-none"
+      // R11-fix: replace `focus:outline-none` with an explicit
+      // `focus-visible` inset ring. The canvas viewport is the single
+      // most important focus target (role="application" + every
+      // keyboard shortcut routes through it); without a visible focus
+      // ring, keyboard-only users couldn't tell when focus had landed
+      // here vs nested element vs lost (WCAG 2.4.7).
+      className="relative h-full w-full overflow-hidden bg-bg select-none touch-none focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:[outline-offset:-2px]"
       // R8: wheel handler is attached natively via useEffect (passive:false)
       // so we can call preventDefault. React's synthetic onWheel is passive.
       onWheel={onWheel}

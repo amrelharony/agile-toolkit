@@ -27,9 +27,14 @@ interface Props {
  * expect.
  */
 function CommentPinsImpl({ threads, objectsById, camera, activeThreadId, onPinClick }: Props) {
+  // R11-fix: total count for aria-setsize so SR users know how many
+  // pins exist on the board. Each pin gets aria-posinset for "pin
+  // 3 of 12" announcements during Tab navigation. Previously each
+  // pin was an island button with no group context.
+  const totalPins = threads.length;
   return (
     <>
-      {threads.map((t) => {
+      {threads.map((t, idx) => {
         // Resolve pin world position: object's bottom-right corner if
         // pinned, else the thread's static point.
         let worldX = t.x;
@@ -52,6 +57,8 @@ function CommentPinsImpl({ threads, objectsById, camera, activeThreadId, onPinCl
             type="button"
             onClick={(e) => { e.stopPropagation(); onPinClick(t.id); }}
             aria-label={`Comment thread ${t.resolved ? "(resolved)" : ""} — ${t.comments.length} message${t.comments.length === 1 ? "" : "s"}`}
+            aria-posinset={idx + 1}
+            aria-setsize={totalPins}
             style={{
               position: "absolute",
               left: x - 12,

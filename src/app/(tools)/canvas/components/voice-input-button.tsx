@@ -411,7 +411,7 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
         aria-busy={connecting}
         className={`inline-flex items-center justify-center w-8 h-8 rounded transition-colors ${
           listening
-            ? "bg-red-500/20 text-red-300 ring-2 ring-red-500/60 animate-pulse"
+            ? "bg-red-500/20 text-red-300 ring-2 ring-red-500/60 motion-safe:animate-pulse"
             : connecting
               ? "bg-amber-500/20 text-amber-300 ring-2 ring-amber-500/60"
               : "text-sub hover:text-text hover:bg-surface-deep"
@@ -440,7 +440,13 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
               between both states made the amber-connecting dot
               indistinguishable from the red-listening dot. */}
           <span
-            className={`w-2 h-2 rounded-full ${listening ? "bg-red-500 animate-pulse" : "bg-amber-400 animate-ping"}`}
+            // R11-fix: gate animations on prefers-reduced-motion. Plain
+            // `animate-pulse` runs `infinite` indefinitely; the global
+            // motion-reduce CSS clamps duration but keeps infinite
+            // iterations — producing a high-frequency near-zero-duration
+            // strobe (WCAG 2.3.1 risk). `motion-safe:` opts the animation
+            // OUT for users with the preference set.
+            className={`w-2 h-2 rounded-full ${listening ? "bg-red-500 motion-safe:animate-pulse" : "bg-amber-400 motion-safe:animate-ping"}`}
             aria-hidden="true"
           />
           <span className="text-xs text-red-200 font-mono uppercase tracking-wider">

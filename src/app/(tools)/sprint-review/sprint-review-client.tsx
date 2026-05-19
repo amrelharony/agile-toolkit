@@ -778,7 +778,7 @@ function ShowcaseChecklistTab() {
                   variant="danger-ghost"
                   size="icon"
                   onClick={() => removeChecklistItem(item.id)}
-                  className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>

@@ -373,7 +373,7 @@ function CriterionRow({
       )}
 
       {!editing && (
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
           <Button
             variant="ghost"
             size="icon"
@@ -945,7 +945,7 @@ export function RefinementClient() {
                                 variant="danger-ghost"
                                 size="icon"
                                 onClick={() => removeHistory(h.id)}
-                                className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </Button>
