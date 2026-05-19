@@ -150,6 +150,31 @@ const replaceById = <T extends { id: string }>(arr: T[], item: T): T[] => {
   return next;
 };
 
+// R11-fix: shared cascade for canvas sourceRef cleanup on entity
+// removal. Maps `whiteboardObjects` that point at the deleted entity
+// via `sourceRef: { tool, entityId }` to a copy with sourceRef cleared
+// (and version + updatedAt bumped so peer LWW accepts the change).
+//
+// Audit A6 H6 flagged 16 Phase 19+ entity removes that lacked this
+// cascade — orphaned canvas cards still claimed to be linked to
+// deleted LLMEvals, Prompts, DACI/RAPID decisions, etc. The
+// signal-bridge already fires the right close/remove signal; this
+// helper handles the workspace-side bookkeeping.
+function cascadeSourceRefRemoval(
+  whiteboardObjects: WhiteboardObject[] | undefined,
+  tool: string,
+  entityId: string,
+): WhiteboardObject[] | undefined {
+  if (!whiteboardObjects || whiteboardObjects.length === 0) return whiteboardObjects;
+  const isLink = (o: WhiteboardObject) =>
+    o.sourceRef?.tool === tool && o.sourceRef.entityId === entityId;
+  if (!whiteboardObjects.some(isLink)) return whiteboardObjects;
+  const now = new Date().toISOString();
+  return whiteboardObjects.map((o) =>
+    isLink(o) ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now } : o,
+  );
+}
+
 export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
   persist(
     (set, get) => ({
@@ -395,11 +420,24 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       setMaturityLevel: (level) => set({ maturityLevel: level }),
       // Phase 19 — AI/LLM PM
       upsertLLMEval: (x) => set({ llmEvals: replaceById(get().llmEvals ?? [], x) }),
-      removeLLMEval: (id) => set({ llmEvals: (get().llmEvals ?? []).filter((y) => y.id !== id) }),
+      // R11-fix: canvas sourceRef cascade. Audit A6 H6 flagged 16
+      // Phase 19+ removes that left orphaned canvas cards still
+      // claiming a link to the deleted entity. The cascadeSourceRefRemoval
+      // helper centralises the bookkeeping.
+      removeLLMEval: (id) => set((s) => ({
+        llmEvals: (s.llmEvals ?? []).filter((y) => y.id !== id),
+        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "llmEval", id),
+      })),
       upsertPrompt: (x) => set({ prompts: replaceById(get().prompts ?? [], x) }),
-      removePrompt: (id) => set({ prompts: (get().prompts ?? []).filter((y) => y.id !== id) }),
+      removePrompt: (id) => set((s) => ({
+        prompts: (s.prompts ?? []).filter((y) => y.id !== id),
+        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "prompt", id),
+      })),
       upsertHallucination: (x) => set({ hallucinations: replaceById(get().hallucinations ?? [], x) }),
-      removeHallucination: (id) => set({ hallucinations: (get().hallucinations ?? []).filter((y) => y.id !== id) }),
+      removeHallucination: (id) => set((s) => ({
+        hallucinations: (s.hallucinations ?? []).filter((y) => y.id !== id),
+        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "hallucination", id),
+      })),
       upsertTokenSpend: (x) => set({ tokenSpend: replaceById(get().tokenSpend ?? [], x) }),
       // R5: extend the cascade pattern from removeTechDebt — canvas stickies
       // imported from this tool would otherwise dangle.
@@ -417,9 +455,15 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         };
       }),
       upsertModel: (x) => set({ models: replaceById(get().models ?? [], x) }),
-      removeModel: (id) => set({ models: (get().models ?? []).filter((y) => y.id !== id) }),
+      removeModel: (id) => set((s) => ({
+        models: (s.models ?? []).filter((y) => y.id !== id),
+        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "model", id),
+      })),
       upsertRedTeamFinding: (x) => set({ redTeamFindings: replaceById(get().redTeamFindings ?? [], x) }),
-      removeRedTeamFinding: (id) => set({ redTeamFindings: (get().redTeamFindings ?? []).filter((y) => y.id !== id) }),
+      removeRedTeamFinding: (id) => set((s) => ({
+        redTeamFindings: (s.redTeamFindings ?? []).filter((y) => y.id !== id),
+        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "redTeam", id),
+      })),
       upsertAgentWorkflow: (x) => set({ agentWorkflows: replaceById(get().agentWorkflows ?? [], x) }),
       // R5: use functional updater so both reads share one snapshot.
       // The previous dual `get()` could tear under interleaved actions.
@@ -436,9 +480,15 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           .map((n) => (n.next?.includes(id) ? { ...n, next: n.next.filter((x) => x !== id) } : n)),
       })),
       upsertHitlReview: (x) => set({ hitlReviews: replaceById(get().hitlReviews ?? [], x) }),
-      removeHitlReview: (id) => set({ hitlReviews: (get().hitlReviews ?? []).filter((y) => y.id !== id) }),
+      removeHitlReview: (id) => set((s) => ({
+        hitlReviews: (s.hitlReviews ?? []).filter((y) => y.id !== id),
+        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "hitlReview", id),
+      })),
       upsertRlhfPair: (x) => set({ rlhfPairs: replaceById(get().rlhfPairs ?? [], x) }),
-      removeRlhfPair: (id) => set({ rlhfPairs: (get().rlhfPairs ?? []).filter((y) => y.id !== id) }),
+      removeRlhfPair: (id) => set((s) => ({
+        rlhfPairs: (s.rlhfPairs ?? []).filter((y) => y.id !== id),
+        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "rlhfPair", id),
+      })),
       upsertVectorCollection: (x) => set({ vectorCollections: replaceById(get().vectorCollections ?? [], x) }),
       // R5: canvas sticky cascade.
       removeVectorCollection: (id) => set((s) => {
@@ -455,7 +505,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         };
       }),
       upsertModelCard: (x) => set({ modelCards: replaceById(get().modelCards ?? [], x) }),
-      removeModelCard: (id) => set({ modelCards: (get().modelCards ?? []).filter((y) => y.id !== id) }),
+      removeModelCard: (id) => set((s) => ({
+        modelCards: (s.modelCards ?? []).filter((y) => y.id !== id),
+        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "modelCard", id),
+      })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) => set({ prioritizations: replaceById(get().prioritizations ?? [], x) }),
       // R5: canvas sticky cascade.
@@ -474,11 +527,20 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       }),
       // Phase 21 — Decision Frameworks
       upsertDACIDecision: (x) => set({ daciDecisions: replaceById(get().daciDecisions ?? [], x) }),
-      removeDACIDecision: (id) => set({ daciDecisions: (get().daciDecisions ?? []).filter((y) => y.id !== id) }),
+      removeDACIDecision: (id) => set((s) => ({
+        daciDecisions: (s.daciDecisions ?? []).filter((y) => y.id !== id),
+        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "daci", id),
+      })),
       upsertRAPIDDecision: (x) => set({ rapidDecisions: replaceById(get().rapidDecisions ?? [], x) }),
-      removeRAPIDDecision: (id) => set({ rapidDecisions: (get().rapidDecisions ?? []).filter((y) => y.id !== id) }),
+      removeRAPIDDecision: (id) => set((s) => ({
+        rapidDecisions: (s.rapidDecisions ?? []).filter((y) => y.id !== id),
+        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "rapid", id),
+      })),
       upsertWeightedOption: (x) => set({ weightedOptions: replaceById(get().weightedOptions ?? [], x) }),
-      removeWeightedOption: (id) => set({ weightedOptions: (get().weightedOptions ?? []).filter((y) => y.id !== id) }),
+      removeWeightedOption: (id) => set((s) => ({
+        weightedOptions: (s.weightedOptions ?? []).filter((y) => y.id !== id),
+        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "weightedOption", id),
+      })),
       upsertWeightedCriterion: (x) => set({ weightedCriteria: replaceById(get().weightedCriteria ?? [], x) }),
       // R5: also strip the stale criterion key from every WeightedOption's
       // `scores` map. Previously the option kept the score for a deleted
@@ -493,11 +555,20 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         }),
       })),
       upsertSixHatsThought: (x) => set({ sixHatsThoughts: replaceById(get().sixHatsThoughts ?? [], x) }),
-      removeSixHatsThought: (id) => set({ sixHatsThoughts: (get().sixHatsThoughts ?? []).filter((y) => y.id !== id) }),
+      removeSixHatsThought: (id) => set((s) => ({
+        sixHatsThoughts: (s.sixHatsThoughts ?? []).filter((y) => y.id !== id),
+        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "sixHats", id),
+      })),
       upsertOODACycle: (x) => set({ oodaCycles: replaceById(get().oodaCycles ?? [], x) }),
-      removeOODACycle: (id) => set({ oodaCycles: (get().oodaCycles ?? []).filter((y) => y.id !== id) }),
+      removeOODACycle: (id) => set((s) => ({
+        oodaCycles: (s.oodaCycles ?? []).filter((y) => y.id !== id),
+        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "ooda", id),
+      })),
       upsertCynefinItem: (x) => set({ cynefinItems: replaceById(get().cynefinItems ?? [], x) }),
-      removeCynefinItem: (id) => set({ cynefinItems: (get().cynefinItems ?? []).filter((y) => y.id !== id) }),
+      removeCynefinItem: (id) => set((s) => ({
+        cynefinItems: (s.cynefinItems ?? []).filter((y) => y.id !== id),
+        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "cynefin", id),
+      })),
       upsertStaceyItem: (x) => set({ staceyItems: replaceById(get().staceyItems ?? [], x) }),
       // R5: canvas sticky cascade.
       removeStaceyItem: (id) => set((s) => {
@@ -515,9 +586,11 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       }),
       upsertPolarity: (x) => set({ polarities: replaceById(get().polarities ?? [], x) }),
       // R5: functional updater so the polarity + its poles share one snapshot.
+      // R11-fix: also cascade canvas sourceRef cleanup.
       removePolarity: (id) => set((s) => ({
         polarities: (s.polarities ?? []).filter((y) => y.id !== id),
         polarityPoles: (s.polarityPoles ?? []).filter((p) => p.polarityId !== id),
+        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "polarity", id),
       })),
       upsertPolarityPole: (x) => set({ polarityPoles: replaceById(get().polarityPoles ?? [], x) }),
       removePolarityPole: (id) => set({ polarityPoles: (get().polarityPoles ?? []).filter((y) => y.id !== id) }),
