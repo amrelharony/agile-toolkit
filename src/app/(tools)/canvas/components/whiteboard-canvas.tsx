@@ -144,6 +144,20 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   const camera = useCanvasStore((s) => s.camera);
   const setCamera = useCanvasStore((s) => s.setCamera);
   const tool = useCanvasStore((s) => s.tool);
+  // R11-fix: clear pendingConnectorFromId when the user switches away
+  // from the connector tool. Previously: user clicks source object
+  // (pendingConnectorFromId set), then clicks Sticky in the toolbar —
+  // pendingConnectorFromId stayed populated, and the next click in
+  // the connector tool would unexpectedly complete a stale connection
+  // to an object that may have changed.
+  useEffect(() => {
+    if (tool !== "connector") {
+      // Read via getState to avoid making this effect depend on the
+      // setter (which is identity-stable but eslint complains).
+      const cur = useCanvasStore.getState().pendingConnectorFromId;
+      if (cur) useCanvasStore.getState().setPendingConnectorFromId(null);
+    }
+  }, [tool]);
   const setTool = useCanvasStore((s) => s.setTool);
   const selection = useCanvasStore((s) => s.selection);
   const setSelection = useCanvasStore((s) => s.setSelection);

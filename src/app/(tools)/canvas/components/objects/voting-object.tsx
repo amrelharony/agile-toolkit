@@ -17,6 +17,7 @@
 import { memo, useMemo } from "react";
 import { Eye, EyeOff, RotateCcw, CheckCircle2 } from "lucide-react";
 import type { WhiteboardVoting } from "@/lib/stores/workspace-types";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 interface VotingObjectProps {
   object: WhiteboardVoting;
@@ -59,14 +60,16 @@ function VotingObjectImpl({ object: o, selected, selfId, onPointerDown, onMutate
     // "between renders" to "between read and the next patch broadcast"
     // — only a sub-RTT collision can still race, and that's bounded by
     // the 100ms patch throttle.
+    //
+    // R11-fix: switched from `require()` to a static import at file
+    // top. The dynamic require worked today via webpack's runtime
+    // shim but would throw under native ESM (Next.js 15+ with ESM
+    // packages). voting-object → workspace-store is NOT actually a
+    // circular dep (workspace-store doesn't import voting-object),
+    // so the static import is safe.
     let liveVotes: Record<string, string> = o.votes;
-    try {
-      // Dynamic require to avoid circular dep at top of file.
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const mod = require("@/lib/stores/workspace-store") as typeof import("@/lib/stores/workspace-store");
-      const live = (mod.useWorkspaceStore.getState().whiteboardObjects ?? []).find((x) => x.id === o.id);
-      if (live && live.type === "voting") liveVotes = live.votes;
-    } catch { /* fall back to prop snapshot */ }
+    const live = (useWorkspaceStore.getState().whiteboardObjects ?? []).find((x) => x.id === o.id);
+    if (live && live.type === "voting") liveVotes = live.votes;
     const next: Record<string, string> = { ...liveVotes };
     if (next[selfId] === opt) {
       delete next[selfId]; // toggle off

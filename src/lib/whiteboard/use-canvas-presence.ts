@@ -13,7 +13,7 @@
  * calls on every pointermove / camera change.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getSupabaseClient, isRealtimeAvailable } from "@/lib/realtime/supabase-client";
 import type { SimplePresence } from "@/lib/realtime/use-presence";
 import { throttle, type Throttled } from "@/lib/utils/throttle";
@@ -209,7 +209,18 @@ export function useCanvasPresence(channelName: string | null, hint?: Partial<Sim
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelName]);
 
-  const publish = (patch: Partial<Omit<SimplePresence, "id">>) => {
+  // R11-fix: memoise `publish` so consumers' deps lists stay stable.
+  // The previous bare `const publish = (...) => {...}` recreated the
+  // function on every render — every effect listing `publish` in its
+  // deps fired on every parent render. Most visibly:
+  // whiteboard-canvas.tsx:319 has
+  //   useEffect(() => publish({selection, tool}), [selection, tool, publish])
+  // which previously ran on every render of the parent canvas (every
+  // cursor move, every drag frame), broadcasting selection + tool
+  // across the wire even when nothing relevant changed. `useCallback`
+  // with an empty dep list is safe because every value publish reads
+  // (stateRef, trackRef, throttledTrackRef) is a ref.
+  const publish = useCallback((patch: Partial<Omit<SimplePresence, "id">>) => {
     // Cap outbound selection so a user with a marquee over 5000 objects
     // doesn't broadcast a 5000-id array on every selection-change.
     // Peers cap inbound at SELECTION_CAP too, so anything over that
@@ -247,7 +258,7 @@ export function useCanvasPresence(channelName: string | null, hint?: Partial<Sim
     } else {
       void trackRef.current(stateRef.current);
     }
-  };
+  }, []);
 
   return { members, publish, self };
 }

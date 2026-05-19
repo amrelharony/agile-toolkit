@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, Trash2, Sparkles, Map, Magnet, Grid3X3, PlayCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -32,6 +32,20 @@ export function ToolbarTop() {
   // is true, the Delete button label changes to "Click again to delete"
   // and a 3s timeout auto-cancels the arming.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // R11-fix: hold the disarm timer in a ref so unmount can cancel it.
+  // The previous `window.setTimeout(...)` kept firing after the
+  // component unmounted, invoking setConfirmingDelete on a dead
+  // instance — React 18 swallows the warning, but the captured
+  // setState closure leaks.
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (confirmTimerRef.current !== null) {
+        clearTimeout(confirmTimerRef.current);
+        confirmTimerRef.current = null;
+      }
+    };
+  }, []);
   const board = boards.find((b) => b.id === activeBoardId);
   // History logger — board create/delete are MILESTONE_PAIRS in
   // event-actions.ts, but until now the toolbar wasn't actually
@@ -57,7 +71,14 @@ export function ToolbarTop() {
 
   function rename(name: string) {
     if (!board) return;
-    upsertBoard({ ...board, name, updatedAt: new Date().toISOString() });
+    // R11-fix: reject empty / whitespace-only names. The previous
+    // implementation accepted "" and the board picker rendered a
+    // blank <option> the user couldn't visually identify or recover.
+    // Fall back to "Untitled board" if the input trims to empty.
+    const trimmed = name.trim();
+    const safeName = trimmed.length > 0 ? trimmed : "Untitled board";
+    if (safeName === board.name) return; // no-op rename
+    upsertBoard({ ...board, name: safeName, updatedAt: new Date().toISOString() });
     log(CANVAS_ACTIONS.BOARD_RENAMED, { boardId: board.id });
   }
 
@@ -68,10 +89,18 @@ export function ToolbarTop() {
     // auto-cancel; second click within that window actually deletes.
     if (!confirmingDelete) {
       setConfirmingDelete(true);
-      window.setTimeout(() => setConfirmingDelete(false), 3000);
+      if (confirmTimerRef.current !== null) clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = setTimeout(() => {
+        confirmTimerRef.current = null;
+        setConfirmingDelete(false);
+      }, 3000);
       return;
     }
     setConfirmingDelete(false);
+    if (confirmTimerRef.current !== null) {
+      clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = null;
+    }
     const deletedId = board.id;
     removeBoard(deletedId);
     // R5: read the LIVE boards list after removal so we don't pick the
