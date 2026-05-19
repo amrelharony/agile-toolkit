@@ -70,6 +70,24 @@ export function installSignalBridge(): void {
       daciDecisions: state.daciDecisions,
       rapidDecisions: state.rapidDecisions,
       weightedOptions: state.weightedOptions,
+      // R11-batch-14: round out Phase 19+ coverage. The remaining
+      // declared signal kinds (model.upgraded, redTeam.*, agentWorkflow.*,
+      // hitl.*, rlhf.*, vector.*, modelCard.published, six-hats,
+      // OODA, cynefin) had INVALIDATION_MATRIX entries but no emit
+      // sites. After this projection extension the entire Phase 19+
+      // surface flows through the bridge.
+      models: state.models,
+      redTeamFindings: state.redTeamFindings,
+      agentWorkflows: state.agentWorkflows,
+      hitlReviews: state.hitlReviews,
+      rlhfPairs: state.rlhfPairs,
+      vectorCollections: state.vectorCollections,
+      modelCards: state.modelCards,
+      sixHatsThoughts: state.sixHatsThoughts,
+      oodaCycles: state.oodaCycles,
+      cynefinItems: state.cynefinItems,
+      staceyItems: state.staceyItems,
+      polarities: state.polarities,
     };
     if (!prev) { prev = next; return; }
     diffAndEmit(prev, next);
@@ -111,7 +129,20 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
     prev.prioritizations === next.prioritizations &&
     prev.daciDecisions === next.daciDecisions &&
     prev.rapidDecisions === next.rapidDecisions &&
-    prev.weightedOptions === next.weightedOptions
+    prev.weightedOptions === next.weightedOptions &&
+    // R11-batch-14: extend short-circuit to remaining Phase 19+ slots.
+    prev.models === next.models &&
+    prev.redTeamFindings === next.redTeamFindings &&
+    prev.agentWorkflows === next.agentWorkflows &&
+    prev.hitlReviews === next.hitlReviews &&
+    prev.rlhfPairs === next.rlhfPairs &&
+    prev.vectorCollections === next.vectorCollections &&
+    prev.modelCards === next.modelCards &&
+    prev.sixHatsThoughts === next.sixHatsThoughts &&
+    prev.oodaCycles === next.oodaCycles &&
+    prev.cynefinItems === next.cynefinItems &&
+    prev.staceyItems === next.staceyItems &&
+    prev.polarities === next.polarities
   ) {
     return;
   }
@@ -347,6 +378,119 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
         emit("decision.weightedScored", "workspace", { id: after.id });
       }
     },
+  });
+
+  // R11-batch-14: remaining Phase 19+ entities (declared SignalKinds
+  // but no emit-sites until now → INVALIDATION_MATRIX entries were
+  // silently dead).
+
+  // Model registry — emit `model.upgraded` when a model transitions
+  // INTO production status (the cache-busting event consumers care
+  // about; status flips from evaluation/experimental → production).
+  diffById(prev.models, next.models, (m) => m.id, {
+    onAdded: (m) => {
+      if (m.status === "production") {
+        emit("model.upgraded", "workspace", { id: m.id, name: m.name, status: m.status });
+      }
+    },
+    onChanged: (before, after) => {
+      if (before.status !== "production" && after.status === "production") {
+        emit("model.upgraded", "workspace", { id: after.id, name: after.name, status: after.status });
+      }
+    },
+  });
+
+  // Red-team findings — open on add (unless already resolved at
+  // import time), close on resolution or removal.
+  diffById(prev.redTeamFindings, next.redTeamFindings, (f) => f.id, {
+    onAdded: (f) => {
+      if (!f.resolvedAt) {
+        emit("redTeam.findingOpened", "workspace", { id: f.id, severity: f.severity });
+      } else {
+        emit("redTeam.findingClosed", "workspace", { id: f.id });
+      }
+    },
+    onChanged: (before, after) => {
+      if (!before.resolvedAt && after.resolvedAt) {
+        emit("redTeam.findingClosed", "workspace", { id: after.id });
+      }
+    },
+    onRemoved: (f) => {
+      if (!f.resolvedAt) emit("redTeam.findingClosed", "workspace", { id: f.id });
+    },
+  });
+
+  // Agent workflows — created on add.
+  diffById(prev.agentWorkflows, next.agentWorkflows, (w) => w.id, {
+    onAdded: (w) => emit("agentWorkflow.created", "workspace", { id: w.id, name: w.name }),
+  });
+
+  // HITL reviews — fire `hitl.reviewLogged` per review.
+  diffById(prev.hitlReviews, next.hitlReviews, (r) => r.id, {
+    onAdded: (r) => emit("hitl.reviewLogged", "workspace", { id: r.id, rating: r.rating }),
+  });
+
+  // RLHF pairs — fire `rlhf.pairLogged` per pair.
+  diffById(prev.rlhfPairs, next.rlhfPairs, (p) => p.id, {
+    onAdded: (p) => emit("rlhf.pairLogged", "workspace", { id: p.id, winner: p.winner }),
+  });
+
+  // Vector collections — fire `vector.collectionAdded` on add.
+  diffById(prev.vectorCollections, next.vectorCollections, (v) => v.id, {
+    onAdded: (v) => emit("vector.collectionAdded", "workspace", { id: v.id, name: v.name }),
+  });
+
+  // Model cards — fire `modelCard.published` on add (model cards are
+  // by definition the published artifact; status transitions are not
+  // modelled separately).
+  diffById(prev.modelCards, next.modelCards, (c) => c.id, {
+    onAdded: (c) => emit("modelCard.published", "workspace", { id: c.id, modelName: c.modelName }),
+  });
+
+  // Six-hats thoughts — fire per add.
+  diffById(prev.sixHatsThoughts, next.sixHatsThoughts, (t) => t.id, {
+    onAdded: (t) => emit("sixHats.thoughtLogged", "workspace", { id: t.id, hat: t.hat }),
+  });
+
+  // OODA cycles — fire on completion (transition to non-empty
+  // completedAt).
+  diffById(prev.oodaCycles, next.oodaCycles, (c) => c.id, {
+    onChanged: (before, after) => {
+      if (!before.completedAt && after.completedAt) {
+        emit("ooda.cycleCompleted", "workspace", { id: after.id, topic: after.topic });
+      }
+    },
+    onAdded: (c) => {
+      if (c.completedAt) {
+        emit("ooda.cycleCompleted", "workspace", { id: c.id, topic: c.topic });
+      }
+    },
+  });
+
+  // Cynefin classifications — fire per add (the "decision.cynefin
+  // Classified" event consumers care about).
+  diffById(prev.cynefinItems, next.cynefinItems, (i) => i.id, {
+    onAdded: (i) => emit("decision.cynefinClassified", "workspace", { id: i.id, domain: i.domain }),
+    onChanged: (before, after) => {
+      if (before.domain !== after.domain) {
+        emit("decision.cynefinClassified", "workspace", { id: after.id, domain: after.domain });
+      }
+    },
+  });
+
+  // Stacey matrix items — fire per add (or on region change).
+  diffById(prev.staceyItems, next.staceyItems, (i) => i.id, {
+    onAdded: (i) => emit("decision.staceyClassified", "workspace", { id: i.id, region: i.region }),
+    onChanged: (before, after) => {
+      if (before.region !== after.region) {
+        emit("decision.staceyClassified", "workspace", { id: after.id, region: after.region });
+      }
+    },
+  });
+
+  // Polarities — fire per add.
+  diffById(prev.polarities, next.polarities, (p) => p.id, {
+    onAdded: (p) => emit("decision.polarityMapped", "workspace", { id: p.id, title: p.title }),
   });
 }
 
