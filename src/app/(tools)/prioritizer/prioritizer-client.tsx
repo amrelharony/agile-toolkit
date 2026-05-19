@@ -221,9 +221,16 @@ function wsjfScore(item: BacklogItem): number {
 }
 
 function riceScore(item: BacklogItem): number {
+  // R11-fix: match the shared `scoring-rubric.ts` floor (0.5) so a
+  // backlog item produces the SAME RICE score in this tool and the
+  // `rice-scoring` tool. The previous 0.1 floor inflated this tool's
+  // scores by up to 10× relative to rice-scoring for items with very
+  // low effort (e.g. effort=0.1 here gives 10× the divisor; effort=0.5
+  // there gives 2× — a factor-of-5 mismatch). Cross-tool RICE
+  // comparison was meaningless until both used the same floor.
   return parseFloat(
     ((item.reach * item.impact * (item.confidence / 100)) /
-      Math.max(0.1, item.effort)).toFixed(1)
+      Math.max(0.5, item.effort)).toFixed(1)
   );
 }
 

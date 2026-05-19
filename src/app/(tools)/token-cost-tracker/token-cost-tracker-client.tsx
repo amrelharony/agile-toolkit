@@ -232,8 +232,23 @@ export function TokenCostTrackerClient() {
                       <td className="p-2 font-mono text-xs">{x.date}</td>
                       <td className="p-2">{x.feature}</td>
                       <td className="p-2 text-sub">{x.model}</td>
-                      <td className="p-2 text-right font-mono text-xs">{(x.inputTokens + x.outputTokens).toLocaleString()}</td>
-                      <td className="p-2 text-right font-mono">${x.costUsd.toFixed(2)}</td>
+                      {/* R11-fix: NaN-guard. The add() path validates
+                          inputs, but a persisted entry from an older
+                          schema or corrupted localStorage can carry
+                          NaN that crashes `.toLocaleString()` /
+                          `.toFixed(2)` cleanly to "NaN" — but the
+                          totals row uses Number.isFinite, so a corrupt
+                          row mis-matches the cell vs totals readout
+                          and hides the corruption from users. Render
+                          a clear "—" when values aren't finite. */}
+                      <td className="p-2 text-right font-mono text-xs">
+                        {Number.isFinite(x.inputTokens + x.outputTokens)
+                          ? (x.inputTokens + x.outputTokens).toLocaleString()
+                          : "—"}
+                      </td>
+                      <td className="p-2 text-right font-mono">
+                        {Number.isFinite(x.costUsd) ? `$${x.costUsd.toFixed(2)}` : "—"}
+                      </td>
                       <td className="p-2"><button onClick={() => remove(x.id)} aria-label="Remove spend entry" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button></td>
                     </tr>
                   ))}

@@ -148,9 +148,19 @@ const useCFDStore = create<CFDStore>()(
         })),
 
       addEntry: () =>
-        set((s) => ({
-          entries: [...s.entries, createEntry(s.columns)],
-        })),
+        set((s) => {
+          // R11-fix: move the duplicate-check INSIDE the set updater
+          // so read + write are atomic. Previously the same-day guard
+          // lived in the client wrapper (a getState read followed by
+          // an addEntryRaw write) — a double-click could fire both
+          // calls before either's getState saw the other's append,
+          // bypassing the dedupe and creating two snapshots for the
+          // same day. Now the check happens inside Zustand's reducer
+          // where state.entries is the live array at write-time.
+          const today = createEntry(s.columns);
+          if (s.entries.some((e) => e.date === today.date)) return s;
+          return { entries: [...s.entries, today] };
+        }),
 
       removeEntry: (id) =>
         set((s) => ({ entries: s.entries.filter((e) => e.id !== id) })),

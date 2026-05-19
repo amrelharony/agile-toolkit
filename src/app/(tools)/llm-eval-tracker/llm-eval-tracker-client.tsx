@@ -98,7 +98,23 @@ export function LLMEvalTrackerClient() {
   useEffect(() => {
     let added = false;
     for (const f of regressionFindings) {
-      const key = `${f.group}|${f.delta.toFixed(3)}`;
+      // R11-fix: include the recent + baseline means in the key so
+      // re-deletion / re-detection of the same group+delta combo
+      // doesn't silently swallow a fresh regression. The previous
+      // `${group}|${delta.toFixed(3)}` key was identical for any
+      // regression that happened to land on the same delta rounding
+      // (e.g. deleting then re-adding a regressing eval pair with
+      // similar but distinct values produced a hash collision; the
+      // second regression never emitted a signal).
+      const key = [
+        f.group,
+        f.delta.toFixed(3),
+        // Use whatever the finding offers as additional dimensions —
+        // these are typed loosely on the finding object, so cast
+        // through Record to a forgiving lookup.
+        (f as unknown as { recentMean?: number }).recentMean?.toFixed(3) ?? "",
+        (f as unknown as { baselineMean?: number }).baselineMean?.toFixed(3) ?? "",
+      ].join("|");
       if (emittedRegressionsRef.current.has(key)) continue;
       emittedRegressionsRef.current.add(key);
       added = true;
