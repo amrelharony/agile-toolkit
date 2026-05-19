@@ -219,7 +219,21 @@ export function useCanvasPresence(channelName: string | null, hint?: Partial<Sim
     if (patch.selection && patch.selection.length > SELECTION_CAP) {
       patch = { ...patch, selection: patch.selection.slice(0, SELECTION_CAP) };
     }
-    stateRef.current = { ...stateRef.current, ...patch };
+    // R11-fix: evict expired ephemerals from stateRef BEFORE merging
+    // the new patch. Previously chatBubble + reaction stayed in
+    // stateRef.current forever once set, so every cursor-move broadcast
+    // shipped a stale (expired) bubble. Late-joining peers received it
+    // and rendered it for up to 30 s. Now expired ephemerals are
+    // cleared on the next publish; the channel state stays lean.
+    const now = Date.now();
+    const next: SimplePresence = { ...stateRef.current };
+    if (next.chatBubble && next.chatBubble.expiresAt <= now) {
+      delete next.chatBubble;
+    }
+    if (next.reaction && next.reaction.expiresAt <= now) {
+      delete next.reaction;
+    }
+    stateRef.current = { ...next, ...patch };
     // Bypass throttle ONLY when the patch carries no cursor — selection/
     // tool/viewport changes are infrequent and the user expects them to
     // feel instant. When a cursor IS present (with or without other

@@ -87,6 +87,13 @@ export function useRoom<T>(
   const [state, setStateInternal] = useState<T>(initialState);
   const [members, setMembers] = useState<PresenceMember[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  // R11-fix: reconnect bookkeeping. `reconnectKey` is bumped to retrigger
+  // the channel-setup effect after backoff; `reconnectAttemptRef` tracks
+  // current backoff bucket; `reconnectTimerRef` lets us cancel a pending
+  // reconnect when the consumer intentionally unmounts.
+  const [reconnectKey, setReconnectKey] = useState(0);
+  const reconnectAttemptRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const eventHandlersRef = useRef<Map<string, Set<(p: unknown) => void>>>(new Map());
   // Tracks which custom broadcast events we've actually bound to the
@@ -280,6 +287,9 @@ export function useRoom<T>(
     channel.subscribe((status) => {
       if (status === "SUBSCRIBED") {
         setIsConnected(true);
+        // R11-fix: reset backoff window on successful (re)connect so
+        // the next failure starts from the short delay.
+        reconnectAttemptRef.current = 0;
         emitRtEvent("room-connected");
         void channel.track({
           id: me.id,
@@ -287,8 +297,28 @@ export function useRoom<T>(
           color: assignColor(me.id),
           joinedAt: new Date().toISOString(),
         });
-      } else {
-        setIsConnected(false);
+        return;
+      }
+      setIsConnected(false);
+      // R11-fix: schedule a reconnect on transient failure. Previously
+      // CHANNEL_ERROR / TIMED_OUT / CLOSED left the channel permanently
+      // dead — a wifi blip required a full page reload to restore
+      // realtime. We trigger a re-run of the effect via the
+      // reconnectKey state with exponential backoff (1s, 2s, 4s, 8s,
+      // up to 30s) to avoid hammering Supabase on persistent outage.
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        const attempt = reconnectAttemptRef.current;
+        const delayMs = Math.min(30_000, 1000 * 2 ** Math.min(attempt, 5));
+        reconnectAttemptRef.current = attempt + 1;
+        // eslint-disable-next-line no-console
+        if (process.env.NODE_ENV !== "production") {
+          console.warn(`[useRoom] channel ${status}; reconnecting in ${delayMs}ms (attempt ${attempt + 1})`);
+        }
+        if (reconnectTimerRef.current !== null) clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = setTimeout(() => {
+          reconnectTimerRef.current = null;
+          setReconnectKey((k) => k + 1);
+        }, delayMs);
       }
     });
 
@@ -317,10 +347,17 @@ export function useRoom<T>(
       // Don't clear eventHandlersRef itself — subscribers persist across
       // reconnects, and the new channel's bind loop re-attaches them.
       boundEventsRef.current = new Set();
+      // R11-fix: cancel any pending reconnect timer on intentional
+      // unmount so a stale reconnect doesn't fire against a torn-down
+      // room.
+      if (reconnectTimerRef.current !== null) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       setIsConnected(false);
       setMembers([]);
     };
-  }, [toolId, roomId, isLocalOnly, bindChannelEvent]);
+  }, [toolId, roomId, isLocalOnly, bindChannelEvent, reconnectKey]);
 
   return {
     state,

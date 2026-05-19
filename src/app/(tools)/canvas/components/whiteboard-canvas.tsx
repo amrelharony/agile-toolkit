@@ -292,7 +292,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   // Pass `readOnly` so viewer/commenter modes don't broadcast local
   // store mutations. Even if a UI handler bypasses its `readOnly` gate
   // (browser extension, etc.), the network-side broadcast is silenced.
-  const { broadcastFocus, remoteFocus } = useCanvasRoom({ toolId: "canvas", roomId: boardId, boardId, readOnly });
+  const { broadcastFocus, remoteFocus, userId: roomUserId } = useCanvasRoom({ toolId: "canvas", roomId: boardId, boardId, readOnly });
 
   // ─── Receive bring-everyone / spotlight broadcasts (Phase 27/29).
   // For "snap" we fit-to-rect the local camera. For "spotlight" we
@@ -303,7 +303,14 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   // useState call (block-scoped TDZ).
   const [spotlightRect, setSpotlightRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const channelName = boardId ? `tool:canvas:presence:${boardId}` : null;
-  const { members, publish, self } = useCanvasPresence(channelName);
+  // R11-fix: unify identities. useCanvasRoom uses localStorage-backed
+  // `getOrCreateUser()` for patch authorship; useCanvasPresence previously
+  // minted its OWN crypto.randomUUID(), so each human had TWO identities
+  // (room.userId for patches, presence.id for cursor/selection). Echo-
+  // suppression, activity-log authorship, follow-me, and reload all
+  // broke at the seam. Pass the room's userId as the presence hint so
+  // both layers agree on who this peer is.
+  const { members, publish, self } = useCanvasPresence(channelName, { id: roomUserId });
 
   // Activity-log helper. Coalesces small per-keystroke events into
   // larger summaries by skipping no-op summaries and only logging
