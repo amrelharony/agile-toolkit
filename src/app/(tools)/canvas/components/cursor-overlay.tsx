@@ -24,8 +24,17 @@ interface CursorOverlayProps {
  * per second of pure waste.
  */
 function useNowTick(intervalMs = 250, active = true): number {
-  const [now, setNow] = useState(() => Date.now());
+  // R11-fix: initial state is 0, not `Date.now()`. The previous
+  // `useState(() => Date.now())` produced a different timestamp on
+  // the server (during the SSR render of this client component) and
+  // on the client, triggering a hydration mismatch + warning on every
+  // canvas page load. The first useEffect tick replaces 0 with the
+  // real timestamp; ephemeral TTL checks against `now === 0` resolve
+  // as "already-expired", which is safe (expired bubbles/reactions
+  // simply don't render, matching the no-bubble case).
+  const [now, setNow] = useState(0);
   useEffect(() => {
+    setNow(Date.now());
     if (!active) return;
     // Belt-and-suspenders: even though React calls our cleanup when
     // `active` flips, the tick itself re-checks `active` so a stale

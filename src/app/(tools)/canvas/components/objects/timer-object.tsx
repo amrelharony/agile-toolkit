@@ -32,8 +32,15 @@ function format(seconds: number): string {
 }
 
 function TimerObjectImpl({ object: o, selected, onPointerDown, onMutate }: TimerObjectProps) {
-  const [now, setNow] = useState(() => Date.now());
+  // R11-fix: initial state 0 → real value in useEffect. The previous
+  // `useState(() => Date.now())` produced a different timestamp on
+  // SSR vs client, triggering a hydration mismatch for every timer
+  // widget on initial render. The 0 placeholder renders as "0:00"
+  // for one frame, which is acceptable for a timer that's about to
+  // show its real remaining time anyway.
+  const [now, setNow] = useState(0);
   useEffect(() => {
+    setNow(Date.now());
     if (!o.running) return;
     // R5: pause the tick interval when the tab is hidden — setInterval
     // keeps firing in the background and burns CPU even when no one
