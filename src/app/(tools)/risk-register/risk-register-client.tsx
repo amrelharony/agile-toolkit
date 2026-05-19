@@ -174,8 +174,16 @@ export function RiskRegisterClient() {
     setRisks((r) => [risk, ...r]);
     log(RISK_ACTIONS.RISK_ADDED, { riskId: risk.id });
   };
-  const update = (id: string, patch: Partial<Risk>) => {
+  // R11-fix: split logged vs quiet update so per-keystroke onChange
+  // doesn't emit a history event per character. Title + mitigation
+  // text fields use `updateQuiet` on input; their onBlur commits via
+  // the logged `update`. Numeric / select / status fields keep using
+  // `update` directly since each click is a meaningful event.
+  const updateQuiet = (id: string, patch: Partial<Risk>) => {
     setRisks((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  };
+  const update = (id: string, patch: Partial<Risk>) => {
+    updateQuiet(id, patch);
     log(RISK_ACTIONS.RISK_UPDATED, { riskId: id, fields: Object.keys(patch) });
   };
   const remove = (id: string) => {
@@ -525,7 +533,9 @@ export function RiskRegisterClient() {
                     <div className="space-y-0.5">
                       <Input
                         value={r.title}
-                        onChange={(e) => update(r.id, { title: e.target.value })}
+                        // R11-fix: quiet per keystroke, logged commit on blur.
+                        onChange={(e) => updateQuiet(r.id, { title: e.target.value })}
+                        onBlur={(e) => update(r.id, { title: e.target.value })}
                         placeholder="Risk title"
                         className="bg-bg border-border"
                       />
@@ -593,7 +603,9 @@ export function RiskRegisterClient() {
                   <Textarea
                     rows={2}
                     value={r.mitigation ?? ""}
-                    onChange={(e) => update(r.id, { mitigation: e.target.value })}
+                    // R11-fix: quiet per keystroke, logged commit on blur.
+                    onChange={(e) => updateQuiet(r.id, { mitigation: e.target.value })}
+                    onBlur={(e) => update(r.id, { mitigation: e.target.value })}
                     placeholder="Mitigation plan..."
                     className="bg-bg border-border text-sm"
                   />

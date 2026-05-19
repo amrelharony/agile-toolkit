@@ -115,8 +115,16 @@ export function EstimationGuideClient() {
           descriptions: { ...defaultDescriptions, ...sanitise(d.descriptions) },
           examples: sanitise(d.examples),
         });
-        // Clean up URL without reload
-        window.history.replaceState({}, "", window.location.pathname);
+        // R11-fix: preserve other query params. The previous
+        // `replaceState({}, "", pathname)` stripped ALL params, so a
+        // share-link arriving as `?state=…&utm_source=email&tab=fibonacci`
+        // also lost the utm + tab params after share consumption.
+        // Now: only remove `state`; everything else round-trips.
+        const params = new URLSearchParams(window.location.search);
+        params.delete("state");
+        const query = params.toString();
+        const cleanedUrl = window.location.pathname + (query ? `?${query}` : "");
+        window.history.replaceState({}, "", cleanedUrl);
         toast.success("Loaded shared estimation guide");
       } catch {
         // Invalid shared state - ignore

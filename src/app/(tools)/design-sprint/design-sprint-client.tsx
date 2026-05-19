@@ -232,32 +232,41 @@ export function DesignSprintClient() {
     const day = state.sprint.days.find((x) => x.day === dayNum);
     const task = day?.tasks.find((t) => t.id === taskId);
     if (!day || !task) return;
-    const nextDone = !task.done;
-    setState((s) =>
-      s.sprint
-        ? {
-            sprint: {
-              ...s.sprint,
-              days: s.sprint.days.map((d) =>
-                d.day !== dayNum
-                  ? d
-                  : {
-                      ...d,
-                      tasks: d.tasks.map((t) =>
-                        t.id !== taskId ? t : { ...t, done: nextDone }
-                      ),
-                    }
-              ),
-            },
-          }
-        : s
-    );
+    // R11-fix: compute nextDone INSIDE the updater so rapid clicks each
+    // toggle relative to the current state, not the closure-captured
+    // snapshot at the start of the click. Previously: 3 fast clicks on
+    // a done task all read `task.done=true`, each computed `!true=false`,
+    // and all wrote `false` — net effect 1 toggle, not 3. Now: each
+    // click flips against the value at write-time. Also captures the
+    // final `nextDone` for the log call so the history event matches
+    // the actual stored value.
+    let finalDone = !task.done;
+    setState((s) => {
+      if (!s.sprint) return s;
+      return {
+        sprint: {
+          ...s.sprint,
+          days: s.sprint.days.map((d) =>
+            d.day !== dayNum
+              ? d
+              : {
+                  ...d,
+                  tasks: d.tasks.map((t) => {
+                    if (t.id !== taskId) return t;
+                    finalDone = !t.done;
+                    return { ...t, done: finalDone };
+                  }),
+                },
+          ),
+        },
+      };
+    });
     log(DESIGN_SPRINT_ACTIONS.TASK_TOGGLED, {
       sprintId: state.sprint.id,
       day: dayNum,
       taskId,
       text: task.text,
-      done: nextDone,
+      done: finalDone,
     });
   };
 

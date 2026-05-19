@@ -298,12 +298,19 @@ export function FeatureFlagTrackerClient() {
   const weeklyFlagCount = useMemo(() => {
     if (flags.length === 0) return [];
     const WEEKS = 26;
+    // R11-fix: unify on LOCAL time throughout. The previous mix
+    // (UTC-anchored weekStart + local-parsed flag timestamps) drifted
+    // by up to one week in UTC+8 / UTC-12 zones when flags were
+    // created late in the evening. `f.createdAt` is `todayLocalISO()`
+    // → parseLocalDate returns the local-midnight Date; the anchor
+    // and weekStart now also use local accessors so the bucketing
+    // matches the user's calendar.
     const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
     const anchor = new Date(today.getTime() - WEEKS * 7 * 86_400_000);
     const weekStart = new Date(anchor);
-    weekStart.setUTCDate(anchor.getUTCDate() - anchor.getUTCDay());
-    weekStart.setUTCHours(0, 0, 0, 0);
+    weekStart.setDate(anchor.getDate() - anchor.getDay());
+    weekStart.setHours(0, 0, 0, 0);
     const ts = flags
       .map((f) => parseLocalDate(f.createdAt)?.getTime() ?? new Date(f.createdAt).getTime())
       .filter((t) => Number.isFinite(t) && t >= weekStart.getTime());

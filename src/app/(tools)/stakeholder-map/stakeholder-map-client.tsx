@@ -342,10 +342,21 @@ export function StakeholderMapClient() {
     });
   };
 
-  const updateStakeholder = (id: string, patch: Partial<Stakeholder>) => {
+  // R11-fix: split logged vs quiet update. The previous unconditional
+  // log fired one history event PER KEYSTROKE when bound to Input
+  // onChange — typing "Engineering Director" in `role` would emit 20+
+  // STAKEHOLDER_UPDATED events. R-INLINE-LOG had been applied only to
+  // the description Textarea (via InlineDescriptionEditor); the name,
+  // role, and strategy fields still log-spammed. Now: onChange uses
+  // the quiet path (state-only), onBlur uses the logged path
+  // (committed value with single event).
+  const updateStakeholderQuiet = (id: string, patch: Partial<Stakeholder>) => {
     setStakeholders((prev) =>
       prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
     );
+  };
+  const updateStakeholder = (id: string, patch: Partial<Stakeholder>) => {
+    updateStakeholderQuiet(id, patch);
     log(STAKEHOLDER_MAP_ACTIONS.STAKEHOLDER_UPDATED, {
       stakeholderId: id,
       fields: Object.keys(patch),
@@ -662,7 +673,12 @@ export function StakeholderMapClient() {
                     <div className="min-w-0 flex-1">
                       <Input
                         value={s.name}
+                        // R11-fix: quiet update per keystroke (state-only),
+                        // logged commit on blur.
                         onChange={(e) =>
+                          updateStakeholderQuiet(s.id, { name: e.target.value })
+                        }
+                        onBlur={(e) =>
                           updateStakeholder(s.id, { name: e.target.value })
                         }
                         className="bg-bg border-border font-semibold"
@@ -674,7 +690,7 @@ export function StakeholderMapClient() {
                           // R-TYPE: store raw, trim on blur — trimming
                           // mid-keystroke strips trailing spaces and breaks
                           // multi-word roles ("VP Eng " → "VPEng" feel).
-                          updateStakeholder(s.id, { role: e.target.value })
+                          updateStakeholderQuiet(s.id, { role: e.target.value })
                         }
                         onBlur={(e) =>
                           updateStakeholder(s.id, {
@@ -772,7 +788,8 @@ export function StakeholderMapClient() {
                     value={s.strategy ?? ""}
                     onChange={(e) =>
                       // R-TYPE: store raw, trim on blur.
-                      updateStakeholder(s.id, { strategy: e.target.value })
+                      // R11-fix: quiet update per keystroke (was log-spamming).
+                      updateStakeholderQuiet(s.id, { strategy: e.target.value })
                     }
                     onBlur={(e) =>
                       updateStakeholder(s.id, {
