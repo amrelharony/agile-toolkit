@@ -253,12 +253,27 @@ export function useRoom<T>(
       .on("presence", { event: "sync" }, () => {
         const presenceState = channel.presenceState<PresenceMember>();
         const allMembers: PresenceMember[] = [];
-        const isPresenceMember = (v: unknown): v is PresenceMember =>
-          !!v &&
-          typeof v === "object" &&
-          typeof (v as PresenceMember).id === "string" &&
-          typeof (v as PresenceMember).name === "string" &&
-          typeof (v as PresenceMember).color === "string";
+        // R11-fix: mirror the strict sanitisation that
+        // `use-presence.ts` applies on its own channel. Without it,
+        // tools that consume `useRoom().members` (retro, standup,
+        // planning-poker, etc.) trust whatever peer payload arrived —
+        // including hostile RTL-override / C0-control name spoofing,
+        // oversized strings (memory DoS), or invalid CSS colours.
+        // The bidi/control-char regex matches what use-presence uses.
+        const HOSTILE_CHARS = new RegExp(
+          "[\u0000-\u001F\u007F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]",
+        );
+        const isPresenceMember = (v: unknown): v is PresenceMember => {
+          if (!v || typeof v !== "object") return false;
+          const r = v as Record<string, unknown>;
+          if (typeof r.id !== "string" || typeof r.name !== "string" || typeof r.color !== "string") return false;
+          // Length caps — same as use-presence's MAX_*_LEN values.
+          if (r.id.length === 0 || r.id.length > 200) return false;
+          if (r.name.length === 0 || r.name.length > 200) return false;
+          if (r.color.length === 0 || r.color.length > 64) return false;
+          if (HOSTILE_CHARS.test(r.id) || HOSTILE_CHARS.test(r.name)) return false;
+          return true;
+        };
         for (const key of Object.keys(presenceState)) {
           const metas = presenceState[key];
           const first = Array.isArray(metas) ? metas[0] : undefined;

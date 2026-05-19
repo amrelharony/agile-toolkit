@@ -94,6 +94,26 @@ export function CommentDrawer({ thread, onClose }: Props) {
       return "";
     }
   });
+  // R11-fix: keyboard navigation for the mention autocomplete (A3 M5).
+  // The previous picker was click-only — arrow keys did nothing.
+  // Hoisted activeIndex here so the textarea's onKeyDown can step
+  // through the same list MentionAutocomplete renders.
+  const [mentionActiveIdx, setMentionActiveIdx] = useState(0);
+  const mentionFiltered = useMemo(() => {
+    const match = draft.match(MENTION_TRAILING_RE);
+    if (!match) return [] as { id: string; name: string }[];
+    const prefix = match[1].toLowerCase();
+    return mentionMembers
+      .filter((m) => {
+        const first = (m.name || "").split(/\s+/)[0]?.toLowerCase() ?? "";
+        return prefix === "" || first.startsWith(prefix);
+      })
+      .slice(0, 6);
+  }, [draft, mentionMembers]);
+  // Reset active index when the filtered list changes shape.
+  useEffect(() => {
+    setMentionActiveIdx(0);
+  }, [mentionFiltered.length]);
   // Two-step inline delete: first click arms the confirm state and
   // restyles the button red ("Confirm delete"); a second click within
   // 3 s actually removes the thread. Avoids the native `confirm()`
@@ -295,8 +315,8 @@ export function CommentDrawer({ thread, onClose }: Props) {
             caret is right after `@<letters>` AND the prefix matches
             at least one team member. */}
         <MentionAutocomplete
-          draft={draft}
-          members={mentionMembers}
+          filtered={mentionFiltered}
+          activeIndex={mentionActiveIdx}
           onPick={(name) => {
             // Replace the trailing @prefix with @firstName + space.
             const m = draft.match(MENTION_SPLIT_RE);
@@ -338,6 +358,39 @@ export function CommentDrawer({ thread, onClose }: Props) {
             // R8: skip Cmd-Enter send during IME composition (Enter is
             // supposed to confirm the composed candidate, not submit).
             if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+            // R11-fix: keyboard navigation when the @mention picker
+            // is open. ArrowDown/Up steps through filtered members,
+            // Enter accepts the active item, Escape closes (textarea
+            // keeps focus). The textarea's bare Enter still inserts
+            // a newline when the picker is closed.
+            if (mentionFiltered.length > 0) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setMentionActiveIdx((i) => Math.min(mentionFiltered.length - 1, i + 1));
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setMentionActiveIdx((i) => Math.max(0, i - 1));
+                return;
+              }
+              if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) {
+                e.preventDefault();
+                const picked = mentionFiltered[mentionActiveIdx];
+                if (picked) {
+                  const m = draft.match(MENTION_SPLIT_RE);
+                  if (m) {
+                    const before = m[1];
+                    const next = `${before}@${picked.name.split(/\s+/)[0]} `;
+                    setDraft(next);
+                    if (typeof window !== "undefined") {
+                      try { window.sessionStorage.setItem(DRAFT_KEY(thread.id), next); } catch { /* noop */ }
+                    }
+                  }
+                }
+                return;
+              }
+            }
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
               sendReply();
@@ -384,28 +437,22 @@ export function CommentDrawer({ thread, onClose }: Props) {
 
 /** Tiny @mention autocomplete. Appears above the textarea when the user
  * has just typed `@<letters>` and there's a matching team member. Click
- * a row to insert; arrow keys + Enter handled in the textarea. */
+ * a row OR press Enter / arrow-keys (handled in the textarea) to insert.
+ *
+ * R11-fix: now controlled by parent (filtered + activeIndex passed in)
+ * so keyboard navigation in the textarea stays in sync with what the
+ * dropdown shows. Previously the component computed its own filtered
+ * list and arrow keys did nothing.
+ */
 function MentionAutocomplete({
-  draft,
-  members,
+  filtered,
+  activeIndex,
   onPick,
 }: {
-  draft: string;
-  members: { id: string; name: string }[];
+  filtered: { id: string; name: string }[];
+  activeIndex: number;
   onPick: (name: string) => void;
 }) {
-  // Detect a trailing @prefix at the end of the draft. Spaces in the
-  // prefix terminate the match so the picker disappears after the
-  // user types past the name.
-  const match = draft.match(MENTION_TRAILING_RE);
-  if (!match) return null;
-  const prefix = match[1].toLowerCase();
-  const filtered = members
-    .filter((m) => {
-      const first = (m.name || "").split(/\s+/)[0]?.toLowerCase() ?? "";
-      return prefix === "" || first.startsWith(prefix);
-    })
-    .slice(0, 6);
   if (filtered.length === 0) return null;
   return (
     <div
@@ -413,22 +460,27 @@ function MentionAutocomplete({
       aria-label="Mention a teammate"
       className="absolute left-3 right-3 bottom-[120px] bg-surface border border-border rounded-md shadow-lg z-10 overflow-hidden"
     >
-      {filtered.map((m) => (
-        <button
-          key={m.id}
-          type="button"
-          role="option"
-          aria-selected="false"
-          onClick={() => onPick(m.name)}
-          className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-deep flex items-center gap-2"
-        >
-          <span className="w-5 h-5 rounded-full bg-accent/30 text-accent flex items-center justify-center text-[10px] font-bold">
-            {(m.name || "?").charAt(0).toUpperCase()}
-          </span>
-          <span className="flex-1 truncate">{m.name}</span>
-          <span className="text-[9px] text-sub font-mono">@{m.name.split(/\s+/)[0]?.toLowerCase()}</span>
-        </button>
-      ))}
+      {filtered.map((m, i) => {
+        const active = i === activeIndex;
+        return (
+          <button
+            key={m.id}
+            type="button"
+            role="option"
+            aria-selected={active}
+            onClick={() => onPick(m.name)}
+            className={`w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-deep flex items-center gap-2 ${
+              active ? "bg-surface-deep ring-1 ring-accent/40" : ""
+            }`}
+          >
+            <span className="w-5 h-5 rounded-full bg-accent/30 text-accent flex items-center justify-center text-[10px] font-bold">
+              {(m.name || "?").charAt(0).toUpperCase()}
+            </span>
+            <span className="flex-1 truncate">{m.name}</span>
+            <span className="text-[9px] text-sub font-mono">@{m.name.split(/\s+/)[0]?.toLowerCase()}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
