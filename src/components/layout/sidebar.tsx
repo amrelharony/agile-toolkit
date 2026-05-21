@@ -313,6 +313,18 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                 key={category}
                 open={isOpen}
                 onOpenChange={() => toggleCategory(category)}
+                // CRITICAL: the global event-router has a MutationObserver
+                // on [data-state] attribute changes that emits `state-open`
+                // / `state-close` (a chord at default velocity 1.0). Radix
+                // flips data-state on BOTH the trigger AND the
+                // CollapsibleContent, and `data-no-sound` on the trigger
+                // alone doesn't suppress the Content's mutation (Content
+                // is a sibling of the trigger, so isSuppressed's parent
+                // walk never reaches it). Putting the attribute on the
+                // Root catches both — Radix forwards arbitrary data-*
+                // props to the rendered div, so the isSuppressed walk
+                // from either child finds it.
+                data-no-sound="true"
               >
                 <CollapsibleTrigger
                   // Suppress the loud `click-generic` sound that the global
