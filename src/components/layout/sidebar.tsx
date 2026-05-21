@@ -33,9 +33,19 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
     "agile-toolkit:sidebar:collapsed",
     false
   );
+  // Default to ALL categories collapsed. The sidebar is the user's primary
+  // navigation surface; with 18 visible categories every one open at once
+  // forces a long scroll just to find Burndown or Retro. Categories the
+  // user opens are persisted, so opening Sprint Planning once keeps it
+  // open across reloads.
+  //
+  // Storage key bumped to ":v2" so the previously-persisted "all open"
+  // state is ignored — this is the one-shot reset that gives the
+  // collapsed-by-default UX to existing users without each having to
+  // manually close 17 categories.
   const [openCategories, setOpenCategories] = usePersisted<Record<string, boolean>>(
-    "agile-toolkit:sidebar:openCategories",
-    Object.fromEntries(categories.map((c) => [c, true]))
+    "agile-toolkit:sidebar:openCategories:v2",
+    {}
   );
   const asideRef = useRef<HTMLElement>(null);
 
