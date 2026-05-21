@@ -45,6 +45,18 @@ interface AiRunPanelProps {
   runTrigger?: number;
   /** Compact mode for the A/B grid — drops the header bar, smaller padding. */
   compact?: boolean;
+  /**
+   * Fires once when a run completes successfully (NOT on abort, NOT on
+   * error). Receives the full streamed text plus the provider's exact
+   * usage payload. Used by tools that want to auto-fill a downstream
+   * form field — e.g. hallucination-log's "Actual response" textarea.
+   *
+   * The callback should be wrapped in `useCallback` by the parent if
+   * its identity matters; we deliberately do NOT add it to the `run`
+   * useCallback's dep list (a fresh closure each render would tear down
+   * the streaming run mid-flight).
+   */
+  onResult?: (result: { text: string; usage: { inputTokens: number; outputTokens: number } }) => void;
 }
 
 /**
@@ -69,6 +81,7 @@ export default function AiRunPanel({
   providerOverride,
   runTrigger,
   compact = false,
+  onResult,
 }: AiRunPanelProps) {
   const active = useActiveLlm();
   const maxOutputTokens = useLlmStore((s) => s.maxOutputTokens);
@@ -81,6 +94,11 @@ export default function AiRunPanel({
   const [copied, setCopied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latest-onResult ref. The callback isn't in `run`'s dep list because we
+  // don't want a fresh closure to tear down the streaming run — but the
+  // ref lets `run` always invoke the *current* callback at completion.
+  const onResultRef = useRef(onResult);
+  onResultRef.current = onResult;
 
   // Resolved provider — explicit override wins over active.
   const providerId: ProviderId | null = providerOverride?.provider ?? active.provider;
@@ -125,6 +143,10 @@ export default function AiRunPanel({
     abortRef.current = controller;
     const startedAt = performance.now();
     let firstChunkAt: number | null = null;
+    // Accumulate locally so we can hand the complete streamed text to
+    // onResult at the end — reading from the `text` state in the success
+    // branch would race with React's batched setText flush.
+    let accumulated = "";
 
     try {
       const adapter = await getAdapter(providerId);
@@ -149,6 +171,7 @@ export default function AiRunPanel({
               firstChunkAt = performance.now();
               setTtftMs(Math.round(firstChunkAt - startedAt));
             }
+            accumulated += chunk;
             // Functional update so concurrent chunks don't clobber each
             // other if React batches them across render boundaries.
             setText((prev) => prev + chunk);
@@ -159,6 +182,13 @@ export default function AiRunPanel({
       );
       setUsage(result);
       setTotalMs(Math.round(performance.now() - startedAt));
+      // Fire the onResult hook on successful completion only. Wrapped in a
+      // try so a buggy parent callback can't break the panel's state.
+      try {
+        onResultRef.current?.({ text: accumulated, usage: result });
+      } catch {
+        /* swallow — the run itself succeeded */
+      }
     } catch (err) {
       // AbortError is expected when the user hits Stop — don't surface it
       // as a red error toast.

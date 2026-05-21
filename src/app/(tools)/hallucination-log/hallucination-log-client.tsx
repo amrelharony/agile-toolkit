@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useShallow } from "zustand/react/shallow";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
-import { AlertOctagon, Plus, Trash2, CheckCircle2 } from "lucide-react";
+import { AlertOctagon, Plus, Trash2, CheckCircle2, Beaker } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -20,6 +21,17 @@ import { generateHallucinationLogPrompts } from "@/lib/ai-prompts/hallucination-
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { HALLUCINATION_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+import { useActiveLlm } from "@/lib/llm/use-active-llm";
+import { toast } from "@/lib/utils/toast";
+
+// Lazy-load — keeps the adapter chunks async for users who only paste
+// in hallucinations they spotted in production.
+const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), {
+  ssr: false,
+  loading: () => (
+    <div className="text-xs text-sub p-2 border border-border rounded">Loading panel…</div>
+  ),
+});
 
 const SEVERITIES: Hallucination["severity"][] = ["low", "medium", "high", "critical"];
 const CAUSES: NonNullable<Hallucination["rootCause"]>[] = ["rag-miss", "prompt", "model", "context-window", "other"];
@@ -43,6 +55,28 @@ export function HallucinationLogClient() {
   const [expected, setExpected] = useState("");
   const [severity, setSeverity] = useState<Hallucination["severity"]>("medium");
   const [rootCause, setRootCause] = useState<NonNullable<Hallucination["rootCause"]> | "">("");
+  // BYOK reproduce-with-autofill state. When the user clicks "Reproduce with
+  // BYOK", we expand an AiRunPanel below the Input textarea that pipes the
+  // input through the active provider; its onResult callback then auto-fills
+  // the Actual field with the streamed output, capped at the same 8000-char
+  // ceiling the manual flow enforces.
+  const [reproduceOpen, setReproduceOpen] = useState(false);
+  const llm = useActiveLlm();
+  // Stable identity so AiRunPanel doesn't see a fresh function each render.
+  // The handler reads no props directly from closures (it only writes to
+  // setActual + emits a toast), so stability is essentially free.
+  const handleReproduceResult = useCallback(
+    (result: { text: string }) => {
+      const trimmed = result.text.trim();
+      if (!trimmed) {
+        toast.error("Provider returned an empty response");
+        return;
+      }
+      setActual(trimmed.slice(0, 8000));
+      toast.success("Auto-filled Actual response");
+    },
+    []
+  );
 
   function add() {
     if (!input.trim() || !actual.trim()) return;
@@ -152,6 +186,53 @@ export function HallucinationLogClient() {
             </Select>
           </div>
           <Textarea placeholder="Input (what was sent to the model)" value={input} onChange={(e) => setInput(e.target.value)} className="mt-2" rows={2} />
+          {/* Reproduce strip — sits between Input and Actual so the user
+              can run the input through their BYOK provider and have the
+              streamed output autofill the Actual field below. */}
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setReproduceOpen((v) => !v)}
+              disabled={!llm.isReady || input.trim().length === 0}
+              title={
+                !llm.isReady
+                  ? "Configure an AI provider in settings to reproduce hallucinations"
+                  : input.trim().length === 0
+                  ? "Type the Input above first"
+                  : reproduceOpen
+                  ? "Hide reproduce panel"
+                  : "Run the input through your BYOK provider and auto-fill Actual"
+              }
+              aria-expanded={reproduceOpen}
+              className="gap-1"
+            >
+              <Beaker className="w-3.5 h-3.5" />
+              {reproduceOpen ? "Hide reproduce" : "Reproduce with BYOK"}
+            </Button>
+            {!llm.isReady && (
+              <button
+                type="button"
+                onClick={llm.openSettings}
+                className="text-xs text-sub hover:text-accent underline"
+              >
+                AI settings →
+              </button>
+            )}
+            {llm.isReady && (
+              <span className="text-[11px] text-sub">
+                Will autofill &ldquo;Actual&rdquo; with the streamed output.
+              </span>
+            )}
+          </div>
+          {reproduceOpen && llm.isReady && input.trim().length > 0 && (
+            <AiRunPanel
+              prompt={input}
+              toolName="Hallucination reproduce"
+              onResult={handleReproduceResult}
+            />
+          )}
           <Textarea placeholder="Actual response (the bad output)" value={actual} onChange={(e) => setActual(e.target.value)} className="mt-2" rows={2} />
           <Textarea placeholder="Expected (optional — what should have happened)" value={expected} onChange={(e) => setExpected(e.target.value)} className="mt-2" rows={2} />
           <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Log incident</Button>
