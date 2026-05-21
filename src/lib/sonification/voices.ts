@@ -102,6 +102,40 @@ export const voices: Record<VoiceId, Voice> = {
     release: 0.12,
     peak: 0.10,
   },
+  // "piano" — used by the sidebar's nav events to produce small musical
+  // tones instead of synthy ticks.
+  //
+  // Design choices:
+  //  - **Triangle wave**: the closest single-oscillator approximation of
+  //    a piano string. Sawtooth has too much harmonic energy (sounds
+  //    organ-y); sine has none (sounds synth-y). Triangle sits between.
+  //  - **Sharp attack (2ms)**: a piano hammer is essentially
+  //    instantaneous; the perceived softness comes from the SPECTRAL
+  //    content, not the envelope onset.
+  //  - **180ms decay + 30% sustain + 450ms release**: an abbreviated
+  //    piano-like envelope. Real piano notes ring for seconds; for UI
+  //    contexts we cap the release so a series of clicks doesn't pile
+  //    up muddy overlapping tones. The 30% sustain level gives a brief
+  //    body to the note before release rolls it down.
+  //  - **toneHz 5500 + detuneCents 4**: lets the upper harmonics
+  //    through (the harmonic content is the piano character) and adds
+  //    a 4-cent detune for the slight chorus effect of paired piano
+  //    strings.
+  //  - **peak 0.18**: lower than `pluck` (0.35) since piano tones carry
+  //    more perceived loudness than plucks at the same amplitude due to
+  //    the harmonic complexity. Palette entries should still set a
+  //    conservative velocity on top.
+  piano: {
+    id: "piano",
+    wave: "triangle",
+    attack: 0.002,
+    decay: 0.18,
+    sustain: 0.30,
+    release: 0.45,
+    peak: 0.18,
+    toneHz: 5500,
+    detuneCents: 4,
+  },
 };
 
 export const filterPresets: Record<FilterPreset, number> = {

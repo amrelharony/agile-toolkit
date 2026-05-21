@@ -107,15 +107,28 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
   });
 
   const toggleCategory = (category: string) => {
-    // Use dedicated sidebar palette entries — `category-open` / `category-close`
-    // are softer (velocity ≤ 0.22, muffled blip with pitch jitter) than the
-    // generic `toggle-on/off` so navigation chrome doesn't sound like a
-    // primary CTA. The default `click-generic` from the global event-router
-    // is suppressed via `data-no-sound="true"` on the trigger.
+    // Use dedicated sidebar palette entries — `category-open` /
+    // `category-close` are piano tones (step 3 P5 → step 0 root) instead
+    // of the generic `toggle-on/off` so the sidebar plays as a small
+    // musical phrase. The default `click-generic` from the global
+    // event-router is suppressed via `data-no-sound="true"` on the
+    // trigger so we don't double-emit.
     const next = !openCategories[category];
     sonify("ui", next ? "category-open" : "category-close");
     setOpenCategories((prev) => ({ ...prev, [category]: !prev[category] }));
   };
+
+  // Single handler shared by every Link in the sidebar (brand, meta
+  // links, tool links). Emits the piano `sidebar-nav` tone — step 2
+  // (maj3) of the pentatonic, sitting harmonically between the
+  // category-open (P5) and category-close (root) tones. Combined,
+  // clicking around the sidebar plays a small musical sequence rather
+  // than the generic synth clicks. Pairs with `data-no-sound="true"`
+  // on the Link to suppress the global click router's contribution.
+  const handleNavClick = useCallback(() => {
+    sonify("ui", "sidebar-nav");
+    onClose?.();
+  }, [onClose]);
 
   // Close the mobile drawer on route change.
   useEffect(() => {
@@ -195,7 +208,8 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
         <div className="flex items-center gap-3 px-4 py-4 md:py-5 border-b border-border pt-safe md:pt-4">
           <Link
             href="/"
-            onClick={onClose}
+            onClick={handleNavClick}
+            data-no-sound="true"
             className="flex items-center gap-3 min-w-0"
           >
             <div
@@ -241,7 +255,8 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                 <Link
                   key={href}
                   href={href}
-                  onClick={onClose}
+                  onClick={handleNavClick}
+                  data-no-sound="true"
                   className={cn(
                     "group flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-default ease-spring relative overflow-hidden min-h-[40px]",
                     isActive
@@ -341,7 +356,8 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                       <Link
                         key={tool.id}
                         href={tool.path}
-                        onClick={onClose}
+                        onClick={handleNavClick}
+                        data-no-sound="true"
                         // Rail mode centres the icon in the 64px-wide rail
                         // (no label or badge renders since `expanded` is
                         // false). A title attribute carries the tool name

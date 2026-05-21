@@ -10,7 +10,8 @@ export type VoiceId =
   | "drone"
   | "dissonant"
   | "click"
-  | "breath";
+  | "breath"
+  | "piano";
 
 export interface Voice {
   id: VoiceId;

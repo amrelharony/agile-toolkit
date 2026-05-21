@@ -304,16 +304,22 @@ const ui: ToolPalette = {
   // little pitch jitter so a rapid open-close-open run doesn't sound
   // metronomic. Open rises, close falls — gives an unconscious cue of
   // "more visible" vs "less visible".
-  // Sidebar category toggle — fourth revision. Previous pluck was still
-  // harsh: triangle wave's harmonics + the inevitable 5ms attack
-  // transient combined to a perceptible "tick" edge, plus octave 7 sat
-  // in the brilliance range where small amounts of energy read as
-  // piercing. Switching to the new "breath" voice (sine wave, 25ms
-  // ramped attack, peak 0.10) eliminates both: no harmonics, no
-  // transient. Octave dropped to 5/4 so the fundamentals sit in the
-  // mid range rather than the brilliance band.
-  "category-open": { voice: "breath", step: 4, octave: 5, velocity: 0.55 },
-  "category-close": { voice: "breath", step: 2, octave: 4, velocity: 0.45 },
+  // Sidebar nav sounds — piano-style tones replace the previous
+  // breath/blip/pluck experiments. Three palette entries spanning the
+  // pentatonic scale so the sidebar plays as small musical phrases
+  // rather than UI ticks. Velocities are kept conservative (0.20–0.35)
+  // since piano carries more perceived loudness than synth voices at
+  // equal amplitude due to its harmonic content. Duration overrides
+  // cap the natural ~450ms piano release so a series of clicks doesn't
+  // pile up overlapping ring-out.
+  //
+  // Step choices map to pentatonic (root, maj2, maj3, P5, maj6):
+  //   category-open  → step 3 (P5, the bright "rising" note)
+  //   category-close → step 0 (root, the "resolving" note)
+  //   sidebar-nav    → step 2 (maj3, a neutral middle note for taps)
+  "category-open": { voice: "piano", step: 3, octave: 5, velocity: 0.35, duration: 0.40 },
+  "category-close": { voice: "piano", step: 0, octave: 5, velocity: 0.30, duration: 0.35 },
+  "sidebar-nav": { voice: "piano", step: 2, octave: 5, velocity: 0.25, duration: 0.30 },
   "tab-change": { voice: "blip", step: 3, octave: 5, velocity: 0.45 },
   // Dnd-kit drag lifecycle
   "drag-start": { voice: "blip", step: 2, octave: 5, velocity: 0.45 },
