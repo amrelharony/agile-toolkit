@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from "recharts";
-import { CircleDollarSign, Plus, Trash2, AlertTriangle } from "lucide-react";
+import { CircleDollarSign, Plus, Trash2, AlertTriangle, Sparkles } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -148,6 +148,21 @@ export function TokenCostTrackerClient() {
             Projected spend ${projected.toFixed(2)} exceeds monthly budget ${cfg.monthlyBudgetUsd.toFixed(0)}.
           </div>
         )}
+
+        {/* Auto-tracking notice — explains where the "BYOK: ..." rows come
+            from. Static, not gated on whether the user has configured a
+            provider, because the row pattern is consistent regardless of
+            current state (rows persist after a key is removed). */}
+        <div className="rounded border border-accent/20 bg-accent/5 p-3 text-sm text-text flex items-start gap-2">
+          <Sparkles className="w-4 h-4 text-accent shrink-0 mt-0.5" />
+          <span>
+            <strong>Live auto-tracking is on.</strong> Every BYOK run anywhere
+            in the toolkit appends a <span className="font-mono text-xs">BYOK: …</span>{" "}
+            row here automatically — using the provider&apos;s actual usage
+            payload, not an estimate. Remove individual rows below to exclude
+            specific runs from your totals.
+          </span>
+        </div>
 
         <SectionCard title="Log spend" icon={Plus}>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">

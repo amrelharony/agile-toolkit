@@ -17,6 +17,8 @@ import { isLlmError } from "@/lib/llm/types";
 import { copyToClipboard } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
 import { cn } from "@/lib/utils";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 /**
  * Optional provider override. When set, AiRunPanel runs against this
@@ -188,6 +190,39 @@ export default function AiRunPanel({
         onResultRef.current?.({ text: accumulated, usage: result });
       } catch {
         /* swallow — the run itself succeeded */
+      }
+      // Auto-log spend into token-cost-tracker. Every BYOK run anywhere in
+      // the app produces a TokenSpend row, so the cost dashboard reflects
+      // real usage without the user having to log anything manually.
+      //
+      // Done OUTSIDE the React render loop via `getState().upsertTokenSpend`
+      // so we don't subscribe AiRunPanel to the workspace store (which
+      // would cause a re-render on every TokenSpend write — a feedback
+      // loop). Wrapped in try/catch so a workspace-store write failure
+      // (quota / SecurityError) doesn't bubble into the run path.
+      try {
+        const actualCost = estimateCostUsd(
+          providerId,
+          modelId,
+          result.inputTokens,
+          result.outputTokens
+        );
+        const feature = toolName?.trim()
+          ? `BYOK: ${toolName.trim()}`
+          : "BYOK: AI Run";
+        useWorkspaceStore.getState().upsertTokenSpend({
+          id: crypto.randomUUID(),
+          feature,
+          // Use the actual provider model id (gpt-5-mini, claude-haiku-4-7,
+          // etc.) so future analytics line up against MODELS_BY_PROVIDER.
+          model: modelId,
+          date: todayLocalISO(),
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          costUsd: actualCost,
+        });
+      } catch {
+        /* spend recording is best-effort */
       }
     } catch (err) {
       // AbortError is expected when the user hits Stop — don't surface it
