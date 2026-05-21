@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useShallow } from "zustand/react/shallow";
-import { ScanSearch, Plus, Trash2, CheckCircle2 } from "lucide-react";
+import { ScanSearch, Plus, Trash2, CheckCircle2, Beaker } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -19,6 +20,16 @@ import { generateAIRedTeamPrompts } from "@/lib/ai-prompts/ai-red-team";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { AI_RED_TEAM_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+import { useActiveLlm } from "@/lib/llm/use-active-llm";
+
+// Lazy-load — adapter chunks stay async, so users who only log findings
+// manually never pay the BYOK runtime cost.
+const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), {
+  ssr: false,
+  loading: () => (
+    <div className="text-xs text-sub p-2 border border-border rounded">Loading panel…</div>
+  ),
+});
 
 const SEVERITIES: RedTeamFinding["severity"][] = ["low", "medium", "high", "critical"];
 const COLORS: Record<RedTeamFinding["severity"], string> = {
@@ -36,6 +47,10 @@ export function AIRedTeamClient() {
   const [prompt, setPrompt] = useState("");
   const [successful, setSuccessful] = useState(false);
   const [severity, setSeverity] = useState<RedTeamFinding["severity"]>("medium");
+  // Inline live-probe expander. Off by default — clicking the BYOK test
+  // button toggles the panel below the prompt textarea.
+  const [probeOpen, setProbeOpen] = useState(false);
+  const llm = useActiveLlm();
 
   function add() {
     if (!vector.trim()) return;
@@ -126,7 +141,49 @@ export function AIRedTeamClient() {
             </label>
           </div>
           <Textarea placeholder="Prompt used (optional)" value={prompt} onChange={(e) => setPrompt(e.target.value)} className="mt-2 font-mono text-xs" rows={3} />
-          <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Log finding</Button>
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <Button onClick={add} className="gap-1"><Plus className="w-4 h-4" />Log finding</Button>
+            {/* Test attack: pipes the typed prompt into AiRunPanel against
+                the active BYOK provider. The user reads the response, ticks
+                or unticks "Attack succeeded" above, then logs. Disabled
+                with a tooltip when no provider is configured or no prompt
+                has been typed. */}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setProbeOpen((v) => !v)}
+              disabled={!llm.isReady || prompt.trim().length === 0}
+              title={
+                !llm.isReady
+                  ? "Configure an AI provider in settings to live-test attacks"
+                  : prompt.trim().length === 0
+                  ? "Type a prompt to test"
+                  : probeOpen
+                  ? "Hide test panel"
+                  : "Run the prompt against your BYOK provider — read the response and decide whether the attack succeeded"
+              }
+              aria-expanded={probeOpen}
+              className="gap-1"
+            >
+              <Beaker className="w-4 h-4" />
+              {probeOpen ? "Hide live probe" : "Test attack with BYOK"}
+            </Button>
+            {!llm.isReady && (
+              <button
+                type="button"
+                onClick={llm.openSettings}
+                className="text-xs text-sub hover:text-accent underline"
+              >
+                AI settings →
+              </button>
+            )}
+          </div>
+          {probeOpen && llm.isReady && prompt.trim().length > 0 && (
+            <AiRunPanel
+              prompt={prompt}
+              toolName={`Red-team probe${vector.trim() ? `: ${vector.trim()}` : ""}`}
+            />
+          )}
         </SectionCard>
 
         {list.length > 0 && (
