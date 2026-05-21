@@ -298,6 +298,14 @@ const ui: ToolPalette = {
   "state-close": { voice: "pad", step: 0, octave: 4, duration: 0.6, filter: "warm" },
   "toggle-on": { voice: "pluck", step: 4, octave: 5, filter: "bright" },
   "toggle-off": { voice: "pluck", step: 1, octave: 4, filter: "warm" },
+  // Sidebar category collapse/expand — deliberately distinct from the
+  // generic `toggle-on/off` so navigation chrome doesn't sound like a
+  // primary CTA toggle. Soft `blip` (synth tap) with low velocity + a
+  // little pitch jitter so a rapid open-close-open run doesn't sound
+  // metronomic. Open rises, close falls — gives an unconscious cue of
+  // "more visible" vs "less visible".
+  "category-open": { voice: "blip", step: 4, octave: 6, velocity: 0.22, jitterCents: 15, filter: "muffled" },
+  "category-close": { voice: "blip", step: 1, octave: 5, velocity: 0.18, jitterCents: 15, filter: "muffled" },
   "tab-change": { voice: "blip", step: 3, octave: 5, velocity: 0.45 },
   // Dnd-kit drag lifecycle
   "drag-start": { voice: "blip", step: 2, octave: 5, velocity: 0.45 },

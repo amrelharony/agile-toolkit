@@ -107,12 +107,13 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
   });
 
   const toggleCategory = (category: string) => {
-    // Emit a softer toggle-tone rather than the loud generic-click that the
-    // global event-router would otherwise play (the trigger is suppressed
-    // via `data-no-sound="true"`). `toggle-on` / `toggle-off` are calibrated
-    // for collapse/expand interactions — lower velocity than `click-default`.
+    // Use dedicated sidebar palette entries — `category-open` / `category-close`
+    // are softer (velocity ≤ 0.22, muffled blip with pitch jitter) than the
+    // generic `toggle-on/off` so navigation chrome doesn't sound like a
+    // primary CTA. The default `click-generic` from the global event-router
+    // is suppressed via `data-no-sound="true"` on the trigger.
     const next = !openCategories[category];
-    sonify("ui", next ? "toggle-on" : "toggle-off");
+    sonify("ui", next ? "category-open" : "category-close");
     setOpenCategories((prev) => ({ ...prev, [category]: !prev[category] }));
   };
 
