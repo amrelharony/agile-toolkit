@@ -194,12 +194,18 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
           </div>
           {categories.map((category) => {
             const categoryTools = getToolsByCategory(category);
+            // Skip categories with no tools — the registry lists 37 categories
+            // for future Phase 23+ tool batches, but rendering an empty
+            // Collapsible looks broken (chevron toggles open → reveals nothing,
+            // so users think the category isn't collapsible at all).
+            if (categoryTools.length === 0) return null;
             const shortName = category.split(" ")[0];
+            const isOpen = !collapsed && !!openCategories[category];
 
             return (
               <Collapsible
                 key={category}
-                open={!collapsed && openCategories[category]}
+                open={isOpen}
                 onOpenChange={() => toggleCategory(category)}
               >
                 <CollapsibleTrigger
@@ -216,7 +222,15 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                     <>
                       <span className="truncate">{category}</span>
                       <ChevronDown
-                        className="ml-auto w-3 h-3 transition-transform duration-default"
+                        className={cn(
+                          // Rotate the chevron 180° when the category is open
+                          // so users get a visual confirmation that clicking
+                          // toggled the state. Without this the chevron stayed
+                          // pointing down even when content was expanded —
+                          // easy to mistake for an unresponsive button.
+                          "ml-auto w-3 h-3 transition-transform duration-default",
+                          isOpen ? "rotate-180" : "rotate-0"
+                        )}
                         aria-hidden="true"
                       />
                     </>
