@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { usePersisted } from "@/lib/utils/use-persisted";
-import { categories, getToolsByCategory } from "@/lib/constants/tools";
+import { categories, getToolsByCategory, type ToolCategory } from "@/lib/constants/tools";
 import {
   Collapsible,
   CollapsibleContent,
@@ -15,6 +15,39 @@ import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronLeft, History, Activity } from "lucide-react";
 import Image from "next/image";
 import { useSwipeToClose } from "@/hooks/use-swipe-to-close";
+import { emit as sonify } from "@/lib/sonification/emit";
+
+/**
+ * Compact display label for each category header in the sidebar. The full
+ * name lives in the registry (used by breadcrumbs, search, AI prompts);
+ * the sidebar gets a shorter version so 18 categories all fit in the
+ * column without truncation or wrap.
+ *
+ * Any category missing from this map falls back to the registry name.
+ */
+const SHORT_CATEGORY: Partial<Record<ToolCategory, string>> = {
+  "Sprint Planning & Estimation": "Sprint Planning",
+  "Metrics & Dashboards": "Metrics",
+  "Team Health & Maturity": "Team Health",
+  "Portfolio & Scaling": "Portfolio",
+  "Product Discovery": "Discovery",
+  "Risk & Governance": "Risk",
+  "Flow & Delivery": "Flow",
+  "Outcomes & Pulse": "Outcomes",
+  "Engineering Excellence": "Engineering",
+  "Incidents & Reliability": "Incidents",
+  "Security & Compliance": "Security",
+  "Quality Engineering": "Quality",
+  "Workshops & Facilitation": "Workshops",
+  "AI / LLM Product Management": "AI / LLM",
+  "Prioritization Frameworks": "Prioritization",
+  "Decision Frameworks": "Decisions",
+  "Visual Collaboration": "Whiteboard",
+};
+
+function categoryLabel(category: ToolCategory): string {
+  return SHORT_CATEGORY[category] ?? category;
+}
 
 interface SidebarProps {
   /** Mobile drawer open state (parent-controlled). */
@@ -29,10 +62,26 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
   // category section keeps that layout across page loads. Without this,
   // every refresh resets the sidebar back to fully-expanded, which is
   // disruptive for power users who work with the sidebar collapsed.
+  // Auto-hide: the sidebar lives in a thin icon rail by default and
+  // temporarily expands on pointer hover. The collapsed state itself is
+  // persisted so the user can pin it open by clicking the chevron at the
+  // bottom — but on first visit (and after this storage-key change) the
+  // sidebar starts in rail mode and reveals on hover.
+  //
+  // Storage key bumped to ":v2" so existing users who had `collapsed: false`
+  // (pinned-open) inherit the new auto-hide default. They can re-pin via
+  // the chevron in one click.
   const [collapsed, setCollapsed] = usePersisted<boolean>(
-    "agile-toolkit:sidebar:collapsed",
-    false
+    "agile-toolkit:sidebar:collapsed:v2",
+    true
   );
+  // Transient hover-expand. Layered on top of `collapsed`: when the rail is
+  // collapsed and the pointer enters the aside, we render the full-width
+  // tree as an overlay; leaving collapses back to the rail without changing
+  // the persisted state.
+  const [hoverExpanded, setHoverExpanded] = useState(false);
+  // The visual "expanded?" state — pinned-open OR hovering-over-collapsed.
+  const expanded = !collapsed || hoverExpanded;
   // Default to ALL categories collapsed. The sidebar is the user's primary
   // navigation surface; with 18 visible categories every one open at once
   // forces a long scroll just to find Burndown or Retro. Categories the
@@ -58,6 +107,12 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
   });
 
   const toggleCategory = (category: string) => {
+    // Emit a softer toggle-tone rather than the loud generic-click that the
+    // global event-router would otherwise play (the trigger is suppressed
+    // via `data-no-sound="true"`). `toggle-on` / `toggle-off` are calibrated
+    // for collapse/expand interactions — lower velocity than `click-default`.
+    const next = !openCategories[category];
+    sonify("ui", next ? "toggle-on" : "toggle-off");
     setOpenCategories((prev) => ({ ...prev, [category]: !prev[category] }));
   };
 
@@ -104,6 +159,16 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
       <aside
         ref={asideRef}
         aria-label="Primary navigation"
+        // Auto-hide reveal: when the persisted state is collapsed (rail
+        // mode), hovering the rail temporarily expands the tree as an
+        // overlay. Leaving the area collapses back to the rail. We don't
+        // change `collapsed` itself so the user's pinned preference is
+        // preserved. Touch users get no hover effect — they can pin via
+        // the chevron at the bottom, or use the mobile drawer flow.
+        onPointerEnter={(e) => {
+          if (e.pointerType === "mouse" && collapsed) setHoverExpanded(true);
+        }}
+        onPointerLeave={() => setHoverExpanded(false)}
         className={cn(
           // Shared layout
           "flex flex-col glass-elevated border-r border-border transition-all duration-slow ease-spring overflow-hidden overscroll-contain-strict",
@@ -117,9 +182,12 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
           "[@media(max-width:767px)_and_(orientation:landscape)]:w-[55vw]",
           "[@media(max-width:767px)_and_(orientation:landscape)]:max-w-[14rem]",
           mobileOpen ? "translate-x-0" : "-translate-x-full",
-          // Desktop: inline, sticky, reveal
+          // Desktop: inline, sticky, reveal. Width swaps between rail
+          // (64 px) and full (256 px) — the `transition-all` on the
+          // shared layout above smooths the swap. Hover-expand uses the
+          // same width change so the page content stays in step.
           "md:static md:translate-x-0 md:top-0 md:h-screen md:sticky md:pl-0",
-          collapsed ? "md:w-16" : "md:w-64"
+          expanded ? "md:w-64" : "md:w-16"
         )}
       >
         {/* Brand */}
@@ -142,7 +210,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                 priority
               />
             </div>
-            {!collapsed && (
+            {expanded && (
               <span className="text-base md:text-lg font-bold text-text whitespace-nowrap animate-fade-in">
                 Agile Toolkit
               </span>
@@ -178,7 +246,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                     isActive
                       ? "bg-accent/10 text-accent shadow-[0_0_10px_var(--glow)_inset]"
                       : "text-sub hover:text-text hover:bg-accent/5",
-                    collapsed && "md:justify-center"
+                    !expanded && "md:justify-center"
                   )}
                   aria-current={isActive ? "page" : undefined}
                 >
@@ -189,7 +257,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                     )}
                     aria-hidden="true"
                   />
-                  {!collapsed && (
+                  {expanded && (
                     <span className="truncate font-medium">{label}</span>
                   )}
                   {isActive && (
@@ -209,8 +277,13 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
             // Collapsible looks broken (chevron toggles open → reveals nothing,
             // so users think the category isn't collapsible at all).
             if (categoryTools.length === 0) return null;
-            const shortName = category.split(" ")[0];
-            const isOpen = !collapsed && !!openCategories[category];
+            const label = categoryLabel(category);
+            // Rail-mode short label: first 3 chars of the SHORT label
+            // (much friendlier than the prior `category.split(" ")[0]`
+            // which produced unhelpful prefixes like "AI" for the AI/LLM
+            // category — fine but with /-separators it cut mid-token).
+            const railTag = label.slice(0, 3);
+            const isOpen = expanded && !!openCategories[category];
 
             return (
               <Collapsible
@@ -219,18 +292,23 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                 onOpenChange={() => toggleCategory(category)}
               >
                 <CollapsibleTrigger
+                  // Suppress the loud `click-generic` sound that the global
+                  // event-router would otherwise emit for every category
+                  // toggle. toggleCategory emits a softer `ui:toggle-on` /
+                  // `ui:toggle-off` instead, calibrated for collapse UX.
+                  data-no-sound="true"
                   className={cn(
                     "flex items-center w-full px-3 py-2 text-xs font-semibold uppercase tracking-wider text-sub hover:text-text transition-colors rounded-lg",
-                    collapsed && "md:justify-center"
+                    !expanded && "md:justify-center"
                   )}
                 >
-                  {collapsed ? (
+                  {!expanded ? (
                     <span className="text-[10px] hidden md:inline">
-                      {shortName.slice(0, 3)}
+                      {railTag}
                     </span>
                   ) : (
                     <>
-                      <span className="truncate">{category}</span>
+                      <span className="truncate">{label}</span>
                       <ChevronDown
                         className={cn(
                           // Rotate the chevron 180° when the category is open
@@ -282,7 +360,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                           )}
                           aria-hidden="true"
                         />
-                        {!collapsed && (
+                        {expanded && (
                           <>
                             <span className="truncate relative z-[1] font-medium">
                               {tool.name}
@@ -339,7 +417,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
         </button>
 
         {/* Footer */}
-        {!collapsed && (
+        {expanded && (
           <div className="px-4 pb-3 pt-2 pb-safe border-t border-border md:border-t-0 md:pb-3">
             <p className="text-[10px] text-sub text-center">
               Built by{" "}
