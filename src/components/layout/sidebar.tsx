@@ -319,31 +319,48 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
           })()}
         </nav>
 
-        {/* Collapse toggle — much smaller affordance than before, anchored
-            to the bottom-right corner instead of spanning the full width
-            (which competed with the brand for prominence). Hidden on
-            mobile where the drawer pattern handles open/close instead. */}
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          data-no-sound="true"
-          className={cn(
-            "hidden md:flex items-center justify-center",
-            "h-8 mx-2 mb-2 rounded-md",
-            "text-sub/70 hover:text-text hover:bg-text/[0.04]",
-            "transition-colors duration-default",
-            expanded ? "self-end w-8" : "self-center w-8"
+        {/* Footer cluster — credit line on top, collapse toggle anchored
+            at the bottom edge. Border-top separates the cluster from the
+            scrollable nav above without competing with it. Credit hides
+            in rail mode since 56px can't accommodate the full line. */}
+        <div className="border-t border-border/60 pb-safe md:pb-0">
+          {expanded && (
+            <p className="px-3 pt-2.5 text-[10px] text-sub/70 text-center leading-none">
+              Developed by{" "}
+              <a
+                href="https://amrelharony.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent/90 hover:text-accent hover:underline underline-offset-2 font-medium"
+              >
+                Amr El Harony
+              </a>
+            </p>
           )}
-          aria-label={collapsed ? "Pin sidebar open" : "Collapse sidebar"}
-          title={collapsed ? "Pin sidebar open" : "Collapse sidebar"}
-        >
-          <ChevronLeft
+          {/* Collapse toggle — small affordance anchored to the bottom edge.
+              Hidden on mobile where the drawer pattern handles open/close. */}
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            data-no-sound="true"
             className={cn(
-              "w-3.5 h-3.5 transition-transform duration-medium ease-spring",
-              collapsed && "rotate-180"
+              "hidden md:flex items-center justify-center",
+              "h-7 mx-2 my-2 rounded-md",
+              "text-sub/70 hover:text-text hover:bg-text/[0.04]",
+              "transition-colors duration-default",
+              expanded ? "ml-auto w-7" : "w-7 mx-auto"
             )}
-            aria-hidden="true"
-          />
-        </button>
+            aria-label={collapsed ? "Pin sidebar open" : "Collapse sidebar"}
+            title={collapsed ? "Pin sidebar open" : "Collapse sidebar"}
+          >
+            <ChevronLeft
+              className={cn(
+                "w-3.5 h-3.5 transition-transform duration-medium ease-spring",
+                collapsed && "rotate-180"
+              )}
+              aria-hidden="true"
+            />
+          </button>
+        </div>
       </aside>
     </>
   );
