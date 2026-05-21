@@ -211,6 +211,8 @@ interface ProviderPanelProps {
   onMakeActive: () => void;
 }
 
+const CUSTOM_MODEL_VALUE = "__custom__";
+
 function ProviderPanel({
   providerId,
   isActive,
@@ -223,6 +225,14 @@ function ProviderPanel({
   const models = MODELS_BY_PROVIDER[providerId];
   const [apiKey, setApiKey] = useState(existing?.apiKey ?? "");
   const [model, setModel] = useState(existing?.model ?? DEFAULT_MODEL_BY_PROVIDER[providerId]);
+  // Custom-model escape hatch — when a user has saved a model id not in
+  // the dropdown (e.g., a brand-new GLM release that shipped after this
+  // table was last refreshed), the Select shows a "Custom…" entry and a
+  // free-text input appears.
+  const isExistingModelInList = (mid: string) => models.some((m) => m.id === mid);
+  const [customMode, setCustomMode] = useState(
+    !!existing?.model && !isExistingModelInList(existing.model)
+  );
   const [reveal, setReveal] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<"ok" | "fail" | null>(null);
@@ -230,9 +240,14 @@ function ProviderPanel({
   // Re-sync local state when the user flips to this tab and there's a
   // different stored value (e.g., after saving on another tab).
   useEffect(() => {
+    const stored = existing?.model ?? DEFAULT_MODEL_BY_PROVIDER[providerId];
     setApiKey(existing?.apiKey ?? "");
-    setModel(existing?.model ?? DEFAULT_MODEL_BY_PROVIDER[providerId]);
+    setModel(stored);
+    setCustomMode(!!existing?.model && !isExistingModelInList(existing.model));
     setTestResult(null);
+    // existing.apiKey + .model already cover what we need; isExistingModelInList
+    // is a stable function of `models` which is per-tab and constant.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existing?.apiKey, existing?.model, providerId]);
 
   const handleTest = async () => {
@@ -325,7 +340,19 @@ function ProviderPanel({
         <Label htmlFor={`llm-model-${providerId}`} className="text-xs text-text">
           Model
         </Label>
-        <Select value={model} onValueChange={setModel}>
+        <Select
+          value={customMode ? CUSTOM_MODEL_VALUE : model}
+          onValueChange={(v) => {
+            if (v === CUSTOM_MODEL_VALUE) {
+              setCustomMode(true);
+              // Seed the input with the current model so the user can edit
+              // rather than re-type from scratch.
+              return;
+            }
+            setCustomMode(false);
+            setModel(v);
+          }}
+        >
           <SelectTrigger
             id={`llm-model-${providerId}`}
             className="bg-surface-deep border-border text-text"
@@ -341,8 +368,26 @@ function ProviderPanel({
                 </span>
               </SelectItem>
             ))}
+            <SelectItem value={CUSTOM_MODEL_VALUE}>
+              <span className="font-mono">Custom model id…</span>
+              <span className="ml-2 text-[11px] text-sub">type any id the provider supports</span>
+            </SelectItem>
           </SelectContent>
         </Select>
+        {customMode && (
+          // Escape hatch for models released after our pricing table was last
+          // updated. Cost preview falls back to "$0" for unknown ids — the
+          // provider's invoice is always the source of truth.
+          <Input
+            type="text"
+            value={model}
+            onChange={(e) => setModel(e.target.value.trim())}
+            placeholder="e.g. glm-5.2 / claude-opus-4-6 / o4-mini"
+            autoComplete="off"
+            spellCheck={false}
+            className="bg-surface-deep border-border text-text font-data text-xs"
+          />
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 pt-1">

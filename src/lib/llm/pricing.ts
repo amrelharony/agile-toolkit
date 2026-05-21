@@ -13,12 +13,51 @@ import type { ModelInfo, ProviderId } from "./types";
 
 export const MODELS_BY_PROVIDER: Record<ProviderId, readonly ModelInfo[]> = {
   anthropic: [
+    // Listed newest → oldest so the dropdown surfaces current models first.
+    // Aliased ids (without the date suffix) are used because Anthropic
+    // resolves them server-side to the latest snapshot of each tier.
+    // Pricing per https://www.anthropic.com/pricing — re-verify if drift.
     {
-      id: "claude-sonnet-4-5",
-      label: "Claude Sonnet 4.5",
+      id: "claude-opus-4-7",
+      label: "Claude Opus 4.7",
+      contextWindow: 200_000,
+      inputPer1k: 0.015,
+      outputPer1k: 0.075,
+    },
+    {
+      id: "claude-sonnet-4-7",
+      label: "Claude Sonnet 4.7",
+      contextWindow: 1_000_000,
+      inputPer1k: 0.003,
+      outputPer1k: 0.015,
+    },
+    {
+      id: "claude-haiku-4-7",
+      label: "Claude Haiku 4.7",
+      contextWindow: 200_000,
+      inputPer1k: 0.0008,
+      outputPer1k: 0.004,
+    },
+    {
+      id: "claude-opus-4-6",
+      label: "Claude Opus 4.6",
+      contextWindow: 200_000,
+      inputPer1k: 0.015,
+      outputPer1k: 0.075,
+    },
+    {
+      id: "claude-sonnet-4-6",
+      label: "Claude Sonnet 4.6",
       contextWindow: 200_000,
       inputPer1k: 0.003,
       outputPer1k: 0.015,
+    },
+    {
+      id: "claude-haiku-4-6",
+      label: "Claude Haiku 4.6",
+      contextWindow: 200_000,
+      inputPer1k: 0.0008,
+      outputPer1k: 0.004,
     },
     {
       id: "claude-opus-4-5",
@@ -28,14 +67,94 @@ export const MODELS_BY_PROVIDER: Record<ProviderId, readonly ModelInfo[]> = {
       outputPer1k: 0.075,
     },
     {
+      id: "claude-sonnet-4-5",
+      label: "Claude Sonnet 4.5",
+      contextWindow: 200_000,
+      inputPer1k: 0.003,
+      outputPer1k: 0.015,
+    },
+    {
       id: "claude-haiku-4-5",
       label: "Claude Haiku 4.5",
       contextWindow: 200_000,
       inputPer1k: 0.0008,
       outputPer1k: 0.004,
     },
+    {
+      id: "claude-3-7-sonnet-latest",
+      label: "Claude 3.7 Sonnet",
+      contextWindow: 200_000,
+      inputPer1k: 0.003,
+      outputPer1k: 0.015,
+    },
   ],
   openai: [
+    // Listed newest → oldest. Pricing per https://openai.com/api/pricing —
+    // re-verify if drift. Reasoning models (o-series) are charged the same
+    // per token but typically consume more output tokens for the same task.
+    {
+      id: "gpt-5",
+      label: "GPT-5",
+      contextWindow: 400_000,
+      inputPer1k: 0.00125,
+      outputPer1k: 0.01,
+    },
+    {
+      id: "gpt-5-mini",
+      label: "GPT-5 mini",
+      contextWindow: 400_000,
+      inputPer1k: 0.00025,
+      outputPer1k: 0.002,
+    },
+    {
+      id: "gpt-5-nano",
+      label: "GPT-5 nano",
+      contextWindow: 400_000,
+      inputPer1k: 0.00005,
+      outputPer1k: 0.0004,
+    },
+    {
+      id: "gpt-4.1",
+      label: "GPT-4.1",
+      contextWindow: 1_000_000,
+      inputPer1k: 0.002,
+      outputPer1k: 0.008,
+    },
+    {
+      id: "gpt-4.1-mini",
+      label: "GPT-4.1 mini",
+      contextWindow: 1_000_000,
+      inputPer1k: 0.0004,
+      outputPer1k: 0.0016,
+    },
+    {
+      id: "gpt-4.1-nano",
+      label: "GPT-4.1 nano",
+      contextWindow: 1_000_000,
+      inputPer1k: 0.0001,
+      outputPer1k: 0.0004,
+    },
+    {
+      id: "o4-mini",
+      label: "o4 mini (reasoning)",
+      contextWindow: 200_000,
+      inputPer1k: 0.0011,
+      outputPer1k: 0.0044,
+    },
+    {
+      id: "o3",
+      label: "o3 (reasoning)",
+      contextWindow: 200_000,
+      inputPer1k: 0.002,
+      outputPer1k: 0.008,
+    },
+    {
+      id: "o3-mini",
+      label: "o3 mini (reasoning)",
+      contextWindow: 200_000,
+      inputPer1k: 0.0011,
+      outputPer1k: 0.0044,
+    },
     {
       id: "gpt-4o",
       label: "GPT-4o",
@@ -50,21 +169,59 @@ export const MODELS_BY_PROVIDER: Record<ProviderId, readonly ModelInfo[]> = {
       inputPer1k: 0.00015,
       outputPer1k: 0.0006,
     },
-    {
-      id: "o3-mini",
-      label: "o3 mini",
-      contextWindow: 200_000,
-      inputPer1k: 0.0011,
-      outputPer1k: 0.0044,
-    },
   ],
   gemini: [
+    // Listed newest → oldest. Pricing per https://ai.google.dev/pricing —
+    // re-verify if drift. Note: Gemini 2.5 Pro uses tiered pricing based on
+    // prompt length; the figures below reflect the ≤200K-token tier.
+    {
+      id: "gemini-3-pro",
+      label: "Gemini 3 Pro",
+      contextWindow: 2_000_000,
+      inputPer1k: 0.00125,
+      outputPer1k: 0.01,
+    },
+    {
+      id: "gemini-3-flash",
+      label: "Gemini 3 Flash",
+      contextWindow: 1_000_000,
+      inputPer1k: 0.0003,
+      outputPer1k: 0.0025,
+    },
+    {
+      id: "gemini-2.5-pro",
+      label: "Gemini 2.5 Pro",
+      contextWindow: 2_000_000,
+      inputPer1k: 0.00125,
+      outputPer1k: 0.01,
+    },
+    {
+      id: "gemini-2.5-flash",
+      label: "Gemini 2.5 Flash",
+      contextWindow: 1_000_000,
+      inputPer1k: 0.0003,
+      outputPer1k: 0.0025,
+    },
+    {
+      id: "gemini-2.5-flash-lite",
+      label: "Gemini 2.5 Flash-Lite",
+      contextWindow: 1_000_000,
+      inputPer1k: 0.0001,
+      outputPer1k: 0.0004,
+    },
     {
       id: "gemini-2.0-flash",
       label: "Gemini 2.0 Flash",
       contextWindow: 1_000_000,
       inputPer1k: 0.0001,
       outputPer1k: 0.0004,
+    },
+    {
+      id: "gemini-2.0-flash-lite",
+      label: "Gemini 2.0 Flash-Lite",
+      contextWindow: 1_000_000,
+      inputPer1k: 0.000075,
+      outputPer1k: 0.0003,
     },
     {
       id: "gemini-1.5-pro",
@@ -75,11 +232,63 @@ export const MODELS_BY_PROVIDER: Record<ProviderId, readonly ModelInfo[]> = {
     },
   ],
   glm: [
+    // Listed newest-first so the dropdown surfaces current models at the top.
+    // Pricing is approximate USD conversion from Zhipu's CNY pricing page —
+    // update against https://open.bigmodel.cn/pricing if numbers drift.
+    {
+      id: "glm-5.1",
+      label: "GLM-5.1",
+      contextWindow: 200_000,
+      inputPer1k: 0.0010,
+      outputPer1k: 0.0040,
+    },
+    {
+      id: "glm-5",
+      label: "GLM-5",
+      contextWindow: 200_000,
+      inputPer1k: 0.0010,
+      outputPer1k: 0.0040,
+    },
+    {
+      id: "glm-4.7",
+      label: "GLM-4.7",
+      contextWindow: 200_000,
+      inputPer1k: 0.0008,
+      outputPer1k: 0.0030,
+    },
+    {
+      id: "glm-4.6",
+      label: "GLM-4.6",
+      contextWindow: 200_000,
+      inputPer1k: 0.0006,
+      outputPer1k: 0.0022,
+    },
+    {
+      id: "glm-4.5",
+      label: "GLM-4.5",
+      contextWindow: 128_000,
+      inputPer1k: 0.0005,
+      outputPer1k: 0.0020,
+    },
+    {
+      id: "glm-4.5-air",
+      label: "GLM-4.5 Air",
+      contextWindow: 128_000,
+      inputPer1k: 0.0001,
+      outputPer1k: 0.0004,
+    },
+    {
+      id: "glm-4.5-flash",
+      label: "GLM-4.5 Flash",
+      contextWindow: 128_000,
+      inputPer1k: 0,
+      outputPer1k: 0,
+    },
     {
       id: "glm-4-plus",
       label: "GLM-4 Plus",
       contextWindow: 128_000,
-      inputPer1k: 0.0070, // approximate USD conversion from CNY pricing
+      inputPer1k: 0.0070,
       outputPer1k: 0.0070,
     },
     {
@@ -100,10 +309,13 @@ export const MODELS_BY_PROVIDER: Record<ProviderId, readonly ModelInfo[]> = {
 };
 
 export const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderId, string> = {
-  anthropic: "claude-sonnet-4-5",
-  openai: "gpt-4o-mini",
-  gemini: "gemini-2.0-flash",
-  glm: "glm-4-flash",
+  // Defaults bias toward the cheap, fast, current-gen model in each family
+  // so a first-time user's first Run doesn't surprise them with a flagship
+  // bill. Power users can switch to a bigger model in two clicks.
+  anthropic: "claude-haiku-4-7",
+  openai: "gpt-5-mini",
+  gemini: "gemini-2.5-flash",
+  glm: "glm-5.1",
 };
 
 /** Static UI metadata — names, websites. Safe to load eagerly. */
