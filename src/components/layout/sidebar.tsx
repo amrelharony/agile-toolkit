@@ -294,18 +294,12 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
             // so users think the category isn't collapsible at all).
             if (categoryTools.length === 0) return null;
             const label = categoryLabel(category);
-            // Rail-mode short label: first 3 chars of the SHORT label
-            // (much friendlier than the prior `category.split(" ")[0]`
-            // which produced unhelpful prefixes like "AI" for the AI/LLM
-            // category — fine but with /-separators it cut mid-token).
-            const railTag = label.slice(0, 3);
             // Rail mode forces every category open so the user sees tool
-            // icons in the collapsed sidebar — without this, the rail
-            // showed only 3-letter category tags ("Spr", "Met") and
-            // forced a hover-expand or pin to find any tool. With it,
-            // the rail is a continuous icon-scrollable column grouped
-            // by the small "Spr"/"Met" tags. The persisted open/closed
-            // preference is only consulted in expanded mode.
+            // icons in the collapsed sidebar. The trigger (with its
+            // category label) is hidden in rail mode below — only the
+            // tool icons render in the narrow rail. The persisted
+            // open/closed preference is only consulted in expanded
+            // mode, where the trigger is visible.
             const isOpen = !expanded || !!openCategories[category];
 
             return (
@@ -326,39 +320,34 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                 // from either child finds it.
                 data-no-sound="true"
               >
-                <CollapsibleTrigger
-                  // Suppress the loud `click-generic` sound that the global
-                  // event-router would otherwise emit for every category
-                  // toggle. toggleCategory emits a softer `ui:toggle-on` /
-                  // `ui:toggle-off` instead, calibrated for collapse UX.
-                  data-no-sound="true"
-                  className={cn(
-                    "flex items-center w-full px-3 py-2 text-xs font-semibold uppercase tracking-wider text-sub hover:text-text transition-colors rounded-lg",
-                    !expanded && "md:justify-center"
-                  )}
-                >
-                  {!expanded ? (
-                    <span className="text-[10px] hidden md:inline">
-                      {railTag}
-                    </span>
-                  ) : (
-                    <>
-                      <span className="truncate">{label}</span>
-                      <ChevronDown
-                        className={cn(
-                          // Rotate the chevron 180° when the category is open
-                          // so users get a visual confirmation that clicking
-                          // toggled the state. Without this the chevron stayed
-                          // pointing down even when content was expanded —
-                          // easy to mistake for an unresponsive button.
-                          "ml-auto w-3 h-3 transition-transform duration-default",
-                          isOpen ? "rotate-180" : "rotate-0"
-                        )}
-                        aria-hidden="true"
-                      />
-                    </>
-                  )}
-                </CollapsibleTrigger>
+                {/* Trigger only renders in expanded mode. In rail mode the
+                    Collapsible is force-open (isOpen=true above) and the
+                    category structure is implicit — only tool icons show.
+                    The previous 3-letter railTag ("POR", "TEA", "AI ")
+                    was crowding the rail without adding navigation value;
+                    the tool icons themselves are the actionable affordance. */}
+                {expanded && (
+                  <CollapsibleTrigger
+                    // Suppress the loud `click-generic` sound that the
+                    // global event-router would otherwise emit. The
+                    // toggleCategory handler emits the piano category-open
+                    // / category-close tones instead.
+                    data-no-sound="true"
+                    className="flex items-center w-full px-3 py-2 text-xs font-semibold uppercase tracking-wider text-sub hover:text-text transition-colors rounded-lg"
+                  >
+                    <span className="truncate">{label}</span>
+                    <ChevronDown
+                      className={cn(
+                        // Rotate the chevron 180° when the category is open
+                        // so users get a visual confirmation that clicking
+                        // toggled the state.
+                        "ml-auto w-3 h-3 transition-transform duration-default",
+                        isOpen ? "rotate-180" : "rotate-0"
+                      )}
+                      aria-hidden="true"
+                    />
+                  </CollapsibleTrigger>
+                )}
                 <CollapsibleContent className="space-y-0.5">
                   {categoryTools.map((tool) => {
                     const isActive = pathname === tool.path;
