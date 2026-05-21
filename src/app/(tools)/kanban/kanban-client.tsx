@@ -206,8 +206,13 @@ export function KanbanClient() {
       const key = `${year}-W${String(week).padStart(2, "0")}`;
       byWeek.set(key, (byWeek.get(key) ?? 0) + 1);
     }
+    // Byte-order compare instead of localeCompare — the keys are
+    // strict ISO week strings ("2026-W20"); locale-aware sorting can
+    // pick up unexpected orderings in some locales (Turkish dotless-i,
+    // etc.). Plain `<` comparison is faster and locale-stable for this
+    // restricted character set.
     return Array.from(byWeek.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([label, value]) => ({ label, value }));
   }, [state.cards]);
 

@@ -24,7 +24,12 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+      // Caps Lock makes `e.key` "K" — compare against the lowercase form so
+      // the shortcut keeps working regardless of caps state. Also accept the
+      // physical key code as a fallback for layouts where the K position
+      // produces a different character.
+      const isK = e.key.toLowerCase() === "k" || e.code === "KeyK";
+      if (isK && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         onOpenChange(!open);
       }

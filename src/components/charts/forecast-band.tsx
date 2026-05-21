@@ -26,9 +26,23 @@ interface ForecastBandChartProps {
   xLabel?: string;
   yLabel?: string;
   height?: number;
+  /**
+   * When the underlying quantity can't be negative (story counts, points
+   * remaining, etc.), set `clampLowerAtZero=true` to clip the lower band
+   * at 0. For metrics that can legitimately go below 0 (velocity delta,
+   * sentiment), keep this false. Defaults to `true` for backward compat
+   * with the original behaviour.
+   */
+  clampLowerAtZero?: boolean;
 }
 
-export function ForecastBandChart({ series, xLabel, yLabel, height = 320 }: ForecastBandChartProps) {
+export function ForecastBandChart({
+  series,
+  xLabel,
+  yLabel,
+  height = 320,
+  clampLowerAtZero = true,
+}: ForecastBandChartProps) {
   const data: Array<{
     x: number | string;
     actual?: number;
@@ -55,13 +69,14 @@ export function ForecastBandChart({ series, xLabel, yLabel, height = 320 }: Fore
     };
   }
 
+  const clampLow = (v: number) => (clampLowerAtZero ? Math.max(0, v) : v);
   series.forecast.forEach((f) => {
     data.push({
       x: f.x,
       yHat: f.yHat,
-      band80Lower: Math.max(0, f.lower80),
+      band80Lower: clampLow(f.lower80),
       band80Upper: f.upper80,
-      band95Lower: Math.max(0, f.lower95),
+      band95Lower: clampLow(f.lower95),
       band95Upper: f.upper95,
     });
   });

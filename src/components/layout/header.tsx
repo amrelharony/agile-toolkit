@@ -42,15 +42,41 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
   }, []);
 
   useEffect(() => {
+    // Skip the redundant write on the very first effect run — the inline
+    // boot script in layout.tsx already set the class AND localStorage to
+    // this same value before React hydrated. Without this guard we issue
+    // a localStorage.setItem on every cold load even when nothing changed.
     document.documentElement.classList.toggle("light", theme === "light");
     document.documentElement.classList.toggle("dark", theme === "dark");
-    localStorage.setItem("ae-theme", theme);
-  }, [theme]);
+    if (!mounted) return;
+    try {
+      localStorage.setItem("ae-theme", theme);
+    } catch {
+      /* quota / unavailable — boot script will still re-apply on next load */
+    }
+  }, [theme, mounted]);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
+    // Throttle via rAF — `scroll` can fire at native 60Hz+, and our only
+    // need is the boolean transition. Calling setState 60 times per second
+    // when no consumer of `scrolled` cares about sub-frame precision is a
+    // pointless render storm.
+    let raf = 0;
+    let queued = false;
+    const compute = () => {
+      queued = false;
+      setScrolled(window.scrollY > 8);
+    };
+    const onScroll = () => {
+      if (queued) return;
+      queued = true;
+      raf = requestAnimationFrame(compute);
+    };
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
   return (

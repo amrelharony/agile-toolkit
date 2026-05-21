@@ -66,7 +66,7 @@ export function kMeans(points: number[][], k: number, maxIter = 50, seed = 42): 
   const realK = Math.min(k, sampled.length);
   const rand = mulberry32(seed);
   let centroids = kMeansPlusPlusInit(sampled, realK, rand);
-  let labels = new Array(sampled.length).fill(0);
+  const labels = new Array(sampled.length).fill(0);
   let iterations = 0;
 
   for (let iter = 0; iter < maxIter; iter++) {

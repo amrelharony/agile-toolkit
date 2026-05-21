@@ -114,10 +114,18 @@ const createItem = (): WorkItem => ({
   // description omitted intentionally — optional, lazy-initialized.
 });
 
+/** Hydration-safe default — see same pattern in capacity-planner. */
+const defaultFirstItem: WorkItem = {
+  id: "default:item-1",
+  name: "",
+  startDate: "",
+  endDate: "",
+};
+
 const useCycleTimeStore = create<CycleTimeStore>()(
   persist(
     (set) => ({
-      items: [createItem()],
+      items: [defaultFirstItem],
 
       addItem: () =>
         set((s) => ({ items: [...s.items, createItem()] })),

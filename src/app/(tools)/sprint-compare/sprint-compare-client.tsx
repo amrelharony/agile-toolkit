@@ -27,7 +27,7 @@ import { ChartCard } from "@/components/shared/chart-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, GitCompare } from "lucide-react";
-import { parseHex } from "@/lib/utils";
+import { parseHexOrBlack } from "@/lib/utils";
 
 /* -------------------------------------------------------------------------- */
 /*  Constants                                                                 */
@@ -227,7 +227,7 @@ function ScoreCell({
   color: string;
 }) {
   const intensity = value / 10;
-  const { r, g, b } = parseHex(color);
+  const { r, g, b } = parseHexOrBlack(color);
   return (
     <td
       className="px-4 py-2 text-center text-sm font-data font-semibold"

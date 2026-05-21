@@ -123,4 +123,9 @@ export const emptyWorkspace: Workspace = {
   okrs: [],
   decisions: [],
   techDebt: [],
+  // Explicit-undefined so { ...emptyWorkspace, ...patch } reliably clears
+  // these optional fields when patch omits them. Otherwise an import that
+  // omits `teamName` lets the prior session's teamName survive.
+  maturityLevel: undefined,
+  teamName: undefined,
 };

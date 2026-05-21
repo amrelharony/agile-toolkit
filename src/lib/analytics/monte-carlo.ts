@@ -20,7 +20,12 @@ export interface MonteCarloResult {
 }
 
 function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
+  // mulberry32 with seed=0 produces a degenerate first-call output (the
+  // multiplication by `t | 1` makes the state advance through a known
+  // low-entropy region for a few hundred iterations). Mix in a non-zero
+  // constant so callers can pass seed=0 deterministically without that
+  // burn-in artefact contaminating short simulations.
+  let a = (seed >>> 0) || 0x9e3779b9;
   return function () {
     a |= 0;
     a = (a + 0x6d2b79f5) | 0;
@@ -87,7 +92,15 @@ export function runMonteCarlo({
   }
 
   results.sort((a, b) => a - b);
-  const pick = (pct: number) => results[Math.min(Math.floor((pct / 100) * iterations), iterations - 1)];
+  // Nearest-rank percentile with explicit ceiling on the right-tail to
+  // avoid `Math.floor((100/100) * n) === n` walking off the end. For
+  // small iteration counts (test runs), the index can also collide with
+  // 0 for P5 on n=10; we accept that — nearest-rank is the documented
+  // contract and bias-free for the iteration sizes we ship (10k+).
+  const pick = (pct: number) => {
+    const idx = Math.min(Math.floor((pct / 100) * iterations), iterations - 1);
+    return results[Math.max(0, idx)];
+  };
 
   const percentiles: Record<number, number> = {
     5: pick(5),

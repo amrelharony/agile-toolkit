@@ -99,9 +99,11 @@ function createDefaultItem(): BacklogItem {
   };
 }
 
+// Deterministic IDs in module-level defaults so SSR HTML matches client HTML
+// on first paint. User-added items get real UUIDs via `createDefaultItem`.
 const defaultItems: BacklogItem[] = [
   {
-    id: crypto.randomUUID(),
+    id: "default:item-auth",
     name: "User authentication",
     moscow: "must",
     businessValue: 9,
@@ -116,7 +118,7 @@ const defaultItems: BacklogItem[] = [
     matrixEffort: 3,
   },
   {
-    id: crypto.randomUUID(),
+    id: "default:item-dashboard",
     name: "Dashboard redesign",
     moscow: "should",
     businessValue: 7,
@@ -131,7 +133,7 @@ const defaultItems: BacklogItem[] = [
     matrixEffort: 5,
   },
   {
-    id: crypto.randomUUID(),
+    id: "default:item-pdf",
     name: "Export to PDF",
     moscow: "could",
     businessValue: 4,
@@ -146,7 +148,7 @@ const defaultItems: BacklogItem[] = [
     matrixEffort: 2,
   },
   {
-    id: crypto.randomUUID(),
+    id: "default:item-darkmode",
     name: "Dark mode toggle",
     moscow: "could",
     businessValue: 3,
@@ -161,7 +163,7 @@ const defaultItems: BacklogItem[] = [
     matrixEffort: 1,
   },
   {
-    id: crypto.randomUUID(),
+    id: "default:item-legacy",
     name: "Legacy API migration",
     moscow: "wont",
     businessValue: 2,

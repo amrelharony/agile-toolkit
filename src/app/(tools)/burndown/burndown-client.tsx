@@ -25,6 +25,7 @@ import { generateBurndownPrompts } from "@/lib/ai-prompts/burndown";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { BURNDOWN_ACTIONS } from "@/lib/history/event-actions";
 import { withTimeTravel } from "@/lib/stores/with-time-travel";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
 import { cusum } from "@/lib/analytics/changepoint";
@@ -79,24 +80,32 @@ interface BurndownStore {
 /*  Default data                                                               */
 /* -------------------------------------------------------------------------- */
 
-// Defaults are computed lazily so the start-date and entry IDs are bound to
-// the user's actual session — not the moment the JS bundle was loaded (which,
-// with persisted state, can be days or weeks in the past).
+// Defaults use a STATIC sprint start date so server-rendered HTML matches
+// client-rendered HTML at hydration. Previously we read `new Date()` here,
+// which:
+//   1. Differs between server and client when the JS bundle and the user
+//      land in different timezones, producing distinct ISO strings → React
+//      hydration warning.
+//   2. Causes the default to silently drift each day for users without
+//      persisted state, so a "fresh" burndown opened on Monday vs Tuesday
+//      shows different ideal-line starts.
+// The first action a user takes (typing in any field, or hitting Reset)
+// re-sets the date to today via the `reset()` action, which runs client-only.
 function makeDefaultConfig(): BurndownConfig {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
   return {
     totalPoints: 40,
     sprintDays: 10,
-    sprintStartDate: `${y}-${m}-${day}`,
+    sprintStartDate: "2026-01-01",
   };
 }
 
 function createDefaultEntries(sprintDays: number, totalPoints: number): DayEntry[] {
+  // Use deterministic ids for the initial entries so the server-rendered
+  // HTML matches the client-rendered HTML on first paint. New entries added
+  // by the user get proper UUIDs via `addEntry`. Without this, React 18
+  // hydration warns on every fresh load.
   return Array.from({ length: sprintDays + 1 }, (_, i) => ({
-    id: crypto.randomUUID(),
+    id: `default:day-${i}`,
     day: i,
     remaining: i === 0 ? totalPoints : null,
     scopeChange: false,
@@ -174,7 +183,10 @@ const useBurndownStore = create<BurndownStore>()(
         })),
 
       reset: () => {
-        const cfg = makeDefaultConfig();
+        // Use today's local date when resetting — `makeDefaultConfig`
+        // returns a STATIC date (for hydration safety on first paint), but
+        // a user clicking Reset expects "today" not "January 1st 2026".
+        const cfg = { ...makeDefaultConfig(), sprintStartDate: todayLocalISO() };
         set({
           config: cfg,
           entries: createDefaultEntries(cfg.sprintDays, cfg.totalPoints),

@@ -34,9 +34,22 @@ function readCache(): CacheEntry | null {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if (!raw) return null;
+    // Cap the read to a few KB — this slot should never be more than ~1KB
+    // and bounding it prevents a corrupted/oversized value from freezing
+    // JSON.parse on cold load.
+    if (raw.length > 16_384) {
+      localStorage.removeItem(CACHE_KEY);
+      return null;
+    }
     const parsed = JSON.parse(raw) as CacheEntry;
-    if (typeof parsed.at !== "number") return null;
+    if (!parsed || typeof parsed !== "object" || typeof parsed.at !== "number") return null;
     if (Date.now() - parsed.at > CACHE_TTL_MS) return null;
+    // Validate snapshot shape; a stale persisted entry from a previous
+    // schema would otherwise propagate undefined fields to the renderer.
+    const snap = parsed.snapshot as Partial<WeatherSnapshot> | undefined;
+    if (!snap || typeof snap.temperatureC !== "number" || !Number.isFinite(snap.temperatureC)) {
+      return null;
+    }
     return parsed;
   } catch {
     return null;

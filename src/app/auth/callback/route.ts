@@ -56,10 +56,24 @@ export async function GET(request: NextRequest) {
 
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
-    return NextResponse.redirect(
-      `${origin}${next}?auth_error=${encodeURIComponent(error.message)}`
-    );
+    // Don't reflect verbose Supabase error messages into the URL — they
+    // leak internal details and the consuming page would need to escape
+    // them on render. Map to a small allowlist of short slugs that the
+    // UI can localise; log the verbose message server-side for debugging.
+    // eslint-disable-next-line no-console
+    console.error("[auth/callback] exchangeCodeForSession failed:", error.message);
+    const slug = mapAuthErrorToSlug(error.message);
+    return NextResponse.redirect(`${origin}${next}?auth_error=${slug}`);
   }
 
   return NextResponse.redirect(`${origin}${next}`);
+}
+
+function mapAuthErrorToSlug(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("expired")) return "expired";
+  if (m.includes("invalid")) return "invalid";
+  if (m.includes("network") || m.includes("fetch")) return "network";
+  if (m.includes("rate")) return "rate_limited";
+  return "oauth_failed";
 }

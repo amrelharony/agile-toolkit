@@ -58,8 +58,15 @@ export class ErrorBoundary extends Component<Props, State> {
               The page hit an unexpected error. Your data is saved locally;
               nothing was lost.
             </p>
-            <pre className="text-[11px] text-sub bg-[var(--card)] border border-border rounded p-2 overflow-x-auto whitespace-pre-wrap font-mono text-left">
-              {this.state.error.message || String(this.state.error)}
+            <pre className="text-[11px] text-sub bg-[var(--card)] border border-border rounded p-2 overflow-x-auto whitespace-pre-wrap font-mono text-left max-h-40">
+              {(() => {
+                const raw = this.state.error.message || String(this.state.error);
+                // Truncate to keep the boundary card visually contained;
+                // long stack-trace-as-message strings (common when an
+                // Error is constructed from a stack) would otherwise push
+                // the "Try again" button off-screen.
+                return raw.length > 500 ? raw.slice(0, 500) + "…" : raw;
+              })()}
             </pre>
             <button
               type="button"

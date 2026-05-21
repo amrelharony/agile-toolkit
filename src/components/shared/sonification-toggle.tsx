@@ -114,8 +114,8 @@ export function SonificationToggle() {
         </div>
 
         <div className="flex items-center justify-between gap-3">
-          <label className="text-xs text-sub">Enabled</label>
-          <Switch checked={enabled} onCheckedChange={(v) => {
+          <label htmlFor="sonification-enabled" className="text-xs text-sub">Enabled</label>
+          <Switch id="sonification-enabled" checked={enabled} onCheckedChange={(v) => {
             kick();
             useSonificationStore.getState().setEnabled(v);
             if (v) setTimeout(() => emit("ui", "confirm"), 30);

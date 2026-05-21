@@ -7,6 +7,20 @@ export interface PersistedStoreActions {
   reset: () => void;
 }
 
+/** Cap to avoid OOM on hostile/oversized imports. 5MB covers every realistic
+ *  tool export — a workspace with thousands of stories is well under 1MB. */
+const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
+
+/** JSON.parse reviver that strips dangerous keys, defending against
+ *  prototype pollution from a crafted nested payload like
+ *  `{"stories": [{"__proto__": {"polluted": true}}]}`. */
+function safeJsonReviver(key: string, value: unknown): unknown {
+  if (key === "__proto__" || key === "constructor" || key === "prototype") {
+    return undefined;
+  }
+  return value;
+}
+
 /**
  * Strip fields we never want to serialize:
  *   - functions (action methods — re-attached by the slice creator)
@@ -28,6 +42,16 @@ function stripFunctions<T extends object>(obj: T): Partial<T> {
   return out as Partial<T>;
 }
 
+/** Loose type-check: does `actual` match the shape of `expected`? Only the
+ *  top-level kind matters (array vs object vs primitive). */
+function shapeMatches(expected: unknown, actual: unknown): boolean {
+  if (expected === null || expected === undefined) return true; // permissive
+  if (Array.isArray(expected)) return Array.isArray(actual);
+  const eType = typeof expected;
+  if (eType === "object") return typeof actual === "object" && actual !== null && !Array.isArray(actual);
+  return typeof actual === eType;
+}
+
 export function createPersistedStore<T extends object>(
   name: string,
   initialState: T,
@@ -46,24 +70,39 @@ export function createPersistedStore<T extends object>(
             return JSON.stringify(data, null, 2);
           },
           importJSON: (json: string) => {
-            // Parse first; on failure, throw so callers can surface a toast.
-            const parsed: unknown = JSON.parse(json);
-            if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-              throw new Error("Import payload must be a JSON object");
+            // Reject obvious DoS payloads before invoking the parser; a 200MB
+            // string in JSON.parse will freeze the UI thread for seconds.
+            if (typeof json !== "string" || json.length > MAX_IMPORT_BYTES) {
+              throw new Error(
+                `Import payload too large (max ${MAX_IMPORT_BYTES} bytes)`
+              );
             }
-            // Whitelist: only keys present in initialState are accepted, and
-            // functions are dropped. This prevents a malicious or stale
-            // export from overwriting action methods on the live store.
-            // `_tt*` keys are also rejected — those are runtime-only stacks
-            // that should never travel through import/export.
+            // Parse first; on failure, throw so callers can surface a toast.
+            // The reviver drops __proto__/constructor/prototype keys to
+            // defend against prototype-pollution via nested payloads.
+            const parsed: unknown = JSON.parse(json, safeJsonReviver);
+            if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+              throw new Error("Import payload must be a JSON object, not an array or primitive");
+            }
+            // Whitelist: only keys present in initialState are accepted, the
+            // value's top-level shape must match initialState's, and
+            // functions are dropped. `_tt*` keys are also rejected — those
+            // are runtime-only stacks that should never travel through
+            // import/export.
             const sanitized: Record<string, unknown> = {};
             for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
               if (k.startsWith("_tt")) continue;
-              if (allowedKeys.has(k) && typeof v !== "function") {
-                sanitized[k] = v;
-              }
+              if (!allowedKeys.has(k)) continue;
+              if (typeof v === "function") continue;
+              const expected = (initialState as Record<string, unknown>)[k];
+              if (!shapeMatches(expected, v)) continue;
+              sanitized[k] = v;
             }
-            set(sanitized as Partial<T & PersistedStoreActions>);
+            // Replace, not merge: an "Import JSON" UX implies the importer
+            // expects the file to be the new authoritative state. Untouched
+            // keys revert to their default rather than keeping prior session
+            // data the user thought they'd overwritten.
+            set({ ...initialState, ...sanitized } as Partial<T & PersistedStoreActions>);
           },
           reset: () => set({ ...initialState } as Partial<T & PersistedStoreActions>),
         })),

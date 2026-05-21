@@ -19,6 +19,7 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateRetroPrompts } from "@/lib/ai-prompts/retro";
 import { emit as sonify } from "@/lib/sonification/emit";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger, type HistoryLogger } from "@/lib/history/use-history-logger";
 import { RETRO_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
@@ -968,7 +969,10 @@ function Board({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `retro-${state.format.id}-${new Date().toISOString().slice(0, 10)}.json`;
+    // Use the user's LOCAL date in the filename — `toISOString().slice(0,10)`
+    // emits UTC and stamps "tomorrow" for users west of UTC after their
+    // local evening, confusing later when sorting downloads by name.
+    a.download = `retro-${state.format.id}-${todayLocalISO()}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [state]);

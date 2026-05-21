@@ -115,8 +115,15 @@ function currentQuarter(): string {
 }
 
 function krProgress(kr: KeyResult): number {
-  if (kr.target === 0) return 0;
-  return Math.max(0, Math.min(1, kr.current / kr.target));
+  // Guard against bad data: NaN/Infinity from `current` divided by `target`,
+  // negative targets (the UI may allow them via free-form input), and
+  // legitimate zero targets. Without these, a single corrupted KR (e.g.,
+  // imported from JSON) used to NaN-propagate into the radar chart.
+  if (!Number.isFinite(kr.target) || kr.target === 0) return 0;
+  if (!Number.isFinite(kr.current)) return 0;
+  const pct = kr.current / kr.target;
+  if (!Number.isFinite(pct)) return 0;
+  return Math.max(0, Math.min(1, pct));
 }
 
 function objectiveHealth(okr: Okr): number {

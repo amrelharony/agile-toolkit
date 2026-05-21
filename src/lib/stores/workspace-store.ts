@@ -1,3 +1,5 @@
+"use client";
+
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type {
@@ -35,9 +37,14 @@ interface WorkspaceActions {
   setMaturityLevel: (level: MaturityLevel | undefined) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
+  /** Batch upsert. Use this for bulk imports — single-item upserts are O(n)
+   *  each (find + copy), so calling N times is O(n²). */
+  bulkUpsertStories: (items: Story[]) => void;
   exportJSON: () => string;
   importJSON: (json: string) => void;
 }
+
+const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 
 const replaceById = <T extends { id: string }>(arr: T[], item: T): T[] => {
   const idx = arr.findIndex((x) => x.id === item.id);
@@ -46,6 +53,36 @@ const replaceById = <T extends { id: string }>(arr: T[], item: T): T[] => {
   next[idx] = item;
   return next;
 };
+
+/** O(n) batch upsert: build a Map once, write everything, materialize once. */
+const batchUpsertById = <T extends { id: string }>(arr: T[], items: T[]): T[] => {
+  if (items.length === 0) return arr;
+  const map = new Map<string, T>();
+  for (const x of arr) map.set(x.id, x);
+  for (const item of items) map.set(item.id, item);
+  return Array.from(map.values());
+};
+
+/** Defend against prototype pollution in nested imported payloads. */
+function safeJsonReviver(key: string, value: unknown): unknown {
+  if (key === "__proto__" || key === "constructor" || key === "prototype") {
+    return undefined;
+  }
+  return value;
+}
+
+/** Minimum shape check for array-of-record imports. We don't validate every
+ *  enum value (would be heavy and brittle), but require an `id` and reject
+ *  obvious junk like `[null, "abc", 5]`. */
+function isRecordWithId(v: unknown): v is { id: string } {
+  return typeof v === "object" && v !== null && !Array.isArray(v) &&
+    typeof (v as { id?: unknown }).id === "string";
+}
+
+function sanitizeArray<T extends { id: string }>(raw: unknown): T[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw.filter(isRecordWithId) as T[];
+}
 
 export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
   persist(
@@ -69,6 +106,8 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       upsertTechDebt: (t) => set({ techDebt: replaceById(get().techDebt, t) }),
       removeTechDebt: (id) => set({ techDebt: get().techDebt.filter((x) => x.id !== id) }),
       setMaturityLevel: (level) => set({ maturityLevel: level }),
+      bulkUpsertStories: (items) =>
+        set({ stories: batchUpsertById(get().stories, items) }),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -90,27 +129,33 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         return JSON.stringify(data, null, 2);
       },
       importJSON: (json) => {
-        // Validate shape before mutating state. Dropping unknown keys (and any
-        // function-valued ones) prevents a malformed/stale export from
-        // overwriting action methods or smuggling extra fields into the store.
-        const parsed: unknown = JSON.parse(json);
+        // Validate shape before mutating state. Bound the payload size to
+        // prevent UI-freezing JSON.parse calls on hostile inputs.
+        if (typeof json !== "string" || json.length > MAX_IMPORT_BYTES) {
+          throw new Error(`Import payload too large (max ${MAX_IMPORT_BYTES} bytes)`);
+        }
+        // Parse with a reviver that strips __proto__/constructor/prototype keys
+        // so a crafted nested payload can't pollute the global Object prototype.
+        const parsed: unknown = JSON.parse(json, safeJsonReviver);
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
           throw new Error("Import payload must be a JSON object");
         }
         const p = parsed as Record<string, unknown>;
-        const arr = <K extends keyof Workspace>(k: K): Workspace[K] | undefined =>
-          Array.isArray(p[k]) ? (p[k] as Workspace[K]) : undefined;
         const sanitized: Partial<Workspace> = {
-          teamMembers: arr("teamMembers"),
-          sprints: arr("sprints"),
-          stories: arr("stories"),
-          impediments: arr("impediments"),
-          risks: arr("risks"),
-          okrs: arr("okrs"),
-          decisions: arr("decisions"),
-          techDebt: arr("techDebt"),
+          teamMembers: sanitizeArray<TeamMember>(p.teamMembers),
+          sprints: sanitizeArray<Sprint>(p.sprints),
+          stories: sanitizeArray<Story>(p.stories),
+          impediments: sanitizeArray<Impediment>(p.impediments),
+          risks: sanitizeArray<Risk>(p.risks),
+          okrs: sanitizeArray<Okr>(p.okrs),
+          decisions: sanitizeArray<Decision>(p.decisions),
+          techDebt: sanitizeArray<TechDebtItem>(p.techDebt),
+          // Require integer in [1,5]; `typeof x === "number"` lets through
+          // floats and NaN, so check both. `Number.isInteger(NaN)` is false.
           maturityLevel:
-            typeof p.maturityLevel === "number" && p.maturityLevel >= 1 && p.maturityLevel <= 5
+            Number.isInteger(p.maturityLevel) &&
+            (p.maturityLevel as number) >= 1 &&
+            (p.maturityLevel as number) <= 5
               ? (p.maturityLevel as Workspace["maturityLevel"])
               : undefined,
           teamName: typeof p.teamName === "string" ? p.teamName : undefined,
@@ -141,6 +186,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
 // this, tools that read the workspace but don't mount InsightsEngine (e.g.
 // burndown / velocity / capacity-planner) would render against an empty
 // default workspace until something else triggers rehydrate.
+//
+// Consumers that need to render against the hydrated state on first paint
+// should gate on `useWorkspaceStore.persist.hasHydrated()` to avoid a
+// one-frame flash of empty defaults — see InsightsEngine for the pattern.
 if (typeof window !== "undefined") {
   void Promise.resolve(useWorkspaceStore.persist.rehydrate()).catch(() => {
     /* corrupt persisted state — keep emptyWorkspace defaults */
@@ -149,6 +198,8 @@ if (typeof window !== "undefined") {
 
 export function getWorkspaceSnapshot(): Workspace {
   const state = useWorkspaceStore.getState();
+  // Consumers should treat the returned object as immutable — mutating the
+  // arrays in-place bypasses Zustand and any time-travel snapshot.
   return {
     teamMembers: state.teamMembers,
     sprints: state.sprints,
@@ -164,13 +215,33 @@ export function getWorkspaceSnapshot(): Workspace {
 }
 
 export function selectActiveSprint(w: Workspace): Sprint | undefined {
-  return w.sprints.find((s) => s.status === "active");
+  // If multiple sprints are marked active (invariant violation), prefer the
+  // one with the most recent start date so the UI surfaces the most
+  // contextually-relevant sprint rather than the first by array order.
+  const active = w.sprints.filter((s) => s.status === "active");
+  if (active.length === 0) return undefined;
+  if (active.length === 1) return active[0];
+  return active.slice().sort(
+    (a, b) => parseDateSafe(b.startDate) - parseDateSafe(a.startDate)
+  )[0];
+}
+
+function parseDateSafe(iso: string | undefined): number {
+  if (!iso) return 0;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? t : 0;
 }
 
 export function selectCompletedSprints(w: Workspace): Sprint[] {
+  // Cache the parsed timestamp once per sprint so the sort comparator runs
+  // O(n log n) Date constructions instead of O(n log n × 2). Invalid dates
+  // sort to the front (timestamp 0) so they're visible to the user rather
+  // than silently dropping into an unstable middle.
   return w.sprints
     .filter((s) => s.status === "completed" && typeof s.pointsCompleted === "number")
-    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+    .map((s) => [s, parseDateSafe(s.startDate)] as const)
+    .sort((a, b) => a[1] - b[1])
+    .map(([s]) => s);
 }
 
 export function selectActiveImpediments(w: Workspace): Impediment[] {
@@ -178,5 +249,9 @@ export function selectActiveImpediments(w: Workspace): Impediment[] {
 }
 
 export function selectOpenRisks(w: Workspace): Risk[] {
+  // "open" + "mitigating" are still actionable — "accepted" risks are
+  // explicitly out-of-scope (team has decided not to mitigate them) and
+  // "closed" are resolved. Consumers needing the broader set should call
+  // a different selector.
   return w.risks.filter((r) => r.status === "open" || r.status === "mitigating");
 }

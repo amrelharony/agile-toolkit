@@ -17,6 +17,10 @@ interface Link {
   toId: string;
 }
 
+// Used as both runtime guard (default below) and a derived type for the
+// return value of `evolutionStage`. ESLint can't see the `typeof STAGES`
+// usage so disable the no-unused-vars rule for the binding.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const STAGES = ["Genesis", "Custom", "Product", "Commodity"] as const;
 
 function evolutionStage(e: number): (typeof STAGES)[number] {

@@ -11,7 +11,10 @@ export interface BootstrapCI {
 // Re-seedable Mulberry32 PRNG so bootstrap results are deterministic given
 // the same input (matters for snapshot tests + UI stability).
 function mulberry32(seed: number): () => number {
-  let t = seed >>> 0;
+  // Mix in golden-ratio constant when seed=0, otherwise the PRNG cycles
+  // through a low-entropy region for the first few hundred draws. Matches
+  // the same fix in monte-carlo.ts.
+  let t = (seed >>> 0) || 0x9e3779b9;
   return () => {
     t = (t + 0x6D2B79F5) >>> 0;
     let r = Math.imul(t ^ (t >>> 15), 1 | t);

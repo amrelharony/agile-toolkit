@@ -49,6 +49,12 @@ export function linearRegression(points: Point[]): LinearFit {
 export function forecastLinear(points: Point[], horizons: number[]): ForecastPoint[] {
   // Need at least 2 points to fit a line and 3 for meaningful confidence bands.
   // Returning an empty array avoids NaN-laced forecasts rendering as blank gaps.
+  //
+  // NOTE on bands: ±1.28σ (80%) and ±1.96σ (95%) assume residuals are
+  // approximately normally distributed. Velocity, throughput, and burndown
+  // residuals are typically right-skewed (capped at 0 on the low end), so
+  // the upper band underestimates the true tail. For higher-fidelity bands,
+  // see `forecastBayesianHolt` which inflates σ at low sample counts.
   if (points.length < 2) return [];
   const fit = linearRegression(points);
   if (!Number.isFinite(fit.slope) || !Number.isFinite(fit.intercept)) return [];
@@ -103,11 +109,17 @@ export function holtSmoothing(series: number[], alpha = 0.5, beta = 0.3): HoltFi
 }
 
 export function forecastHolt(series: number[], horizon: number, alpha = 0.5, beta = 0.3): ForecastPoint[] {
+  // Need at least 2 points to fit level + trend; below that the residual
+  // std is 0 (no error to measure), which collapses the confidence band
+  // to a meaningless line. Return empty so callers can hide the chart.
+  if (series.length < 2 || horizon < 1) return [];
   const fit = holtSmoothing(series, alpha, beta);
+  if (!Number.isFinite(fit.level) || !Number.isFinite(fit.trend)) return [];
+  const sigma0 = Number.isFinite(fit.residualStd) ? fit.residualStd : 0;
   const out: ForecastPoint[] = [];
   for (let h = 1; h <= horizon; h++) {
     const yHat = fit.level + h * fit.trend;
-    const sigma = fit.residualStd * Math.sqrt(h);
+    const sigma = sigma0 * Math.sqrt(h);
     out.push({
       x: series.length - 1 + h,
       yHat,
@@ -121,9 +133,14 @@ export function forecastHolt(series: number[], horizon: number, alpha = 0.5, bet
 }
 
 export function rollingAverage(series: number[], window: number): number[] {
+  // Defensive against invalid `window`: zero/negative/NaN window would
+  // produce all-zero slices (length 0 ⇒ division by zero ⇒ NaN). Clamp
+  // to at least 1 — the natural identity-ish operation in the degenerate
+  // case is just to echo each point as its own "average".
+  const w = Math.max(1, Math.floor(Number.isFinite(window) ? window : 1));
   const out: number[] = [];
   for (let i = 0; i < series.length; i++) {
-    const start = Math.max(0, i - window + 1);
+    const start = Math.max(0, i - w + 1);
     const slice = series.slice(start, i + 1);
     out.push(slice.reduce((a, b) => a + b, 0) / slice.length);
   }
@@ -131,9 +148,12 @@ export function rollingAverage(series: number[], window: number): number[] {
 }
 
 export function predictabilityScore(series: number[]): number {
-  if (series.length < 2) return 0;
-  const mean = series.reduce((a, b) => a + b, 0) / series.length;
-  const variance = series.reduce((a, b) => a + (b - mean) ** 2, 0) / series.length;
+  // Filter NaN/Infinity inputs — a single bad value used to taint the
+  // mean and variance, propagating NaN through every downstream caller.
+  const clean = series.filter((v): v is number => Number.isFinite(v));
+  if (clean.length < 2) return 0;
+  const mean = clean.reduce((a, b) => a + b, 0) / clean.length;
+  const variance = clean.reduce((a, b) => a + (b - mean) ** 2, 0) / clean.length;
   // Zero variance ⇒ perfectly predictable, even when the mean is 0.
   if (variance === 0) return 1;
   if (mean === 0) return 0;

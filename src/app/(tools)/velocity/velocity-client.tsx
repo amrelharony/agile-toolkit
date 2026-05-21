@@ -59,15 +59,19 @@ interface VelocityStore {
 /*  Default data                                                              */
 /* -------------------------------------------------------------------------- */
 
-// Computed lazily so crypto.randomUUID() runs on the client (or wherever the
-// store is initialized) rather than at module load. Using static "s1"/"s2"/
-// "s3" ids meant a reset() in two different tabs would collide on the same
-// sprint id, breaking persistence semantics.
+// Deterministic default IDs so server-rendered HTML matches client-rendered
+// HTML at hydration time. Calling `crypto.randomUUID()` at module load
+// produced distinct values on server vs client and triggered React's
+// hydration-mismatch warning on every fresh visit.
+//
+// User-added sprints still get proper UUIDs (see `createSprint`); these
+// `default:` prefixed IDs only live until the user edits or resets, at
+// which point they're either replaced piecewise or wholesale.
 function buildDefaultSprints(): Sprint[] {
   return [
-    { id: crypto.randomUUID(), name: "Sprint 1", committed: 34, completed: 28 },
-    { id: crypto.randomUUID(), name: "Sprint 2", committed: 30, completed: 32 },
-    { id: crypto.randomUUID(), name: "Sprint 3", committed: 36, completed: 35 },
+    { id: "default:sprint-1", name: "Sprint 1", committed: 34, completed: 28 },
+    { id: "default:sprint-2", name: "Sprint 2", committed: 30, completed: 32 },
+    { id: "default:sprint-3", name: "Sprint 3", committed: 36, completed: 35 },
   ];
 }
 

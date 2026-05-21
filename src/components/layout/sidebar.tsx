@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { usePersisted } from "@/lib/utils/use-persisted";
 import { categories, getToolsByCategory } from "@/lib/constants/tools";
 import {
   Collapsible,
@@ -24,8 +25,16 @@ interface SidebarProps {
 
 export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
-  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(
+  // Persist sidebar prefs so a user who collapses the rail or closes a
+  // category section keeps that layout across page loads. Without this,
+  // every refresh resets the sidebar back to fully-expanded, which is
+  // disruptive for power users who work with the sidebar collapsed.
+  const [collapsed, setCollapsed] = usePersisted<boolean>(
+    "agile-toolkit:sidebar:collapsed",
+    false
+  );
+  const [openCategories, setOpenCategories] = usePersisted<Record<string, boolean>>(
+    "agile-toolkit:sidebar:openCategories",
     Object.fromEntries(categories.map((c) => [c, true]))
   );
   const asideRef = useRef<HTMLElement>(null);

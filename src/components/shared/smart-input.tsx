@@ -45,6 +45,19 @@ export function SmartInput<T extends string | number>({
     if (acceptingTimer.current) clearTimeout(acceptingTimer.current);
   }, []);
 
+  // Cancel any in-flight "Accepted!" flash if the prediction becomes
+  // unavailable (confidence drops to "none"). Without this, the timer
+  // could fire after the chip already disappeared, flipping isAccepting
+  // back to false on a UI element that's no longer rendered (harmless
+  // re-render, but it shows up as a stray setState in the React profiler).
+  useEffect(() => {
+    if (predicted.confidence === "none" && acceptingTimer.current) {
+      clearTimeout(acceptingTimer.current);
+      acceptingTimer.current = null;
+      setIsAccepting(false);
+    }
+  }, [predicted.confidence]);
+
   const accept = () => {
     if (predicted.confidence === "none") return;
     onAccept(predicted.value);

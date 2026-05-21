@@ -46,6 +46,36 @@ const useEstimationGuideStore = createPersistedStore<EstimationGuideState>(
   initialState
 );
 
+/**
+ * Encode arbitrary JSON state as a URL-safe, UTF-8-correct base64 string.
+ * Plain `btoa(JSON.stringify(x))` throws on any non-Latin1 character
+ * (emoji, Arabic, accented chars in descriptions). Round-trip via
+ * encodeURIComponent so all UTF-8 bytes are representable.
+ */
+function encodeSharedState(payload: unknown): string {
+  const json = JSON.stringify(payload);
+  const utf8 = encodeURIComponent(json).replace(/%([0-9A-F]{2})/g, (_, h) =>
+    String.fromCharCode(parseInt(h, 16))
+  );
+  return btoa(utf8);
+}
+
+function decodeSharedState(encoded: string): unknown {
+  const utf8 = atob(encoded);
+  const json = decodeURIComponent(
+    utf8
+      .split("")
+      .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+      .join("")
+  );
+  return JSON.parse(json, (k, v) => {
+    // Strip prototype-pollution-capable keys from the parsed object so a
+    // shared URL can't poison Object.prototype.
+    if (k === "__proto__" || k === "constructor" || k === "prototype") return undefined;
+    return v;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -65,14 +95,32 @@ export function EstimationGuideClient() {
       const params = new URLSearchParams(window.location.search);
       const shared = params.get("state");
       if (!shared) return;
+      // Bound the inbound payload — a 1MB base64 blob in the URL is hostile
+      // input, not a legitimate share. The decoded JSON is then bounded
+      // implicitly because base64 is ~33% larger than raw.
+      if (shared.length > 100_000) return;
       try {
-        const decoded = JSON.parse(atob(shared));
-        if (decoded.selectedScale) {
-          useEstimationGuideStore.setState({
-            selectedScale: decoded.selectedScale,
-            descriptions: { ...defaultDescriptions, ...decoded.descriptions },
-            examples: decoded.examples ?? {},
-          });
+        const decoded = decodeSharedState(shared);
+        if (!decoded || typeof decoded !== "object") return;
+        const d = decoded as Record<string, unknown>;
+        // Validate every field's type before adopting — a crafted payload
+        // could otherwise set `selectedScale` to a function or array.
+        const patch: Partial<{
+          selectedScale: string;
+          descriptions: Record<string, string>;
+          examples: Record<string, string>;
+        }> = {};
+        if (typeof d.selectedScale === "string") patch.selectedScale = d.selectedScale;
+        if (d.descriptions && typeof d.descriptions === "object" && !Array.isArray(d.descriptions)) {
+          patch.descriptions = { ...defaultDescriptions, ...(d.descriptions as Record<string, string>) };
+        }
+        if (d.examples && typeof d.examples === "object" && !Array.isArray(d.examples)) {
+          patch.examples = d.examples as Record<string, string>;
+        } else {
+          patch.examples = {};
+        }
+        if (patch.selectedScale) {
+          useEstimationGuideStore.setState(patch);
         }
         // Clean up URL without reload
         window.history.replaceState({}, "", window.location.pathname);
@@ -129,12 +177,19 @@ export function EstimationGuideClient() {
       descriptions: store.descriptions,
       examples: store.examples,
     };
-    const encoded = btoa(JSON.stringify(payload));
-    const url = `${window.location.origin}${window.location.pathname}?state=${encoded}`;
-    navigator.clipboard.writeText(url).then(
-      () => toast.success("Share link copied to clipboard"),
-      () => toast.error("Failed to copy share link")
-    );
+    try {
+      const encoded = encodeSharedState(payload);
+      const url = `${window.location.origin}${window.location.pathname}?state=${encoded}`;
+      navigator.clipboard.writeText(url).then(
+        () => toast.success("Share link copied to clipboard"),
+        () => toast.error("Failed to copy share link")
+      );
+    } catch {
+      // Encoding can only fail if the payload is gigantic (it can't here),
+      // but be defensive — a stray Unicode-only-in-some-locale char in the
+      // user's descriptions used to throw in the old btoa() implementation.
+      toast.error("Failed to build share link");
+    }
   }, [store.selectedScale, store.descriptions, store.examples]);
 
   // Build export data

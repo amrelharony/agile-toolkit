@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link2, Copy, Check, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,9 +28,18 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
   const [url, setUrl] = useState("");
   const [copied, setCopied] = useState(false);
   const [available, setAvailable] = useState(false);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setAvailable(isRealtimeAvailable());
+  }, []);
+
+  // Clear any pending "Copied!" reset timer on unmount so we don't
+  // setState on an unmounted component (dev warning + tiny mem leak).
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -65,7 +74,8 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
     if (ok) {
       setCopied(true);
       toast.success("Invite link copied");
-      setTimeout(() => setCopied(false), 2000);
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -107,17 +117,19 @@ export function InviteDialog({ toolName, currentRoomId, onRoomIdChange }: Invite
             {roomId && (
               <>
                 <div className="space-y-1.5">
-                  <label className="text-xs text-sub">Room ID</label>
+                  <label htmlFor="invite-room-id" className="text-xs text-sub">Room ID</label>
                   <Input
+                    id="invite-room-id"
                     value={roomId}
                     readOnly
                     className="bg-surface border-border text-text font-data"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs text-sub">Invite link</label>
+                  <label htmlFor="invite-link" className="text-xs text-sub">Invite link</label>
                   <div className="flex gap-2">
                     <Input
+                      id="invite-link"
                       value={url}
                       readOnly
                       className="bg-surface border-border text-text font-data text-xs"

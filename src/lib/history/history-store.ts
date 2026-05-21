@@ -89,6 +89,14 @@ export const useHistoryStore = create<HistoryStore>()(
 
       addEvent: (event) =>
         set((s) => {
+          // Dedup by clientEventId so a buggy emitter or HMR re-fire doesn't
+          // double-log. The single-event path was previously unguarded —
+          // only `addEvents` (cloud pull) deduped — which let local writes
+          // accumulate identical events if a logger fired twice in the same
+          // tick (e.g. effect runs twice under React StrictMode).
+          if (s.events.some((e) => e.clientEventId === event.clientEventId)) {
+            return s;
+          }
           const next = [...s.events, event];
           if (next.length > EVENTS_CAP) next.splice(0, next.length - EVENTS_CAP);
           return { events: next };

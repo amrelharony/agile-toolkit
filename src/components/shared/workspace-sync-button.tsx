@@ -42,6 +42,18 @@ export function WorkspaceSyncButton({
   };
 
   const handlePush = () => {
+    // Push overwrites the workspace copy of this tool's entities with the
+    // tool's local state. A double-click on the dropdown shouldn't trigger
+    // it accidentally — confirm before destroying potentially-newer data.
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        `Overwrite Workspace data for "${toolName}" with this tool's current state? This cannot be undone.`
+      )
+    ) {
+      setOpen(false);
+      return;
+    }
     const n = onPush?.();
     if (typeof n === "number") toast.success(`Pushed ${n} item${n === 1 ? "" : "s"} to Workspace`);
     else if (onPush) toast.success("Pushed to Workspace");
@@ -49,6 +61,13 @@ export function WorkspaceSyncButton({
   };
 
   const handleUnlink = () => {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`Unlink "${toolName}" from Workspace?`)
+    ) {
+      setOpen(false);
+      return;
+    }
     onUnlink?.();
     toast.success("Unlinked from Workspace");
     setOpen(false);

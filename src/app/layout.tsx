@@ -34,7 +34,7 @@ export const metadata: Metadata = {
     template: "%s | Agile Toolkit",
   },
   description:
-    "Free, open suite of 25+ interactive Agile tools — Planning Poker, Sprint Capacity Planner, Retro Board, Burndown Charts, and more.",
+    "Free, open suite of 75+ interactive Agile tools — Planning Poker, Sprint Capacity Planner, Retro Board, Burndown Charts, Kanban, OKRs, and more.",
   keywords: [
     "agile",
     "scrum",

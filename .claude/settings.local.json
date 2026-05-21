@@ -20,7 +20,13 @@
       "Bash(npx shadcn@latest add button card input label select textarea dialog sheet popover tooltip command table tabs badge separator scroll-area dropdown-menu sonner progress slider switch avatar breadcrumb collapsible --yes)",
       "Bash(ls \"D:/Claude Desktop/Agile Toolkit/src/app/\\(tools\\)/icebreaker/\")",
       "Bash(npx tsc *)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(xargs wc -l)",
+      "Bash(cd \"D:/Claude Desktop/Agile Toolkit\" && find src -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" \\\\\\) -not -path \"*/node_modules/*\" | sort > /tmp/all-files.txt && wc -l /tmp/all-files.txt)",
+      "Bash(awk '$1>1')",
+      "Bash(awk '{print $5, $9}')",
+      "Bash(grep -nE \"^[a-zA-Z_].*=.*\\\\{[^}]*crypto\\\\.randomUUID|^const.*=.*\\\\[[^\\\\]]*crypto\\\\.randomUUID|^[ ]{0,4}id:[ ]*crypto\\\\.randomUUID\" \"src/app/\\(tools\\)\" -r --include=\"*.tsx\")",
+      "Bash(git add *)"
     ]
   }
 }

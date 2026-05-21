@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { timeTravelRegistry, type TimeTravelControls } from "./with-time-travel";
 
 interface TimeTravelStatus {
@@ -11,21 +11,18 @@ interface TimeTravelStatus {
   pastLength: number;
 }
 
-const EMPTY: TimeTravelStatus = {
+const EMPTY: TimeTravelStatus = Object.freeze({
   controls: null,
   canUndo: false,
   canRedo: false,
   available: false,
   pastLength: 0,
-};
-
-const EMPTY_KEY = "__empty__";
+}) as TimeTravelStatus;
 
 // Module-scope subscribe — stable across all hook calls so React doesn't
 // re-subscribe on every render of every consumer.
 const subscribeRegistry = (cb: () => void): (() => void) =>
   timeTravelRegistry.subscribe(cb);
-const getServerSnapshot = (): string => EMPTY_KEY;
 
 /**
  * React hook that subscribes to the time-travel controls for a given tool.
@@ -34,30 +31,48 @@ const getServerSnapshot = (): string => EMPTY_KEY;
  * version counter. Re-renders only fire when the registry bumps (undo, redo,
  * snapshot, register/unregister) — not on every animation frame. This is a
  * meaningful CPU win compared to polling 60Hz.
+ *
+ * Tearing-safe: the snapshot string includes the canUndo/canRedo/pastLength
+ * values, and the returned object is derived from the snapshot via useMemo
+ * keyed on the snapshot itself — so a single render sees a single
+ * snapshot-of-truth even under React 18 concurrent rendering.
+ *
+ * SSR-safe: `getServerSnapshot` returns the same shape as a not-yet-registered
+ * tool on the client, so first paint matches and there's no hydration warning.
  */
 export function useTimeTravel(toolId: string | undefined): TimeTravelStatus {
   const getSnapshot = useCallback(() => {
-    if (!toolId) return EMPTY_KEY;
+    if (!toolId) return "empty";
     const controls = timeTravelRegistry.get(toolId);
     if (!controls) return `${toolId}|none|${timeTravelRegistry.getVersion()}`;
-    // Encode the visible status into a string so React's identity check on
-    // the snapshot reliably detects changes without us building a new object
-    // every read (which would tear under concurrent rendering).
     return `${toolId}|${controls.canUndo()}|${controls.canRedo()}|${controls.pastLength()}|${timeTravelRegistry.getVersion()}`;
   }, [toolId]);
 
-  // We only need React to know the snapshot identity changed; the actual
-  // status object is derived below from the live registry.
-  useSyncExternalStore(subscribeRegistry, getSnapshot, getServerSnapshot);
+  // Match the not-registered shape so SSR and the first client render produce
+  // the same string when controls haven't been registered yet.
+  const getServerSnapshot = useCallback(() => {
+    if (!toolId) return "empty";
+    return `${toolId}|none|0`;
+  }, [toolId]);
 
-  if (!toolId) return EMPTY;
-  const controls = timeTravelRegistry.get(toolId);
-  if (!controls) return EMPTY;
-  return {
-    controls,
-    canUndo: controls.canUndo(),
-    canRedo: controls.canRedo(),
-    available: true,
-    pastLength: controls.pastLength(),
-  };
+  const snapshot = useSyncExternalStore(subscribeRegistry, getSnapshot, getServerSnapshot);
+
+  // Build the result object once per snapshot. This keeps the returned object
+  // identity-stable across renders that share the same snapshot, and ensures
+  // the returned values are derived from the SAME snapshot the subscribe
+  // machinery saw (no tearing).
+  return useMemo<TimeTravelStatus>(() => {
+    if (!toolId) return EMPTY;
+    const controls = timeTravelRegistry.get(toolId);
+    if (!controls) return EMPTY;
+    return {
+      controls,
+      canUndo: controls.canUndo(),
+      canRedo: controls.canRedo(),
+      available: true,
+      pastLength: controls.pastLength(),
+    };
+    // snapshot is the cache key; controls / toolId are read from it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot, toolId]);
 }

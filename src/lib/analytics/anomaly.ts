@@ -7,15 +7,22 @@ export interface AnomalyResult {
 }
 
 export function mean(series: number[]): number {
-  if (series.length === 0) return 0;
-  return series.reduce((a, b) => a + b, 0) / series.length;
+  // Filter non-finite values so a single NaN/Infinity in a series can't
+  // poison every downstream calculation. Empty (or all-non-finite) series
+  // returns 0 — callers already handle that as "no data".
+  const clean = series.filter((v) => Number.isFinite(v));
+  if (clean.length === 0) return 0;
+  return clean.reduce((a, b) => a + b, 0) / clean.length;
 }
 
 export function stdDev(series: number[]): number {
-  const n = series.length;
+  const clean = series.filter((v) => Number.isFinite(v));
+  const n = clean.length;
   if (n < 2) return 0;
-  const m = mean(series);
-  return Math.sqrt(series.reduce((a, b) => a + (b - m) ** 2, 0) / (n - 1));
+  const m = mean(clean);
+  // Sample variance (n-1), not population — this matches the convention
+  // used by R, NumPy default, and our forecast residual estimator.
+  return Math.sqrt(clean.reduce((a, b) => a + (b - m) ** 2, 0) / (n - 1));
 }
 
 export function quantile(sortedSeries: number[], q: number): number {

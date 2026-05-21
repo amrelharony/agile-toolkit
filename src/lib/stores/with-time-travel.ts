@@ -22,6 +22,14 @@ import type { StateCreator } from "zustand";
  *     instead of JSON.stringify — O(k) instead of O(state size).
  *   - The registry exposes a version counter so subscribers can rerender
  *     reactively instead of polling.
+ *
+ * Re-entrancy:
+ *   - `suppressDepth` is a counter, not a boolean. A subscriber callback
+ *     that fires synchronously inside `setRaw` (signal-bridge, history
+ *     logger, etc.) and calls back into `wrappedSet` would, with a boolean
+ *     flag, observe `true` and skip its snapshot. The counter ensures the
+ *     ONLY suppressed writes are the internal undo/redo/clearHistory ones,
+ *     not user-triggered mutations that happen to fire from inside them.
  */
 
 const STACK_CAP = 50;
@@ -108,13 +116,47 @@ export const timeTravelRegistry = new TimeTravelRegistry();
 /** Internal-state field names. Exported so persist-helpers can strip them. */
 export const TIME_TRAVEL_INTERNAL_KEYS = ["_ttPast", "_ttFuture"] as const;
 
-function snapshot<T extends object>(obj: T, exclude: Set<string>): Partial<T> {
+/** structuredClone if available — bounds memory growth via the algorithm's
+ *  cycle handling and ensures snapshots are insulated from later in-place
+ *  mutation of arrays/objects in the live state. Without this, a single
+ *  `state.stories.sort()` somewhere corrupts every past snapshot that
+ *  shared a reference to that array, silently breaking undo. */
+const deepClone: <T>(v: T) => T =
+  typeof structuredClone === "function"
+    ? <T,>(v: T): T => {
+        try {
+          return structuredClone(v);
+        } catch {
+          // structuredClone throws on non-cloneable things (functions,
+          // DOM nodes, etc.). Snapshot already strips functions, so this
+          // should not happen — but fall back to JSON round-trip if it does
+          // so a poison value doesn't break time-travel for the whole store.
+          return JSON.parse(JSON.stringify(v)) as T;
+        }
+      }
+    : <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+
+/** Top-level reference snapshot — used for cheap no-op detection. Wrapped
+ *  stores are expected to use immutable updates, so reference equality on
+ *  top-level keys is a sound change-detection signal. */
+function snapshotRefs<T extends object>(obj: T, exclude: Set<string>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
     if (typeof v === "function") continue;
     if (k.startsWith("_tt")) continue;
     if (exclude.has(k)) continue;
     out[k] = v;
+  }
+  return out;
+}
+
+/** Deep-cloned snapshot — used when actually pushing to the past/future
+ *  stacks. Insulates the stack from retroactive mutation of the live state. */
+function snapshot<T extends object>(obj: T, exclude: Set<string>): Partial<T> {
+  const refs = snapshotRefs(obj, exclude);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(refs)) {
+    out[k] = deepClone(v);
   }
   return out as Partial<T>;
 }
@@ -144,10 +186,18 @@ export function withTimeTravel<T extends object>(
   creator: StateCreator<T, [], [], T>
 ): StateCreator<T, [], [], T> {
   const { toolId, excludeKeys = [] } = options;
-  const exclude = new Set<string>(excludeKeys.map(String));
+  const exclude = new Set<string>(
+    // `keyof T` could include symbols; only string keys can collide with
+    // runtime Object.entries() output so filter the rest out.
+    excludeKeys.filter((k): k is keyof T => typeof k === "string").map(String)
+  );
 
   return ((set, get, api) => {
-    let suppressSnapshot = false;
+    // Counter rather than boolean so that an undo/redo/clearHistory whose
+    // setRaw fires a synchronous subscriber that calls back into wrappedSet
+    // can be distinguished from a genuinely-nested suppressed call. Depth
+    // increments on entry, decrements on finally; only depth>0 suppresses.
+    let suppressDepth = 0;
 
     type Internal = T & {
       _ttPast?: Partial<T>[];
@@ -161,16 +211,26 @@ export function withTimeTravel<T extends object>(
     const getInternal = get as unknown as () => Internal;
 
     const wrappedSet = ((updater: unknown, replace?: boolean) => {
-      if (suppressSnapshot) {
+      if (suppressDepth > 0) {
         setRaw(updater as Partial<Internal>, replace);
         return;
       }
-      const prevSnap = snapshot(getInternal(), exclude) as Record<string, unknown>;
+      // Cheap no-op detection: capture reference-level snapshot BEFORE the
+      // mutation; compare to refs AFTER. Wrapped stores promise immutable
+      // updates so reference inequality on a top-level key is a sound
+      // "something changed" signal — no need to deep-clone for the check.
+      const prevRefs = snapshotRefs(getInternal(), exclude);
       setRaw(updater as Partial<Internal>, replace);
-      const nextSnap = snapshot(getInternal(), exclude) as Record<string, unknown>;
-      if (shallowEqualSnapshot(prevSnap, nextSnap)) return;
+      const nextRefs = snapshotRefs(getInternal(), exclude);
+      if (shallowEqualSnapshot(prevRefs, nextRefs)) return;
+      // Real change → deep-clone the prev refs so they survive any later
+      // in-place mutation of arrays/objects in the live state.
+      const prevSnap: Partial<T> = {} as Partial<T>;
+      for (const [k, v] of Object.entries(prevRefs)) {
+        (prevSnap as Record<string, unknown>)[k] = deepClone(v);
+      }
       const past = (getInternal()._ttPast ?? []).slice();
-      past.push(prevSnap as Partial<T>);
+      past.push(prevSnap);
       if (past.length > STACK_CAP) past.shift();
       setRaw({
         _ttPast: past,
@@ -191,7 +251,7 @@ export function withTimeTravel<T extends object>(
         const current = snapshot(state, exclude);
         const newFuture = [current, ...(state._ttFuture ?? [])];
         if (newFuture.length > STACK_CAP) newFuture.length = STACK_CAP;
-        suppressSnapshot = true;
+        suppressDepth++;
         try {
           setRaw({
             ...prev,
@@ -199,7 +259,7 @@ export function withTimeTravel<T extends object>(
             _ttFuture: newFuture,
           } as Partial<Internal>);
         } finally {
-          suppressSnapshot = false;
+          suppressDepth--;
         }
         timeTravelRegistry.bump();
         return true;
@@ -213,7 +273,7 @@ export function withTimeTravel<T extends object>(
         const current = snapshot(state, exclude);
         const newPast = [...(state._ttPast ?? []), current];
         if (newPast.length > STACK_CAP) newPast.shift();
-        suppressSnapshot = true;
+        suppressDepth++;
         try {
           setRaw({
             ...next,
@@ -221,7 +281,7 @@ export function withTimeTravel<T extends object>(
             _ttFuture: newFuture,
           } as Partial<Internal>);
         } finally {
-          suppressSnapshot = false;
+          suppressDepth--;
         }
         timeTravelRegistry.bump();
         return true;
@@ -230,20 +290,25 @@ export function withTimeTravel<T extends object>(
       canRedo: () => (getInternal()._ttFuture?.length ?? 0) > 0,
       pastLength: () => getInternal()._ttPast?.length ?? 0,
       clearHistory: () => {
-        suppressSnapshot = true;
+        suppressDepth++;
         try {
           setRaw({
             _ttPast: [],
             _ttFuture: [],
           } as Partial<Internal>);
         } finally {
-          suppressSnapshot = false;
+          suppressDepth--;
         }
         timeTravelRegistry.bump();
       },
     };
 
-    timeTravelRegistry.register(toolId, controls);
+    // Register and capture the unsubscriber. `api` exposes `destroy` in
+    // older Zustand versions but the v5 API uses no formal teardown hook —
+    // however, HMR replaces the entire module, so we stash the unsubscriber
+    // on the API object for tests and future cleanup paths.
+    const unregister = timeTravelRegistry.register(toolId, controls);
+    (api as unknown as { __ttUnregister?: () => void }).__ttUnregister = unregister;
 
     return {
       ...userSlice,

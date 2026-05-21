@@ -90,6 +90,17 @@ export function deriveCached<T>(
 /**
  * React hook variant. Combines `useMemo` (for the dep array's identity)
  * with the cross-render `deriveCached`.
+ *
+ * The previous implementation passed the caller-supplied `deps` array
+ * straight to `useMemo` as its dep array, which is a Rules-of-Hooks
+ * violation if callers ever pass arrays of varying length between renders,
+ * AND it silently ignored changes to `prefix` / `compute` / `ttlMs`.
+ *
+ * We now use a constant-length deps array of `[prefix, stableHash(deps), ttlMs]`
+ * so React's hook accounting stays sane regardless of how many dependency
+ * values the caller passed. `compute` is intentionally NOT in the deps —
+ * the cache value is keyed on the prefix+hash, so two compute functions that
+ * produce the same value for the same deps are interchangeable.
  */
 export function useDerived<T>(
   prefix: string,
@@ -97,9 +108,13 @@ export function useDerived<T>(
   compute: () => T,
   ttlMs = DEFAULT_TTL_MS
 ): T {
-  // useMemo's deps + deriveCached's hash both keep us reactive without
-  // recomputing every render.
-  return useMemo(() => deriveCached(prefix, deps, compute, ttlMs), deps);
+  const depHash = stableHash(deps);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => deriveCached(prefix, deps, compute, ttlMs), [
+    prefix,
+    depHash,
+    ttlMs,
+  ]);
 }
 
 /**

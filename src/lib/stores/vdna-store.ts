@@ -1,19 +1,21 @@
+"use client";
+
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { nanoid } from "nanoid";
 import type { VDna, XpEvent, ChallengeProgress } from "@/lib/gamification/types";
 
+/**
+ * Generate a fresh visitor id. The id is stored INSIDE the persisted payload
+ * (`agile-toolkit:vdna`), not in a separate localStorage key. Earlier
+ * versions kept a parallel `agile-toolkit:vdna-id` key which survived
+ * "reset workspace" actions and confused identity tracking. With persistence
+ * keyed by the single canonical name, clearing the storage cleanly resets
+ * the visitor.
+ */
 function seedVisitorId(): string {
   if (typeof window === "undefined") return "ssr";
-  try {
-    const existing = localStorage.getItem("agile-toolkit:vdna-id");
-    if (existing) return existing;
-    const fresh = nanoid(12);
-    localStorage.setItem("agile-toolkit:vdna-id", fresh);
-    return fresh;
-  } catch {
-    return nanoid(12);
-  }
+  return nanoid(12);
 }
 
 const initial: VDna = {
@@ -65,7 +67,24 @@ export const useVDnaStore = create<VDna & VDnaActions>()(
       ...initial,
       apply: (patch) => set(patch),
       pushEvent: (e) =>
-        set((s) => ({ recentEvents: [e, ...s.recentEvents].slice(0, 50) })),
+        set((s) => {
+          // Dedupe: rapid identical events (same source+amount) fired within a
+          // 2-second window collapse to a single head entry. Without this, a
+          // buggy emitter or hot-loop fills `recentEvents` with 50 copies of
+          // the same line, drowning real signal and blowing localStorage.
+          // We compare against the head only because the stack is LIFO; a
+          // duplicate further back is intentional history we want to keep.
+          const head = s.recentEvents[0];
+          if (head && head.source === e.source && head.amount === e.amount) {
+            const tDelta = Math.abs(
+              new Date(e.at ?? "").getTime() - new Date(head.at ?? "").getTime()
+            );
+            if (Number.isFinite(tDelta) && tDelta < 2000) {
+              return { recentEvents: [{ ...e }, ...s.recentEvents.slice(1)].slice(0, 50) };
+            }
+          }
+          return { recentEvents: [e, ...s.recentEvents].slice(0, 50) };
+        }),
       setToolsVisited: (list) => set({ toolsVisited: list }),
       setUnlocked: (list) => set({ unlocked: list }),
       setDailyChallenges: (list) => set({ dailyChallenges: list }),
@@ -101,7 +120,11 @@ export const useVDnaStore = create<VDna & VDnaActions>()(
       }),
       skipHydration: true,
       onRehydrateStorage: () => (state) => {
-        if (state && state.visitorId === "pending") {
+        // Seed the visitor id once at rehydrate time if it's missing or
+        // still the "pending" sentinel. On first-ever visit the persisted
+        // state is absent, so the merged state still has visitorId="pending"
+        // (from `initial`). Subsequent loads pick up the persisted id.
+        if (state && (state.visitorId === "pending" || !state.visitorId)) {
           state.visitorId = seedVisitorId();
         }
       },

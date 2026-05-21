@@ -46,7 +46,13 @@ export const useHapticsStore = create<HapticsState>()(
     (set) => ({
       ...DEFAULTS,
       setEnabled: (v) => set({ enabled: v }),
-      setIntensity: (v) => set({ intensity: Math.max(0, Math.min(1, v)) }),
+      setIntensity: (v) =>
+        // `Math.max(0, Math.min(1, NaN))` returns NaN, which JSON.stringifies
+        // as `null` and breaks the haptics engine on rehydrate. Coerce NaN
+        // to the default before clamping.
+        set({
+          intensity: Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : DEFAULTS.intensity,
+        }),
       setMode: (m) => set({ mode: m }),
       setRespectReducedMotion: (v) => set({ respectReducedMotion: v }),
       setBatteryGuardEnabled: (v) => set({ batteryGuardEnabled: v }),

@@ -89,10 +89,21 @@ const createMember = (): TeamMember => ({
   daysOff: 0,
 });
 
+/** Deterministic ID for the first default member — guarantees server and
+ *  client render the same DOM keys on first paint. User-added members
+ *  get real UUIDs via `createMember()`. */
+const defaultFirstMember: TeamMember = {
+  id: "default:member-1",
+  name: "",
+  role: "",
+  availability: 100,
+  daysOff: 0,
+};
+
 const useCapacityStore = create<CapacityStore>()(
   persist(
     (set) => ({
-      members: [createMember()],
+      members: [defaultFirstMember],
       config: { ...defaultConfig },
 
       addMember: () =>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 export type SignalKind =
   | "velocity.changed"
@@ -110,9 +110,28 @@ export function subscribeSignals(kinds: SignalKind[], cb: Listener): () => void 
   };
 }
 
-/** React hook variant. Auto-cleans up on unmount. */
+/**
+ * React hook variant. Auto-cleans up on unmount.
+ *
+ * Stable across renders: even if the caller passes a new arrow function on
+ * every render (very common), the underlying subscription is created ONCE
+ * per `kinds` set. A ref holds the latest callback and the registered
+ * listener forwards to it, so consumers can safely use inline callbacks
+ * without triggering a subscribe/unsubscribe storm.
+ */
 export function useSignal(kinds: SignalKind[], cb: Listener): void {
-  useEffect(() => subscribeSignals(kinds, cb), [JSON.stringify(kinds), cb]);
+  const cbRef = useRef(cb);
+  // Keep the ref pointing at the latest callback every render — cheap, no
+  // hooks, no effect overhead.
+  cbRef.current = cb;
+  const kindsKey = kinds.join("|");
+  useEffect(() => {
+    return subscribeSignals(kinds, (s) => cbRef.current(s));
+    // We intentionally subscribe based on the kinds set only. `cb` is
+    // forwarded via cbRef so its identity changing doesn't tear the
+    // subscription down and rebuild it 60x per second.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kindsKey]);
 }
 
 /** Inspector: read recent signals (last 200) in chronological order. For

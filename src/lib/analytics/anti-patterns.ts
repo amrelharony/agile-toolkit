@@ -29,7 +29,9 @@ export interface AntiPatternSignal {
 export function detectStaleImpediments(w: Workspace, now = new Date()): AntiPatternSignal | null {
   const active = selectActiveImpediments(w);
   const stale = active.filter((i) => {
-    const age = (now.getTime() - new Date(i.raisedAt).getTime()) / (1000 * 60 * 60 * 24);
+    const raisedT = new Date(i.raisedAt).getTime();
+    if (!Number.isFinite(raisedT)) return false; // bad imported date — don't false-positive
+    const age = (now.getTime() - raisedT) / (1000 * 60 * 60 * 24);
     return age > 14 && (i.severity === "high" || i.severity === "critical");
   });
   if (stale.length === 0) return null;

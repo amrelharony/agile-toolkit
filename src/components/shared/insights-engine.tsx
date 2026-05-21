@@ -6,6 +6,7 @@ import { AlertTriangle, TrendingUp, Activity, Sparkles, X } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { insightsForTool, topInsights, type Insight } from "@/lib/analytics/insights";
 import type { Workspace } from "@/lib/stores/workspace-types";
+import { usePersisted } from "@/lib/utils/use-persisted";
 import { cn } from "@/lib/utils";
 
 interface InsightsEngineProps {
@@ -29,7 +30,15 @@ function colorFor(severity: Insight["severity"]): string {
 
 export function InsightsEngine({ toolId, limit = 3, compact = false }: InsightsEngineProps) {
   const [mounted, setMounted] = useState(false);
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  // Persist as a string[] (Set isn't JSON-serialisable) keyed per-tool so a
+  // dismissal on /burndown doesn't carry over to /retro. A user who dismisses
+  // an insight expects it to stay dismissed across page reloads — without
+  // persistence, every refresh re-floods the banner with stale alerts.
+  const [dismissedArr, setDismissedArr] = usePersisted<string[]>(
+    `agile-toolkit:insights:dismissed:${toolId ?? "_global"}`,
+    []
+  );
+  const dismissed = useMemo(() => new Set(dismissedArr), [dismissedArr]);
 
   useEffect(() => {
     // rehydrate() can return Promise<void> on async storages; wait for it
@@ -65,6 +74,24 @@ export function InsightsEngine({ toolId, limit = 3, compact = false }: InsightsE
     [workspace, toolId]
   );
 
+  // Garbage-collect dismissed IDs that no longer appear in the active set —
+  // otherwise dismissed entries pile up forever in localStorage as new
+  // insights take their slots. We only prune when we know the live set is
+  // non-empty (otherwise a temporary "no data" gap would wipe everything).
+  useEffect(() => {
+    if (!mounted) return;
+    if (all.length === 0) return;
+    const live = new Set(all.map((i) => i.id));
+    const stale = dismissedArr.filter((id) => !live.has(id));
+    if (stale.length > 0 && dismissedArr.length - stale.length >= 0) {
+      const next = dismissedArr.filter((id) => live.has(id));
+      if (next.length !== dismissedArr.length) setDismissedArr(next);
+    }
+    // dismissedArr / setDismissedArr intentionally omitted — we want to GC
+    // when the live set transitions, not on every dismiss action.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, all]);
+
   if (!mounted) return null;
 
   const visible = all.filter((i) => !dismissed.has(i.id)).slice(0, limit);
@@ -92,7 +119,7 @@ export function InsightsEngine({ toolId, limit = 3, compact = false }: InsightsE
             <button
               type="button"
               className="text-sub hover:text-text transition shrink-0"
-              onClick={() => setDismissed((s) => new Set(s).add(ins.id))}
+              onClick={() => setDismissedArr((arr) => (arr.includes(ins.id) ? arr : [...arr, ins.id]))}
               aria-label="Dismiss"
             >
               <X className="w-3.5 h-3.5" />

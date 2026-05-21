@@ -21,8 +21,14 @@ import { RolePickerDialog } from "@/components/auth/role-picker-dialog";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// Hydration-safe initial state: report "loading" on first render regardless
+// of `isAuthAvailable()`. The previous initialState called `isAuthAvailable()`
+// at module load — if the env var was present on the server but the client
+// build was older (or vice versa), the status would differ between SSR and
+// CSR, producing a hydration warning. The effect below switches to the
+// correct status as soon as we're confirmed on the client.
 const initialState: AuthState = {
-  status: isAuthAvailable() ? "loading" : "disabled",
+  status: "loading",
   user: null,
   profile: null,
   error: null,
@@ -51,16 +57,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single();
       if (!error) return { kind: "ok", profile: data as Profile };
       // PGRST116 = "no rows" — the trigger may not have fired yet on first sign-in.
+      // Retry with exponential backoff (300ms, 700ms, 1500ms) so a slow trigger
+      // doesn't force the role picker open with a still-missing profile that
+      // would race the user's first interaction.
       if (error.code === "PGRST116") {
-        await new Promise((r) => setTimeout(r, 300));
-        const retry = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", user.id)
-          .single();
-        if (!retry.error) return { kind: "ok", profile: retry.data as Profile };
-        if (retry.error.code === "PGRST116") return { kind: "missing" };
-        return { kind: "error", message: retry.error.message };
+        const delays = [300, 700, 1500];
+        for (const delay of delays) {
+          await new Promise((r) => setTimeout(r, delay));
+          const retry = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", user.id)
+            .single();
+          if (!retry.error) return { kind: "ok", profile: retry.data as Profile };
+          if (retry.error.code !== "PGRST116") {
+            return { kind: "error", message: retry.error.message };
+          }
+        }
+        // After 3 retries totaling ~2.5s, give up and treat as missing —
+        // the picker will let the user set their role, which writes a
+        // fresh profile row.
+        return { kind: "missing" };
       }
       return { kind: "error", message: error.message };
     },
@@ -120,7 +137,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Initial session check + auth state listener
   useEffect(() => {
-    if (!supabase) {
+    // Decide auth availability HERE (post-mount), not at module load —
+    // see comment on initialState. If auth is disabled, transition the
+    // visible status from "loading" to "disabled" on the next render
+    // without warning the user about a hydration mismatch first.
+    if (!supabase || !isAuthAvailable()) {
       setState({
         status: "disabled",
         user: null,

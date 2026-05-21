@@ -87,16 +87,18 @@ const RACI_LABELS: Record<string, string> = {
   I: "Informed",
 };
 
+// Deterministic IDs in module-level defaults so SSR HTML matches client HTML
+// on first paint. User-added rows get real UUIDs via the action handlers.
 const DEFAULT_ROLES: RACIRole[] = [
-  { id: crypto.randomUUID(), name: "Product Owner" },
-  { id: crypto.randomUUID(), name: "Scrum Master" },
-  { id: crypto.randomUUID(), name: "Dev Team" },
+  { id: "default:role-po", name: "Product Owner" },
+  { id: "default:role-sm", name: "Scrum Master" },
+  { id: "default:role-dev", name: "Dev Team" },
 ];
 
 const DEFAULT_ACTIVITIES: RACIActivity[] = [
-  { id: crypto.randomUUID(), name: "Backlog Refinement" },
-  { id: crypto.randomUUID(), name: "Sprint Planning" },
-  { id: crypto.randomUUID(), name: "Daily Standup" },
+  { id: "default:act-refinement", name: "Backlog Refinement" },
+  { id: "default:act-planning", name: "Sprint Planning" },
+  { id: "default:act-standup", name: "Daily Standup" },
 ];
 
 function buildDefaultMatrix(

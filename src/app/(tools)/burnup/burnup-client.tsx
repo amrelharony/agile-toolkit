@@ -85,8 +85,10 @@ function makeDefaultConfig(): BurnupConfig {
 }
 
 function createDefaultEntries(sprintDays: number): DayEntry[] {
+  // Deterministic IDs so SSR HTML matches client HTML at hydration. User
+  // edits replace these via the resize/add handlers, which mint real UUIDs.
   return Array.from({ length: sprintDays + 1 }, (_, i) => ({
-    id: crypto.randomUUID(),
+    id: `default:day-${i}`,
     day: i,
     scope: i === 0 ? 40 : null,
     completed: i === 0 ? 0 : null,

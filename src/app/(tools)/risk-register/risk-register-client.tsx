@@ -127,6 +127,20 @@ function buildWeeklyRiskSeries(risks: Risk[]): {
   const openAtWeek = new Array(cappedWeeks).fill(0) as number[];
   const weekLabels: string[] = [];
 
+  // Pre-parse each risk's dates once — previously `parseISODate` was called
+  // per (risk × week), which is O(N·W) parses. For N=200 risks across W=26
+  // weeks that's 5200 parses per render; the cache drops it to N.
+  const parsedRisks = risks
+    .map((r) => {
+      const raised = parseISODate(r.raisedAt);
+      if (!raised) return null;
+      return {
+        raisedT: raised.getTime(),
+        resolvedT: r.resolvedAt ? parseISODate(r.resolvedAt)?.getTime() ?? null : null,
+      };
+    })
+    .filter((x): x is { raisedT: number; resolvedT: number | null } => x !== null);
+
   for (let w = 0; w < cappedWeeks; w++) {
     const weekStartT = weekStart.getTime() + w * 7 * 86_400_000;
     const weekEndT = weekStartT + 7 * 86_400_000;
@@ -134,15 +148,11 @@ function buildWeeklyRiskSeries(risks: Risk[]): {
 
     let raised = 0;
     let open = 0;
-    for (const r of risks) {
-      const raisedDate = parseISODate(r.raisedAt);
-      if (!raisedDate) continue;
-      const raisedT = raisedDate.getTime();
-      if (raisedT >= weekStartT && raisedT < weekEndT) raised++;
+    for (const r of parsedRisks) {
+      if (r.raisedT >= weekStartT && r.raisedT < weekEndT) raised++;
       // Open as of the END of the week: raised on/before week-end and not yet resolved by week-end.
-      if (raisedT < weekEndT) {
-        const resolvedDate = r.resolvedAt ? parseISODate(r.resolvedAt) : null;
-        if (!resolvedDate || resolvedDate.getTime() >= weekEndT) open++;
+      if (r.raisedT < weekEndT) {
+        if (r.resolvedT === null || r.resolvedT >= weekEndT) open++;
       }
     }
     raisedPerWeek[w] = raised;

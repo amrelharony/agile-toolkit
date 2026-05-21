@@ -121,7 +121,15 @@ function avatarColor(name: string): string {
 }
 
 function isNumeric(v: string): boolean {
-  return !isNaN(Number(v)) && v !== "?" && v !== "∞" && v !== "";
+  // `Number("")`, `Number(" ")`, `Number("\t")` all return 0 (a valid number
+  // by spec) — explicitly reject whitespace-only inputs first. Also reject
+  // the explicit non-numeric sentinels in our scales.
+  if (v === "?" || v === "∞") return false;
+  if (v.trim() === "") return false;
+  // Hex/octal literals like "0xff" parse as numbers in Number() but aren't
+  // valid story-point votes — require the string to match a numeric literal.
+  if (!/^-?\d+(\.\d+)?$/.test(v.trim())) return false;
+  return !isNaN(Number(v));
 }
 
 function calcStats(votes: string[]): {
@@ -142,15 +150,25 @@ function calcStats(votes: string[]): {
       : sorted[mid];
   const spread = sorted[sorted.length - 1] - sorted[0];
 
-  // mode
+  // Mode: pick the highest-count value. Tie-break deterministically by
+  // numeric ordering (lower wins) — previously the order depended on
+  // `Object.entries(freq)` iteration, which is insertion-order for string
+  // keys and let a re-vote subtly change which side won a tie.
   const freq: Record<string, number> = {};
-  for (const v of votes) freq[v] = (freq[v] || 0) + 1;
+  for (const v of votes) freq[v] = (freq[v] ?? 0) + 1;
   let topCount = 0;
   let modeVal = votes[0];
-  for (const [val, count] of Object.entries(freq)) {
+  for (const val of Object.keys(freq)) {
+    const count = freq[val];
     if (count > topCount) {
       topCount = count;
       modeVal = val;
+      continue;
+    }
+    if (count === topCount && isNumeric(val) && isNumeric(modeVal)) {
+      // Both numeric and tied — prefer the smaller, which corresponds to
+      // the more conservative estimate (safer default for the team).
+      if (Number(val) < Number(modeVal)) modeVal = val;
     }
   }
 

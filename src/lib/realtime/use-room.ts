@@ -38,7 +38,22 @@ function getOrCreateUser(): { id: string; name: string } {
   const key = "agile-toolkit:user";
   try {
     const existing = localStorage.getItem(key);
-    if (existing) return JSON.parse(existing) as { id: string; name: string };
+    // Bound the read so a corrupted/oversized slot can't freeze JSON.parse.
+    if (existing && existing.length < 4096) {
+      const parsed = JSON.parse(existing) as Partial<{ id: string; name: string }>;
+      // Validate shape — if either field is missing or wrong-type, fall
+      // through to creating a fresh identity rather than handing back a
+      // half-broken object that confuses presence/broadcast downstream.
+      if (
+        parsed &&
+        typeof parsed.id === "string" &&
+        typeof parsed.name === "string" &&
+        parsed.id.length > 0 &&
+        parsed.name.length > 0
+      ) {
+        return { id: parsed.id, name: parsed.name };
+      }
+    }
   } catch {
     /* fall through */
   }

@@ -104,8 +104,14 @@ function makeBurnDraft(defaultSloId: string): BurnDraft {
  * 30 × 24 × 60 × 0.001 = 43.2 minutes/month.
  */
 function budgetMinutes(slo: SloDefinition): number {
-  const windowMinutes = slo.windowDays * 24 * 60;
-  const allowable = 1 - slo.target;
+  // Defensive against bad inputs that could sneak in via JSON import or
+  // a future UI bug: negative window days, NaN target, target >1 or <0.
+  // Any of those used to produce nonsensical budgets (negative budget,
+  // NaN-laced burn-rate charts).
+  const windowMinutes = Math.max(0, slo.windowDays * 24 * 60);
+  if (!Number.isFinite(slo.target) || !Number.isFinite(windowMinutes)) return 0;
+  const target = Math.max(0, Math.min(1, slo.target));
+  const allowable = 1 - target;
   return Math.max(0, windowMinutes * allowable);
 }
 

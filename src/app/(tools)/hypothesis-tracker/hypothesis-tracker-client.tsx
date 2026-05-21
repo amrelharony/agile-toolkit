@@ -76,6 +76,7 @@ function setStatus(h: Hypothesis, status: Status): Hypothesis {
   return { ...h, status, resolvedAt: done ? (h.resolvedAt ?? todayLocalISO()) : undefined };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type TextField = "description" | "believe" | "willDo" | "toLearn" | "successMetric" | "experiment" | "outcome";
 
 function useDraftField(value: string, commit: (next: string) => void) {
