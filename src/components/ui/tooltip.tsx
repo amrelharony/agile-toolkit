@@ -20,7 +20,13 @@ const TooltipContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        "z-50 overflow-hidden rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-tooltip-content-transform-origin]",
+        // R10: neutral popover background instead of `bg-primary`.
+        // Accent-coloured tooltips were BRIGHT BLUE in light + YELLOW
+        // in HC — every tooltip became a coloured flag. `bg-popover`
+        // matches the standard shadcn surface system. Also z-bumped
+        // 50 → 1001 so tooltips inside an open bottom-sheet (z-81)
+        // aren't clipped behind it.
+        "z-[1001] overflow-hidden rounded-md bg-popover text-popover-foreground border border-border shadow-md px-3 py-1.5 text-xs animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-tooltip-content-transform-origin]",
         className
       )}
       {...props}

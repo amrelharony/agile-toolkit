@@ -74,7 +74,10 @@ export function EmptyState({
             aria-hidden="true"
           />
         )}
-        <div>{children}</div>
+        {/* Announce the empty state to screen readers when this card replaces
+            a previously populated one (e.g. user filters down to zero rows).
+            Without role="status" the SR-only transition is silent. */}
+        <div role="status">{children}</div>
         {action && <div className="mt-4 flex justify-center">{action}</div>}
       </CardContent>
     </Card>

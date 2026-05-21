@@ -66,27 +66,36 @@ const BAND_TONE: Record<Band, "success" | "default" | "warning" | "danger"> = {
 /* ── Banding helpers ────────────────────────────────────────────────────── */
 // Per Accelerate / DORA 2023 report. Upper bounds are inclusive (`<=`) so
 // boundary values (e.g. exactly 24h lead time) fall into the better band.
+// Negative/NaN inputs default to the Low band (the safe pessimistic choice).
 function bandDeploy(perWeek: number): Band {
-  // Elite: multiple per day (≥30/wk). High: between weekly and daily.
-  // Medium: between monthly (~0.25/wk) and weekly. Low: less than monthly.
-  if (perWeek >= 30) return "Elite";
+  if (!Number.isFinite(perWeek) || perWeek < 0) return "Low";
+  // Elite: multiple deploys per day (~≥14/wk = 2/weekday). High: weekly to daily.
+  // Medium: monthly (~0.25/wk) to weekly. Low: less than monthly.
+  if (perWeek >= 14) return "Elite";
   if (perWeek >= 1) return "High";
   if (perWeek >= 0.25) return "Medium";
   return "Low";
 }
 function bandLead(hours: number): Band {
-  if (hours <= 1) return "Elite";
-  if (hours <= 24) return "High";
-  if (hours <= 24 * 7) return "Medium";
+  if (!Number.isFinite(hours) || hours < 0) return "Low";
+  // Elite: less than one day. High: one day to one week. Medium: one week to
+  // one month. Low: more than one month.
+  if (hours <= 24) return "Elite";
+  if (hours <= 24 * 7) return "High";
+  if (hours <= 24 * 30) return "Medium";
   return "Low";
 }
 function bandCfr(rate: number): Band {
+  if (!Number.isFinite(rate) || rate < 0) return "Low";
   if (rate <= 0.15) return "Elite";
   if (rate <= 0.30) return "High";
   if (rate <= 0.45) return "Medium";
   return "Low";
 }
 function bandMttr(hours: number): Band {
+  if (!Number.isFinite(hours) || hours < 0) return "Low";
+  // Elite: less than one hour. High: less than one day. Medium: less than
+  // one week. Low: more than one week (per DORA 2023).
   if (hours <= 1) return "Elite";
   if (hours <= 24) return "High";
   if (hours <= 24 * 7) return "Medium";
@@ -146,10 +155,16 @@ export function DoraScorecardClient() {
     const cfr = parsePercent(draft.changeFailRatePct);
     const mttr = parsePositive(draft.mttrHours);
     if (deploy === null || lead === null || cfr === null || mttr === null) return;
-    if (!draft.quarter.trim()) return;
+    const quarterTrimmed = draft.quarter.trim();
+    if (!quarterTrimmed) return;
+    // R5: enforce YYYY-Q[1-4] so localeCompare sorts chronologically.
+    // Free-text like "Q1 2026" or "2026-Q10" sorted wrong + duplicates
+    // broke the chart x-axis (Recharts treats dup keys as one point).
+    if (!/^\d{4}-Q[1-4]$/.test(quarterTrimmed)) return;
+    if (state.samples.some((s) => s.quarter === quarterTrimmed)) return;
     const sample: DoraSample = {
       id: crypto.randomUUID(),
-      quarter: draft.quarter.trim(),
+      quarter: quarterTrimmed,
       deployFreqPerWeek: deploy,
       leadTimeHours: lead,
       changeFailRate: cfr,
@@ -427,6 +442,22 @@ export function DoraScorecardClient() {
               />
             </div>
             <Button
+              // R11-fix: commit any in-progress NumericField draft
+              // BEFORE the click handler reads parent state. The
+              // inner NumericField components commit-on-blur via
+              // setState, but click handlers in the same event loop
+              // read the OLD closure (React batches the queued
+              // setState until after the handler returns). Pressing
+              // Add without first Tab-ing away would silently drop
+              // the typed value. Using onMouseDown to blur the
+              // active element FIRST flushes the commit into draft
+              // before the click handler runs.
+              onMouseDown={() => {
+                const active = document.activeElement as HTMLElement | null;
+                if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) {
+                  active.blur();
+                }
+              }}
               onClick={addSample}
               className="gap-2 bg-accent text-bg hover:bg-accent/90 w-full"
             >

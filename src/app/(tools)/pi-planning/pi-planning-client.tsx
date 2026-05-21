@@ -82,10 +82,10 @@ export function PiPlanningClient() {
     setState((s) => ({ ...s, items: s.items.map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
     if (patch.iteration !== undefined || patch.teamId !== undefined) {
       log(PI_PLANNING_ACTIONS.ITEM_ASSIGNED, { itemId: id, ...patch });
-    } else {
-      // Otherwise we still want an audit trail for content edits (title,
-      // description, points, kind) — without this branch the history is
-      // silent on every typing edit and only catches reassignments.
+    } else if (patch.kind !== undefined || patch.points !== undefined) {
+      // Only audit structural changes (kind, points) — not per-keystroke
+      // title/description edits, which used to flood the history log with
+      // one event per character and slowed the whole tool on typing.
       log(PI_PLANNING_ACTIONS.ITEM_UPDATED, { itemId: id, ...patch });
     }
   };
@@ -98,10 +98,17 @@ export function PiPlanningClient() {
   const setIterations = (n: number) =>
     setState((s) => {
       const next = Math.max(1, Math.min(10, n));
-      // Dropping items pinned to iterations that no longer exist is
-      // destructive — surface a confirm() before silently deleting them.
-      // (If they linger instead, they reappear when the user widens the PI
-      // again, so quietly keeping them isn't a clean alternative either.)
+      // R5: when the user types `0`, `next` clamps to 1 but `next < s.iterations`
+      // (if current is e.g. 2) → destructive prompt + item removal still fires
+      // even though the user's intent was clamped to a value that may equal
+      // current. Skip the destructive path when the clamped value equals
+      // current (no actual shrink happening) and when the typed value was
+      // outside the allowed range entirely (typed 0 / 11 / negative).
+      if (next === s.iterations) return s;
+      if (!Number.isFinite(n) || n < 1 || n > 10) {
+        // Typed value was outside bounds — silently treat as no-op.
+        return s;
+      }
       if (next < s.iterations) {
         const orphans = s.items.filter((i) => i.iteration >= next).length;
         if (orphans > 0) {
@@ -256,7 +263,16 @@ export function PiPlanningClient() {
                 min={1}
                 max={10}
                 value={state.iterations}
-                onChange={(e) => setIterations(Number(e.target.value))}
+                onChange={(e) => {
+                  // Empty input coerces via Number() to 0, which would clamp to
+                  // min=1 and silently delete iteration columns. Keep the
+                  // current value while the field is empty mid-edit so the
+                  // user can retype freely.
+                  const raw = e.target.value;
+                  if (raw === "") return;
+                  const n = Number(raw);
+                  if (Number.isFinite(n)) setIterations(n);
+                }}
                 className="bg-bg border-border font-data w-24"
               />
             </div>
@@ -270,7 +286,16 @@ export function PiPlanningClient() {
             <Input
               type="number"
               value={newTeam.velocity}
-              onChange={(e) => setNewTeam((n) => ({ ...n, velocity: Number(e.target.value) }))}
+              // R11-fix: guard against NaN from non-numeric paste / clear.
+              // The previous `Number(e.target.value)` returned NaN, which
+              // then propagated through overload detection
+              // (`planned > team.velocity * 1.15` → false) silently
+              // disabling the load warning. Now: keep prior value on
+              // invalid input.
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                setNewTeam((nt) => ({ ...nt, velocity: Number.isFinite(n) && n >= 0 ? n : nt.velocity }));
+              }}
               placeholder="Velocity"
               className="bg-bg border-border font-data w-24"
             />
@@ -325,7 +350,12 @@ export function PiPlanningClient() {
                         <Input
                           type="number"
                           value={team.velocity}
-                          onChange={(e) => updateTeam(team.id, { velocity: Number(e.target.value) })}
+                          // R11-fix: NaN-guard. Bad paste silently
+                          // disabled overload detection before.
+                          onChange={(e) => {
+                            const n = Number(e.target.value);
+                            if (Number.isFinite(n) && n >= 0) updateTeam(team.id, { velocity: n });
+                          }}
                           className="bg-bg border-border font-data text-xs h-7 w-20"
                         />
                         <span className="text-xs text-sub">vel</span>
@@ -367,7 +397,14 @@ export function PiPlanningClient() {
                               <Input
                                 type="number"
                                 value={item.points}
-                                onChange={(e) => updateItem(item.id, { points: Number(e.target.value) })}
+                                // R11-fix: NaN-guard. Without this, a
+                                // single bad-paste row poisons the team's
+                                // `planned` reduce → NaN > velocity is
+                                // false → overload silently hidden.
+                                onChange={(e) => {
+                                  const n = Number(e.target.value);
+                                  if (Number.isFinite(n) && n >= 0) updateItem(item.id, { points: n });
+                                }}
                                 className="bg-surface border-border font-data text-[10px] h-6 w-12"
                               />
                               <select

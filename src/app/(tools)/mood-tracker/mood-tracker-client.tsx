@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -76,9 +76,10 @@ export function MoodTrackerClient() {
   const upsertMember = useWorkspaceStore((s) => s.upsertTeamMember);
   const { log: logEvent } = useHistoryLogger("mood-tracker");
 
-  useEffect(() => {
-    useWorkspaceStore.persist.rehydrate();
-  }, []);
+  // R5: removed stray `useWorkspaceStore.persist.rehydrate()` — it
+  // wasn't this tool's job to force a workspace-wide rehydrate. Doing
+  // so on mount raced with other tools' in-progress writes (the
+  // workspace store hydrates once at the persist-provider boundary).
 
   const todayISO = todayLocalISO();
   // Memoize on todayISO so the array reference is stable until midnight. With
@@ -98,8 +99,19 @@ export function MoodTrackerClient() {
     // still allow score-only logs so the click-to-log flow stays one tap.
     const note = noteDrafts[memberId]?.trim() || undefined;
     setEntries((e) => {
-      const existing = e.find((x) => x.memberId === memberId && x.date === today);
-      if (existing) return e.map((x) => (x === existing ? { ...x, score, note: note ?? x.note } : x));
+      // R5: previously found `existing` by reference then `.map((x) => x === existing ?…)`.
+      // Under StrictMode (and React 18 concurrent rendering), this updater can
+      // be invoked twice — the second invocation's `e` is the array AFTER the
+      // first call's update, so `existing` (captured from the first `e`) is
+      // no longer in the new array → match-by-reference fails → the second
+      // call silently appends a duplicate. Match by composite (memberId, date)
+      // inside `.map` so it's reference-independent.
+      const idx = e.findIndex((x) => x.memberId === memberId && x.date === today);
+      if (idx >= 0) {
+        const next = e.slice();
+        next[idx] = { ...next[idx], score, note: note ?? next[idx].note };
+        return next;
+      }
       return [...e, { id: nanoid(8), memberId, date: today, score, note }];
     });
     logEvent(MOOD_ACTIONS.MOOD_LOGGED, { memberId, score, date: today, note });
@@ -119,9 +131,27 @@ export function MoodTrackerClient() {
     const today = todayLocalISO();
     const trimmed = draft.trim();
     setEntries((e) => {
-      const existing = e.find((x) => x.memberId === memberId && x.date === today);
-      if (!existing) return e;
-      return e.map((x) => (x === existing ? { ...x, note: trimmed || undefined } : x));
+      // R11-fix: use findIndex by (memberId, date) instead of comparing
+      // object identity. StrictMode can invoke the updater twice; the
+      // second invocation receives the array AFTER the first call's
+      // map allocated new objects, breaking `x === existing` and
+      // making the note write silently a no-op.
+      const idx = e.findIndex((x) => x.memberId === memberId && x.date === today);
+      if (idx === -1) {
+        // R11-fix: user typed a note BEFORE scoring. Previously the
+        // `if (!existing) return e` early-return silently discarded
+        // the note. Now we create a placeholder entry seeded with
+        // score=3 (Neutral) so the user's input isn't lost. The
+        // existing `log` flow later merges the user's chosen score
+        // onto this entry (carrying the note forward via the
+        // `next[idx].note` preservation in log's setEntries updater).
+        // Tradeoff: a single Neutral score appears in analytics for
+        // members who only typed a note — preferable to silent data
+        // loss.
+        if (trimmed === "") return e;
+        return [...e, { id: nanoid(8), memberId, date: today, score: 3, note: trimmed }];
+      }
+      return e.map((x, i) => (i === idx ? { ...x, note: trimmed || undefined } : x));
     });
   };
 

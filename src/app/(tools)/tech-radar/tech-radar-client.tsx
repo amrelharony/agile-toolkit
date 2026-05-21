@@ -235,7 +235,10 @@ export function TechRadarClient() {
   }, [blips]);
 
   const recentlyMoved = useMemo(
-    () => blips.filter((b) => daysSince(b.movedAt) <= 30).length,
+    // R5: also require `d >= 0` — a future `movedAt` (typo or imported
+    // bad data) returned a negative daysSince which `<= 30` accepted,
+    // inflating the "recently moved" count.
+    () => blips.filter((b) => { const d = daysSince(b.movedAt); return d >= 0 && d <= 30; }).length,
     [blips]
   );
 

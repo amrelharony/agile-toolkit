@@ -3,6 +3,7 @@
 import { useRef, useMemo, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   RadarChart,
   PolarGrid,
@@ -58,7 +59,7 @@ const useMaturityStore = create<MaturityStore>()(
       setTargetLevel: (level) => set({ targetLevel: level }),
       reset: () => set({ scores: DEFAULT_SCORES, targetLevel: 4 }),
     }),
-    { name: "agile-toolkit:maturity" }
+    { name: "agile-toolkit:maturity", storage: safeJSONStorage("maturity") }
   )
 );
 

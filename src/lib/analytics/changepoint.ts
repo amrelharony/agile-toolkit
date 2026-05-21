@@ -35,11 +35,15 @@ export function cusum(series: number[], k = 0.5, h = 4): Changepoint[] {
     cNeg = Math.min(0, cNeg + standardised + k);
     if (cPos > h) {
       out.push({ index: i, direction: "up", cumulativeStat: cPos });
+      // R8: only reset the TRIGGERING cumulant. Resetting both biases
+      // subsequent detection — Page (1954) / Hawkins & Olwell specify
+      // the opposite cumulant must keep accumulating relative to the
+      // new baseline. After this fix, a sustained up-trend followed
+      // by a sharp down-shift won't need to re-cross the threshold
+      // from a forced zero.
       cPos = 0;
-      cNeg = 0;
     } else if (cNeg < -h) {
       out.push({ index: i, direction: "down", cumulativeStat: cNeg });
-      cPos = 0;
       cNeg = 0;
     }
   }

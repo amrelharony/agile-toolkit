@@ -109,11 +109,41 @@ export function createPersistedStore<T extends object>(
       {
         name: storeKey,
         storage: createJSONStorage(() => {
-          if (typeof window !== "undefined") return localStorage;
+          // The persist middleware does not catch DOMException from
+          // localStorage. Without these wrappers, Safari Private
+          // Browsing (SecurityError on every access) and any origin
+          // pushed over the 5 MB quota would throw a synchronous
+          // exception during rehydrate / write, crashing the page.
+          // Mirrors the wrapper in `lib/stores/workspace-store.ts`.
+          if (typeof window === "undefined") {
+            return { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+          }
           return {
-            getItem: () => null,
-            setItem: () => {},
-            removeItem: () => {},
+            getItem: (k: string) => {
+              try {
+                return localStorage.getItem(k);
+              } catch (err) {
+                // eslint-disable-next-line no-console
+                console.warn(`[${name}] localStorage.getItem blocked — starting with defaults.`, err);
+                return null;
+              }
+            },
+            setItem: (k: string, v: string) => {
+              try {
+                localStorage.setItem(k, v);
+              } catch (err) {
+                // eslint-disable-next-line no-console
+                console.warn(`[${name}] localStorage write failed (quota / private mode) — state held in memory only.`, err);
+              }
+            },
+            removeItem: (k: string) => {
+              try {
+                localStorage.removeItem(k);
+              } catch (err) {
+                // eslint-disable-next-line no-console
+                console.warn(`[${name}] localStorage.removeItem blocked.`, err);
+              }
+            },
           };
         }),
         skipHydration: true,

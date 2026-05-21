@@ -21,13 +21,24 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
 
   useEffect(() => {
     setMounted(true);
+    // Combo readout: poll at 500 ms when idle, 150 ms when actively comboing.
+    // The previous flat 150 ms ran 6.6 wakeups/sec on every page for the
+    // entire session even when nothing was happening, which on low-end
+    // mobile is a measurable battery cost. The bumped cadence kicks in
+    // automatically once a combo starts.
+    let pollId: ReturnType<typeof setInterval> | null = null;
     const tick = () => {
       const c = getCombo();
       setComboDepth(c.depth);
       setComboMult(c.multiplier);
+      const nextInterval = c.depth >= 1 && c.multiplier > 1 ? 150 : 500;
+      if (pollId !== null) clearInterval(pollId);
+      pollId = setInterval(tick, nextInterval);
     };
-    const id = setInterval(tick, 150);
-    return () => clearInterval(id);
+    tick();
+    return () => {
+      if (pollId !== null) clearInterval(pollId);
+    };
   }, []);
 
   if (!mounted) return null;

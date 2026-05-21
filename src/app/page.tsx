@@ -6,11 +6,11 @@ import { PageHeader } from "@/components/shared/page-header";
 import { ToolCard } from "@/components/shared/tool-card";
 import { InsightsEngine } from "@/components/shared/insights-engine";
 import { MoodReveal } from "@/components/shared/mood-reveal";
-import { ArrowRight, Zap, TrendingUp, Radio, Sparkles, Filter } from "lucide-react";
+import { ArrowRight, Zap, TrendingUp, Radio, Filter, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
-type FilterId = "all" | "smart" | "live" | "new";
+type FilterId = "all" | "smart" | "live";
 
 export default function Home() {
   const [activeFilter, setActiveFilter] = useState<FilterId>("all");
@@ -21,7 +21,6 @@ export default function Home() {
         let list = getToolsByCategory(category);
         if (activeFilter === "smart") list = list.filter((t) => (t.analyticsFeatures?.length ?? 0) > 0);
         if (activeFilter === "live") list = list.filter((t) => t.isRealtime);
-        if (activeFilter === "new") list = list.filter((t) => t.badge === "new");
         return { category, tools: list };
       })
       .filter((c) => c.tools.length > 0);
@@ -30,13 +29,11 @@ export default function Home() {
   const totalCount = allTools.length;
   const smartCount = allTools.filter((t) => (t.analyticsFeatures?.length ?? 0) > 0).length;
   const liveCount = allTools.filter((t) => t.isRealtime).length;
-  const newCount = allTools.filter((t) => t.badge === "new").length;
 
   const filters: { id: FilterId; label: string; icon: typeof Zap; count: number }[] = [
     { id: "all", label: "All", icon: Filter, count: totalCount },
     { id: "smart", label: "Smart", icon: TrendingUp, count: smartCount },
     { id: "live", label: "Live", icon: Radio, count: liveCount },
-    { id: "new", label: "New", icon: Sparkles, count: newCount },
   ];
 
   return (
@@ -150,19 +147,41 @@ export default function Home() {
         })}
       </div>
 
-      {/* Tool Grid by Category — each grid reveals on scroll with the active
-          mood profile's easing.  Playful → bouncy cards, Focused → sharp
-          snap, Melancholy → slow fade.  Keyed by filter so switching tabs
-          remounts the reveal and re-animates the new tool set. */}
+      {/* Tool Grid by Category — categories are collapsed by default so the
+          home page reads as an index, not a wall of cards. Click the summary
+          row to expand. Native <details>/<summary> keeps it accessible and
+          remembers no state across renders (always closed on navigation),
+          which matches the "index first" intent. */}
       {filteredByCategory.map(({ category, tools }) => (
-        <section key={category} className="mb-8 sm:mb-12">
-          <PageHeader label={category} title={category} />
+        <details
+          key={`${category}-${activeFilter}`}
+          className="mb-3 sm:mb-4 group rounded-lg border border-border bg-surface/40 overflow-hidden"
+        >
+          <summary
+            className={cn(
+              "list-none cursor-pointer select-none flex items-center justify-between gap-3",
+              "px-4 py-3 sm:px-5 sm:py-4 hover:bg-surface transition-colors",
+              "[&::-webkit-details-marker]:hidden"
+            )}
+          >
+            <span className="flex items-center gap-3 min-w-0">
+              <ChevronDown
+                className="w-4 h-4 shrink-0 text-sub transition-transform duration-200 group-open:rotate-180"
+                aria-hidden="true"
+              />
+              <span className="font-display text-sm sm:text-base text-text truncate">
+                {category}
+              </span>
+            </span>
+            <span className="font-mono text-[10px] sm:text-xs text-sub shrink-0">
+              {tools.length} {tools.length === 1 ? "tool" : "tools"}
+            </span>
+          </summary>
           <MoodReveal
-            key={`${category}-${activeFilter}`}
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4"
-            duration={0.55}
-            stagger={0.07}
-            from={{ opacity: 0, y: 24, scale: 0.98 }}
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 p-4 sm:p-5 pt-2 sm:pt-2"
+            duration={0.4}
+            stagger={0.05}
+            from={{ opacity: 0, y: 12, scale: 0.99 }}
             to={{ opacity: 1, y: 0, scale: 1, clearProps: "transform" }}
           >
             {tools.map((tool) => {
@@ -179,7 +198,7 @@ export default function Home() {
               );
             })}
           </MoodReveal>
-        </section>
+        </details>
       ))}
 
       {filteredByCategory.length === 0 && (

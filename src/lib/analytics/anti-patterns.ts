@@ -112,7 +112,10 @@ export function detectBusFactorRisk(w: Workspace): AntiPatternSignal | null {
 
 export function detectRiskStacking(w: Workspace): AntiPatternSignal | null {
   const high = w.risks.filter(
-    (r) => (r.status === "open" || r.status === "mitigating") && r.probability * r.impact >= 12
+    // R10: NaN guard — `undefined * undefined === NaN`, `NaN >= 12 === false`,
+    // so risks with missing probability/impact (legacy or corrupted
+    // import) silently disappeared from the count. Coerce to 0.
+    (r) => (r.status === "open" || r.status === "mitigating") && (r.probability ?? 0) * (r.impact ?? 0) >= 12
   );
   if (high.length < 3) return null;
   return {

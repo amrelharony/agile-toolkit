@@ -1,5 +1,5 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble } from "./prompt-utils";
+import { buildPreamble, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 import type { Workspace } from "../stores/workspace-types";
 import { buildWorkspaceContext } from "./cross-tool-context";
 
@@ -12,12 +12,22 @@ interface TreeNode {
   description?: string;
 }
 
+/**
+ * Render the opportunity tree as an indented bullet list. Every
+ * user-typed field (text / evidence / description) is sanitized so a
+ * pasted "ignore previous instructions" or a triple-backtick block
+ * can't break out of the surrounding prompt structure. Recursion is
+ * capped at 30 plies so a cyclic / pathological parent chain (which
+ * can land in persisted state) can't recurse without bound.
+ */
 function renderTree(nodes: TreeNode[], parentId: string | null, depth = 0): string {
+  if (depth > 30) return "";
   const lines: string[] = [];
   for (const n of nodes.filter((x) => x.parentId === parentId)) {
-    const desc = n.description ? ` — ${n.description.slice(0, 80)}` : "";
-    const ev = n.evidence ? ` — evidence: ${n.evidence}` : "";
-    lines.push(`${"  ".repeat(depth)}- [${n.kind}] ${n.text || "(empty)"}${desc}${ev}`);
+    const desc = n.description ? ` — ${sanitizePromptCell(n.description, 120)}` : "";
+    const ev = n.evidence ? ` — evidence: ${sanitizePromptCell(n.evidence, 120)}` : "";
+    const text = n.text ? sanitizePromptCell(n.text, 200) : "(empty)";
+    lines.push(`${"  ".repeat(depth)}- [${n.kind}] ${text}${desc}${ev}`);
     lines.push(renderTree(nodes, n.id, depth + 1));
   }
   return lines.join("\n");
@@ -26,7 +36,7 @@ function renderTree(nodes: TreeNode[], parentId: string | null, depth = 0): stri
 export function generateOpportunityTreePrompts(data: { nodes: TreeNode[] }, workspace?: Workspace | null): PromptDefinition[] {
   if (data.nodes.length === 0) return [];
   const context = workspace ? buildWorkspaceContext(workspace) : "";
-  const tree = renderTree(data.nodes, null);
+  const tree = wrapUserContent(renderTree(data.nodes.slice(0, 200), null));
   return [
     {
       id: "ost-balance",

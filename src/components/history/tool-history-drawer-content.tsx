@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   SheetContent,
   SheetDescription,
@@ -27,7 +27,10 @@ import type { HistoryEvent } from "@/lib/history/types";
 
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
-  const sec = Math.round(diffMs / 1000);
+  // Guard against clock skew (multiplayer sync from a peer with a faster
+  // clock, or system time adjustments) — without this the UI shows
+  // nonsense like "-3s ago" for events that arrived from the future.
+  const sec = Math.max(0, Math.round(diffMs / 1000));
   if (sec < 60) return `${sec}s ago`;
   const min = Math.round(sec / 60);
   if (min < 60) return `${min}m ago`;
@@ -38,11 +41,22 @@ function timeAgo(iso: string): string {
 }
 
 function dayKey(iso: string): string {
-  return new Date(iso).toISOString().slice(0, 10);
+  // `new Date(invalid).toISOString()` throws RangeError, which would
+  // crash the entire history drawer if a single stored event has a
+  // malformed `occurredAt` (corruption, manual storage edit, future
+  // schema migration that drops a field). Guard with isFinite first
+  // and bucket bad entries under "unknown" so they remain visible but
+  // grouped together.
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "unknown";
+  return d.toISOString().slice(0, 10);
 }
 
 function dayLabel(iso: string): string {
   const d = new Date(iso);
+  // Mirror dayKey's invalid-date defence so a malformed timestamp
+  // surfaces as "Unknown date" rather than literal "Invalid Date".
+  if (!Number.isFinite(d.getTime())) return "Unknown date";
   const today = new Date();
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
@@ -81,21 +95,45 @@ interface Props {
   onClose: () => void;
 }
 
+// R10-deferred: window the rendered list to avoid mounting 200 button
+// elements + 200 nested JSON panels on open. The drawer is scrollable
+// so users typically only see the top ~10 — render in chunks.
+const INITIAL_RENDER_LIMIT = 50;
+const RENDER_CHUNK = 50;
+
 export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
   const { events, total } = useHistory({ toolId, limit: 200 });
   const [selected, setSelected] = useState<HistoryEvent | null>(null);
+  const [renderLimit, setRenderLimit] = useState(INITIAL_RENDER_LIMIT);
   const timeTravel = useTimeTravel(toolId);
+
+  // R11-fix: reset only when the OLDEST event id changes — proxy for
+  // "the filter / tool / time-travel cursor moved", NOT for "a new
+  // event arrived". The previous reset-on-`events`-identity fired on
+  // every keystroke that produced a history event (the `useHistory`
+  // selector returns a freshly-sorted array each push), bouncing the
+  // user back to the first 50 mid-scroll. Now the limit is sticky
+  // across new-event landings; only an explicit filter change or a
+  // total emptying of the list rewinds it.
+  const oldestId = events.length > 0 ? events[events.length - 1].id : null;
+  useEffect(() => {
+    setRenderLimit(INITIAL_RENDER_LIMIT);
+  }, [oldestId, toolId]);
 
   const grouped = useMemo(() => {
     const groups = new Map<string, HistoryEvent[]>();
-    for (const event of events) {
+    // R10-deferred: cap at `renderLimit` — the rest is reachable via
+    // "Load more" which expands the limit in chunks.
+    for (const event of events.slice(0, renderLimit)) {
       const k = dayKey(event.occurredAt);
       const arr = groups.get(k) ?? [];
       arr.push(event);
       groups.set(k, arr);
     }
     return Array.from(groups.entries());
-  }, [events]);
+  }, [events, renderLimit]);
+
+  const hasMore = events.length > renderLimit;
 
   const restoreToEvent = (event: HistoryEvent) => {
     if (!timeTravel.controls) {
@@ -233,6 +271,21 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
                 })}
               </div>
             ))}
+            {hasMore && (
+              <div className="p-3 text-center border-t border-border">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRenderLimit((n) => n + RENDER_CHUNK)}
+                  className="text-xs"
+                >
+                  Load {Math.min(RENDER_CHUNK, events.length - renderLimit)} more
+                </Button>
+                <div className="text-[10px] text-sub mt-1">
+                  Showing {renderLimit} of {events.length}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </ScrollArea>

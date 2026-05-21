@@ -154,25 +154,50 @@ export function CeremonyTimerClient() {
   // Timer tick
   // ---------------------------------------------------------------------------
 
+  // R11-fix: anchor the countdown to a wall-clock `endsAt` rather
+  // than decrementing once per setInterval tick. Browsers throttle
+  // setInterval to ≥1s (often 60s+) when the tab is hidden, and the
+  // Date.now() clock advances during laptop sleep — both made the
+  // displayed remaining time drift past actual wall-time, missing
+  // the ten-second + minute-mark alarms and rendering after
+  // ceremonies actually ended. Now: stash `endsAtRef`, compute
+  // remaining from the live clock each tick. On visibilitychange
+  // we recompute immediately so the display catches up.
+  const endsAtRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!running) return;
-    intervalRef.current = setInterval(() => {
-      // The previous version called setRunning(false) and sonify("finish")
-      // from inside the setRemaining updater. React may invoke updaters
-      // multiple times in Strict Mode (and during concurrent rendering),
-      // which produced duplicate sonify("finish") emissions and a "setState
-      // during setState" warning. The "did we just hit zero?" handling now
-      // lives in a separate effect below that watches `remaining`.
-      setRemaining((prev) => {
-        if (prev <= 1) return 0;
-        if (prev === 11) sonify("ten-seconds");
-        else if (prev % 60 === 0 && prev > 0) sonify("minute-mark");
-        return prev - 1;
-      });
-    }, 1000);
+    if (!running) {
+      endsAtRef.current = null;
+      return;
+    }
+    // Establish endsAt the FIRST time `running` flips to true, based
+    // on the current `remaining`. Subsequent renders during this run
+    // don't re-anchor (otherwise pause/resume drift would re-emerge).
+    if (endsAtRef.current === null) {
+      endsAtRef.current = Date.now() + remaining * 1000;
+    }
+    let lastReported = remaining;
+    const tick = () => {
+      const endsAt = endsAtRef.current;
+      if (endsAt === null) return;
+      const next = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+      // Fire alarms at threshold crossings against the previous tick's
+      // value (so suspending the tab through the 11-sec mark still
+      // emits the ten-second alarm on the next visible tick).
+      if (lastReported > 10 && next <= 10 && next > 0) sonify("ten-seconds");
+      else if (next > 0 && next !== lastReported && next % 60 === 0) sonify("minute-mark");
+      lastReported = next;
+      setRemaining(next);
+    };
+    intervalRef.current = setInterval(tick, 1000);
+    const onVis = () => { if (document.visibilityState === "visible") tick(); };
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVis);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVis);
     };
+    // `remaining` intentionally excluded — it changes every tick and
+    // including it would re-run the effect every second.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running, sonify]);
 
   // Stop the timer and play the finish sound exactly once when remaining
@@ -396,6 +421,8 @@ export function CeremonyTimerClient() {
                 size="lg"
                 onClick={togglePlay}
                 disabled={totalSeconds === 0}
+                aria-label={running ? "Pause timer" : "Start timer"}
+                aria-pressed={running}
                 className="h-14 w-14 rounded-full p-0"
                 style={{
                   backgroundColor: running ? "var(--surface-hover)" : "var(--accent)",
@@ -596,6 +623,7 @@ export function CeremonyTimerClient() {
                           variant="ghost"
                           onClick={() => removeParticipant(name)}
                           disabled={started && running}
+                          aria-label={`Remove ${name}`}
                           className="min-touch-coarse h-6 w-6 opacity-40 hover:opacity-100 hover:text-[var(--destructive)]"
                         >
                           <X className="h-3 w-3" />

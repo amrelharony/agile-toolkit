@@ -63,7 +63,8 @@ interface VDnaActions {
 
 export const useVDnaStore = create<VDna & VDnaActions>()(
   persist(
-    (set, get) => ({
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    (set, _get) => ({
       ...initial,
       apply: (patch) => set(patch),
       pushEvent: (e) =>
@@ -90,10 +91,19 @@ export const useVDnaStore = create<VDna & VDnaActions>()(
       setDailyChallenges: (list) => set({ dailyChallenges: list }),
       setWeeklyChallenges: (list) => set({ weeklyChallenges: list }),
       bumpCounter: (key, by = 1) => {
-        const cur = get().counters[key] ?? 0;
-        const next = cur + by;
-        set({ counters: { ...get().counters, [key]: next } });
-        return next;
+        // R5: previously used sequential `get()` reads — two concurrent
+        // `bumpCounter("xp")` calls each saw the SAME pre-state and the
+        // second clobbered the first (lost increment). Compute INSIDE
+        // the functional updater so both reads share one snapshot —
+        // critical for the gamification path which fires bursts of XP
+        // events synchronously after a tool action.
+        let nextVal = 0;
+        set((s) => {
+          const cur = s.counters[key] ?? 0;
+          nextVal = cur + by;
+          return { counters: { ...s.counters, [key]: nextVal } };
+        });
+        return nextVal;
       },
       prestigeReset: () =>
         set((s) => ({

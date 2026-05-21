@@ -41,24 +41,28 @@ const PER_ELEMENT_COOLDOWN = 50;
  * Register global scroll + input listeners so subsequent haptics can suppress
  * themselves. Safe to call multiple times (idempotent via a flag).
  */
+// R9: hold the handler refs so they can be removed. Previously the
+// listeners were inline arrow functions → impossible to removeEventListener
+// → leak forever on HMR / SPA navigation.
 let listenersRegistered = false;
+const onScroll = () => { scrollingUntil = performance.now() + 250; };
+const onInput = () => { typingUntil = performance.now() + 150; };
+
 export function registerSuppressionListeners() {
   if (typeof window === "undefined" || listenersRegistered) return;
   listenersRegistered = true;
-  window.addEventListener(
-    "scroll",
-    () => {
-      scrollingUntil = performance.now() + 250;
-    },
-    { passive: true, capture: true },
-  );
-  window.addEventListener(
-    "input",
-    () => {
-      typingUntil = performance.now() + 150;
-    },
-    { passive: true, capture: true },
-  );
+  window.addEventListener("scroll", onScroll, { passive: true, capture: true });
+  window.addEventListener("input", onInput, { passive: true, capture: true });
+}
+
+// R9: callable detach API so the haptics provider can clean up on
+// unmount. Without this every HMR cycle in dev (and every cold-load
+// after a sign-out/sign-in in prod) doubled-up the global listeners.
+export function unregisterSuppressionListeners() {
+  if (typeof window === "undefined" || !listenersRegistered) return;
+  listenersRegistered = false;
+  window.removeEventListener("scroll", onScroll, { capture: true } as EventListenerOptions);
+  window.removeEventListener("input", onInput, { capture: true } as EventListenerOptions);
 }
 
 export function shouldFire(ctx: GateContext): GateDecision {
@@ -89,6 +93,15 @@ export function shouldFire(ctx: GateContext): GateDecision {
   }
 
   const isPriority = pattern.priority === true;
+  // Keystroke haptics are the user *deliberately* asking for typing feedback,
+  // so they must bypass the typing-suppression window (which exists to stop
+  // *other* haptics from interrupting typing) and the rolling rate cap (a
+  // fast typist can fire well past the 8/sec ceiling). Cooldowns still apply
+  // — they protect the OS vibrate queue from a stuck-key flood.
+  const isKeystroke =
+    patternName === "keystroke" ||
+    patternName === "keystroke-space" ||
+    patternName === "keystroke-backspace";
 
   if (!isPriority) {
     // Global cooldown
@@ -98,14 +111,17 @@ export function shouldFire(ctx: GateContext): GateDecision {
       const last = perElementLast.get(targetEl) ?? 0;
       if (now - last < PER_ELEMENT_COOLDOWN) return "suppress";
     }
-    // Scroll / input suppression
+    // Scroll suppression always applies — keystrokes shouldn't fire mid-scroll.
     if (now < scrollingUntil) return "suppress";
-    if (now < typingUntil) return "suppress";
-    // Rolling rate limit
-    while (rollingWindow.length && now - rollingWindow[0] > ROLLING_WINDOW_MS) {
-      rollingWindow.shift();
+    // Typing suppression: applies to non-keystroke patterns only.
+    if (!isKeystroke && now < typingUntil) return "suppress";
+    // Rolling rate limit: bypassed for keystrokes (cooldowns above are enough).
+    if (!isKeystroke) {
+      while (rollingWindow.length && now - rollingWindow[0] > ROLLING_WINDOW_MS) {
+        rollingWindow.shift();
+      }
+      if (rollingWindow.length >= ROLLING_MAX) return "suppress";
     }
-    if (rollingWindow.length >= ROLLING_MAX) return "suppress";
   }
 
   return downgrade ? "downgrade" : "fire";

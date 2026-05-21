@@ -14,7 +14,10 @@ interface Actions {
 }
 
 const initial: SonificationPrefs = {
-  enabled: false,
+  // Audio is on by default — browsers still block actual playback until the
+  // first user gesture (click/key/etc.). When that gesture lands the
+  // provider activates the AudioContext. Until then we just queue tones.
+  enabled: true,
   masterVolume: 0.4,
   mode: "full",
   respectReducedMotion: true,

@@ -12,12 +12,18 @@ export function generatePlanningPokerPrompts(data: PlanningPokerData, workspace?
   const storiesWithVotes = data.stories.filter((s) => s.votes.length > 0);
   if (storiesWithVotes.length === 0) return [];
 
+  // formatTable already sanitizes string cells. We also clamp votes.join to
+  // a length cap so a malicious paste in the custom-scale field can't blow
+  // the prompt budget.
   const table = formatTable(
     ["Story", "Description", "Votes", "Final Estimate", "Spread"],
     storiesWithVotes.map((s) => {
-      const nums = s.votes.map((v) => typeof v === "number" ? v : parseFloat(String(v))).filter((n) => !isNaN(n));
+      const nums = s.votes
+        .map((v) => typeof v === "number" ? v : parseFloat(String(v)))
+        .filter((n) => Number.isFinite(n));
       const spread = nums.length > 1 ? Math.max(...nums) - Math.min(...nums) : 0;
-      return [s.title, (s.description ?? "—").slice(0, 80), s.votes.join(", "), s.finalEstimate ?? "TBD", spread];
+      const voteStr = s.votes.map((v) => String(v).slice(0, 16)).join(", ").slice(0, 200);
+      return [s.title, (s.description ?? "—").slice(0, 80), voteStr, s.finalEstimate ?? "TBD", spread];
     })
   );
 

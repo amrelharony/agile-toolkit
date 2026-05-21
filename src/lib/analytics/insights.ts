@@ -34,14 +34,17 @@ export function workspaceInsights(w: Workspace): Insight[] {
     const forecast = forecastHolt(velocitySeries, 1);
     if (forecast.length > 0) {
       const f = forecast[0];
+      // R8: when Holt's residualStd collapses to 0 (all observations
+      // identical), the prediction bands become NaN. `Math.round(NaN)`
+      // is NaN and the body rendered "NaN–NaN pts". Fall back to the
+      // point estimate when bands are non-finite.
+      const safeBand = (raw: number) =>
+        Number.isFinite(raw) ? Math.max(0, Math.round(raw)) : Math.round(f.yHat);
       insights.push({
         id: "forecast-velocity",
         kind: "forecast",
         title: `Next-sprint velocity forecast: ${Math.round(f.yHat)} pts`,
-        body: `80% confidence: ${Math.max(0, Math.round(f.lower80))}–${Math.round(f.upper80)} pts. 95%: ${Math.max(
-          0,
-          Math.round(f.lower95)
-        )}–${Math.round(f.upper95)} pts. Predictability score: ${(predictabilityScore(velocitySeries) * 100).toFixed(
+        body: `80% confidence: ${safeBand(f.lower80)}–${safeBand(f.upper80)} pts. 95%: ${safeBand(f.lower95)}–${safeBand(f.upper95)} pts. Predictability score: ${(predictabilityScore(velocitySeries) * 100).toFixed(
           0
         )}%.`,
         severity: "info",

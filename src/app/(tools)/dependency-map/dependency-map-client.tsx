@@ -148,13 +148,17 @@ export function DependencyMapClient() {
   const { log } = useHistoryLogger("dependency-map");
 
   const addNode = () => {
-    if (!newNode.label.trim()) return;
-    const description = newNode.description.trim() || undefined;
+    const label = newNode.label.trim().slice(0, 240);
+    if (!label) return;
+    // Cap free-text fields: dependency graphs typically have 10s-100s of
+    // nodes, but a paste-bomb description would blow past localStorage's
+    // 5 MB quota and silently lose state on the next write.
+    const description = newNode.description.trim().slice(0, 2000) || undefined;
     // Trim the team field — without it, a stray space (a common typo when
     // tabbing between fields) was stored as a non-empty truthy string and
     // rendered as an empty <span> next to the node label.
-    const team = newNode.team.trim() || undefined;
-    const node: Node = { id: nanoid(6), label: newNode.label.trim(), team, description };
+    const team = newNode.team.trim().slice(0, 120) || undefined;
+    const node: Node = { id: nanoid(6), label, team, description };
     setState((s) => ({ ...s, nodes: [...s.nodes, node] }));
     log(DEPENDENCY_MAP_ACTIONS.NODE_ADDED, { nodeId: node.id, label: node.label, description });
     setNewNode({ label: "", team: "", description: "" });
@@ -185,9 +189,16 @@ export function DependencyMapClient() {
   // the same setState call, but persisted state from older builds — or a
   // hand-edited localStorage payload — may contain orphans that crash
   // detectCycles / computeCriticalPath via undefined adjacency lookups.
+  // Also drop edges whose `kind` isn't in the known union: detectCycles uses
+  // it to decide direction, and an unknown kind would silently be excluded
+  // from cycle detection while still rendering in the UI — a confusing
+  // partial state.
   const validEdges = useMemo(() => {
     const ids = new Set(state.nodes.map((n) => n.id));
-    return state.edges.filter((e) => ids.has(e.from) && ids.has(e.to));
+    const knownKinds = new Set<Edge["kind"]>(["blocks", "needs", "informs"]);
+    return state.edges.filter(
+      (e) => ids.has(e.from) && ids.has(e.to) && knownKinds.has(e.kind),
+    );
   }, [state.nodes, state.edges]);
   const cycles = useMemo(() => detectCycles(state.nodes, validEdges), [state.nodes, validEdges]);
   const criticalPath = useMemo(() => computeCriticalPath(state.nodes, validEdges), [state.nodes, validEdges]);

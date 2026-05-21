@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   DragOverlay,
   PointerSensor,
@@ -109,24 +110,29 @@ function makeId() {
   return crypto.randomUUID();
 }
 
+// R5: deterministic ids for the seed steps so server-render and
+// client-hydrate produce the same DOM. Random UUIDs at module-eval time
+// produced an SSR/client mismatch on the very first visit (before any
+// persisted state existed). User-added steps continue to use makeId().
 function buildDefaultSteps(): Step[] {
   return [
-    { id: makeId(), name: "Discover" },
-    { id: makeId(), name: "Learn" },
-    { id: makeId(), name: "Use" },
+    { id: "story-mapper-step-discover", name: "Discover" },
+    { id: "story-mapper-step-learn", name: "Learn" },
+    { id: "story-mapper-step-use", name: "Use" },
   ];
 }
 
+// R5: deterministic seed ids so SSR + CSR produce identical DOM.
 function buildDefaultSlices(steps: Step[]): Slice[] {
   const [s1, s2, s3] = steps;
   return [
     {
-      id: makeId(),
+      id: "story-mapper-slice-skeleton",
       name: "Walking Skeleton",
       cards: {
         [s1.id]: [
           {
-            id: makeId(),
+            id: "story-mapper-card-browse",
             title: "Browse product catalog",
             description: "Users can view available products in a list.",
             color: "#00f0ff",
@@ -134,7 +140,7 @@ function buildDefaultSlices(steps: Step[]): Slice[] {
         ],
         [s2.id]: [
           {
-            id: makeId(),
+            id: "story-mapper-card-details",
             title: "Read product details",
             description: "Users can click a product to see full details.",
             color: "#a78bfa",
@@ -144,14 +150,14 @@ function buildDefaultSlices(steps: Step[]): Slice[] {
       },
     },
     {
-      id: makeId(),
+      id: "story-mapper-slice-mvp",
       name: "MVP",
       cards: {
         [s1.id]: [],
         [s2.id]: [],
         [s3.id]: [
           {
-            id: makeId(),
+            id: "story-mapper-card-cart",
             title: "Add to cart",
             description: "Users can add items to a shopping cart.",
             color: "#34d399",
@@ -344,7 +350,7 @@ const useStoryMapStore = create<StoryMapState>()(
       },
       };
     },
-    { name: "agile-toolkit:story-mapper" }
+    { name: "agile-toolkit:story-mapper", storage: safeJSONStorage("story-mapper") }
   )
 );
 
@@ -535,7 +541,7 @@ function DraggableCard({
       <button
         type="button"
         {...listeners}
-        className="absolute left-1 top-1/2 -translate-y-1/2 text-sub/30 hover:text-sub cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute left-1 top-1/2 -translate-y-1/2 text-sub/30 hover:text-sub cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
         tabIndex={-1}
         aria-label="Drag handle"
       >
@@ -561,7 +567,7 @@ function DraggableCard({
       </div>
 
       {/* Action buttons (top-right) */}
-      <div className="absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
         <CardEditDialog
           card={card}
           sliceId={sliceId}
@@ -908,7 +914,7 @@ export function StoryMapperClient() {
                         <button
                           type="button"
                           onClick={() => removeStep(step.id)}
-                          className="btn-danger-ghost flex-shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded"
+                          className="btn-danger-ghost flex-shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-0.5 rounded"
                           title="Remove step"
                         >
                           <Trash2 className="w-3 h-3" />
@@ -955,7 +961,7 @@ export function StoryMapperClient() {
                         <button
                           type="button"
                           onClick={() => removeSlice(slice.id)}
-                          className="btn-danger-ghost flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 p-0.5 rounded"
+                          className="btn-danger-ghost flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-0.5 rounded"
                           title="Remove slice"
                         >
                           <Trash2 className="w-3 h-3" />

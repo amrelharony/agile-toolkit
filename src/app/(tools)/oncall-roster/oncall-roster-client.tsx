@@ -93,12 +93,35 @@ const SEVERITY_BADGE: Record<Severity, string> = {
 };
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  // R11-fix: use LOCAL date components, not UTC. The previous
+  // `toISOString().slice(0,10)` returned the UTC date — for a PT user
+  // logging a shift at 23:00 local, "today" defaulted to TOMORROW
+  // (UTC). The shift-coverage check uses `parseLocalDate`, so mixing
+  // a UTC default with a local check produced off-by-one shifts.
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
+// R5: parse YYYY-MM-DD strings as LOCAL date so the start/end of the
+// shift window matches the user's clock, not UTC midnight. The
+// previous `new Date("YYYY-MM-DD")` parsed as UTC midnight and then
+// `setHours(23,59,...)` set local hours — mixing the two produced a
+// UTC-offset-shifted window so a page logged "noon local" could fall
+// outside the shift the user perceived as covering it.
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+function parseLocalDate(s: string): number {
+  if (DATE_ONLY.test(s)) {
+    const [y, m, d] = s.split("-").map(Number);
+    return new Date(y, m - 1, d).getTime();
+  }
+  return new Date(s).getTime();
+}
 function shiftCovers(shift: OncallShift, ts: number): boolean {
-  const start = new Date(shift.startDate).getTime();
-  const endDate = new Date(shift.endDate);
+  const start = parseLocalDate(shift.startDate);
+  const endDate = new Date(parseLocalDate(shift.endDate));
   // Inclusive end-of-day so a same-day shift covers events that day.
   endDate.setHours(23, 59, 59, 999);
   const end = endDate.getTime();

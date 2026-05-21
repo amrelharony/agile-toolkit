@@ -141,17 +141,20 @@ export function FeatureFlagTrackerClient() {
   }, []);
 
   const addFlag = () => {
-    const trimmed = name.trim();
+    // Flag names are typically code identifiers — cap at 200 chars so a
+    // paste of an entire stack trace doesn't end up as the name. Owner
+    // and description are similarly bounded to keep storage in check.
+    const trimmed = name.trim().slice(0, 200);
     if (!trimmed) return;
     const flag: Flag = {
       id: crypto.randomUUID(),
       name: trimmed,
-      owner: owner.trim() || undefined,
+      owner: owner.trim().slice(0, 120) || undefined,
       status: "active",
       createdAt: todayLocalISO(),
       environment,
       purpose,
-      description: description.trim() || undefined,
+      description: description.trim().slice(0, 4000) || undefined,
     };
     setFlags((prev) => [flag, ...prev]);
     log(FEATURE_FLAG_ACTIONS.FLAG_ADDED, {
@@ -265,7 +268,13 @@ export function FeatureFlagTrackerClient() {
       })),
     );
     return kaplanMeier(obs);
-  }, [flags, retiredAges.length]);
+    // R5: dep was `[flags, retiredAges.length]` which missed CONTENT
+    // changes to `flags` whose `retiredAges.length` was unchanged
+    // (e.g., a status flip that re-stamps `retiredAt` on an existing
+    // count). Depend on `flags` only — the survival curve recomputes
+    // exactly when its inputs change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flags]);
 
   const medianFlagAge = useMemo(
     () => medianSurvivalTime(survivalCurve),
@@ -289,12 +298,19 @@ export function FeatureFlagTrackerClient() {
   const weeklyFlagCount = useMemo(() => {
     if (flags.length === 0) return [];
     const WEEKS = 26;
+    // R11-fix: unify on LOCAL time throughout. The previous mix
+    // (UTC-anchored weekStart + local-parsed flag timestamps) drifted
+    // by up to one week in UTC+8 / UTC-12 zones when flags were
+    // created late in the evening. `f.createdAt` is `todayLocalISO()`
+    // → parseLocalDate returns the local-midnight Date; the anchor
+    // and weekStart now also use local accessors so the bucketing
+    // matches the user's calendar.
     const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
     const anchor = new Date(today.getTime() - WEEKS * 7 * 86_400_000);
     const weekStart = new Date(anchor);
-    weekStart.setUTCDate(anchor.getUTCDate() - anchor.getUTCDay());
-    weekStart.setUTCHours(0, 0, 0, 0);
+    weekStart.setDate(anchor.getDate() - anchor.getDay());
+    weekStart.setHours(0, 0, 0, 0);
     const ts = flags
       .map((f) => parseLocalDate(f.createdAt)?.getTime() ?? new Date(f.createdAt).getTime())
       .filter((t) => Number.isFinite(t) && t >= weekStart.getTime());

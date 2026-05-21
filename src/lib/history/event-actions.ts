@@ -583,6 +583,270 @@ export const FEATURE_FLAG_ACTIONS = {
   FEATURE_FLAG_RESET: "feature_flag_reset",
 } as const;
 
+// ════════════════════════════════════════════════════════════════════
+// Phase 19 — AI / LLM Product Management
+// ════════════════════════════════════════════════════════════════════
+export const LLM_EVAL_ACTIONS = {
+  EVAL_LOGGED: "eval_logged",
+  EVAL_REMOVED: "eval_removed",
+  REGRESSION_ACKED: "regression_acked", // milestone
+  EVAL_RESET: "eval_reset",
+} as const;
+
+export const PROMPT_REGISTRY_ACTIONS = {
+  PROMPT_DRAFTED: "prompt_drafted",
+  PROMPT_PUBLISHED: "prompt_published", // milestone
+  PROMPT_DEPRECATED: "prompt_deprecated",
+  PROMPT_REMOVED: "prompt_removed",
+  REGISTRY_RESET: "registry_reset",
+} as const;
+
+export const AI_FEATURE_SPEC_ACTIONS = {
+  SECTION_UPDATED: "section_updated",
+  SPEC_PUBLISHED: "spec_published", // milestone
+  SPEC_RESET: "spec_reset",
+} as const;
+
+export const HALLUCINATION_ACTIONS = {
+  HALLUCINATION_LOGGED: "hallucination_logged",
+  HALLUCINATION_RESOLVED: "hallucination_resolved", // milestone
+  HALLUCINATION_REMOVED: "hallucination_removed",
+  HALLUCINATION_RESET: "hallucination_reset",
+} as const;
+
+export const TOKEN_COST_ACTIONS = {
+  SPEND_LOGGED: "spend_logged",
+  SPEND_REMOVED: "spend_removed",
+  BUDGET_UPDATED: "budget_updated",
+  COST_RESET: "cost_reset",
+} as const;
+
+export const MODEL_COMPARISON_ACTIONS = {
+  MODEL_ADDED: "model_added",
+  MODEL_REMOVED: "model_removed",
+  MODEL_UPDATED: "model_updated",
+  MODEL_COMPARISON_RESET: "model_comparison_reset",
+} as const;
+
+export const AI_SAFETY_ACTIONS = {
+  ITEM_TOGGLED: "item_toggled",
+  REVIEW_COMPLETED: "review_completed", // milestone
+  SAFETY_RESET: "safety_reset",
+} as const;
+
+export const MODEL_MIGRATION_ACTIONS = {
+  STEP_ADDED: "step_added",
+  STEP_TOGGLED: "step_toggled",
+  MIGRATION_COMPLETED: "migration_completed", // milestone
+  MIGRATION_RESET: "migration_reset",
+} as const;
+
+export const AGENTIC_WORKFLOW_ACTIONS = {
+  WORKFLOW_ADDED: "workflow_added",
+  WORKFLOW_REMOVED: "workflow_removed",
+  NODE_ADDED: "node_added",
+  NODE_REMOVED: "node_removed",
+  NODE_UPDATED: "node_updated",
+  WORKFLOW_RESET: "workflow_reset",
+} as const;
+
+export const AI_RED_TEAM_ACTIONS = {
+  FINDING_LOGGED: "finding_logged",
+  FINDING_RESOLVED: "finding_resolved", // milestone
+  FINDING_REMOVED: "finding_removed",
+  RED_TEAM_RESET: "red_team_reset",
+} as const;
+
+export const HITL_ACTIONS = {
+  REVIEW_LOGGED: "review_logged",
+  REVIEW_REMOVED: "review_removed",
+  HITL_RESET: "hitl_reset",
+} as const;
+
+export const RLHF_ACTIONS = {
+  PAIR_LOGGED: "pair_logged",
+  PAIR_REMOVED: "pair_removed",
+  RLHF_RESET: "rlhf_reset",
+} as const;
+
+export const VECTOR_INVENTORY_ACTIONS = {
+  COLLECTION_ADDED: "collection_added",
+  COLLECTION_REMOVED: "collection_removed",
+  COLLECTION_UPDATED: "collection_updated",
+  INVENTORY_RESET: "inventory_reset",
+} as const;
+
+export const MODEL_CARD_ACTIONS = {
+  CARD_SAVED: "card_saved", // milestone
+  CARD_REMOVED: "card_removed",
+  CARD_RESET: "card_reset",
+} as const;
+
+// ════════════════════════════════════════════════════════════════════
+// Phase 20 — Prioritization Frameworks
+// ════════════════════════════════════════════════════════════════════
+export const RICE_ACTIONS = {
+  ITEM_ADDED: "item_added",
+  ITEM_REMOVED: "item_removed",
+  ITEM_UPDATED: "item_updated",
+  RICE_RESET: "rice_reset",
+} as const;
+
+export const ICE_ACTIONS = {
+  ITEM_ADDED: "item_added",
+  ITEM_REMOVED: "item_removed",
+  ITEM_UPDATED: "item_updated",
+  ICE_RESET: "ice_reset",
+} as const;
+
+export const MOSCOW_ACTIONS = {
+  ITEM_ADDED: "item_added",
+  ITEM_REMOVED: "item_removed",
+  ITEM_UPDATED: "item_updated",
+  BUCKET_CHANGED: "bucket_changed",
+  MOSCOW_RESET: "moscow_reset",
+} as const;
+
+export const KANO_ACTIONS = {
+  ITEM_ADDED: "item_added",
+  ITEM_REMOVED: "item_removed",
+  ITEM_UPDATED: "item_updated",
+  KANO_RESET: "kano_reset",
+} as const;
+
+export const WSJF_ACTIONS = {
+  ITEM_ADDED: "item_added",
+  ITEM_REMOVED: "item_removed",
+  ITEM_UPDATED: "item_updated",
+  WSJF_RESET: "wsjf_reset",
+} as const;
+
+export const COD_ACTIONS = {
+  ITEM_ADDED: "item_added",
+  ITEM_REMOVED: "item_removed",
+  ITEM_UPDATED: "item_updated",
+  COD_RESET: "cod_reset",
+} as const;
+
+export const VALUE_EFFORT_ACTIONS = {
+  ITEM_ADDED: "item_added",
+  ITEM_REMOVED: "item_removed",
+  ITEM_UPDATED: "item_updated",
+  MATRIX_RESET: "matrix_reset",
+} as const;
+
+export const BUY_FEATURE_ACTIONS = {
+  FEATURE_ADDED: "feature_added",
+  FEATURE_REMOVED: "feature_removed",
+  PURCHASE_RECORDED: "purchase_recorded",
+  GAME_RESET: "game_reset", // milestone
+} as const;
+
+export const HUNDRED_DOLLAR_ACTIONS = {
+  ITEM_ADDED: "item_added",
+  ITEM_REMOVED: "item_removed",
+  ALLOCATION_CHANGED: "allocation_changed",
+  TEST_RESET: "test_reset", // milestone
+} as const;
+
+export const EISENHOWER_ACTIONS = {
+  TASK_ADDED: "task_added",
+  TASK_REMOVED: "task_removed",
+  TASK_MOVED: "task_moved",
+  EISENHOWER_RESET: "eisenhower_reset",
+} as const;
+
+export const WALKING_SKELETON_ACTIONS = {
+  STEP_ADDED: "step_added",
+  STEP_REMOVED: "step_removed",
+  STEP_TOGGLED: "step_toggled",
+  SKELETON_RESET: "skeleton_reset",
+} as const;
+
+// ════════════════════════════════════════════════════════════════════
+// Phase 21 — Decision Frameworks
+// ════════════════════════════════════════════════════════════════════
+export const DACI_ACTIONS = {
+  DECISION_ADDED: "decision_added",
+  DECISION_REMOVED: "decision_removed",
+  DECISION_UPDATED: "decision_updated",
+  DECISION_DECIDED: "decision_decided", // milestone
+  DACI_RESET: "daci_reset",
+} as const;
+
+export const RAPID_ACTIONS = {
+  DECISION_ADDED: "decision_added",
+  DECISION_REMOVED: "decision_removed",
+  DECISION_UPDATED: "decision_updated",
+  DECISION_DECIDED: "decision_decided", // milestone
+  RAPID_RESET: "rapid_reset",
+} as const;
+
+export const WEIGHTED_DECISION_ACTIONS = {
+  CRITERION_ADDED: "criterion_added",
+  CRITERION_REMOVED: "criterion_removed",
+  OPTION_ADDED: "option_added",
+  OPTION_REMOVED: "option_removed",
+  SCORE_CHANGED: "score_changed",
+  WEIGHTED_RESET: "weighted_reset",
+} as const;
+
+export const SIX_HATS_ACTIONS = {
+  THOUGHT_ADDED: "thought_added",
+  THOUGHT_REMOVED: "thought_removed",
+  HAT_CHANGED: "hat_changed",
+  SIX_HATS_RESET: "six_hats_reset",
+} as const;
+
+export const OODA_ACTIONS = {
+  CYCLE_STARTED: "cycle_started",
+  CYCLE_REMOVED: "cycle_removed",
+  STAGE_UPDATED: "stage_updated",
+  CYCLE_COMPLETED: "cycle_completed", // milestone
+  OODA_RESET: "ooda_reset",
+} as const;
+
+export const CYNEFIN_ACTIONS = {
+  ITEM_ADDED: "item_added",
+  ITEM_REMOVED: "item_removed",
+  ITEM_RECLASSIFIED: "item_reclassified",
+  CYNEFIN_RESET: "cynefin_reset",
+} as const;
+
+export const STACEY_ACTIONS = {
+  ITEM_ADDED: "item_added",
+  ITEM_REMOVED: "item_removed",
+  ITEM_REPLOTTED: "item_replotted",
+  STACEY_RESET: "stacey_reset",
+} as const;
+
+export const POLARITY_ACTIONS = {
+  POLARITY_ADDED: "polarity_added",
+  POLARITY_REMOVED: "polarity_removed",
+  POLE_UPDATED: "pole_updated",
+  POLARITY_RESET: "polarity_reset",
+} as const;
+
+// ════════════════════════════════════════════════════════════════════
+// Phase 22 — Canvas (whiteboard)
+// ════════════════════════════════════════════════════════════════════
+export const CANVAS_ACTIONS = {
+  BOARD_CREATED: "board_created",        // milestone
+  BOARD_RENAMED: "board_renamed",
+  BOARD_DELETED: "board_deleted",        // milestone
+  OBJECT_ADDED: "object_added",
+  OBJECT_REMOVED: "object_removed",
+  OBJECT_UPDATED: "object_updated",
+  OBJECTS_MOVED: "objects_moved",
+  OBJECTS_PASTED: "objects_pasted",
+  TEMPLATE_APPLIED: "template_applied",  // milestone
+  IMPORT_PERFORMED: "import_performed",  // milestone
+  EXPORT_PERFORMED: "export_performed",
+  COMMENT_ADDED: "comment_added",
+  COMMENT_RESOLVED: "comment_resolved",
+  CANVAS_RESET: "canvas_reset",          // milestone
+} as const;
+
 /**
  * Set of (toolId, action) pairs that should be marked as milestones —
  * used by the logger to auto-flag without each call site having to know.
@@ -672,6 +936,28 @@ const MILESTONE_PAIRS: ReadonlySet<string> = new Set([
   `stakeholder-map:${STAKEHOLDER_MAP_ACTIONS.STAKEHOLDER_RESET}`,
   `adkar:${ADKAR_ACTIONS.STAGE_ADVANCED}`,
   `feature-flag-tracker:${FEATURE_FLAG_ACTIONS.FLAG_RETIRED}`,
+  // Phase 19 — AI / LLM PM
+  `llm-eval-tracker:${LLM_EVAL_ACTIONS.REGRESSION_ACKED}`,
+  `prompt-registry:${PROMPT_REGISTRY_ACTIONS.PROMPT_PUBLISHED}`,
+  `ai-feature-spec:${AI_FEATURE_SPEC_ACTIONS.SPEC_PUBLISHED}`,
+  `hallucination-log:${HALLUCINATION_ACTIONS.HALLUCINATION_RESOLVED}`,
+  `ai-safety-checklist:${AI_SAFETY_ACTIONS.REVIEW_COMPLETED}`,
+  `model-migration:${MODEL_MIGRATION_ACTIONS.MIGRATION_COMPLETED}`,
+  `ai-red-team:${AI_RED_TEAM_ACTIONS.FINDING_RESOLVED}`,
+  `model-card:${MODEL_CARD_ACTIONS.CARD_SAVED}`,
+  // Phase 20 — Prioritization
+  `buy-a-feature:${BUY_FEATURE_ACTIONS.GAME_RESET}`,
+  `hundred-dollar-test:${HUNDRED_DOLLAR_ACTIONS.TEST_RESET}`,
+  // Phase 21 — Decision Frameworks
+  `daci:${DACI_ACTIONS.DECISION_DECIDED}`,
+  `rapid-decision:${RAPID_ACTIONS.DECISION_DECIDED}`,
+  `ooda-loop:${OODA_ACTIONS.CYCLE_COMPLETED}`,
+  // Phase 22 — Canvas
+  `canvas:${CANVAS_ACTIONS.BOARD_CREATED}`,
+  `canvas:${CANVAS_ACTIONS.BOARD_DELETED}`,
+  `canvas:${CANVAS_ACTIONS.TEMPLATE_APPLIED}`,
+  `canvas:${CANVAS_ACTIONS.IMPORT_PERFORMED}`,
+  `canvas:${CANVAS_ACTIONS.CANVAS_RESET}`,
 ]);
 
 export function isMilestoneAction(toolId: string, action: string): boolean {

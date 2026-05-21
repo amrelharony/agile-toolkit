@@ -116,8 +116,12 @@ export function KanbanClient() {
     sonify("kanban", "card-add");
     const now = new Date().toISOString();
     const cardId = nanoid(8);
-    const title = newTitle.trim();
-    const description = newDescription.trim() || undefined;
+    // Cap free-text card fields. Kanban boards routinely accumulate
+    // hundreds of cards over weeks; without these bounds a single mega-
+    // paste would push the persisted state past the 5 MB origin quota and
+    // silently kill writes for every other tool on this domain.
+    const title = newTitle.trim().slice(0, 240);
+    const description = newDescription.trim().slice(0, 4000) || undefined;
     setState((s) => ({
       ...s,
       cards: [
@@ -162,7 +166,16 @@ export function KanbanClient() {
     });
   };
   const setWip = (col: ColumnId, n: number) =>
-    setState((s) => ({ ...s, wipLimits: { ...s.wipLimits, [col]: Math.max(0, n) } }));
+    setState((s) => ({
+      ...s,
+      // Cap WIP limit at 999 — beyond that the badge overflows the column
+      // header and the "limit > 0" gate below stops serving as a sensible
+      // signal. NaN inputs (from a paste-of-words) are coerced to 0.
+      wipLimits: {
+        ...s.wipLimits,
+        [col]: Number.isFinite(n) ? Math.max(0, Math.min(999, Math.floor(n))) : 0,
+      },
+    }));
   const setClass = (id: string, cls: ClassOfService) => {
     setState((s) => ({ ...s, cards: s.cards.map((c) => (c.id === id ? { ...c, class: cls } : c)) }));
     log(KANBAN_ACTIONS.CARD_UPDATED, { cardId: id, classOfService: cls });
@@ -170,7 +183,17 @@ export function KanbanClient() {
 
   const byColumn = useMemo(() => {
     const map: Record<ColumnId, KCard[]> = { backlog: [], ready: [], in_progress: [], review: [], done: [] };
-    for (const c of state.cards) map[c.column].push(c);
+    for (const c of state.cards) {
+      // Guard against persisted cards from an older build that may have a
+      // column value not in the current ColumnId union (e.g. a column was
+      // renamed). Without this, `map[c.column].push(c)` would throw with
+      // "Cannot read property 'push' of undefined" and crash the whole board.
+      if (c.column in map) {
+        map[c.column].push(c);
+      } else {
+        map.backlog.push({ ...c, column: "backlog" });
+      }
+    }
     return map;
   }, [state.cards]);
 
@@ -598,7 +621,17 @@ export function KanbanClient() {
                       type="number"
                       min={0}
                       value={limit}
-                      onChange={(e) => setWip(col.id, Number(e.target.value))}
+                      // R11-fix: NaN-guard. Pasting "abc" or clearing
+                      // the field silently parked the limit at 0 with
+                      // no user feedback (setWip clamps to 0 on NaN).
+                      // Now: ignore invalid input so the prior limit
+                      // is preserved until the user types a valid number.
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === "") return; // user clearing; keep prior limit
+                        const n = Number(raw);
+                        if (Number.isFinite(n) && n >= 0) setWip(col.id, n);
+                      }}
                       placeholder="WIP"
                       className="h-8 sm:h-7 text-xs bg-bg border-border font-data"
                       aria-label={`WIP limit for ${col.label}`}

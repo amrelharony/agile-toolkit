@@ -43,6 +43,7 @@ import { RELEASE_READINESS_ACTIONS } from "@/lib/history/event-actions";
 import { generateReleaseReadinessPrompts } from "@/lib/ai-prompts/release-readiness";
 import { pChartLimits } from "@/lib/analytics/control-chart";
 import { mannKendall } from "@/lib/analytics/trend-test";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 type ReleaseStatus = "planning" | "shipped" | "rolled_back";
 
@@ -109,10 +110,6 @@ function emptyGates(): Record<GateId, boolean> {
   );
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 interface ReleaseDraft {
   name: string;
   plannedDate: string;
@@ -120,7 +117,7 @@ interface ReleaseDraft {
 }
 
 function emptyDraft(): ReleaseDraft {
-  return { name: "", plannedDate: todayIso(), description: "" };
+  return { name: "", plannedDate: todayLocalISO(), description: "" };
 }
 
 export function ReleaseReadinessClient() {
@@ -137,7 +134,7 @@ export function ReleaseReadinessClient() {
     const release: Release = {
       id: crypto.randomUUID(),
       name,
-      plannedDate: draft.plannedDate || todayIso(),
+      plannedDate: draft.plannedDate || todayLocalISO(),
       status: "planning",
       gates: emptyGates(),
       description: draft.description.trim() || undefined,
@@ -196,7 +193,7 @@ export function ReleaseReadinessClient() {
           ? {
               ...r,
               status: "shipped",
-              shippedDate: todayIso(),
+              shippedDate: todayLocalISO(),
               gatesOpenAtShip: openAtShip,
             }
           : r

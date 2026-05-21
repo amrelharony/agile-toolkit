@@ -3,6 +3,7 @@
 import { useRef, useMemo, useState, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   AreaChart,
   Area,
@@ -147,9 +148,19 @@ const useCFDStore = create<CFDStore>()(
         })),
 
       addEntry: () =>
-        set((s) => ({
-          entries: [...s.entries, createEntry(s.columns)],
-        })),
+        set((s) => {
+          // R11-fix: move the duplicate-check INSIDE the set updater
+          // so read + write are atomic. Previously the same-day guard
+          // lived in the client wrapper (a getState read followed by
+          // an addEntryRaw write) — a double-click could fire both
+          // calls before either's getState saw the other's append,
+          // bypassing the dedupe and creating two snapshots for the
+          // same day. Now the check happens inside Zustand's reducer
+          // where state.entries is the live array at write-time.
+          const today = createEntry(s.columns);
+          if (s.entries.some((e) => e.date === today.date)) return s;
+          return { entries: [...s.entries, today] };
+        }),
 
       removeEntry: (id) =>
         set((s) => ({ entries: s.entries.filter((e) => e.id !== id) })),
@@ -173,7 +184,7 @@ const useCFDStore = create<CFDStore>()(
       reset: () =>
         set({ columns: DEFAULT_COLUMNS, entries: [], wipLimit: null }),
     }),
-    { name: "agile-toolkit:cumulative-flow" }
+    { name: "agile-toolkit:cumulative-flow", storage: safeJSONStorage("cumulative-flow") }
   )
 );
 
@@ -350,10 +361,14 @@ export function CFDClient() {
     const latest = sortedEntries[sortedEntries.length - 1];
     const totalItems = columns.reduce((s, c) => s + (latest.counts[c.id] ?? 0), 0);
 
-    // WIP = everything except first (backlog/todo) and last (done) columns
-    const wipCols = columns.slice(1, columns.length - 1);
+    // WIP = everything except first (backlog/todo) and last (done) columns.
+    // R5: when `columns.length < 3`, `slice(1, len-1)` is empty and the
+    // WIP stats collapse to 0 — but doneItems still counts. The result
+    // was a misleading "0% WIP, 100% efficient" display. Treat <3 cols
+    // as N/A (return null sentinel so the UI can render "—").
+    const wipCols = columns.length >= 3 ? columns.slice(1, columns.length - 1) : [];
     const wipItems = wipCols.reduce((s, c) => s + (latest.counts[c.id] ?? 0), 0);
-    const wipPct = totalItems > 0 ? Math.round((wipItems / totalItems) * 100) : 0;
+    const wipPct = columns.length < 3 ? null : (totalItems > 0 ? Math.round((wipItems / totalItems) * 100) : 0);
 
     const lastCol = columns[columns.length - 1];
     const doneItems = lastCol ? (latest.counts[lastCol.id] ?? 0) : 0;
@@ -485,7 +500,7 @@ export function CFDClient() {
           <StatCard
             label="WIP Items"
             value={stats.wipItems}
-            unit={`(${stats.wipPct}%)`}
+            unit={stats.wipPct === null ? "(n/a — add a middle column)" : `(${stats.wipPct}%)`}
             warning={wipLimit !== null && stats.wipItems > wipLimit}
             trailing={
               wipTrend?.significant ? (
@@ -905,10 +920,15 @@ export function CFDClient() {
                           <Input
                             type="date"
                             value={entry.date}
-                            onChange={(e) =>
-                              updateEntry(entry.id, { date: e.target.value })
-                            }
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              // Reject blank — date is required for chart x-axis.
+                              if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+                                updateEntry(entry.id, { date: v });
+                              }
+                            }}
                             className="h-8 w-36 bg-surface-deep border-border text-text text-sm focus:border-accent/50"
+                            aria-label="Snapshot date"
                           />
                         </td>
                         {columns.map((col) => (
@@ -917,9 +937,12 @@ export function CFDClient() {
                               type="number"
                               min={0}
                               value={entry.counts[col.id] ?? 0}
-                              onChange={(e) =>
-                                updateEntryCount(entry.id, col.id, Number(e.target.value))
-                              }
+                              onChange={(e) => {
+                                const n = Number(e.target.value);
+                                if (Number.isFinite(n)) {
+                                  updateEntryCount(entry.id, col.id, Math.max(0, n));
+                                }
+                              }}
                               className="h-8 w-20 mx-auto bg-surface-deep border-border text-text font-data text-center focus:border-accent/50"
                             />
                           </td>
@@ -944,6 +967,7 @@ export function CFDClient() {
                         <td className="py-2">
                           <button
                             onClick={() => removeEntry(entry.id)}
+                            aria-label={`Remove snapshot for ${entry.date}`}
                             className="text-sub hover:text-red-400 transition-colors p-1"
                           >
                             <Trash2 className="w-4 h-4" />

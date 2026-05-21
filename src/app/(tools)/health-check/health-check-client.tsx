@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   LineChart,
   Line,
@@ -160,7 +161,7 @@ const useHealthCheckStore = create<HealthCheckStore>()(
       reset: () =>
         set({ current: { ...DEFAULT_CURRENT, scores: defaultScores() }, history: [] }),
     }),
-    { name: "agile-toolkit:health-check" }
+    { name: "agile-toolkit:health-check", storage: safeJSONStorage("health-check") }
   )
 );
 
@@ -264,15 +265,17 @@ function TrendButton({
 /* -------------------------------------------------------------------------- */
 
 export function HealthCheckClient() {
-  const {
-    current,
-    history,
-    setSprintName,
-    setLight,
-    setTrend,
-    saveCheck: saveCheckRaw,
-    reset: resetRaw,
-  } = useHealthCheckStore();
+  // R5: destructuring `useHealthCheckStore()` re-subscribes the whole
+  // component to every store property — every keystroke on an unrelated
+  // tool sharing the store would re-render this whole page. Use
+  // individual selectors so each field is its own subscription.
+  const current = useHealthCheckStore((s) => s.current);
+  const history = useHealthCheckStore((s) => s.history);
+  const setSprintName = useHealthCheckStore((s) => s.setSprintName);
+  const setLight = useHealthCheckStore((s) => s.setLight);
+  const setTrend = useHealthCheckStore((s) => s.setTrend);
+  const saveCheckRaw = useHealthCheckStore((s) => s.saveCheck);
+  const resetRaw = useHealthCheckStore((s) => s.reset);
   const { log } = useHistoryLogger("health-check");
 
   const saveCheck = () => {
@@ -316,12 +319,14 @@ export function HealthCheckClient() {
   const csvData = useMemo(() => {
     const headers = ["Sprint", "Date", ...DIMENSIONS, "Overall Health %"];
     const rows = history.map((h) => {
-      const greenCount = DIMENSIONS.filter((d) => h.scores[d]?.light === "green").length;
+      // Optional-chain `h.scores` itself: a hand-edited persisted entry could
+      // be missing it altogether, which would otherwise crash the CSV builder.
+      const greenCount = DIMENSIONS.filter((d) => h.scores?.[d]?.light === "green").length;
       const health = Math.round((greenCount / DIMENSIONS.length) * 100);
       return [
         h.sprintName,
         h.date,
-        ...DIMENSIONS.map((d) => h.scores[d]?.light ?? "—"),
+        ...DIMENSIONS.map((d) => h.scores?.[d]?.light ?? "—"),
         health,
       ] as (string | number)[];
     });
@@ -329,12 +334,19 @@ export function HealthCheckClient() {
   }, [history]);
 
   /* -- Trend chart data ---------------------------------------------------- */
+  // Defensive: a history entry from an older build may be missing a dimension
+  // (added later) or have a malformed `light` value. Coerce to the default
+  // `green` rather than emit `undefined` into the chart series, which produced
+  // NaN gaps in the recharts <Line> via `SCORE_MAP[undefined]`.
   const chartData = useMemo(
     () =>
       history.map((h) => ({
         name: h.sprintName,
         ...Object.fromEntries(
-          DIMENSIONS.map((d) => [d, SCORE_MAP[h.scores[d].light]])
+          DIMENSIONS.map((d) => {
+            const score = h.scores?.[d]?.light;
+            return [d, score && score in SCORE_MAP ? SCORE_MAP[score] : 0];
+          })
         ),
       })),
     [history]
@@ -428,21 +440,30 @@ export function HealthCheckClient() {
               >
                 <span className="text-sm text-text font-medium">{dim}</span>
                 <div className="flex gap-1.5 w-52 justify-center">
+                  {/* R11-fix: optional-chain on current.scores[dim].
+                      Persisted state from an older build that's missing
+                      a recently-added dimension would crash on the
+                      direct member access. Default to "red" (worst light)
+                      so a missing/legacy dimension surfaces visibly
+                      rather than silently rendering as no-active. */}
                   {(["green", "yellow", "red"] as TrafficLight[]).map((l) => (
                     <TrafficButton
                       key={l}
                       light={l}
-                      active={current.scores[dim].light === l}
+                      active={(current.scores[dim]?.light ?? "red") === l}
                       onClick={() => setLight(dim, l)}
                     />
                   ))}
                 </div>
                 <div className="flex gap-1.5 w-48 justify-center">
+                  {/* R11-fix: same optional-chain defence as the light
+                      buttons above — missing dimension in persisted
+                      state should fall back to "same" rather than crash. */}
                   {(["up", "same", "down"] as Trend[]).map((t) => (
                     <TrendButton
                       key={t}
                       trend={t}
-                      active={current.scores[dim].trend === t}
+                      active={(current.scores[dim]?.trend ?? "same") === t}
                       onClick={() => setTrend(dim, t)}
                     />
                   ))}
@@ -560,7 +581,7 @@ export function HealthCheckClient() {
                   <tbody>
                     {reversedHistory.map((h) => {
                       const greens = DIMENSIONS.filter(
-                        (d) => h.scores[d]?.light === "green"
+                        (d) => h.scores?.[d]?.light === "green"
                       ).length;
                       const health = Math.round((greens / DIMENSIONS.length) * 100);
                       return (
@@ -577,7 +598,7 @@ export function HealthCheckClient() {
                           {DIMENSIONS.map((d) => (
                             <td key={d} className="py-3 px-2 text-center">
                               <div className="flex justify-center">
-                                <TrafficDot light={h.scores[d].light} />
+                                <TrafficDot light={h.scores?.[d]?.light ?? "green"} />
                               </div>
                             </td>
                           ))}

@@ -1,5 +1,5 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble, formatTable } from "./prompt-utils";
+import { buildPreamble, formatTable, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 import { mean } from "../analytics/anomaly";
 
 interface MoodEntry {
@@ -29,16 +29,19 @@ export function generateMoodTrackerPrompts(data: {
   );
 
   // Surface the most recent non-empty notes so the AI can ground its analysis
-  // in qualitative team voice, not just averages.
+  // in qualitative team voice, not just averages. Notes are free-text from
+  // team members — sanitize each (strip backticks, collapse newlines,
+  // remove `<user_content>` literals) and wrap the whole block in the
+  // canonical guardrail.
   const recentNotes = data.entries
     .filter((e) => e.note && e.note.trim().length > 0)
     .slice()
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 5)
-    .map((e) => `- ${e.date} (score ${e.score}): ${e.note!.slice(0, 80)}`)
+    .map((e) => `- ${e.date} (score ${e.score}): ${sanitizePromptCell(e.note!, 200)}`)
     .join("\n");
   const notesBlock = recentNotes
-    ? `\n\n## Recent Notes\n\n${recentNotes}`
+    ? `\n\n## Recent Notes\n\n${wrapUserContent(recentNotes)}`
     : "";
 
   return [

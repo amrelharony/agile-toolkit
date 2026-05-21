@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -99,7 +99,13 @@ function readStore<T>(key: string): T | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     // zustand persist wraps state in { state: {...}, version: N }
-    return (parsed?.state ?? parsed) as T;
+    const result = parsed?.state ?? parsed;
+    // R9: previously cast to `T` unconditionally. If `parsed.state` is
+    // null (legit zustand-persist shape on first write, or a bad blob),
+    // the cast lies and every downstream `data.foo` crashes. Return
+    // null instead so callers get the obvious "no data yet" branch.
+    if (result === null || typeof result !== "object") return null;
+    return result as T;
   } catch {
     return null;
   }
@@ -176,12 +182,19 @@ function extractHealthCheckKPIs(): {
   if (!data?.current?.scores) return { healthPct: null, trend: "same", series: [] };
 
   const scoreMap: Record<HealthLight, number> = { green: 2, yellow: 1, red: 0 };
+  // Coerce malformed `light` values (e.g. a renamed enum from an older build)
+  // to 0 instead of letting `scoreMap[undefined]` propagate as NaN through
+  // the sum — that produced `pct = NaN` and broke the entire dashboard card.
+  const lookup = (s: { light: unknown }): number =>
+    typeof s.light === "string" && s.light in scoreMap
+      ? scoreMap[s.light as HealthLight]
+      : 0;
   const scores = Object.values(data.current.scores);
   if (scores.length === 0) return { healthPct: null, trend: "same", series: [] };
 
-  const total = scores.reduce((sum, s) => sum + scoreMap[s.light], 0);
+  const total = scores.reduce((sum, s) => sum + lookup(s), 0);
   const maxTotal = scores.length * 2;
-  const pct = Math.round((total / maxTotal) * 100);
+  const pct = maxTotal > 0 ? Math.round((total / maxTotal) * 100) : 0;
 
   // Trend: compare current to last history entry
   let trend: TrendDir = "same";
@@ -191,15 +204,19 @@ function extractHealthCheckKPIs(): {
     for (const h of history) {
       const hScores = Object.values(h.scores ?? {});
       if (hScores.length === 0) continue;
-      const hTotal = hScores.reduce((sum, s) => sum + scoreMap[s.light], 0);
-      series.push(Math.round((hTotal / (hScores.length * 2)) * 100));
+      const hTotal = hScores.reduce((sum, s) => sum + lookup(s), 0);
+      const hMax = hScores.length * 2;
+      // hMax is non-zero here because we just gated on `length === 0`, but
+      // belt-and-braces: NaN-poisoning into the series would silently break
+      // the Mann-Kendall trend chip without a visible error message.
+      series.push(hMax > 0 ? Math.round((hTotal / hMax) * 100) : 0);
     }
     series.push(pct);
 
     const last = history[history.length - 1];
-    const lastScores = Object.values(last.scores);
+    const lastScores = Object.values(last.scores ?? {});
     if (lastScores.length > 0) {
-      const lastTotal = lastScores.reduce((sum, s) => sum + scoreMap[s.light], 0);
+      const lastTotal = lastScores.reduce((sum, s) => sum + lookup(s), 0);
       const lastPct = (lastTotal / (lastScores.length * 2)) * 100;
       const diff = pct - lastPct;
       if (diff > 5) trend = "up";
@@ -234,12 +251,17 @@ function extractImpedimentKPIs(): {
   const resolved = imps.filter((i) => i.status === "Resolved" && i.resolvedDate && i.raisedDate);
   let avgDays: number | null = null;
   if (resolved.length > 0) {
+    let validCount = 0;
     const totalDays = resolved.reduce((sum, i) => {
       const start = new Date(i.raisedDate).getTime();
       const end = new Date(i.resolvedDate!).getTime();
+      // Guard against `new Date("garbage")` → NaN, which would otherwise
+      // produce NaN avgDays for the dashboard card.
+      if (!Number.isFinite(start) || !Number.isFinite(end)) return sum;
+      validCount += 1;
       return sum + Math.max(0, (end - start) / (1000 * 60 * 60 * 24));
     }, 0);
-    avgDays = Math.round((totalDays / resolved.length) * 10) / 10;
+    avgDays = validCount > 0 ? Math.round((totalDays / validCount) * 10) / 10 : null;
   }
 
   return {
@@ -304,7 +326,10 @@ function extractCycleTimeKPIs(): { p85: number | null } {
       if (!item.startDate || !item.endDate) return null;
       const s = new Date(item.startDate).getTime();
       const e = new Date(item.endDate).getTime();
-      if (isNaN(s) || isNaN(e) || e < s) return null;
+      // Use Number.isFinite so both NaN and ±Infinity are excluded (the
+      // latter can happen when a hand-edited payload contains JSON values
+      // like `Infinity` re-parsed from a stringified form).
+      if (!Number.isFinite(s) || !Number.isFinite(e) || e < s) return null;
       return Math.round((e - s) / (1000 * 60 * 60 * 24));
     })
     .filter((v): v is number => v !== null)
@@ -482,16 +507,32 @@ export function HealthDashboardClient() {
   const events = useHistoryStore((s) => s.events);
 
   /* -- Build all KPIs — memoized, refreshed only when refreshKey changes ---- */
+  // R5: depend on `events` too so a fresh history event (sprint completed,
+  // impediment raised, mood logged, etc.) refreshes the KPIs without
+  // requiring a manual click on the refresh button. Previously the
+  // dashboard could show stale KPIs that disagreed with the live
+  // Active Signals panel directly above.
+  //
+  // R11-fix: gate the localStorage-reading extractors behind a `hydrated`
+  // flag. On the SSR pass, `readStore` returns null (no window) — but
+  // the very first client render would already see localStorage data,
+  // producing a hydration mismatch every time the user has any tools
+  // populated. We now match the SSR null-state on first paint, then
+  // flip `hydrated=true` in a useEffect to trigger a real recompute.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const velocityData = useMemo(() => extractVelocityKPIs(), [refreshKey]);
+  const velocityData = useMemo(() => extractVelocityKPIs(), [hydrated, refreshKey, events]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const healthCheckData = useMemo(() => extractHealthCheckKPIs(), [refreshKey]);
+  const healthCheckData = useMemo(() => extractHealthCheckKPIs(), [hydrated, refreshKey, events]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const impedimentData = useMemo(() => extractImpedimentKPIs(), [refreshKey]);
+  const impedimentData = useMemo(() => extractImpedimentKPIs(), [hydrated, refreshKey, events]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const standupData = useMemo(() => extractStandupKPIs(), [refreshKey]);
+  const standupData = useMemo(() => extractStandupKPIs(), [hydrated, refreshKey, events]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const cycleTimeData = useMemo(() => extractCycleTimeKPIs(), [refreshKey]);
+  const cycleTimeData = useMemo(() => extractCycleTimeKPIs(), [hydrated, refreshKey, events]);
 
   /* -- Causal annotations from cross-tool event streams --------------------- */
   // Each correlation is a best-effort: when the source streams are too sparse

@@ -1,5 +1,5 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble, formatTable, truncateData } from "./prompt-utils";
+import { buildPreamble, formatTable, truncateData, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
 
 interface Entry {
   kind: "nps" | "csat";
@@ -14,8 +14,15 @@ export function generateNpsCsatPrompts(data: {
   csat: number;
 }): PromptDefinition[] {
   if (data.entries.length === 0) return [];
-  const verbatims = data.entries.filter((e) => e.verbatim).map((e) => `- (${e.kind}, ${e.score}) "${e.verbatim}"`);
+  // NPS/CSAT verbatims are written by external customers — the highest
+  // injection-risk surface in the toolkit. Sanitize each cell (collapses
+  // newlines, strips backticks, strips delimiter literals) and clamp at
+  // 400 chars so a single rant can't dominate the prompt budget.
+  const verbatims = data.entries
+    .filter((e) => e.verbatim)
+    .map((e) => `- (${e.kind}, ${e.score}) "${sanitizePromptCell(e.verbatim!, 400)}"`);
   const { data: sampled } = truncateData(verbatims, 20);
+  const wrappedVerbatims = wrapUserContent(sampled.join("\n"));
   const trendTable = formatTable(
     ["Date", "Kind", "Score"],
     data.entries
@@ -35,7 +42,7 @@ export function generateNpsCsatPrompts(data: {
           "NPS/CSAT Tracker",
           `Current NPS: ${data.nps}. CSAT avg: ${data.csat.toFixed(1)}. ${data.entries.length} responses.`
         ) +
-        `## Verbatim Comments\n\n${sampled.join("\n")}\n\n## Questions\n\n1. What 3-5 themes emerge from the verbatims?\n2. Which themes drive detractors vs. promoters?\n3. Prioritize what to address first for the biggest NPS lift.`,
+        `## Verbatim Comments\n\n${wrappedVerbatims}\n\n## Questions\n\n1. What 3-5 themes emerge from the verbatims?\n2. Which themes drive detractors vs. promoters?\n3. Prioritize what to address first for the biggest NPS lift.`,
     },
     {
       id: "nps-trend",

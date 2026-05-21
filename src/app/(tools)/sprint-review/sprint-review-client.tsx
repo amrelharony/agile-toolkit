@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -239,7 +240,7 @@ const useSprintReviewStore = create<SprintReviewStore>()(
 
       reset: () => set({ ...DEFAULT_STATE }),
     }),
-    { name: "agile-toolkit:sprint-review" }
+    { name: "agile-toolkit:sprint-review", storage: safeJSONStorage("sprint-review") }
   )
 );
 
@@ -777,7 +778,7 @@ function ShowcaseChecklistTab() {
                   variant="danger-ghost"
                   size="icon"
                   onClick={() => removeChecklistItem(item.id)}
-                  className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
@@ -994,11 +995,20 @@ export function SprintReviewClient() {
 
   // Initialize meetingDate on first client mount to avoid SSR/client time
   // drift. Only set when empty so we don't clobber user edits or persisted data.
+  //
+  // R5: previously re-fired every time `meetingDate` flipped to "" (user
+  // intent to clear), immediately re-stamping today's date back — the
+  // user couldn't ever blank the date input. Guard with a one-shot ref
+  // so the auto-init runs exactly once on first mount.
+  const meetingDateInitRef = useRef(false);
   useEffect(() => {
+    if (meetingDateInitRef.current) return;
+    meetingDateInitRef.current = true;
     if (!meetingDate) {
       setMeetingDate(todayLocalISO());
     }
-  }, [meetingDate, setMeetingDate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Build combined markdown export
   const fullExport = useMemo(() => {

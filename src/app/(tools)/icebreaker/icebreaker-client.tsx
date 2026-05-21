@@ -29,14 +29,25 @@ type CategoryFilter =
   | "creative"
   | "agile";
 
-const FAVORITES_KEY = "icebreaker-favorites";
+// Namespace under `agile-toolkit:` like every other persisted store so it
+// shows up in the same group when teams audit/inspect their localStorage.
+// Read from the legacy unprefixed key once for backward-compat.
+const FAVORITES_KEY = "agile-toolkit:icebreaker-favorites";
+const LEGACY_FAVORITES_KEY = "icebreaker-favorites";
 
 // ── Helpers ─────────────────────────────────────────────────
 function loadFavorites(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
-    const raw = localStorage.getItem(FAVORITES_KEY);
-    return raw ? new Set(JSON.parse(raw)) : new Set();
+    const raw =
+      localStorage.getItem(FAVORITES_KEY) ?? localStorage.getItem(LEGACY_FAVORITES_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    // Guard the shape: `new Set(42)` and `new Set({})` throw at runtime, and
+    // `new Set("hello")` returns a Set of character codepoints — neither is
+    // what we want. Accept only an array of strings.
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((v): v is string => typeof v === "string"));
   } catch {
     return new Set();
   }
@@ -333,19 +344,24 @@ export function IceBreakerClient() {
     }
     setIsSpinning(true);
 
-    // Quick shuffle animation: show 5-6 rapid picks, then land on final
+    // R5: snapshot the filtered list at spin-start. Previously the
+    // interval callback closed over `filtered` from the outer render —
+    // if the user toggled a category filter mid-spin, the final pick
+    // could be an item NOT in the (new) `filtered` set, confusing the
+    // user. Pin the array once.
+    const snapshot = filtered;
     let count = 0;
     const totalFlashes = 6;
     const interval = setInterval(() => {
-      const randomIndex = Math.floor(Math.random() * filtered.length);
-      setSelected(filtered[randomIndex]);
+      const randomIndex = Math.floor(Math.random() * snapshot.length);
+      setSelected(snapshot[randomIndex]);
       count++;
       if (count >= totalFlashes) {
         clearInterval(interval);
         spinIntervalRef.current = null;
         // Final pick
-        const finalIndex = Math.floor(Math.random() * filtered.length);
-        const final = filtered[finalIndex];
+        const finalIndex = Math.floor(Math.random() * snapshot.length);
+        const final = snapshot[finalIndex];
         setSelected(final);
         setIsSpinning(false);
         log(ICEBREAKER_ACTIONS.PROMPT_DRAWN, {

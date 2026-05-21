@@ -3,6 +3,7 @@
 import { useRef, useMemo, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   BarChart,
   Bar,
@@ -66,10 +67,24 @@ interface CycleTimeStore {
 /*  Helpers                                                                   */
 /* -------------------------------------------------------------------------- */
 
+// R5: `new Date("YYYY-MM-DD")` parses as UTC midnight; subtracting two
+// UTC midnights and dividing by 86_400_000 SHOULD be exact, but if the
+// input is `YYYY-MM-DDTHH:mm` (datetime-local), the parse is in LOCAL
+// time. Mixing the two formats produces a tz-offset-shifted delta that
+// rounds the wrong way at DST transitions. Parse as local-date when
+// the string matches the date-only shape, else parse as-is.
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+function parseLocalOrIso(s: string): number {
+  if (DATE_ONLY.test(s)) {
+    const [y, m, d] = s.split("-").map(Number);
+    return new Date(y, m - 1, d).getTime();
+  }
+  return new Date(s).getTime();
+}
 function calcCycleTime(start: string, end: string): number | null {
   if (!start || !end) return null;
-  const s = new Date(start).getTime();
-  const e = new Date(end).getTime();
+  const s = parseLocalOrIso(start);
+  const e = parseLocalOrIso(end);
   if (isNaN(s) || isNaN(e) || e < s) return null;
   return Math.round((e - s) / (1000 * 60 * 60 * 24));
 }
@@ -140,7 +155,7 @@ const useCycleTimeStore = create<CycleTimeStore>()(
 
       reset: () => set({ items: [createItem()] }),
     }),
-    { name: "agile-toolkit:cycle-time" }
+    { name: "agile-toolkit:cycle-time", storage: safeJSONStorage("cycle-time") }
   )
 );
 
@@ -334,11 +349,19 @@ export function CycleTimeClient() {
     const buckets = new Map<string, number[]>();
     for (const i of itemsWithCT) {
       if (i.cycleTime === null || !i.endDate) continue;
-      const d = new Date(i.endDate);
+      // R11-fix: parse YYYY-MM-DD strings as UTC (Date constructor's
+      // default for date-only ISO) AND use UTC accessors throughout.
+      // The previous code mixed `d.getFullYear/getMonth/getDate` (LOCAL)
+      // with `Date.UTC(...)` (UTC), so a user in negative-UTC zones
+      // logging an endDate near Dec 31 produced a week bucket that
+      // straddled the year boundary (off-by-52-weeks).
+      // Parsing with the explicit "T00:00:00Z" suffix forces UTC even
+      // if a future schema change drops the date-only format.
+      const iso = /^\d{4}-\d{2}-\d{2}$/.test(i.endDate) ? `${i.endDate}T00:00:00Z` : i.endDate;
+      const d = new Date(iso);
       if (Number.isNaN(d.getTime())) continue;
-      // ISO week key (matches kanban's pattern). Inline so we don't need a
-      // shared helper for one consumer.
-      const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      // ISO week key (matches kanban's pattern). Now fully UTC.
+      const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
       date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
       const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
       const week = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
@@ -706,8 +729,10 @@ export function CycleTimeClient() {
                           max={99}
                           value={targetPct}
                           onChange={(e) => {
-                            const v = Math.min(99, Math.max(1, Number(e.target.value)));
-                            setTargetPct(v);
+                            const n = Number(e.target.value);
+                            if (Number.isFinite(n)) {
+                              setTargetPct(Math.min(99, Math.max(1, n)));
+                            }
                           }}
                           className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
                         />
@@ -951,6 +976,7 @@ export function CycleTimeClient() {
                         <button
                           onClick={() => removeItem(item.id)}
                           disabled={items.length === 1}
+                          aria-label={`Remove ${item.name || "item"}`}
                           className="text-sub hover:text-red-400 transition-colors p-1 disabled:opacity-30"
                         >
                           <Trash2 className="w-4 h-4" />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -12,6 +12,8 @@ import { emit as sonify } from "@/lib/sonification/emit";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { IMPEDIMENT_ACTIONS } from "@/lib/history/event-actions";
 import { withTimeTravel } from "@/lib/stores/with-time-travel";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
@@ -128,6 +130,7 @@ const useImpedimentStore = create<ImpedimentStore>()(
     ),
     {
       name: "agile-toolkit:impediments",
+      storage: safeJSONStorage("impediments"),
       partialize: (state) => {
         const {
           _ttPast,
@@ -148,6 +151,10 @@ const useImpedimentStore = create<ImpedimentStore>()(
 
 function daysSince(dateStr: string): number {
   const d = new Date(dateStr).getTime();
+  // Guard against `new Date("garbage")` → NaN; without this the badge below
+  // displayed "NaNd" for any impediment whose raisedDate got corrupted in
+  // localStorage.
+  if (!Number.isFinite(d)) return 0;
   const now = Date.now();
   return Math.max(0, Math.floor((now - d) / (1000 * 60 * 60 * 24)));
 }
@@ -157,12 +164,18 @@ function avgResolutionDays(impediments: Impediment[]): number {
     (i) => i.status === "Resolved" && i.resolvedDate
   );
   if (resolved.length === 0) return 0;
+  let validCount = 0;
   const total = resolved.reduce((sum, i) => {
     const raised = new Date(i.raisedDate).getTime();
     const done = new Date(i.resolvedDate!).getTime();
+    // Skip malformed entries so a single bad row doesn't NaN-poison the avg
+    // (NaN propagates through addition, then `Math.round(NaN)` → NaN, which
+    // surfaced as "NaN days" in the dashboard card).
+    if (!Number.isFinite(raised) || !Number.isFinite(done)) return sum;
+    validCount += 1;
     return sum + Math.max(0, Math.floor((done - raised) / (1000 * 60 * 60 * 24)));
   }, 0);
-  return Math.round(total / resolved.length);
+  return validCount > 0 ? Math.round(total / validCount) : 0;
 }
 
 /** Pull resolution-day durations for resolved impediments, with NaN-guarding. */
@@ -172,6 +185,7 @@ function resolutionDaysSeries(impediments: Impediment[]): number[] {
     .map((i) => {
       const raised = new Date(i.raisedDate).getTime();
       const done = new Date(i.resolvedDate!).getTime();
+      if (!Number.isFinite(raised) || !Number.isFinite(done)) return NaN;
       return Math.max(0, Math.floor((done - raised) / (1000 * 60 * 60 * 24)));
     })
     .filter((d) => Number.isFinite(d));
@@ -197,7 +211,11 @@ function buildWeeklyImpedimentSeries(impediments: Impediment[]): {
     .filter((d): d is Date => d !== null);
   if (dates.length === 0) return { raisedPerWeek: [], openAtWeek: [] };
 
-  const earliest = new Date(Math.min(...dates.map((d) => d.getTime())));
+  // R5: `Math.min(...arr)` blows the JS arg-count limit (RangeError:
+  // Maximum call stack) on lists >~100k. Use reduce so growth doesn't
+  // suddenly crash the page.
+  const earliestMs = dates.reduce((m, d) => Math.min(m, d.getTime()), Infinity);
+  const earliest = new Date(earliestMs);
   const dayOfWeek = earliest.getUTCDay();
   const weekStart = new Date(earliest);
   weekStart.setUTCDate(earliest.getUTCDate() - dayOfWeek);
@@ -491,9 +509,19 @@ function LogForm() {
                     value={form.expectedResolutionDays ?? ""}
                     onChange={(e) => {
                       const v = e.target.value;
+                      const n = Number(v);
+                      // Cap at 3650 days (~10 years) so a stray keystroke
+                      // (e.g. typing 99999999) doesn't bloat the persisted
+                      // store or break downstream forecasting helpers that
+                      // assume "reasonable" lead times.
                       setForm((f) => ({
                         ...f,
-                        expectedResolutionDays: v === "" ? undefined : Math.max(1, Number(v)),
+                        expectedResolutionDays:
+                          v === ""
+                            ? undefined
+                            : Number.isFinite(n)
+                            ? Math.min(3650, Math.max(1, n))
+                            : f.expectedResolutionDays,
                       }));
                     }}
                     onKeyDown={(e) => {
@@ -694,6 +722,66 @@ function ImpedimentCard({ impediment }: { impediment: Impediment }) {
 
 export function ImpedimentsClient() {
   const { impediments, reset } = useImpedimentStore();
+
+  // R10-deferred: dual-store bridge. Impediments tool was an island —
+  // raising one never fired `impediment.raised` (signal-bridge watches
+  // workspace.impediments, and nothing was writing there). After this
+  // bridge, signal-bus consumers (insights-engine, anti-pattern
+  // detector, dashboards) all wake up on every change.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sevMap: Record<Severity, "low" | "medium" | "high" | "critical"> = {
+      Low: "low", Medium: "medium", High: "high", Critical: "critical",
+    };
+    // R11-fix: track ids the bridge has ever upserted. The previous
+    // heuristic `ws.id.startsWith("imp_")` was dead code — local
+    // impediment ids come from `crypto.randomUUID()` so the prefix
+    // never matched and workspace.impediments accumulated zombies on
+    // every local delete. Cross-tool consumers (insights-engine,
+    // anti-pattern detector) treated resolved/deleted items as open.
+    const ownedIds = new Set<string>();
+    const sync = (snapshot: Impediment[]) => {
+      const workspace = useWorkspaceStore.getState();
+      const wsItems = workspace.impediments ?? [];
+      const wsById = new Map(wsItems.map((i) => [i.id, i]));
+      const localById = new Map(snapshot.map((i) => [i.id, i]));
+      for (const local of snapshot) {
+        const existing = wsById.get(local.id);
+        const next = {
+          id: local.id,
+          title: local.title,
+          severity: sevMap[local.severity],
+          raisedAt: local.raisedDate,
+          resolvedAt: local.resolvedDate,
+          owner: local.assignedTo || undefined,
+          source: "manual" as const,
+        };
+        ownedIds.add(local.id);
+        if (
+          existing &&
+          existing.title === next.title &&
+          existing.severity === next.severity &&
+          existing.raisedAt === next.raisedAt &&
+          existing.resolvedAt === next.resolvedAt &&
+          existing.owner === next.owner
+        ) continue;
+        workspace.upsertImpediment(next);
+      }
+      // Remove workspace rows we previously owned but the user deleted.
+      // Closure-scoped Set ensures we never trample rows that came from
+      // other tools / imports.
+      for (const ws of wsItems) {
+        if (!localById.has(ws.id) && ownedIds.has(ws.id)) {
+          ownedIds.delete(ws.id);
+          workspace.removeImpediment(ws.id);
+        }
+      }
+    };
+    sync(impediments);
+    const unsub = useImpedimentStore.subscribe((state) => sync(state.impediments));
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Filters
   const [filterStatus, setFilterStatus] = useState<Status | "All">("All");

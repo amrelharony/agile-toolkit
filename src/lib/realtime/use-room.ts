@@ -66,7 +66,25 @@ function getOrCreateUser(): { id: string; name: string } {
   return fresh;
 }
 
-export function useRoom<T>(toolId: string, roomId: string | null, initialState: T): UseRoomResult<T> {
+interface UseRoomOptions<T> {
+  /**
+   * Optional type-guard for incoming `state-sync` broadcasts. Defaults to
+   * `() => true` (accept everything) for backward compatibility. The
+   * canvas tool passes `() => false` to drop the default state-sync channel
+   * entirely — it routes its own validated events through dedicated
+   * `whiteboard:*` broadcasts and doesn't want hostile peers to be able
+   * to spam `setStateInternal` re-renders via the default channel.
+   */
+  validateState?: (raw: unknown) => raw is T;
+}
+
+export function useRoom<T>(
+  toolId: string,
+  roomId: string | null,
+  initialState: T,
+  options: UseRoomOptions<T> = {}
+): UseRoomResult<T> {
+  const validateState = options.validateState ?? ((_raw: unknown): _raw is T => true);
   const [state, setStateInternal] = useState<T>(initialState);
   const [members, setMembers] = useState<PresenceMember[]>([]);
   const [isConnected, setIsConnected] = useState(false);
@@ -131,11 +149,15 @@ export function useRoom<T>(toolId: string, roomId: string | null, initialState: 
     // Register all listeners BEFORE calling subscribe so none are missed
     channel
       .on("broadcast", { event: "state-sync" }, (payload) => {
-        const body = payload.payload as { state: T; by: string };
-        if (body.by !== me.id) {
-          setStateInternal(body.state);
-          emitRtEvent("sync-remote");
-        }
+        const body = payload.payload as { state: unknown; by: string };
+        if (body.by === me.id) return;
+        // Run the optional validator so callers like the canvas tool
+        // can drop the default channel entirely (and not be exposed
+        // to setStateInternal storms from hostile peers spamming
+        // state-sync). Default validator accepts everything.
+        if (!validateState(body.state)) return;
+        setStateInternal(body.state);
+        emitRtEvent("sync-remote");
       })
       .on("presence", { event: "sync" }, () => {
         const presenceState = channel.presenceState<PresenceMember>();
@@ -191,6 +213,12 @@ export function useRoom<T>(toolId: string, roomId: string | null, initialState: 
       setIsConnected(false);
       setMembers([]);
     };
+    // `validateState` is intentionally excluded — callers typically pass an
+    // inline arrow function whose identity churns every render, which would
+    // tear down and re-create the realtime channel each commit. We capture
+    // it once at mount and accept the trade-off that swapping the validator
+    // mid-session requires re-rendering with a new roomId.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toolId, roomId, isLocalOnly]);
 
   return {

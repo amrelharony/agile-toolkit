@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -241,6 +241,8 @@ export function OneOnOneClient() {
     );
   };
 
+  // Persisted commit. Called from the draft textarea below on blur (not on
+  // every keystroke) so we don't write to localStorage per character.
   const updateNotes = (val: string) => {
     if (!activeMeeting) return;
     setMeetings((s) =>
@@ -249,6 +251,24 @@ export function OneOnOneClient() {
       )
     );
   };
+
+  // Local draft mirrors the active meeting's notes — typing only touches
+  // this state. We sync the draft when the active meeting flips (open
+  // another meeting), and flush on blur.
+  const [notesDraft, setNotesDraft] = useState<string>("");
+  const notesCommittedRef = useRef<string>("");
+  useEffect(() => {
+    // R5: depend ONLY on `activeMeeting?.id`. Including
+    // `activeMeeting?.notes` re-fires the effect every time the local
+    // draft was committed via `updateNotes` → `notes` changed →
+    // `activeMeeting` re-derived → effect re-ran → setNotesDraft
+    // overwrote the user's in-progress typing AFTER they had just
+    // committed. Only sync when the user opens a DIFFERENT meeting.
+    const v = activeMeeting?.notes ?? "";
+    setNotesDraft(v);
+    notesCommittedRef.current = v;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMeeting?.id]);
 
   const togglePastExpanded = (id: string) => {
     setExpandedPast((s) => {
@@ -295,7 +315,12 @@ export function OneOnOneClient() {
   // meeting-level notes/description. The KPI label is "Growth themes", so
   // it covers themes mentioned outside discrete agenda items too.
   const growthThemes = useMemo(() => {
-    const re = /growth/i;
+    // R11-fix: word-boundary regex. The previous /growth/i matched
+    // "regrowth", "outgrowth", "growth-hacking" — false positives
+    // that fed into AI prompts as a KPI, misdirecting manager
+    // attention toward themes that weren't actually about employee
+    // growth.
+    const re = /\bgrowth\b/i;
     let count = 0;
     for (const m of meetings) {
       if (re.test(m.notes ?? "") || re.test(m.description ?? "")) count += 1;
@@ -577,8 +602,14 @@ export function OneOnOneClient() {
             Notes
           </div>
           <Textarea
-            value={activeMeeting.notes ?? ""}
-            onChange={(e) => updateNotes(e.target.value)}
+            value={notesDraft}
+            onChange={(e) => setNotesDraft(e.target.value)}
+            onBlur={() => {
+              if (notesDraft !== notesCommittedRef.current) {
+                notesCommittedRef.current = notesDraft;
+                updateNotes(notesDraft);
+              }
+            }}
             placeholder="Meeting notes..."
             rows={4}
             className="bg-bg border-border text-sm resize-y"

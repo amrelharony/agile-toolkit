@@ -63,8 +63,14 @@ function emptyRisk(): Risk {
   };
 }
 
+function clampToScale(v: unknown): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(1, Math.min(5, Math.round(n)));
+}
+
 function riskScore(r: Risk): number {
-  return r.probability * r.impact;
+  return clampToScale(r.probability) * clampToScale(r.impact);
 }
 
 function riskColor(score: number): string {
@@ -178,8 +184,16 @@ export function RiskRegisterClient() {
     setRisks((r) => [risk, ...r]);
     log(RISK_ACTIONS.RISK_ADDED, { riskId: risk.id });
   };
-  const update = (id: string, patch: Partial<Risk>) => {
+  // R11-fix: split logged vs quiet update so per-keystroke onChange
+  // doesn't emit a history event per character. Title + mitigation
+  // text fields use `updateQuiet` on input; their onBlur commits via
+  // the logged `update`. Numeric / select / status fields keep using
+  // `update` directly since each click is a meaningful event.
+  const updateQuiet = (id: string, patch: Partial<Risk>) => {
     setRisks((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  };
+  const update = (id: string, patch: Partial<Risk>) => {
+    updateQuiet(id, patch);
     log(RISK_ACTIONS.RISK_UPDATED, { riskId: id, fields: Object.keys(patch) });
   };
   const remove = (id: string) => {
@@ -191,7 +205,9 @@ export function RiskRegisterClient() {
   const matrix = useMemo(() => {
     const grid = Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => 0));
     for (const r of risks.filter((x) => x.status !== "closed")) {
-      grid[r.probability - 1][r.impact - 1]++;
+      const p = clampToScale(r.probability);
+      const i = clampToScale(r.impact);
+      grid[p - 1][i - 1]++;
     }
     return grid;
   }, [risks]);
@@ -527,7 +543,9 @@ export function RiskRegisterClient() {
                     <div className="space-y-0.5">
                       <Input
                         value={r.title}
-                        onChange={(e) => update(r.id, { title: e.target.value })}
+                        // R11-fix: quiet per keystroke, logged commit on blur.
+                        onChange={(e) => updateQuiet(r.id, { title: e.target.value })}
+                        onBlur={(e) => update(r.id, { title: e.target.value })}
                         placeholder="Risk title"
                         className="bg-bg border-border"
                       />
@@ -557,7 +575,22 @@ export function RiskRegisterClient() {
                         {[1, 2, 3, 4, 5].map((i) => <SelectItem key={i} value={String(i)}>I{i}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    <Select value={r.status} onValueChange={(v) => update(r.id, { status: v as Risk["status"], resolvedAt: v === "closed" ? todayLocalISO() : undefined })}>
+                    <Select value={r.status} onValueChange={(v) => {
+                      // R5: when REOPENING a previously-closed risk
+                      // (non-closed transition), preserve the existing
+                      // `resolvedAt` rather than wiping it. The K-M
+                      // survival analysis chart relies on the
+                      // historical closure timestamp, and the old
+                      // behaviour of `resolvedAt: undefined` on every
+                      // non-closed transition silently corrupted that
+                      // data the moment a user moved a risk from
+                      // closed → mitigating to add a follow-up note.
+                      const next: Partial<Risk> = { status: v as Risk["status"] };
+                      if (v === "closed" && !r.resolvedAt) {
+                        next.resolvedAt = todayLocalISO();
+                      }
+                      update(r.id, next);
+                    }}>
                       <SelectTrigger className="bg-bg border-border capitalize">
                         <SelectValue />
                       </SelectTrigger>
@@ -580,7 +613,9 @@ export function RiskRegisterClient() {
                   <Textarea
                     rows={2}
                     value={r.mitigation ?? ""}
-                    onChange={(e) => update(r.id, { mitigation: e.target.value })}
+                    // R11-fix: quiet per keystroke, logged commit on blur.
+                    onChange={(e) => updateQuiet(r.id, { mitigation: e.target.value })}
+                    onBlur={(e) => update(r.id, { mitigation: e.target.value })}
                     placeholder="Mitigation plan..."
                     className="bg-bg border-border text-sm"
                   />

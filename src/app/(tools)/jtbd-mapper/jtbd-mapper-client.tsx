@@ -106,14 +106,24 @@ export function JtbdMapperClient() {
   const addJob = () => {
     if (!situation.trim() && !motivation.trim() && !outcome.trim()) return;
     const id = crypto.randomUUID();
-    const desc = description.trim();
+    // Bound each clause of the job-story sentence. The renderer line-clamps
+    // these on display but stored values were unbounded — a paste could
+    // bloat the export CSV beyond what Excel/Sheets handles cleanly.
+    const desc = description.trim().slice(0, 4000);
+    // Validate parentJobId against the existing job set so a stale
+    // persisted value can't orphan-link a new story to a deleted parent.
+    const validParent =
+      parentJobId === "__none__" || !parentJobId
+        ? undefined
+        : jobs.some((j) => j.id === parentJobId)
+        ? parentJobId
+        : undefined;
     const job: JobStory = {
       id,
-      situation: situation.trim(),
-      motivation: motivation.trim(),
-      outcome: outcome.trim(),
-      parentJobId:
-        parentJobId === "__none__" || !parentJobId ? undefined : parentJobId,
+      situation: situation.trim().slice(0, 500),
+      motivation: motivation.trim().slice(0, 500),
+      outcome: outcome.trim().slice(0, 500),
+      parentJobId: validParent,
       description: desc.length > 0 ? desc : undefined,
     };
     setJobs((s) => [...s, job]);

@@ -87,9 +87,14 @@ function useDraftField(value: string, commit: (next: string) => void) {
     lastRef.current = value;
   }, [value]);
   const onBlur = () => {
-    if (draft !== lastRef.current) {
-      lastRef.current = draft;
-      commit(draft);
+    // Cap committed value at 4000 chars. Hypothesis statements / outcomes
+    // are essay-length but rarely book-length; without the cap a paste-bomb
+    // would balloon the persisted store past the 5 MB origin quota and
+    // silently kill writes for every other tool on this domain.
+    const next = draft.slice(0, 4000);
+    if (next !== lastRef.current) {
+      lastRef.current = next;
+      commit(next);
     }
   };
   return { draft, setDraft, onBlur };
@@ -290,6 +295,11 @@ export function HypothesisTrackerClient() {
         .map((i) => {
           const start = new Date(i.raisedAt).getTime();
           const end = new Date(i.resolvedAt!).getTime();
+          // Bail out for malformed dates by returning NaN, which the
+          // `Number.isFinite` filter below excludes. Without this, a bad
+          // entry produced `NaN` (start) − `NaN` (end) = `NaN` which then
+          // poisoned the survival series and broke the chart.
+          if (!Number.isFinite(start) || !Number.isFinite(end)) return NaN;
           return Math.max(0, Math.round((end - start) / 86_400_000));
         })
         .filter((d) => Number.isFinite(d)),

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   ComposedChart,
   Bar,
@@ -124,6 +126,7 @@ const useVelocityStore = create<VelocityStore>()(
     ),
     {
       name: "agile-toolkit:velocity",
+      storage: safeJSONStorage("velocity"),
       // Don't persist the time-travel stacks — they're in-memory only.
       partialize: (state) => {
         const { _ttPast, _ttFuture, ...rest } = state as VelocityStore & {
@@ -254,6 +257,93 @@ export function VelocityClient() {
   } = useVelocityStore();
   const { log } = useHistoryLogger("velocity");
 
+  // R10-deferred: dual-store bridge. Velocity's local persisted store is
+  // its source of truth, but cross-tool consumers (capacity-planner,
+  // anti-pattern detectors, signal-bridge, dashboards) read from
+  // `useWorkspaceStore.sprints`. Without this bridge:
+  //   - signal-bridge never fires `sprint.completed` / `velocity.changed`
+  //   - capacity-planner's velocity history is permanently empty
+  //   - anti-pattern detector ignores velocity drops
+  //
+  // Strategy: on every velocity-store change, diff against the
+  // workspace and upsert/remove to converge. We only emit sprints
+  // that have at least one of (completed > 0, committed > 0) so the
+  // initial default 3-sprint seed (all zeros) doesn't pollute the
+  // workspace with empty rows.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // R11-fix: track ids the bridge has ever upserted. The previous
+    // heuristic `ws.id.startsWith("spr_")` was dead code — velocity ids
+    // come from `crypto.randomUUID()` (buildDefaultSprints + createSprint)
+    // which never produce a "spr_" prefix, so the removal branch never
+    // fired and workspace.sprints accumulated zombies forever.
+    const ownedIds = new Set<string>();
+    const sync = (snapshot: typeof sprints) => {
+      const workspace = useWorkspaceStore.getState();
+      const wsSprints = workspace.sprints ?? [];
+      const wsById = new Map(wsSprints.map((s) => [s.id, s]));
+      const localById = new Map(snapshot.map((s) => [s.id, s]));
+      // Upsert active velocity rows into workspace.
+      // R11-fix: emit synthetic monotonic startDate so workspace-store's
+      // `selectCompletedSprints` sort (uses `new Date(startDate).getTime()`)
+      // doesn't NaN-poison when velocity has no real calendar dates.
+      // Anchor at 2020-01-01 + index days; stable across renders.
+      const SYNTH_EPOCH_MS = Date.UTC(2020, 0, 1);
+      snapshot.forEach((local, index) => {
+        if (local.committed === 0 && local.completed === 0) {
+          // Even un-upserted local sprints are claimed as "ours" so a
+          // later removal doesn't see them as foreign rows.
+          ownedIds.add(local.id);
+          return;
+        }
+        const existing = wsById.get(local.id);
+        const status: "active" | "completed" | "planned" =
+          local.completed > 0 ? "completed" : "planned";
+        const syntheticStart = new Date(SYNTH_EPOCH_MS + index * 86_400_000)
+          .toISOString()
+          .slice(0, 10);
+        const next = {
+          id: local.id,
+          name: local.name,
+          startDate: existing?.startDate || syntheticStart,
+          endDate: existing?.endDate ?? "",
+          goal: existing?.goal ?? local.description,
+          pointsPlanned: local.committed,
+          pointsCompleted: local.completed,
+          status,
+        } as const;
+        ownedIds.add(local.id);
+        // Skip the upsert when nothing meaningful has changed — avoids
+        // an infinite subscribe → diff → setState → subscribe loop.
+        if (
+          existing &&
+          existing.name === next.name &&
+          existing.startDate === next.startDate &&
+          existing.pointsPlanned === next.pointsPlanned &&
+          existing.pointsCompleted === next.pointsCompleted &&
+          existing.status === next.status
+        ) return;
+        workspace.upsertSprint(next);
+      });
+      // Remove workspace sprints WE previously pushed but the user has
+      // since deleted from the velocity tool. Only touch ids we've
+      // owned at some point (closure-scoped Set above), never trample
+      // sprints written by other tools / imports.
+      for (const ws of wsSprints) {
+        if (!localById.has(ws.id) && ownedIds.has(ws.id)) {
+          ownedIds.delete(ws.id);
+          workspace.removeSprint(ws.id);
+        }
+      }
+    };
+    // Initial sync.
+    sync(sprints);
+    // Subscribe for future writes.
+    const unsub = useVelocityStore.subscribe((state) => sync(state.sprints));
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const addSprint = () => {
     addSprintRaw();
     const next = useVelocityStore.getState().sprints;
@@ -374,8 +464,16 @@ export function VelocityClient() {
 
     const n = sprints.length;
     const avgVelocity = n > 0 ? completedValues.reduce((a, b) => a + b, 0) / n : 0;
-    const predictable = sprints.filter((s) => s.completed >= s.committed).length;
-    const predictability = n > 0 ? (predictable / n) * 100 : 0;
+    // R11-fix: skip n=0 sprints in predictability. Previously a fresh
+    // sprint row with `committed: 0, completed: 0` satisfied `0 >= 0`
+    // and counted toward predictability — adding empty rows
+    // artificially inflated the % because each empty addition
+    // incremented both numerator and denominator.
+    const completedSprints = sprints.filter((s) => s.committed > 0 || s.completed > 0);
+    const predictable = completedSprints.filter((s) => s.completed >= s.committed).length;
+    const predictability = completedSprints.length > 0
+      ? (predictable / completedSprints.length) * 100
+      : 0;
     const sd = stdDev(completedValues);
 
     // Trend direction: compare last 2 trend values, but the deadband is now

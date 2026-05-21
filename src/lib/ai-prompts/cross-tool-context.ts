@@ -2,12 +2,16 @@ import type { Workspace } from "../stores/workspace-types";
 import { selectActiveSprint, selectCompletedSprints, selectActiveImpediments, selectOpenRisks } from "../stores/workspace-store";
 import { runAntiPatternRules, sortBySeverity } from "../analytics/anti-patterns";
 import { mean } from "../analytics/anomaly";
+import { sanitizePromptCell } from "./prompt-utils";
 
 export function buildWorkspaceContext(w: Workspace | undefined | null): string {
   if (!w) return "";
   const parts: string[] = [];
 
-  if (w.teamName) parts.push(`Team: ${w.teamName}`);
+  // Sanitize every user-typed string surface (team name, sprint name,
+  // signal title) before interpolating into a markdown block. These
+  // are short labels, so the 80-char cap is plenty.
+  if (w.teamName) parts.push(`Team: ${sanitizePromptCell(w.teamName, 80)}`);
   if (w.teamMembers.length > 0) parts.push(`Team size: ${w.teamMembers.length}`);
 
   const completed = selectCompletedSprints(w);
@@ -24,7 +28,9 @@ export function buildWorkspaceContext(w: Workspace | undefined | null): string {
 
   const active = selectActiveSprint(w);
   if (active) {
-    parts.push(`Active sprint: "${active.name}" (${active.pointsPlanned} pts planned)`);
+    const safeName = sanitizePromptCell(active.name ?? "(unnamed)", 80);
+    const planned = Number.isFinite(active.pointsPlanned) ? active.pointsPlanned : 0;
+    parts.push(`Active sprint: "${safeName}" (${planned} pts planned)`);
   }
 
   const activeImpediments = selectActiveImpediments(w);
@@ -44,9 +50,33 @@ export function buildWorkspaceContext(w: Workspace | undefined | null): string {
     parts.push(`Team maturity: Level ${w.maturityLevel}/5`);
   }
 
-  const signals = sortBySeverity(runAntiPatternRules(w));
-  if (signals.length > 0) {
-    parts.push(`Top signal: ${signals[0].title}`);
+  // Canvas / whiteboard surface — counts only. The AI doesn't need every
+  // sticky's content here (that gets included by canvas-specific prompts
+  // via generateCanvasPrompts); this is a higher-level hint that "the
+  // team has 12 boards in active use" or "there's a single 200-sticky
+  // brainstorm board pending action." Cross-tool prompts (e.g. retro,
+  // story-mapper) can reference this to suggest "import to a board" or
+  // "this looks like a brainstorm that could become stories."
+  const boards = w.whiteboards ?? [];
+  const objects = w.whiteboardObjects ?? [];
+  if (boards.length > 0) {
+    const totalObjects = objects.length;
+    const stickies = objects.filter((o) => o.type === "sticky").length;
+    parts.push(
+      `Whiteboards: ${boards.length} board${boards.length === 1 ? "" : "s"} ` +
+      `(${totalObjects} object${totalObjects === 1 ? "" : "s"}, ${stickies} sticky note${stickies === 1 ? "" : "s"})`,
+    );
+  }
+
+  try {
+    const signals = sortBySeverity(runAntiPatternRules(w));
+    if (signals.length > 0 && signals[0]?.title) {
+      parts.push(`Top signal: ${sanitizePromptCell(signals[0].title, 120)}`);
+    }
+  } catch {
+    // Anti-pattern rules can throw on malformed workspace data (e.g.
+    // a story with no id from a corrupt import). Don't let that abort
+    // the entire context — the rest of the parts are still useful.
   }
 
   if (parts.length === 0) return "";

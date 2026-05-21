@@ -95,6 +95,97 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
+   HIGH-CONTRAST MODE — Accessibility (Phase 33)
+   WCAG AAA: text/bg contrast ≥ 7:1, interactive ≥ 4.5:1. Pure-black bg +
+   pure-white text + heavy yellow accent. Borders go solid (not alpha) so
+   they pass the "not visible to colour-blind users" test.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+@layer base {
+  .hc, [data-theme="hc"] {
+    --bg: #000000;
+    --bg2: #000000;
+    --bg2-rgb: 0, 0, 0;
+    --text: #ffffff;
+    --sub: #e5e5e5;
+    --accent: #ffd400;
+    --accent2: #00ffaa;
+    --accent3: #ff7eff;
+    --card: #0a0a0a;
+    --cardH: #1a1a1a;
+    --border: #ffffff;
+    --glow: rgba(255, 212, 0, 0.4);
+    --glowS: rgba(255, 212, 0, 0.7);
+    --surface: #0a0a0a;
+    --surface-deep: #000000;
+    --surface-hover: #1a1a1a;
+  }
+  /* In HC mode, kill the decorative mesh blobs + noise overlay
+   * — both reduce contrast against text and serve no a11y purpose. */
+  .hc .atmosphere,
+  [data-theme="hc"] .atmosphere,
+  .hc .noise-overlay::after,
+  [data-theme="hc"] .noise-overlay::after {
+    display: none !important;
+  }
+  /* Force solid 2px outlines on every focusable element so keyboard
+   * users (the people most likely to enable HC) get unambiguous focus
+   * signals. */
+  .hc *:focus-visible,
+  [data-theme="hc"] *:focus-visible {
+    outline: 3px solid var(--accent) !important;
+    outline-offset: 2px !important;
+  }
+  /* Underline links so colour is never the only signal. */
+  .hc a,
+  [data-theme="hc"] a {
+    text-decoration: underline;
+  }
+  /* Canvas objects use sticky/shape colours baked into inline styles
+   * (sticky background, shape stroke). In HC mode we paint a solid
+   * white 2px outline on top so borders are unambiguously visible
+   * against the pure-black HC background — fills can stay decorative,
+   * but the boundary MUST be visible. `outline-offset: -2px` puts the
+   * outline inside the box so it doesn't get clipped by the parent
+   * camera transform. */
+  .hc [data-canvas-object-kind="sticky"],
+  [data-theme="hc"] [data-canvas-object-kind="sticky"],
+  .hc [data-canvas-object-kind="rect"],
+  [data-theme="hc"] [data-canvas-object-kind="rect"],
+  .hc [data-canvas-object-kind="ellipse"],
+  [data-theme="hc"] [data-canvas-object-kind="ellipse"],
+  .hc [data-canvas-object-kind="diamond"],
+  [data-theme="hc"] [data-canvas-object-kind="diamond"],
+  .hc [data-canvas-object-kind="triangle"],
+  [data-theme="hc"] [data-canvas-object-kind="triangle"],
+  .hc [data-canvas-object-kind="text"],
+  [data-theme="hc"] [data-canvas-object-kind="text"],
+  .hc [data-canvas-object-kind="frame"],
+  [data-theme="hc"] [data-canvas-object-kind="frame"],
+  .hc [data-canvas-object-kind="kanban"],
+  [data-theme="hc"] [data-canvas-object-kind="kanban"],
+  .hc [data-canvas-object-kind="card"],
+  [data-theme="hc"] [data-canvas-object-kind="card"],
+  .hc [data-canvas-object-kind="image"],
+  [data-theme="hc"] [data-canvas-object-kind="image"],
+  .hc [data-canvas-object-kind="embed"],
+  [data-theme="hc"] [data-canvas-object-kind="embed"],
+  .hc [data-canvas-object-kind="line"],
+  [data-theme="hc"] [data-canvas-object-kind="line"],
+  .hc [data-canvas-object-kind="arrow"],
+  [data-theme="hc"] [data-canvas-object-kind="arrow"],
+  .hc [data-canvas-object-kind="freehand"],
+  [data-theme="hc"] [data-canvas-object-kind="freehand"],
+  .hc [data-canvas-object-kind="timer"],
+  [data-theme="hc"] [data-canvas-object-kind="timer"],
+  .hc [data-canvas-object-kind="voting"],
+  [data-theme="hc"] [data-canvas-object-kind="voting"] {
+    outline: 2px solid #ffffff !important;
+    outline-offset: -2px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
    RESET & BASE (inside @layer base so Tailwind utilities can override)
    ═══════════════════════════════════════════════════════════════════════════════ */
 
@@ -109,7 +200,12 @@
     color: var(--text);
     line-height: 1.6;
     transition: background 0.6s, color 0.6s;
+    /* R8: cascade — iOS Safari < 15.4 ignores `dvh`, uses `100vh`
+       (which includes the URL bar and overflows by ~80px). Modern
+       browsers pick the second declaration and respect the dynamic
+       viewport. */
     min-height: 100vh;
+    min-height: 100dvh;
   }
 }
 
@@ -444,6 +540,18 @@
    FOCUS STYLES — Accessibility
    ═══════════════════════════════════════════════════════════════════════════════ */
 
+/* R8: Safari < 15.4 doesn't support `:focus-visible` at all — without
+   a `:focus` fallback ALL focused elements lose their outline on older
+   Safari. The cascade is:
+     - Modern browsers: apply outline to `:focus-visible` only (no
+       outline on click-focus, outline on tab-focus → ideal a11y).
+     - Old Safari: apply outline to `:focus` (best we can do; mouse
+       click also shows outline, which is a minor UX regression vs
+       the full :focus-visible support).
+   Browsers that DO support :focus-visible suppress the basic
+   `:focus` outline via the `:focus:not(:focus-visible)` reset. */
+:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+:focus:not(:focus-visible) { outline: none; }
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

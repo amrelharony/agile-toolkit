@@ -3,6 +3,7 @@
 import { useRef, useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   ComposedChart,
   Area,
@@ -163,7 +164,7 @@ const useBurnupStore = create<BurnupStore>()(
       },
     };
     },
-    { name: "agile-toolkit:burnup" }
+    { name: "agile-toolkit:burnup", storage: safeJSONStorage("burnup") }
   )
 );
 
@@ -443,7 +444,8 @@ export function BurnupClient() {
 
     const initialScope =
       chartData.find((d) => d.scope !== null)?.scope ?? 0;
-    const maxScope = Math.max(...chartData.map((d) => d.scope ?? 0));
+    const scopeVals = chartData.map((d) => d.scope ?? 0);
+    const maxScope = scopeVals.length > 0 ? Math.max(...scopeVals) : 0;
     const scopeCreep = Math.max(0, maxScope - initialScope);
 
     const lastFilledEntry = [...sortedEntries]
@@ -451,23 +453,40 @@ export function BurnupClient() {
       .find((e) => e.completed !== null);
     const latestCompleted = lastFilledEntry?.completed ?? 0;
     const currentScope = chartData[chartData.length - 1]?.scope ?? maxScope;
-    const completionPct =
-      currentScope > 0 ? Math.round((latestCompleted / currentScope) * 100) : 0;
+    const completionPct = Math.max(
+      0,
+      Math.min(100, currentScope > 0 ? Math.round((latestCompleted / currentScope) * 100) : 0),
+    );
 
     // Projected completion: linear extrapolation from last two filled entries
     let projectedDay: number | null = null;
-    const completedEntries = sortedEntries
-      .filter((e) => e.completed !== null)
-      .sort((a, b) => a.day - b.day);
+    // R5: dedupe entries by `day` before computing projection. Two entries
+    // on the SAME day (possible if the user clicks "Add Day" twice for
+    // the same idx) produced `Math.max(1, 0) === 1` in the denominator,
+    // yielding a huge spurious rate spike → wildly wrong projection.
+    const dedupedByDay = new Map<number, typeof sortedEntries[number]>();
+    for (const e of sortedEntries) {
+      if (e.completed === null) continue;
+      // Last-write-wins on duplicate days.
+      dedupedByDay.set(e.day, e);
+    }
+    const completedEntries = Array.from(dedupedByDay.values()).sort((a, b) => a.day - b.day);
     if (completedEntries.length >= 2) {
       const n = completedEntries.length;
       const last = completedEntries[n - 1];
       const prev = completedEntries[n - 2];
       const rate =
         (last.completed! - prev.completed!) / Math.max(1, last.day - prev.day);
-      if (rate > 0) {
+      if (rate > 0 && Number.isFinite(rate)) {
         const daysLeft = (currentScope - latestCompleted) / rate;
-        projectedDay = Math.round(last.day + daysLeft);
+        if (Number.isFinite(daysLeft) && daysLeft >= 0) {
+          // Cap projected day at sprintDays + 365 — beyond that the band is
+          // meaningless and a huge number would clobber the UI.
+          projectedDay = Math.min(
+            config.sprintDays + 365,
+            Math.round(last.day + daysLeft),
+          );
+        }
       }
     }
 
@@ -479,7 +498,7 @@ export function BurnupClient() {
       completionPct,
       projectedDay,
     };
-  }, [sortedEntries, chartData]);
+  }, [sortedEntries, chartData, config.sprintDays]);
 
   /* -- Export data --------------------------------------------------------- */
 
@@ -567,9 +586,10 @@ export function BurnupClient() {
                 min={1}
                 max={60}
                 value={config.sprintDays}
-                onChange={(e) =>
-                  updateConfig({ sprintDays: Math.max(1, Math.min(60, Number(e.target.value))) })
-                }
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (Number.isFinite(n)) updateConfig({ sprintDays: Math.max(1, Math.min(60, n)) });
+                }}
                 className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
               />
             </div>
@@ -578,7 +598,12 @@ export function BurnupClient() {
               <Input
                 type="date"
                 value={config.sprintStartDate}
-                onChange={(e) => updateConfig({ sprintStartDate: e.target.value })}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "" || /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+                    updateConfig({ sprintStartDate: v });
+                  }
+                }}
                 className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
               />
             </div>
@@ -834,11 +859,14 @@ export function BurnupClient() {
                   min={0}
                   placeholder="— pts"
                   value={entry.scope ?? ""}
-                  onChange={(e) =>
-                    updateEntry(entry.id, {
-                      scope: e.target.value === "" ? null : Number(e.target.value),
-                    })
-                  }
+                  onChange={(e) => {
+                    if (e.target.value === "") {
+                      updateEntry(entry.id, { scope: null });
+                      return;
+                    }
+                    const n = Number(e.target.value);
+                    if (Number.isFinite(n)) updateEntry(entry.id, { scope: Math.max(0, n) });
+                  }}
                   className="bg-surface-deep border-border text-text font-data focus:border-[#ff00aa]/50 focus:ring-[#ff00aa]/20"
                 />
 
@@ -847,11 +875,14 @@ export function BurnupClient() {
                   min={0}
                   placeholder="— pts"
                   value={entry.completed ?? ""}
-                  onChange={(e) =>
-                    updateEntry(entry.id, {
-                      completed: e.target.value === "" ? null : Number(e.target.value),
-                    })
-                  }
+                  onChange={(e) => {
+                    if (e.target.value === "") {
+                      updateEntry(entry.id, { completed: null });
+                      return;
+                    }
+                    const n = Number(e.target.value);
+                    if (Number.isFinite(n)) updateEntry(entry.id, { completed: Math.max(0, n) });
+                  }}
                   className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
                 />
 
@@ -874,6 +905,7 @@ export function BurnupClient() {
                   size="icon"
                   onClick={() => removeEntry(entry.id)}
                   disabled={sortedEntries.length <= 1}
+                  aria-label={`Remove day ${entry.day}`}
                   className="h-9 w-9 disabled:opacity-30"
                 >
                   <Trash2 className="w-4 h-4" />

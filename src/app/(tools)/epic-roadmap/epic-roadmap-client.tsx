@@ -20,6 +20,16 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { EPIC_ROADMAP_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
 import { useHistoryStore } from "@/lib/history/history-store";
+import { SAFE_CSS_COLOR_RE } from "@/lib/whiteboard/object-validator";
+
+/** Hardened color picker — falls back to the default accent color if the
+ * persisted color value doesn't match the strict whitelist (e.g. a
+ * hand-edited localStorage payload that smuggled `;background:url(...)` into
+ * an inline style). Mirrors the same guard used by the whiteboard renderer. */
+function safeColor(c: string | undefined): string {
+  if (typeof c !== "string" || c.length === 0 || c.length > 64) return "#00f0ff";
+  return SAFE_CSS_COLOR_RE.test(c.trim()) ? c : "#00f0ff";
+}
 
 interface Epic {
   id: string;
@@ -43,16 +53,27 @@ function quarterIndex(q: string): number {
   const m = q.match(/(\d{4})\s*Q([1-4])/i);
   if (!m) return 0;
   const year = parseInt(m[1], 10);
+  // R5: require year >= 1900 — without this, a hand-edited or migrated
+  // epic carrying `"0 Q1"` produced index 1 (non-zero, passes the
+  // sentinel check) and the timeline header rendered literal "0 Q1".
+  if (year < 1900 || year > 2200) return 0;
   const qNum = parseInt(m[2], 10); // 1..4
   return year * 4 + qNum; // sentinel-safe: year*4+1..+4
 }
+
+// R5: cap grid columns. A pasted "9999 Q1" through "9999 Q4" produced
+// ~40k iterations and DOM nodes, freezing the tab. 40 quarters = 10
+// years which is well past any reasonable roadmap horizon.
+const MAX_QUARTERS_SPAN = 40;
 
 function quartersBetween(from: string, to: string): string[] {
   const start = quarterIndex(from);
   const end = quarterIndex(to);
   if (start === 0 || end === 0 || end < start) return [];
   const out: string[] = [];
-  for (let i = start; i <= end; i++) {
+  const span = Math.min(end - start + 1, MAX_QUARTERS_SPAN);
+  const stop = start + span - 1;
+  for (let i = start; i <= stop; i++) {
     // Subtract 1 before the divmod so q=4 stays in its own year. e.g.
     // i=8108 (2026 Q4) → (i-1)=8107 → year=2026, q=(8107%4)+1=4.
     const zero = i - 1;
@@ -114,7 +135,7 @@ function EpicRowEditor({
   return (
     <div className="py-2 pr-2 flex flex-col gap-1.5">
       <div className="flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full" style={{ background: epic.color ?? "#00f0ff" }} />
+        <div className="w-2 h-2 rounded-full" style={{ background: safeColor(epic.color) }} />
         <Input
           value={titleDraft}
           onChange={(ev) => setTitleDraft(ev.target.value)}
@@ -343,14 +364,15 @@ export function EpicRoadmapClient() {
                       else if (prog > cellStartPct) {
                         cellFillPct = ((prog - cellStartPct) / (cellEndPct - cellStartPct)) * 100;
                       }
+                      const color = safeColor(e.color);
                       return (
                         <div key={idx} className="py-3">
                           <div
                             className="h-4 relative overflow-hidden"
                             style={{
-                              background: `${e.color ?? "#00f0ff"}22`,
-                              borderLeft: isStart ? `3px solid ${e.color ?? "#00f0ff"}` : undefined,
-                              borderRight: isEnd ? `3px solid ${e.color ?? "#00f0ff"}` : undefined,
+                              background: `${color}22`,
+                              borderLeft: isStart ? `3px solid ${color}` : undefined,
+                              borderRight: isEnd ? `3px solid ${color}` : undefined,
                               borderTopLeftRadius: isStart ? 4 : 0,
                               borderBottomLeftRadius: isStart ? 4 : 0,
                               borderTopRightRadius: isEnd ? 4 : 0,
@@ -360,7 +382,7 @@ export function EpicRoadmapClient() {
                             <div
                               className="h-full absolute left-0 top-0"
                               style={{
-                                background: e.color ?? "#00f0ff",
+                                background: color,
                                 width: `${cellFillPct}%`,
                                 opacity: 0.45,
                               }}
@@ -368,7 +390,7 @@ export function EpicRoadmapClient() {
                             {idx === Math.floor((start + end) / 2) && (
                               <div
                                 className="absolute inset-0 flex items-center justify-center text-[10px] font-data"
-                                style={{ color: e.color ?? "#00f0ff" }}
+                                style={{ color }}
                               >
                                 {e.progress}%
                               </div>

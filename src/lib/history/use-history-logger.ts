@@ -66,6 +66,13 @@ export function useHistoryLogger(toolId: ToolId): HistoryLogger {
       // this event's mutation lands". restore-to-here = pastLength_now -
       // event.undoIndex.
       const undoIndex = timeTravelRegistry.get(toolId)?.pastLength();
+      // R5: guard against `new Date(badString).toISOString()` throwing
+      // `RangeError: Invalid time value` when callers pass a malformed
+      // backfill date.
+      const occurredAtSafe =
+        opts.occurredAt instanceof Date && Number.isFinite(opts.occurredAt.getTime())
+          ? opts.occurredAt
+          : new Date();
       const event: HistoryEvent = {
         id,
         clientEventId: id,
@@ -75,16 +82,22 @@ export function useHistoryLogger(toolId: ToolId): HistoryLogger {
         toolId,
         action,
         payload: sanitizePayload(payload),
-        beforeState: opts.beforeState,
-        afterState: opts.afterState,
+        // R5: sanitize state snapshots too — cloud-sync ships these and
+        // any tool that dumps `{ token, email }` into its state would
+        // otherwise leak secrets via the milestone-event snapshot path.
+        beforeState: sanitizePayload(opts.beforeState),
+        afterState: sanitizePayload(opts.afterState),
         isMilestone: opts.milestone ?? isMilestoneAction(toolId, action),
-        occurredAt: (opts.occurredAt ?? new Date()).toISOString(),
+        occurredAt: occurredAtSafe.toISOString(),
         syncedAt: null,
         undoIndex,
       };
       addEvent(event);
     },
-    [toolId, status, user, addEvent, ensureClientId]
+    // R5: depend on `user?.id`, not the whole `user` object. The auth
+    // provider re-creates `user` on every refresh, which churned `log`
+    // identity and made downstream useEffects re-fire spuriously.
+    [toolId, status, user?.id, addEvent, ensureClientId]
   );
 
   return { log, toolRunId: toolRunIdRef.current };

@@ -19,7 +19,18 @@ function mulberry32(seed: number): () => number {
 
 function squaredDistance(a: number[], b: number[]): number {
   let s = 0;
-  for (let i = 0; i < a.length; i++) s += (a[i] - b[i]) ** 2;
+  for (let i = 0; i < a.length; i++) {
+    const d = a[i] - b[i];
+    // R8: NaN/Infinity propagation pollutes the entire pipeline. A
+    // sticky with `x: NaN` (from a bad import) made every distance NaN,
+    // `total` NaN, `r` NaN, and the weighted-pick chose `chosen=0`
+    // permanently → centroids collapsed to a single point. Coerce
+    // non-finite components to Infinity so the offending point at
+    // least loses the weighted-pick fairly.
+    const sq = d * d;
+    if (!Number.isFinite(sq)) return Infinity;
+    s += sq;
+  }
   return s;
 }
 
@@ -39,7 +50,7 @@ function kMeansPlusPlusInit(points: number[][], k: number, rand: () => number): 
       return min;
     });
     const total = distances.reduce((a, b) => a + b, 0);
-    if (total === 0) break; // duplicates
+    if (total === 0) break; // all remaining points are duplicates of existing centroids
     let r = rand() * total;
     let chosen = 0;
     for (let i = 0; i < distances.length; i++) {
@@ -48,6 +59,13 @@ function kMeansPlusPlusInit(points: number[][], k: number, rand: () => number): 
     }
     centroids.push(points[chosen].slice());
   }
+  // PAD: if duplicates broke initialization early, callers downstream still
+  // expect `centroids.length === k`. Pad with copies of the first centroid
+  // — these slots will receive zero points during assignment (since every
+  // candidate is already closer to the original), but the slot-count
+  // invariant is preserved so kMeans's `sums[realK]` / `counts[realK]`
+  // allocations don't index-out-of-bounds.
+  while (centroids.length < k) centroids.push(centroids[0].slice());
   return centroids;
 }
 
@@ -93,9 +111,28 @@ export function kMeans(points: number[][], k: number, maxIter = 50, seed = 42): 
       counts[lbl]++;
       for (let d = 0; d < dim; d++) sums[lbl][d] += sampled[i][d];
     }
-    centroids = sums.map((s, idx) =>
-      counts[idx] === 0 ? centroids[idx] : s.map((v) => v / counts[idx])
-    );
+    // R8: empty-cluster handling previously kept the OLD centroid in
+    // place — that cluster could stay empty across all subsequent
+    // iterations, so the algorithm reported k clusters where one had
+    // zero members (no labels ever pointed at it). Re-seed empty
+    // clusters at the point FARTHEST from any current centroid
+    // (Forgy heuristic) so the cluster has a chance to attract members.
+    centroids = sums.map((s, idx) => {
+      if (counts[idx] !== 0) return s.map((v) => v / counts[idx]);
+      // Find the point farthest from any existing centroid.
+      let farIdx = 0;
+      let farDist = -1;
+      for (let i = 0; i < sampled.length; i++) {
+        let minD = Infinity;
+        for (const c of centroids) {
+          const d = squaredDistance(sampled[i], c);
+          if (d < minD) minD = d;
+        }
+        if (minD > farDist) { farDist = minD; farIdx = i; }
+      }
+      changed = true;
+      return sampled[farIdx].slice();
+    });
 
     if (!changed) break;
   }

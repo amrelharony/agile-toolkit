@@ -171,13 +171,19 @@ export function DesignSprintClient() {
   }, [state.sprint?.facilitator]);
 
   const startSprint = () => {
-    const name = newSprintName.trim();
+    const name = newSprintName.trim().slice(0, 200);
     if (!name) return;
-    const description = newSprintDesc.trim() || undefined;
+    const description = newSprintDesc.trim().slice(0, 4000) || undefined;
+    // Validate the start date — type="date" accepts an empty string when the
+    // user clears the field, and a hand-crafted shared link could push an
+    // out-of-format string straight into the persisted store.
+    const startDate = /^\d{4}-\d{2}-\d{2}$/.test(newSprintDate)
+      ? newSprintDate
+      : todayISO();
     const sprint: Sprint = {
       id: newId(),
       name,
-      startDate: newSprintDate || todayISO(),
+      startDate,
       currentDay: 1,
       days: buildDays(),
       description,
@@ -226,32 +232,41 @@ export function DesignSprintClient() {
     const day = state.sprint.days.find((x) => x.day === dayNum);
     const task = day?.tasks.find((t) => t.id === taskId);
     if (!day || !task) return;
-    const nextDone = !task.done;
-    setState((s) =>
-      s.sprint
-        ? {
-            sprint: {
-              ...s.sprint,
-              days: s.sprint.days.map((d) =>
-                d.day !== dayNum
-                  ? d
-                  : {
-                      ...d,
-                      tasks: d.tasks.map((t) =>
-                        t.id !== taskId ? t : { ...t, done: nextDone }
-                      ),
-                    }
-              ),
-            },
-          }
-        : s
-    );
+    // R11-fix: compute nextDone INSIDE the updater so rapid clicks each
+    // toggle relative to the current state, not the closure-captured
+    // snapshot at the start of the click. Previously: 3 fast clicks on
+    // a done task all read `task.done=true`, each computed `!true=false`,
+    // and all wrote `false` — net effect 1 toggle, not 3. Now: each
+    // click flips against the value at write-time. Also captures the
+    // final `nextDone` for the log call so the history event matches
+    // the actual stored value.
+    let finalDone = !task.done;
+    setState((s) => {
+      if (!s.sprint) return s;
+      return {
+        sprint: {
+          ...s.sprint,
+          days: s.sprint.days.map((d) =>
+            d.day !== dayNum
+              ? d
+              : {
+                  ...d,
+                  tasks: d.tasks.map((t) => {
+                    if (t.id !== taskId) return t;
+                    finalDone = !t.done;
+                    return { ...t, done: finalDone };
+                  }),
+                },
+          ),
+        },
+      };
+    });
     log(DESIGN_SPRINT_ACTIONS.TASK_TOGGLED, {
       sprintId: state.sprint.id,
       day: dayNum,
       taskId,
       text: task.text,
-      done: nextDone,
+      done: finalDone,
     });
   };
 
@@ -290,7 +305,9 @@ export function DesignSprintClient() {
   };
 
   const addTask = (dayNum: DayNumber) => {
-    const text = newTaskText[dayNum].trim();
+    // Cap user-entered task text to keep persisted state bounded; a single
+    // paste-bomb otherwise breaks the line-clamp UI and bloats the export.
+    const text = newTaskText[dayNum].trim().slice(0, 500);
     if (!text || !state.sprint) return;
     const id = newId();
     setState((s) =>
@@ -328,7 +345,10 @@ export function DesignSprintClient() {
   };
 
   const addArtifact = (dayNum: DayNumber) => {
-    const a = newArtifact[dayNum].trim();
+    // Cap artifact URLs / notes — design-sprint artifacts are usually short
+    // links, and the export collapses newlines so very long entries make the
+    // CSV unreadable.
+    const a = newArtifact[dayNum].trim().slice(0, 1000);
     if (!a || !state.sprint) return;
     setState((s) =>
       s.sprint

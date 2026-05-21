@@ -18,10 +18,10 @@ export function PageHeader({
   gradient = false,
 }: PageHeaderProps) {
   return (
-    <div className="flex items-start justify-between gap-4 mb-8">
+    <header className="flex items-start justify-between gap-4 mb-8">
       <div>
         {label && (
-          <div className="label-mono mb-2">
+          <div className="label-mono mb-2" aria-hidden="true">
             {label}
             <div className="mt-1.5 w-8 h-0.5 rounded-full bg-gradient-to-r from-accent to-accent-2" />
           </div>
@@ -38,7 +38,11 @@ export function PageHeader({
           <p className="text-body text-sub mt-1 max-w-lg">{subtitle}</p>
         )}
       </div>
-      {actions && <div className="flex items-center gap-2 mt-1">{actions}</div>}
-    </div>
+      {actions && (
+        <div className="flex items-center gap-2 mt-1" role="toolbar">
+          {actions}
+        </div>
+      )}
+    </header>
   );
 }

@@ -79,14 +79,27 @@ export function DevexSurveyClient() {
   const { log } = useHistoryLogger("devex-survey");
 
   const addResponse = () => {
+    // Clamp slider values into 1..5 before persisting. The Slider component
+    // normally enforces this, but a corrupted shared-link / persisted draft
+    // could land an out-of-range value in the draft state — that would then
+    // contaminate averages and break the distribution chart's bucket logic.
+    const clampScore = (v: number): number =>
+      Number.isFinite(v) ? Math.max(1, Math.min(5, Math.round(v))) : 3;
+    // Fall back to today if the date field was wiped (the type="date" input
+    // accepts an empty string when the user clears it).  Without this the
+    // entry sorts to the very top of the list and the date column shows
+    // blank, which is misleading.
+    const safeDate = /^\d{4}-\d{2}-\d{2}$/.test(draft.date)
+      ? draft.date
+      : todayLocalISO();
     const response: DevexResponse = {
       id: crypto.randomUUID(),
-      respondent: draft.respondent.trim(),
-      date: draft.date,
-      flowState: draft.flowState,
-      feedbackLoops: draft.feedbackLoops,
-      cognitiveLoad: draft.cognitiveLoad,
-      comments: draft.comments.trim() || undefined,
+      respondent: draft.respondent.trim().slice(0, 120),
+      date: safeDate,
+      flowState: clampScore(draft.flowState),
+      feedbackLoops: clampScore(draft.feedbackLoops),
+      cognitiveLoad: clampScore(draft.cognitiveLoad),
+      comments: draft.comments.trim().slice(0, 4000) || undefined,
     };
     setState((s) => ({ responses: [...s.responses, response] }));
     log(DEVEX_ACTIONS.RESPONSE_LOGGED, {

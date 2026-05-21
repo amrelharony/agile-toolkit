@@ -3,6 +3,7 @@
 import { useMemo, useRef, useCallback } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   ResponsiveContainer,
   BarChart,
@@ -97,7 +98,7 @@ const useReleasePlannerStore = create<ReleasePlannerStore>()(
 
       reset: () => set({ config: makeDefaultConfig() }),
     }),
-    { name: "agile-toolkit:release-planner" }
+    { name: "agile-toolkit:release-planner", storage: safeJSONStorage("release-planner") }
   )
 );
 
@@ -490,9 +491,12 @@ export function ReleasePlannerClient() {
                   type="number"
                   min={1}
                   value={config.backlogSize}
-                  onChange={(e) =>
-                    updateConfig({ backlogSize: Math.max(1, Number(e.target.value)) })
-                  }
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    if (Number.isFinite(n)) {
+                      updateConfig({ backlogSize: Math.max(1, n) });
+                    }
+                  }}
                   className={inputCls}
                 />
               </div>
@@ -503,11 +507,12 @@ export function ReleasePlannerClient() {
                   min={0}
                   max={100}
                   value={config.scopeBuffer}
-                  onChange={(e) =>
-                    updateConfig({
-                      scopeBuffer: Math.min(100, Math.max(0, Number(e.target.value))),
-                    })
-                  }
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    if (Number.isFinite(n)) {
+                      updateConfig({ scopeBuffer: Math.min(100, Math.max(0, n)) });
+                    }
+                  }}
                   className={inputCls}
                 />
               </div>
@@ -520,11 +525,12 @@ export function ReleasePlannerClient() {
                   min={1}
                   max={90}
                   value={config.sprintLengthDays}
-                  onChange={(e) =>
-                    updateConfig({
-                      sprintLengthDays: Math.min(90, Math.max(1, Number(e.target.value))),
-                    })
-                  }
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    if (Number.isFinite(n)) {
+                      updateConfig({ sprintLengthDays: Math.min(90, Math.max(1, n)) });
+                    }
+                  }}
                   className={inputCls}
                 />
               </div>

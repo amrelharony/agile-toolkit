@@ -99,9 +99,19 @@ export function HolidayEngine() {
   // a holiday theme that the user already dismissed.
   useEffect(() => {
     let cancelled = false;
-    void Promise.resolve(useHolidayStore.persist.rehydrate()).then(() => {
-      if (!cancelled) setHydrated(true);
-    });
+    // R10: catch the rehydrate failure path. Corrupt persisted state
+    // previously left `hydrated` false forever — the holiday detection
+    // effect bailed and no theme ever loaded. Better to boot with
+    // defaults than block forever.
+    void Promise.resolve(useHolidayStore.persist.rehydrate())
+      .then(() => { if (!cancelled) setHydrated(true); })
+      .catch((err) => {
+        if (process.env.NODE_ENV !== "production") {
+          // eslint-disable-next-line no-console
+          console.warn("[holiday] rehydrate failed:", err);
+        }
+        if (!cancelled) setHydrated(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -154,6 +164,12 @@ export function HolidayEngine() {
 
     return () => {
       cancelled = true;
+      // R9: full unmount (SPA navigation away from where HolidayEngine
+      // mounts) previously left the `<style id="holiday-theme-tokens">`
+      // element on `:root`, persistently overriding the global theme.
+      // Strip it on every cleanup — if the next effect run picks a
+      // theme, it re-injects via `injectThemeStyle`, so this is safe.
+      removeThemeStyle();
     };
   }, [hydrated, enabled, dismissedWindows, previewThemeId, previewParam]);
 
@@ -183,8 +199,15 @@ export function HolidayEngine() {
   // but the object identity is the stable signal from the provider.
   const windMultiplier = useMemo(() => {
     if (!weather) return 1;
+    // Defensive: a stub weather provider or a partial API response could send
+    // NaN/undefined and silently zero out particle drift. Fall back to 1 in
+    // those cases so the holiday theme still animates.
+    const ws =
+      typeof weather.windSpeed === "number" && Number.isFinite(weather.windSpeed)
+        ? weather.windSpeed
+        : 3;
     // 3 m/s ≈ normal, 6 m/s → 2x, cap at 3x so gusts don't launch particles off-screen
-    return Math.min(3, Math.max(0.5, weather.windSpeed / 3));
+    return Math.min(3, Math.max(0.5, ws / 3));
   }, [weather]);
 
   const particleOptions = useMemo<ISourceOptions | null>(() => {

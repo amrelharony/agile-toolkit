@@ -226,12 +226,30 @@ export function RfcTrackerClient() {
         typeof window !== "undefined"
           ? window.localStorage.getItem(STORAGE_KEY)
           : null;
-      if (raw) existing = JSON.parse(raw) as Decision[];
+      // R9: validate Array shape before treating as Decision[]. A
+      // tampered/older persisted blob containing an object made
+      // `existing.find(...)` crash with "find is not a function".
+      if (raw) {
+        const parsed: unknown = JSON.parse(raw);
+        existing = Array.isArray(parsed) ? (parsed as Decision[]) : [];
+      }
     } catch {
       existing = [];
     }
+    // R11-fix: per-item shape validation. The previous code assumed
+    // every element in `existing` had a string `title`, but a tampered
+    // / older-schema localStorage entry could contain `[{ random:
+    // "junk" }]` — `d.title.toLowerCase()` then crashes with
+    // "Cannot read properties of undefined (reading 'toLowerCase')",
+    // killing the RFC publish flow. Filter to items that match the
+    // shape before scanning.
     if (
-      existing.find((d) => d.title.toLowerCase() === rfc.title.toLowerCase())
+      existing.some(
+        (d) =>
+          d &&
+          typeof (d as { title?: unknown }).title === "string" &&
+          (d as { title: string }).title.toLowerCase() === rfc.title.toLowerCase(),
+      )
     ) {
       toast.error("A decision with this title already exists in the log.");
       return;
@@ -250,10 +268,12 @@ export function RfcTrackerClient() {
       const updated = [decision, ...existing];
       const serialized = JSON.stringify(updated);
       window.localStorage.setItem(STORAGE_KEY, serialized);
-      // Decision Log lives in another tab/route under usePersisted, which
-      // only listens to native `storage` events (cross-tab). Same-tab writes
-      // don't fire one — dispatch a synthetic event so an open Decision Log
-      // page picks up the new entry without a manual refresh.
+      // usePersisted reads localStorage once on mount only — it does not
+      // currently subscribe to native `storage` events, so a same-tab open
+      // Decision Log won't repaint until the next mount. We still dispatch a
+      // synthetic event so any future cross-tool listener picks up the
+      // change without coupling here; cross-tab natural events also keep
+      // working unchanged.
       window.dispatchEvent(
         new StorageEvent("storage", {
           key: STORAGE_KEY,

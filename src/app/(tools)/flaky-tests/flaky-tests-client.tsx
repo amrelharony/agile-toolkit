@@ -102,15 +102,19 @@ export function FlakyTestsClient() {
     if (!name.trim()) return;
     const pct = Number(failureRateDraft);
     if (!Number.isFinite(pct) || pct < 0 || pct > 100) return;
+    // Bound free-text fields. Test names can be long stack-pathway selectors
+    // ("ProductCatalog > pricing > VAT rules > round to 2dp"), but a paste-
+    // bomb would otherwise inflate the persisted store and break the
+    // top-10 chart's truncate-at-30-chars layout assumption.
     const t: FlakyTest = {
       id: crypto.randomUUID(),
-      name: name.trim(),
-      suite: suite.trim() || undefined,
-      owner: owner.trim() || undefined,
+      name: name.trim().slice(0, 240),
+      suite: suite.trim().slice(0, 200) || undefined,
+      owner: owner.trim().slice(0, 120) || undefined,
       failureRate: pct / 100,
       status: "active",
       firstSeenAt: todayLocalISO(),
-      description: description.trim() || undefined,
+      description: description.trim().slice(0, 4000) || undefined,
     };
     setState((s) => ({ tests: [t, ...s.tests] }));
     log(FLAKY_TEST_ACTIONS.TEST_ADDED, {

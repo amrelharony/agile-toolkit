@@ -152,14 +152,17 @@ export function VulnBurndownClient() {
   // clobber an intentional value. The previous heuristic (compare to set of
   // default values) collided whenever a user picked a value that happened to
   // match another severity's default (e.g. typed 30 under "low").
-  const slaUserModifiedRef = useRef(false);
+  //
+  // R11-fix: track which severities have a user-set override instead of
+  // a single bool. The previous code reset the bool to false after one
+  // severity change — so picking custom for one severity, switching to
+  // another, then BACK to the first re-clobbered the custom value.
+  // Now: a per-severity Set survives across switches; the override
+  // sticks until the user explicitly switches back to the default.
+  const slaOverriddenRef = useRef<Set<typeof severity>>(new Set());
 
   useEffect(() => {
-    const wasModified = slaUserModifiedRef.current;
-    // Reset the ref so the next severity change can auto-snap again unless
-    // the user re-edits in between.
-    slaUserModifiedRef.current = false;
-    if (wasModified) return;
+    if (slaOverriddenRef.current.has(severity)) return;
     setSlaDraft(String(SEVERITY_DEFAULT_SLA[severity]));
   }, [severity]);
 
@@ -471,7 +474,7 @@ export function VulnBurndownClient() {
               <SmartInput<number>
                 predicted={slaCriticalPrediction}
                 onAccept={(v) => {
-                  slaUserModifiedRef.current = true;
+                  slaOverriddenRef.current.add(severity);
                   setSlaDraft(String(v));
                 }}
                 render={({ ghost, chip, accept }) => (
@@ -488,13 +491,13 @@ export function VulnBurndownClient() {
                         }
                       }}
                       onChange={(e) => {
-                        slaUserModifiedRef.current = true;
+                        slaOverriddenRef.current.add(severity);
                         setSlaDraft(e.target.value);
                       }}
                       onBlur={() => {
                         const n = Number(slaDraft);
                         if (!Number.isFinite(n) || n < 1) {
-                          slaUserModifiedRef.current = false;
+                          slaOverriddenRef.current.delete(severity);
                           setSlaDraft(String(SEVERITY_DEFAULT_SLA[severity]));
                         } else {
                           setSlaDraft(String(Math.round(n)));
@@ -512,14 +515,14 @@ export function VulnBurndownClient() {
                 inputMode="numeric"
                 value={slaDraft}
                 onChange={(e) => {
-                  slaUserModifiedRef.current = true;
+                  slaOverriddenRef.current.add(severity);
                   setSlaDraft(e.target.value);
                 }}
                 onBlur={() => {
                   const n = Number(slaDraft);
                   if (!Number.isFinite(n) || n < 1) {
                     // Reset to severity default and treat as unmodified again.
-                    slaUserModifiedRef.current = false;
+                    slaOverriddenRef.current.delete(severity);
                     setSlaDraft(String(SEVERITY_DEFAULT_SLA[severity]));
                   } else {
                     setSlaDraft(String(Math.round(n)));

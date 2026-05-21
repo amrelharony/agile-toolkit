@@ -160,8 +160,14 @@ export function WardleyMapClient() {
   const addComponent = () => {
     const name = draft.name.trim();
     if (!name) return;
-    const evolution = clamp01(Number(draft.evolution) || 0.5);
-    const visibility = clamp01(Number(draft.visibility) || 0.5);
+    // `Number(x) || 0.5` collapses an explicit 0 (Genesis / pure infrastructure)
+    // to 0.5 because 0 is falsy. The onBlur handlers on the form inputs use
+    // Number.isFinite for that reason; apply the same fix here so the Enter
+    // key submit path doesn't silently move the component to mid-axis.
+    const evoRaw = Number(draft.evolution);
+    const visRaw = Number(draft.visibility);
+    const evolution = clamp01(Number.isFinite(evoRaw) ? evoRaw : 0.5);
+    const visibility = clamp01(Number.isFinite(visRaw) ? visRaw : 0.5);
     const description = draft.description.trim() || undefined;
     const c: Component = {
       id: newId(),

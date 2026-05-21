@@ -31,6 +31,11 @@ export const PATTERNS: Record<HapticPatternName, HapticPatternSpec> = {
   navigate:          { vibrate: [6, 10, 6],              ios: { cssScale: 0.993, durationMs: 70 },  category: "ui" },
   "toggle-on":       { vibrate: [10],                    ios: { cssScale: 0.99, durationMs: 90 },   category: "ui" },
   "toggle-off":      { vibrate: [8],                     ios: { cssScale: 0.99, durationMs: 80 },   category: "ui" },
+  // Typing taps — short pulses sized to feel like a soft mobile-keyboard click.
+  // Backspace is firmer to differentiate the "delete" gesture from a normal key.
+  keystroke:             { vibrate: [4],                  ios: { cssScale: 0.995, durationMs: 40 },  category: "ui" },
+  "keystroke-space":     { vibrate: [6],                  ios: { cssScale: 0.995, durationMs: 50 },  category: "ui" },
+  "keystroke-backspace": { vibrate: [10],                 ios: { cssScale: 0.99,  durationMs: 70 },  category: "ui" },
 };
 
 export function getPattern(name: string): HapticPatternSpec | null {

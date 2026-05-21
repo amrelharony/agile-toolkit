@@ -29,6 +29,12 @@ export const HAPTIC_PALETTE: Record<string, Record<string, HapticPatternName>> =
     "drag-start": "drag-pickup",
     "drag-drop": "drag-drop",
     "drag-end": "tick",
+    // Typing — mirrored from the sonification palette so each keystroke gets
+    // both audio and haptic feedback. The gate bypasses the typing-suppression
+    // window for these patterns specifically (see gate.ts).
+    keystroke: "keystroke",
+    "keystroke-space": "keystroke-space",
+    "keystroke-backspace": "keystroke-backspace",
   },
   // Realtime surface
   rt: {

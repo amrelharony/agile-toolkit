@@ -44,18 +44,22 @@ export function bootstrapCI(
   confidence = 0.95,
   seed = 12345
 ): BootstrapCI {
-  // Floor at 200. Below this the percentile bounds are visibly jagged
-  // (each iteration moves the lower/upper quantile by ~0.5% of the
-  // distribution) and the CI flickers between renders for the same data.
-  // bootstrapMean and bootstrapQuantile route through this function so
-  // they inherit the floor automatically.
-  iterations = Math.max(iterations, 200);
+  // R8: floor at 1000. The previous 200-rep floor produced 2.5%/97.5%
+  // quantiles at indices stats[5]/stats[195] — each end was a single
+  // bootstrap sample so the CI bounds flickered by ~5% of the data
+  // range across renders. Efron & Tibshirani's rule of thumb is ≥1000
+  // for percentile CIs.
+  iterations = Math.max(iterations, 1000);
   if (series.length === 0) {
     return { point: 0, lower: 0, upper: 0, confidence, iterations: 0 };
   }
   const point = statistic(series);
   if (series.length < 3) {
-    return { point, lower: point, upper: point, confidence, iterations: 0 };
+    // R8: previously returned a zero-width CI (lower=upper=point) which
+    // LIED about uncertainty — n=2 actually has enormous CIs. Return
+    // ±Infinity so consumers render "—" / "no CI" rather than a
+    // fake-precise band.
+    return { point, lower: -Infinity, upper: Infinity, confidence, iterations: 0 };
   }
   const rand = mulberry32(seed);
   const stats: number[] = new Array(iterations);
@@ -69,6 +73,37 @@ export function bootstrapCI(
   }
   const sorted = stats.slice().sort((a, b) => a - b);
   const alphaTail = (1 - confidence) / 2;
+  // R10-deferred: BCa (bias-corrected accelerated) bootstrap.
+  // Efron & Tibshirani 1993 — for skewed statistics (median, quantile)
+  // pure percentile CIs are biased on small-n. BCa corrects via:
+  //   1. z0  — bias correction: Φ⁻¹(#(stats < point) / iterations)
+  //   2. a   — acceleration via the jackknife (single-leave-out)
+  //   3. adjusted quantiles α₁, α₂ derived from z0 + a + α/2
+  //
+  // Falls through to plain percentile when n is too small for a
+  // meaningful jackknife (n < 5) or when the formula degenerates
+  // (a is non-finite, e.g. variance of jackknife values is 0).
+  const bcaInputs = computeBcaInputs(series, statistic, sorted, point);
+  if (bcaInputs && Number.isFinite(bcaInputs.a)) {
+    const { z0, a } = bcaInputs;
+    const adjusted = (alpha: number): number => {
+      const zAlpha = inverseStdNormal(alpha);
+      // (z0 + (z0 + zAlpha) / (1 - a*(z0 + zAlpha)))
+      const denom = 1 - a * (z0 + zAlpha);
+      if (denom === 0 || !Number.isFinite(denom)) return alpha;
+      const z = z0 + (z0 + zAlpha) / denom;
+      return stdNormalCdf(z);
+    };
+    const a1 = adjusted(alphaTail);
+    const a2 = adjusted(1 - alphaTail);
+    return {
+      point,
+      lower: quantile(sorted, a1),
+      upper: quantile(sorted, a2),
+      confidence,
+      iterations,
+    };
+  }
   return {
     point,
     lower: quantile(sorted, alphaTail),
@@ -76,6 +111,91 @@ export function bootstrapCI(
     confidence,
     iterations,
   };
+}
+
+/**
+ * Compute z0 (bias correction) and a (acceleration) for BCa.
+ * Returns null when the inputs are unsuitable (n<5, all-equal jackknife,
+ * degenerate stats array).
+ */
+function computeBcaInputs(
+  series: number[],
+  statistic: (sample: number[]) => number,
+  sortedStats: readonly number[],
+  point: number,
+): { z0: number; a: number } | null {
+  const n = series.length;
+  if (n < 5) return null;
+  // z0: proportion of bootstrap replicates strictly below the point estimate.
+  let below = 0;
+  for (const s of sortedStats) if (s < point) below++;
+  const p = below / sortedStats.length;
+  // Clamp away from 0 and 1 — Φ⁻¹(0) = -∞, Φ⁻¹(1) = +∞ both blow up.
+  const pClamped = Math.max(0.0005, Math.min(0.9995, p));
+  const z0 = inverseStdNormal(pClamped);
+
+  // Jackknife — recompute the statistic with one observation removed
+  // each pass; the acceleration is a function of the skewness of these
+  // values.
+  const jack: number[] = new Array(n);
+  // Reuse a single buffer to avoid per-iteration array allocations.
+  const buf: number[] = new Array(n - 1);
+  for (let i = 0; i < n; i++) {
+    let k = 0;
+    for (let j = 0; j < n; j++) {
+      if (j !== i) buf[k++] = series[j];
+    }
+    jack[i] = statistic(buf);
+  }
+  const jMean = jack.reduce((s, x) => s + x, 0) / n;
+  let num = 0;
+  let den = 0;
+  for (const j of jack) {
+    const d = jMean - j;
+    num += d * d * d;
+    den += d * d;
+  }
+  if (den === 0) return null;
+  const a = num / (6 * Math.pow(den, 1.5));
+  return { z0, a };
+}
+
+/** Φ⁻¹ — inverse standard normal CDF via Beasley-Springer-Moro
+ *  approximation. Adequate for [0.0005, 0.9995], which the caller
+ *  clamps the input into. */
+function inverseStdNormal(p: number): number {
+  // Coefficients for the Acklam / Beasley-Springer rational approximation.
+  const a = [-3.969683028665376e1, 2.209460984245205e2, -2.759285104469687e2, 1.383577518672690e2, -3.066479806614716e1, 2.506628277459239];
+  const b = [-5.447609879822406e1, 1.615858368580409e2, -1.556989798598866e2, 6.680131188771972e1, -1.328068155288572e1];
+  const c = [-7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+  const d = [7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996, 3.754408661907416];
+  const pLow = 0.02425;
+  const pHigh = 1 - pLow;
+  let q: number;
+  let r: number;
+  if (p < pLow) {
+    q = Math.sqrt(-2 * Math.log(p));
+    return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) /
+      ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+  }
+  if (p <= pHigh) {
+    q = p - 0.5;
+    r = q * q;
+    return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q /
+      (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+  }
+  q = Math.sqrt(-2 * Math.log(1 - p));
+  return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) /
+    ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+}
+
+/** Φ — standard normal CDF via Abramowitz-Stegun rational approximation. */
+function stdNormalCdf(z: number): number {
+  // 7.1.26 in A&S: |error| < 7.5e-8
+  const t = 1 / (1 + 0.2316419 * Math.abs(z));
+  const d = 0.3989422804014327 * Math.exp(-z * z / 2);
+  const p = d * t * ((((1.330274429 * t - 1.821255978) * t + 1.781477937) * t - 0.356563782) * t + 0.319381530);
+  return z >= 0 ? 1 - p : p;
 }
 
 /** Convenience wrappers for the common cases. */
