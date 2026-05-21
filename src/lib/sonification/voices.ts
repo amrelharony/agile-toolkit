@@ -72,6 +72,36 @@ export const voices: Record<VoiceId, Voice> = {
     peak: 0.16,
     toneHz: 2200,
   },
+  // "breath" — the deliberately-near-imperceptible voice for navigation
+  // chrome that should sound like background ambience, not a confirmation.
+  //
+  // Design tenets, in order of importance:
+  //  1. **Sine wave** — zero harmonics, no buzziness or grit. Every other
+  //     voice has either harmonic content (triangle/sawtooth) or noise
+  //     character (square) that contributes to a "harsh" perceptual
+  //     quality. Sine is the only purely smooth waveform.
+  //  2. **Ramped attack (25ms)** — no transient click. Most UI voices
+  //     have a 1–5ms attack so they read as "snappy". For nav chrome we
+  //     want zero perceptual onset; 25ms is the threshold around which
+  //     the ear stops hearing a discrete attack edge and just hears
+  //     "the note is there".
+  //  3. **Quiet peak (0.10)** — half the amplitude of `blip` or `click`
+  //     at full velocity. Combined with low palette velocity, the
+  //     effective amplitude is ~0.05, which sits well below the main
+  //     content sounds of any tool.
+  //  4. **No voice-local lowpass** (no toneHz). The sine wave produces
+  //     no harmonics to filter, so a lowpass would only add envelope
+  //     coloration without benefit. The palette can still apply a
+  //     filter preset per-event if needed.
+  breath: {
+    id: "breath",
+    wave: "sine",
+    attack: 0.025,
+    decay: 0.05,
+    sustain: 0.0,
+    release: 0.12,
+    peak: 0.10,
+  },
 };
 
 export const filterPresets: Record<FilterPreset, number> = {

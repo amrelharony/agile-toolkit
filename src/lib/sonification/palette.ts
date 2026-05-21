@@ -304,17 +304,16 @@ const ui: ToolPalette = {
   // little pitch jitter so a rapid open-close-open run doesn't sound
   // metronomic. Open rises, close falls — gives an unconscious cue of
   // "more visible" vs "less visible".
-  // Sidebar category toggle — third revision. Previous blip (sine, muffled)
-  // was still too "ping"-y because sine is glassy and the muffled filter
-  // pushed the spectrum so dark that what remained sounded like a soft
-  // bonk. Switching to pluck (triangle wave + short tonal decay) plus a
-  // warm filter and a tighter release gives a "woody tick" character —
-  // a different *family* of sound from the rest of the toolkit's UI
-  // events, which is what made the previous revisions still feel adjacent
-  // to other chrome sounds. Velocity dropped further so it's clearly
-  // background ambience, not a foreground confirmation.
-  "category-open": { voice: "pluck", step: 4, octave: 7, velocity: 0.10, filter: "warm", duration: 0.12 },
-  "category-close": { voice: "pluck", step: 2, octave: 6, velocity: 0.08, filter: "warm", duration: 0.10 },
+  // Sidebar category toggle — fourth revision. Previous pluck was still
+  // harsh: triangle wave's harmonics + the inevitable 5ms attack
+  // transient combined to a perceptible "tick" edge, plus octave 7 sat
+  // in the brilliance range where small amounts of energy read as
+  // piercing. Switching to the new "breath" voice (sine wave, 25ms
+  // ramped attack, peak 0.10) eliminates both: no harmonics, no
+  // transient. Octave dropped to 5/4 so the fundamentals sit in the
+  // mid range rather than the brilliance band.
+  "category-open": { voice: "breath", step: 4, octave: 5, velocity: 0.55 },
+  "category-close": { voice: "breath", step: 2, octave: 4, velocity: 0.45 },
   "tab-change": { voice: "blip", step: 3, octave: 5, velocity: 0.45 },
   // Dnd-kit drag lifecycle
   "drag-start": { voice: "blip", step: 2, octave: 5, velocity: 0.45 },
