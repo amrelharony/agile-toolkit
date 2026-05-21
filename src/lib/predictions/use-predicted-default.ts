@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "../stores/workspace-store";
 import { useHistoryStore } from "../history/history-store";
 import type { Workspace } from "../stores/workspace-types";
@@ -18,18 +19,26 @@ import { lookupPredictor, type PredictResult } from "./registry";
  */
 export function usePredictedDefault<T>(toolId: string, field: string, fallback: T): PredictResult<T> {
   // Project a Workspace-shaped snapshot from the spread store.
-  const workspace = useWorkspaceStore<Workspace>((s) => ({
-    teamMembers: s.teamMembers,
-    sprints: s.sprints,
-    stories: s.stories,
-    impediments: s.impediments,
-    risks: s.risks,
-    okrs: s.okrs,
-    decisions: s.decisions,
-    techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel,
-    teamName: s.teamName,
-  }));
+  //
+  // `useShallow` is REQUIRED: returning a fresh object literal from a
+  // Zustand selector on every call makes React's `useSyncExternalStore`
+  // see a snapshot mismatch on every commit, forcing an infinite re-render
+  // loop ("Maximum update depth exceeded"). With useShallow the returned
+  // reference is reused as long as the per-slice values are shallow-equal.
+  const workspace = useWorkspaceStore(
+    useShallow((s): Workspace => ({
+      teamMembers: s.teamMembers,
+      sprints: s.sprints,
+      stories: s.stories,
+      impediments: s.impediments,
+      risks: s.risks,
+      okrs: s.okrs,
+      decisions: s.decisions,
+      techDebt: s.techDebt,
+      maturityLevel: s.maturityLevel,
+      teamName: s.teamName,
+    }))
+  );
   const events = useHistoryStore((s) => s.events);
 
   return useMemo(() => {
