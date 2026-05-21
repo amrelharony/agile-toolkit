@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useShallow } from "zustand/react/shallow";
 import {
   ResponsiveContainer,
@@ -13,13 +14,14 @@ import {
   Legend,
   ReferenceLine,
 } from "recharts";
-import { Brain, Plus, Trash2, AlertTriangle, TrendingDown } from "lucide-react";
+import { Brain, Plus, Trash2, AlertTriangle, TrendingDown, Beaker, Sparkles } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { ExportButton } from "@/components/shared/export-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { LLMEval, Workspace } from "@/lib/stores/workspace-types";
 import { detectRegressions } from "@/lib/analytics/eval-regression";
@@ -27,6 +29,17 @@ import { generateLLMEvalPrompts } from "@/lib/ai-prompts/llm-eval-tracker";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { LLM_EVAL_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+import { useActiveLlm } from "@/lib/llm/use-active-llm";
+import { toast } from "@/lib/utils/toast";
+
+// Lazy-loaded — the BYOK adapter chunks should never land in the eager
+// bundle of users who only manually log scores.
+const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), {
+  ssr: false,
+  loading: () => (
+    <div className="text-xs text-sub p-2 border border-border rounded">Loading panel…</div>
+  ),
+});
 
 const COLORS = ["#00f0ff", "#ff00aa", "#00ff88", "#ffaa00", "#9d4edd", "#ff6b6b"];
 
@@ -41,6 +54,50 @@ export function LLMEvalTrackerClient() {
   const [dataset, setDataset] = useState("");
   const [score, setScore] = useState("");
   const [promptVersion, setPromptVersion] = useState("");
+
+  // --- Live Eval Run state ---
+  // BYOK active provider/model — single shot here (A/B comparison lives in
+  // /model-comparison's Live Compare section). Reads from the same hook the
+  // header chip uses so it auto-updates when settings change.
+  const llm = useActiveLlm();
+  const [liveDataset, setLiveDataset] = useState("");
+  const [livePromptVersion, setLivePromptVersion] = useState("");
+  const [livePrompt, setLivePrompt] = useState("");
+  const [liveScore, setLiveScore] = useState("");
+
+  function logLiveScore() {
+    const sc = parseFloat(liveScore);
+    if (!liveDataset.trim()) {
+      toast.error("Set a dataset name first");
+      return;
+    }
+    if (!Number.isFinite(sc)) {
+      toast.error("Score must be a number 0-1");
+      return;
+    }
+    if (!llm.model) {
+      toast.error("No active AI provider");
+      return;
+    }
+    const item: LLMEval = {
+      id: crypto.randomUUID(),
+      // Use the actual provider model id so future analytics can match
+      // against MODELS_BY_PROVIDER. The user typed nothing; we pull it from
+      // the BYOK store directly.
+      model: llm.model,
+      dataset: liveDataset.trim(),
+      score: Math.max(0, Math.min(1, sc)),
+      promptVersion: livePromptVersion.trim() || undefined,
+      recordedAt: new Date().toISOString(),
+    };
+    upsertLLMEval(item);
+    log(LLM_EVAL_ACTIONS.EVAL_LOGGED, { model: item.model, score: item.score });
+    emitSignal({ kind: "llmEval.recorded", at: item.recordedAt, toolId: "llm-eval-tracker", payload: item });
+    toast.success(`Logged ${(item.score * 100).toFixed(0)}% for ${item.model} on ${item.dataset}`);
+    // Clear only the score so the user can iterate (re-run, re-grade) on
+    // the same prompt without re-typing dataset + prompt + version.
+    setLiveScore("");
+  }
 
   function addEval() {
     const sc = parseFloat(score);
@@ -229,6 +286,89 @@ export function LLMEvalTrackerClient() {
             </ul>
           </SectionCard>
         )}
+
+        {/* Live Eval Run (BYOK) — close the loop: write a prompt, run it via
+            your active provider, grade the output, auto-log the score. Sits
+            above the manual entry card because once you've configured a
+            provider this is the faster path. */}
+        <SectionCard title="Live Eval Run (BYOK)" icon={Beaker}>
+          <p className="text-xs text-sub mb-3">
+            Run a prompt against your active BYOK provider, read the
+            streamed output, then grade it. The score is logged against the
+            provider&apos;s actual model id, so it lines up with the rest of
+            your eval history.
+          </p>
+          {!llm.isReady ? (
+            <div className="flex flex-col items-start gap-2 p-4 border border-dashed border-border rounded text-sub text-sm">
+              <span className="inline-flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-accent" />
+                No BYOK provider configured yet.
+              </span>
+              <Button size="sm" variant="outline" onClick={llm.openSettings} className="gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                Open AI settings
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                <Input
+                  placeholder="Dataset name (e.g. faithfulness-v2)"
+                  value={liveDataset}
+                  onChange={(e) => setLiveDataset(e.target.value)}
+                />
+                <Input
+                  placeholder="Prompt version (optional, e.g. greet@1.4.0)"
+                  value={livePromptVersion}
+                  onChange={(e) => setLivePromptVersion(e.target.value)}
+                />
+              </div>
+              <Textarea
+                value={livePrompt}
+                onChange={(e) => setLivePrompt(e.target.value)}
+                placeholder="The prompt to test…"
+                rows={4}
+                className="font-mono text-xs"
+              />
+              {/* AiRunPanel renders only when a prompt is typed, otherwise
+                  it would show a Run button that no-ops on empty input. */}
+              {livePrompt.trim().length > 0 && (
+                <div className="mt-3">
+                  <AiRunPanel
+                    prompt={livePrompt}
+                    toolName="LLM Eval Tracker (live)"
+                  />
+                </div>
+              )}
+              {/* Grade strip — always visible so the user grasps the full
+                  flow at a glance, even before they've run anything. */}
+              <div className="mt-3 flex items-end gap-2 flex-wrap">
+                <div className="flex flex-col gap-1 min-w-[8rem]">
+                  <label htmlFor="live-eval-score" className="text-[10px] uppercase tracking-wider text-sub font-mono">
+                    Score 0–1
+                  </label>
+                  <Input
+                    id="live-eval-score"
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    max="1"
+                    placeholder="0.85"
+                    value={liveScore}
+                    onChange={(e) => setLiveScore(e.target.value)}
+                  />
+                </div>
+                <Button onClick={logLiveScore} className="gap-1.5">
+                  <Plus className="w-4 h-4" />
+                  Log score for {llm.providerName ?? "active provider"}
+                </Button>
+                <span className="text-[11px] text-sub">
+                  Model: <span className="font-mono">{llm.model ?? "—"}</span>
+                </span>
+              </div>
+            </>
+          )}
+        </SectionCard>
 
         {/* Add new eval */}
         <SectionCard title="Log eval run" icon={Plus}>
