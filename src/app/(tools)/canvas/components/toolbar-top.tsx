@@ -120,143 +120,147 @@ export function ToolbarTop() {
 
   return (
     <div
-      className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-surface/95 border border-border rounded-lg px-3 py-1.5 shadow-lg backdrop-blur-sm z-10"
+      // Restructured into three visual groups separated by hairline
+      // dividers:
+      //   [board picker + rename/delete] | [+ New board] | [view toggles]
+      // Previously each item was separated by inline `w-px` dividers and
+      // the New-board action sat dangerously close to the trash button.
+      // Now the destructive Delete is contained inside the first group
+      // and "+ New" gets its own breathing room before the view toggles.
+      className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-surface/95 border border-border rounded-lg px-2 py-1 shadow-lg backdrop-blur-sm z-10"
       // PNG export filters out anything carrying this attribute.
       data-canvas-export-ignore="true"
     >
-      <select
-        aria-label="Active board"
-        value={board?.id ?? ""}
-        onChange={(e) => setActiveBoard(e.target.value)}
-        className="bg-transparent text-sm text-text font-mono outline-none cursor-pointer"
-      >
-        {boards.length === 0 && <option value="">No boards yet</option>}
-        {boards.map((b) => (
-          <option key={b.id} value={b.id}>{b.name}</option>
-        ))}
-      </select>
-      {board && (
-        <>
-          {editing ? (
-            <input
-              autoFocus
-              defaultValue={board.name}
-              onBlur={(e) => { rename(e.target.value); setEditing(false); }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") { rename((e.target as HTMLInputElement).value); setEditing(false); }
-                if (e.key === "Escape") setEditing(false);
-              }}
-              className="bg-surface-deep border border-border rounded px-2 py-0.5 text-sm text-text"
-            />
-          ) : (
+      {/* Group 1 — board picker, rename, delete */}
+      <div className="flex items-center gap-1.5 px-1">
+        <select
+          aria-label="Active board"
+          value={board?.id ?? ""}
+          onChange={(e) => setActiveBoard(e.target.value)}
+          className="bg-transparent text-sm text-text font-mono outline-none cursor-pointer max-w-[160px]"
+        >
+          {boards.length === 0 && <option value="">No boards yet</option>}
+          {boards.map((b) => (
+            <option key={b.id} value={b.id}>{b.name}</option>
+          ))}
+        </select>
+        {board && (
+          <>
+            {editing ? (
+              <input
+                autoFocus
+                defaultValue={board.name}
+                onBlur={(e) => { rename(e.target.value); setEditing(false); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { rename((e.target as HTMLInputElement).value); setEditing(false); }
+                  if (e.key === "Escape") setEditing(false);
+                }}
+                className="bg-surface-deep border border-border rounded px-2 py-0.5 text-sm text-text"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="text-[11px] text-sub hover:text-accent transition-colors uppercase tracking-wider"
+                title="Rename board"
+                aria-label={`Rename board ${board.name}`}
+              >
+                edit
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => setEditing(true)}
-              className="text-xs text-sub hover:text-accent transition-colors"
-              title="Rename board"
-              aria-label={`Rename board ${board.name}`}
+              onClick={deleteCurrent}
+              aria-label={confirmingDelete ? "Click again to confirm delete" : "Delete current board"}
+              className={cn(
+                "transition-colors w-7 h-7 rounded flex items-center justify-center",
+                confirmingDelete ? "text-red-400 hover:text-red-300 bg-red-500/10" : "text-sub hover:text-red-400 hover:bg-text/[0.04]",
+              )}
+              title={confirmingDelete ? "Click again to confirm" : `Delete "${board?.name ?? ""}"`}
             >
-              edit
+              <Trash2 className="w-3.5 h-3.5" />
             </button>
-          )}
-          <button
-            type="button"
-            onClick={deleteCurrent}
-            aria-label={confirmingDelete ? "Click again to confirm delete" : "Delete current board"}
-            // R9: keep an `aria-live` region beside the button so SR
-            // users hear the arming. Without this they hear the same
-            // label twice with no indication the first click had no
-            // effect.
-            className={cn(
-              "transition-colors",
-              confirmingDelete ? "text-red-400 hover:text-red-300" : "text-sub hover:text-red-400",
+            {confirmingDelete && (
+              <span role="status" className="sr-only">
+                Click delete again to confirm. Will auto-cancel in 3 seconds.
+              </span>
             )}
-            title={confirmingDelete ? "Click again to confirm" : `Delete "${board?.name ?? ""}"`}
-          >
-            {/* R9: drop animate-pulse — `prefers-reduced-motion` only
-                clamps duration to 0.01ms which still ticks every frame
-                forever; semantically the colour change + live region
-                signal the armed state already. */}
-            <Trash2 className="w-4 h-4" />
-          </button>
-          {confirmingDelete && (
-            <span role="status" className="sr-only">
-              Click delete again to confirm. Will auto-cancel in 3 seconds.
-            </span>
-          )}
-        </>
-      )}
-      <div className="w-px h-4 bg-border" />
+          </>
+        )}
+      </div>
+
+      {/* Group 2 — create */}
+      <div className="w-px h-5 bg-border" aria-hidden="true" />
       <button
         type="button"
         onClick={createBoard}
-        className="text-xs text-accent hover:text-accent/80 transition-colors inline-flex items-center gap-1"
+        className="text-xs text-accent hover:text-accent/80 transition-colors inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-accent/5"
       >
         <Plus className="w-3.5 h-3.5" />
-        New board
+        New
       </button>
-      <div className="w-px h-4 bg-border" />
-      {/* Toggle row — snap-to-grid, snap-to-objects, minimap, AI panel. */}
-      <button
-        type="button"
-        onClick={() => setSnapToGridEnabled(!snapToGridEnabled)}
-        aria-pressed={snapToGridEnabled}
-        title="Snap to grid (Cmd/Ctrl toggles during drag)"
-        className={cn(
-          "w-7 h-7 rounded flex items-center justify-center transition-colors",
-          snapToGridEnabled ? "bg-accent/20 text-accent" : "text-sub hover:text-text",
-        )}
-      >
-        <Grid3X3 className="w-3.5 h-3.5" />
-      </button>
-      <button
-        type="button"
-        onClick={() => setSnapToObjects(!snapToObjects)}
-        aria-pressed={snapToObjects}
-        title="Snap to objects (alignment guides)"
-        className={cn(
-          "w-7 h-7 rounded flex items-center justify-center transition-colors",
-          snapToObjects ? "bg-accent/20 text-accent" : "text-sub hover:text-text",
-        )}
-      >
-        <Magnet className="w-3.5 h-3.5" />
-      </button>
-      <button
-        type="button"
-        onClick={() => setShowMiniMap(!showMiniMap)}
-        aria-pressed={showMiniMap}
-        title="Toggle minimap"
-        className={cn(
-          "w-7 h-7 rounded flex items-center justify-center transition-colors",
-          showMiniMap ? "bg-accent/20 text-accent" : "text-sub hover:text-text",
-        )}
-      >
-        <Map className="w-3.5 h-3.5" />
-      </button>
-      <button
-        type="button"
-        onClick={() => setPresentationFrameIndex(0)}
-        aria-label="Enter presentation mode"
-        title="Present (frame-by-frame)"
-        className={cn(
-          "w-7 h-7 rounded flex items-center justify-center transition-colors",
-          "text-sub hover:text-text",
-        )}
-      >
-        <PlayCircle className="w-3.5 h-3.5" />
-      </button>
-      <button
-        type="button"
-        onClick={() => setShowAIPanel(!showAIPanel)}
-        aria-pressed={showAIPanel}
-        title="Toggle AI insights panel"
-        className={cn(
-          "w-7 h-7 rounded flex items-center justify-center transition-colors",
-          showAIPanel ? "bg-accent/20 text-accent" : "text-sub hover:text-text",
-        )}
-      >
-        <Sparkles className="w-3.5 h-3.5" />
-      </button>
+
+      {/* Group 3 — view toggles (snap, minimap, present, AI) */}
+      <div className="w-px h-5 bg-border" aria-hidden="true" />
+      <div className="flex items-center gap-0.5">
+        <button
+          type="button"
+          onClick={() => setSnapToGridEnabled(!snapToGridEnabled)}
+          aria-pressed={snapToGridEnabled}
+          title="Snap to grid (Cmd/Ctrl toggles during drag)"
+          className={cn(
+            "w-7 h-7 rounded flex items-center justify-center transition-colors",
+            snapToGridEnabled ? "bg-accent/20 text-accent" : "text-sub hover:text-text hover:bg-text/[0.04]",
+          )}
+        >
+          <Grid3X3 className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setSnapToObjects(!snapToObjects)}
+          aria-pressed={snapToObjects}
+          title="Snap to objects (alignment guides)"
+          className={cn(
+            "w-7 h-7 rounded flex items-center justify-center transition-colors",
+            snapToObjects ? "bg-accent/20 text-accent" : "text-sub hover:text-text hover:bg-text/[0.04]",
+          )}
+        >
+          <Magnet className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowMiniMap(!showMiniMap)}
+          aria-pressed={showMiniMap}
+          title="Toggle minimap"
+          className={cn(
+            "w-7 h-7 rounded flex items-center justify-center transition-colors",
+            showMiniMap ? "bg-accent/20 text-accent" : "text-sub hover:text-text hover:bg-text/[0.04]",
+          )}
+        >
+          <Map className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setPresentationFrameIndex(0)}
+          aria-label="Enter presentation mode"
+          title="Present (frame-by-frame)"
+          className="w-7 h-7 rounded flex items-center justify-center transition-colors text-sub hover:text-text hover:bg-text/[0.04]"
+        >
+          <PlayCircle className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowAIPanel(!showAIPanel)}
+          aria-pressed={showAIPanel}
+          title="Toggle AI insights panel"
+          className={cn(
+            "w-7 h-7 rounded flex items-center justify-center transition-colors",
+            showAIPanel ? "bg-accent/20 text-accent" : "text-sub hover:text-text hover:bg-text/[0.04]",
+          )}
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+        </button>
+      </div>
     </div>
   );
 }

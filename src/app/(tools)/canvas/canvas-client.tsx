@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { LayoutTemplate, FileInput, Download, FileImage, FileCode, FileJson, FileText, FileSpreadsheet, Share2, Activity, Presentation } from "lucide-react";
+import { LayoutTemplate, FileInput, Download, FileImage, FileCode, FileJson, FileText, FileSpreadsheet, Share2, Activity, Presentation, Sparkles, Maximize2 } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -526,26 +526,34 @@ export function CanvasClient() {
     <ToolPageWrapper
       toolId="canvas"
       title="Canvas"
-      description="Infinite collaborative whiteboard — stickies, shapes, free-hand, smart connectors, AI clusters, cross-tool import. PR 22A ships the static canvas with pan/zoom and object creation."
+      description="Infinite collaborative whiteboard with smart connectors, AI clusters, and cross-tool import."
     >
-      <div className="flex items-center justify-end gap-2 mb-3 flex-wrap">
+      {/* Action bar — grouped into three clusters with subtle dividers so
+          the eye can read it as
+            [content actions] | [share/observe] | [view utility]
+          instead of a single long row where Fit-to-content drifted to the
+          far right edge disconnected from everything else. Left-aligned
+          (was justify-end) so the leftmost cluster sits where the user's
+          eye lands first. */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        {/* Cluster 1 — content actions (create / fill the board) */}
         <AiPromptGenerator config={promptConfig} />
-        <Button variant="outline" size="sm" onClick={() => setShowTemplates(true)}>
-          <LayoutTemplate className="w-4 h-4 mr-1.5" />
+        <Button variant="outline" size="sm" onClick={() => setShowTemplates(true)} className="gap-1.5">
+          <LayoutTemplate className="w-4 h-4" />
           Templates
         </Button>
-        <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>
-          <FileInput className="w-4 h-4 mr-1.5" />
+        <Button variant="outline" size="sm" onClick={() => setShowImport(true)} className="gap-1.5">
+          <FileInput className="w-4 h-4" />
           Import
         </Button>
         <div className="relative inline-flex">
-          <Button variant="outline" size="sm" onClick={() => setShowExportMenu((v) => !v)}>
-            <Download className="w-4 h-4 mr-1.5" />
+          <Button variant="outline" size="sm" onClick={() => setShowExportMenu((v) => !v)} className="gap-1.5">
+            <Download className="w-4 h-4" />
             Export
           </Button>
           {showExportMenu && (
             <div
-              className="absolute right-0 top-full mt-1 bg-surface border border-border rounded-lg shadow-lg z-30 py-1 min-w-[160px]"
+              className="absolute left-0 top-full mt-1 bg-surface border border-border rounded-lg shadow-lg z-30 py-1 min-w-[160px]"
               onMouseLeave={() => setShowExportMenu(false)}
             >
               <button
@@ -608,22 +616,38 @@ export function CanvasClient() {
             </div>
           )}
         </div>
-        <Button variant="outline" size="sm" onClick={() => setShowShare(true)} disabled={!activeBoardId}>
-          <Share2 className="w-4 h-4 mr-1.5" />
+        {/* Cluster 2 — share + observe (less-frequent ops) */}
+        <div className="w-px h-5 bg-border mx-1" aria-hidden="true" />
+        <Button variant="outline" size="sm" onClick={() => setShowShare(true)} disabled={!activeBoardId} className="gap-1.5">
+          <Share2 className="w-4 h-4" />
           Share
         </Button>
-        <Button variant="outline" size="sm" onClick={() => setShowActivity((v) => !v)} disabled={!activeBoardId}>
-          <Activity className="w-4 h-4 mr-1.5" />
+        <Button variant="outline" size="sm" onClick={() => setShowActivity((v) => !v)} disabled={!activeBoardId} className="gap-1.5">
+          <Activity className="w-4 h-4" />
           Activity
         </Button>
-        <Button variant="outline" size="sm" onClick={onFit} disabled={objects.length === 0}>
+        {/* Cluster 3 — view utility, pushed right (auto-spaced from the
+            cluster above by `ml-auto` so it sits on the opposite edge of
+            the action bar — natural home for view-control actions). */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onFit}
+          disabled={objects.length === 0}
+          className="ml-auto gap-1.5"
+          title="Pan and zoom so every object fits the viewport"
+        >
+          <Maximize2 className="w-4 h-4" />
           Fit to content
         </Button>
       </div>
 
       <div
         ref={canvasViewportRef}
-        className="relative h-[calc(100vh-260px)] min-h-[500px] w-full rounded-lg border border-border overflow-hidden bg-bg"
+        // Taller viewport: 220px reserved instead of 260px. The header
+        // is now a single-line description (was 3-line) so we recover
+        // ~40px of vertical real estate for the actual board surface.
+        className="relative h-[calc(100vh-220px)] min-h-[520px] w-full rounded-lg border border-border overflow-hidden bg-bg"
       >
         {activeBoardId ? (
           <WhiteboardCanvas
@@ -675,6 +699,50 @@ export function CanvasClient() {
             onSelect={setSelection}
             onClose={() => setShowFindBar(false)}
           />
+        )}
+        {/* Empty-state — only on an editor's first encounter with an
+            empty board. The board grid + toolbars by themselves give no
+            indication of what to do next, which is a high-friction
+            opening moment for a creative tool. Routes the user to the
+            two highest-value entry points (Templates + Import); the
+            keyboard-shortcut hint sits inline next to a sticky icon so
+            the user can still see "I can also just press N". Hidden in
+            read-only and commenter modes since those viewers can't
+            create objects anyway. */}
+        {!readOnly && activeBoardId && objects.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[5]">
+            <div
+              className="pointer-events-auto text-center w-[min(360px,calc(100%-2rem))] px-5 py-5 rounded-xl bg-surface/90 border border-border backdrop-blur-md shadow-xl"
+              data-canvas-export-ignore="true"
+            >
+              <Sparkles className="w-7 h-7 text-accent mx-auto mb-2 opacity-70" aria-hidden="true" />
+              <h3 className="text-sm font-semibold text-text mb-1">Start your board</h3>
+              <p className="text-xs text-sub mb-3">
+                Pick a template or import — or press{" "}
+                <kbd className="font-mono text-[10px] bg-surface-deep border border-border rounded px-1 py-0.5">N</kbd>
+                {" "}for a sticky.
+              </p>
+              <div className="flex items-center justify-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => setShowTemplates(true)}
+                  className="gap-1.5 bg-accent text-bg hover:bg-accent/90 font-semibold"
+                >
+                  <LayoutTemplate className="w-3.5 h-3.5" />
+                  Templates
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowImport(true)}
+                  className="gap-1.5"
+                >
+                  <FileInput className="w-3.5 h-3.5" />
+                  Import
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
 
