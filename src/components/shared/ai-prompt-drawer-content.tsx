@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, Copy, Check } from "lucide-react";
+import dynamic from "next/dynamic";
+import { Sparkles, Copy, Check, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   SheetContent,
@@ -13,6 +14,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { copyToClipboard } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
 import type { ToolPromptConfig } from "@/lib/ai-prompts/types";
+import { useActiveLlm } from "@/lib/llm/use-active-llm";
+
+/**
+ * Lazy-load the run panel so the (heavier) LLM machinery only lands in the
+ * bundle when a user actually clicks "Run with AI". Non-AI users get only
+ * the original copy-paste path with no additional code.
+ */
+const AiRunPanel = dynamic(() => import("./ai-run-panel"), { ssr: false });
 
 /**
  * Heavy body of the AI prompt drawer. Split into its own file so it can be
@@ -24,19 +33,29 @@ function PromptCard({
   title,
   description,
   prompt,
+  toolName,
 }: {
   title: string;
   description: string;
   prompt: string;
+  toolName: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const [showRun, setShowRun] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { isReady } = useActiveLlm();
 
   useEffect(() => {
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
+
+  // If the user disables their AI between opening the drawer and clicking
+  // Run, fold the panel away so they aren't staring at a dead control.
+  useEffect(() => {
+    if (!isReady) setShowRun(false);
+  }, [isReady]);
 
   const handleCopy = async () => {
     const ok = await copyToClipboard(prompt);
@@ -57,19 +76,38 @@ function PromptCard({
           <h4 className="text-sm font-semibold text-text">{title}</h4>
           <p className="text-xs text-sub mt-0.5">{description}</p>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          className="shrink-0 gap-1.5 border-border hover:border-accent/40 hover:bg-accent/5 text-sub hover:text-accent"
-          onClick={handleCopy}
-        >
-          {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-          {copied ? "Copied" : "Copy"}
-        </Button>
+        <div className="flex gap-1.5 shrink-0">
+          {isReady && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 border-accent/40 bg-accent/5 text-accent hover:bg-accent/10"
+              onClick={() => setShowRun((v) => !v)}
+              aria-pressed={showRun}
+            >
+              <Play className="w-3.5 h-3.5" />
+              {showRun ? "Hide" : "Run with AI"}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 border-border hover:border-accent/40 hover:bg-accent/5 text-sub hover:text-accent"
+            onClick={handleCopy}
+          >
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? "Copied" : "Copy"}
+          </Button>
+        </div>
       </div>
       <pre className="whitespace-pre-wrap text-xs text-text/80 bg-surface rounded-md border border-border p-3 max-h-60 overflow-y-auto font-mono leading-relaxed">
         {prompt}
       </pre>
+      {isReady && showRun && (
+        // AiRunPanel is dynamic-imported, so it lands in the bundle only
+        // when the user actually expands it for the first time.
+        <AiRunPanel prompt={prompt} toolName={toolName} />
+      )}
     </div>
   );
 }
@@ -80,6 +118,7 @@ interface AiPromptDrawerContentProps {
 
 export default function AiPromptDrawerContent({ config }: AiPromptDrawerContentProps) {
   const hasPrompts = config.prompts.length > 0;
+  const { isReady, providerName, model, openSettings } = useActiveLlm();
   return (
     <SheetContent
       side="right"
@@ -94,9 +133,29 @@ export default function AiPromptDrawerContent({ config }: AiPromptDrawerContentP
           Copy a prompt and paste it into any AI assistant for deeper insights
           from your {config.toolName} data.
         </SheetDescription>
+        {/* AI status pill — clickable when off so anonymous users can
+            discover the BYOK feature directly from the drawer. */}
+        <div className="pt-1">
+          {isReady ? (
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border border-accent/40 bg-accent/10 text-accent">
+              <Sparkles className="w-3 h-3" />
+              AI: {providerName}
+              {model && <span className="text-sub normal-case">· {model}</span>}
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={openSettings}
+              className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border border-border bg-surface text-sub hover:text-accent hover:border-accent/40 transition"
+            >
+              <Sparkles className="w-3 h-3" />
+              AI: Off — bring your own key
+            </button>
+          )}
+        </div>
       </SheetHeader>
 
-      <ScrollArea className="h-[calc(100vh-140px)] px-6 py-4">
+      <ScrollArea className="h-[calc(100vh-160px)] px-6 py-4">
         {hasPrompts ? (
           <div className="space-y-4 pb-6">
             {config.prompts.map((p) => (
@@ -105,6 +164,7 @@ export default function AiPromptDrawerContent({ config }: AiPromptDrawerContentP
                 title={p.title}
                 description={p.description}
                 prompt={p.prompt}
+                toolName={config.toolName}
               />
             ))}
           </div>

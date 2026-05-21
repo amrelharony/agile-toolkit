@@ -1,12 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { CommandPalette } from "./command-palette";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { useLlmStore } from "@/lib/stores/llm-store";
 import { installSignalBridge } from "@/lib/signals/signal-bridge";
 import { bootstrapPredictions } from "@/lib/predictions/bootstrap";
+
+// Settings dialog is dynamic-imported so its body (tabs, model lists, the
+// tested provider import) never lands in the eager bundle — only loads
+// when the user actually clicks the header chip or UserMenu entry.
+const LlmSettingsDialog = dynamic(
+  () => import("@/components/ai/llm-settings-dialog").then((m) => m.LlmSettingsDialog),
+  { ssr: false }
+);
 import { SonificationProvider } from "@/lib/sonification/provider";
 import { GamificationProvider } from "@/lib/gamification/provider";
 import { HapticsProvider } from "@/lib/haptics/provider";
@@ -31,6 +41,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // re-read localStorage and triggered re-renders.
   useEffect(() => {
     useWorkspaceStore.persist.rehydrate();
+    // BYOK LLM store also uses skipHydration — its custom storage adapter
+    // (sessionStorage vs localStorage) only works post-mount on the client.
+    void Promise.resolve(useLlmStore.persist.rehydrate()).catch(() => {
+      /* corrupt persisted blob — keep defaults */
+    });
   }, []);
 
   // Phase 15: install the cross-tool signal bridge once. Wires
@@ -84,6 +99,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Suspense fallback={null}>
           <HolidayEngine />
         </Suspense>
+        {/* BYOK settings dialog — open/close state lives in llm-ui-store,
+            so this single mount serves both header-chip and UserMenu
+            entry points. Dynamic-imported so non-AI users never load it. */}
+        <LlmSettingsDialog />
       </HistorySyncProvider>
       </AuthProvider>
       </GamificationProvider>

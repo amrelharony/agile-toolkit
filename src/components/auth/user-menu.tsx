@@ -14,8 +14,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth/auth-provider";
+import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
 import { SCRUM_ROLE_LABEL } from "@/lib/auth/types";
-import { LogOut, History, ShieldCheck, UserCircle, LogIn } from "lucide-react";
+import { LogOut, History, ShieldCheck, UserCircle, LogIn, Sparkles } from "lucide-react";
 
 function getInitials(name: string | null | undefined, email: string): string {
   const source = (name ?? email).trim();
@@ -29,6 +30,7 @@ function getInitials(name: string | null | undefined, email: string): string {
 
 export function UserMenu() {
   const { status, user, profile, signInWithGoogle, signOut } = useAuth();
+  const openAiSettings = useLlmUiStore((s) => s.openSettings);
   const mounted = useMounted();
 
   // Hide entirely when auth is disabled (no Supabase env), or until hydrated.
@@ -46,17 +48,23 @@ export function UserMenu() {
   }
 
   if (status === "anonymous" || status === "error") {
+    // Anonymous users still get to discover BYOK — surface "AI settings" as
+    // a tiny secondary affordance below the sign-in CTA. The chip in the
+    // header is the primary entry point; this is the safety net for users
+    // who never look up there.
     return (
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => void signInWithGoogle()}
-        className="gap-1.5"
-        aria-label="Sign in with Google"
-      >
-        <LogIn className="w-3.5 h-3.5" aria-hidden="true" />
-        <span className="hidden sm:inline">Sign in</span>
-      </Button>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void signInWithGoogle()}
+          className="gap-1.5"
+          aria-label="Sign in with Google"
+        >
+          <LogIn className="w-3.5 h-3.5" aria-hidden="true" />
+          <span className="hidden sm:inline">Sign in</span>
+        </Button>
+      </div>
     );
   }
 
@@ -112,6 +120,18 @@ export function UserMenu() {
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        {/* BYOK AI settings — paste your own API key to run prompts inline
+            instead of copy-pasting them into another tab. */}
+        <DropdownMenuItem
+          onSelect={(e) => {
+            e.preventDefault();
+            openAiSettings();
+          }}
+          className="cursor-pointer"
+        >
+          <Sparkles className="w-4 h-4" aria-hidden="true" />
+          <span>AI settings (BYOK)</span>
+        </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link href="/account/privacy" className="cursor-pointer">
             <ShieldCheck className="w-4 h-4" aria-hidden="true" />

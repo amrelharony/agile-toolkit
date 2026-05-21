@@ -26,7 +26,8 @@
       "Bash(awk '$1>1')",
       "Bash(awk '{print $5, $9}')",
       "Bash(grep -nE \"^[a-zA-Z_].*=.*\\\\{[^}]*crypto\\\\.randomUUID|^const.*=.*\\\\[[^\\\\]]*crypto\\\\.randomUUID|^[ ]{0,4}id:[ ]*crypto\\\\.randomUUID\" \"src/app/\\(tools\\)\" -r --include=\"*.tsx\")",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

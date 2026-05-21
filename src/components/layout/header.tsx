@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Search, Moon, Sun, Menu } from "lucide-react";
 import { SonificationToggle } from "@/components/shared/sonification-toggle";
+import { LlmStatusChip } from "@/components/ai/llm-status-chip";
 import { TrophyButton } from "@/components/gamification/trophy-button";
 import { StatusBadge, WeatherWidget } from "@/lib/weather/widget";
 import { UserMenu } from "@/components/auth/user-menu";
@@ -182,6 +183,12 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
         </div>
         <div className="hidden sm:flex items-center">
           <SonificationToggle />
+        </div>
+        {/* BYOK LLM status chip — sits next to sonification on the same
+            sm+ breakpoint. Hidden on phones to preserve the right-edge
+            real estate; reachable via the UserMenu entry on mobile. */}
+        <div className="hidden sm:flex items-center">
+          <LlmStatusChip />
         </div>
         <button
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
