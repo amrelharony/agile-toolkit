@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useShallow } from "zustand/react/shallow";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
-import { Users, Plus, Trash2 } from "lucide-react";
+import { Users, Plus, Trash2, Beaker, Sparkles } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -16,6 +17,16 @@ import type { HitlReview, Workspace } from "@/lib/stores/workspace-types";
 import { generateHitlPrompts } from "@/lib/ai-prompts/hitl-quality";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { HITL_ACTIONS } from "@/lib/history/event-actions";
+import { useActiveLlm } from "@/lib/llm/use-active-llm";
+
+// Lazy-load — keep adapter chunks out of the eager bundle for users who
+// only manually log reviewer ratings.
+const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), {
+  ssr: false,
+  loading: () => (
+    <div className="text-xs text-sub p-2 border border-border rounded">Loading panel…</div>
+  ),
+});
 
 export function HitlQualityClient() {
   const list = useWorkspaceStore((s) => s.hitlReviews ?? []);
@@ -29,6 +40,14 @@ export function HitlQualityClient() {
   const [rating, setRating] = useState<HitlReview["rating"]>(3);
   const [agreed, setAgreed] = useState(true);
   const [reason, setReason] = useState("");
+
+  // --- BYOK generate-first-pass state ---
+  // Lets reviewers run a candidate prompt through their active provider
+  // and read the streamed output before deciding the rating they'll log
+  // below. Deliberately separate state from the review form — the BYOK
+  // prompt is observational scaffolding, not part of the persisted row.
+  const llm = useActiveLlm();
+  const [livePrompt, setLivePrompt] = useState("");
 
   function add() {
     // Require at least one identifying field — feature, reviewer, or reason.
@@ -127,6 +146,50 @@ export function HitlQualityClient() {
           <KPI label="Mean rating" value={meanRating.toFixed(2)} />
           <KPI label="Agreement rate" value={`${agreementRate}%`} tone={agreementRate > 80 ? "ok" : "default"} />
         </div>
+
+        {/* BYOK generate-first-pass — reviewer pastes the prompt-under-test,
+            sees the streamed model output, then uses the existing Log review
+            form below to record their rating + agreement. The output is
+            ephemeral; only the review row is persisted. */}
+        <SectionCard title="Generate first pass (BYOK)" icon={Beaker}>
+          <p className="text-xs text-sub mb-3">
+            Run a candidate prompt through your active BYOK provider so the
+            reviewer can see the model output before logging a rating below.
+            The output isn&apos;t saved — only the review you log is.
+          </p>
+          {!llm.isReady ? (
+            <div className="flex flex-col items-start gap-2 p-3 border border-dashed border-border rounded text-sub text-sm">
+              <span className="inline-flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-accent" />
+                No BYOK provider configured yet.
+              </span>
+              <Button size="sm" variant="outline" onClick={llm.openSettings} className="gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                Open AI settings
+              </Button>
+            </div>
+          ) : (
+            <>
+              <Textarea
+                value={livePrompt}
+                onChange={(e) => setLivePrompt(e.target.value)}
+                placeholder="The prompt the reviewer is grading…"
+                rows={3}
+                className="font-mono text-xs"
+              />
+              {/* Only mount the panel once a prompt is typed — the Run button
+                  inside would otherwise sit disabled with empty input. */}
+              {livePrompt.trim().length > 0 && (
+                <div className="mt-3">
+                  <AiRunPanel
+                    prompt={livePrompt}
+                    toolName="HITL first-pass"
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </SectionCard>
 
         <SectionCard title="Log review" icon={Plus}>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
