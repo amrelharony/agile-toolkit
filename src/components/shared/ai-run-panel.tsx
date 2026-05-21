@@ -5,42 +5,90 @@ import { Play, Square, Copy, Check, RotateCcw, AlertCircle, Loader2 } from "luci
 import { Button } from "@/components/ui/button";
 import { useLlmStore } from "@/lib/stores/llm-store";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
-import { getAdapter } from "@/lib/llm/registry";
+import { getAdapter, PROVIDER_META } from "@/lib/llm/registry";
 import {
   estimateCostUsd,
   estimateInputTokens,
   findModel,
   formatCostUsd,
 } from "@/lib/llm/pricing";
+import type { ProviderId } from "@/lib/llm/types";
 import { isLlmError } from "@/lib/llm/types";
 import { copyToClipboard } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
 import { cn } from "@/lib/utils";
 
+/**
+ * Optional provider override. When set, AiRunPanel runs against this
+ * specific provider/key instead of the active one from `useActiveLlm`.
+ * Used by the model-comparison A/B grid which stacks one panel per
+ * configured provider.
+ */
+export interface ProviderOverride {
+  provider: ProviderId;
+  model: string;
+  apiKey: string;
+}
+
 interface AiRunPanelProps {
   prompt: string;
   /** Optional short context hint passed as the `system` message. */
   toolName?: string;
+  /** When set, use this provider instead of the active one from settings. */
+  providerOverride?: ProviderOverride;
+  /**
+   * Monotonically increasing counter from the parent. Each new value
+   * (re)triggers a `run()`. Lets a parent A/B coordinator fire many
+   * stacked panels in lockstep ("Run all") without dragging the state
+   * up into the parent.
+   */
+  runTrigger?: number;
+  /** Compact mode for the A/B grid — drops the header bar, smaller padding. */
+  compact?: boolean;
 }
 
 /**
- * In-drawer LLM run panel. Shown below a PromptCard when the user clicks
- * "Run with AI". Streams the response inline, supports abort, and surfaces
- * cost + token estimates upfront so the user knows what they're spending.
+ * In-drawer LLM run panel. Streams the response inline, supports abort,
+ * surfaces cost + token estimates upfront so the user knows what they're
+ * spending.
+ *
+ * Two call shapes:
+ *   - **Default** (no `providerOverride`) — reads from `useActiveLlm()`,
+ *     used by the AI Prompts drawer in every tool. Falls back to a
+ *     no-provider error toast when the user hasn't configured BYOK.
+ *   - **Override** (with `providerOverride`) — runs against the explicit
+ *     provider/key/model. Used by the model-comparison A/B grid to fire
+ *     the same prompt across multiple configured providers in parallel.
  *
  * Lazy-loaded by ai-prompt-drawer-content.tsx so this whole module — plus
  * the dynamic-imported adapter underneath — never lands in the eager bundle.
  */
-export default function AiRunPanel({ prompt, toolName }: AiRunPanelProps) {
+export default function AiRunPanel({
+  prompt,
+  toolName,
+  providerOverride,
+  runTrigger,
+  compact = false,
+}: AiRunPanelProps) {
   const active = useActiveLlm();
   const maxOutputTokens = useLlmStore((s) => s.maxOutputTokens);
   const [running, setRunning] = useState(false);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [usage, setUsage] = useState<{ inputTokens: number; outputTokens: number } | null>(null);
+  const [ttftMs, setTtftMs] = useState<number | null>(null);
+  const [totalMs, setTotalMs] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Resolved provider — explicit override wins over active.
+  const providerId: ProviderId | null = providerOverride?.provider ?? active.provider;
+  const modelId: string | null = providerOverride?.model ?? active.model;
+  const providerName: string | null = providerOverride
+    ? PROVIDER_META[providerOverride.provider].name
+    : active.providerName;
+  const canRun = providerOverride ? true : active.isReady;
 
   // Cancel any in-flight stream + clear timers if the panel unmounts.
   useEffect(() => {
@@ -53,16 +101,16 @@ export default function AiRunPanel({ prompt, toolName }: AiRunPanelProps) {
   // Upfront estimates — derived live so the cost preview updates if the
   // user switches model in settings without closing the drawer.
   const inputTokens = estimateInputTokens(prompt);
-  const model = active.provider && active.model ? findModel(active.provider, active.model) : undefined;
-  const estIn = active.provider && active.model
-    ? estimateCostUsd(active.provider, active.model, inputTokens, 0)
+  const modelInfo = providerId && modelId ? findModel(providerId, modelId) : undefined;
+  const estIn = providerId && modelId
+    ? estimateCostUsd(providerId, modelId, inputTokens, 0)
     : 0;
-  const estMaxOut = active.provider && active.model
-    ? estimateCostUsd(active.provider, active.model, 0, maxOutputTokens)
+  const estMaxOut = providerId && modelId
+    ? estimateCostUsd(providerId, modelId, 0, maxOutputTokens)
     : 0;
 
   const run = useCallback(async () => {
-    if (!active.isReady || !active.provider || !active.model) {
+    if (!providerId || !modelId) {
       toast.error("No AI provider configured");
       return;
     }
@@ -70,13 +118,22 @@ export default function AiRunPanel({ prompt, toolName }: AiRunPanelProps) {
     setError(null);
     setText("");
     setUsage(null);
+    setTtftMs(null);
+    setTotalMs(null);
 
     const controller = new AbortController();
     abortRef.current = controller;
+    const startedAt = performance.now();
+    let firstChunkAt: number | null = null;
 
     try {
-      const adapter = await getAdapter(active.provider);
-      const cfg = useLlmStore.getState().providers[active.provider];
+      const adapter = await getAdapter(providerId);
+      // Override path uses the supplied key + model; default path pulls
+      // the live config out of the store so a mid-stream settings change
+      // (rare but possible) gets picked up on the next Run.
+      const cfg = providerOverride
+        ? { apiKey: providerOverride.apiKey, model: providerOverride.model }
+        : useLlmStore.getState().providers[providerId];
       if (!cfg) {
         throw new Error("Provider config disappeared");
       }
@@ -88,8 +145,12 @@ export default function AiRunPanel({ prompt, toolName }: AiRunPanelProps) {
             : undefined,
           signal: controller.signal,
           onChunk: (chunk) => {
-            // Functional update so concurrent chunks don't clobber each other
-            // if React batches them across render boundaries.
+            if (firstChunkAt === null) {
+              firstChunkAt = performance.now();
+              setTtftMs(Math.round(firstChunkAt - startedAt));
+            }
+            // Functional update so concurrent chunks don't clobber each
+            // other if React batches them across render boundaries.
             setText((prev) => prev + chunk);
           },
         },
@@ -97,6 +158,7 @@ export default function AiRunPanel({ prompt, toolName }: AiRunPanelProps) {
         maxOutputTokens
       );
       setUsage(result);
+      setTotalMs(Math.round(performance.now() - startedAt));
     } catch (err) {
       // AbortError is expected when the user hits Stop — don't surface it
       // as a red error toast.
@@ -111,7 +173,23 @@ export default function AiRunPanel({ prompt, toolName }: AiRunPanelProps) {
       setRunning(false);
       abortRef.current = null;
     }
-  }, [active, prompt, toolName, maxOutputTokens]);
+  }, [providerId, modelId, providerOverride, prompt, toolName, maxOutputTokens]);
+
+  // Parent-triggered runs. Skip the very first render (runTrigger=0 or
+  // undefined) so the panel doesn't auto-fire on mount. Subsequent
+  // increments fire `run()`.
+  const lastTrigger = useRef<number | undefined>(runTrigger);
+  useEffect(() => {
+    if (runTrigger === undefined) return;
+    if (lastTrigger.current === undefined) {
+      lastTrigger.current = runTrigger;
+      return;
+    }
+    if (runTrigger !== lastTrigger.current) {
+      lastTrigger.current = runTrigger;
+      void run();
+    }
+  }, [runTrigger, run]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -130,11 +208,17 @@ export default function AiRunPanel({ prompt, toolName }: AiRunPanelProps) {
   }, [text]);
 
   return (
-    <div className="mt-3 rounded-md border border-accent/30 bg-accent/5 p-3 space-y-2">
+    <div
+      className={cn(
+        "rounded-md border space-y-2",
+        compact ? "p-2 border-border bg-surface" : "mt-3 p-3 border-accent/30 bg-accent/5"
+      )}
+    >
       <div className="flex items-center justify-between gap-2 text-[11px]">
         <div className="flex items-center gap-2 text-accent font-mono uppercase tracking-wider">
-          <span>{active.providerName ?? "AI"}</span>
-          {model && <span className="text-sub normal-case font-normal">· {model.label}</span>}
+          <span>{providerName ?? "AI"}</span>
+          {modelInfo && <span className="text-sub normal-case font-normal">· {modelInfo.label}</span>}
+          {!modelInfo && modelId && <span className="text-sub normal-case font-normal">· {modelId}</span>}
         </div>
         <div className="text-sub font-mono">
           ~{inputTokens.toLocaleString()} in · {formatCostUsd(estIn)} +{" "}
@@ -142,12 +226,13 @@ export default function AiRunPanel({ prompt, toolName }: AiRunPanelProps) {
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         {!running && !text && (
           <Button
             size="sm"
             onClick={run}
-            className="gap-1.5 bg-accent text-bg hover:bg-accent/90 font-semibold"
+            disabled={!canRun}
+            className="gap-1.5 bg-accent text-bg hover:bg-accent/90 font-semibold disabled:opacity-50"
           >
             <Play className="w-3.5 h-3.5" />
             Run
@@ -190,6 +275,7 @@ export default function AiRunPanel({ prompt, toolName }: AiRunPanelProps) {
           <span className="text-[11px] text-sub inline-flex items-center gap-1">
             <Loader2 className="w-3 h-3 animate-spin" />
             Streaming…
+            {ttftMs !== null && <span className="font-mono">· first token {ttftMs}ms</span>}
           </span>
         )}
       </div>
@@ -197,7 +283,8 @@ export default function AiRunPanel({ prompt, toolName }: AiRunPanelProps) {
       {(text || error) && (
         <div
           className={cn(
-            "rounded-md border p-3 max-h-72 overflow-y-auto font-mono text-xs whitespace-pre-wrap leading-relaxed",
+            "rounded-md border p-3 overflow-y-auto font-mono text-xs whitespace-pre-wrap leading-relaxed",
+            compact ? "max-h-48" : "max-h-72",
             error
               ? "border-danger/40 bg-danger/5 text-danger"
               : "border-border bg-surface text-text/90"
@@ -214,12 +301,13 @@ export default function AiRunPanel({ prompt, toolName }: AiRunPanelProps) {
         </div>
       )}
 
-      {usage && usage.inputTokens >= 0 && usage.outputTokens >= 0 && active.provider && active.model && (
+      {usage && usage.inputTokens >= 0 && usage.outputTokens >= 0 && providerId && modelId && (
         <div className="text-[10px] text-sub font-mono text-right">
           Used {usage.inputTokens.toLocaleString()} in /{" "}
           {usage.outputTokens.toLocaleString()} out ·{" "}
-          {formatCostUsd(
-            estimateCostUsd(active.provider, active.model, usage.inputTokens, usage.outputTokens)
+          {formatCostUsd(estimateCostUsd(providerId, modelId, usage.inputTokens, usage.outputTokens))}
+          {ttftMs !== null && totalMs !== null && (
+            <> · TTFT {ttftMs}ms · total {totalMs}ms</>
           )}
         </div>
       )}

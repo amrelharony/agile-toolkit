@@ -1,14 +1,16 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useShallow } from "zustand/react/shallow";
-import { Cpu, Plus, Trash2 } from "lucide-react";
+import { Cpu, Plus, Trash2, Beaker, Sparkles } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { ExportButton } from "@/components/shared/export-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -18,6 +20,19 @@ import { generateModelComparisonPrompts } from "@/lib/ai-prompts/model-compariso
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { MODEL_COMPARISON_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+import { useLlmStore } from "@/lib/stores/llm-store";
+import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
+import { PROVIDER_META, findModel } from "@/lib/llm/pricing";
+import type { ProviderId } from "@/lib/llm/types";
+
+// Lazy-load the run panel so the OpenAI/Anthropic/Gemini/GLM adapter chunks
+// stay out of the eager bundle for users who never touch Live Compare.
+const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), {
+  ssr: false,
+  loading: () => (
+    <div className="text-xs text-sub p-2 border border-border rounded">Loading panel…</div>
+  ),
+});
 
 const STATUSES: ModelEntry["status"][] = ["production", "evaluation", "experimental", "deprecated"];
 
@@ -37,6 +52,55 @@ export function ModelComparisonClient() {
   const [latencyP95, setLatencyP95] = useState("");
   const [evalScore, setEvalScore] = useState("");
   const [status, setStatus] = useState<ModelEntry["status"]>("evaluation");
+
+  // --- Live Compare state ---
+  // Read configured providers from BYOK store. Shallow so we re-render only
+  // when the set of configured providers changes, not on every active-provider
+  // flip or token-budget tweak.
+  const llmProviders = useLlmStore(useShallow((s) => s.providers));
+  const openLlmSettings = useLlmUiStore((s) => s.openSettings);
+  // Stable, deterministic provider order so the grid layout doesn't shuffle
+  // between renders. We sort by ProviderId alphabetically for predictability.
+  const configuredProviders = useMemo(() => {
+    return (Object.entries(llmProviders) as [ProviderId, { apiKey: string; model: string } | undefined][])
+      .filter(([, cfg]) => !!cfg && cfg.apiKey.length > 0)
+      .map(([id, cfg]) => ({ id, model: cfg!.model, apiKey: cfg!.apiKey }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }, [llmProviders]);
+
+  // Per-provider selection. Default: ALL configured providers selected.
+  // Re-derived when the configured set changes so a newly-added provider
+  // shows up enabled, and a removed one stops contributing to runs.
+  const [selectedProviders, setSelectedProviders] = useState<Set<ProviderId>>(
+    () => new Set(configuredProviders.map((p) => p.id))
+  );
+  // Re-sync the selection if a provider was just configured/removed in
+  // settings while this page is open. We only flip a provider's state
+  // when it appears or disappears — existing selections are preserved.
+  const prevConfiguredKey = useRef<string>("");
+  const configuredKey = configuredProviders.map((p) => p.id).join(",");
+  if (prevConfiguredKey.current !== configuredKey) {
+    prevConfiguredKey.current = configuredKey;
+    setSelectedProviders((prev) => {
+      const next = new Set(prev);
+      // Drop selections for providers that no longer have a key. We iterate
+      // via Array.from to side-step the project's ES3 downlevel-iteration
+      // restriction on Set iteration.
+      Array.from(next).forEach((id) => {
+        if (!configuredProviders.some((p) => p.id === id)) next.delete(id);
+      });
+      // Add newly-configured providers as selected by default.
+      configuredProviders.forEach((p) => {
+        if (!prev.has(p.id)) next.add(p.id);
+      });
+      return next;
+    });
+  }
+
+  const [livePrompt, setLivePrompt] = useState("");
+  // Monotonic counter incremented on "Run all". Each AiRunPanel watches this
+  // via its `runTrigger` prop — bumping it fires every panel in lockstep.
+  const [runCounter, setRunCounter] = useState(0);
 
   function add() {
     if (!name.trim() || !vendor.trim()) return;
@@ -83,6 +147,33 @@ export function ModelComparisonClient() {
     log(MODEL_COMPARISON_ACTIONS.MODEL_REMOVED, { id });
   }
 
+  function toggleProvider(id: ProviderId) {
+    setSelectedProviders((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const activeLiveProviders = configuredProviders.filter((p) => selectedProviders.has(p.id));
+  // Disable Run all when nothing useful would happen: no prompt, no provider,
+  // or all providers de-selected. Cheaper than letting the user click and
+  // then realise the buttons inside the panels are also disabled.
+  const canRunAll = livePrompt.trim().length > 0 && activeLiveProviders.length > 0;
+
+  function runAll() {
+    if (!canRunAll) return;
+    // Single state bump fans out to every mounted AiRunPanel via runTrigger.
+    setRunCounter((c) => c + 1);
+    log(MODEL_COMPARISON_ACTIONS.MODEL_ADDED, {
+      // Reuse an existing action verb — there's no dedicated "live-compared"
+      // history action yet, and adding one would mean a Phase 19 schema bump
+      // for a single log line. The activity feed still reads sensibly.
+      name: `live-compare: ${activeLiveProviders.length} provider(s)`,
+    });
+  }
+
   const sorted = useMemo(() =>
     [...list].sort((a, b) => (b.evalScore ?? 0) - (a.evalScore ?? 0)),
   [list]);
@@ -112,6 +203,114 @@ export function ModelComparisonClient() {
       description="Compare LLMs side-by-side: cost per 1k tokens, latency, context window, eval score, and lifecycle status."
     >
       <div className="space-y-6" ref={exportRef}>
+        {/* Live Compare — the headline BYOK feature. Sits above "Add model"
+            because the catalog you maintain below is supposed to be informed
+            by what you observe here. */}
+        <SectionCard
+          title="Live Compare (BYOK)"
+          icon={Beaker}
+        >
+          <p className="text-xs text-sub mb-3">
+            {configuredProviders.length === 0
+              ? "Configure one or more BYOK providers to run the same prompt across them and see results side-by-side."
+              : `Run any prompt against ${configuredProviders.length} configured provider${configuredProviders.length === 1 ? "" : "s"} in parallel and compare streaming output, time-to-first-token, and cost.`}
+          </p>
+          {configuredProviders.length === 0 ? (
+            <div className="flex flex-col items-start gap-2 p-4 border border-dashed border-border rounded text-sub text-sm">
+              <span className="inline-flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-accent" />
+                No BYOK providers configured yet.
+              </span>
+              <Button size="sm" variant="outline" onClick={openLlmSettings} className="gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                Open AI settings
+              </Button>
+            </div>
+          ) : (
+            <>
+              <Textarea
+                value={livePrompt}
+                onChange={(e) => setLivePrompt(e.target.value)}
+                placeholder="Paste or type a prompt to test across all selected providers…"
+                rows={4}
+                className="font-mono text-xs"
+              />
+
+              {/* Provider picker — checkboxes per configured provider. The
+                  underlying control is a real <input type="checkbox"> for
+                  free keyboard support; the label wraps it for click-anywhere
+                  affordance. */}
+              <div className="mt-3 flex flex-wrap gap-2">
+                {configuredProviders.map((p) => {
+                  const checked = selectedProviders.has(p.id);
+                  const modelInfo = findModel(p.id, p.model);
+                  return (
+                    <label
+                      key={p.id}
+                      className={`inline-flex items-center gap-2 text-xs px-2.5 py-1.5 rounded border cursor-pointer transition-colors ${
+                        checked
+                          ? "border-accent/40 bg-accent/5 text-text"
+                          : "border-border bg-surface text-sub hover:text-text"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleProvider(p.id)}
+                        className="accent-accent"
+                      />
+                      <span className="font-mono uppercase tracking-wider text-[10px] text-accent">
+                        {PROVIDER_META[p.id].name}
+                      </span>
+                      <span className="text-sub normal-case">
+                        {modelInfo?.label ?? p.model}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="mt-3 flex items-center gap-3 flex-wrap">
+                <Button
+                  size="sm"
+                  onClick={runAll}
+                  disabled={!canRunAll}
+                  className="gap-1.5 bg-accent text-bg hover:bg-accent/90 font-semibold disabled:opacity-50"
+                >
+                  <Beaker className="w-4 h-4" />
+                  Run all ({activeLiveProviders.length})
+                </Button>
+                <span className="text-xs text-sub">
+                  {activeLiveProviders.length === 0
+                    ? "Select at least one provider."
+                    : livePrompt.trim().length === 0
+                    ? "Add a prompt above."
+                    : `Each provider runs independently — total cost = sum of all panels.`}
+                </span>
+              </div>
+
+              {activeLiveProviders.length > 0 && (
+                <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {activeLiveProviders.map((p) => (
+                    <AiRunPanel
+                      key={p.id}
+                      prompt={livePrompt}
+                      compact
+                      runTrigger={runCounter}
+                      providerOverride={{
+                        provider: p.id,
+                        model: p.model,
+                        apiKey: p.apiKey,
+                      }}
+                      toolName="Model Comparison: Live"
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </SectionCard>
+
         <SectionCard title="Add model" icon={Plus}>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <Input placeholder="Model name" value={name} onChange={(e) => setName(e.target.value)} />
