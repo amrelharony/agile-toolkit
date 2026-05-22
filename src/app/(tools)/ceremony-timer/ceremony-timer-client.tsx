@@ -71,6 +71,67 @@ function glowColor(fraction: number): string {
   return "0 0 30px var(--accent), 0 0 60px var(--glowS)";
 }
 
+/**
+ * Direct-to-browser alarm beep — completely separate from the toolkit's
+ * sonification engine.
+ *
+ * Why a parallel audio path? The sonification engine respects a user
+ * preference toggle in the header (Volume On/Off). The Ceremony Timer's
+ * whole purpose is to alert the team that time is up — silently letting
+ * a 60-minute planning meeting end without a single ding because someone
+ * muted the toolkit's UI sounds is a primary-feature regression.
+ *
+ * The beep uses a freshly-created AudioContext so it isn't affected by
+ * the toolkit's shared engine state (suspended context, mode gates).
+ * Pattern: three rapid 600Hz beeps over 800ms.
+ *
+ * Browsers require a user gesture before audio can play; the user
+ * always taps Start to begin the timer so the alarm fires inside a
+ * gesture-derived context.
+ */
+function playFinishAlarm(): void {
+  if (typeof window === "undefined") return;
+  const Ctx =
+    typeof window !== "undefined" &&
+    (window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext);
+  if (!Ctx) return;
+  try {
+    const ctx = new Ctx();
+    // Close the context after the last beep so it doesn't linger and
+    // burn idle CPU. The 0.85s timeout covers all three beeps.
+    const closeAt = ctx.currentTime + 0.85;
+
+    const playBeep = (offset: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      // 880 Hz (A5) — bright, attention-grabbing, but not piercing
+      osc.frequency.setValueAtTime(880, ctx.currentTime + offset);
+      // ADSR envelope avoids the click-pop of an instant on/off
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + offset);
+      gain.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime + offset + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + offset + 0.18);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + offset);
+      osc.stop(ctx.currentTime + offset + 0.2);
+    };
+
+    playBeep(0);
+    playBeep(0.3);
+    playBeep(0.6);
+
+    setTimeout(() => {
+      void ctx.close().catch(() => undefined);
+    }, (closeAt - ctx.currentTime) * 1000);
+  } catch {
+    /* AudioContext creation failed (sandboxed iframe, etc.) — fall back to
+     * the existing sonify("finish") path which the caller invoked too */
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -200,13 +261,74 @@ export function CeremonyTimerClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running, sonify]);
 
-  // Stop the timer and play the finish sound exactly once when remaining
-  // reaches zero while running. This is intentionally a separate effect so
-  // setState calls don't happen inside another updater (see comment above).
+  // Stop the timer and fire the multi-channel finish alarm exactly once
+  // when remaining reaches zero while running.
+  //
+  // Belt-and-braces design — `sonify("finish")` alone was unreliable:
+  //   - It's gated by the sonification store's `enabled` flag, so a user
+  //     who toggled sound off in the header chip got no audio AND no
+  //     haptic (haptic forwards from the same call but checks a
+  //     separate gate)
+  //   - Browser AudioContext can auto-suspend after extended idle, and
+  //     the suspended-resume race meant the first sound after suspension
+  //     could be eaten by the engine's lazy resume()
+  //   - Mobile users running the timer in a backgrounded tab got NO
+  //     feedback at all when their ceremony ended
+  //
+  // The new layered alarm:
+  //   1) sonify("finish")          — keep the existing chord through
+  //                                  the sonification pipeline so
+  //                                  full-mode users get the rich sound
+  //                                  AND the haptic pattern
+  //   2) navigator.vibrate(...)    — direct call, ignores haptic store
+  //                                  gating. The whole point of the
+  //                                  timer is to alert; even users who
+  //                                  muted "sonification" still want
+  //                                  to know their meeting is over
+  //   3) document.title flash      — for the backgrounded-tab case.
+  //                                  Restores on focus or after 5s
+  //   4) timeUp visual banner      — large pulsing "Time's up!" replaces
+  //                                  the prior tiny destructive-coloured
+  //                                  span. Captured below in render
   useEffect(() => {
-    if (running && remaining === 0) {
-      setRunning(false);
-      sonify("finish");
+    if (!(running && remaining === 0)) return;
+    setRunning(false);
+    sonify("finish");
+
+    // Guaranteed alarm beep — bypasses the sonification toggle so a
+    // user who muted UI sounds still hears the timer end. Three
+    // 880 Hz sine bursts over 800 ms.
+    playFinishAlarm();
+
+    // Direct Android vibration — iOS Safari silently ignores
+    // navigator.vibrate (no API), which is fine; the visual banner
+    // and audio chord still fire. The 7-element pattern matches the
+    // timer-end haptic pattern but goes through the lower-level API
+    // so it fires even if the haptics store is disabled.
+    if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+      try {
+        navigator.vibrate([200, 100, 200, 100, 200, 100, 400]);
+      } catch {
+        /* permission denied or device doesn't support */
+      }
+    }
+
+    // Document title flash — for users whose tab is backgrounded. Many
+    // users start a 90-minute retro timer and switch tabs to do other
+    // work; without this, the timer ending was invisible to them until
+    // they came back. Restore on focus or after 5 s, whichever comes
+    // first.
+    if (typeof document !== "undefined") {
+      const originalTitle = document.title;
+      document.title = "⏰ Time's up — Agile Toolkit";
+      const restoreTimer = setTimeout(() => {
+        if (document.title.startsWith("⏰")) document.title = originalTitle;
+      }, 5000);
+      const onFocus = () => {
+        if (document.title.startsWith("⏰")) document.title = originalTitle;
+        clearTimeout(restoreTimer);
+      };
+      window.addEventListener("focus", onFocus, { once: true });
     }
   }, [running, remaining, sonify]);
 
@@ -406,8 +528,26 @@ export function CeremonyTimerClient() {
                 )}
                 {remaining === 0 && started && (
                   <span
-                    className="mt-2 text-sm font-semibold"
-                    style={{ color: "var(--destructive)" }}
+                    // Pulsing block instead of small text — combined
+                    // with the audio + vibration triggers, this is the
+                    // VISUAL channel of the multi-modal alarm. Without
+                    // animation the previous tiny destructive-coloured
+                    // text was easy to miss across the room during a
+                    // standup.
+                    //
+                    // `animate-pulse` is a Tailwind utility that the
+                    // toolkit's reduced-motion CSS automatically clamps
+                    // to a near-still state, so users with
+                    // prefers-reduced-motion still see the banner
+                    // without the pulse.
+                    role="status"
+                    aria-live="assertive"
+                    className="mt-3 px-3 py-1 rounded-md text-base font-bold uppercase tracking-wider animate-pulse"
+                    style={{
+                      color: "var(--destructive)",
+                      backgroundColor: "color-mix(in srgb, var(--destructive) 12%, transparent)",
+                      border: "1px solid color-mix(in srgb, var(--destructive) 35%, transparent)",
+                    }}
                   >
                     Time&apos;s up!
                   </span>
