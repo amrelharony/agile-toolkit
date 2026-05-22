@@ -2296,14 +2296,35 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
       if (readOnly) { setEditingObjectId(null); return; }
       const obj = objectsById.get(id);
       if (!obj) { setEditingObjectId(null); return; }
-      // Skip the upsert when text is unchanged — prevents history clutter
-      // and avoids a no-op realtime patch.
-      const current = "content" in obj ? (obj as { content?: string }).content ?? "" : "";
+      // Pick the right field to write into based on object type. Sticky /
+      // text / shape store editable text in `content`; frame / kanban /
+      // timer use `label`; card uses `title`; voting uses `question`.
+      // Previously this always wrote to `content`, so editing a frame's
+      // label silently produced a phantom `content: text` field that
+      // never rendered anywhere — the typed text vanished from the
+      // user's perspective.
+      const fieldByType: Record<string, "content" | "label" | "title" | "question"> = {
+        sticky: "content",
+        text: "content",
+        rect: "content",
+        ellipse: "content",
+        diamond: "content",
+        triangle: "content",
+        frame: "label",
+        kanban: "label",
+        timer: "label",
+        card: "title",
+        voting: "question",
+      };
+      const field = fieldByType[obj.type] ?? "content";
+      const rec = obj as unknown as Record<string, unknown>;
+      const currentRaw = rec[field];
+      const current = typeof currentRaw === "string" ? currentRaw : "";
       if (current !== text) {
         pushSnapshot();
         upsert({
           ...obj,
-          content: text,
+          [field]: text,
           version: obj.version + 1,
           updatedAt: new Date().toISOString(),
         } as WhiteboardObject);

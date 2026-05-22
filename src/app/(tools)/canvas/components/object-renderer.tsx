@@ -547,7 +547,8 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
       return (
         <div
           data-canvas-object-kind="frame"
-          onPointerDown={handle}
+          onPointerDown={editing ? undefined : handle}
+          onDoubleClick={dblClick}
           style={{
             position: "absolute",
             left: 0,
@@ -560,26 +561,54 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
             background: o.fill ?? "transparent",
             zIndex: o.z,
             pointerEvents: "auto",
+            cursor: editing ? "text" : (o.locked ? "default" : "move"),
             opacity: o.locked ? 0.85 : 1,
             ...selectionStyle,
           }}
         >
+          {/* Label tab above the frame. Bumped from 12 → 14 px so it's
+              readable at a normal zoom level — the prior size matched
+              the toolbar font, blurring the line between frame chrome
+              and frame content. Double-click swaps the static label
+              for an InlineEditor; onCommitEdit routes the new text
+              into `frame.label` via the type-aware commit handler in
+              whiteboard-canvas.tsx. */}
           <div
             style={{
               position: "absolute",
-              top: -22,
+              top: -26,
               left: 6,
-              fontSize: 12,
-              color: "#94a3b8",
+              fontSize: 14,
+              fontWeight: 600,
+              color: "#cbd5e1",
               fontFamily: "ui-sans-serif, system-ui, sans-serif",
               background: "#0b0f17",
-              padding: "1px 6px",
-              borderRadius: 3,
+              padding: "2px 8px",
+              borderRadius: 4,
+              minWidth: 60,
+              minHeight: 20,
+              display: "flex",
+              alignItems: "center",
             }}
+            // Stop drag from starting when the user clicks the label tab
+            // to enter edit mode.
+            onPointerDown={editing ? (e) => e.stopPropagation() : undefined}
           >
-            {o.label}
+            {editing ? (
+              <InlineEditor
+                initialText={o.label ?? ""}
+                onCommit={commitEdit}
+                background="transparent"
+                color="#e5e7eb"
+                fontSize={14}
+                fontWeight={600}
+                padding={0}
+              />
+            ) : (
+              o.label || <span style={{ opacity: 0.5 }}>Frame</span>
+            )}
           </div>
-          {o.locked && <LockBadge z={o.z} />}
+          {o.locked && !editing && <LockBadge z={o.z} />}
         </div>
       );
 
