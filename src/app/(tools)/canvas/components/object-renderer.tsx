@@ -464,17 +464,22 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
           <svg width={o.w} height={o.h} style={{ display: "block" }}>
             {shape}
           </svg>
-          {/* Shape font scales with the smaller dimension so text stays
-              readable as the shape grows but never overruns a tall-thin
-              rect. Floor at 14 (smallest legible UI text), ceiling at 32
-              (matches H2 sizing — bigger feels shouty in a diagram).
-              Divisor 7 was tuned by eye: a 160×120 shape gets 17 px,
-              a 400×300 shape gets 32 px (capped), a 80×60 thumbnail gets
-              the 14 px floor. */}
+          {/* Shape font scales with the smaller dimension. Floor 16
+              (matches sticky body text — smallest legible content) and
+              ceiling 64 (matches sticky — a huge shape gets poster-
+              sized text, not chrome-sized). Divisor 7 keeps the ramp
+              the same shape as sticky:
+                  80×60 thumbnail → 16 px floor
+                  160×120 default → 17 px
+                  400×300         → 42 px
+                  600×500+        → 64 px ceiling
+              Previously this was floor 14 / ceiling 32, which made
+              shape text noticeably smaller than sticky text on
+              identically-sized objects — inconsistent across types. */}
           {(() => {
             const shapeFontSize = Math.max(
-              14,
-              Math.min(32, Math.floor(Math.min(o.w, o.h) / 7)),
+              16,
+              Math.min(64, Math.floor(Math.min(o.w, o.h) / 7)),
             );
             return editing ? (
               <InlineEditor

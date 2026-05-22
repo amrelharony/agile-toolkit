@@ -1135,6 +1135,14 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
             y: worldY - SHAPE_DEFAULT.h / 2,
             w: SHAPE_DEFAULT.w, h: SHAPE_DEFAULT.h,
             stroke: "#94a3b8", strokeWidth: 1.5,
+            // Soft translucent fill so the shape has visual presence
+            // when created. Previously shapes shipped as a thin gray
+            // outline only — visually indistinguishable from background
+            // grid lines on a dark theme, and easy to lose-track-of in
+            // a busy board. The 12% alpha keeps it subtle so it
+            // doesn't compete with stickies or filled shapes the user
+            // explicitly colours.
+            fill: "rgba(148, 163, 184, 0.12)",
           };
           break;
         case "text":
@@ -1402,7 +1410,15 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
         if (tool === "sticky") {
           draft = { ...baseProps, type: "sticky", content: "", color: stickyColor };
         } else if (tool === "rect" || tool === "ellipse" || tool === "diamond" || tool === "triangle") {
-          draft = { ...baseProps, type: tool, stroke: "#94a3b8", strokeWidth: 1.5 };
+          // Match the click-to-create default — soft translucent fill so
+          // the drag-created shape has visual presence on release.
+          draft = {
+            ...baseProps,
+            type: tool,
+            stroke: "#94a3b8",
+            strokeWidth: 1.5,
+            fill: "rgba(148, 163, 184, 0.12)",
+          };
         } else if (tool === "text") {
           draft = { ...baseProps, type: "text", content: "", fontSize: 18, color: "#e5e7eb", align: "left" };
         } else if (tool === "frame") {
