@@ -3087,14 +3087,19 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
         </div>
       )}
 
-      {/* Empty-state hint */}
+      {/* Empty-state hint — the centred CTA card lives in canvas-client.tsx
+          ("Start your board" with Templates / Import buttons). Rendering
+          a second centred hint here too caused fragments of THIS one to
+          peek out from behind the CTA card. The pan/zoom navigation
+          hint moved to the bottom edge so it doesn't visually conflict
+          and stays useful as soon as the user dismisses the CTA (e.g.
+          by clicking a tool). */}
       {objects.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="text-sub text-sm font-mono opacity-60 text-center max-w-md px-4">
-            <div className="font-bold text-text/80 mb-2">Empty board</div>
-            <div>Pick a tool from the left toolbar (or press <kbd className="px-1 bg-surface border border-border rounded">N</kbd> for sticky) and click anywhere to add an object.</div>
-            <div className="mt-3 text-xs">Hold <kbd className="px-1 bg-surface border border-border rounded">Space</kbd> + drag to pan · scroll to zoom · drag-select with the V tool</div>
-          </div>
+        <div
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none text-[10px] text-sub/70 font-mono text-center"
+          data-canvas-export-ignore="true"
+        >
+          Hold <kbd className="px-1 bg-surface/70 border border-border rounded text-[10px]">Space</kbd> + drag to pan · scroll to zoom
         </div>
       )}
     </div>

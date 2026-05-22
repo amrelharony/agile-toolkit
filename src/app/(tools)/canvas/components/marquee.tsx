@@ -21,13 +21,19 @@ export function Marquee({ marquee, camera }: { marquee: MarqueeState; camera: Ca
     // Project world points → screen and emit `M x y L x y L x y …` for
     // the SVG path. Z closes the loop visually so the user sees the
     // hit region exactly.
-    let d = "";
+    //
+    // Path assembly uses an array + join rather than `+=` string
+    // concatenation in a loop — for a long lasso with 1000+ points
+    // (slow careful drag), `+=` becomes O(n²) due to repeated
+    // allocation of the intermediate strings, which can stutter the
+    // input thread mid-drag. Pre-sized array stays O(n).
+    const parts: string[] = new Array(pts.length / 2);
     for (let i = 0; i < pts.length; i += 2) {
       const sx = (pts[i] - camera.x) * camera.zoom;
       const sy = (pts[i + 1] - camera.y) * camera.zoom;
-      d += `${i === 0 ? "M" : "L"} ${sx} ${sy} `;
+      parts[i / 2] = `${i === 0 ? "M" : "L"} ${sx} ${sy}`;
     }
-    d += "Z";
+    const d = parts.join(" ") + " Z";
     return (
       <svg
         aria-hidden="true"
