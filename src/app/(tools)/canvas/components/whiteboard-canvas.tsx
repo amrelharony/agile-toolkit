@@ -404,6 +404,14 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   // ping-pong. Cleared on pointer-up. Phase 23 / fast-path Phase 26.
   const lassoPointsRef = useRef<number[] | null>(null);
   const lassoRafRef = useRef<number | null>(null);
+  // Drag-to-create origin. When the user picks a shape/sticky/text/card/
+  // frame tool and pointer-downs on the canvas, we stash the start world
+  // point here and treat subsequent pointer-move events as a resize-while-
+  // creating drag. drawing.x/y/w/h continuously reflects the normalised
+  // (top-left + positive size) rect. createStartRef holds the original
+  // pointer-down point so the move handler can re-derive the rect even
+  // when the user drags up/left and the rect flips around the origin.
+  const createStartRef = useRef<{ x: number; y: number } | null>(null);
   // Latest world coord seen on pointermove — written every event,
   // read inside the rAF callback so the visual update reflects the
   // CURRENT cursor position rather than the position captured when
@@ -1356,7 +1364,63 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
         return;
       }
 
-      // Single-click shape / sticky / text / frame add via the existing helper.
+      // ─── Drag-to-create: shape / sticky / text / frame / card ─────────
+      // For tools that produce a rectangular object, start a draft and
+      // resize it as the user drags. If the user simply clicks without
+      // dragging, pointer-up falls back to the tool's default size
+      // centred on the click — preserving the single-click UX.
+      //
+      // kanban/timer/voting are deliberately NOT drag-to-create because
+      // they're composite widgets (multi-column layout, control row,
+      // option grid) whose proportions only make sense at known sizes.
+      if (
+        tool === "sticky" ||
+        tool === "rect" ||
+        tool === "ellipse" ||
+        tool === "diamond" ||
+        tool === "triangle" ||
+        tool === "text" ||
+        tool === "frame" ||
+        tool === "card"
+      ) {
+        const id = wbId("wb");
+        const now = new Date().toISOString();
+        const topZ = topZRef.current + 1;
+        const baseProps = {
+          id,
+          boardId,
+          version: 1,
+          z: topZ,
+          createdAt: now,
+          updatedAt: now,
+          x: world.x,
+          y: world.y,
+          w: 0,
+          h: 0,
+        };
+        let draft: WhiteboardObject | null = null;
+        if (tool === "sticky") {
+          draft = { ...baseProps, type: "sticky", content: "", color: stickyColor };
+        } else if (tool === "rect" || tool === "ellipse" || tool === "diamond" || tool === "triangle") {
+          draft = { ...baseProps, type: tool, stroke: "#94a3b8", strokeWidth: 1.5 };
+        } else if (tool === "text") {
+          draft = { ...baseProps, type: "text", content: "", fontSize: 18, color: "#e5e7eb", align: "left" };
+        } else if (tool === "frame") {
+          draft = { ...baseProps, type: "frame", label: "Frame" };
+        } else if (tool === "card") {
+          draft = { ...baseProps, type: "card", title: "New card", color: "#00f0ff" };
+        }
+        if (draft) {
+          createStartRef.current = { x: world.x, y: world.y };
+          setDrawing(draft);
+          viewportRef.current?.setPointerCapture(e.pointerId);
+          return;
+        }
+      }
+
+      // Click-only creation for composite widgets (kanban, timer, voting)
+      // — addObjectAt commits at default size and auto-edits text-bearing
+      // objects internally.
       addObjectAt(world.x, world.y);
     },
     // `objects` deliberately omitted: the line/arrow/freehand branches
@@ -1418,6 +1482,40 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
 
       // ─── Drawing in progress ─────────────────────────────────────────
       if (drawing) {
+        // Shape / sticky / text / frame / card drag-to-create: resize the
+        // draft to the rect spanned by createStartRef → current pointer.
+        // Normalises so x/y is always top-left and w/h is always positive,
+        // even when the user drags up-left and the rect flips around the
+        // start point. Shift constrains to a square.
+        if (
+          createStartRef.current &&
+          (drawing.type === "sticky" ||
+            drawing.type === "rect" ||
+            drawing.type === "ellipse" ||
+            drawing.type === "diamond" ||
+            drawing.type === "triangle" ||
+            drawing.type === "text" ||
+            drawing.type === "frame" ||
+            drawing.type === "card")
+        ) {
+          const sx = createStartRef.current.x;
+          const sy = createStartRef.current.y;
+          let dx = world.x - sx;
+          let dy = world.y - sy;
+          if (e.shiftKey) {
+            const m = Math.max(Math.abs(dx), Math.abs(dy));
+            dx = Math.sign(dx) * m;
+            dy = Math.sign(dy) * m;
+          }
+          setDrawing({
+            ...drawing,
+            x: Math.min(sx, sx + dx),
+            y: Math.min(sy, sy + dy),
+            w: Math.abs(dx),
+            h: Math.abs(dy),
+          });
+          return;
+        }
         if (drawing.type === "line" || drawing.type === "arrow") {
           // w/h carry the dx/dy to the line endpoint. Shift constrains to
           // 45°/90° for tidier diagrams.
@@ -1914,6 +2012,82 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
     }
     // Commit drawing-in-progress.
     if (drawing) {
+      // Shape / sticky / text / frame / card drag-to-create commit. If the
+      // drag was trivial (< 4 world px in either dimension), fall back to
+      // the tool's default size centred on the click — preserves single-
+      // click UX. Otherwise enforce a usable minimum so a 1×1 drag doesn't
+      // produce an invisible object.
+      const isShapeCreate =
+        createStartRef.current &&
+        (drawing.type === "sticky" ||
+          drawing.type === "rect" ||
+          drawing.type === "ellipse" ||
+          drawing.type === "diamond" ||
+          drawing.type === "triangle" ||
+          drawing.type === "text" ||
+          drawing.type === "frame" ||
+          drawing.type === "card");
+
+      if (isShapeCreate && !readOnly) {
+        const sx = createStartRef.current!.x;
+        const sy = createStartRef.current!.y;
+        const trivial = drawing.w < 4 && drawing.h < 4;
+        let committed: WhiteboardObject = drawing;
+        if (trivial) {
+          // Single-click fallback — apply default size centred on the
+          // click. Defaults chosen to match what addObjectAt produces
+          // for the same tool.
+          const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
+            sticky: { w: STICKY_DEFAULT.w, h: STICKY_DEFAULT.h },
+            rect: { w: SHAPE_DEFAULT.w, h: SHAPE_DEFAULT.h },
+            ellipse: { w: SHAPE_DEFAULT.w, h: SHAPE_DEFAULT.h },
+            diamond: { w: SHAPE_DEFAULT.w, h: SHAPE_DEFAULT.h },
+            triangle: { w: SHAPE_DEFAULT.w, h: SHAPE_DEFAULT.h },
+            text: { w: TEXT_DEFAULT.w, h: TEXT_DEFAULT.h },
+            frame: { w: 640, h: 400 },
+            card: { w: 200, h: 120 },
+          };
+          const d = DEFAULT_SIZE[drawing.type] ?? { w: 160, h: 120 };
+          committed = {
+            ...drawing,
+            x: sx - d.w / 2,
+            y: sy - d.h / 2,
+            w: d.w,
+            h: d.h,
+          } as WhiteboardObject;
+        } else {
+          // Drag created a real rect. Enforce a usable minimum (40×30 or
+          // 60×40 for big composite types) so a 5×5 drag still produces
+          // something interactive.
+          const MIN_W = drawing.type === "frame" ? 120 : 40;
+          const MIN_H = drawing.type === "frame" ? 80 : 30;
+          committed = {
+            ...drawing,
+            w: Math.max(drawing.w, MIN_W),
+            h: Math.max(drawing.h, MIN_H),
+          } as WhiteboardObject;
+        }
+        pushSnapshot();
+        upsert(committed);
+        log(CANVAS_ACTIONS.OBJECT_ADDED, { id: committed.id, type: committed.type });
+        logActivity("added", `Created ${committed.type}`);
+        setSelection([committed.id]);
+        // Auto-enter edit mode for text-bearing objects so the user can
+        // type immediately after creation (Miro/Figma convention).
+        if (
+          committed.type === "sticky" ||
+          committed.type === "text" ||
+          committed.type === "card"
+        ) {
+          setEditingObjectId(committed.id);
+        }
+        createStartRef.current = null;
+        setDrawing(null);
+        viewportRef.current?.releasePointerCapture(e.pointerId);
+        setTool("select");
+        return;
+      }
+
       const isTrivial =
         (drawing.type === "line" || drawing.type === "arrow")
           ? Math.hypot(drawing.w, drawing.h) < 4
@@ -1931,6 +2105,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
         log(CANVAS_ACTIONS.OBJECT_ADDED, { id: drawing.id, type: drawing.type });
         setSelection([drawing.id]);
       }
+      createStartRef.current = null;
       setDrawing(null);
       // Snap back to Select after drawing so the user can immediately
       // reposition or restyle the new object — matches every other

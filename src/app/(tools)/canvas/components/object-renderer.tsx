@@ -340,7 +340,12 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
             padding: 10,
             boxSizing: "border-box",
             borderRadius: 6,
-            fontSize: o.fontSize ?? 14,
+            // Sticky default bumped to 16 — at 14 a 200×160 sticky's
+            // body text was the same size as the toolbar chrome,
+            // which made stickies feel cramped and read like UI
+            // rather than content. Users can still resize via the
+            // property panel.
+            fontSize: o.fontSize ?? 16,
             fontFamily: o.fontFamily ?? "ui-sans-serif, system-ui, sans-serif",
             whiteSpace: "pre-wrap",
             wordWrap: "break-word",
@@ -357,7 +362,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
               onCommit={commitEdit}
               background="transparent"
               color={o.textColor ?? "#0b0f17"}
-              fontSize={o.fontSize ?? 14}
+              fontSize={o.fontSize ?? 16}
             />
           ) : (
             o.content || <span style={{ opacity: 0.4 }}>Sticky note</span>
@@ -444,35 +449,51 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
           <svg width={o.w} height={o.h} style={{ display: "block" }}>
             {shape}
           </svg>
-          {editing ? (
-            <InlineEditor
-              initialText={o.content ?? ""}
-              onCommit={commitEdit}
-              color="#e5e7eb"
-              fontSize={14}
-              align="center"
-              padding={8}
-            />
-          ) : (
-            o.content && (
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "#e5e7eb",
-                fontSize: 14,
-                fontFamily: "ui-sans-serif, system-ui, sans-serif",
-                textAlign: "center",
-                padding: 8,
-                pointerEvents: "none",
-              }}
-            >
-              {o.content}
-            </div>
-          ))}
+          {/* Shape font scales with the smaller dimension so text stays
+              readable as the shape grows but never overruns a tall-thin
+              rect. Floor at 14 (smallest legible UI text), ceiling at 32
+              (matches H2 sizing — bigger feels shouty in a diagram).
+              Divisor 7 was tuned by eye: a 160×120 shape gets 17 px,
+              a 400×300 shape gets 32 px (capped), a 80×60 thumbnail gets
+              the 14 px floor. */}
+          {(() => {
+            const shapeFontSize = Math.max(
+              14,
+              Math.min(32, Math.floor(Math.min(o.w, o.h) / 7)),
+            );
+            return editing ? (
+              <InlineEditor
+                initialText={o.content ?? ""}
+                onCommit={commitEdit}
+                color="#e5e7eb"
+                fontSize={shapeFontSize}
+                align="center"
+                padding={8}
+              />
+            ) : (
+              o.content && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#e5e7eb",
+                    fontSize: shapeFontSize,
+                    fontFamily: "ui-sans-serif, system-ui, sans-serif",
+                    textAlign: "center",
+                    padding: 8,
+                    pointerEvents: "none",
+                    lineHeight: 1.2,
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {o.content}
+                </div>
+              )
+            );
+          })()}
           {o.locked && !editing && <LockBadge z={o.z} />}
         </div>
       );
