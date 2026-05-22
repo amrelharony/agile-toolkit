@@ -317,7 +317,25 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
     : undefined;
 
   switch (o.type) {
-    case "sticky":
+    case "sticky": {
+      // Sticky font scales with the SHORTER dimension so a tall-thin
+      // sticky still fits text horizontally and a stretched-wide sticky
+      // still keeps text vertically. Floor 16 (smallest legible body
+      // text), ceiling 64 (huge stickies read like posters — a 500×400
+      // sticky should have giant text, not tiny chrome-sized text).
+      // Divisor 7 keeps the scaling visually pleasant:
+      //
+      //   80×60 (thumbnail) → 60/7=8 → floor 16
+      //   200×160 (default) → 160/7=22 → 22 px
+      //   400×300           → 300/7=42 → 42 px
+      //   600×500           → 500/7=71 → ceiling 64
+      //
+      // Respects an explicitly-set `fontSize` if the user has
+      // customised it via the property panel — only the auto-default
+      // case is scaled.
+      const stickyFontSize =
+        o.fontSize ??
+        Math.max(16, Math.min(64, Math.floor(Math.min(o.w, o.h) / 7)));
       return (
         <div
           data-canvas-object-kind="sticky"
@@ -340,12 +358,8 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
             padding: 10,
             boxSizing: "border-box",
             borderRadius: 6,
-            // Sticky default bumped to 16 — at 14 a 200×160 sticky's
-            // body text was the same size as the toolbar chrome,
-            // which made stickies feel cramped and read like UI
-            // rather than content. Users can still resize via the
-            // property panel.
-            fontSize: o.fontSize ?? 16,
+            fontSize: stickyFontSize,
+            lineHeight: 1.2,
             fontFamily: o.fontFamily ?? "ui-sans-serif, system-ui, sans-serif",
             whiteSpace: "pre-wrap",
             wordWrap: "break-word",
@@ -362,7 +376,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
               onCommit={commitEdit}
               background="transparent"
               color={o.textColor ?? "#0b0f17"}
-              fontSize={o.fontSize ?? 16}
+              fontSize={stickyFontSize}
             />
           ) : (
             o.content || <span style={{ opacity: 0.4 }}>Sticky note</span>
@@ -370,6 +384,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
           {o.locked && !editing && <LockBadge z={o.z} />}
         </div>
       );
+    }
 
     case "rect":
     case "ellipse":
