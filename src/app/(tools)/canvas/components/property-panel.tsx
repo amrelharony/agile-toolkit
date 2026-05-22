@@ -141,23 +141,33 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
         transform: "translateX(-50%)",
         zIndex: 9997,
       }}
-      className="flex items-center gap-1 bg-surface/95 border border-border rounded-lg px-2 py-1 shadow-lg backdrop-blur-sm flex-wrap max-w-[680px]"
+      // Single-row scrollable: was `flex-wrap max-w-[680px]` which split
+      // a busy selection onto two rows + reserved the orphaned tag chip
+      // at the bottom-left. Now: `flex-nowrap max-w-[min(95vw,640px)]
+      // overflow-x-auto` keeps everything on one row and scrolls
+      // horizontally when content overflows, with a hidden scrollbar
+      // for the sleek look. Padding tightened: gap-1 → gap-0.5,
+      // px-2 py-1 → px-1.5 py-0.5.
+      className="flex items-center gap-0.5 bg-surface/95 border border-border rounded-lg px-1.5 py-0.5 shadow-lg backdrop-blur-sm flex-nowrap max-w-[min(95vw,640px)] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {/* ─── Sticky color (palette swatches) ─────────────────── */}
       {stickies.length > 0 && (
-        <div className="flex items-center gap-0.5" aria-label="Sticky color">
+        <div className="flex items-center gap-0.5 shrink-0" aria-label="Sticky color">
           {STICKY_COLORS.map((c) => (
             <button
               key={c}
               type="button"
               aria-label={`Set color ${c}`}
-              title={c}
+              title={`Sticky color: ${c}`}
               onClick={() => patchAll(stickies, { color: c } as Partial<WhiteboardSticky>)}
-              className="w-5 h-5 rounded border border-black/30 hover:scale-110 transition-transform"
+              // 16 → 14 px swatches, full circles (was rounded-sm),
+              // hover ring instead of scale so adjacent swatches
+              // don't jitter when the user moves between them.
+              className="w-3.5 h-3.5 rounded-full border border-black/20 hover:ring-2 hover:ring-accent/50 transition-shadow"
               style={{ background: c }}
             />
           ))}
-          <div className="w-px h-5 bg-border mx-1" />
+          <div className="w-px h-4 bg-border/70 mx-1.5" />
         </div>
       )}
 
@@ -190,35 +200,56 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
         />
       )}
 
-      {/* ─── Stroke width ─────────────────── */}
+      {/* ─── Stroke width — active pill on the currently-selected
+          width (when uniform across the selection). */}
       {(shapes.length > 0 || lines.length > 0 || connectors.length > 0 || freehands.length > 0) && (
-        <div className="flex items-center gap-0.5" aria-label="Stroke width">
-          {STROKE_WIDTHS.map((w) => (
-            <button
-              key={w}
-              type="button"
-              aria-label={`Stroke width ${w}`}
-              title={`${w}px`}
-              onClick={() => {
-                if (shapes.length > 0) patchAll(shapes, { strokeWidth: w } as Partial<WhiteboardShape>);
-                if (lines.length > 0) patchAll(lines, { strokeWidth: w } as Partial<WhiteboardLine>);
-                if (connectors.length > 0) patchAll(connectors, { strokeWidth: w } as Partial<WhiteboardConnector>);
-                if (freehands.length > 0) patchAll(freehands, { strokeWidth: w } as Partial<WhiteboardFreehand>);
-              }}
-              className="w-6 h-6 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep transition-colors"
-            >
-              <div style={{ width: 14, height: w, background: "currentColor", borderRadius: w / 2 }} />
-            </button>
-          ))}
-          <div className="w-px h-5 bg-border mx-1" />
+        <div className="flex items-center gap-0.5 shrink-0" aria-label="Stroke width">
+          {STROKE_WIDTHS.map((w) => {
+            const activeShape = shapes.length > 0 && shapes.every((o) => (o.strokeWidth ?? 1.5) === w);
+            const activeLine = lines.length > 0 && lines.every((o) => o.strokeWidth === w);
+            const activeConn = connectors.length > 0 && connectors.every((o) => o.strokeWidth === w);
+            const activeFree = freehands.length > 0 && freehands.every((o) => o.strokeWidth === w);
+            const active = activeShape || activeLine || activeConn || activeFree;
+            return (
+              <button
+                key={w}
+                type="button"
+                aria-label={`Stroke width ${w}`}
+                aria-pressed={active}
+                title={`${w}px`}
+                onClick={() => {
+                  if (shapes.length > 0) patchAll(shapes, { strokeWidth: w } as Partial<WhiteboardShape>);
+                  if (lines.length > 0) patchAll(lines, { strokeWidth: w } as Partial<WhiteboardLine>);
+                  if (connectors.length > 0) patchAll(connectors, { strokeWidth: w } as Partial<WhiteboardConnector>);
+                  if (freehands.length > 0) patchAll(freehands, { strokeWidth: w } as Partial<WhiteboardFreehand>);
+                }}
+                className={`w-6 h-6 rounded flex items-center justify-center transition-colors ${
+                  active
+                    ? "bg-accent/20 text-accent"
+                    : "text-sub hover:text-text hover:bg-surface-deep"
+                }`}
+              >
+                <div style={{ width: 14, height: w, background: "currentColor", borderRadius: w / 2 }} />
+              </button>
+            );
+          })}
+          <div className="w-px h-4 bg-border/70 mx-1.5" />
         </div>
       )}
 
-      {/* ─── Dashed toggle (lines / arrows / connectors / shapes) ──── */}
-      {(lines.length > 0 || connectors.length > 0 || shapes.length > 0) && (
+      {/* ─── Dashed toggle — also gets the active pill so the user
+          sees whether their current selection IS dashed. */}
+      {(lines.length > 0 || connectors.length > 0 || shapes.length > 0) && (() => {
+        const allDashed =
+          (lines.length === 0 || lines.every((o) => o.dashed)) &&
+          (connectors.length === 0 || connectors.every((o) => o.dashed)) &&
+          (shapes.length === 0 || shapes.every((o) => o.dashed)) &&
+          (lines.length + connectors.length + shapes.length > 0);
+        return (
         <button
           type="button"
           aria-label="Toggle dashed stroke"
+          aria-pressed={allDashed}
           title="Dashed"
           onClick={() => {
             // Per-object toggle so mixed selections preserve individual
@@ -230,16 +261,21 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
             for (const c of shapes) entries.push({ id: c.id, patch: { dashed: !c.dashed } as Partial<WhiteboardObject> });
             onPatch(entries);
           }}
-          className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep transition-colors"
+          className={`w-6 h-6 rounded flex items-center justify-center shrink-0 transition-colors ${
+            allDashed
+              ? "bg-accent/20 text-accent"
+              : "text-sub hover:text-text hover:bg-surface-deep"
+          }`}
         >
           <Minus className="w-4 h-4" style={{ strokeDasharray: "3 2" }} aria-hidden="true" />
         </button>
-      )}
+        );
+      })()}
 
       {/* ─── Connector routing + arrowheads ─────────────────── */}
       {connectors.length > 0 && (
         <div className="flex items-center gap-0.5" aria-label="Connector options">
-          <div className="w-px h-5 bg-border mx-1" />
+          <div className="w-px h-4 bg-border/70 mx-1.5" />
           {(["straight", "orthogonal", "curved"] as ConnectorRouting[]).map((r) => (
             <button
               key={r}
@@ -304,48 +340,72 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
         />
       )}
 
-      {/* ─── Font size ─────────────────── */}
+      {/* ─── Font size — tighter button rhythm. Each size compares to
+          the current selected fontSize: active size gets the accent
+          pill, others stay sub. Without the active indicator, the
+          previous 7 plain numbers looked like decoration rather than
+          a state picker. */}
       {(stickies.length > 0 || texts.length > 0) && (
-        <div className="flex items-center gap-0.5" aria-label="Font size">
-          {FONT_SIZES.map((s) => (
-            <button
-              key={s}
-              type="button"
-              aria-label={`Font size ${s}`}
-              title={`${s}px`}
-              onClick={() => {
-                if (stickies.length > 0) patchAll(stickies, { fontSize: s } as Partial<WhiteboardSticky>);
-                if (texts.length > 0) patchAll(texts, { fontSize: s } as Partial<WhiteboardText>);
-              }}
-              className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
-            >
-              {s}
-            </button>
-          ))}
-          <div className="w-px h-5 bg-border mx-1" />
+        <div className="flex items-center gap-0.5 shrink-0" aria-label="Font size">
+          {FONT_SIZES.map((s) => {
+            const activeSticky = stickies.length > 0 && stickies.every((o) => (o.fontSize ?? 16) === s);
+            const activeText = texts.length > 0 && texts.every((o) => o.fontSize === s);
+            const active = activeSticky || activeText;
+            return (
+              <button
+                key={s}
+                type="button"
+                aria-label={`Font size ${s}`}
+                aria-pressed={active}
+                title={`${s}px`}
+                onClick={() => {
+                  if (stickies.length > 0) patchAll(stickies, { fontSize: s } as Partial<WhiteboardSticky>);
+                  if (texts.length > 0) patchAll(texts, { fontSize: s } as Partial<WhiteboardText>);
+                }}
+                className={`min-w-[22px] h-6 px-1 rounded text-[10px] font-mono transition-colors ${
+                  active
+                    ? "bg-accent/20 text-accent"
+                    : "text-sub hover:text-text hover:bg-surface-deep"
+                }`}
+              >
+                {s}
+              </button>
+            );
+          })}
+          <div className="w-px h-4 bg-border/70 mx-1.5" />
         </div>
       )}
 
-      {/* ─── Font family (sticky + text only) ─────────────────── */}
+      {/* ─── Font family — same active-pill treatment for consistency. */}
       {(stickies.length > 0 || texts.length > 0) && (
-        <div className="flex items-center gap-0.5" aria-label="Font family">
-          {FONT_FAMILIES.map((f) => (
-            <button
-              key={f.label}
-              type="button"
-              aria-label={`Font ${f.label}`}
-              title={f.label}
-              onClick={() => {
-                if (stickies.length > 0) patchAll(stickies, { fontFamily: f.value } as Partial<WhiteboardSticky>);
-                if (texts.length > 0) patchAll(texts, { fontFamily: f.value } as Partial<WhiteboardText>);
-              }}
-              className="px-1.5 py-1 rounded text-[10px] text-sub hover:text-text hover:bg-surface-deep transition-colors"
-              style={{ fontFamily: f.value }}
-            >
-              {f.label}
-            </button>
-          ))}
-          <div className="w-px h-5 bg-border mx-1" />
+        <div className="flex items-center gap-0.5 shrink-0" aria-label="Font family">
+          {FONT_FAMILIES.map((f) => {
+            const activeSticky = stickies.length > 0 && stickies.every((o) => (o.fontFamily ?? undefined) === f.value);
+            const activeText = texts.length > 0 && texts.every((o) => (o.fontFamily ?? undefined) === f.value);
+            const active = activeSticky || activeText;
+            return (
+              <button
+                key={f.label}
+                type="button"
+                aria-label={`Font ${f.label}`}
+                aria-pressed={active}
+                title={f.label}
+                onClick={() => {
+                  if (stickies.length > 0) patchAll(stickies, { fontFamily: f.value } as Partial<WhiteboardSticky>);
+                  if (texts.length > 0) patchAll(texts, { fontFamily: f.value } as Partial<WhiteboardText>);
+                }}
+                className={`h-6 px-1.5 rounded text-[10px] transition-colors ${
+                  active
+                    ? "bg-accent/20 text-accent"
+                    : "text-sub hover:text-text hover:bg-surface-deep"
+                }`}
+                style={{ fontFamily: f.value }}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+          <div className="w-px h-4 bg-border/70 mx-1.5" />
         </div>
       )}
 
@@ -364,7 +424,7 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
                 patch: { fontWeight: (t.fontWeight ?? 400) >= 600 ? 400 : 700 } as Partial<WhiteboardObject>,
               })));
             }}
-            className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             <Bold className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
@@ -373,7 +433,7 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
             aria-label="Align left"
             title="Align left"
             onClick={() => patchAll(texts, { align: "left" } as Partial<WhiteboardText>)}
-            className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             <AlignLeft className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
@@ -382,7 +442,7 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
             aria-label="Align center"
             title="Align center"
             onClick={() => patchAll(texts, { align: "center" } as Partial<WhiteboardText>)}
-            className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             <AlignCenter className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
@@ -391,7 +451,7 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
             aria-label="Align right"
             title="Align right"
             onClick={() => patchAll(texts, { align: "right" } as Partial<WhiteboardText>)}
-            className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             <AlignRight className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
@@ -429,7 +489,6 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
       {/* ─── Timer presets (Phase 25) ─────────────────── */}
       {timers.length > 0 && (
         <div className="flex items-center gap-0.5" aria-label="Timer duration">
-          <span className="text-[9px] uppercase font-mono text-sub mr-1">Duration</span>
           {[60, 180, 300, 600, 1200].map((sec) => (
             <button
               key={sec}
@@ -447,14 +506,13 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
               {Math.round(sec / 60)}m
             </button>
           ))}
-          <div className="w-px h-5 bg-border mx-1" />
+          <div className="w-px h-4 bg-border/70 mx-1.5" />
         </div>
       )}
 
       {/* ─── Voting reveal toggle + option presets (Phase 27) ──── */}
       {votings.length > 0 && (
         <div className="flex items-center gap-0.5" aria-label="Voting options">
-          <span className="text-[9px] uppercase font-mono text-sub mr-1">Options</span>
           <button
             type="button"
             aria-label="Fibonacci scale"
@@ -494,14 +552,13 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
           >
             Dots
           </button>
-          <div className="w-px h-5 bg-border mx-1" />
+          <div className="w-px h-4 bg-border/70 mx-1.5" />
         </div>
       )}
 
       {/* ─── Kanban column count presets (Phase 26) ─────────── */}
       {kanbans.length > 0 && (
         <div className="flex items-center gap-0.5" aria-label="Kanban columns">
-          <span className="text-[9px] uppercase font-mono text-sub mr-1">Columns</span>
           <button
             type="button"
             aria-label="3 columns"
@@ -538,7 +595,7 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
           >
             5
           </button>
-          <div className="w-px h-5 bg-border mx-1" />
+          <div className="w-px h-4 bg-border/70 mx-1.5" />
         </div>
       )}
       {/* Embed has no styling — keep panel empty for embed-only selections. */}
@@ -755,19 +812,24 @@ function TagsEditor({
   );
 }
 
-/** Compact swatch row reused for fill / stroke / text-color pickers. */
+/** Compact swatch row reused for fill / stroke / text-color pickers.
+ *
+ * Sleek redesign: dropped the inline "FILL"/"STROKE"/"TEXT" labels —
+ * they were taking horizontal space and the colour clusters speak for
+ * themselves with tooltip-aware swatches. The aria-label on the wrapper
+ * still announces the role for screen readers, and each swatch's
+ * title/aria carries the colour value. */
 function PaletteRow({ label, colors, onPick }: { label: string; colors: readonly string[]; onPick: (c: string) => void }) {
   return (
-    <div className="flex items-center gap-0.5" aria-label={label}>
-      <span className="text-[9px] uppercase font-mono text-sub mr-1">{label}</span>
+    <div className="flex items-center gap-0.5" aria-label={label} title={label}>
       {colors.map((c) => (
         <button
           key={c}
           type="button"
           aria-label={`${label} ${c}`}
-          title={c}
+          title={`${label}: ${c}`}
           onClick={() => onPick(c)}
-          className="w-4 h-4 rounded border border-black/30 hover:scale-110 transition-transform"
+          className="w-3.5 h-3.5 rounded-full border border-black/20 hover:ring-2 hover:ring-accent/50 transition-shadow"
           style={{
             background: c === "transparent"
               ? "repeating-conic-gradient(#374151 0% 25%, transparent 0% 50%) 50% / 6px 6px"
@@ -775,7 +837,7 @@ function PaletteRow({ label, colors, onPick }: { label: string; colors: readonly
           }}
         />
       ))}
-      <div className="w-px h-5 bg-border mx-1" />
+      <div className="w-px h-4 bg-border/70 mx-1.5" />
     </div>
   );
 }
