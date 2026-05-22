@@ -87,7 +87,23 @@ export function ToolbarLeft() {
 
   return (
     <div
-      className="absolute left-3 top-1/2 -translate-y-1/2 flex flex-col gap-0.5 bg-surface/95 border border-border rounded-lg p-1 shadow-lg backdrop-blur-sm z-10"
+      // Responsive layout:
+      //   - Top-anchored with a max-height ceiling (was top:50% +
+      //     -translate-y-50%) so the 18-tool column never overflows
+      //     the canvas viewport on portrait phones (375x667 viewports
+      //     can't host a 648px column centred-vertically — the bottom
+      //     tools would clip below the canvas bottom)
+      //   - overflow-y-auto so any remaining overflow scrolls instead
+      //     of clipping silently
+      //   - overscroll-contain so toolbar scrolling doesn't bubble out
+      //     to the canvas pan, which would cause a confusing combined
+      //     gesture on touch devices
+      //   - thin custom scrollbar so the rail doesn't look stuffy
+      //     when scrolling
+      // Also: 32x32 buttons on narrow viewports (<sm) and 36x36 on
+      // larger so touch users get a 44px-class hit area when you
+      // include the toolbar padding.
+      className="absolute left-2 sm:left-3 top-2 sm:top-3 bottom-2 sm:bottom-auto sm:max-h-[calc(100%-1.5rem)] flex flex-col gap-0.5 bg-surface/95 border border-border rounded-lg p-1 shadow-lg backdrop-blur-sm z-10 overflow-y-auto overscroll-contain [scrollbar-width:thin]"
       role="toolbar"
       aria-label="Canvas tools"
       // PNG export filters out anything carrying this attribute so the
@@ -113,8 +129,12 @@ export function ToolbarLeft() {
                 title={t.shortcut ? `${t.label} (${t.shortcut})` : t.label}
                 aria-label={t.label}
                 aria-pressed={active}
+                // Hit area scales with viewport: 36x36 on desktop, 40x40
+                // on touch (sm:w-9) so finger taps land reliably.
+                // shrink-0 protects the row from squashing when the
+                // toolbar's scrollable height fights for space.
                 className={cn(
-                  "w-9 h-9 rounded-md flex items-center justify-center transition-colors",
+                  "w-10 h-10 sm:w-9 sm:h-9 rounded-md flex items-center justify-center transition-colors shrink-0",
                   active
                     ? "bg-accent/20 text-accent"
                     : "text-sub hover:text-text hover:bg-surface-deep",

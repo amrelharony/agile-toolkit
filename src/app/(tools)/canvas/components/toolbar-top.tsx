@@ -127,17 +127,28 @@ export function ToolbarTop() {
       // the New-board action sat dangerously close to the trash button.
       // Now the destructive Delete is contained inside the first group
       // and "+ New" gets its own breathing room before the view toggles.
-      className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-surface/95 border border-border rounded-lg px-2 py-1 shadow-lg backdrop-blur-sm z-10"
+      //
+      // Responsive constraints (narrow viewports):
+      //   - `max-w-[calc(100%-1rem)]` so the toolbar never extends past
+      //     the canvas viewport edges, with overflow-x-auto for the
+      //     rare case the user has 20+ boards and the picker label is
+      //     long
+      //   - `flex-wrap` would split groups across rows which looks
+      //     worse than a horizontal scroll — keep it nowrap
+      className="absolute top-2 sm:top-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-surface/95 border border-border rounded-lg px-2 py-1 shadow-lg backdrop-blur-sm z-10 max-w-[calc(100%-1rem)] flex-nowrap overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       // PNG export filters out anything carrying this attribute.
       data-canvas-export-ignore="true"
     >
       {/* Group 1 — board picker, rename, delete */}
-      <div className="flex items-center gap-1.5 px-1">
+      <div className="flex items-center gap-1.5 px-1 shrink-0">
         <select
           aria-label="Active board"
           value={board?.id ?? ""}
           onChange={(e) => setActiveBoard(e.target.value)}
-          className="bg-transparent text-sm text-text font-mono outline-none cursor-pointer max-w-[160px]"
+          // max-w shrinks on narrow viewports so the picker doesn't push
+          // the rest of the toolbar off-screen. 120px fits ~14 chars
+          // which covers most reasonable board names.
+          className="bg-transparent text-sm text-text font-mono outline-none cursor-pointer max-w-[120px] sm:max-w-[160px]"
         >
           {boards.length === 0 && <option value="">No boards yet</option>}
           {boards.map((b) => (
@@ -190,19 +201,19 @@ export function ToolbarTop() {
       </div>
 
       {/* Group 2 — create */}
-      <div className="w-px h-5 bg-border" aria-hidden="true" />
+      <div className="w-px h-5 bg-border shrink-0" aria-hidden="true" />
       <button
         type="button"
         onClick={createBoard}
-        className="text-xs text-accent hover:text-accent/80 transition-colors inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-accent/5"
+        className="text-xs text-accent hover:text-accent/80 transition-colors inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-accent/5 shrink-0"
       >
         <Plus className="w-3.5 h-3.5" />
         New
       </button>
 
       {/* Group 3 — view toggles (snap, minimap, present, AI) */}
-      <div className="w-px h-5 bg-border" aria-hidden="true" />
-      <div className="flex items-center gap-0.5">
+      <div className="w-px h-5 bg-border shrink-0" aria-hidden="true" />
+      <div className="flex items-center gap-0.5 shrink-0">
         <button
           type="button"
           onClick={() => setSnapToGridEnabled(!snapToGridEnabled)}

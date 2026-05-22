@@ -534,22 +534,49 @@ export function CanvasClient() {
           instead of a single long row where Fit-to-content drifted to the
           far right edge disconnected from everything else. Left-aligned
           (was justify-end) so the leftmost cluster sits where the user's
-          eye lands first. */}
-      <div className="flex items-center gap-2 mb-3 flex-wrap">
+          eye lands first.
+
+          Responsive behaviour: button labels hide on <sm screens (icons
+          only) so the action bar fits in a single row on narrow viewports.
+          The tooltip + aria-label preserve the affordance for keyboard
+          and screen-reader users. */}
+      <div className="flex items-center gap-1.5 sm:gap-2 mb-3 flex-wrap">
         {/* Cluster 1 — content actions (create / fill the board) */}
         <AiPromptGenerator config={promptConfig} />
-        <Button variant="outline" size="sm" onClick={() => setShowTemplates(true)} className="gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowTemplates(true)}
+          className="gap-1.5"
+          title="Browse templates"
+          aria-label="Browse templates"
+        >
           <LayoutTemplate className="w-4 h-4" />
-          Templates
+          <span className="hidden sm:inline">Templates</span>
         </Button>
-        <Button variant="outline" size="sm" onClick={() => setShowImport(true)} className="gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowImport(true)}
+          className="gap-1.5"
+          title="Import from another tool"
+          aria-label="Import from another tool"
+        >
           <FileInput className="w-4 h-4" />
-          Import
+          <span className="hidden sm:inline">Import</span>
         </Button>
         <div className="relative inline-flex">
-          <Button variant="outline" size="sm" onClick={() => setShowExportMenu((v) => !v)} className="gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowExportMenu((v) => !v)}
+            className="gap-1.5"
+            title="Export the board"
+            aria-label="Export the board"
+            aria-expanded={showExportMenu}
+          >
             <Download className="w-4 h-4" />
-            Export
+            <span className="hidden sm:inline">Export</span>
           </Button>
           {showExportMenu && (
             <div
@@ -617,14 +644,30 @@ export function CanvasClient() {
           )}
         </div>
         {/* Cluster 2 — share + observe (less-frequent ops) */}
-        <div className="w-px h-5 bg-border mx-1" aria-hidden="true" />
-        <Button variant="outline" size="sm" onClick={() => setShowShare(true)} disabled={!activeBoardId} className="gap-1.5">
+        <div className="w-px h-5 bg-border mx-1 hidden sm:block" aria-hidden="true" />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowShare(true)}
+          disabled={!activeBoardId}
+          className="gap-1.5"
+          title="Share this board"
+          aria-label="Share this board"
+        >
           <Share2 className="w-4 h-4" />
-          Share
+          <span className="hidden sm:inline">Share</span>
         </Button>
-        <Button variant="outline" size="sm" onClick={() => setShowActivity((v) => !v)} disabled={!activeBoardId} className="gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowActivity((v) => !v)}
+          disabled={!activeBoardId}
+          className="gap-1.5"
+          title="Show activity stream"
+          aria-label="Show activity stream"
+        >
           <Activity className="w-4 h-4" />
-          Activity
+          <span className="hidden sm:inline">Activity</span>
         </Button>
         {/* Cluster 3 — view utility, pushed right (auto-spaced from the
             cluster above by `ml-auto` so it sits on the opposite edge of
@@ -636,18 +679,31 @@ export function CanvasClient() {
           disabled={objects.length === 0}
           className="ml-auto gap-1.5"
           title="Pan and zoom so every object fits the viewport"
+          aria-label="Fit to content"
         >
           <Maximize2 className="w-4 h-4" />
-          Fit to content
+          <span className="hidden sm:inline">Fit to content</span>
         </Button>
       </div>
 
       <div
         ref={canvasViewportRef}
-        // Taller viewport: 220px reserved instead of 260px. The header
-        // is now a single-line description (was 3-line) so we recover
-        // ~40px of vertical real estate for the actual board surface.
-        className="relative h-[calc(100vh-220px)] min-h-[520px] w-full rounded-lg border border-border overflow-hidden bg-bg"
+        // Responsive viewport height:
+        //   - 100dvh (dynamic viewport height): on mobile browsers,
+        //     adjusts to the *currently-visible* viewport — so when the
+        //     address bar collapses on scroll, the canvas reclaims that
+        //     space without us having to listen for resize events.
+        //     Plain `100vh` is the *largest* possible viewport on iOS
+        //     Safari, which means the canvas extends BELOW the address
+        //     bar and the user can't reach the bottom toolbar/hint.
+        //   - 220px reserved chrome: app header + page title + action
+        //     bar + a comfortable bottom gutter. On <sm screens the
+        //     action bar wraps to 2 rows so we add a tighter floor
+        //     via min-h.
+        //   - min-h falls from 520px (desktop) to 440px (small) so the
+        //     board stays usable on a 667px-tall portrait phone where
+        //     220px of chrome leaves only 447px for the canvas.
+        className="relative h-[calc(100dvh-220px)] min-h-[440px] sm:min-h-[520px] w-full rounded-lg border border-border overflow-hidden bg-bg"
       >
         {activeBoardId ? (
           <WhiteboardCanvas
