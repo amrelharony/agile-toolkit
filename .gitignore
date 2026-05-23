@@ -47,3 +47,7 @@ next-env.d.ts
 /mcp-server/node_modules
 /mcp-server/dist
 /mcp-server/*.tsbuildinfo
+
+# supabase CLI scratch dir (link state, edge functions, etc.)
+/supabase/.temp/
+/supabase/.branches/
