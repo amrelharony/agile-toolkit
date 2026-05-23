@@ -300,7 +300,11 @@ const ui: ToolPalette = {
   "keystroke-backspace": { voice: "click", step: 0, octave: 4, velocity: 0.2, jitterCents: 30, filter: "muffled" },
   // Radix data-state transitions (MutationObserver)
   "state-open": { voice: "chord", steps: [0, 2, 4], octave: 5, duration: 0.5 },
-  "state-close": { voice: "pad", step: 0, octave: 4, duration: 0.6, filter: "warm" },
+  // Was: sawtooth `pad` voice (1.2s release tail, harmonically rich →
+  // perceived as noisy when the dropdown / dialog close was a routine
+  // dismiss). Now matches `key-dismiss` + `category-close` — a soft
+  // piano root note that resolves cleanly without lingering.
+  "state-close": { voice: "piano", step: 0, octave: 4, velocity: 0.30, duration: 0.35 },
   "toggle-on": { voice: "pluck", step: 4, octave: 5, filter: "bright" },
   "toggle-off": { voice: "pluck", step: 1, octave: 4, filter: "warm" },
   // Sidebar category collapse/expand — deliberately distinct from the
