@@ -28,7 +28,7 @@ cp .env.example .env.local
 Then fill in the values you just copied. Minimum required:
 
 ```bash
-AUTHORIZED_EMAILS=elharonyclaw@gmail.com   # comma-separated; missing = deny all
+AUTHORIZED_EMAILS=a.elharony@gmail.com   # comma-separated; missing = deny all
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...    # KEEP SECRET — never expose to client

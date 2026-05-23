@@ -62,11 +62,10 @@ export function SignInCard() {
   };
 
   return (
-    <div className="max-w-md w-full space-y-6 text-center">
-      <div className="space-y-2">
-        <h1 className="text-2xl font-semibold text-text">Welcome back</h1>
-        <p className="text-sub text-sm">Sign in with the Google account on the workspace allowlist.</p>
-      </div>
+    <div className="max-w-sm w-full space-y-4 text-center">
+      <p className="text-sub text-sm">
+        Sign in with the Google account on the workspace allowlist.
+      </p>
 
       <Button
         onClick={() => void handleSignIn()}
