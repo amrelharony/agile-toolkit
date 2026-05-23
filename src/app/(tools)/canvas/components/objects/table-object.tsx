@@ -174,7 +174,15 @@ export function TableObject({
   };
   const onResizePointerUp = (e: React.PointerEvent) => {
     if (!resizeRef.current) return;
-    (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+    // Guard the release: if the user alt-tabbed / switched desktops
+    // mid-drag the browser fires `pointercancel` and drops capture
+    // before pointer-up arrives. Calling release on a pointer we
+    // don't hold throws `NotFoundError`. Same fix as the
+    // canvas-level pointer machine.
+    const target = e.currentTarget as HTMLDivElement;
+    if (target.hasPointerCapture?.(e.pointerId)) {
+      target.releasePointerCapture(e.pointerId);
+    }
     resizeRef.current = null;
   };
 

@@ -207,7 +207,17 @@ export function useRoom<T>(
     });
 
     return () => {
-      void channel.unsubscribe();
+      // R9-style cleanup (matches use-presence.ts and use-canvas-presence.ts):
+      // chain untrack → unsubscribe → removeChannel so the LEAVE event lands
+      // before the channel is torn down (otherwise peers see a ghost presence
+      // for ~60 s until the server's TTL expires) AND so the channel is freed
+      // from the Supabase client's internal `channels[]` map. Without
+      // removeChannel, every toolId/roomId change leaked a RealtimeChannel
+      // plus all its bound handler closures.
+      void Promise.resolve(channel.untrack())
+        .then(() => channel.unsubscribe())
+        .catch(() => {});
+      try { void getSupabaseClient()?.removeChannel(channel); } catch { /* client torn down */ }
       channelRef.current = null;
       handlers.clear();
       setIsConnected(false);

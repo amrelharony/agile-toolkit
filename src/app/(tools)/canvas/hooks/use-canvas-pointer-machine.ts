@@ -1018,7 +1018,13 @@ export function useCanvasPointerMachine(params: {
         }
         createStartRef.current = null;
         setDrawing(null);
-        viewportRef.current?.releasePointerCapture(e.pointerId);
+        // Pointer capture may not have been acquired (e.g. when the user
+        // never moved past the trivial-stroke threshold), so guard the
+        // release. Calling releasePointerCapture on a pointer we don't
+        // hold throws "NotFoundError" and noisily fails the gesture.
+        if (viewportRef.current?.hasPointerCapture?.(e.pointerId)) {
+          viewportRef.current.releasePointerCapture(e.pointerId);
+        }
         setTool("select");
         return;
       }
@@ -1039,7 +1045,11 @@ export function useCanvasPointerMachine(params: {
       setDrawing(null);
       setTool("select");
     }
-    viewportRef.current?.releasePointerCapture(e.pointerId);
+    // Same guard as above — pointer-up can fire without a matching
+    // capture (e.g. when a click never crosses any gesture threshold).
+    if (viewportRef.current?.hasPointerCapture?.(e.pointerId)) {
+      viewportRef.current.releasePointerCapture(e.pointerId);
+    }
   }, [
     marquee, drag, resize, rotation, drawing,
     setMarquee, setDrag, setResize, setRotation, setDrawing,

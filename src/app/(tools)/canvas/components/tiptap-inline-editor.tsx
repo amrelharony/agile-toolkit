@@ -3,7 +3,12 @@
 import { useEffect, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Link from "@tiptap/extension-link";
+// NOTE: do NOT import @tiptap/extension-link here — StarterKit v3 bundles
+// it. Importing separately *and* listing it in `extensions` produced a
+// "Duplicate extension names found: ['link']" warning AND caused the
+// editor to fail to mount silently. Even the bare import is suspicious
+// (some Tiptap builds side-register on import), so we strip it entirely.
+// Configure Link via `StarterKit.configure({ link: { ... } })` below.
 import { sanitizeRichHtml } from "@/lib/utils/safe-html";
 
 /**
@@ -61,30 +66,41 @@ export function TiptapInlineEditor({
   // Track the most recent value so blur reads the latest text even
   // if a fresh keystroke arrives in the same tick as blur.
   const latestRef = useRef(initialText);
-  // Detect HTML input. A leading `<` followed by a letter is the
-  // simplest robust signal — plain text starting with "<3" still
-  // matches but is rare and renders correctly either way (Tiptap
-  // will parse it as best it can).
-  const initialIsHtml = /^\s*<[a-z]/i.test(initialText);
+  // Track the original initialText (immutable for the editor lifetime)
+  // so the unmount-commit gate can compare "has the content actually
+  // changed since mount?". React Strict Mode's simulated unmount
+  // happens before any user input — at that point latestRef equals
+  // initialRef and we skip the commit, preventing the parent from
+  // clearing editingObjectId and tearing the editor down for good.
+  const initialRef = useRef(initialText);
 
+  // Tiptap accepts either raw HTML or plain text in `content`
+  // directly — it parses both via the same path — so we don't need
+  // to branch on input format. (Earlier revisions had an HTML-vs-text
+  // detection ternary here but both branches passed `initialText`
+  // verbatim, so it's been removed.)
   const editor = useEditor({
     extensions: [
+      // StarterKit v3 BUNDLES @tiptap/extension-link, so registering Link
+      // separately produces a "Duplicate extension names found: ['link']"
+      // warning and causes the editor to fail to mount silently in some
+      // builds. Configure Link inline on StarterKit instead.
       StarterKit.configure({
         // Drop horizontal rule + image — out of scope for sticky/text
         // edit and they add UX edges we don't want to support yet.
         horizontalRule: false,
-      }),
-      Link.configure({
-        openOnClick: false,
-        autolink: true,
-        protocols: ["http", "https", "mailto"],
-        HTMLAttributes: {
-          rel: "noopener noreferrer",
-          target: "_blank",
+        link: {
+          openOnClick: false,
+          autolink: true,
+          protocols: ["http", "https", "mailto"],
+          HTMLAttributes: {
+            rel: "noopener noreferrer",
+            target: "_blank",
+          },
         },
       }),
     ],
-    content: initialIsHtml ? initialText : initialText,
+    content: initialText,
     autofocus: "end",
     editorProps: {
       attributes: {
@@ -98,12 +114,12 @@ export function TiptapInlineEditor({
         // canvas convention ("Enter = done") wins.
         if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
-          onCommit(latestRef.current);
+          onCommit(sanitizeRichHtml(latestRef.current));
           return true;
         }
         if (event.key === "Escape") {
           event.preventDefault();
-          onCommit(latestRef.current);
+          onCommit(sanitizeRichHtml(latestRef.current));
           return true;
         }
         return false;
@@ -136,12 +152,20 @@ export function TiptapInlineEditor({
     return () => window.clearTimeout(t);
   }, [editor]);
 
-  // Final commit on unmount. Without this, a parent that swaps
-  // `editingObjectId` to null before blur fires drops the latest
-  // keystrokes.
+  // Final commit on unmount, gated on "the user actually changed the
+  // content". Without the gate, React Strict Mode's simulated
+  // mount→unmount→remount cycle fires this cleanup immediately on
+  // first mount, calling onCommit with the unchanged initial value.
+  // The parent's commit handler then calls setEditingObjectId(null),
+  // and by the time the strict-mode re-mount happens `editing` is
+  // already false — so the editor never appears to the user in dev.
+  // Comparing latestRef against initialRef catches both:
+  //   - Strict-mode dry-run unmount (no input → latest === initial → skip)
+  //   - Real unmount with edits (latest !== initial → commit normally)
   useEffect(() => {
     return () => {
-      onCommit(latestRef.current);
+      if (latestRef.current === initialRef.current) return;
+      onCommit(sanitizeRichHtml(latestRef.current));
     };
     // onCommit deliberately omitted from deps — we want unmount-only
     // semantics here, not "commit whenever the callback changes".
@@ -149,8 +173,11 @@ export function TiptapInlineEditor({
   }, []);
 
   // Sanitize on the way out so downstream consumers (workspace
-  // store, realtime broadcast) never see unsafe HTML. The renderer
-  // re-sanitizes defensively.
+  // store, realtime broadcast) never see unsafe HTML. The render path
+  // re-sanitizes defensively, but the realtime broadcast layer would
+  // otherwise send raw HTML to peers. Every commit path (Enter,
+  // Escape, blur, unmount) now sanitizes — see handleKeyDown above
+  // and the unmount-cleanup below.
   const wrappedOnCommit = (raw: string) => {
     onCommit(sanitizeRichHtml(raw));
   };

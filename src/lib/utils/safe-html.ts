@@ -80,9 +80,14 @@ export function sanitizeRichHtml(html: string): string {
       // Disallow user-controlled style / class so a hostile peer can't
       // inject `style="background:url(javascript:...)"` or similar.
       FORBID_ATTR: ["style", "class"],
-      // Drop the contents of forbidden tags too — without this, a
-      // <script>alert(1)</script> would render its text content.
-      KEEP_CONTENT: false,
+      // DO NOT set KEEP_CONTENT: false — DOMPurify v3 only adds
+      // `#text` to ALLOWED_TAGS when KEEP_CONTENT is true (its
+      // default). Setting it false strips every text node, including
+      // those inside allowed tags like <p>, so `<p>Hello</p>` becomes
+      // `<p></p>`. The "drop content of dangerous tags like <script>"
+      // behaviour we want is already covered by DOMPurify's built-in
+      // FORBID_CONTENTS list — leaving KEEP_CONTENT as the default
+      // (true) keeps user text while still neutralising <script>.
     });
     return clean.trim();
   } finally {

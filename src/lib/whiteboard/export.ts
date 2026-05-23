@@ -518,7 +518,7 @@ ${chipText ? `<text x="${x + 10}" y="${y + o.h - 10}" font-size="10" fill="#94a3
         if (i > 0) {
           segments += `<line x1="${x + i * colWidth}" y1="${y}" x2="${x + i * colWidth}" y2="${y + o.h}" stroke="rgba(96, 165, 250, 0.3)" />`;
         }
-        const label = (o.columnLabels?.[i] ?? cols[i]).replace("_", " ").toUpperCase();
+        const label = (o.columnLabels?.[i] ?? cols[i]).replace(/_/g, " ").toUpperCase();
         segments += `<text x="${x + i * colWidth + 8}" y="${y + 18}" font-size="10" fill="#60a5fa" letter-spacing="0.5">${escapeXml(label)}</text>`;
       }
       return segments + "</g>";

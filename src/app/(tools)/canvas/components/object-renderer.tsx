@@ -1056,7 +1056,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
                   pointerEvents: "none",
                 }}
               >
-                {(o.columnLabels?.[i] ?? o.columns[i]).replace("_", " ")}
+                {(o.columnLabels?.[i] ?? o.columns[i]).replace(/_/g, " ")}
               </div>
             </React.Fragment>
           ))}
