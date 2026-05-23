@@ -10,6 +10,13 @@ import type { ActionCategory, AnyToolAction, ToolAction } from "./types";
  */
 class ToolActionRegistry {
   private actions = new Map<string, AnyToolAction>();
+  /** Reverse map from Anthropic-format name (dots → underscores) back
+   *  to the canonical registry id. Built lazily and rebuilt on
+   *  register/unregister so name munging is no longer lossy — an action
+   *  named `set_team_name` registered under `workspace.scalars.set_team_name`
+   *  resolves correctly even though the round-trip via underscores
+   *  ambiguity is impossible (the dot positions are not recoverable). */
+  private claudeNameToId = new Map<string, string>();
 
   register<P, R>(action: ToolAction<P, R>): void {
     if (this.actions.has(action.id)) {
@@ -18,14 +25,23 @@ class ToolActionRegistry {
       return;
     }
     this.actions.set(action.id, action as AnyToolAction);
+    this.claudeNameToId.set(claudeNameFromId(action.id), action.id);
   }
 
   unregister(id: string): void {
     this.actions.delete(id);
+    this.claudeNameToId.delete(claudeNameFromId(id));
   }
 
   get(id: string): AnyToolAction | undefined {
     return this.actions.get(id);
+  }
+
+  /** Resolve a name in EITHER form (dotted id or Anthropic-munged
+   *  underscores). Use this from agent / MCP runtimes that don't know
+   *  which form the model emitted. */
+  resolve(nameOrId: string): AnyToolAction | undefined {
+    return this.actions.get(nameOrId) ?? this.actions.get(this.claudeNameToId.get(nameOrId) ?? "");
   }
 
   list(filter?: { toolId?: string; category?: ActionCategory }): AnyToolAction[] {
@@ -99,13 +115,17 @@ export function claudeNameFromId(id: string): string {
   return id.replace(/\./g, "_");
 }
 
+/**
+ * @deprecated Underscore→dot reversal is not unique when action names
+ * themselves contain underscores (e.g. `set_team_name`). Use
+ * `registry.resolve(name)` instead, which consults the registry's
+ * reverse map built at register time.
+ *
+ * Retained only for type compatibility; returns the input unchanged so
+ * existing callers fall through to the dotted-form lookup path.
+ */
 export function idFromClaudeName(name: string): string {
-  // Reverse: only the FIRST two underscores are dots (toolGroup.subGroup.verb).
-  // We can't perfectly reverse, so the agent runtime keeps its own map.
-  // This is a best-effort fallback.
-  const idx = name.lastIndexOf("_");
-  if (idx === -1) return name;
-  return name.slice(0, idx).replace(/_/g, ".") + "." + name.slice(idx + 1);
+  return name;
 }
 
 /**

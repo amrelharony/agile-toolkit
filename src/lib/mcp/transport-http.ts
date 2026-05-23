@@ -1,4 +1,4 @@
-import { registry, idFromClaudeName } from "@/lib/actions/registry";
+import { registry } from "@/lib/actions/registry";
 import { makeContext } from "@/lib/actions/context";
 
 /**
@@ -80,7 +80,7 @@ export async function handleJsonRpc(
         return jsonRpcError(id, -32602, "Missing tool name");
       }
       const name = params.name;
-      const action = registry.get(name) ?? registry.get(idFromClaudeName(name));
+      const action = registry.resolve(name);
       if (!action) {
         return jsonRpcError(id, -32601, `Unknown tool: ${name}`);
       }

@@ -109,7 +109,7 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
     for (const tu of toolUses) {
       const result = await executeToolUse(tu, {
         userId: opts.userId,
-        confirm: makeConfirmHandler(),
+        confirm: makeConfirmHandler(tu),
         autoApprove: useAgentStore.getState().autoApprove,
       });
       results.push(result);
@@ -124,9 +124,28 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
     if (opts.conversationId) void appendMessages(opts.conversationId, [toolMsg]);
   }
 
-  // Round budget exhausted. Stop without erroring — the assistant's
-  // last message remains visible.
-  useAgentStore.getState().setError("Reached tool-use round limit (10). Continue with a follow-up message if needed.");
+  // Round budget exhausted. Do ONE final no-tools turn so Claude can
+  // wrap up with a summary of what it accomplished + what's pending,
+  // instead of leaving the conversation mid-stream with a bare tool
+  // result. Caps the total cost at MAX+1 turns.
+  try {
+    const messages = wireMessages(useAgentStore.getState().messages);
+    await openOneClaudeTurn(
+      mode,
+      {
+        model: defaultModel(),
+        max_tokens: 1024,
+        stream: true,
+        system: `${system}\n\nIMPORTANT: You have exhausted the tool-use round budget for this turn. Summarise what you accomplished, what failed, and what remains — do NOT request more tools.`,
+        // No tools — Claude can only produce text.
+        messages,
+      },
+      opts.signal
+    );
+  } catch {
+    /* best-effort wrap-up; if it fails, the user still sees prior turns */
+  }
+  useAgentStore.getState().setError("Reached tool-use round limit (10). Send a follow-up if more is needed.");
 }
 
 /**
@@ -170,7 +189,10 @@ async function openOneClaudeTurn(
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
-    buf += decoder.decode(value, { stream: true });
+    // Normalise CRLF → LF: some HTTP proxies (corporate, certain
+    // Cloudflare modes) rewrite the SSE event separator to \r\n\r\n,
+    // which the prior `indexOf("\n\n")` parser missed entirely.
+    buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
     let nl: number;
     while ((nl = buf.indexOf("\n\n")) !== -1) {
       const chunk = buf.slice(0, nl);
@@ -338,10 +360,12 @@ function wireMessages(messages: ChatMessage[]): Array<{ role: "user" | "assistan
     if (m.role === "tool") {
       return { role: "user", content: m.content };
     }
-    // Make sure tool_use input names use the Anthropic format (underscores).
     if (m.role === "assistant") {
+      // tool_use names should be in Anthropic format (underscores). Stored
+      // names already are (the streaming parser captures whatever the model
+      // emitted), so this is a no-op safeguard against future drift.
       const content = m.content.map((c) =>
-        c.type === "tool_use" ? { ...c, name: claudeNameFromId(c.name.includes(".") ? c.name : c.name) } : c
+        c.type === "tool_use" ? { ...c, name: claudeNameFromId(c.name) } : c
       );
       return { role: "assistant", content };
     }
@@ -349,19 +373,19 @@ function wireMessages(messages: ChatMessage[]): Array<{ role: "user" | "assistan
   });
 }
 
-function makeConfirmHandler(): (summary: string) => Promise<boolean> {
+function makeConfirmHandler(block: ToolUseBlock): (summary: string) => Promise<boolean> {
   return async (summary: string) => {
     const store = useAgentStore.getState();
     return await new Promise<boolean>((resolve) => {
-      // Find the in-flight tool_use id by scanning the last assistant
-      // message — the active confirmation card has that id. The UI
-      // listens to pendingToolUse and surfaces approve/deny buttons that
-      // call window.__agentResolveConfirm__ to fulfil the promise.
+      // Surface the real tool_use_id + action name + input to the UI so
+      // the confirmation card can show what's actually being approved.
+      // The card calls window.__agentResolveConfirm__ to fulfil this.
+      const dotted = registry.resolve(block.name)?.id ?? block.name;
       store.setPendingToolUse({
-        toolUseId: "",
-        actionId: "",
-        resolvedActionId: "",
-        input: {},
+        toolUseId: block.id,
+        actionId: block.name,
+        resolvedActionId: dotted,
+        input: block.input,
         summary,
       });
       (globalThis as Record<string, unknown>).__agentResolveConfirm__ = (ok: boolean) => {

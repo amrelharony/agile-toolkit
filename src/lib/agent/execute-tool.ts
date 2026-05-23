@@ -1,4 +1,4 @@
-import { registry, idFromClaudeName } from "@/lib/actions/registry";
+import { registry } from "@/lib/actions/registry";
 import { makeContext } from "@/lib/actions/context";
 import type { ToolResultBlock, ToolUseBlock } from "./types";
 
@@ -26,8 +26,7 @@ export async function executeToolUse(
   block: ToolUseBlock,
   opts: ExecuteOptions
 ): Promise<ToolResultBlock> {
-  const dotted = block.name.includes(".") ? block.name : idFromClaudeName(block.name);
-  const action = registry.get(block.name) ?? registry.get(dotted);
+  const action = registry.resolve(block.name);
   if (!action) {
     return {
       type: "tool_result",
