@@ -88,18 +88,26 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
   }
 
   async pull(supabase: SupabaseClient, userId: string): Promise<void> {
-    // Cap to 10k rows per collection — realistic workspaces sit well
-    // under that. Beyond, the engine logs and continues with the partial
-    // snapshot rather than crashing.
-    const { data, error } = await supabase
-      .from("user_entities")
-      .select("entity_id, payload, updated_at, deleted, client_id")
-      .eq("user_id", userId)
-      .eq("kind", this.kind)
-      .limit(10_000);
-    if (error) throw error;
-    if (!data) return;
-    const rows = data as RemoteRow[];
+    // Paginate via PostgREST .range() — Supabase caps a single query at
+    // 1000 rows by default, and even after raising the cap a hard limit
+    // silently truncates collections that grow past it (e.g. a whiteboard
+    // with 12k objects would lose the tail without warning). Stream pages
+    // of 1000 until the server returns fewer than requested.
+    const PAGE = 1000;
+    const rows: RemoteRow[] = [];
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await supabase
+        .from("user_entities")
+        .select("entity_id, payload, updated_at, deleted, client_id")
+        .eq("user_id", userId)
+        .eq("kind", this.kind)
+        .order("entity_id", { ascending: true })
+        .range(offset, offset + PAGE - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      rows.push(...(data as RemoteRow[]));
+      if (data.length < PAGE) break;
+    }
     // Build a merged view: take the live local entities (so unflushed
     // local writes survive) overlaid with any remote rows that are newer.
     const localById = new Map(this.getEntities().map((e) => [e.id, e]));
@@ -230,14 +238,27 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
     this.dirty = false;
   }
 
-  onRemote(row: Record<string, unknown>): void {
+  onRemote(row: Record<string, unknown>, eventType: "INSERT" | "UPDATE" | "DELETE"): void {
     if (row.kind !== this.kind) return;
-    if (row.client_id === syncEngine.getClientId()) {
-      const updatedAt = row.updated_at as string | undefined;
-      if (updatedAt) this.remoteUpdatedAt.set(row.entity_id as string, updatedAt);
+    const entityId = row.entity_id as string;
+    // For real DELETEs (hard deletes from Postgres, not soft `deleted=true`
+    // updates), `row.client_id` came from `payload.old` and reflects whoever
+    // last upserted the row — NOT whoever issued the DELETE. Skipping echo
+    // suppression here is safe: we always drop the local copy.
+    if (eventType === "DELETE") {
+      const current = this.getEntities();
+      if (current.some((e) => e.id === entityId)) {
+        this.applyRemote(current.filter((e) => e.id !== entityId));
+      }
+      this.lastPushed.delete(entityId);
+      this.remoteUpdatedAt.delete(entityId);
       return;
     }
-    const entityId = row.entity_id as string;
+    if (row.client_id === syncEngine.getClientId()) {
+      const updatedAt = row.updated_at as string | undefined;
+      if (updatedAt) this.remoteUpdatedAt.set(entityId, updatedAt);
+      return;
+    }
     const updatedAt = row.updated_at as string;
     const lastSeen = this.remoteUpdatedAt.get(entityId);
     if (lastSeen && compareIso(lastSeen, updatedAt) >= 0) return;

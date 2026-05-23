@@ -4,6 +4,41 @@ import type { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { getClientId } from "./lww";
 
 /**
+ * Supabase realtime payloads carry `eventType` as a string. Narrow it
+ * to the discriminated union the adapters consume. If the field is
+ * missing (shouldn't happen, but be defensive), infer from whether
+ * `new` is null — null `new` means the row was deleted.
+ */
+function normaliseEventType(
+  eventType: string | undefined,
+  newRow: Record<string, unknown> | null
+): "INSERT" | "UPDATE" | "DELETE" {
+  if (eventType === "INSERT" || eventType === "UPDATE" || eventType === "DELETE") {
+    return eventType;
+  }
+  return newRow === null ? "DELETE" : "UPDATE";
+}
+
+/**
+ * Postgres check-constraint violations and similar permanent errors
+ * shouldn't be retried — the payload is malformed and will fail on
+ * every attempt. Detect via PostgrestError code so we don't burn
+ * exponential time on a doomed retry loop.
+ */
+function isPermanentFailure(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const code = (err as { code?: string }).code;
+  if (!code) return false;
+  return (
+    code === "23514" || // check_violation (size cap, regex, etc.)
+    code === "23502" || // not_null_violation
+    code === "23505" || // unique_violation
+    code === "23503" || // foreign_key_violation
+    code === "22P02"    // invalid_text_representation
+  );
+}
+
+/**
  * Generic local-first sync engine.
  *
  * One singleton instance services every registered store. The engine
@@ -34,8 +69,11 @@ export interface SyncAdapter {
   push(supabase: SupabaseClient, userId: string): Promise<void>;
   /** Apply a single realtime update from another tab/device. The row
    *  is guaranteed to belong to this user. The adapter must detect and
-   *  ignore echoes of its own writes (using the row's client_id). */
-  onRemote(row: Record<string, unknown>): void;
+   *  ignore echoes of its own writes (using the row's client_id) for
+   *  UPDATE/INSERT events. For DELETE events the adapter must apply
+   *  unconditionally — `row.client_id` from `payload.old` reflects
+   *  whoever last upserted, not whoever issued the DELETE. */
+  onRemote(row: Record<string, unknown>, eventType: "INSERT" | "UPDATE" | "DELETE"): void;
   /** Mark adapter dirty: schedule a push. */
   hasPendingWrites(): boolean;
 }
@@ -209,22 +247,33 @@ class SyncEngine {
     try {
       if (op === "pull") {
         await adapter.pull(supabase, userId);
-        // First successful pull lifts the push block.
-        this.awaitingInitialPull.delete(adapter.id);
       } else {
         await adapter.push(supabase, userId);
       }
     } catch (err) {
       // eslint-disable-next-line no-console
       console.warn(`[sync:${adapter.id}] ${op} failed`, err);
-      // Reschedule failed pushes with a backoff. Pulls are reattempted on
-      // next visibility-change / focus.
-      if (op === "push" && this.state.kind === "running") {
+      // Reschedule failed pushes with a backoff — UNLESS the failure was
+      // a check-constraint violation (oversize payload, malformed shape).
+      // Retrying the same payload every 5s indefinitely is wasteful and
+      // never recovers. The Supabase JS client surfaces this as PostgrestError
+      // with code "23514". Fall through to a one-shot fail; user can
+      // recover by editing the entity to fit the size cap.
+      const isPermanent = isPermanentFailure(err);
+      if (op === "push" && this.state.kind === "running" && !isPermanent) {
         const t = setTimeout(() => {
           this.pushTimers.delete(adapter.id);
           void this.runOne(adapter, "push");
         }, 5000);
         this.pushTimers.set(adapter.id, t);
+      }
+    } finally {
+      // Always lift the push-block on first pull, whether it succeeded
+      // or failed. Without this, a pull failure permanently blocks the
+      // adapter from ever pushing, even after the user fixes the cause.
+      // Subsequent pulls happen on visibility-change/focus.
+      if (op === "pull") {
+        this.awaitingInitialPull.delete(adapter.id);
       }
     }
   }
@@ -242,11 +291,12 @@ class SyncEngine {
           table: "user_state",
           filter: `user_id=eq.${userId}`,
         },
-        (payload: { new: Record<string, unknown> | null; old: Record<string, unknown> | null }) => {
+        (payload: { eventType?: string; new: Record<string, unknown> | null; old: Record<string, unknown> | null }) => {
           const row = payload.new ?? payload.old;
           if (!row) return;
+          const ev = normaliseEventType(payload.eventType, payload.new);
           this.adapters.forEach((adapter) => {
-            if (adapter.realtimeTable === "user_state") adapter.onRemote(row);
+            if (adapter.realtimeTable === "user_state") adapter.onRemote(row, ev);
           });
         }
       )
@@ -258,11 +308,12 @@ class SyncEngine {
           table: "user_entities",
           filter: `user_id=eq.${userId}`,
         },
-        (payload: { new: Record<string, unknown> | null; old: Record<string, unknown> | null }) => {
+        (payload: { eventType?: string; new: Record<string, unknown> | null; old: Record<string, unknown> | null }) => {
           const row = payload.new ?? payload.old;
           if (!row) return;
+          const ev = normaliseEventType(payload.eventType, payload.new);
           this.adapters.forEach((adapter) => {
-            if (adapter.realtimeTable === "user_entities") adapter.onRemote(row);
+            if (adapter.realtimeTable === "user_entities") adapter.onRemote(row, ev);
           });
         }
       )

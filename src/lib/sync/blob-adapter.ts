@@ -116,8 +116,16 @@ class BlobSyncAdapter implements SyncAdapter {
     this.dirty = false;
   }
 
-  onRemote(row: Record<string, unknown>): void {
+  onRemote(row: Record<string, unknown>, eventType: "INSERT" | "UPDATE" | "DELETE"): void {
     if (row.store_key !== this.storeKey) return;
+    // For real DELETEs the row's client_id was set by whoever last
+    // upserted, not by whoever issued the DELETE, so echo suppression
+    // is unreliable. Apply the clear unconditionally — the local default
+    // will repopulate naturally on next user edit.
+    if (eventType === "DELETE") {
+      this.applyRemote(undefined, new Date().toISOString());
+      return;
+    }
     // Echo suppression: ignore rows we wrote ourselves.
     if (row.client_id === syncEngine.getClientId()) {
       // Still update our local LWW tracker so subsequent pulls don't
