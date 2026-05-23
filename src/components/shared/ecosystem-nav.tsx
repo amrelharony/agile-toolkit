@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from "react";
 import { ChevronDown } from "lucide-react";
-import Image from "next/image";
 
 type AppId = "main" | "agile" | "books";
 
@@ -79,7 +78,8 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
           "
           aria-label="Amr El Harony — Main site"
         >
-          <Image
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
             src="/ae.svg"
             alt="AE"
             width={22}

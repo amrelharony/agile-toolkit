@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import Image from "next/image";
 import { SignInCard } from "./sign-in-card";
 
 export const metadata = {
@@ -15,12 +14,16 @@ export default function SignInPage() {
           legible against the light/HC themes thanks to its rounded white-
           background variant. */}
       <header className="flex flex-col items-center gap-4">
-        <Image
+        {/* Plain <img> rather than next/image: the optimizer 400s on SVG
+            unless you opt into dangerouslyAllowSVG globally. Logos are
+            tiny static assets — no optimization upside, and bypassing
+            the optimizer keeps the deploy footprint smaller. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
           src="/AT.svg"
           alt="Agile Toolkit"
           width={72}
           height={72}
-          priority
           className="rounded-2xl shadow-sm"
         />
         <div className="text-center space-y-1">

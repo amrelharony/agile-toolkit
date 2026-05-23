@@ -13,29 +13,23 @@ import { AgentConversation } from "./agent-conversation";
 
 /**
  * Right-side chat sheet for the in-app agent. Open via the header button
- * or Cmd/Ctrl+K K.
+ * or Cmd/Ctrl+J.
  */
 export function AgentSheet() {
   const open = useAgentStore((s) => s.open);
   const closeSheet = useAgentStore((s) => s.closeSheet);
   const toggleSheet = useAgentStore((s) => s.toggleSheet);
 
-  // Cmd/Ctrl+K K toggles the agent. The double-K differentiates from the
-  // existing Cmd/Ctrl+K search palette — pressing K twice opens the agent.
+  // Cmd/Ctrl+J toggles the agent — the de facto AI-chat shortcut
+  // (matches ChatGPT, Claude.ai). The previous double-K-on-Cmd+K
+  // approach broke once the search palette captured focus: the second
+  // K landed in the palette's input, not the window listener, and the
+  // agent never opened. Cmd+J avoids the collision entirely.
   useEffect(() => {
-    let lastKDown = 0;
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
-        const now = Date.now();
-        if (now - lastKDown < 600) {
-          // Second K within 600ms — toggle the agent. Let the first K
-          // open the search palette as usual (we don't preventDefault on it).
-          e.preventDefault();
-          toggleSheet();
-          lastKDown = 0;
-        } else {
-          lastKDown = now;
-        }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === "j" || e.key === "J")) {
+        e.preventDefault();
+        toggleSheet();
       }
     };
     window.addEventListener("keydown", handler);
@@ -48,7 +42,7 @@ export function AgentSheet() {
         <SheetHeader className="space-y-1 pb-2 border-b border-border">
           <SheetTitle className="text-base">Agent</SheetTitle>
           <SheetDescription className="text-xs">
-            Drive every tool through Claude. Cmd/Ctrl+K twice to toggle.
+            Drive every tool through AI. Cmd/Ctrl+J to toggle.
           </SheetDescription>
         </SheetHeader>
         <div className="flex-1 min-h-0">

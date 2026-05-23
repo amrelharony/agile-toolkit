@@ -202,14 +202,17 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
       </button>
 
       {/* Right — Actions.
-          - <320 px: only the user menu + theme toggle survive.
-          - xs+:     XpBar replaces the standalone trophy icon — same
-                     click target (opens trophy case) plus level + progress.
-          - sm+:     sonification + LLM chip + xp/needed counter.
-          - md+:     achievements count in XpBar.
-          Hidden buttons remain reachable from the user menu. */}
+          - <640 px: only icon buttons + user menu survive.
+          - sm+:     XpBar (level + progress + xp/needed) + sonification +
+                     LLM chip appear.
+          - md+:     achievements count surfaces inside the XpBar.
+          Hidden buttons remain reachable from the user menu. The XpBar
+          was previously gated at `xs` (375px) but the ~110px pill plus
+          search + agent + theme + menu pushed the right edge off-screen
+          on iPhone-mini-class viewports; bumping to `sm` keeps it
+          legible while keeping the trophy case reachable via user menu. */}
       <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
-        <div className="hidden xs:flex items-center gap-0.5 sm:gap-1">
+        <div className="hidden sm:flex items-center gap-0.5 sm:gap-1">
           <XpBar onOpenTrophyCase={onOpenTrophyCase} />
         </div>
         <div className="hidden sm:flex items-center">
@@ -222,13 +225,13 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
           <LlmStatusChip />
         </div>
         {/* Agent chat button. Visible from xs+ — keyboard users can also
-            hit Cmd/Ctrl+K twice to toggle. */}
+            hit Cmd/Ctrl+J to toggle (matches ChatGPT / Claude.ai). */}
         <button
           onClick={openAgent}
           data-no-sound="true"
           className="w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
           aria-label="Open agent chat"
-          title="Open agent (Cmd/Ctrl+K twice)"
+          title="Open agent (Cmd/Ctrl+J)"
         >
           <MessageSquare className="w-4 h-4" aria-hidden="true" />
         </button>

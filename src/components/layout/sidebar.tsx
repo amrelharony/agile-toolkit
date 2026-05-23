@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronLeft, History, Activity } from "lucide-react";
-import Image from "next/image";
 import { useSwipeToClose } from "@/hooks/use-swipe-to-close";
 import { emit as sonify } from "@/lib/sonification/emit";
 
@@ -216,13 +215,13 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
               data-sidebar-logo="true"
               className="flex-shrink-0 w-8 h-8 rounded-xl overflow-hidden"
             >
-              <Image
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 src="/AT.svg"
                 alt="Agile Toolkit"
                 width={32}
                 height={32}
                 className="w-full h-full object-cover"
-                priority
               />
             </div>
             {expanded && (
