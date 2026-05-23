@@ -286,7 +286,12 @@ const ui: ToolPalette = {
   // Focus / keyboard
   "focus-input": { voice: "blip", step: 1, octave: 5, velocity: 0.3 },
   "key-confirm": { voice: "pluck", step: 4, octave: 5, velocity: 0.45 },
-  "key-dismiss": { voice: "dissonant", steps: [0, -1], octave: 4, velocity: 0.4 },
+  // Was: dissonant minor-2nd interval — jarring by design but read as
+  // "noisy" outside the context of error/conflict feedback. Now a soft
+  // piano root note (octave below `category-close` so Escape dismiss
+  // reads as "closing/resolving" rather than competing with sidebar
+  // chrome). Matches the velocity/duration of the other close cues.
+  "key-dismiss": { voice: "piano", step: 0, octave: 4, velocity: 0.30, duration: 0.35 },
   // Typing — soft mechanical-keyboard taps. Quiet velocity + cent jitter so
   // each keystroke is slightly different pitch and the stream doesn't sound
   // like a metronome. Use a single short percussive voice for all three.
