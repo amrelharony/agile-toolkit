@@ -13,8 +13,24 @@ import type {
   ToolUseBlock,
 } from "./types";
 
-const ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_VERSION = "2023-06-01";
+/**
+ * Agent client — drives the tool-use loop against GLM (z.ai) via the
+ * OpenAI-compatible chat completions API.
+ *
+ * Internal message shape stays Anthropic-flavoured (TextBlock /
+ * ToolUseBlock / ToolResultBlock) so the UI, store, and Supabase
+ * persistence are untouched. Translation to OpenAI's wire format
+ * happens in `wireMessages()`; the SSE parser converts OpenAI's
+ * `chat.completion.chunk` deltas back into our internal WIP blocks.
+ *
+ * Stop reasons (OpenAI → internal):
+ *   "tool_calls"     → "tool_use"       (continue the loop)
+ *   "stop"/"length"  → "end_turn"       (terminate)
+ *   "content_filter" → "end_turn"
+ */
+
+const ZAI_ENDPOINT = "https://api.z.ai/api/paas/v4/chat/completions";
+const DEFAULT_MODEL = "glm-4.5-flash";
 const MAX_TOOL_USE_ROUNDS = 10;
 
 interface StreamOptions {
@@ -27,29 +43,12 @@ interface StreamOptions {
   signal?: AbortSignal;
 }
 
-/**
- * Send a user message and drive the tool-use loop until Claude stops.
- *
- * Streaming path:
- *   1. Decide server-proxy vs BYOK by probing /api/agent/stream (GET).
- *   2. Build the messages array + tools from the registry.
- *   3. Open SSE. Accumulate text into the assistant message; capture
- *      tool_use blocks.
- *   4. On stop_reason="tool_use", execute each tool (via executeToolUse),
- *      append the tool_result message, and loop.
- *   5. Stop on stop_reason ∈ {"end_turn","max_tokens","stop_sequence"}
- *      or after MAX_TOOL_USE_ROUNDS iterations.
- *
- * UI integration: writes go through `useAgentStore` so the conversation
- * view re-renders on every chunk and tool-use.
- */
 export async function sendUserMessage(
   text: string,
   opts: StreamOptions
 ): Promise<void> {
   const store = useAgentStore.getState();
 
-  // Append the user's message immediately so the UI shows it.
   const userMsg: ChatMessage = {
     id: msgId(),
     role: "user",
@@ -60,7 +59,6 @@ export async function sendUserMessage(
   store.setError(null);
   store.setStreaming(true);
 
-  // Background-persist the user message (don't block on it).
   if (opts.conversationId) void appendMessages(opts.conversationId, [userMsg]);
 
   try {
@@ -74,37 +72,40 @@ export async function sendUserMessage(
 }
 
 async function runToolUseLoop(opts: StreamOptions): Promise<void> {
-  const mode = await detectMode();
-  const tools = registry.toClaudeTools();
+  const { mode, serverModel } = await detectMode();
+  const tools = registry.toOpenAiTools();
   const system = buildSystemPrompt({ toolId: opts.toolId ?? null });
 
   for (let round = 0; round < MAX_TOOL_USE_ROUNDS; round++) {
-    const messages = wireMessages(useAgentStore.getState().messages);
+    const messages = wireMessages(useAgentStore.getState().messages, system);
     const body = {
-      model: defaultModel(),
-      max_tokens: 4096,
+      model: pickModel(mode, serverModel),
       stream: true,
-      system,
+      max_tokens: 4096,
       tools,
+      tool_choice: "auto",
       messages,
     };
 
-    const stopReason = await openOneClaudeTurn(mode, body, opts.signal);
+    const stopReason = await openOneTurn(mode, body, opts.signal);
 
     if (stopReason !== "tool_use") return;
 
-    // Pick up the assistant's tool_use blocks from the just-appended message.
+    // Collect the tool_use blocks the streaming parser captured.
     const lastAssistant = useAgentStore
       .getState()
       .messages.slice()
       .reverse()
       .find((m) => m.role === "assistant");
     if (!lastAssistant) return;
-    const toolUses = lastAssistant.content.filter((c): c is ToolUseBlock => c.type === "tool_use");
+    const toolUses = lastAssistant.content.filter(
+      (c): c is ToolUseBlock => c.type === "tool_use"
+    );
     if (toolUses.length === 0) return;
 
     // Execute each tool_use in order, accumulating results as a single
-    // tool-role message (Anthropic groups them in one turn).
+    // tool-role message. wireMessages will fan this out to one OpenAI
+    // tool-role message per result on the next iteration.
     const results: ToolResultBlock[] = [];
     for (const tu of toolUses) {
       const result = await executeToolUse(tu, {
@@ -124,36 +125,40 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
     if (opts.conversationId) void appendMessages(opts.conversationId, [toolMsg]);
   }
 
-  // Round budget exhausted. Do ONE final no-tools turn so Claude can
-  // wrap up with a summary of what it accomplished + what's pending,
-  // instead of leaving the conversation mid-stream with a bare tool
-  // result. Caps the total cost at MAX+1 turns.
+  // Round budget exhausted — one final no-tools turn so the model can
+  // summarise instead of leaving the conversation mid-stream on a tool
+  // result. Capped via tool_choice=none so the model can't loop again.
   try {
-    const messages = wireMessages(useAgentStore.getState().messages);
-    await openOneClaudeTurn(
+    const messages = wireMessages(
+      useAgentStore.getState().messages,
+      `${system}\n\nIMPORTANT: You have exhausted the tool-use round budget for this turn. Summarise what you accomplished, what failed, and what remains — do NOT request more tools.`
+    );
+    await openOneTurn(
       mode,
       {
-        model: defaultModel(),
-        max_tokens: 1024,
+        model: pickModel(mode, serverModel),
         stream: true,
-        system: `${system}\n\nIMPORTANT: You have exhausted the tool-use round budget for this turn. Summarise what you accomplished, what failed, and what remains — do NOT request more tools.`,
-        // No tools — Claude can only produce text.
+        max_tokens: 1024,
+        tool_choice: "none",
         messages,
       },
       opts.signal
     );
   } catch {
-    /* best-effort wrap-up; if it fails, the user still sees prior turns */
+    /* best-effort wrap-up */
   }
-  useAgentStore.getState().setError("Reached tool-use round limit (10). Send a follow-up if more is needed.");
+  useAgentStore
+    .getState()
+    .setError("Reached tool-use round limit (10). Send a follow-up if more is needed.");
 }
 
 /**
- * Open one Claude turn over SSE, accumulate text + tool_use blocks into
- * an assistant message in the store, and return the stop_reason.
+ * Open one chat-completion turn over SSE, accumulate text + tool_calls
+ * into an assistant message in the store, and return our internal
+ * stop_reason ("tool_use" or "end_turn").
  */
-async function openOneClaudeTurn(
-  mode: "server" | "client",
+async function openOneTurn(
+  mode: AgentMode,
   body: Record<string, unknown>,
   signal: AbortSignal | undefined
 ): Promise<string> {
@@ -163,8 +168,6 @@ async function openOneClaudeTurn(
     throw new Error(`agent stream failed (${response.status}): ${detail.slice(0, 200)}`);
   }
 
-  // Start a fresh assistant message — we'll fill its content as deltas
-  // arrive. The store provides patchLastAssistant for this.
   const assistantMsg: ChatMessage = {
     id: msgId(),
     role: "assistant",
@@ -173,121 +176,164 @@ async function openOneClaudeTurn(
   };
   useAgentStore.getState().appendMessage(assistantMsg);
 
-  // Anthropic SSE parser. We maintain `blocks[index]` for each
-  // content_block_start, then append text deltas / accumulate tool_use
-  // input_json deltas, and finalise on content_block_stop.
+  // OpenAI / GLM streaming parser:
+  //   data: {"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}
+  //   data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":...,"function":{"name":...,"arguments":""}}]},...}]}
+  //   data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{...}"}}]},...}]}
+  //   data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}
+  //   data: [DONE]
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
   let stopReason = "end_turn";
 
-  type WipBlock =
-    | { kind: "text"; text: string }
-    | { kind: "tool_use"; id: string; name: string; jsonAccum: string };
-  const wip = new Map<number, WipBlock>();
+  /** Text accumulates as a single content block (OpenAI emits one
+   *  content stream, not multiple addressable blocks like Anthropic). */
+  const wip: WipState = { textParts: [], toolCalls: new Map() };
 
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
-    // Normalise CRLF → LF: some HTTP proxies (corporate, certain
-    // Cloudflare modes) rewrite the SSE event separator to \r\n\r\n,
-    // which the prior `indexOf("\n\n")` parser missed entirely.
+    // Normalise CRLF → LF: some HTTP proxies rewrite the SSE separator.
     buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
     let nl: number;
     while ((nl = buf.indexOf("\n\n")) !== -1) {
       const chunk = buf.slice(0, nl);
       buf = buf.slice(nl + 2);
-      handleSseChunk(chunk, wip, (sr) => (stopReason = sr));
+      const sr = handleSseChunk(chunk, wip);
+      if (sr) stopReason = sr;
       flushAssistant(wip);
     }
+  }
+  // Tail flush in case the server closed without a trailing \n\n.
+  if (buf.trim().length > 0) {
+    const sr = handleSseChunk(buf, wip);
+    if (sr) stopReason = sr;
   }
   flushAssistant(wip);
   return stopReason;
 }
 
-function handleSseChunk(
-  raw: string,
-  wip: Map<number, { kind: "text"; text: string } | { kind: "tool_use"; id: string; name: string; jsonAccum: string }>,
-  onStop: (reason: string) => void
-): void {
-  // Each SSE chunk is N lines beginning with `event:` and `data:`.
+interface WipToolCall {
+  id: string;
+  name: string;
+  jsonAccum: string;
+}
+
+interface WipState {
+  textParts: string[];
+  /** Keyed by the streaming index (NOT the registry id). OpenAI emits
+   *  tool_calls in sparse order — each chunk targets an index that
+   *  refers back to the same call as previous chunks. */
+  toolCalls: Map<number, WipToolCall>;
+}
+
+/**
+ * Parse one SSE chunk; mutate WIP state; return the new internal
+ * stop_reason if this chunk carried one, otherwise null.
+ */
+function handleSseChunk(raw: string, wip: WipState): string | null {
+  // Each chunk is N lines; we only care about `data:` lines.
   let dataLine = "";
   for (const line of raw.split("\n")) {
     if (line.startsWith("data:")) {
       dataLine = line.slice(5).trim();
     }
   }
-  if (!dataLine) return;
+  if (!dataLine) return null;
+  if (dataLine === "[DONE]") return null;
+
   let payload: Record<string, unknown>;
   try {
     payload = JSON.parse(dataLine);
   } catch {
-    return;
+    return null;
   }
-  const type = payload.type as string;
-  const index = (payload.index as number) ?? 0;
 
-  if (type === "content_block_start") {
-    const cb = payload.content_block as Record<string, unknown> | undefined;
-    if (!cb) return;
-    if (cb.type === "text") {
-      wip.set(index, { kind: "text", text: "" });
-    } else if (cb.type === "tool_use") {
-      wip.set(index, {
-        kind: "tool_use",
-        id: cb.id as string,
-        name: cb.name as string,
-        jsonAccum: "",
-      });
-    }
-  } else if (type === "content_block_delta") {
-    const block = wip.get(index);
-    if (!block) return;
-    const delta = payload.delta as Record<string, unknown> | undefined;
-    if (!delta) return;
-    if (block.kind === "text" && delta.type === "text_delta") {
-      block.text += String(delta.text ?? "");
-    } else if (block.kind === "tool_use" && delta.type === "input_json_delta") {
-      block.jsonAccum += String(delta.partial_json ?? "");
-    }
-  } else if (type === "content_block_stop") {
-    // No-op — we already track partial state by index.
-  } else if (type === "message_delta") {
-    const delta = payload.delta as Record<string, unknown> | undefined;
-    const sr = delta?.stop_reason as string | undefined;
-    if (sr) onStop(sr);
+  const choices = payload.choices as
+    | Array<{
+        delta?: {
+          content?: string;
+          reasoning_content?: string; // GLM thinking models — ignored
+          tool_calls?: Array<{
+            index: number;
+            id?: string;
+            type?: string;
+            function?: { name?: string; arguments?: string };
+          }>;
+        };
+        finish_reason?: string | null;
+      }>
+    | undefined;
+  if (!choices || choices.length === 0) return null;
+  const choice = choices[0];
+  const delta = choice.delta ?? {};
+
+  // Text deltas.
+  if (typeof delta.content === "string" && delta.content.length > 0) {
+    wip.textParts.push(delta.content);
   }
+
+  // Tool-call deltas. Each entry refers to a specific call by index;
+  // we accumulate `id`, `name`, and a JSON string for `arguments`.
+  if (Array.isArray(delta.tool_calls)) {
+    for (const tc of delta.tool_calls) {
+      const existing = wip.toolCalls.get(tc.index) ?? {
+        id: "",
+        name: "",
+        jsonAccum: "",
+      };
+      if (tc.id) existing.id = tc.id;
+      if (tc.function?.name) existing.name = tc.function.name;
+      if (tc.function?.arguments) existing.jsonAccum += tc.function.arguments;
+      wip.toolCalls.set(tc.index, existing);
+    }
+  }
+
+  if (choice.finish_reason) {
+    return mapFinishReason(choice.finish_reason);
+  }
+  return null;
 }
 
-function flushAssistant(
-  wip: Map<number, { kind: "text"; text: string } | { kind: "tool_use"; id: string; name: string; jsonAccum: string }>
-): void {
+function mapFinishReason(openAi: string): string {
+  if (openAi === "tool_calls") return "tool_use";
+  // "stop", "length", "content_filter" all terminate the loop.
+  return "end_turn";
+}
+
+function flushAssistant(wip: WipState): void {
   const content: ContentBlock[] = [];
-  const indices = Array.from(wip.keys()).sort((a, b) => a - b);
+  const text = wip.textParts.join("");
+  if (text.length > 0) {
+    content.push({ type: "text", text });
+  }
+  // Tool calls in stream-index order.
+  const indices = Array.from(wip.toolCalls.keys()).sort((a, b) => a - b);
   for (const i of indices) {
-    const block = wip.get(i);
-    if (!block) continue;
-    if (block.kind === "text") {
-      content.push({ type: "text", text: block.text });
-    } else {
-      // tool_use: parse the accumulated input JSON if possible.
-      let input: Record<string, unknown> = {};
-      if (block.jsonAccum) {
-        try {
-          input = JSON.parse(block.jsonAccum);
-        } catch {
-          // Likely mid-stream — render with the partial JSON in the input.
-          input = { _partial: block.jsonAccum };
-        }
+    const tc = wip.toolCalls.get(i);
+    if (!tc) continue;
+    let input: Record<string, unknown> = {};
+    if (tc.jsonAccum) {
+      try {
+        input = JSON.parse(tc.jsonAccum);
+      } catch {
+        // Mid-stream — render the partial JSON so the UI shows progress.
+        input = { _partial: tc.jsonAccum };
       }
-      content.push({ type: "tool_use", id: block.id, name: block.name, input });
     }
+    content.push({
+      type: "tool_use",
+      id: tc.id || `tc_${i}`,
+      name: tc.name,
+      input,
+    });
   }
   useAgentStore.getState().patchLastAssistant(content);
 }
 
 async function openStream(
-  mode: "server" | "client",
+  mode: AgentMode,
   body: Record<string, unknown>,
   signal?: AbortSignal
 ): Promise<Response> {
@@ -299,87 +345,147 @@ async function openStream(
       signal,
     });
   }
+  // BYOK: must be GLM provider configured in AI Settings.
   const cfg = getActiveConfig();
-  if (!cfg || cfg.provider !== "anthropic") {
+  if (!cfg || cfg.provider !== "glm") {
     throw new Error(
-      "No Anthropic API key available. Configure one in AI Settings (BYOK) or set ANTHROPIC_API_KEY on the server."
+      "No GLM key available. Configure one in AI Settings (BYOK → GLM) or set ZAI_API_KEY on the server."
     );
   }
-  return fetch(ANTHROPIC_ENDPOINT, {
+  return fetch(ZAI_ENDPOINT, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-api-key": cfg.apiKey,
-      "anthropic-version": ANTHROPIC_VERSION,
-      "anthropic-dangerous-direct-browser-access": "true",
+      authorization: `Bearer ${cfg.apiKey}`,
     },
-    body: JSON.stringify({ ...body, model: cfg.model }),
+    body: JSON.stringify({ ...body, model: cfg.model || DEFAULT_MODEL }),
     signal,
   });
 }
 
+type AgentMode = "server" | "client";
+
+interface ModeProbe {
+  mode: AgentMode;
+  serverModel: string | null;
+}
+
 /**
- * Probe the server route to learn which transport to use.
- * Cached for the session; flips when ANTHROPIC_API_KEY changes on the
- * server you'd need a full page reload anyway.
+ * Probe the server route to learn which transport to use AND which
+ * model the server is configured for (so the client doesn't have to
+ * second-guess). Cached for the session.
  */
-let cachedMode: "server" | "client" | null = null;
-async function detectMode(): Promise<"server" | "client"> {
-  if (cachedMode) return cachedMode;
+let cachedProbe: ModeProbe | null = null;
+async function detectMode(): Promise<ModeProbe> {
+  if (cachedProbe) return cachedProbe;
   try {
     const res = await fetch("/api/agent/stream", { method: "GET" });
     if (res.ok) {
-      const json = (await res.json()) as { mode?: string };
-      cachedMode = json.mode === "server" ? "server" : "client";
+      const json = (await res.json()) as { mode?: string; model?: string | null };
+      cachedProbe = {
+        mode: json.mode === "server" ? "server" : "client",
+        serverModel: typeof json.model === "string" ? json.model : null,
+      };
     } else {
-      cachedMode = "client";
+      cachedProbe = { mode: "client", serverModel: null };
     }
   } catch {
-    cachedMode = "client";
+    cachedProbe = { mode: "client", serverModel: null };
   }
-  return cachedMode;
+  return cachedProbe;
 }
 
-function defaultModel(): string {
+function pickModel(mode: AgentMode, serverModel: string | null): string {
+  if (mode === "server" && serverModel) return serverModel;
   const cfg = getActiveConfig();
-  if (cfg?.provider === "anthropic") return cfg.model;
-  // Server-side default (overridable in the route handler too).
-  return "claude-opus-4-7";
+  if (cfg?.provider === "glm" && cfg.model) return cfg.model;
+  return DEFAULT_MODEL;
 }
 
 /**
- * Map our internal ChatMessage[] to Anthropic's wire format:
- *   - role "tool" → role "user" with tool_result blocks
- *     (Anthropic doesn't have a "tool" role; tool results ride as user msgs)
- *   - role "user" stays user
- *   - role "assistant" stays assistant
- *   - id/createdAt are dropped (Anthropic doesn't want them)
+ * Translate our internal ChatMessage[] (Anthropic-flavoured content
+ * blocks) into OpenAI's wire format:
+ *
+ *   role "user" with [{type:"text",text}]
+ *     → {role:"user", content: "text"}
+ *   role "assistant" with text + tool_use blocks
+ *     → {role:"assistant", content: text|null, tool_calls: [{id, type:"function", function:{name, arguments}}]}
+ *   role "tool" with N tool_result blocks
+ *     → N × {role:"tool", tool_call_id, content}
+ *
+ * The system prompt becomes the first message (OpenAI doesn't have a
+ * separate `system` field like Anthropic).
  */
-function wireMessages(messages: ChatMessage[]): Array<{ role: "user" | "assistant"; content: ContentBlock[] }> {
-  return messages.map((m) => {
-    if (m.role === "tool") {
-      return { role: "user", content: m.content };
+function wireMessages(
+  messages: ChatMessage[],
+  system: string
+): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [
+    { role: "system", content: system },
+  ];
+
+  for (const m of messages) {
+    if (m.role === "user") {
+      const text = m.content
+        .filter((c): c is { type: "text"; text: string } => c.type === "text")
+        .map((c) => c.text)
+        .join("");
+      out.push({ role: "user", content: text });
+      continue;
     }
+
     if (m.role === "assistant") {
-      // tool_use names should be in Anthropic format (underscores). Stored
-      // names already are (the streaming parser captures whatever the model
-      // emitted), so this is a no-op safeguard against future drift.
-      const content = m.content.map((c) =>
-        c.type === "tool_use" ? { ...c, name: claudeNameFromId(c.name) } : c
-      );
-      return { role: "assistant", content };
+      const textParts: string[] = [];
+      const toolCalls: Array<{
+        id: string;
+        type: "function";
+        function: { name: string; arguments: string };
+      }> = [];
+      for (const c of m.content) {
+        if (c.type === "text") textParts.push(c.text);
+        else if (c.type === "tool_use") {
+          toolCalls.push({
+            id: c.id,
+            type: "function",
+            function: {
+              // Defensive: action ids stored in dots-format become
+              // OpenAI-format underscores. The streaming parser already
+              // emits OpenAI-format names; this is a no-op safeguard.
+              name: claudeNameFromId(c.name),
+              arguments: JSON.stringify(c.input ?? {}),
+            },
+          });
+        }
+      }
+      const msg: Record<string, unknown> = { role: "assistant" };
+      msg.content = textParts.join("") || null;
+      if (toolCalls.length > 0) msg.tool_calls = toolCalls;
+      out.push(msg);
+      continue;
     }
-    return { role: "user", content: m.content };
-  });
+
+    // role "tool" — fan out one OpenAI tool message per result block.
+    for (const c of m.content) {
+      if (c.type !== "tool_result") continue;
+      const content =
+        typeof c.content === "string"
+          ? c.content
+          : c.content.map((b) => b.text).join("");
+      out.push({
+        role: "tool",
+        tool_call_id: c.tool_use_id,
+        content,
+      });
+    }
+  }
+
+  return out;
 }
 
 function makeConfirmHandler(block: ToolUseBlock): (summary: string) => Promise<boolean> {
   return async (summary: string) => {
     const store = useAgentStore.getState();
     return await new Promise<boolean>((resolve) => {
-      // Surface the real tool_use_id + action name + input to the UI so
-      // the confirmation card can show what's actually being approved.
-      // The card calls window.__agentResolveConfirm__ to fulfil this.
       const dotted = registry.resolve(block.name)?.id ?? block.name;
       store.setPendingToolUse({
         toolUseId: block.id,

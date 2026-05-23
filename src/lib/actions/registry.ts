@@ -84,6 +84,43 @@ class ToolActionRegistry {
   }
 
   /**
+   * Serialise the registry as OpenAI / GLM function-calling tool defs.
+   * Schema: `[{ type: "function", function: { name, description, parameters } }]`.
+   * Tool names use the same dot→underscore munging as the Anthropic
+   * variant (OpenAI tool names must match `^[a-zA-Z0-9_-]+$`), so
+   * `registry.resolve(toolCall.function.name)` still finds the dotted
+   * registry id.
+   */
+  toOpenAiTools(): Array<{
+    type: "function";
+    function: {
+      name: string;
+      description: string;
+      parameters: Record<string, unknown>;
+    };
+  }> {
+    const tools: Array<{
+      type: "function";
+      function: {
+        name: string;
+        description: string;
+        parameters: Record<string, unknown>;
+      };
+    }> = [];
+    this.actions.forEach((a) => {
+      tools.push({
+        type: "function",
+        function: {
+          name: claudeNameFromId(a.id),
+          description: a.description,
+          parameters: zodToJsonSchema(a.paramsSchema),
+        },
+      });
+    });
+    return tools;
+  }
+
+  /**
    * Serialise the registry as MCP tool definitions. MCP's `tools/list`
    * response wants `name`, `description`, and `inputSchema` (note the
    * camelCase — different from Anthropic's snake_case).

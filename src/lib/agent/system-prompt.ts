@@ -21,7 +21,7 @@ export function buildSystemPrompt(opts: { toolId?: string | null } = {}): string
 You have ${total} callable actions: ${readCount} read, ${writeCount} write, ${intentCount} intent.
 
 Conventions:
-- Action ids look like \`workspace.sprint.create\` or \`tool.canvas.add_sticky\`. You'll see them as \`workspace_sprint_create\` in the tool list (Anthropic name format).
+- Action ids look like \`workspace.sprint.create\` or \`tool.canvas.add_sticky\`. In the function-calling tool list they appear as \`workspace_sprint_create\` (dots → underscores; the runtime resolves either form).
 - Read actions execute immediately. Write actions are gated by per-call user confirmation in the UI (unless the user has flipped on auto-approve for this session). Intents compose multiple writes and follow the same confirmation rules.
 - Always reach for an action when one fits; do not paraphrase what you "would" do. If no action covers the user's intent, say so plainly and propose what we'd add.
 - Multi-step requests: chain tools. After each tool result, decide whether more work is needed. Stop and ask only when truly blocked.
