@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master, main]
+  push:
+    branches: [master, main]
+
+# Cancel any in-flight run for the same ref when a new commit lands —
+# saves CI minutes when force-pushing or rapidly amending a PR.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify (typecheck + tests + lint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          # Pin to the engines.node range in package.json; .nvmrc tracks
+          # the exact dev-machine version.
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        # `npm ci` enforces the lockfile and is faster than `npm install`
+        # in CI because it skips the dependency-tree solve.
+        run: npm ci --no-audit --no-fund
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        # ESLint warnings are tolerated; failures (errors) break the
+        # build. Drift on the existing warning surface gets caught when
+        # the warning count regresses past the eslint config threshold,
+        # not on each PR — see eslint.config.
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:run
+
+      - name: Production build smoke
+        # Run the Next.js production build as a final check — catches
+        # tree-shaking, dynamic-import resolution, and route-collection
+        # errors that pure tsc/vitest don't surface.
+        run: npm run build
+        env:
+          # Build needs both Supabase vars to NOT 500 on the auth pages.
+          # CI uses harmless placeholder values — no real network calls.
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder.placeholder
+          AUTHORIZED_EMAILS: ci-placeholder@example.com
