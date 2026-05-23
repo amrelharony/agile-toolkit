@@ -2,7 +2,13 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { WhiteboardSticky, WhiteboardMindMapNode } from "@/lib/stores/workspace-types";
+import type {
+  Whiteboard,
+  WhiteboardObject,
+  WhiteboardSticky,
+  WhiteboardMindMapNode,
+  WhiteboardConnector,
+} from "@/lib/stores/workspace-types";
 
 /**
  * Canvas (whiteboard) actions. The agent / MCP can:
@@ -187,5 +193,201 @@ registry.register({
       (o) => o.boardId === params.boardId && (!params.type || o.type === params.type)
     );
     return { items: filtered };
+  },
+});
+
+// ──────── tool.canvas.create_board ────────
+// Equivalent to workspace.whiteboard.create but with a stable, named
+// tool-id surface so the agent can think in canvas-domain verbs.
+// Returns the new boardId.
+registry.register({
+  id: "tool.canvas.create_board",
+  toolId: "tool.canvas",
+  name: "create_board",
+  category: "write",
+  description: "Create a new whiteboard (canvas). Returns the new boardId.",
+  paramsSchema: z.object({
+    name: z.string(),
+    template: z.string().optional(),
+  }),
+  handler: async (params: { name: string; template?: string }) => {
+    const now = nowIso();
+    const board: Whiteboard = {
+      id: `wb_${nanoid(8)}`,
+      name: params.name,
+      template: params.template,
+      createdAt: now,
+      updatedAt: now,
+    };
+    ws().upsertWhiteboard(board);
+    return { boardId: board.id };
+  },
+});
+
+// ──────── tool.canvas.delete_object ────────
+// Uses the store's removeWhiteboardObject — it cascades dangling
+// connectors, comment threads pinned to the object, and frameId
+// references inside contained children. Idempotent: deleting a
+// non-existent id is a no-op that returns deleted=false.
+registry.register({
+  id: "tool.canvas.delete_object",
+  toolId: "tool.canvas",
+  name: "delete_object",
+  category: "write",
+  description: "Delete a whiteboard object by id. Cascades connectors, comment threads, and frameId references.",
+  paramsSchema: z.object({ id: z.string() }),
+  handler: async (params: { id: string }) => {
+    const existed = (ws().whiteboardObjects ?? []).some((o) => o.id === params.id);
+    if (!existed) return { deleted: false };
+    ws().removeWhiteboardObject(params.id);
+    return { deleted: true };
+  },
+});
+
+// ──────── tool.canvas.set_object_text ────────
+// One verb to update the text-bearing field of any text-supporting
+// object kind. The field name varies by `type`:
+//
+//   sticky / text / freehand    → `content`
+//   shape (rect/ellipse/...)    → `content`
+//   frame / kanban              → `label`
+//   card                        → `title`
+//   voting                      → `question`
+//   mindMapNode                 → `text`
+//   diagramShape                → `label`
+//   connector                   → `label`
+//
+// Object kinds without a text slot (line, arrow, image, table,
+// timer, embed) return updated=false.
+registry.register({
+  id: "tool.canvas.set_object_text",
+  toolId: "tool.canvas",
+  name: "set_object_text",
+  category: "write",
+  description: "Change the text/label/title/content/question of a whiteboard object. The actual field updated depends on object type; the agent passes the new value and the action figures out the right slot.",
+  paramsSchema: z.object({
+    id: z.string(),
+    text: z.string(),
+  }),
+  handler: async (params: { id: string; text: string }) => {
+    const current = ws().whiteboardObjects ?? [];
+    const idx = current.findIndex((o) => o.id === params.id);
+    if (idx === -1) return { updated: false };
+    const obj = current[idx];
+    const now = nowIso();
+    const baseBump = { version: obj.version + 1, updatedAt: now } as const;
+
+    let next: WhiteboardObject;
+    switch (obj.type) {
+      case "sticky":
+      case "text":
+        next = { ...obj, content: params.text, ...baseBump };
+        break;
+      case "freehand":
+        // Freehand has no text slot in the type def; skip.
+        return { updated: false };
+      case "rect":
+      case "ellipse":
+      case "diamond":
+      case "triangle":
+        next = { ...obj, content: params.text, ...baseBump };
+        break;
+      case "frame":
+      case "kanban":
+        next = { ...obj, label: params.text, ...baseBump };
+        break;
+      case "card":
+        next = { ...obj, title: params.text, ...baseBump };
+        break;
+      case "voting":
+        next = { ...obj, question: params.text, ...baseBump };
+        break;
+      case "mindMapNode":
+        next = { ...obj, text: params.text, ...baseBump };
+        break;
+      case "diagramShape":
+        next = { ...obj, label: params.text, ...baseBump };
+        break;
+      case "connector":
+        next = { ...obj, label: params.text, ...baseBump };
+        break;
+      // line / arrow / image / table / timer / embed have no text slot.
+      default:
+        return { updated: false };
+    }
+    ws().upsertWhiteboardObject(next);
+    return { updated: true };
+  },
+});
+
+// ──────── tool.canvas.add_connector ────────
+// Draw a connector between two existing objects on the same board.
+// Validates both endpoints exist and live on the same boardId — a
+// cross-board connector wouldn't render and would dangle silently.
+registry.register({
+  id: "tool.canvas.add_connector",
+  toolId: "tool.canvas",
+  name: "add_connector",
+  category: "write",
+  description: "Add a connector (arrow) between two whiteboard objects on the same board.",
+  paramsSchema: z.object({
+    fromId: z.string(),
+    toId: z.string(),
+    routing: z.enum(["straight", "orthogonal", "curved"]).optional(),
+    arrowStart: z.boolean().optional(),
+    arrowEnd: z.boolean().optional(),
+    stroke: z.string().optional(),
+    strokeWidth: z.number().optional(),
+    label: z.string().optional(),
+    dashed: z.boolean().optional(),
+  }),
+  handler: async (params: {
+    fromId: string;
+    toId: string;
+    routing?: "straight" | "orthogonal" | "curved";
+    arrowStart?: boolean;
+    arrowEnd?: boolean;
+    stroke?: string;
+    strokeWidth?: number;
+    label?: string;
+    dashed?: boolean;
+  }) => {
+    const all = ws().whiteboardObjects ?? [];
+    const from = all.find((o) => o.id === params.fromId);
+    const to = all.find((o) => o.id === params.toId);
+    if (!from) throw new Error(`Connector source object ${params.fromId} not found.`);
+    if (!to) throw new Error(`Connector target object ${params.toId} not found.`);
+    if (from.boardId !== to.boardId) {
+      throw new Error(
+        `Connector endpoints must live on the same board (from=${from.boardId}, to=${to.boardId}).`,
+      );
+    }
+    const now = nowIso();
+    const connector: WhiteboardConnector = {
+      id: `obj_${nanoid(10)}`,
+      boardId: from.boardId,
+      type: "connector",
+      // The connector renders against its endpoints — x/y/w/h are
+      // bookkeeping only. Position at the source.
+      x: from.x,
+      y: from.y,
+      w: 0,
+      h: 0,
+      z: nextZ(from.boardId),
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+      fromId: params.fromId,
+      toId: params.toId,
+      routing: params.routing ?? "orthogonal",
+      arrowStart: params.arrowStart ?? false,
+      arrowEnd: params.arrowEnd ?? true,
+      stroke: params.stroke ?? "#94a3b8",
+      strokeWidth: params.strokeWidth ?? 2,
+      label: params.label,
+      dashed: params.dashed,
+    };
+    ws().upsertWhiteboardObject(connector);
+    return { id: connector.id };
   },
 });

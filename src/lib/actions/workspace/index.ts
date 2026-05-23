@@ -24,6 +24,25 @@ import type {
   Decision,
   TechDebtItem,
   TeamMember,
+  // Phase 19 — AI / LLM PM
+  LLMEval,
+  PromptVersion,
+  Hallucination,
+  TokenSpend,
+  ModelEntry,
+  RedTeamFinding,
+  // Phase 20 — Prioritization
+  PrioritizationItem,
+  // Phase 21 — Decision Frameworks
+  DACIDecision,
+  RAPIDDecision,
+  WeightedOption,
+  SixHatsThought,
+  OODACycle,
+  CynefinItem,
+  Polarity,
+  // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
+  Whiteboard,
 } from "@/lib/stores/workspace-types";
 
 const ws = () => useWorkspaceStore.getState();
@@ -202,4 +221,341 @@ defineCrudActions<TeamMember>({
   upsert: (m) => ws().upsertTeamMember(m),
   remove: (id) => ws().removeTeamMember(id),
   generateId: () => `member_${nanoid(8)}`,
+});
+
+/* ────────────────────────────────────────────────────────────────────
+ * Phase 19 — AI / LLM Product Management entities
+ *
+ * Schemas are intentionally loose (most fields optional) — the entity
+ * shapes in workspace-types.ts have many discriminated enums that don't
+ * round-trip cleanly through a typed agent tool-call. The workspace
+ * store's runtime checks own validation; these schemas exist mostly so
+ * the JSON-Schema export to Anthropic / MCP advertises the field names.
+ * ────────────────────────────────────────────────────────────────── */
+
+const LLMEvalSchema = z.object({
+  id: z.string(),
+  promptVersion: z.string().optional(),
+  model: z.string(),
+  dataset: z.string(),
+  score: z.number(),
+  metricBreakdown: z.record(z.string(), z.number()).optional(),
+  recordedAt: z.string(),
+  notes: z.string().optional(),
+}) as unknown as z.ZodType<LLMEval>;
+
+const PromptVersionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  version: z.string(),
+  body: z.string(),
+  status: z.enum(["draft", "review", "production", "deprecated"]),
+  evalScore: z.number().optional(),
+  publishedAt: z.string().optional(),
+  author: z.string().optional(),
+  changeNote: z.string().optional(),
+}) as unknown as z.ZodType<PromptVersion>;
+
+const HallucinationSchema = z.object({
+  id: z.string(),
+  feature: z.string().optional(),
+  input: z.string(),
+  expected: z.string().optional(),
+  actual: z.string(),
+  severity: z.enum(["low", "medium", "high", "critical"]),
+  rootCause: z.enum(["rag-miss", "prompt", "model", "context-window", "other"]).optional(),
+  fixApplied: z.string().optional(),
+  loggedAt: z.string(),
+  resolvedAt: z.string().optional(),
+}) as unknown as z.ZodType<Hallucination>;
+
+const TokenSpendSchema = z.object({
+  id: z.string(),
+  feature: z.string(),
+  model: z.string(),
+  date: z.string(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  costUsd: z.number(),
+}) as unknown as z.ZodType<TokenSpend>;
+
+const ModelEntrySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  vendor: z.string(),
+  inputCostPer1k: z.number().optional(),
+  outputCostPer1k: z.number().optional(),
+  contextWindow: z.number().optional(),
+  latencyP50Ms: z.number().optional(),
+  latencyP95Ms: z.number().optional(),
+  evalScore: z.number().optional(),
+  status: z.enum(["production", "evaluation", "experimental", "deprecated"]),
+  notes: z.string().optional(),
+}) as unknown as z.ZodType<ModelEntry>;
+
+const RedTeamFindingSchema = z.object({
+  id: z.string(),
+  attackVector: z.string(),
+  promptUsed: z.string().optional(),
+  successful: z.boolean(),
+  severity: z.enum(["low", "medium", "high", "critical"]),
+  mitigation: z.string().optional(),
+  loggedAt: z.string(),
+  retestDueAt: z.string().optional(),
+  resolvedAt: z.string().optional(),
+}) as unknown as z.ZodType<RedTeamFinding>;
+
+defineCrudActions<LLMEval>({
+  toolId: "workspace.llm_eval",
+  entityName: "LLM eval",
+  schema: LLMEvalSchema,
+  selectAll: () => ws().llmEvals ?? [],
+  upsert: (x) => ws().upsertLLMEval(x),
+  remove: (id) => ws().removeLLMEval(id),
+  generateId: () => `llmEval_${nanoid(8)}`,
+});
+
+defineCrudActions<PromptVersion>({
+  toolId: "workspace.prompt",
+  entityName: "prompt version",
+  schema: PromptVersionSchema,
+  selectAll: () => ws().prompts ?? [],
+  upsert: (x) => ws().upsertPrompt(x),
+  remove: (id) => ws().removePrompt(id),
+  generateId: () => `prompt_${nanoid(8)}`,
+});
+
+defineCrudActions<Hallucination>({
+  toolId: "workspace.hallucination",
+  entityName: "hallucination report",
+  schema: HallucinationSchema,
+  selectAll: () => ws().hallucinations ?? [],
+  upsert: (x) => ws().upsertHallucination(x),
+  remove: (id) => ws().removeHallucination(id),
+  generateId: () => `hallucination_${nanoid(8)}`,
+});
+
+defineCrudActions<TokenSpend>({
+  toolId: "workspace.token_spend",
+  entityName: "token-spend entry",
+  schema: TokenSpendSchema,
+  selectAll: () => ws().tokenSpend ?? [],
+  upsert: (x) => ws().upsertTokenSpend(x),
+  remove: (id) => ws().removeTokenSpend(id),
+  generateId: () => `tokenSpend_${nanoid(8)}`,
+});
+
+defineCrudActions<ModelEntry>({
+  toolId: "workspace.model",
+  entityName: "model entry",
+  schema: ModelEntrySchema,
+  selectAll: () => ws().models ?? [],
+  upsert: (x) => ws().upsertModel(x),
+  remove: (id) => ws().removeModel(id),
+  generateId: () => `model_${nanoid(8)}`,
+});
+
+defineCrudActions<RedTeamFinding>({
+  toolId: "workspace.red_team_finding",
+  entityName: "red-team finding",
+  schema: RedTeamFindingSchema,
+  selectAll: () => ws().redTeamFindings ?? [],
+  upsert: (x) => ws().upsertRedTeamFinding(x),
+  remove: (id) => ws().removeRedTeamFinding(id),
+  generateId: () => `redTeam_${nanoid(8)}`,
+});
+
+/* ────────────────────────────────────────────────────────────────────
+ * Phase 20 — Prioritization
+ * ────────────────────────────────────────────────────────────────── */
+
+const PrioritizationItemSchema = z.object({
+  id: z.string(),
+  framework: z.enum([
+    "rice", "ice", "moscow", "kano", "wsjf", "cost-of-delay",
+    "value-effort", "buy-feature", "hundred-dollar", "eisenhower", "walking-skeleton",
+  ]),
+  title: z.string(),
+  description: z.string().optional(),
+  score: z.number().optional(),
+  fields: z.record(z.string(), z.union([z.number(), z.string()])).optional(),
+  status: z.enum(["open", "scored", "decided", "shipped", "dropped"]).optional(),
+  updatedAt: z.string(),
+}) as unknown as z.ZodType<PrioritizationItem>;
+
+defineCrudActions<PrioritizationItem>({
+  toolId: "workspace.prioritization",
+  entityName: "prioritization item",
+  schema: PrioritizationItemSchema,
+  selectAll: () => ws().prioritizations ?? [],
+  upsert: (x) => ws().upsertPrioritization(x),
+  remove: (id) => ws().removePrioritization(id),
+  generateId: () => `prio_${nanoid(8)}`,
+});
+
+/* ────────────────────────────────────────────────────────────────────
+ * Phase 21 — Decision Frameworks
+ * ────────────────────────────────────────────────────────────────── */
+
+const DACIDecisionSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  context: z.string().optional(),
+  driver: z.string().optional(),
+  approver: z.string().optional(),
+  contributors: z.array(z.string()).optional(),
+  informed: z.array(z.string()).optional(),
+  options: z.array(z.string()).optional(),
+  recommendation: z.string().optional(),
+  status: z.enum(["open", "decided", "implemented", "revisit"]),
+  date: z.string(),
+}) as unknown as z.ZodType<DACIDecision>;
+
+const RAPIDDecisionSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  context: z.string().optional(),
+  recommend: z.string().optional(),
+  agree: z.array(z.string()).optional(),
+  perform: z.array(z.string()).optional(),
+  input: z.array(z.string()).optional(),
+  decide: z.string().optional(),
+  status: z.enum(["open", "decided", "implemented"]),
+  date: z.string(),
+}) as unknown as z.ZodType<RAPIDDecision>;
+
+const WeightedOptionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  scores: z.record(z.string(), z.number()),
+}) as unknown as z.ZodType<WeightedOption>;
+
+const SixHatsThoughtSchema = z.object({
+  id: z.string(),
+  hat: z.enum(["white", "red", "black", "yellow", "green", "blue"]),
+  text: z.string(),
+  loggedAt: z.string(),
+}) as unknown as z.ZodType<SixHatsThought>;
+
+const OODACycleSchema = z.object({
+  id: z.string(),
+  topic: z.string(),
+  observe: z.string().optional(),
+  orient: z.string().optional(),
+  decide: z.string().optional(),
+  act: z.string().optional(),
+  startedAt: z.string(),
+  completedAt: z.string().optional(),
+}) as unknown as z.ZodType<OODACycle>;
+
+const CynefinItemSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  domain: z.enum(["clear", "complicated", "complex", "chaotic", "confused"]),
+  rationale: z.string().optional(),
+  recommendedAction: z.string().optional(),
+  loggedAt: z.string(),
+}) as unknown as z.ZodType<CynefinItem>;
+
+const PolaritySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  greaterPurpose: z.string().optional(),
+  deeperFear: z.string().optional(),
+}) as unknown as z.ZodType<Polarity>;
+
+defineCrudActions<DACIDecision>({
+  toolId: "workspace.daci_decision",
+  entityName: "DACI decision",
+  schema: DACIDecisionSchema,
+  selectAll: () => ws().daciDecisions ?? [],
+  upsert: (x) => ws().upsertDACIDecision(x),
+  remove: (id) => ws().removeDACIDecision(id),
+  generateId: () => `daci_${nanoid(8)}`,
+});
+
+defineCrudActions<RAPIDDecision>({
+  toolId: "workspace.rapid_decision",
+  entityName: "RAPID decision",
+  schema: RAPIDDecisionSchema,
+  selectAll: () => ws().rapidDecisions ?? [],
+  upsert: (x) => ws().upsertRAPIDDecision(x),
+  remove: (id) => ws().removeRAPIDDecision(id),
+  generateId: () => `rapid_${nanoid(8)}`,
+});
+
+defineCrudActions<WeightedOption>({
+  toolId: "workspace.weighted_option",
+  entityName: "weighted-decision option",
+  schema: WeightedOptionSchema,
+  selectAll: () => ws().weightedOptions ?? [],
+  upsert: (x) => ws().upsertWeightedOption(x),
+  remove: (id) => ws().removeWeightedOption(id),
+  generateId: () => `weightedOpt_${nanoid(8)}`,
+});
+
+defineCrudActions<SixHatsThought>({
+  toolId: "workspace.six_hats_thought",
+  entityName: "Six Hats thought",
+  schema: SixHatsThoughtSchema,
+  selectAll: () => ws().sixHatsThoughts ?? [],
+  upsert: (x) => ws().upsertSixHatsThought(x),
+  remove: (id) => ws().removeSixHatsThought(id),
+  generateId: () => `sixHats_${nanoid(8)}`,
+});
+
+defineCrudActions<OODACycle>({
+  toolId: "workspace.ooda_cycle",
+  entityName: "OODA cycle",
+  schema: OODACycleSchema,
+  selectAll: () => ws().oodaCycles ?? [],
+  upsert: (x) => ws().upsertOODACycle(x),
+  remove: (id) => ws().removeOODACycle(id),
+  generateId: () => `ooda_${nanoid(8)}`,
+});
+
+defineCrudActions<CynefinItem>({
+  toolId: "workspace.cynefin_item",
+  entityName: "Cynefin item",
+  schema: CynefinItemSchema,
+  selectAll: () => ws().cynefinItems ?? [],
+  upsert: (x) => ws().upsertCynefinItem(x),
+  remove: (id) => ws().removeCynefinItem(id),
+  generateId: () => `cynefin_${nanoid(8)}`,
+});
+
+defineCrudActions<Polarity>({
+  toolId: "workspace.polarity",
+  entityName: "polarity",
+  schema: PolaritySchema,
+  selectAll: () => ws().polarities ?? [],
+  upsert: (x) => ws().upsertPolarity(x),
+  remove: (id) => ws().removePolarity(id),
+  generateId: () => `polarity_${nanoid(8)}`,
+});
+
+/* ────────────────────────────────────────────────────────────────────
+ * Phase 22 — Canvas board (whiteboard) — board itself, not its objects.
+ * Object-level actions live in `../tools/canvas.ts` because they have
+ * canvas-specific semantics (z-ordering, world coords) that don't fit
+ * the generic CRUD shape.
+ * ────────────────────────────────────────────────────────────────── */
+
+const WhiteboardSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  defaultCamera: z.object({ x: z.number(), y: z.number(), zoom: z.number() }).optional(),
+  template: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+}) as unknown as z.ZodType<Whiteboard>;
+
+defineCrudActions<Whiteboard>({
+  toolId: "workspace.whiteboard",
+  entityName: "whiteboard",
+  schema: WhiteboardSchema,
+  selectAll: () => ws().whiteboards ?? [],
+  upsert: (x) => ws().upsertWhiteboard(x),
+  remove: (id) => ws().removeWhiteboard(id),
+  generateId: () => `wb_${nanoid(8)}`,
 });

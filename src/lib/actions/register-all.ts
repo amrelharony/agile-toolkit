@@ -20,5 +20,8 @@ import "./tools/canvas";
 // Intents — high-level compositions
 import "./intents/start-retro";
 import "./intents/plan-sprint";
+import "./intents/summarize-workspace";
+import "./intents/create-okr-for-sprint";
+import "./intents/log-impediment-from-retro-card";
 
 export {};
