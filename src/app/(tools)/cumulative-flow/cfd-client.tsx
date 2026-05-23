@@ -432,7 +432,12 @@ export function CFDClient() {
         x: point?.date ?? cp.index,
         label: cp.direction === "up" ? "WIP regime up" : "WIP regime down",
         detail: `CUSUM detected a sustained ${cp.direction === "up" ? "increase" : "decrease"} in WIP at ${point?.date ?? `index ${cp.index}`}.`,
-        confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
+        // CUSUM cumulativeStat is signed: positive for upward regime
+        // shifts, negative for downward. The prior `>= 6` test missed
+        // downward shifts entirely (they'd always read "moderate"
+        // regardless of magnitude). Use absolute value to match the
+        // intent of "strong vs borderline signal".
+        confidence: Math.abs(cp.cumulativeStat) >= 6 ? "strong" : "moderate",
       };
     });
   }, [wipValues, wipSeries]);

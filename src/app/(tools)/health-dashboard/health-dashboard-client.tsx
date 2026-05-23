@@ -136,9 +136,14 @@ function extractVelocityKPIs(): {
 
   let trend: TrendDir = "same";
   if (completed.length >= 4) {
+    // Split into halves; on odd lengths put the middle sample into the
+    // SECOND half so no data point is dropped. Prior implementation
+    // sliced (0, half) + slice(-half), discarding the middle on odd N.
     const half = Math.floor(completed.length / 2);
-    const firstHalf = completed.slice(0, half).reduce((a, b) => a + b, 0) / half;
-    const secondHalf = completed.slice(-half).reduce((a, b) => a + b, 0) / half;
+    const firstSlice = completed.slice(0, half);
+    const secondSlice = completed.slice(half);
+    const firstHalf = firstSlice.reduce((a, b) => a + b, 0) / firstSlice.length;
+    const secondHalf = secondSlice.reduce((a, b) => a + b, 0) / secondSlice.length;
     const diff = secondHalf - firstHalf;
     if (diff > 1) trend = "up";
     else if (diff < -1) trend = "down";
@@ -217,10 +222,17 @@ function extractHealthCheckKPIs(): {
     const lastScores = Object.values(last.scores ?? {});
     if (lastScores.length > 0) {
       const lastTotal = lastScores.reduce((sum, s) => sum + lookup(s), 0);
-      const lastPct = (lastTotal / (lastScores.length * 2)) * 100;
-      const diff = pct - lastPct;
-      if (diff > 5) trend = "up";
-      else if (diff < -5) trend = "down";
+      const lastMax = lastScores.length * 2;
+      // Guard against a fully-malformed last entry (every `light`
+      // unrecognised → lookup returns 0 → lastTotal = 0 → lastPct = 0).
+      // Without this, a current pct > 0 produced a spurious "up" trend
+      // arrow whenever the prior history row had a broken schema.
+      if (lastTotal > 0 && lastMax > 0) {
+        const lastPct = (lastTotal / lastMax) * 100;
+        const diff = pct - lastPct;
+        if (diff > 5) trend = "up";
+        else if (diff < -5) trend = "down";
+      }
     }
   }
 

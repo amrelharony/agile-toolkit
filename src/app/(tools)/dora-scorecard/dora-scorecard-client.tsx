@@ -244,7 +244,10 @@ export function DoraScorecardClient() {
           detail: `CUSUM detected a ${cp.direction === "up" ? "lift" : "drop"} in deploy frequency at ${sample.quarter}.`,
           // Reflect the magnitude of the cumulative statistic — strong signals
           // should read differently than borderline ones (matches cycle-time/CFD).
-          confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
+          // CUSUM is signed: downward regime shifts produce negative values
+          // that the prior `>= 6` test always classified "moderate". abs()
+          // restores the symmetric intent.
+          confidence: Math.abs(cp.cumulativeStat) >= 6 ? "strong" : "moderate",
         };
       })
       .filter((a): a is CausalAnnotationData => a !== null && xValuesInChart.has(a.x as string));

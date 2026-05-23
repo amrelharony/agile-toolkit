@@ -701,7 +701,7 @@ export function SloBuilderClient() {
                             ? "bg-amber-400"
                             : "bg-emerald-400"
                       }`}
-                      style={{ width: `${Math.min(100, 100 - remainingPct)}%` }}
+                      style={{ width: `${Math.max(0, Math.min(100, 100 - remainingPct))}%` }}
                       aria-hidden="true"
                     />
                   </div>

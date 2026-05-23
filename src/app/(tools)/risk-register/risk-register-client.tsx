@@ -214,7 +214,11 @@ export function RiskRegisterClient() {
 
   const matrix = useMemo(() => {
     const grid = Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => 0));
-    for (const r of risks.filter((x) => x.status !== "closed")) {
+    // Exclude "closed" AND "accepted" — accepted risks are explicitly
+    // out-of-scope (the team has decided not to mitigate them), so
+    // keeping them on the actionable heatmap misled risk reviews.
+    // Matches the openRisks selector in workspace-store.ts.
+    for (const r of risks.filter((x) => x.status !== "closed" && x.status !== "accepted")) {
       const p = clampToScale(r.probability);
       const i = clampToScale(r.impact);
       grid[p - 1][i - 1]++;
