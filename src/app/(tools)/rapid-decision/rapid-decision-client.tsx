@@ -66,9 +66,33 @@ export function RapidDecisionClient() {
     prompts: generateRapidPrompts({ items: list }, workspace),
   }), [list, workspace]);
 
+  // Full RAPID shape, not just Recommend/Decide. The dropped fields
+  // (Agree, Perform, Input, Context, date) are the rows that matter for
+  // re-import and stakeholder share — a slim CSV gave a misleading
+  // picture of who actually owned each role on each decision.
   const csvData = {
-    headers: ["Title", "Recommend", "Decide", "Status"],
-    rows: list.map((d) => [d.title, d.recommend ?? "", d.decide ?? "", d.status]),
+    headers: [
+      "Date",
+      "Title",
+      "Context",
+      "Recommend",
+      "Agree",
+      "Perform",
+      "Input",
+      "Decide",
+      "Status",
+    ],
+    rows: list.map((d) => [
+      d.date ?? "",
+      d.title,
+      d.context ?? "",
+      d.recommend ?? "",
+      (d.agree ?? []).join("; "),
+      (d.perform ?? []).join("; "),
+      (d.input ?? []).join("; "),
+      d.decide ?? "",
+      d.status,
+    ]),
   };
 
   return (

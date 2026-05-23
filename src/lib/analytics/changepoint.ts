@@ -3,6 +3,14 @@ import { mean, stdDev } from "./anomaly";
 export interface Changepoint {
   index: number;
   direction: "up" | "down";
+  /**
+   * Cumulative deviation magnitude in σ-units (always positive).
+   * Previously this was the raw cumulant — positive for "up" detections
+   * (cPos > h) but NEGATIVE for "down" detections (cNeg < -h). Consumers
+   * comparing `cumulativeStat >= threshold` silently ignored every
+   * down-direction match. Returning the magnitude makes the threshold
+   * comparison symmetric.
+   */
   cumulativeStat: number;
 }
 
@@ -43,7 +51,9 @@ export function cusum(series: number[], k = 0.5, h = 4): Changepoint[] {
       // from a forced zero.
       cPos = 0;
     } else if (cNeg < -h) {
-      out.push({ index: i, direction: "down", cumulativeStat: cNeg });
+      // Report magnitude (always positive) so consumers can compare against
+      // a single threshold regardless of direction.
+      out.push({ index: i, direction: "down", cumulativeStat: -cNeg });
       cNeg = 0;
     }
   }

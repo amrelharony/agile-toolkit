@@ -85,6 +85,20 @@ const STRIDE_LABEL: Record<Stride, string> = Object.fromEntries(
   STRIDE_OPTIONS.map((o) => [o.value, o.label])
 ) as Record<Stride, string>;
 
+/**
+ * Normalise a possibly-stale persisted category into a valid Stride.
+ * A hand-edited localStorage payload (or a schema migration that left
+ * an old category alias behind) used to render the badge as
+ * "undefined · undefined" — masking the threat entirely. Default to
+ * `spoofing` so the row remains visible and editable.
+ */
+function safeStride(value: unknown): Stride {
+  if (typeof value === "string" && value in STRIDE_TAG) {
+    return value as Stride;
+  }
+  return "spoofing";
+}
+
 const SEVERITY_COLOR: Record<number, string> = {
   1: "#34d399",
   2: "#a3e635",
@@ -170,13 +184,18 @@ function ThreatRow({
     <Card className="bg-surface border-border">
       <CardContent className="p-3 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge
-            variant="outline"
-            className="font-data uppercase tracking-wider text-[10px]"
-            title={STRIDE_LABEL[t.category]}
-          >
-            {STRIDE_TAG[t.category]} · {STRIDE_LABEL[t.category]}
-          </Badge>
+          {(() => {
+            const cat = safeStride(t.category);
+            return (
+              <Badge
+                variant="outline"
+                className="font-data uppercase tracking-wider text-[10px]"
+                title={STRIDE_LABEL[cat]}
+              >
+                {STRIDE_TAG[cat]} · {STRIDE_LABEL[cat]}
+              </Badge>
+            );
+          })()}
           <span
             className="inline-flex items-center gap-1 text-xs"
             title={`Severity ${t.severity}`}
@@ -361,7 +380,10 @@ export function ThreatModelClient() {
     }
     for (const t of state.threats) {
       const row = map.get(t.service);
-      if (row) row[t.category]++;
+      // Same defensive normalisation as the badge — a stale category
+      // would otherwise increment `row[undefined]` and silently inflate
+      // the row's own count keyed by the literal string "undefined".
+      if (row) row[safeStride(t.category)]++;
     }
     return map;
   }, [state.threats, services]);

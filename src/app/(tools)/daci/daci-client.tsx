@@ -77,9 +77,35 @@ export function DaciClient() {
     prompts: generateDaciPrompts({ items: list }, workspace),
   }), [list, workspace]);
 
+  // CSV export carries the full DACI shape, not just Driver/Approver. The
+  // prior export silently dropped Contributors, Informed, Context, Options,
+  // and the date — a user re-importing the file or sharing it with a
+  // stakeholder would see a half-empty decision record.
   const csvData = {
-    headers: ["Title", "Driver", "Approver", "Status", "Recommendation"],
-    rows: list.map((d) => [d.title, d.driver ?? "", d.approver ?? "", d.status, d.recommendation ?? ""]),
+    headers: [
+      "Date",
+      "Title",
+      "Context",
+      "Driver",
+      "Approver",
+      "Contributors",
+      "Informed",
+      "Options",
+      "Recommendation",
+      "Status",
+    ],
+    rows: list.map((d) => [
+      d.date ?? "",
+      d.title,
+      d.context ?? "",
+      d.driver ?? "",
+      d.approver ?? "",
+      (d.contributors ?? []).join("; "),
+      (d.informed ?? []).join("; "),
+      (d.options ?? []).join("; "),
+      d.recommendation ?? "",
+      d.status,
+    ]),
   };
 
   return (
