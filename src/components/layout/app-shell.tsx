@@ -40,7 +40,6 @@ import { HistorySyncProvider } from "@/lib/history/sync-provider";
 import { TimeTravelShortcuts } from "@/components/history/time-travel-shortcuts";
 import { ErrorBoundary } from "./error-boundary";
 import { Suspense } from "react";
-import { XpBar } from "@/components/gamification/xp-bar";
 import { TrophyCase } from "@/components/gamification/trophy-case";
 
 // Routes that bypass the full app chrome (sidebar/header/providers).
@@ -122,17 +121,17 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
             <Header
               onOpenSearch={() => setSearchOpen(true)}
               onOpenSidebar={() => setSidebarOpen(true)}
+              onOpenTrophyCase={() => setTrophyOpen(true)}
             />
             <main
               id="main-content"
-              className="flex-1 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-16 pl-safe pr-safe md:pl-0 md:pr-0"
+              className="flex-1 pb-[calc(2rem+env(safe-area-inset-bottom))] md:pb-8 pl-safe pr-safe md:pl-0 md:pr-0"
             >
               {children}
             </main>
           </div>
           <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
         </div>
-        <XpBar onOpenTrophyCase={() => setTrophyOpen(true)} />
         <TrophyCase open={trophyOpen} onOpenChange={setTrophyOpen} />
         <Suspense fallback={null}>
           <HolidayEngine />

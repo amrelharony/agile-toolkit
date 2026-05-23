@@ -15,7 +15,7 @@ import { Search, Moon, Sun, Menu, Contrast, MessageSquare } from "lucide-react";
 import { SonificationToggle } from "@/components/shared/sonification-toggle";
 import { LlmStatusChip } from "@/components/ai/llm-status-chip";
 import { useAgentStore } from "@/lib/agent/store";
-import { TrophyButton } from "@/components/gamification/trophy-button";
+import { XpBar } from "@/components/gamification/xp-bar";
 import { StatusBadge, WeatherWidget } from "@/lib/weather/widget";
 import { UserMenu } from "@/components/auth/user-menu";
 import { cn } from "@/lib/utils";
@@ -23,9 +23,10 @@ import { cn } from "@/lib/utils";
 interface HeaderProps {
   onOpenSearch: () => void;
   onOpenSidebar?: () => void;
+  onOpenTrophyCase?: () => void;
 }
 
-export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
+export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: HeaderProps) {
   const pathname = usePathname();
   const tool = getToolByPath(pathname);
   const openAgent = useAgentStore((s) => s.openSheet);
@@ -203,12 +204,14 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
 
       {/* Right — Actions.
           - <320 px: only the user menu + theme toggle survive.
-          - 320–375 px (xs): trophy hidden, sonification hidden, theme + user.
-          - sm+ : everything visible.
-          The hidden buttons are still reachable from the user menu. */}
+          - xs+:     XpBar replaces the standalone trophy icon — same
+                     click target (opens trophy case) plus level + progress.
+          - sm+:     sonification + LLM chip + xp/needed counter.
+          - md+:     achievements count in XpBar.
+          Hidden buttons remain reachable from the user menu. */}
       <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
         <div className="hidden xs:flex items-center gap-0.5 sm:gap-1">
-          <TrophyButton />
+          <XpBar onOpenTrophyCase={onOpenTrophyCase} />
         </div>
         <div className="hidden sm:flex items-center">
           <SonificationToggle />
