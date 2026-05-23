@@ -5,6 +5,8 @@ import { panBy } from "@/lib/whiteboard/canvas-transform";
 import { aabbIntersect, boundingBoxOfFlatPoints, rectFromCorners, rectOverlapsPolygon } from "@/lib/geometry/bbox";
 import type { Camera } from "@/lib/geometry/bbox";
 import { snapToGrid as snapToGridFn, snapToObjects as snapToObjectsFn, DEFAULT_GRID_SIZE, DEFAULT_GUIDE_TOLERANCE, type SpatialIndex, type AlignmentGuide } from "@/lib/whiteboard/snap";
+import { layoutMindMap, isMindMapDescendant } from "@/lib/whiteboard/mind-map-layout";
+import type { WhiteboardMindMapNode } from "@/lib/stores/workspace-types";
 import { wbId } from "@/lib/whiteboard/clipboard";
 import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -845,6 +847,88 @@ export function useCanvasPointerMachine(params: {
                 ws.upsertStory({ ...story, status: updated.status as typeof story.status });
               }
             }
+          }
+        }
+
+        // ─── Mind-map drag-to-reparent ─────────────────────────────
+        // If the user dragged a mind-map node and dropped it on top
+        // of another mind-map node in the same map, reparent the
+        // dragged node and re-layout. Cycle guard prevents dropping
+        // a node onto one of its own descendants (which would create
+        // an infinite tree).
+        //
+        // The drag-end centre point (current obj position + half
+        // size) is the "drop point". We find a candidate target
+        // mind-map node whose AABB contains the drop point and whose
+        // mindMapId matches the dragged node. The dragged node's
+        // own AABB is excluded so a small move-in-place doesn't
+        // self-reparent.
+        if (!readOnly) {
+          const mindMapUpdates = new Map<string, WhiteboardMindMapNode>();
+          for (const id of ids) {
+            const dragged = objectsById.get(id);
+            if (!dragged || dragged.type !== "mindMapNode") continue;
+            const cx = dragged.x + dragged.w / 2;
+            const cy = dragged.y + dragged.h / 2;
+            // Candidate: any other mindMapNode in the same map
+            // whose AABB contains the drop point. Pick the
+            // top-most (highest z) when multiple match.
+            const candidate = objects
+              .filter((o): o is WhiteboardMindMapNode =>
+                o.type === "mindMapNode" &&
+                o.id !== id &&
+                o.mindMapId === dragged.mindMapId &&
+                cx >= o.x && cx <= o.x + o.w &&
+                cy >= o.y && cy <= o.y + o.h,
+              )
+              .sort((a, b) => b.z - a.z)[0];
+            if (!candidate) continue;
+            // Already this node's parent? Nothing to do.
+            if (dragged.parentNodeId === candidate.id) continue;
+            // Cycle guard — refuse to drop a node onto one of its
+            // own descendants.
+            const family = objects.filter(
+              (o): o is WhiteboardMindMapNode =>
+                o.type === "mindMapNode" && o.mindMapId === dragged.mindMapId,
+            );
+            if (isMindMapDescendant(id, candidate.id, family)) continue;
+
+            // Apply the reparent and re-layout the whole family.
+            const reparented: WhiteboardMindMapNode = {
+              ...dragged,
+              parentNodeId: candidate.id,
+              version: dragged.version + 1,
+              updatedAt: new Date().toISOString(),
+            };
+            const familyMap = new Map<string, WhiteboardMindMapNode>();
+            for (const n of family) familyMap.set(n.id, n);
+            familyMap.set(id, reparented);
+            const familyArr = Array.from(familyMap.values());
+            const rootNode = familyArr.find((n) => !n.parentNodeId);
+            const rootAnchor = rootNode ? { x: rootNode.x, y: rootNode.y } : null;
+            const positions = layoutMindMap(familyArr, rootAnchor);
+            const now2 = new Date().toISOString();
+            for (const fam of familyArr) {
+              const pos = positions.get(fam.id);
+              if (!pos) continue;
+              const moved = pos.x !== fam.x || pos.y !== fam.y;
+              const isStructural = fam.id === id;
+              if (!moved && !isStructural) continue;
+              mindMapUpdates.set(fam.id, {
+                ...fam,
+                x: pos.x,
+                y: pos.y,
+                version: fam.version + (isStructural ? 0 : 1),
+                updatedAt: now2,
+              });
+            }
+            // Make sure the reparented node lands even if it didn't
+            // visually move (rare — usually layout re-positions it).
+            if (!mindMapUpdates.has(id)) mindMapUpdates.set(id, reparented);
+          }
+          if (mindMapUpdates.size > 0) {
+            upsertMany(Array.from(mindMapUpdates.values()));
+            log(CANVAS_ACTIONS.OBJECT_UPDATED, { count: mindMapUpdates.size, action: "mindmap-reparent" });
           }
         }
       }

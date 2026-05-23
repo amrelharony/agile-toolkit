@@ -137,3 +137,37 @@ export function layoutMindMap(
 
 /** Default size for a new mind-map node. */
 export const MIND_MAP_NODE_DEFAULT = { w: 180, h: 56 } as const;
+
+/**
+ * True when `descendantId` appears anywhere in the subtree rooted at
+ * `ancestorId`. Used to prevent the drag-to-reparent flow from
+ * letting a node become its own descendant (which would create a
+ * cycle and either infinite-loop the layout or crash it).
+ *
+ * Iterative BFS rather than recursive so it can't blow the stack on
+ * a pathological-but-not-impossible 10k-node tree.
+ */
+export function isMindMapDescendant(
+  ancestorId: string,
+  descendantId: string,
+  nodes: readonly WhiteboardMindMapNode[],
+): boolean {
+  if (ancestorId === descendantId) return true;
+  const childrenByParent = new Map<string, string[]>();
+  for (const n of nodes) {
+    if (!n.parentNodeId) continue;
+    if (!childrenByParent.has(n.parentNodeId)) childrenByParent.set(n.parentNodeId, []);
+    childrenByParent.get(n.parentNodeId)!.push(n.id);
+  }
+  const queue: string[] = [ancestorId];
+  const visited = new Set<string>();
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (visited.has(id)) continue;
+    visited.add(id);
+    if (id === descendantId) return true;
+    const kids = childrenByParent.get(id);
+    if (kids) queue.push(...kids);
+  }
+  return false;
+}
