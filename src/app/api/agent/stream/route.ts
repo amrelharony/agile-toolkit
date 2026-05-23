@@ -4,6 +4,17 @@ import { requireAuthorizedUser } from "@/lib/auth/require-user";
 /**
  * Agent streaming proxy.
  *
+ * Runtime: Edge. Claude responses with tool-use routinely take 10-20s
+ * per turn, which would be killed by Vercel Hobby's 10s Node serverless
+ * timeout. The Edge runtime extends this to 25s on Hobby (and supports
+ * streaming responses natively via the Web Streams API). The tool-use
+ * loop itself happens in the browser, so multi-turn work is bounded by
+ * the per-turn cap, not the entire conversation.
+ *
+ * Edge-safe imports only: `requireAuthorizedUser` uses `next/headers`
+ * cookies + `@supabase/ssr` createServerClient, both Edge-compatible.
+ * No node:crypto, no fs, no streams from Node — all WebStandard.
+ *
  * POST body shape (subset of Anthropic Messages API):
  *   {
  *     model: string,
@@ -23,6 +34,8 @@ import { requireAuthorizedUser } from "@/lib/auth/require-user";
  * GET returns the mode without making any LLM call — convenience for
  * the client to know which transport to use before sending a message.
  */
+
+export const runtime = "edge";
 
 const ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
