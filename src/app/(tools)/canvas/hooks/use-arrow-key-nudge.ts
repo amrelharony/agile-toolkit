@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 
 /**
@@ -23,10 +23,19 @@ export function useArrowKeyNudge(params: {
   selection: readonly string[];
   objectsById: ReadonlyMap<string, WhiteboardObject>;
   upsertMany: (objs: WhiteboardObject[]) => void;
+  /** Push an undo snapshot. Called once per gesture (the first key in a
+   *  burst); subsequent keys before key-up coalesce into the same undo
+   *  entry. Without this, arrow-nudging bypassed undo entirely — holding
+   *  arrow for a few seconds was unrecoverable. */
+  pushSnapshot: () => void;
   readOnly: boolean;
   presentationFrameIndex: number | null;
 }) {
-  const { selection, objectsById, upsertMany, readOnly, presentationFrameIndex } = params;
+  const { selection, objectsById, upsertMany, pushSnapshot, readOnly, presentationFrameIndex } = params;
+  // Track gesture state via refs so the keydown handler stays stable.
+  // `gesturePushedRef` flips on the first arrow-down of a gesture; the
+  // keyup handler resets it so the NEXT gesture pushes a fresh snapshot.
+  const gesturePushedRef = useRef(false);
 
   useEffect(() => {
     let pendingDx = 0;
@@ -66,14 +75,34 @@ export function useArrowKeyNudge(params: {
       else if (e.key === "ArrowDown") dy = step;
       else return;
       e.preventDefault();
+      // First arrow-down of a gesture: snapshot for undo. Subsequent
+      // keys before the matching keyup coalesce into the same entry,
+      // so Cmd+Z reverts the entire nudge burst — not one pixel at a time.
+      if (!gesturePushedRef.current) {
+        pushSnapshot();
+        gesturePushedRef.current = true;
+      }
       pendingDx += dx;
       pendingDy += dy;
       if (frame === null) frame = requestAnimationFrame(flush);
     };
+    const onKeyUp = (e: KeyboardEvent) => {
+      // Reset gesture once any arrow key is released. Cheap heuristic:
+      // OS auto-repeat fires keydown without keyup, so a single keyup
+      // marks the end of the burst.
+      if (
+        e.key === "ArrowLeft" || e.key === "ArrowRight" ||
+        e.key === "ArrowUp"   || e.key === "ArrowDown"
+      ) {
+        gesturePushedRef.current = false;
+      }
+    };
     window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
     return () => {
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
       if (frame !== null) cancelAnimationFrame(frame);
     };
-  }, [selection, objectsById, upsertMany, readOnly, presentationFrameIndex]);
+  }, [selection, objectsById, upsertMany, pushSnapshot, readOnly, presentationFrameIndex]);
 }

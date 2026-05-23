@@ -8,6 +8,7 @@ import { rectUnion } from "@/lib/geometry/bbox";
 import type { Rect } from "@/lib/geometry/bbox";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { wbId } from "@/lib/whiteboard/clipboard";
+import { claimNextZ, claimZRange } from "@/lib/whiteboard/z-order";
 import { STICKY_DEFAULT } from "../constants";
 import { layoutMindMap, MIND_MAP_NODE_DEFAULT } from "@/lib/whiteboard/mind-map-layout";
 import type { WhiteboardMindMapNode } from "@/lib/stores/workspace-types";
@@ -425,7 +426,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   useEnterEditShortcut({ selection, objectsById, editingObjectId, setEditingObjectId, readOnly });
   useCardDetailShortcut({ selection, objectsById, cardDetailId, setCardDetailId, readOnly });
 
-  useArrowKeyNudge({ selection, objectsById, upsertMany, readOnly, presentationFrameIndex });
+  useArrowKeyNudge({ selection, objectsById, upsertMany, pushSnapshot, readOnly, presentationFrameIndex });
 
   // Empty React onWheel handler — the real wheel listener is attached
   // natively in `useWheelZoom` because React's synthetic wheel is
@@ -446,9 +447,15 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
     (clientX: number, clientY: number) => {
       const rect = viewportRectRef.current;
       if (!rect) return { x: 0, y: 0 };
+      // Guard against zoom=0 / NaN — a corrupted persisted camera or a
+      // mid-pinch frame where zoom briefly hits zero would otherwise
+      // produce Infinity/NaN world coords that the renderer treats as
+      // off-screen for every subsequent calculation until the camera is
+      // reset. Match the `zoomOr1` pattern from bbox.ts.
+      const z = camera.zoom > 0 && Number.isFinite(camera.zoom) ? camera.zoom : 1;
       return {
-        x: (clientX - rect.left) / camera.zoom + camera.x,
-        y: (clientY - rect.top) / camera.zoom + camera.y,
+        x: (clientX - rect.left) / z + camera.x,
+        y: (clientY - rect.top) / z + camera.y,
       };
     },
     // viewportRectRef returned by useViewportSize is identity-stable;
@@ -464,7 +471,12 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
     (texts: readonly string[]) => {
       if (readOnly || texts.length === 0) return;
       const now = new Date().toISOString();
-      const z = (topZRef.current ?? 0) + 1;
+      // Reserve a contiguous z-range up front. The prior implementation
+      // read `topZRef.current + 1` and gave each sticky `z + i` — fine in
+      // isolation, but subsequent synchronous creates (a follow-up paste,
+      // another AI batch) would read the same stale `topZRef.current`
+      // before the useEffect updater ran, producing overlapping z values.
+      const z = claimZRange(topZRef, texts.length);
       // Grid layout: aim for a roughly square arrangement, max 5
       // columns so very long lists still fit a typical viewport.
       const cols = Math.min(5, Math.ceil(Math.sqrt(texts.length)));
@@ -568,7 +580,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
     (items: readonly { title: string; ownerId?: string; ownerName?: string; targetTool?: string }[]) => {
       if (readOnly || items.length === 0) return;
       const now = new Date().toISOString();
-      const z = (topZRef.current ?? 0) + 1;
+      const z = claimZRange(topZRef, items.length);
       const cardW = 240;
       const cardH = 110;
       const gap = 16;
@@ -624,7 +636,17 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
     (root: MindMapTreeNode) => {
       if (readOnly) return;
       const now = new Date().toISOString();
-      const zBase = (topZRef.current ?? 0) + 1;
+      // Count tree nodes so we can reserve a contiguous z-range. A naive
+      // claimNextZ in the dfs body would re-read the same ref value if
+      // the topZRef useEffect hasn't run yet (it WILL be stale until the
+      // commit pass), producing all-same-z layout.
+      let nodeCount = 0;
+      const countNodes = (n: MindMapTreeNode): void => {
+        nodeCount++;
+        if (n.children) for (const c of n.children) countNodes(c);
+      };
+      countNodes(root);
+      const zBase = claimZRange(topZRef, nodeCount);
       // Root id doubles as the mindMapId so the whole tree shares
       // a single identifier from creation onward.
       const rootId = wbId("wb");
@@ -685,7 +707,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
     (cluster: { bbox: { x: number; y: number; w: number; h: number } }, text: string) => {
       if (readOnly || !text) return;
       const now = new Date().toISOString();
-      const z = (topZRef.current ?? 0) + 1;
+      const z = claimNextZ(topZRef);
       const w = Math.round(STICKY_DEFAULT.w * 1.25);
       const h = Math.round(STICKY_DEFAULT.h * 1.25);
       // Centre on the cluster bbox so it visually labels the group.

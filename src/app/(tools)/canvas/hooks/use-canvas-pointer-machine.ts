@@ -8,6 +8,7 @@ import { snapToGrid as snapToGridFn, snapToObjects as snapToObjectsFn, DEFAULT_G
 import { layoutMindMap, isMindMapDescendant } from "@/lib/whiteboard/mind-map-layout";
 import type { WhiteboardMindMapNode } from "@/lib/stores/workspace-types";
 import { wbId } from "@/lib/whiteboard/clipboard";
+import { claimNextZ } from "@/lib/whiteboard/z-order";
 import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -334,7 +335,7 @@ export function useCanvasPointerMachine(params: {
       if (tool === "line" || tool === "arrow") {
         const id = wbId("wb");
         const now = new Date().toISOString();
-        const topZ = (topZRef.current ?? 0) + 1;
+        const topZ = claimNextZ(topZRef);
         setDrawing({
           id, boardId, type: tool,
           x: world.x, y: world.y, w: 0, h: 0,
@@ -347,7 +348,7 @@ export function useCanvasPointerMachine(params: {
       if (tool === "freehand") {
         const id = wbId("wb");
         const now = new Date().toISOString();
-        const topZ = (topZRef.current ?? 0) + 1;
+        const topZ = claimNextZ(topZRef);
         setDrawing({
           id, boardId, type: "freehand",
           x: world.x, y: world.y, w: 0, h: 0,
@@ -396,7 +397,7 @@ export function useCanvasPointerMachine(params: {
       ) {
         const id = wbId("wb");
         const now = new Date().toISOString();
-        const topZ = (topZRef.current ?? 0) + 1;
+        const topZ = claimNextZ(topZRef);
         const baseProps = {
           id, boardId, version: 1, z: topZ, createdAt: now, updatedAt: now,
           x: world.x, y: world.y, w: 0, h: 0,

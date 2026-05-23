@@ -331,6 +331,57 @@ export function isValidObject(o: unknown): o is WhiteboardObject {
     case "triangle":
       // All optional style fields validated above.
       break;
+    case "table":
+      // `rows` is a 2D string grid; require rectangular shape (same
+      // column count per row) so the renderer's per-row map() doesn't
+      // crash on a jagged array a hostile peer constructed.
+      if (!Array.isArray(r.rows)) return false;
+      if (r.rows.length > 500) return false; // sane row cap
+      {
+        let cols = -1;
+        for (const row of r.rows as unknown[]) {
+          if (!Array.isArray(row)) return false;
+          if (row.length > 50) return false; // sane col cap
+          if (cols === -1) cols = row.length;
+          else if (row.length !== cols) return false;
+          for (const cell of row as unknown[]) {
+            if (typeof cell !== "string") return false;
+            if ((cell as string).length > MAX_TEXT_LEN) return false;
+          }
+        }
+        if (r.columnFractions !== undefined) {
+          if (!Array.isArray(r.columnFractions)) return false;
+          if ((r.columnFractions as unknown[]).length !== cols) return false;
+          for (const f of r.columnFractions as unknown[]) {
+            if (typeof f !== "number" || !Number.isFinite(f) || f < 0 || f > 1) return false;
+          }
+        }
+      }
+      if (r.headerRow !== undefined && typeof r.headerRow !== "boolean") return false;
+      if (r.borderColor !== undefined) {
+        if (typeof r.borderColor !== "string" || r.borderColor.length > MAX_COLOR_LEN) return false;
+        if (r.borderColor.length > 0 && !SAFE_CSS_COLOR_RE.test(r.borderColor.trim())) return false;
+      }
+      break;
+    case "mindMapNode":
+      if (typeof r.text !== "string" || r.text.length > MAX_TEXT_LEN) return false;
+      if (typeof r.mindMapId !== "string" || r.mindMapId.length === 0 || r.mindMapId.length > MAX_ID_LEN) return false;
+      if (r.parentNodeId !== undefined) {
+        if (typeof r.parentNodeId !== "string" || r.parentNodeId.length === 0 || r.parentNodeId.length > MAX_ID_LEN) return false;
+        // A node cannot be its own parent. The layout walker assumes
+        // an acyclic tree; a self-loop would infinite-recurse on
+        // expand. Cross-node cycles are detected when the layout runs;
+        // here we cheap-guard the self-loop only.
+        if (r.parentNodeId === r.id) return false;
+      }
+      if (r.collapsed !== undefined && typeof r.collapsed !== "boolean") return false;
+      // `color` was validated above by the shared optColor pass.
+      break;
+    case "diagramShape":
+      if (typeof r.kind !== "string" || r.kind.length === 0 || r.kind.length > MAX_SHORT_LEN) return false;
+      if (typeof r.label !== "string" || r.label.length > MAX_TITLE_LEN) return false;
+      // `fill` / `stroke` validated by shared optColor pass above.
+      break;
   }
   return true;
 }

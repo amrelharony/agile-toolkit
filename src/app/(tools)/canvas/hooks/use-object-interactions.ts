@@ -3,6 +3,7 @@
 import { useCallback, type RefObject, type MutableRefObject } from "react";
 import { wbId } from "@/lib/whiteboard/clipboard";
 import { buildSpatialIndex, type SpatialIndex } from "@/lib/whiteboard/snap";
+import { claimNextZ } from "@/lib/whiteboard/z-order";
 import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import type { Rect } from "@/lib/geometry/bbox";
@@ -123,7 +124,17 @@ export function useObjectInteractions(params: {
       if (tool === "connector") {
         const target = objectsById.get(id);
         if (!target) return;
-        const valid = ["sticky", "rect", "ellipse", "diamond", "triangle", "frame", "image"];
+        // Acceptable connector endpoints. Phase 25+ adds card/kanban/
+        // timer/voting/table/mindMapNode/diagramShape — without those
+        // here, the connector tool silently no-ops when the user clicks
+        // one of those object types (no cursor change, no toast, just
+        // dead click). Keep in sync with WhiteboardObjectKind.
+        const valid = [
+          "sticky", "rect", "ellipse", "diamond", "triangle",
+          "frame", "image",
+          "card", "kanban", "timer", "voting",
+          "table", "mindMapNode", "diagramShape",
+        ];
         if (!valid.includes(target.type)) return;
         if (!pendingConnectorFromId) {
           setPendingConnectorFromId(id);
@@ -149,7 +160,7 @@ export function useObjectInteractions(params: {
           boardId,
           type: "connector",
           x: 0, y: 0, w: 0, h: 0,
-          z: (topZRef.current ?? 0) + 1,
+          z: claimNextZ(topZRef),
           fromId: pendingConnectorFromId,
           toId: id,
           fromAnchor: "auto",
@@ -420,7 +431,10 @@ export function useObjectInteractions(params: {
         let r = (o.rotation ?? 0) + deltaDeg;
         r = ((r + 180) % 360 + 360) % 360 - 180;
         if (r === -180) r = 180;
-        updates.push({ ...o, rotation: r, updatedAt: now } as WhiteboardObject);
+        // Bump `version` so peers honour the LWW comparison. Without it,
+        // peers see an unchanged version and treat the rotation as an
+        // out-of-date echo, silently rejecting the rotate-button click.
+        updates.push({ ...o, rotation: r, version: o.version + 1, updatedAt: now } as WhiteboardObject);
       }
       if (updates.length > 0) upsertMany(updates);
     },
