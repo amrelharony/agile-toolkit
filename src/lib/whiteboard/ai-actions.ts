@@ -123,6 +123,116 @@ Return JSON keyed by object id, no commentary:
   };
 }
 
+type ActivityEventInput = {
+  at: number;
+  author: string;
+  kind: string;
+  summary: string;
+};
+
+/**
+ * Build the prompt that summarises board activity since the user
+ * last opened the canvas.
+ *
+ * Renders the last N events as `[time] author kind: summary` so the
+ * LLM has enough context to produce a "Alex moved 4 cards, Sara
+ * added 7 stickies"-style digest. Events are pre-filtered upstream
+ * to the relevant board + `at > since`.
+ *
+ * Cap of 200 events keeps the prompt under typical context limits
+ * on a busy board. We sort newest-first so the summary leans toward
+ * recent activity if the cap clips earlier events.
+ */
+export function catchUpPrompt(
+  events: readonly ActivityEventInput[],
+  since: number,
+): PromptDefinition {
+  const sorted = [...events].sort((a, b) => b.at - a.at).slice(0, 200);
+  const lines = sorted.map((e) => {
+    const rel = formatRelative(e.at, since);
+    const author = sanitizePromptCell(e.author || "Anonymous", 80);
+    const kind = sanitizePromptCell(e.kind, 32);
+    const summary = sanitizePromptCell(e.summary, 200);
+    return `${rel} • ${author} ${kind}: ${summary}`;
+  });
+  return {
+    id: "canvas-catchup",
+    title: "Catch me up",
+    description: `Summarise ${sorted.length} activity event${sorted.length === 1 ? "" : "s"} since your last visit.`,
+    prompt: `${buildPreamble("canvas", `Summarise board activity since the user's last visit`)}
+
+## Task
+Read the activity log below and produce a 3-6 bullet summary of what
+happened on this board since the user was last here. Group related
+events (e.g. "Alex moved 4 cards to Done" beats 4 separate bullets).
+Surface people, themes, and any notable patterns (lots of edits to
+one frame, a comment thread that grew, etc.). Plain language; no
+preamble.
+
+## Activity log (newest first)
+${wrapUserContent(lines.join("\n"))}
+
+## Output format
+Return a short markdown bullet list. No headings, no JSON, no
+commentary outside the list. Maximum ~10 bullets.`,
+  };
+}
+
+/** Human-friendly relative time for the activity log — "12m ago",
+ * "3h ago", "2d ago". `since` is unused in the label but kept in the
+ * signature so future variants can be "12m before your last visit" if
+ * users find absolute-relative confusing. */
+function formatRelative(at: number, since: number): string {
+  void since;
+  const d = Math.max(0, Date.now() - at);
+  const minutes = Math.floor(d / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(at).toISOString().slice(0, 10);
+}
+
+/**
+ * Summarize a cluster of related objects into ONE concise sticky.
+ *
+ * Used by the AI Insights panel: the user picks a detected cluster,
+ * hits "Summarize", and the LLM returns a 1-2-sentence distillation
+ * of what the cluster is about. The caller drops the summary as a
+ * new sticky at the cluster's bbox center (or wherever makes sense).
+ *
+ * Output is a single string — easier to parse than a JSON wrapper
+ * and the consumer only ever wants one sticky anyway. The prompt
+ * forbids commentary so the response can be applied verbatim.
+ */
+export function summarizeClusterPrompt(objects: readonly WhiteboardObject[]): PromptDefinition {
+  const items = objects
+    .map((o) => objectText(o) ?? "")
+    .filter((t) => t.length > 0)
+    .slice(0, 60)
+    .map((s) => sanitizePromptCell(s, 500));
+  return {
+    id: "canvas-summarize-cluster",
+    title: "Summarize cluster",
+    description: `Distill ${items.length} related item${items.length === 1 ? "" : "s"} into a single summary sticky.`,
+    prompt: `${buildPreamble("canvas", `Summarize ${items.length} related board items into a single sticky`)}
+
+## Task
+Distill the items below into ONE short summary sticky (1-2 sentences,
+plain language). Capture the common theme — not a bullet list, not
+a meta-comment. If the items disagree, name the disagreement.
+
+## Items
+${wrapUserContent(items.join("\n"))}
+
+## Output format
+Return JUST the summary text, no quotes, no JSON, no commentary.
+Maximum 280 characters.`,
+  };
+}
+
 /** Action-item extraction — finds the imperatives across the board
  * and assigns owners drawn from teamMembers. */
 export function extractActionItemsPrompt(

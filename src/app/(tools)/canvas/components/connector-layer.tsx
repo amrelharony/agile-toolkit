@@ -14,6 +14,16 @@ interface ConnectorLayerProps {
   /** Called when the user clicks a connector path. Wires connector
    * selection. Without this the connector layer is purely cosmetic. */
   onConnectorPointerDown?: (id: string, e: React.PointerEvent) => void;
+  /** Called on double-click of a connector — used to open the inline
+   * label editor. Wired in the parent to `onObjectDoubleClick`. */
+  onConnectorDoubleClick?: (id: string) => void;
+  /** ID of the connector currently being inline-edited. While set, the
+   * connector renders an HTML `<input>` overlay (via SVG <foreignObject>)
+   * instead of its SVG `<text>` label. */
+  editingConnectorId?: string | null;
+  /** Commit handler for the inline label edit. Called with the
+   * connector id and the new label text on Enter / blur. */
+  onCommitConnectorLabel?: (id: string, text: string) => void;
   /** Optional world-space viewport rect for culling off-screen connectors.
    * Drawn ~30% larger than the actual viewport so connectors whose endpoint
    * sits just past the edge still render their on-screen portion. When
@@ -39,7 +49,12 @@ interface ConnectorLayerProps {
  * across renders, and we viewport-cull connectors whose AABB doesn't
  * intersect the visible world rect.
  */
-function ConnectorLayerImpl({ objects, selectedIds, preview, onConnectorPointerDown, viewportWorld }: ConnectorLayerProps) {
+function ConnectorLayerImpl({
+  objects, selectedIds, preview,
+  onConnectorPointerDown, onConnectorDoubleClick,
+  editingConnectorId, onCommitConnectorLabel,
+  viewportWorld,
+}: ConnectorLayerProps) {
   const byId = useMemo(() => {
     const m = new Map<string, WhiteboardObject>();
     for (const o of objects) m.set(o.id, o);
@@ -165,6 +180,7 @@ function ConnectorLayerImpl({ objects, selectedIds, preview, onConnectorPointerD
                 strokeWidth={Math.max(12, strokeWidth + 10)}
                 style={{ pointerEvents: "stroke", cursor: "pointer" }}
                 onPointerDown={(e) => onConnectorPointerDown?.(c.id, e)}
+                onDoubleClick={() => onConnectorDoubleClick?.(c.id)}
                 aria-label={c.label ?? "Connector"}
               />
             )}
@@ -191,7 +207,14 @@ function ConnectorLayerImpl({ objects, selectedIds, preview, onConnectorPointerD
                 fill={stroke}
               />
             )}
-            {c.label && (
+            {editingConnectorId === c.id ? (
+              <ConnectorLabelEditor
+                cx={(path.start.x + path.end.x) / 2}
+                cy={(path.start.y + path.end.y) / 2 - 4}
+                initial={c.label ?? ""}
+                onCommit={(text) => onCommitConnectorLabel?.(c.id, text)}
+              />
+            ) : c.label ? (
               <text
                 x={(path.start.x + path.end.x) / 2}
                 y={(path.start.y + path.end.y) / 2 - 4}
@@ -199,10 +222,11 @@ function ConnectorLayerImpl({ objects, selectedIds, preview, onConnectorPointerD
                 fill={stroke}
                 textAnchor="middle"
                 style={{ paintOrder: "stroke", stroke: "#0b0f17", strokeWidth: 3 }}
+                onDoubleClick={() => onConnectorDoubleClick?.(c.id)}
               >
                 {c.label}
               </text>
-            )}
+            ) : null}
           </g>
         );
       })}
@@ -226,3 +250,90 @@ function ConnectorLayerImpl({ objects, selectedIds, preview, onConnectorPointerD
 }
 
 export const ConnectorLayer = memo(ConnectorLayerImpl);
+
+/**
+ * Inline-edit textbox for a connector label.
+ *
+ * Lives inside an SVG `<foreignObject>` so the HTML input scales with
+ * the world transform (a connector label at zoom 2.0 looks twice the
+ * normal size). Auto-focuses + selects on mount; commits on Enter /
+ * blur, cancels on Esc.
+ *
+ * Sized at 140×24 world units so the box reads at typical zoom
+ * without being overwhelming on highly-zoomed boards. The label
+ * commits even when blank — empty string clears the label, matching
+ * how stickies/text handle clearing.
+ */
+function ConnectorLabelEditor({
+  cx, cy, initial, onCommit,
+}: {
+  cx: number;
+  cy: number;
+  initial: string;
+  onCommit: (text: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  // Focus + select-all on mount so the user can immediately overwrite
+  // the existing label. Matches the InlineEditor pattern used for
+  // stickies / text / shapes.
+  const handleRef = (el: HTMLInputElement | null) => {
+    inputRef.current = el;
+    if (el) {
+      el.focus();
+      el.select();
+    }
+  };
+  const commit = () => {
+    const text = inputRef.current?.value ?? "";
+    onCommit(text);
+  };
+  return (
+    <foreignObject
+      x={cx - 70}
+      y={cy - 12}
+      width={140}
+      height={24}
+      // Block pointer events from reaching the SVG hit path beneath —
+      // otherwise clicking inside the input deselects the connector.
+      style={{ overflow: "visible" }}
+    >
+      <input
+        ref={handleRef}
+        type="text"
+        defaultValue={initial}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            // Esc cancels — commit the ORIGINAL value so the
+            // editingObjectId clears without mutating the label.
+            onCommit(initial);
+          }
+        }}
+        onBlur={commit}
+        onPointerDown={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+        maxLength={200}
+        // Inline styles because this lives inside SVG — Tailwind
+        // classes apply but the host is foreignObject and we want
+        // predictable rendering at any zoom level.
+        style={{
+          width: "100%",
+          height: "100%",
+          fontSize: 12,
+          textAlign: "center",
+          padding: "0 4px",
+          border: "1px solid #00f0ff",
+          borderRadius: 3,
+          background: "#0b0f17",
+          color: "#e5e7eb",
+          fontFamily: "ui-sans-serif, system-ui, sans-serif",
+          outline: "none",
+        }}
+      />
+    </foreignObject>
+  );
+}

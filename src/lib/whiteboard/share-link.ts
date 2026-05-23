@@ -1,17 +1,27 @@
 /**
- * Per-board share link generation (Phase 30).
+ * Per-board share link generation.
  *
- * Generates a token-based URL that lands on the canvas in either edit
- * or read-only mode. Tokens are NOT cryptographically secure — they're
- * a short random id stored in localStorage. Real auth comes when the
- * backend is wired up; this is the front-end plumbing so the UI
- * already supports the concept.
+ * ════════════════════════════════════════════════════════════════════
+ * Storage model
+ * ════════════════════════════════════════════════════════════════════
+ *
+ * Tokens now live in Postgres (`public.share_tokens` — migration
+ * 0003). Issuance requires sign-in; the token URL itself is still
+ * anonymous, so anyone with the URL can use the role it grants.
+ *
+ * The legacy localStorage store stays as a READ fallback during the
+ * transition window: any token that resolves from localStorage but
+ * NOT from Supabase is honoured client-side until natural expiry.
+ * New tokens never get written to localStorage. Once the existing
+ * localStorage tokens have all expired (max TTL is 365 days), the
+ * fallback block can be deleted.
  *
  * The token → boardId mapping lives in localStorage at
- * `agile-toolkit:share-tokens` so the same URL works across reloads.
+ * `agile-toolkit:share-tokens` for the read fallback only.
  */
 
 import { emitSignal } from "@/lib/signals/signal-bus";
+import { getAuthBrowserClient } from "@/lib/auth/supabase-browser";
 
 const STORAGE_KEY = "agile-toolkit:share-tokens";
 
@@ -29,6 +39,15 @@ export interface ShareToken {
 interface StoredTokens {
   tokens: ShareToken[];
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Legacy localStorage fallback (READ-ONLY going forward).
+//
+// New tokens go to Supabase. These helpers stay around so a user who
+// reloads with a still-valid URL issued before the migration keeps
+// working — without them, every pre-migration link would suddenly
+// 404 on validation.
+// ──────────────────────────────────────────────────────────────────────
 
 function load(): StoredTokens {
   if (typeof window === "undefined") return { tokens: [] };
@@ -58,7 +77,6 @@ function load(): StoredTokens {
     // H15 — purge expired tokens on read so localStorage doesn't leak.
     const fresh = valid.filter((t) => t.expiresAt > now);
     if (fresh.length !== parsed.tokens.length) {
-      // Persist the cleanup so a future read doesn't re-run the same filter.
       save({ tokens: fresh });
     }
     return { tokens: fresh };
@@ -125,22 +143,59 @@ export function buildShareUrl(boardId: string, token: string, role: ShareRole): 
 }
 
 /**
+ * Specific error raised when token creation requires sign-in but no
+ * authenticated session is available. UI catches this to prompt the
+ * user to sign in instead of surfacing a generic Supabase error.
+ */
+export class ShareTokenAuthRequiredError extends Error {
+  constructor() {
+    super("Sign-in required to create a share link");
+    this.name = "ShareTokenAuthRequiredError";
+  }
+}
+
+/**
  * Create a share token for a board. Returns the token and the full
  * URL that opens the canvas in the right mode.
+ *
+ * Requires an authenticated Supabase session. Throws
+ * `ShareTokenAuthRequiredError` when no session is available.
  */
-export function createShareToken(boardId: string, role: ShareRole, ttlDays = 7): { token: string; url: string } {
+export async function createShareToken(
+  boardId: string,
+  role: ShareRole,
+  ttlDays = 7,
+): Promise<{ token: string; url: string }> {
   const now = Date.now();
   // H14 — clamp ttlDays. Anything <1 day or >365 (or NaN/undefined) is
   // coerced to a safe window; floors fractional days so the math is clean.
   const safeDays = Math.max(1, Math.min(365, Math.floor(Number(ttlDays) || 7)));
   const expiresAt = now + safeDays * 24 * 60 * 60 * 1000;
   const token = randomToken();
-  const state = load();
-  // Purge expired tokens before persisting the new one — keeps the
-  // store from accumulating cruft.
-  const fresh = state.tokens.filter((t) => t.expiresAt > now);
-  fresh.push({ token, boardId, role, expiresAt, createdAt: now });
-  save({ tokens: fresh });
+
+  const client = getAuthBrowserClient();
+  if (!client) {
+    // No Supabase configured — fail closed. The localStorage path is
+    // legacy READ-ONLY now; we don't write new tokens there.
+    throw new Error("share-link: Supabase is not configured");
+  }
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+  if (!user) {
+    throw new ShareTokenAuthRequiredError();
+  }
+  const { error } = await client.from("share_tokens").insert({
+    token,
+    board_id: boardId,
+    role,
+    expires_at: new Date(expiresAt).toISOString(),
+    created_by: user.id,
+  });
+  if (error) {
+    throw new Error(`share-link: ${error.message}`);
+  }
+
   const url = buildShareUrl(boardId, token, role);
   emitSignal({
     kind: "whiteboard.boardShared",
@@ -162,9 +217,38 @@ export function createShareToken(boardId: string, role: ShareRole, ttlDays = 7):
   return { token, url };
 }
 
-/** Resolve a share token from a URL query string. Returns null when
- * the token doesn't exist or has expired. */
-export function resolveShareToken(token: string): ShareToken | null {
+/**
+ * Resolve a share token from a URL query string.
+ *
+ * Server-first lookup: the Supabase `share_tokens` row is the source
+ * of truth. The localStorage fallback only honours legacy tokens
+ * issued before the server-persistence rollout. Returns null when
+ * the token doesn't exist, is revoked, or has expired — RLS already
+ * filters those out, so a row coming back means it's valid.
+ */
+export async function resolveShareToken(token: string): Promise<ShareToken | null> {
+  const client = getAuthBrowserClient();
+  if (client) {
+    const { data, error } = await client
+      .from("share_tokens")
+      .select("token, board_id, role, expires_at, created_at")
+      .eq("token", token)
+      .maybeSingle();
+    if (!error && data) {
+      return {
+        token: data.token,
+        boardId: data.board_id,
+        role: data.role as ShareRole,
+        expiresAt: new Date(data.expires_at).getTime(),
+        createdAt: new Date(data.created_at).getTime(),
+      };
+    }
+    // error or no row: fall through to legacy localStorage lookup so
+    // pre-migration links keep working. Don't surface the supabase
+    // error — the user shouldn't see a backend error for a missing
+    // legacy token.
+  }
+
   const state = load();
   const now = Date.now();
   const hit = state.tokens.find((t) => t.token === token);
@@ -173,15 +257,80 @@ export function resolveShareToken(token: string): ShareToken | null {
   return hit;
 }
 
-/** Revoke a token immediately (delete from storage). */
-export function revokeShareToken(token: string): void {
+/**
+ * Revoke a token immediately. Server tokens get a revoked_at stamp
+ * (audit trail preserved); legacy localStorage tokens are deleted.
+ *
+ * Requires an authenticated session for server tokens — only the
+ * issuer can revoke their own. Returns silently on auth failure so
+ * the caller doesn't need to special-case "this was a legacy token,
+ * not a server token" — both paths run.
+ */
+export async function revokeShareToken(token: string): Promise<void> {
+  const client = getAuthBrowserClient();
+  if (client) {
+    // RLS ensures only the issuer can update this row. If the user
+    // isn't signed in or isn't the issuer, the UPDATE returns 0 rows
+    // and we fall through to the localStorage cleanup.
+    await client
+      .from("share_tokens")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("token", token);
+  }
+  // Legacy: always purge from localStorage so a revoke-of-legacy works.
   const state = load();
   save({ tokens: state.tokens.filter((t) => t.token !== token) });
 }
 
-/** List all valid (non-expired) share tokens for a board. */
-export function listShareTokens(boardId: string): ShareToken[] {
-  const state = load();
+/**
+ * List all valid (non-expired, non-revoked) share tokens for a board.
+ *
+ * Combines server-side issuer-owned tokens with the localStorage
+ * fallback. The fallback contributes only pre-migration tokens; new
+ * tokens always live server-side.
+ */
+export async function listShareTokens(boardId: string): Promise<ShareToken[]> {
   const now = Date.now();
-  return state.tokens.filter((t) => t.boardId === boardId && t.expiresAt > now);
+  const out: ShareToken[] = [];
+
+  const client = getAuthBrowserClient();
+  if (client) {
+    const {
+      data: { user },
+    } = await client.auth.getUser();
+    if (user) {
+      const { data, error } = await client
+        .from("share_tokens")
+        .select("token, board_id, role, expires_at, created_at")
+        .eq("board_id", boardId)
+        .eq("created_by", user.id)
+        .is("revoked_at", null)
+        .gt("expires_at", new Date(now).toISOString())
+        .order("created_at", { ascending: false });
+      if (!error && data) {
+        for (const row of data) {
+          out.push({
+            token: row.token,
+            boardId: row.board_id,
+            role: row.role as ShareRole,
+            expiresAt: new Date(row.expires_at).getTime(),
+            createdAt: new Date(row.created_at).getTime(),
+          });
+        }
+      }
+    }
+  }
+
+  // Legacy localStorage tokens. Dedupe against server entries by token
+  // string so a token that exists in BOTH (shouldn't happen post-rollout,
+  // but defensive) only appears once.
+  const serverTokens = new Set(out.map((t) => t.token));
+  const legacy = load();
+  for (const t of legacy.tokens) {
+    if (t.boardId !== boardId) continue;
+    if (t.expiresAt <= now) continue;
+    if (serverTokens.has(t.token)) continue;
+    out.push(t);
+  }
+  return out;
 }

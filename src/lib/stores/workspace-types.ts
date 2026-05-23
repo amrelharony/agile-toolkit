@@ -382,7 +382,8 @@ export type WhiteboardObjectKind =
   | "card"
   | "kanban"
   | "timer"
-  | "voting";
+  | "voting"
+  | "table";
 
 export interface WhiteboardObjectBase {
   id: string;
@@ -545,6 +546,35 @@ export interface WhiteboardTimer extends WhiteboardObjectBase {
   label?: string;
 }
 
+/**
+ * Phase post-launch — editable table object.
+ *
+ * Cell content is plain text (no Tiptap per cell — would compound
+ * the React tree depth). Rendered as <table>; cells are
+ * double-click-to-edit, Tab/Enter navigate between cells. Column
+ * widths are proportional fractions of the object's width — if
+ * unset, evenly distributed across columns. The first row is treated
+ * as a header (rendered <th>) when `headerRow !== false`.
+ *
+ * CSV paste (in import-modal) creates one of these. Empty cells are
+ * preserved (the layout depends on consistent column counts per row).
+ */
+export interface WhiteboardTable extends WhiteboardObjectBase {
+  type: "table";
+  /** Cell content as `rows[rowIndex][colIndex]`. Every row must
+   * carry the same number of cells; trim/pad on import. */
+  rows: string[][];
+  /** Optional per-column width fractions; must sum to ~1.0. When
+   * omitted, columns get equal width. */
+  columnFractions?: number[];
+  /** When `false`, render row 0 as a normal data row. Default behaviour
+   * (undefined or true) renders row 0 as a sticky header. */
+  headerRow?: boolean;
+  /** Optional border colour; defaults to the canvas's standard
+   * border colour. */
+  borderColor?: string;
+}
+
 /** Phase 27 — voting/estimation widget. */
 export interface WhiteboardVoting extends WhiteboardObjectBase {
   type: "voting";
@@ -573,7 +603,8 @@ export type WhiteboardObject =
   | WhiteboardCard
   | WhiteboardKanbanFrame
   | WhiteboardTimer
-  | WhiteboardVoting;
+  | WhiteboardVoting
+  | WhiteboardTable;
 
 export interface Whiteboard {
   id: string;

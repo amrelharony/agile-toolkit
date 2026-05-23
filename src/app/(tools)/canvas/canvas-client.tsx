@@ -48,24 +48,56 @@ import { VoiceInputButton } from "./components/voice-input-button";
  *   - `viewer`   : pure read-only
  */
 type CanvasMode = "editor" | "commenter" | "viewer";
-function getCanvasMode(): CanvasMode {
+
+/**
+ * Resolve the canvas mode from the URL synchronously, WITHOUT calling
+ * the (now async) `resolveShareToken`. This is the initial state used
+ * before the async token validation lands — it ignores `?share=` so a
+ * malicious crafted URL can't grant editor before the server confirms
+ * the role. The async effect below upgrades the mode once the token
+ * is validated.
+ *
+ *   * If `?share=` is present, default to VIEWER. Editor / commenter
+ *     can only be granted after the async lookup succeeds.
+ *   * Otherwise honour `?view=readonly|commenter` literally.
+ */
+function getInitialCanvasMode(): CanvasMode {
   if (typeof window === "undefined") return "editor";
   try {
     const params = new URLSearchParams(window.location.search);
-    // Token-derived role wins. resolveShareToken returns null for
-    // missing / expired / corrupted tokens — fall through to ?view= or
-    // editor in that case.
+    if (params.get("share")) {
+      // Demote to viewer until the async lookup elevates us. Principle
+      // of least privilege during the validation window — a forged
+      // `?share=…` shouldn't grant editor on first paint.
+      return "viewer";
+    }
+    const v = params.get("view");
+    if (v === "readonly") return "viewer";
+    if (v === "commenter") return "commenter";
+    return "editor";
+  } catch {
+    return "editor";
+  }
+}
+
+/**
+ * Async mode resolver — calls `resolveShareToken` against Supabase
+ * (with localStorage fallback for legacy tokens) and returns the
+ * appropriate mode. Used by an effect on mount + popstate.
+ */
+async function resolveCanvasMode(): Promise<CanvasMode> {
+  if (typeof window === "undefined") return "editor";
+  try {
+    const params = new URLSearchParams(window.location.search);
     const token = params.get("share");
     if (token) {
-      const hit = resolveShareToken(token);
+      const hit = await resolveShareToken(token);
       if (hit) {
         if (hit.role === "viewer") return "viewer";
         if (hit.role === "commenter") return "commenter";
         return "editor";
       }
-      // Token present but invalid — DEMOTE to viewer rather than
-      // silently granting editor. This matches the principle of least
-      // privilege when a link is stale or tampered with.
+      // Token present but invalid — stay at viewer (no escalation).
       return "viewer";
     }
     const v = params.get("view");
@@ -78,15 +110,26 @@ function getCanvasMode(): CanvasMode {
 }
 
 export function CanvasClient() {
-  // Treat the URL-driven mode as STATE so client-side navigation (Next.js
-  // router.push / back / forward) refreshes it. Reading it once at the
-  // top of the component left users stuck in the wrong tier after a
-  // popstate (e.g. closing a shared `?view=readonly` link via Back).
-  const [mode, setMode] = useState<CanvasMode>(() => getCanvasMode());
+  // Initial mode is the URL-driven mode WITHOUT the share-token lookup
+  // (synchronous). The async effect below validates the token against
+  // Supabase + localStorage and upgrades the mode when it resolves.
+  // We deliberately START as viewer when `?share=` is present so a
+  // brief render window can't grant editor on a forged URL.
+  const [mode, setMode] = useState<CanvasMode>(() => getInitialCanvasMode());
   useEffect(() => {
-    const onPop = () => setMode(getCanvasMode());
+    let cancelled = false;
+    const refresh = () => {
+      void resolveCanvasMode().then((next) => {
+        if (!cancelled) setMode(next);
+      });
+    };
+    refresh();
+    const onPop = () => refresh();
     window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("popstate", onPop);
+    };
   }, []);
   const readOnly = mode !== "editor";
   const canComment = mode !== "viewer";

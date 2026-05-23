@@ -35,7 +35,8 @@ export type CanvasTool =
   | "card"
   | "timer"
   | "voting"
-  | "kanban";
+  | "kanban"
+  | "table";
 
 /** 8 resize handles + 1 rotation handle (rotation comes in a later PR). */
 export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";

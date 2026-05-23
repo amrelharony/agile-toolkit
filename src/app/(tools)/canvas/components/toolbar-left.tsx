@@ -19,6 +19,7 @@ import {
   Timer as TimerIcon,
   Vote,
   Columns,
+  Table as TableIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, type CanvasTool } from "../use-canvas-store";
@@ -71,8 +72,9 @@ const TOOL_GROUPS: ToolDef[][] = [
     { id: "freehand", label: "Pen",  icon: PenTool, shortcut: "P" },
   ],
   [
-    { id: "frame",  label: "Frame",  icon: Frame,   shortcut: "F" },
-    { id: "kanban", label: "Kanban", icon: Columns, shortcut: "" },
+    { id: "frame",  label: "Frame",  icon: Frame,    shortcut: "F" },
+    { id: "kanban", label: "Kanban", icon: Columns,  shortcut: "" },
+    { id: "table",  label: "Table",  icon: TableIcon, shortcut: "" },
   ],
   [
     { id: "timer",   label: "Timer",   icon: TimerIcon,     shortcut: "" },

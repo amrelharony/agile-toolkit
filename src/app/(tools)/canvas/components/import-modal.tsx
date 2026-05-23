@@ -7,6 +7,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { importFromRisks, importFromStories, importFromOkrs } from "@/lib/whiteboard/cross-tool-import";
 import { parseJiraCsv, issuesToCards } from "@/lib/whiteboard/jira-import";
 import { parseDiagramCsv, diagramToObjects } from "@/lib/whiteboard/smart-diagrams";
+import { parseCsv, rowsToTable } from "@/lib/whiteboard/csv-to-table";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
@@ -126,6 +127,48 @@ export function ImportModal({ boardId, onClose }: Props) {
       setDiagramParsed({ shape: "unknown", rows: [], error: "Parse failed." });
     }
   };
+  // Table-from-CSV import. Pastes a plain CSV and creates a
+  // WhiteboardTable. Row 0 is treated as a header row.
+  const [tableCsv, setTableCsv] = useState("");
+  const [tableRows, setTableRows] = useState<string[][] | null>(null);
+  const onTableCsvChange = (text: string) => {
+    setTableCsv(text);
+    if (text.trim().length === 0) { setTableRows(null); return; }
+    try {
+      const parsed = parseCsv(text);
+      setTableRows(parsed.length > 0 ? parsed : null);
+    } catch {
+      setTableRows(null);
+    }
+  };
+  const applyTable = () => {
+    if (!tableRows || tableRows.length === 0) return;
+    let zBase = 0;
+    for (const o of (allObjects ?? [])) {
+      if (o.boardId === boardId && o.z > zBase) zBase = o.z;
+    }
+    // Land at world origin + 200px offset so the new table doesn't
+    // overlap whatever else is at the centre.
+    const table = rowsToTable(tableRows, boardId, { x: 200, y: 200 }, {
+      headerRow: true,
+      z: zBase + 1,
+    });
+    if (!table) return;
+    upsertMany([table]);
+    log(CANVAS_ACTIONS.IMPORT_PERFORMED, {
+      source: "csv-table",
+      rows: tableRows.length,
+      cols: tableRows[0]?.length ?? 0,
+    });
+    emitSignal({
+      kind: "whiteboard.crossToolImport",
+      at: new Date().toISOString(),
+      toolId: "canvas",
+      payload: { source: "csv-table", boardId, count: 1 },
+    });
+    onClose();
+  };
+
   const applyDiagram = () => {
     if (!diagramParsed || diagramParsed.rows.length === 0) return;
     // Land the diagram on the active board near world origin — the
@@ -316,6 +359,38 @@ export function ImportModal({ boardId, onClose }: Props) {
             className="mt-2 px-3 py-1.5 rounded bg-accent/15 text-accent border border-accent/30 hover:bg-accent/25 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Import {diagramParsed?.rows.length ?? 0} row{diagramParsed?.rows.length === 1 ? "" : "s"} as {diagramParsed?.shape ?? "diagram"}
+          </button>
+        </div>
+
+        {/* ─── CSV → Table ──────────────────────────────────────────
+         * Paste any CSV; row 0 becomes the table header. Quoted
+         * cells with embedded commas / quotes are handled by the
+         * parser in csv-to-table.ts. */}
+        <div className="mt-5 pt-5 border-t border-border">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-semibold text-sm text-text">CSV → Table</span>
+            <span className="text-xs font-mono text-sub">
+              {tableRows
+                ? `${tableRows.length} row${tableRows.length === 1 ? "" : "s"} · ${tableRows[0]?.length ?? 0} col${tableRows[0]?.length === 1 ? "" : "s"}`
+                : "paste CSV"}
+            </span>
+          </div>
+          <div className="text-xs text-sub mb-2">
+            Row 0 is treated as the header. Quoted cells (<code className="text-text">{"\"embedded, comma\""}</code>) and CRLF endings are handled.
+          </div>
+          <textarea
+            value={tableCsv}
+            onChange={(e) => onTableCsvChange(e.target.value)}
+            placeholder={'Name,Role,Status\nAlex,PM,Active\nSara,Eng,Active\n"Jordan, Lee",QA,On leave'}
+            className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-[11px] font-mono text-text resize-none focus:outline-none focus:border-accent"
+          />
+          <button
+            type="button"
+            onClick={applyTable}
+            disabled={!tableRows || tableRows.length === 0}
+            className="mt-2 px-3 py-1.5 rounded bg-accent/15 text-accent border border-accent/30 hover:bg-accent/25 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Import as table
           </button>
         </div>
       </div>

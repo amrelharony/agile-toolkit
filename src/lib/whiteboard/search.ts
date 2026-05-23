@@ -16,6 +16,77 @@ import type { Rect } from "@/lib/geometry/bbox";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 
 /**
+ * Strip HTML tags + decode entities for plain-text consumers (AI
+ * prompts, find-bar previews, plain-text fallbacks).
+ *
+ * Sticky / text / shape content can now hold Tiptap-emitted HTML
+ * (`<p>hello <strong>world</strong></p>`). For AI prompts and find
+ * matching, we want "hello world" — passing the raw markup as
+ * prompt context confuses the model and pollutes search hits.
+ *
+ * Pure-string implementation (no DOM, no DOMPurify) so this is safe
+ * to call in SSR / Node / Edge runtimes. Output is not safe for
+ * `dangerouslySetInnerHTML` — use `sanitizeRichHtml` for that.
+ *
+ * Conversions:
+ *   - `<br>` / `<br/>` / `</p>` / `</div>` / `</li>` → `\n`
+ *   - `<li>` (opening) → "- " (bullet marker)
+ *   - All other tags → "" (stripped)
+ *   - `&nbsp;` → " "
+ *   - `&amp;` `&lt;` `&gt;` `&quot;` `&#39;` `&apos;` → respective chars
+ *   - Numeric entities `&#NNN;` / `&#xHH;` → respective chars (bounded)
+ *   - Collapses 3+ newlines into 2 so multi-paragraph HTML doesn't
+ *     produce excessive blank lines.
+ */
+export function stripRichHtmlTags(input: string): string {
+  if (typeof input !== "string" || input.length === 0) return "";
+  // Quick path: no `<` means it's already plain text.
+  if (input.indexOf("<") === -1) return decodeEntities(input);
+
+  let s = input;
+  // Block-level closers become newlines so paragraphs / list items
+  // don't collapse into a single line.
+  s = s.replace(/<\/(p|div|li|h[1-6]|blockquote)>/gi, "\n");
+  s = s.replace(/<br\s*\/?>/gi, "\n");
+  // List bullets — opening <li> gets a "- " marker (closing tag
+  // already became \n above).
+  s = s.replace(/<li[^>]*>/gi, "- ");
+  // Strip every remaining tag.
+  s = s.replace(/<[^>]+>/g, "");
+  // Entity decoding (kept narrow — these are the common Tiptap /
+  // dompurify outputs).
+  s = decodeEntities(s);
+  // Collapse 3+ newlines into 2 for tidier prompt context.
+  s = s.replace(/\n{3,}/g, "\n\n");
+  return s.trim();
+}
+
+function decodeEntities(s: string): string {
+  if (s.indexOf("&") === -1) return s;
+  return s
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;|&apos;/g, "'")
+    // Numeric decimal entity (bounded to avoid OOM on hand-crafted input)
+    .replace(/&#(\d{1,7});/g, (_, n) => {
+      const code = Number(n);
+      return Number.isFinite(code) && code >= 0 && code <= 0x10ffff
+        ? String.fromCodePoint(code)
+        : "";
+    })
+    // Numeric hex entity
+    .replace(/&#x([0-9a-f]{1,6});/gi, (_, n) => {
+      const code = parseInt(n, 16);
+      return Number.isFinite(code) && code >= 0 && code <= 0x10ffff
+        ? String.fromCodePoint(code)
+        : "";
+    });
+}
+
+/**
  * Reduce a whiteboard object to a single text line for prompts +
  * search. Returns null when the object truly has no textual handle
  * (e.g. an empty line/arrow with no label). Connector edges return
@@ -24,17 +95,25 @@ import type { WhiteboardObject } from "@/lib/stores/workspace-types";
  *
  * NOTE: kept in sync with the version previously inlined in
  * ai-prompts/canvas.ts. AI prompts now import from here.
+ *
+ * Sticky / text / shape content may be Tiptap-emitted HTML. We strip
+ * tags so AI prompts and the find-bar both see plain text. Tables
+ * flatten into "row1cell1 | row1cell2 \n row2cell1 | row2cell2".
  */
 export function objectText(o: WhiteboardObject): string | null {
   switch (o.type) {
     case "sticky":
-    case "text":
-      return o.content || null;
+    case "text": {
+      const plain = stripRichHtmlTags(o.content);
+      return plain || null;
+    }
     case "rect":
     case "ellipse":
     case "diamond":
-    case "triangle":
-      return o.content ?? null;
+    case "triangle": {
+      const plain = o.content ? stripRichHtmlTags(o.content) : "";
+      return plain || null;
+    }
     case "frame":
       return `[Frame: ${o.label}]`;
     case "connector":
@@ -58,6 +137,18 @@ export function objectText(o: WhiteboardObject): string | null {
       return o.label ? `[Timer: ${o.label}]` : `[Timer: ${Math.round(o.durationSec)}s]`;
     case "voting":
       return o.question || "[Vote]";
+    case "table": {
+      // Flatten the grid into one line per row, pipe-separated.
+      // Trim trailing empty rows/cells so a half-filled table
+      // doesn't bloat the AI prompt or find preview.
+      const rows = o.rows ?? [];
+      const lines = rows
+        .map((r) => r.map((cell) => stripRichHtmlTags(cell ?? "").replace(/\s+/g, " ").trim()).join(" | "))
+        .map((s) => s.replace(/(\s\|\s)+$/, "")) // trim trailing empty cells
+        .filter((s) => s.length > 0);
+      if (lines.length === 0) return null;
+      return `[Table]\n${lines.join("\n")}`;
+    }
     default:
       return null;
   }

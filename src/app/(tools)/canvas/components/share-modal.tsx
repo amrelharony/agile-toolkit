@@ -86,16 +86,24 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
   // viewer link) read from the same source. Without this, the post tab's
   // useMemo would snapshot tokens at mount time and miss any link the
   // user creates before switching tabs.
-  const [tokens, setTokens] = useState<ShareToken[]>(() => listShareTokens(boardId));
+  // Tokens load asynchronously now — server lookup + localStorage
+  // fallback. Start empty and fill on mount.
+  const [tokens, setTokens] = useState<ShareToken[]>([]);
   const refreshTokens = useCallback(() => {
-    setTokens(listShareTokens(boardId));
+    void listShareTokens(boardId).then(setTokens);
   }, [boardId]);
   // If the parent re-mounts the modal with a different boardId without
   // unmounting (rare, but possible across multi-board scenarios), the
-  // lazy useState initialiser doesn't re-run and `tokens` stays stale.
+  // useState initialiser doesn't re-run and `tokens` stays stale.
   // Re-fetch whenever boardId changes.
   useEffect(() => {
-    setTokens(listShareTokens(boardId));
+    let cancelled = false;
+    void listShareTokens(boardId).then((rows) => {
+      if (!cancelled) setTokens(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [boardId]);
 
   // R10-deferred: focus-trap so Tab cycles inside the dialog instead
@@ -210,22 +218,34 @@ function ShareTab({
   // token was actually created.
   const [copyError, setCopyError] = useState<string | null>(null);
 
-  const onCreate = () => {
-    const { url, token } = createShareToken(boardId, role, ttlDays);
-    onTokensChanged();
-    setCopyError(null);
-    // Auto-copy newly created link to clipboard.
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      void navigator.clipboard.writeText(url).then(
-        () => {
-          setCopiedToken(token);
-          setTimeout(() => setCopiedToken(null), 2000);
-        },
-        (err: unknown) => {
-          console.warn("clipboard write failed:", err);
-          setCopyError("Couldn't copy to clipboard — link is in the list below.");
-        },
-      );
+  const onCreate = async () => {
+    try {
+      const { url, token } = await createShareToken(boardId, role, ttlDays);
+      onTokensChanged();
+      setCopyError(null);
+      // Auto-copy newly created link to clipboard.
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        void navigator.clipboard.writeText(url).then(
+          () => {
+            setCopiedToken(token);
+            setTimeout(() => setCopiedToken(null), 2000);
+          },
+          (err: unknown) => {
+            console.warn("clipboard write failed:", err);
+            setCopyError("Couldn't copy to clipboard — link is in the list below.");
+          },
+        );
+      }
+    } catch (err) {
+      // Surface auth-required + generic errors. The auth-required case
+      // hits when a user without a Supabase session tries to issue a
+      // server-persisted token. ShareTokenAuthRequiredError carries a
+      // canned message; everything else falls through to its `.message`.
+      const message =
+        err && typeof err === "object" && "message" in err && typeof (err as Error).message === "string"
+          ? (err as Error).message
+          : "Couldn't create share link.";
+      setCopyError(message);
     }
   };
 
@@ -254,8 +274,8 @@ function ShareTab({
     );
   };
 
-  const onRevoke = (token: string) => {
-    revokeShareToken(token);
+  const onRevoke = async (token: string) => {
+    await revokeShareToken(token);
     onTokensChanged();
   };
 

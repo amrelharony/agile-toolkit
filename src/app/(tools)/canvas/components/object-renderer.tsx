@@ -6,6 +6,54 @@ import type { WhiteboardObject, WhiteboardTimer, WhiteboardVoting, WhiteboardCar
 import { TimerObject } from "./objects/timer-object";
 import { VotingObject } from "./objects/voting-object";
 import { CardObject } from "./objects/card-object";
+import { TableObject } from "./objects/table-object";
+import type { WhiteboardTable } from "@/lib/stores/workspace-types";
+import { TiptapInlineEditor } from "./tiptap-inline-editor";
+import { sanitizeRichHtml, isRichHtmlEmpty } from "@/lib/utils/safe-html";
+
+/**
+ * Detect whether a stored `content` string is rich HTML or plain
+ * text. Plain text is anything that doesn't begin with a tag
+ * opening followed by an ASCII letter — same heuristic as
+ * TiptapInlineEditor uses for input detection.
+ *
+ * Rich text gets `dangerouslySetInnerHTML` + sanitization; plain
+ * text gets the original whitespace: pre-wrap rendering so
+ * pre-Tiptap content keeps working byte-for-byte.
+ */
+function isRichHtml(content: string): boolean {
+  return typeof content === "string" && /^\s*<[a-z]/i.test(content);
+}
+
+/**
+ * Render a rich-text content string for read-only display. Sanitizes
+ * defensively — even if the local editor produced clean HTML, peer
+ * patches over realtime might carry unsanitized strings, and this is
+ * the only barrier between them and `dangerouslySetInnerHTML`.
+ *
+ * Returns an empty fragment when the HTML is effectively empty so
+ * the caller can fall back to placeholder text.
+ */
+function RichContent({
+  html,
+  className,
+  style,
+}: {
+  html: string;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  const clean = sanitizeRichHtml(html);
+  if (!clean || isRichHtmlEmpty(clean)) return null;
+  return (
+    <div
+      className={className}
+      style={style}
+      // eslint-disable-next-line react/no-danger
+      dangerouslySetInnerHTML={{ __html: clean }}
+    />
+  );
+}
 
 interface ObjectRendererProps {
   object: WhiteboardObject;
@@ -371,13 +419,15 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
           }}
         >
           {editing ? (
-            <InlineEditor
+            <TiptapInlineEditor
               initialText={o.content}
               onCommit={commitEdit}
               background="transparent"
               color={o.textColor ?? "#0b0f17"}
               fontSize={stickyFontSize}
             />
+          ) : isRichHtml(o.content) ? (
+            <RichContent html={o.content} />
           ) : (
             o.content || <span style={{ opacity: 0.4 }}>Sticky note</span>
           )}
@@ -547,7 +597,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
           }}
         >
           {editing ? (
-            <InlineEditor
+            <TiptapInlineEditor
               initialText={o.content}
               onCommit={commitEdit}
               color={o.color}
@@ -556,6 +606,8 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
               align={o.align ?? "left"}
               padding={0}
             />
+          ) : isRichHtml(o.content) ? (
+            <RichContent html={o.content} />
           ) : (
             o.content || <span style={{ opacity: 0.4 }}>Text</span>
           )}
@@ -879,6 +931,17 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
           onPointerDown={handle}
           onDoubleClick={() => onDoubleClick?.(o.id)}
           onCommitEdit={(text) => onCommitEdit?.(o.id, text)}
+        />
+      );
+
+    case "table":
+      return (
+        <TableObject
+          object={o as WhiteboardTable}
+          selected={selected}
+          readOnly={!onMutate}
+          onPointerDown={handle}
+          onMutate={(id, patch) => onMutate?.(id, patch)}
         />
       );
 

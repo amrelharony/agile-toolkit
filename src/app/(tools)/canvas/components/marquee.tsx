@@ -4,6 +4,15 @@ import type { Camera } from "@/lib/geometry/bbox";
 import { rectFromCorners } from "@/lib/geometry/bbox";
 import type { MarqueeState } from "../use-canvas-store";
 
+// Mirrors LASSO_MAX_POINTS in use-canvas-pointer-machine.ts. When the
+// buffer fills, the pointer-machine silently drops further points; we
+// surface that to the user via a small indicator so a long, careful
+// lasso doesn't end with a "why didn't it select what I traced?"
+// confusion. Threshold at 90% — leaves a tiny buffer for the warning
+// to land before the cap actually bites.
+const LASSO_MAX_POINTS = 1000;
+const LASSO_WARN_THRESHOLD = LASSO_MAX_POINTS * 0.9;
+
 /**
  * Rubber-band selection rectangle OR freeform lasso polygon.
  *
@@ -18,6 +27,9 @@ export function Marquee({ marquee, camera }: { marquee: MarqueeState; camera: Ca
   // Lasso mode — render the polyline path.
   if (marquee.lassoPoints && marquee.lassoPoints.length >= 4) {
     const pts = marquee.lassoPoints;
+    const pointCount = pts.length / 2;
+    const atCap = pointCount >= LASSO_MAX_POINTS;
+    const nearCap = pointCount >= LASSO_WARN_THRESHOLD;
     // Project world points → screen and emit `M x y L x y L x y …` for
     // the SVG path. Z closes the loop visually so the user sees the
     // hit region exactly.
@@ -34,28 +46,62 @@ export function Marquee({ marquee, camera }: { marquee: MarqueeState; camera: Ca
       parts[i / 2] = `${i === 0 ? "M" : "L"} ${sx} ${sy}`;
     }
     const d = parts.join(" ") + " Z";
+    // Latest screen-space point — used to anchor the cap warning near
+    // the user's cursor instead of off in some random viewport corner.
+    const tipX = (pts[pts.length - 2] - camera.x) * camera.zoom;
+    const tipY = (pts[pts.length - 1] - camera.y) * camera.zoom;
     return (
-      <svg
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          width: 1,
-          height: 1,
-          overflow: "visible",
-          pointerEvents: "none",
-          zIndex: 9999,
-        }}
-      >
-        <path
-          d={d}
-          fill="rgba(0, 240, 255, 0.08)"
-          stroke="#00f0ff"
-          strokeWidth={1}
-          strokeDasharray="4 3"
-        />
-      </svg>
+      <>
+        <svg
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            width: 1,
+            height: 1,
+            overflow: "visible",
+            pointerEvents: "none",
+            zIndex: 9999,
+          }}
+        >
+          <path
+            d={d}
+            fill={atCap ? "rgba(245, 158, 11, 0.10)" : "rgba(0, 240, 255, 0.08)"}
+            stroke={atCap ? "#f59e0b" : "#00f0ff"}
+            strokeWidth={1}
+            strokeDasharray="4 3"
+          />
+        </svg>
+        {nearCap && (
+          <div
+            // Cap warning: at 90% of LASSO_MAX_POINTS we colour the
+            // path amber and float a tiny "lasso full" pill near the
+            // current cursor. Click-through ignored (pointerEvents:
+            // none) so it can't intercept the in-flight drag.
+            data-canvas-export-ignore="true"
+            aria-live="polite"
+            style={{
+              position: "absolute",
+              left: tipX + 12,
+              top: tipY + 12,
+              padding: "2px 6px",
+              borderRadius: 4,
+              background: atCap ? "rgba(245, 158, 11, 0.95)" : "rgba(245, 158, 11, 0.75)",
+              color: "#0b0f17",
+              fontFamily: "ui-monospace, SF Mono, monospace",
+              fontSize: 10,
+              fontWeight: 600,
+              pointerEvents: "none",
+              zIndex: 10000,
+              whiteSpace: "nowrap",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.4)",
+            }}
+          >
+            {atCap ? "Lasso full — release to select" : `Lasso ${pointCount}/${LASSO_MAX_POINTS}`}
+          </div>
+        )}
+      </>
     );
   }
   // Rect mode — original rubber-band.
