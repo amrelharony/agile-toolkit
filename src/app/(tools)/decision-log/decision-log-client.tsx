@@ -110,7 +110,13 @@ export function DecisionLogClient() {
 
   const counts = useMemo(() => {
     const c: Record<Decision["status"], number> = { proposed: 0, accepted: 0, deprecated: 0, superseded: 0 };
-    decisions.forEach((d) => (c[d.status] += 1));
+    // Guard against legacy / imported decisions whose status falls
+    // outside the known set. Without this, `c[d.status] += 1` becomes
+    // `undefined + 1 = NaN`, and every KPI card on the page renders
+    // "NaN" until the offending row is removed.
+    decisions.forEach((d) => {
+      if (d.status in c) c[d.status] += 1;
+    });
     return c;
   }, [decisions]);
 

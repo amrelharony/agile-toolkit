@@ -91,22 +91,21 @@ export function ScrumOfScrumsClient() {
     setDraft(empty());
   };
   const update = (id: string, patch: Partial<SosEntry>) => {
-    // Compute prev inside the functional setter so we observe the freshest
-    // entries — outer-closure `entries` can lag if multiple updates batch.
-    let logPayload: { team?: string; kind?: EntryKind; statusChange?: { from?: SosEntry["status"]; to?: SosEntry["status"] } } | null = null;
-    setEntries((entries) => {
-      const prev = entries.find((e) => e.id === id);
-      if (patch.status && patch.status !== prev?.status) {
-        logPayload = {
-          team: prev?.team,
-          kind: prev?.kind,
-          statusChange: { from: prev?.status, to: patch.status },
-        };
-      }
-      return entries.map((e) => (e.id === id ? { ...e, ...patch } : e));
-    });
-    if (logPayload) {
-      log(SCRUM_OF_SCRUMS_ACTIONS.TEAM_UPDATE_ADDED, logPayload);
+    // Compute prev BEFORE the functional setter — React 18 batches the
+    // updater into the next render, so reading `logPayload` synchronously
+    // after `setEntries(...)` previously saw `null` 100% of the time.
+    // Status-change events were silently dropped from the history log.
+    // The trade-off is that we miss "freshest" entries if two concurrent
+    // update() calls race, but that's only relevant for the same id (which
+    // can't happen for status changes anyway — the UI gates on the row).
+    const prev = entries.find((e) => e.id === id);
+    setEntries((curr) => curr.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+    if (patch.status && prev && patch.status !== prev.status) {
+      log(SCRUM_OF_SCRUMS_ACTIONS.TEAM_UPDATE_ADDED, {
+        team: prev.team,
+        kind: prev.kind,
+        statusChange: { from: prev.status, to: patch.status },
+      });
     }
   };
   const remove = (id: string) => {

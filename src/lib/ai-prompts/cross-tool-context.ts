@@ -50,6 +50,23 @@ export function buildWorkspaceContext(w: Workspace | undefined | null): string {
     parts.push(`Team maturity: Level ${w.maturityLevel}/5`);
   }
 
+  // Surface decision activity from ALL frameworks, not just classic ADRs.
+  // 28 tools per-prompt only forward `s.decisions`, missing the DACI /
+  // RAPID slices. Roll them up here so cross-tool prompts (retro, post-
+  // mortem, ADKAR, etc.) see the full decision-making footprint without
+  // each tool having to re-select the additional slices.
+  const allDecisions =
+    (w.decisions?.length ?? 0) +
+    (w.daciDecisions?.length ?? 0) +
+    (w.rapidDecisions?.length ?? 0);
+  if (allDecisions > 0) {
+    const breakdown: string[] = [];
+    if (w.decisions?.length) breakdown.push(`${w.decisions.length} ADR`);
+    if (w.daciDecisions?.length) breakdown.push(`${w.daciDecisions.length} DACI`);
+    if (w.rapidDecisions?.length) breakdown.push(`${w.rapidDecisions.length} RAPID`);
+    parts.push(`Decisions captured: ${allDecisions} (${breakdown.join(", ")})`);
+  }
+
   // Canvas / whiteboard surface — counts only. The AI doesn't need every
   // sticky's content here (that gets included by canvas-specific prompts
   // via generateCanvasPrompts); this is a higher-level hint that "the

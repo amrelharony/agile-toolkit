@@ -651,9 +651,20 @@ export function StandupClient() {
   const [newMember, setNewMember] = useState("");
 
   const handleSubmit = () => {
-    const member =
-      customMemberDraft.trim() || formMember.trim() || members[0] || "";
-    if (!member) return;
+    // Prior code silently fell back to `members[0]` if both fields were
+    // empty — a user who cleared the dropdown and forgot to type a name
+    // got their standup posted under whoever was alphabetically first.
+    // Require explicit selection; surface a console hint in dev so the
+    // empty-submit path is debuggable without changing the (deliberately
+    // minimal) toast surface area.
+    const member = customMemberDraft.trim() || formMember.trim();
+    if (!member) {
+      if (process.env.NODE_ENV !== "production") {
+        // eslint-disable-next-line no-console
+        console.warn("[standup] submit ignored — no member selected/typed");
+      }
+      return;
+    }
     const date = todayStr();
     const payload = { member, date, yesterday, today, blockers };
     if (hasEntry(member, date)) {

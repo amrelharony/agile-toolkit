@@ -347,7 +347,13 @@ export function VelocityClient() {
   const addSprint = () => {
     addSprintRaw();
     const next = useVelocityStore.getState().sprints;
+    // Guard the post-add read: if the store rejected the addRaw call
+    // (middleware veto, time-travel undo race), next.length-1 indexes
+    // into an unchanged array and `created` is whatever was previously
+    // last — or undefined on first ever call. Either way the
+    // crash-on-undefined was real.
     const created = next[next.length - 1];
+    if (!created) return;
     log(VELOCITY_ACTIONS.SPRINT_ADDED, {
       sprintId: created.id,
       name: created.name,
@@ -733,6 +739,7 @@ export function VelocityClient() {
                 addSprintRaw();
                 const fresh = useVelocityStore.getState().sprints;
                 const created = fresh[fresh.length - 1];
+                if (!created) return;
                 useVelocityStore.getState().updateSprint(created.id, {
                   committed: Math.round(n),
                   completed: 0,

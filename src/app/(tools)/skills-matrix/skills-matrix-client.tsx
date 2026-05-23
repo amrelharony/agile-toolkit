@@ -404,11 +404,15 @@ export function SkillsMatrixClient() {
     const handle = setTimeout(() => {
       timers.delete(key);
       // Read the *settled* rating from current grid at fire time.
+      // cycleCell(skillId, memberId) — args[0]=skillId, args[1]=memberId.
+      // The prior log payload swapped these labels, corrupting every
+      // rating-change audit entry. Grid lookup was correct because the
+      // store is keyed grid[skillId][memberId].
       const settled =
         useSkillsStore.getState().grid[args[0]]?.[args[1]] ?? null;
       log(SKILLS_ACTIONS.RATING_CHANGED, {
-        memberId: args[0],
-        skillId: args[1],
+        memberId: args[1],
+        skillId: args[0],
         rating: settled,
       });
     }, 600);

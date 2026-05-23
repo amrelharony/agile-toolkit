@@ -143,7 +143,7 @@ export function OodaLoopClient() {
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-medium text-text">{c.topic}</span>
                     <span className="flex items-center gap-2">
-                      <span className="text-xs text-sub font-mono">{c.startedAt.slice(0, 16).replace("T", " ")}</span>
+                      <span className="text-xs text-sub font-mono">{(c.startedAt ?? "").slice(0, 16).replace("T", " ")}</span>
                       {!c.completedAt && <button onClick={() => complete(c)} className="text-emerald-400 hover:text-emerald-300"><CheckCircle2 className="w-4 h-4" /></button>}
                       <button onClick={() => { removeOne(c.id); log(OODA_ACTIONS.CYCLE_REMOVED, { id: c.id }); }} aria-label="Remove cycle" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
                     </span>

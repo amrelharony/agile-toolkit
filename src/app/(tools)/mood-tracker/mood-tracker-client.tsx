@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -81,12 +81,26 @@ export function MoodTrackerClient() {
   // so on mount raced with other tools' in-progress writes (the
   // workspace store hydrates once at the persist-provider boundary).
 
-  const todayISO = todayLocalISO();
+  // `todayISO` is reactive: a setInterval ticks it forward when the
+  // local date changes. Without the interval, a tab opened the night
+  // before midnight would keep rendering yesterday's heatmap until
+  // something else re-rendered — the days[] memo's todayISO dep would
+  // never change because the render never re-ran.
+  const [todayISO, setTodayISO] = useState(() => todayLocalISO());
+  useEffect(() => {
+    const tick = () => {
+      const next = todayLocalISO();
+      setTodayISO((curr) => (curr === next ? curr : next));
+    };
+    // 1 minute is more than enough — midnight rollover only matters at
+    // the day boundary, and the user is unlikely to notice a 60-second
+    // delay after midnight.
+    const t = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(t);
+  }, []);
   // Memoize on todayISO so the array reference is stable until midnight. With
   // a fresh array per render, child memos that depend on `days` would
-  // invalidate every render and the heatmap would lose its identity. The dep
-  // is logically necessary — `lastNDays` reads "now" internally — so the
-  // exhaustive-deps lint that flags it as unnecessary is wrong here.
+  // invalidate every render and the heatmap would lose its identity.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const days = useMemo(() => lastNDays(14), [todayISO]);
 

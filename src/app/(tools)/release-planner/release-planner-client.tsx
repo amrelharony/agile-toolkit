@@ -320,6 +320,14 @@ export function ReleasePlannerClient() {
     // velocity to get sprint count, the bounds invert. Re-label so the
     // result reads as it's used: high velocity → fewer sprints (optimistic)
     // and low velocity → more sprints (pessimistic).
+    // Guard against ±Infinity from bootstrapQuantile's degenerate cases
+    // (e.g. all-zero velocity series). The prior Math.max(ci.upper, 0.01)
+    // returned Infinity unchanged, and Math.ceil(backlog / Infinity) is
+    // 0 — rendering as a positive "optimistic = 0 sprints" forecast.
+    // Reject the whole result if either bound isn't finite.
+    if (!Number.isFinite(ci.point) || !Number.isFinite(ci.upper) || !Number.isFinite(ci.lower)) {
+      return null;
+    }
     return {
       point: Math.ceil(effectiveBacklog / ci.point),
       optimisticSprints: Math.ceil(effectiveBacklog / Math.max(ci.upper, 0.01)),

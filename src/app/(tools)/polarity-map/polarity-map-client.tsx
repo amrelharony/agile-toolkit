@@ -114,7 +114,7 @@ export function PolarityMapClient() {
     headers: ["Polarity", "Pole", "Side", "Upsides", "Downsides"],
     rows: poles.map((p) => {
       const pol = polarities.find((x) => x.id === p.polarityId);
-      return [pol?.title ?? "", p.label, p.side, p.upsides.join("; "), p.downsides.join("; ")];
+      return [pol?.title ?? "", p.label, p.side, (p.upsides ?? []).join("; "), (p.downsides ?? []).join("; ")];
     }),
   };
 
@@ -155,14 +155,14 @@ export function PolarityMapClient() {
                     <label className="block text-[10px] uppercase text-emerald-400 mb-1">Upsides (one per line)</label>
                     <PoleListTextarea
                       key={`up-${p.id}`}
-                      initial={p.upsides}
+                      initial={p.upsides ?? []}
                       onCommit={(lines) => updatePoleLines(p, "upsides", lines)}
                       placeholder="What goes well at this pole?"
                     />
                     <label className="block text-[10px] uppercase text-red-400 mt-2 mb-1">Downsides (one per line)</label>
                     <PoleListTextarea
                       key={`dn-${p.id}`}
-                      initial={p.downsides}
+                      initial={p.downsides ?? []}
                       onCommit={(lines) => updatePoleLines(p, "downsides", lines)}
                       placeholder="What goes wrong when over-focused on this pole?"
                     />

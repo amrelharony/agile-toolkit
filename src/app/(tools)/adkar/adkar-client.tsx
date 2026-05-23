@@ -229,7 +229,13 @@ export function AdkarClient() {
       ability: 0,
       reinforcement: 0,
     };
-    for (const i of initiatives) c[i.currentStage] += 1;
+    // Guard against legacy / imported initiatives whose currentStage
+    // falls outside the known set. Without this, `c[i.currentStage] += 1`
+    // becomes `undefined + 1 = NaN`, NaN-poisoning the funnel chart,
+    // pctReinforcement KPI, and avg-days metric.
+    for (const i of initiatives) {
+      if (i.currentStage in c) c[i.currentStage] += 1;
+    }
     return c;
   }, [initiatives]);
 
