@@ -16,7 +16,7 @@ import { SonificationToggle } from "@/components/shared/sonification-toggle";
 import { LlmStatusChip } from "@/components/ai/llm-status-chip";
 import { useAgentStore } from "@/lib/agent/store";
 import { XpBar } from "@/components/gamification/xp-bar";
-import { StatusBadge, WeatherWidget } from "@/lib/weather/widget";
+import { WeatherWidget } from "@/lib/weather/widget";
 import { UserMenu } from "@/components/auth/user-menu";
 import { cn } from "@/lib/utils";
 
@@ -135,10 +135,9 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
         <Menu className="w-5 h-5" aria-hidden="true" />
       </button>
 
-      {/* Status + weather — only when there's room (md+). The 320 px viewport
+      {/* Weather — only when there's room (md+). The 320 px viewport
           can't fit anything secondary alongside the breadcrumb. */}
       <div className="hidden md:flex items-center gap-2 shrink-0">
-        <StatusBadge />
         <WeatherWidget />
       </div>
 
