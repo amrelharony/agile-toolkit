@@ -26,11 +26,25 @@ export interface UseRoomResult<T> {
 }
 
 const COLORS = ["#00f0ff", "#a855f7", "#f472b6", "#facc15", "#34d399", "#fb923c", "#60a5fa", "#f87171"];
+const COLOR_SET = new Set(COLORS);
+const FALLBACK_COLOR = COLORS[0];
 
 function assignColor(userId: string): string {
   let hash = 0;
   for (let i = 0; i < userId.length; i++) hash = (hash * 31 + userId.charCodeAt(i)) >>> 0;
   return COLORS[hash % COLORS.length];
+}
+
+/**
+ * Constrain an incoming presence color to the allowlist. A malicious or
+ * patched peer could broadcast any string here — including CSS that
+ * exfiltrates data if it ever lands in a `style="…"` attribute via string
+ * concat. React's style-object API rejects most of it, but defending in
+ * depth at the trust boundary is cheaper than auditing every consumer.
+ */
+function safeColor(value: unknown): string {
+  if (typeof value === "string" && COLOR_SET.has(value)) return value;
+  return FALLBACK_COLOR;
 }
 
 function getOrCreateUser(): { id: string; name: string } {
@@ -187,7 +201,11 @@ export function useRoom<T>(
         for (const key of Object.keys(presenceState)) {
           const metas = presenceState[key];
           const first = Array.isArray(metas) ? metas[0] : undefined;
-          if (isPresenceMember(first)) allMembers.push(first);
+          if (isPresenceMember(first)) {
+            // Normalise color to the allowlist BEFORE the value enters
+            // any render path — see safeColor() docs.
+            allMembers.push({ ...first, color: safeColor(first.color) });
+          }
         }
         if (memberCount > 0) {
           if (allMembers.length > memberCount) emitRtEvent("member-join");

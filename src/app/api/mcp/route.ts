@@ -7,6 +7,43 @@ import { verifyBearer } from "@/lib/mcp/pat";
 import "@/lib/actions/register-all";
 
 /**
+ * Per-token rate limit. In-memory token bucket — instance-local, so the
+ * effective ceiling on a multi-instance deploy is `LIMIT × instances`.
+ * That's fine for the threat we care about (a runaway agent burning
+ * Supabase quota or LLM tokens); strict global enforcement would need
+ * Redis/Upstash and isn't worth the dependency for a single-user toolkit.
+ *
+ * Bucket refills lazily on each call rather than on a setInterval — no
+ * dangling timers when the route module unloads.
+ */
+const RATE_LIMIT_PER_MIN = 120;
+const REFILL_INTERVAL_MS = 60_000;
+const bucket = new Map<string, { tokens: number; updated: number }>();
+function consumeToken(tokenId: string): boolean {
+  const now = Date.now();
+  const entry = bucket.get(tokenId);
+  if (!entry) {
+    bucket.set(tokenId, { tokens: RATE_LIMIT_PER_MIN - 1, updated: now });
+    return true;
+  }
+  const elapsed = now - entry.updated;
+  if (elapsed >= REFILL_INTERVAL_MS) {
+    bucket.set(tokenId, { tokens: RATE_LIMIT_PER_MIN - 1, updated: now });
+    return true;
+  }
+  // Partial refill proportional to elapsed time — smoother than hard
+  // reset-at-window-end which lets a client burn the full quota in a
+  // sub-second burst.
+  const refill = Math.floor((elapsed / REFILL_INTERVAL_MS) * RATE_LIMIT_PER_MIN);
+  const tokens = Math.min(RATE_LIMIT_PER_MIN, entry.tokens + refill);
+  if (tokens <= 0) {
+    return false;
+  }
+  bucket.set(tokenId, { tokens: tokens - 1, updated: now });
+  return true;
+}
+
+/**
  * MCP HTTP transport.
  *
  * Auth: `Authorization: Bearer pat_…` only. The bearer is a Personal
@@ -51,6 +88,23 @@ export async function POST(req: NextRequest) {
         error: { code: -32001, message: "Invalid or revoked PAT." },
       }),
       { status: 401, headers: { "content-type": "application/json" } }
+    );
+  }
+
+  if (!consumeToken(auth.tokenId)) {
+    return new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: null,
+        error: {
+          code: -32002,
+          message: `Rate limit exceeded — max ${RATE_LIMIT_PER_MIN} requests/min per token.`,
+        },
+      }),
+      {
+        status: 429,
+        headers: { "content-type": "application/json", "retry-after": "60" },
+      }
     );
   }
 
