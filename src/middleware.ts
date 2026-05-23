@@ -49,11 +49,16 @@ export async function middleware(request: NextRequest) {
     return redirectTo(request, "/not-authorized", "config");
   }
 
-  // Build a response we can attach refreshed cookies to. The Supabase
-  // SSR client may rotate the session cookie on every call; if we don't
-  // forward those Set-Cookie headers, the browser keeps using a stale
-  // token and eventually 401s on its own.
-  let response = NextResponse.next({ request });
+  // Collect cookies set by Supabase during getUser() into an array,
+  // then apply all of them to the final response in ONE pass.
+  //
+  // The prior implementation reassigned `response = NextResponse.next({
+  // request })` inside each set/remove callback — Supabase often writes
+  // BOTH the access token AND refresh token cookies in the same call,
+  // and the reassignment dropped every cookie except the last one. Net
+  // effect: rotated session cookies silently failed to persist; users
+  // got 401'd mid-session.
+  const cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }> = [];
 
   const supabase = createServerClient(url, anon, {
     auth: { flowType: "pkce" },
@@ -62,16 +67,15 @@ export async function middleware(request: NextRequest) {
         return request.cookies.get(name)?.value;
       },
       set(name, value, options) {
-        // Mutate BOTH the request (so subsequent middleware sees it) and
-        // the outbound response (so the browser persists it).
+        // Mutate the request copy so subsequent operations in THIS request
+        // see the updated cookie (e.g. a refreshed access token used in
+        // a follow-up getUser call).
         request.cookies.set({ name, value, ...options });
-        response = NextResponse.next({ request });
-        response.cookies.set({ name, value, ...options });
+        cookiesToSet.push({ name, value, options });
       },
       remove(name, options) {
         request.cookies.set({ name, value: "", ...options });
-        response = NextResponse.next({ request });
-        response.cookies.set({ name, value: "", ...options });
+        cookiesToSet.push({ name, value: "", options });
       },
     },
   });
@@ -82,16 +86,28 @@ export async function middleware(request: NextRequest) {
   // the RLS layer.
   const { data, error } = await supabase.auth.getUser();
 
+  const buildResponse = (resp: NextResponse): NextResponse => {
+    // Apply every cookie set during getUser() to whatever response the
+    // caller is about to return — whether that's NextResponse.next() or
+    // a redirect. Without this on the redirect path, the rotated tokens
+    // are dropped and the user re-loads with the OLD cookie, which the
+    // next middleware pass rejects, creating a redirect loop.
+    for (const c of cookiesToSet) {
+      resp.cookies.set({ name: c.name, value: c.value, ...c.options });
+    }
+    return resp;
+  };
+
   if (error || !data.user) {
-    return redirectTo(request, "/auth/sign-in", "unauthenticated");
+    return buildResponse(redirectTo(request, "/auth/sign-in", "unauthenticated"));
   }
 
   if (!isEmailAuthorized(data.user.email)) {
     // Privacy: do NOT log the rejected email. The denial event is enough.
-    return redirectTo(request, "/not-authorized", "denied");
+    return buildResponse(redirectTo(request, "/not-authorized", "denied"));
   }
 
-  return response;
+  return buildResponse(NextResponse.next({ request }));
 }
 
 function redirectTo(
