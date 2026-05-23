@@ -29,12 +29,23 @@ import { pumpSseStream, safeFetch } from "../stream-sse";
 
 const BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
-function buildUrl(model: string, apiKey: string, action: "stream" | "test"): string {
+function buildUrl(model: string, action: "stream" | "test"): string {
   const path = action === "stream" ? `${model}:streamGenerateContent` : `${model}:generateContent`;
   // alt=sse is REQUIRED for the streaming variant; without it Google sends
   // a single concatenated-JSON body that breaks our SSE reader.
-  const query = action === "stream" ? "?alt=sse&" : "?";
-  return `${BASE}/${path}${query}key=${encodeURIComponent(apiKey)}`;
+  return action === "stream" ? `${BASE}/${path}?alt=sse` : `${BASE}/${path}`;
+}
+
+function buildHeaders(apiKey: string): HeadersInit {
+  // Use the x-goog-api-key header instead of the `?key=` query param.
+  // The prior URL form put the key in browser history, fetch entry
+  // server logs, and Referer headers sent to embedded resources. The
+  // header form is what Anthropic / OpenAI use and what Google's own
+  // SDKs prefer — equivalent auth, no leakage surface.
+  return {
+    "Content-Type": "application/json",
+    "x-goog-api-key": apiKey,
+  };
 }
 
 function parseRetryAfter(h: Headers): number | null {
@@ -89,9 +100,9 @@ export const geminiAdapter: LlmAdapter = {
       body.systemInstruction = { parts: [{ text: params.system }] };
     }
 
-    const response = await safeFetch(buildUrl(cfg.model, cfg.apiKey, "stream"), {
+    const response = await safeFetch(buildUrl(cfg.model, "stream"), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildHeaders(cfg.apiKey),
       body: JSON.stringify(body),
       signal: params.signal,
     });
@@ -132,9 +143,9 @@ export const geminiAdapter: LlmAdapter = {
 
   async testKey(cfg: ProviderConfig): Promise<void> {
     // Non-streaming probe so we don't have to drain an SSE body.
-    const response = await safeFetch(buildUrl(cfg.model, cfg.apiKey, "test"), {
+    const response = await safeFetch(buildUrl(cfg.model, "test"), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildHeaders(cfg.apiKey),
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: "ping" }] }],
         generationConfig: { maxOutputTokens: 1 },

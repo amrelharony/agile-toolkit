@@ -1053,16 +1053,26 @@ if (typeof window !== "undefined") {
   // We debounce because rapid mutations in one tab fire many storage
   // events; rehydrate is heavy (full state replace + every subscriber
   // re-renders). 250 ms feels live without thrashing.
-  let rehydrateTimer: ReturnType<typeof setTimeout> | null = null;
-  window.addEventListener("storage", (e) => {
-    if (e.key !== "agile-toolkit:workspace") return;
-    if (e.newValue === null) return; // tab cleared storage — leave us alone
-    if (rehydrateTimer !== null) clearTimeout(rehydrateTimer);
-    rehydrateTimer = setTimeout(() => {
-      rehydrateTimer = null;
-      void Promise.resolve(useWorkspaceStore.persist.rehydrate()).catch(() => {});
-    }, 250);
-  });
+  //
+  // HMR safety: the prior version registered a fresh listener on every
+  // module re-execution. After N dev reloads a single cross-tab write
+  // fired N rehydrates. Guard with a module-scoped global flag (using
+  // window so it survives module replacement, unlike a top-level let).
+  type WindowWithFlag = Window & { __agileToolkitStorageListener?: boolean };
+  const w = window as WindowWithFlag;
+  if (!w.__agileToolkitStorageListener) {
+    w.__agileToolkitStorageListener = true;
+    let rehydrateTimer: ReturnType<typeof setTimeout> | null = null;
+    window.addEventListener("storage", (e) => {
+      if (e.key !== "agile-toolkit:workspace") return;
+      if (e.newValue === null) return; // tab cleared storage — leave us alone
+      if (rehydrateTimer !== null) clearTimeout(rehydrateTimer);
+      rehydrateTimer = setTimeout(() => {
+        rehydrateTimer = null;
+        void Promise.resolve(useWorkspaceStore.persist.rehydrate()).catch(() => {});
+      }, 250);
+    });
+  }
 }
 
 /* ────────────────────────────────────────────────────────────────────

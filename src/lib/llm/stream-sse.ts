@@ -71,7 +71,12 @@ export async function pumpSseStream(
         }
         return;
       }
-      buffer += decoder.decode(value, { stream: true });
+      // Normalise CRLF → LF before any boundary detection. Some
+      // proxies / corporate networks / certain Cloudflare modes rewrite
+      // the SSE separator to \r\n\r\n; the prior `\n\n` lookups missed
+      // that boundary entirely, leaving the buffer growing until EOF
+      // and losing the final usage / message_stop event.
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
       // Split off complete events; keep the partial tail for next iteration.
       const lastBoundary = buffer.lastIndexOf("\n\n");
       if (lastBoundary === -1) continue;
