@@ -35,6 +35,36 @@ function parseRetryAfter(h: Headers): number | null {
 }
 
 /**
+ * OpenAI reasoning-class models (o1, o3, o4, o3-mini, o4-mini, gpt-5-*)
+ * REJECT `max_tokens` with HTTP 400 — the API expects
+ * `max_completion_tokens` instead. Older chat models (gpt-3.5, gpt-4,
+ * gpt-4o, gpt-4-turbo) still expect `max_tokens` and reject the
+ * `max_completion_tokens` field on some endpoints, so we have to send
+ * exactly one based on the model id.
+ *
+ * Matches at the START of the model id so suffixed variants like
+ * `o1-2024-12-17`, `o3-mini`, `gpt-5-mini-2025` all resolve correctly.
+ * Plain `gpt-4-...` and `gpt-3.5-...` deliberately do NOT match because
+ * those are not reasoning models.
+ */
+const OPENAI_REASONING_MODEL_RE = /^(?:o1|o3|o4|gpt-5)(?:[-.]|$)/i;
+
+function isReasoningModel(modelId: string): boolean {
+  return OPENAI_REASONING_MODEL_RE.test(modelId);
+}
+
+/**
+ * Build the token-limit field for the request body keyed on whether the
+ * model is a reasoning-class model. Returns an object suitable for
+ * spreading into the JSON body.
+ */
+function tokenLimitField(modelId: string, maxTokens: number): Record<string, number> {
+  return isReasoningModel(modelId)
+    ? { max_completion_tokens: maxTokens }
+    : { max_tokens: maxTokens };
+}
+
+/**
  * AbortSignal.any() polyfill — older browsers (Safari < 17.5) lack it but
  * the project supports them. Returns a signal that aborts when ANY input
  * signal aborts. Used to combine the user's Stop button with our internal
@@ -111,7 +141,11 @@ function createOpenAiCompatible(
           // OpenAI returns usage in the final SSE event only when this flag
           // is set; GLM tolerates the flag and returns usage similarly.
           stream_options: { include_usage: true },
-          max_tokens: maxOutputTokens,
+          // o-series / gpt-5 reasoning models require `max_completion_tokens`
+          // (the OpenAI API returns HTTP 400 for `max_tokens` on these
+          // models). Older chat models still expect `max_tokens`. Pick at
+          // request time so the same adapter handles both families.
+          ...tokenLimitField(cfg.model, maxOutputTokens),
           messages,
         }),
         signal: params.signal,
@@ -170,7 +204,8 @@ function createOpenAiCompatible(
         },
         body: JSON.stringify({
           model: cfg.model,
-          max_tokens: 1,
+          // Reasoning models reject `max_tokens` — see tokenLimitField above.
+          ...tokenLimitField(cfg.model, 1),
           messages: [{ role: "user", content: "ping" }],
         }),
       });

@@ -62,8 +62,11 @@ function bgColor(): string {
  *
  * NOTE: this captures whatever's CURRENTLY rendered — the viewport's CSS
  * transform (pan/zoom) is preserved, so the PNG matches what the user sees
- * on screen. If you want to export the entire board regardless of current
- * camera, fit-to-content first via the FitToContent button, then export.
+ * on screen at call time. Callers that want the whole board (not just the
+ * visible viewport) should temporarily fit the camera to all objects
+ * BEFORE invoking this; canvas-client.tsx's `exportFullBoard` wraps the
+ * fit-and-restore dance so individual export buttons (PNG/JPG/PDF) all
+ * capture the entire board with a 10% margin.
  *
  * `pixelRatio: 2` doubles resolution so the PNG looks crisp on Retina
  * displays. `cacheBust` defeats cross-origin image caching that can leave

@@ -407,18 +407,28 @@ export function CFDClient() {
 
   const wipValues = useMemo(() => wipSeries.map((p) => p.value), [wipSeries]);
 
-  // XmR control limits — needs ≥2 observations to compute a moving range.
+  // XmR control limits require enough observations for the moving-range
+  // estimate of σ̂ to be statistically stable. Below ~8 samples the limits
+  // collapse toward the centerline (or expand wildly with a single
+  // outlier), producing false alarms — Wheeler's guidance is "at least
+  // 6-10 baseline observations before treating limits as real." We pick
+  // 8 as the floor and gate the entire rule evaluation on it; below the
+  // threshold the UI shows a "Need 8+ data points" chip instead of
+  // misleading UCL/LCL bands.
+  const MIN_XMR_SAMPLES = 8;
   const wipLimits = useMemo(
     // WIP is a non-negative count; clamp LCL at 0.
-    () => (wipValues.length >= 2 ? xmrLimits(wipValues, true) : null),
+    () => (wipValues.length >= MIN_XMR_SAMPLES ? xmrLimits(wipValues, true) : null),
     [wipValues]
   );
 
   // Western Electric out-of-control signals on the WIP series. We only run
   // the rules when xmrLimits returned valid (non-degenerate) limits — rule-1
-  // ("point beyond ±3σ") is meaningless when ucl == centerLine.
+  // ("point beyond ±3σ") is meaningless when ucl == centerLine, and the
+  // ≥8 samples gate on wipLimits already covers the statistical-validity
+  // requirement for the rules themselves.
   const wipSignals = useMemo(() => {
-    if (!wipLimits || wipValues.length < 2) return [] as ReturnType<typeof westernElectricRules>;
+    if (!wipLimits) return [] as ReturnType<typeof westernElectricRules>;
     if (wipLimits.ucl <= wipLimits.centerLine) return [] as ReturnType<typeof westernElectricRules>;
     return westernElectricRules(wipValues, wipLimits);
   }, [wipValues, wipLimits]);
@@ -626,12 +636,25 @@ export function CFDClient() {
         {wipSeries.length >= 2 && (
           <Card className="bg-surface border-border">
             <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-base font-display text-text">
+              <CardTitle className="flex items-center gap-2 text-base font-display text-text flex-wrap">
                 <Activity className="w-4 h-4 text-accent" />
                 WIP control chart
                 <span className="text-xs text-sub font-normal ml-1">
                   · XmR limits + CUSUM regime shifts
                 </span>
+                {/* When the series is too short for statistically valid XmR
+                    limits (<8 samples), suppress the UCL/LCL bands and tell
+                    the user why — otherwise the chart shows misleading
+                    "control" lines that produce false alarms on every
+                    point. */}
+                {!wipLimits && (
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] font-normal border-amber-500/40 text-amber-400 ml-auto"
+                  >
+                    Need {MIN_XMR_SAMPLES}+ data points for control limits
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent>

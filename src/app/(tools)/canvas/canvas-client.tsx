@@ -521,10 +521,54 @@ export function CanvasClient() {
     const safe = (raw || "canvas").replace(/[\\/:*?"<>| -]/g, "_").slice(0, 100);
     return `${safe}.${ext}`;
   };
+  /**
+   * Fit the camera to the BOARD bounding box, await two animation frames
+   * so the CSS transform applied by WhiteboardCanvas actually paints,
+   * invoke the rasterise step, then restore the camera. We need the
+   * temporary camera change because html-to-image captures the DOM as-
+   * is — without fit-to-content the PNG/JPG/PDF would only contain
+   * whatever happened to be visible in the viewport at click time.
+   *
+   * Restore is wrapped in a try/finally so an export error doesn't leave
+   * the user looking at a zoomed-out blank canvas.
+   *
+   * Fit-margin is 10% (matches `onFit`), with a 40px world-space floor
+   * baked into `fitToRects` so a tight cluster doesn't crop at the very
+   * edge.
+   */
+  const exportFullBoard = async (
+    rasterise: (node: HTMLElement) => Promise<void>,
+  ): Promise<void> => {
+    const node = canvasViewportRef.current;
+    if (!node || !activeBoard) return;
+    if (objects.length === 0) {
+      // Nothing to capture — fall back to a plain viewport snapshot so
+      // the user at least gets the empty board's background.
+      await rasterise(node);
+      return;
+    }
+    const savedCamera = useCanvasStore.getState().camera;
+    try {
+      const rects = objects.map((o) => ({ x: o.x, y: o.y, w: o.w, h: o.h }));
+      const fitted = fitToRects(rects, viewportSize.w, viewportSize.h, 0.1);
+      if (fitted) {
+        setCamera(fitted);
+        // Two rAFs: first lands React's state→DOM transform, second
+        // gives the browser a paint tick so html-to-image reads the
+        // post-transform layout. One rAF was occasionally insufficient
+        // on Chromium when DevTools was open (paint debounced).
+        await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+      }
+      await rasterise(node);
+    } finally {
+      setCamera(savedCamera);
+    }
+  };
+
   const doExportPng = async () => {
     if (!canvasViewportRef.current || !activeBoard) return;
     try {
-      await exportPng(canvasViewportRef.current, exportFilename("png"));
+      await exportFullBoard((node) => exportPng(node, exportFilename("png")));
     } catch (err) {
       // html-to-image can fail when remote images haven't CORS-loaded.
       // Surface to the user via console only — the toast layer isn't
@@ -543,7 +587,7 @@ export function CanvasClient() {
   const doExportJpg = async () => {
     if (!canvasViewportRef.current || !activeBoard) return;
     try {
-      await exportJpg(canvasViewportRef.current, exportFilename("jpg"));
+      await exportFullBoard((node) => exportJpg(node, exportFilename("jpg")));
     } catch (err) {
       console.warn("[canvas] JPG export failed:", err);
     }
@@ -551,7 +595,7 @@ export function CanvasClient() {
   const doExportPdf = async () => {
     if (!canvasViewportRef.current || !activeBoard) return;
     try {
-      await exportPdf(canvasViewportRef.current, exportFilename("pdf"));
+      await exportFullBoard((node) => exportPdf(node, exportFilename("pdf")));
     } catch (err) {
       console.warn("[canvas] PDF export failed:", err);
     }

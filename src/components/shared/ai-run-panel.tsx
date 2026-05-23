@@ -14,6 +14,7 @@ import {
 } from "@/lib/llm/pricing";
 import type { ProviderId } from "@/lib/llm/types";
 import { isLlmError } from "@/lib/llm/types";
+import { withRetry } from "@/lib/llm/retry";
 import { copyToClipboard } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
 import { cn } from "@/lib/utils";
@@ -181,26 +182,44 @@ export default function AiRunPanel({
       const safeToolName = toolName
         ? toolName.replace(/["\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 200)
         : undefined;
-      const result = await adapter.call(
-        {
-          prompt,
-          system: safeToolName
-            ? `You are an expert Agile coach reviewing data from the "${safeToolName}" tool. Be specific and cite values.`
-            : undefined,
-          signal: controller.signal,
-          onChunk: (chunk) => {
-            if (firstChunkAt === null) {
-              firstChunkAt = performance.now();
-              setTtftMs(Math.round(firstChunkAt - startedAt));
-            }
-            accumulated += chunk;
-            // Functional update so concurrent chunks don't clobber each
-            // other if React batches them across render boundaries.
-            setText((prev) => prev + chunk);
-          },
+      // Wrap the adapter call in withRetry so transient 429s (provider
+      // bucket exhaustion) auto-recover without surfacing as a hard
+      // failure to the user. Caps at 2 retries — keeps the UI responsive
+      // to Stop, and respects the server's Retry-After when provided.
+      // We re-create the params on each attempt because `accumulated`
+      // would otherwise leak text from the failed first attempt into
+      // the streamed output of the retry.
+      const result = await withRetry(
+        () => {
+          // Reset streaming-state on each attempt — if attempt 1 streamed
+          // a partial chunk before 429ing, we don't want it to remain.
+          accumulated = "";
+          firstChunkAt = null;
+          setText("");
+          setTtftMs(null);
+          return adapter.call(
+            {
+              prompt,
+              system: safeToolName
+                ? `You are an expert Agile coach reviewing data from the "${safeToolName}" tool. Be specific and cite values.`
+                : undefined,
+              signal: controller.signal,
+              onChunk: (chunk) => {
+                if (firstChunkAt === null) {
+                  firstChunkAt = performance.now();
+                  setTtftMs(Math.round(firstChunkAt - startedAt));
+                }
+                accumulated += chunk;
+                // Functional update so concurrent chunks don't clobber each
+                // other if React batches them across render boundaries.
+                setText((prev) => prev + chunk);
+              },
+            },
+            cfg,
+            maxOutputTokens,
+          );
         },
-        cfg,
-        maxOutputTokens
+        { signal: controller.signal },
       );
       setUsage(result);
       setTotalMs(Math.round(performance.now() - startedAt));
