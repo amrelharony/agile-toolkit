@@ -42,3 +42,8 @@ next-env.d.ts
 /.claude/launch.json
 /.claude/*.lock
 /.claude/round*-findings.md
+
+# mcp-server build artifacts (the source ships; consumers install via npm)
+/mcp-server/node_modules
+/mcp-server/dist
+/mcp-server/*.tsbuildinfo
