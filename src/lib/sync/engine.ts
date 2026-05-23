@@ -34,7 +34,7 @@ function isPermanentFailure(err: unknown): boolean {
     code === "23502" || // not_null_violation
     code === "23505" || // unique_violation
     code === "23503" || // foreign_key_violation
-    code === "22P02"    // invalid_text_representation
+    code === "22P02" // invalid_text_representation
   );
 }
 
@@ -211,9 +211,7 @@ class SyncEngine {
     if (this.state.kind !== "running") return;
     this.pushTimers.forEach((t) => clearTimeout(t));
     this.pushTimers.clear();
-    await Promise.all(
-      Array.from(this.adapters.values()).map((a) => this.runOne(a, "push"))
-    );
+    await Promise.all(Array.from(this.adapters.values()).map((a) => this.runOne(a, "push")));
   }
 
   isRunning(): boolean {
@@ -230,18 +228,13 @@ class SyncEngine {
     if (this.state.kind !== "running" || this.pulling) return;
     this.pulling = true;
     try {
-      await Promise.all(
-        Array.from(this.adapters.values()).map((a) => this.runOne(a, "pull"))
-      );
+      await Promise.all(Array.from(this.adapters.values()).map((a) => this.runOne(a, "pull")));
     } finally {
       this.pulling = false;
     }
   }
 
-  private async runOne(
-    adapter: SyncAdapter,
-    op: "pull" | "push"
-  ): Promise<void> {
+  private async runOne(adapter: SyncAdapter, op: "pull" | "push"): Promise<void> {
     if (this.state.kind !== "running") return;
     const { supabase, userId } = this.state;
     try {
@@ -281,8 +274,25 @@ class SyncEngine {
   private subscribeRealtime(): void {
     if (this.state.kind !== "running") return;
     const { supabase, userId } = this.state;
+    const channelName = `user-sync:${userId}`;
+    // Defensive cleanup: `supabase.channel(name)` is a getOrCreate — if a
+    // channel with this name already exists in the client's internal map
+    // (e.g. from a HMR-triggered re-`start()` before the previous stop()
+    // finished its async removeChannel, or from React StrictMode's
+    // double-invoke in dev), the call returns that EXISTING channel
+    // rather than a new one. Chaining `.on()` on an already-subscribed
+    // channel throws "cannot add postgres_changes callbacks ... after
+    // subscribe()" and leaves the sync layer broken until full reload.
+    //
+    // Remove any stale channel under this name first. removeChannel is
+    // idempotent for unknown names so the no-existing-channel path is
+    // a cheap no-op.
+    const existing = supabase.getChannels().filter((ch) => ch.topic === `realtime:${channelName}`);
+    for (const ch of existing) {
+      void supabase.removeChannel(ch);
+    }
     const channel = supabase
-      .channel(`user-sync:${userId}`)
+      .channel(channelName)
       .on(
         "postgres_changes" as never,
         {
@@ -291,7 +301,11 @@ class SyncEngine {
           table: "user_state",
           filter: `user_id=eq.${userId}`,
         },
-        (payload: { eventType?: string; new: Record<string, unknown> | null; old: Record<string, unknown> | null }) => {
+        (payload: {
+          eventType?: string;
+          new: Record<string, unknown> | null;
+          old: Record<string, unknown> | null;
+        }) => {
           const row = payload.new ?? payload.old;
           if (!row) return;
           const ev = normaliseEventType(payload.eventType, payload.new);
@@ -308,7 +322,11 @@ class SyncEngine {
           table: "user_entities",
           filter: `user_id=eq.${userId}`,
         },
-        (payload: { eventType?: string; new: Record<string, unknown> | null; old: Record<string, unknown> | null }) => {
+        (payload: {
+          eventType?: string;
+          new: Record<string, unknown> | null;
+          old: Record<string, unknown> | null;
+        }) => {
           const row = payload.new ?? payload.old;
           if (!row) return;
           const ev = normaliseEventType(payload.eventType, payload.new);
