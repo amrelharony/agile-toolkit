@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMounted } from "@/hooks/use-mounted";
 import {
   DropdownMenu,
@@ -32,6 +33,7 @@ export function UserMenu() {
   const { status, user, profile, signOut } = useAuth();
   const openAiSettings = useLlmUiStore((s) => s.openSettings);
   const mounted = useMounted();
+  const router = useRouter();
 
   // Hide entirely when auth is disabled (no Supabase env), or until hydrated.
   if (!mounted || status === "disabled") {
@@ -144,7 +146,21 @@ export function UserMenu() {
         <DropdownMenuItem
           onSelect={(e) => {
             e.preventDefault();
-            void signOut();
+            // AWAIT signOut() before navigating. The previous fire-and-forget
+            // dispatched the redirect before Supabase had cleared its session
+            // cookies — the next request still carried the old auth header,
+            // middleware re-validated it, and the user landed back on the
+            // tool page they were trying to leave. Then a beat later the
+            // SIGNED_OUT event fired and the UI jolted. Await + replace gives
+            // a clean transition: cookies cleared, then sign-in page renders.
+            void (async () => {
+              try {
+                await signOut();
+              } finally {
+                router.replace("/auth/sign-in");
+                router.refresh();
+              }
+            })();
           }}
           className="text-destructive focus:text-destructive cursor-pointer"
         >

@@ -46,25 +46,54 @@ function parseRetryAfter(h: Headers): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Anthropic returns errors as JSON:
+ *   { "type": "error", "error": { "type": "...", "message": "..." } }
+ * Reading the body once and surfacing `error.message` gives the user
+ * something actionable (e.g. "max_tokens: 200000 > 8192 limit for
+ * claude-haiku-4-5") rather than a raw "Anthropic 400" toast.
+ */
+async function readAnthropicErrorMessage(response: Response): Promise<string> {
+  try {
+    const text = (await response.text()).slice(0, 1500);
+    if (!text) return response.statusText;
+    try {
+      const json = JSON.parse(text) as {
+        error?: { message?: string; type?: string };
+      };
+      if (json?.error?.message) {
+        const prefix = json.error.type ? `${json.error.type}: ` : "";
+        return `${prefix}${json.error.message}`.slice(0, 300);
+      }
+    } catch {
+      /* not JSON — fall through */
+    }
+    return text.slice(0, 300);
+  } catch {
+    return response.statusText;
+  }
+}
+
 async function raiseHttpError(response: Response): Promise<never> {
+  const msg = await readAnthropicErrorMessage(response);
   if (response.status === 401 || response.status === 403) {
-    throw new LlmAuthError("Anthropic rejected the API key");
+    throw new LlmAuthError(msg || "Anthropic rejected the API key");
   }
   if (response.status === 429) {
-    throw new LlmRateLimitError(parseRetryAfter(response.headers), "Anthropic rate limited");
+    throw new LlmRateLimitError(
+      parseRetryAfter(response.headers),
+      msg || "Anthropic rate limited"
+    );
   }
-  // Pull the message but cap its length — provider errors can be verbose
-  // and we don't want them flooding the toast UI.
-  let body = "";
-  try {
-    body = (await response.text()).slice(0, 300);
-  } catch {
-    /* ignore */
+  // 529 = overloaded_error. Treat as a retryable rate-limit rather than a
+  // hard network failure so the caller's backoff kicks in.
+  if (response.status === 529) {
+    throw new LlmRateLimitError(
+      parseRetryAfter(response.headers) ?? 5,
+      msg || "Anthropic overloaded — try again shortly"
+    );
   }
-  throw new LlmNetworkError(
-    `Anthropic ${response.status}: ${body || response.statusText}`,
-    response.status
-  );
+  throw new LlmNetworkError(`Anthropic ${response.status}: ${msg}`, response.status);
 }
 
 export const anthropicAdapter: LlmAdapter = {
