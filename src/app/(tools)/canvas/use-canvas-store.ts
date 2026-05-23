@@ -315,3 +315,66 @@ export const useCanvasStore = create<CanvasUiState>()(
     },
   ),
 );
+
+// ── Cross-device sync ─────────────────────────────────────────────────
+// Mirror the persisted canvas UI prefs (active board, camera, tool, etc.)
+// to Supabase so opening the canvas on another device lands on the same
+// board at the same zoom. Ephemeral state (selection, drag, marquee) is
+// excluded via the same partialize filter as the persist middleware.
+if (typeof window !== "undefined") {
+  void import("@/lib/sync/register").then(({ registerBlobStore }) => {
+    registerBlobStore({
+      storeKey: "agile-toolkit:canvas",
+      getSnapshot: () => {
+        const s = useCanvasStore.getState();
+        return {
+          activeBoardId: s.activeBoardId,
+          camera: s.camera,
+          tool: s.tool,
+          showGrid: s.showGrid,
+          showMiniMap: s.showMiniMap,
+          showAIPanel: s.showAIPanel,
+          stickyColor: s.stickyColor,
+          snapToGrid: s.snapToGrid,
+          snapToObjects: s.snapToObjects,
+          frameBookmarks: s.frameBookmarks,
+          pickedDiagramShape: s.pickedDiagramShape,
+        };
+      },
+      setSnapshot: (next) => {
+        const v = (next ?? {}) as Partial<CanvasUiState>;
+        useCanvasStore.setState({
+          activeBoardId: v.activeBoardId ?? null,
+          camera: v.camera ?? useCanvasStore.getState().camera,
+          tool: v.tool ?? useCanvasStore.getState().tool,
+          showGrid: v.showGrid ?? useCanvasStore.getState().showGrid,
+          showMiniMap: v.showMiniMap ?? useCanvasStore.getState().showMiniMap,
+          showAIPanel: v.showAIPanel ?? useCanvasStore.getState().showAIPanel,
+          stickyColor: v.stickyColor ?? useCanvasStore.getState().stickyColor,
+          snapToGrid: v.snapToGrid ?? useCanvasStore.getState().snapToGrid,
+          snapToObjects: v.snapToObjects ?? useCanvasStore.getState().snapToObjects,
+          frameBookmarks: v.frameBookmarks ?? useCanvasStore.getState().frameBookmarks,
+          pickedDiagramShape: v.pickedDiagramShape ?? useCanvasStore.getState().pickedDiagramShape,
+        });
+      },
+      subscribe: (onChange) =>
+        useCanvasStore.subscribe((curr, prev) => {
+          if (
+            curr.activeBoardId !== prev.activeBoardId ||
+            curr.camera !== prev.camera ||
+            curr.tool !== prev.tool ||
+            curr.showGrid !== prev.showGrid ||
+            curr.showMiniMap !== prev.showMiniMap ||
+            curr.showAIPanel !== prev.showAIPanel ||
+            curr.stickyColor !== prev.stickyColor ||
+            curr.snapToGrid !== prev.snapToGrid ||
+            curr.snapToObjects !== prev.snapToObjects ||
+            curr.frameBookmarks !== prev.frameBookmarks ||
+            curr.pickedDiagramShape !== prev.pickedDiagramShape
+          ) {
+            onChange();
+          }
+        }),
+    });
+  });
+}

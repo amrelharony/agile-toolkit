@@ -1065,6 +1065,124 @@ if (typeof window !== "undefined") {
   });
 }
 
+/* ────────────────────────────────────────────────────────────────────
+ * Cross-device cloud sync registrations
+ *
+ * Each entity collection is registered as a per-entity sync target so
+ * a sprint created on Device A appears on Device B within ~1s via
+ * Supabase Realtime. Scalars (teamName, maturityLevel) are bundled
+ * into one blob slot.
+ *
+ * Echo suppression: the entity adapters internally flag remote-applied
+ * writes to prevent the workspace subscribe handler from re-pushing
+ * the same data we just received. Zustand subscribes fire synchronously
+ * inside setState, so the suppression window is reliable.
+ * ────────────────────────────────────────────────────────────────── */
+if (typeof window !== "undefined") {
+  // Dynamic-import the sync registry so this module stays usable in
+  // server-side / test contexts where the sync engine isn't desired.
+  void import("@/lib/sync/register").then(({ registerEntityCollection, registerBlobStore }) => {
+    const registry = useWorkspaceStore;
+
+    // ── Per-entity collections ────────────────────────────────────
+    // Runtime-validated: each `slice` is a key on Workspace whose value
+    // is an array of entities with `id`. TypeScript can't verify the
+    // shape across the conditional / optional fields, so we erase the
+    // generic and rely on the call-site list to keep things honest.
+    const registerCollection = (
+      kind: string,
+      slice: keyof Workspace,
+      pushIntervalMs?: number
+    ): void => {
+      registerEntityCollection({
+        kind: `workspace:${kind}`,
+        getEntities: () => {
+          const v = (registry.getState() as unknown as Record<string, unknown>)[slice as string];
+          return (Array.isArray(v) ? v : []) as ReadonlyArray<{ id: string }>;
+        },
+        setEntities: (next) =>
+          registry.setState({ [slice]: next } as unknown as Partial<Workspace>),
+        subscribe: (onChange) =>
+          registry.subscribe((curr, prev) => {
+            const c = (curr as unknown as Record<string, unknown>)[slice as string];
+            const p = (prev as unknown as Record<string, unknown>)[slice as string];
+            if (c !== p) onChange();
+          }),
+        pushIntervalMs,
+      });
+    };
+
+    registerCollection("teamMember", "teamMembers");
+    registerCollection("sprint", "sprints");
+    registerCollection("story", "stories");
+    registerCollection("impediment", "impediments");
+    registerCollection("risk", "risks");
+    registerCollection("okr", "okrs");
+    registerCollection("decision", "decisions");
+    registerCollection("techDebt", "techDebt");
+    // Phase 19 — AI/LLM PM
+    registerCollection("llmEval", "llmEvals");
+    registerCollection("prompt", "prompts");
+    registerCollection("hallucination", "hallucinations");
+    registerCollection("tokenSpend", "tokenSpend");
+    registerCollection("model", "models");
+    registerCollection("redTeamFinding", "redTeamFindings");
+    registerCollection("agentWorkflow", "agentWorkflows");
+    registerCollection("agentNode", "agentNodes");
+    registerCollection("hitlReview", "hitlReviews");
+    registerCollection("rlhfPair", "rlhfPairs");
+    registerCollection("vectorCollection", "vectorCollections");
+    registerCollection("modelCard", "modelCards");
+    // Phase 20 — Prioritization
+    registerCollection("prioritization", "prioritizations");
+    // Phase 21 — Decision frameworks
+    registerCollection("daciDecision", "daciDecisions");
+    registerCollection("rapidDecision", "rapidDecisions");
+    registerCollection("weightedOption", "weightedOptions");
+    registerCollection("weightedCriterion", "weightedCriteria");
+    registerCollection("sixHatsThought", "sixHatsThoughts");
+    registerCollection("oodaCycle", "oodaCycles");
+    registerCollection("cynefinItem", "cynefinItems");
+    registerCollection("staceyItem", "staceyItems");
+    registerCollection("polarity", "polarities");
+    registerCollection("polarityPole", "polarityPoles");
+    // Phase 22 — Canvas. Whiteboard objects are throttled to 2s pushes
+    // because drag operations can dirty hundreds of them per second.
+    registerCollection("whiteboard", "whiteboards");
+    registerCollection("whiteboardObject", "whiteboardObjects", 2000);
+    registerCollection("whiteboardCommentThread", "whiteboardCommentThreads");
+    registerCollection("whiteboardGroup", "whiteboardGroups");
+    registerCollection("whiteboardSavedTemplate", "whiteboardSavedTemplates");
+    registerCollection("whiteboardActivity", "whiteboardActivityLog");
+
+    // ── Scalars (teamName, maturityLevel) as one blob ─────────────
+    interface WorkspaceScalars {
+      teamName?: string;
+      maturityLevel?: number;
+    }
+    registerBlobStore({
+      storeKey: "agile-toolkit:workspace:scalars",
+      getSnapshot: (): WorkspaceScalars => {
+        const s = registry.getState();
+        return { teamName: s.teamName, maturityLevel: s.maturityLevel };
+      },
+      setSnapshot: (next) => {
+        const v = (next ?? {}) as WorkspaceScalars;
+        registry.setState({
+          teamName: v.teamName,
+          maturityLevel: v.maturityLevel as Workspace["maturityLevel"],
+        });
+      },
+      subscribe: (onChange) =>
+        registry.subscribe((curr, prev) => {
+          if (curr.teamName !== prev.teamName || curr.maturityLevel !== prev.maturityLevel) {
+            onChange();
+          }
+        }),
+    });
+  });
+}
+
 export function getWorkspaceSnapshot(): Workspace {
   const state = useWorkspaceStore.getState();
   // Consumers should treat the returned object as immutable — mutating the

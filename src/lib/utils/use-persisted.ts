@@ -1,23 +1,28 @@
 "use client";
 
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useCloudPersisted } from "@/lib/sync/use-cloud-persisted";
 
 /**
- * Persists state to localStorage under `key` without the empty-first-render
- * write-then-wipe race that a naive useEffect pair has.
+ * Persists state to localStorage under `key` AND mirrors to Supabase
+ * per-user when signed in. Drop-in replacement that opts every existing
+ * call site into cloud sync at zero migration cost.
  *
- * Key-change correctness: when `key` changes, the next render must NOT
- * write the *previous* key's state into the new key's slot. We track the
- * key in a ref and gate the write effect on `keyRef.current === key AND
- * hydratedKey === key` — i.e., the state we hold is known to belong to
- * the current key.
- *
- * Quota errors are surfaced via `console.warn` so they're at least
- * visible in dev; production users still get silent best-effort persistence.
- *
- * Safe across SSR: returns `initial` on the server, loads in a post-mount effect.
+ * When signed out, the cloud-persisted implementation no-ops the sync
+ * layer (no engine running) and behaves identically to the original
+ * localStorage-only hook.
  */
-export function usePersisted<T>(
+export const usePersisted = useCloudPersisted;
+
+/**
+ * Original localStorage-only implementation, exported as
+ * `usePersistedLocal` for callers that explicitly want to skip the
+ * cloud sync (e.g. ephemeral per-device prefs that should never travel).
+ *
+ * Most code should keep using `usePersisted` — the cloud-aware shim
+ * above. This export is the escape hatch.
+ */
+export function usePersistedLocal<T>(
   key: string,
   initial: T
 ): [T, Dispatch<SetStateAction<T>>] {

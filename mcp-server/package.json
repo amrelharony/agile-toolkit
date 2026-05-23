@@ -1,0 +1,33 @@
+{
+  "name": "@agile-toolkit/mcp",
+  "version": "0.1.0",
+  "description": "Local stdio MCP relay for the Agile Toolkit. Forwards Claude Desktop / Claude Code tool calls to your deployed Agile Toolkit instance over HTTPS.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "agile-toolkit-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5"
+  },
+  "keywords": [
+    "mcp",
+    "agile-toolkit",
+    "claude",
+    "scrum",
+    "anthropic"
+  ],
+  "license": "MIT"
+}

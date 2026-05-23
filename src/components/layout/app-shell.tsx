@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
@@ -9,12 +10,22 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useLlmStore } from "@/lib/stores/llm-store";
 import { installSignalBridge } from "@/lib/signals/signal-bridge";
 import { bootstrapPredictions } from "@/lib/predictions/bootstrap";
+// Populate the tool action registry at app load — must happen before
+// any component that consumes the agent / MCP surface mounts.
+import "@/lib/actions/register-all";
 
 // Settings dialog is dynamic-imported so its body (tabs, model lists, the
 // tested provider import) never lands in the eager bundle — only loads
 // when the user actually clicks the header chip or UserMenu entry.
 const LlmSettingsDialog = dynamic(
   () => import("@/components/ai/llm-settings-dialog").then((m) => m.LlmSettingsDialog),
+  { ssr: false }
+);
+
+// Agent chat sheet — dynamic-imported so the agent runtime (SSE parser,
+// tool-execution machinery) only lands when the user actually opens it.
+const AgentSheet = dynamic(
+  () => import("@/components/agent/agent-sheet").then((m) => m.AgentSheet),
   { ssr: false }
 );
 import { SonificationProvider } from "@/lib/sonification/provider";
@@ -24,6 +35,7 @@ import { HolidayEngine } from "@/lib/holiday/engine";
 import { EmotionProvider } from "@/lib/emotion/provider";
 import { WeatherProvider } from "@/lib/weather/provider";
 import { AuthProvider } from "@/lib/auth/auth-provider";
+import { CloudSyncProvider } from "@/lib/sync/sync-provider";
 import { HistorySyncProvider } from "@/lib/history/sync-provider";
 import { TimeTravelShortcuts } from "@/components/history/time-travel-shortcuts";
 import { ErrorBoundary } from "./error-boundary";
@@ -31,7 +43,32 @@ import { Suspense } from "react";
 import { XpBar } from "@/components/gamification/xp-bar";
 import { TrophyCase } from "@/components/gamification/trophy-case";
 
+// Routes that bypass the full app chrome (sidebar/header/providers).
+// Middleware allows them through unauthenticated, so they must render
+// without depending on auth state, workspace store rehydration, etc.
+const BARE_ROUTE_PREFIXES = ["/auth", "/not-authorized"];
+
+function isBareRoute(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return BARE_ROUTE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const bare = isBareRoute(pathname);
+
+  // Bare routes (sign-in, not-authorized) render with just the atmosphere
+  // background already in the root layout. No sidebar, no header, no
+  // providers — those would either depend on auth or pull in heavy bundles
+  // for what is otherwise a single-screen landing page.
+  if (bare) {
+    return <>{children}</>;
+  }
+
+  return <FullAppShell>{children}</FullAppShell>;
+}
+
+function FullAppShell({ children }: { children: React.ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [trophyOpen, setTrophyOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -65,6 +102,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <WeatherProvider>
       <GamificationProvider>
       <AuthProvider>
+      <CloudSyncProvider>
       <HistorySyncProvider>
         <TimeTravelShortcuts />
         {/* Skip-to-content link for screen readers + keyboard users */}
@@ -103,7 +141,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             so this single mount serves both header-chip and UserMenu
             entry points. Dynamic-imported so non-AI users never load it. */}
         <LlmSettingsDialog />
+        <AgentSheet />
       </HistorySyncProvider>
+      </CloudSyncProvider>
       </AuthProvider>
       </GamificationProvider>
       </WeatherProvider>

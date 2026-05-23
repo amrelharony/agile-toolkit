@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
 import { SCRUM_ROLE_LABEL } from "@/lib/auth/types";
-import { LogOut, History, ShieldCheck, UserCircle, LogIn, Sparkles } from "lucide-react";
+import { LogOut, History, ShieldCheck, UserCircle, LogIn, Sparkles, KeyRound } from "lucide-react";
 
 function getInitials(name: string | null | undefined, email: string): string {
   const source = (name ?? email).trim();
@@ -29,7 +29,7 @@ function getInitials(name: string | null | undefined, email: string): string {
 }
 
 export function UserMenu() {
-  const { status, user, profile, signInWithGoogle, signOut } = useAuth();
+  const { status, user, profile, signOut } = useAuth();
   const openAiSettings = useLlmUiStore((s) => s.openSettings);
   const mounted = useMounted();
 
@@ -48,21 +48,18 @@ export function UserMenu() {
   }
 
   if (status === "anonymous" || status === "error") {
-    // Anonymous users still get to discover BYOK — surface "AI settings" as
-    // a tiny secondary affordance below the sign-in CTA. The chip in the
-    // header is the primary entry point; this is the safety net for users
-    // who never look up there.
+    // Middleware redirects unauthenticated users to /auth/sign-in before
+    // reaching any tool page. Reaching this branch means the menu is
+    // rendering during a brief in-between state (e.g. just signed out).
+    // Link to the sign-in page rather than triggering OAuth inline, so
+    // the page-level UI handles the redirect-to-Google flow consistently.
     return (
       <div className="flex items-center gap-1">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void signInWithGoogle()}
-          className="gap-1.5"
-          aria-label="Sign in with Google"
-        >
-          <LogIn className="w-3.5 h-3.5" aria-hidden="true" />
-          <span className="hidden sm:inline">Sign in</span>
+        <Button variant="outline" size="sm" asChild className="gap-1.5">
+          <Link href="/auth/sign-in" aria-label="Sign in">
+            <LogIn className="w-3.5 h-3.5" aria-hidden="true" />
+            <span className="hidden sm:inline">Sign in</span>
+          </Link>
         </Button>
       </div>
     );
@@ -131,6 +128,12 @@ export function UserMenu() {
         >
           <Sparkles className="w-4 h-4" aria-hidden="true" />
           <span>AI settings (BYOK)</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/settings/access-tokens" className="cursor-pointer">
+            <KeyRound className="w-4 h-4" aria-hidden="true" />
+            <span>Access tokens</span>
+          </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link href="/account/privacy" className="cursor-pointer">

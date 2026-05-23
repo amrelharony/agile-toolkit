@@ -11,9 +11,10 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { Search, Moon, Sun, Menu, Contrast } from "lucide-react";
+import { Search, Moon, Sun, Menu, Contrast, MessageSquare } from "lucide-react";
 import { SonificationToggle } from "@/components/shared/sonification-toggle";
 import { LlmStatusChip } from "@/components/ai/llm-status-chip";
+import { useAgentStore } from "@/lib/agent/store";
 import { TrophyButton } from "@/components/gamification/trophy-button";
 import { StatusBadge, WeatherWidget } from "@/lib/weather/widget";
 import { UserMenu } from "@/components/auth/user-menu";
@@ -27,6 +28,7 @@ interface HeaderProps {
 export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
   const pathname = usePathname();
   const tool = getToolByPath(pathname);
+  const openAgent = useAgentStore((s) => s.openSheet);
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
   // Theme cycle: dark → light → hc (high-contrast) → dark.
@@ -217,6 +219,17 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
         <div className="hidden sm:flex items-center">
           <LlmStatusChip />
         </div>
+        {/* Agent chat button. Visible from xs+ — keyboard users can also
+            hit Cmd/Ctrl+K twice to toggle. */}
+        <button
+          onClick={openAgent}
+          data-no-sound="true"
+          className="w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
+          aria-label="Open agent chat"
+          title="Open agent (Cmd/Ctrl+K twice)"
+        >
+          <MessageSquare className="w-4 h-4" aria-hidden="true" />
+        </button>
         <button
           onClick={cycleTheme}
           data-no-sound="true"

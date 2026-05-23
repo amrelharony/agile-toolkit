@@ -11,6 +11,7 @@ import {
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { getAuthBrowserClient, isAuthAvailable } from "./supabase-browser";
+import { isEmailAuthorized } from "./authorize";
 import type {
   AuthContextValue,
   AuthState,
@@ -94,6 +95,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           profile: null,
           error: null,
         });
+        return;
+      }
+      // Belt-and-braces allowlist check. Middleware is authoritative, but
+      // a slow allowlist propagation (env var changed in Vercel between
+      // the callback and a tab refresh) could leave a stale session in
+      // memory. Detect here too and sign out + bounce to /not-authorized.
+      if (!isEmailAuthorized(session.user.email)) {
+        userIdRef.current = null;
+        try {
+          await supabase?.auth.signOut();
+        } catch {
+          /* ignore — hard redirect below clears UI state regardless */
+        }
+        setState({
+          status: "anonymous",
+          user: null,
+          profile: null,
+          error: null,
+        });
+        if (typeof window !== "undefined") {
+          window.location.href = "/not-authorized";
+        }
         return;
       }
       userIdRef.current = session.user.id;

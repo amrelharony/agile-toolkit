@@ -1,0 +1,39 @@
+import type { z } from "zod";
+import type { ActionContext } from "./context";
+
+/**
+ * A `ToolAction` is the atomic unit the agent runtime and MCP server
+ * speak. Every callable verb in the toolkit — from `workspace.sprint.create`
+ * to `tool.canvas.add_sticky` — is one of these.
+ *
+ * The handler MUST be pure-ish: it can read/write Zustand stores and
+ * call other actions, but it should not depend on React render state or
+ * mounted components. Action modules are imported by the server-side
+ * agent and MCP route handlers; anything that needs the DOM should go
+ * through the imperative-handle registry, not through the action
+ * directly.
+ */
+export type ActionCategory = "read" | "write" | "intent";
+
+export interface ToolAction<P = unknown, R = unknown> {
+  /** Full id `${toolId}.${name}` — used by both Anthropic tool-use and MCP. */
+  id: string;
+  /** Tool group: `workspace`, `tool.canvas`, `intent`, etc. */
+  toolId: string;
+  /** Short verb: `create`, `move`, `cast_vote`. */
+  name: string;
+  category: ActionCategory;
+  /** One-line description shown to the agent. */
+  description: string;
+  /** Longer guidance (multi-line). Optional. */
+  longDescription?: string;
+  paramsSchema: z.ZodType<P>;
+  resultSchema?: z.ZodType<R>;
+  /** When true, the in-app agent UI prompts for confirmation before
+   *  executing. `write` and `intent` default to true; `read` to false. */
+  requiresConfirmation?: boolean;
+  handler: (params: P, ctx: ActionContext) => Promise<R>;
+}
+
+/** Untyped variant used by the registry's internal storage. */
+export type AnyToolAction = ToolAction<unknown, unknown>;

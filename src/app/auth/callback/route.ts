@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getAuthServerClient } from "@/lib/auth/supabase-server";
+import { isEmailAuthorized } from "@/lib/auth/authorize";
 
 /**
  * OAuth callback handler.
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}${next}?auth_error=auth_disabled`);
   }
 
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  const { data, error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
     // Don't reflect verbose Supabase error messages into the URL — they
     // leak internal details and the consuming page would need to escape
@@ -63,7 +64,21 @@ export async function GET(request: NextRequest) {
     // eslint-disable-next-line no-console
     console.error("[auth/callback] exchangeCodeForSession failed:", error.message);
     const slug = mapAuthErrorToSlug(error.message);
-    return NextResponse.redirect(`${origin}${next}?auth_error=${slug}`);
+    return NextResponse.redirect(`${origin}/auth/sign-in?auth_error=${slug}`);
+  }
+
+  // Single-user allowlist: even though the code exchange succeeded, the
+  // identity behind that code may not be on the allowlist. Sign out
+  // immediately so we don't leave a stale cookie that middleware would
+  // bounce on every subsequent request, then send the user to the denied
+  // page. Privacy: the rejected email is intentionally not echoed in any
+  // URL or response body.
+  const email = data.session?.user?.email ?? null;
+  if (!isEmailAuthorized(email)) {
+    await supabase.auth.signOut().catch(() => {
+      /* best-effort; cookie is gone either way after redirect */
+    });
+    return NextResponse.redirect(`${origin}/not-authorized`);
   }
 
   return NextResponse.redirect(`${origin}${next}`);

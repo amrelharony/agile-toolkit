@@ -7,6 +7,55 @@ export interface PersistedStoreActions {
   reset: () => void;
 }
 
+/**
+ * Optional cross-device cloud sync: every store created via this factory
+ * registers itself as a blob sync target so the user's preferences /
+ * tool-local state mirror to Supabase. The registration is dynamic-
+ * imported to avoid pulling the sync engine into server-rendered code.
+ */
+function registerForCloudSync(
+  storeKey: string,
+  store: { getState: () => unknown; setState: (next: unknown) => void; subscribe: (cb: () => void) => () => void }
+): void {
+  if (typeof window === "undefined") return;
+  void import("@/lib/sync/register").then(({ registerBlobStore }) => {
+    registerBlobStore({
+      storeKey,
+      getSnapshot: () => {
+        // Strip functions before pushing — the registry side relies on
+        // pure JSON. The existing stripFunctions() below filters them
+        // for export; here we apply the same logic.
+        const raw = store.getState() as Record<string, unknown>;
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(raw)) {
+          if (typeof v === "function") continue;
+          if (k.startsWith("_tt")) continue;
+          out[k] = v;
+        }
+        return out;
+      },
+      setSnapshot: (next) => {
+        // Whitelist-apply: only known keys are accepted (mirrors importJSON
+        // sanitisation) but we don't have access to initialState here, so
+        // accept any non-function field; the store's middleware-level
+        // type-check filters at consumer level.
+        const v = next as Record<string, unknown> | null;
+        if (!v || typeof v !== "object") return;
+        const cleaned: Record<string, unknown> = {};
+        for (const [k, val] of Object.entries(v)) {
+          if (typeof val === "function") continue;
+          if (k.startsWith("_tt")) continue;
+          cleaned[k] = val;
+        }
+        store.setState(cleaned);
+      },
+      subscribe: (onChange) => store.subscribe(onChange),
+    });
+  });
+  // Silently swallow import failures so the store still works when the
+  // sync layer isn't shipped (e.g., during early bundling tests).
+}
+
 /** Cap to avoid OOM on hostile/oversized imports. 5MB covers every realistic
  *  tool export — a workspace with thousands of stories is well under 1MB. */
 const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
@@ -60,7 +109,7 @@ export function createPersistedStore<T extends object>(
   const storeKey = `agile-toolkit:${name}`;
   const allowedKeys = new Set(Object.keys(initialState));
 
-  return create<T & PersistedStoreActions>()(
+  const store = create<T & PersistedStoreActions>()(
     persist(
       stateCreator ??
         ((set, get) => ({
@@ -150,4 +199,12 @@ export function createPersistedStore<T extends object>(
       }
     )
   );
+
+  registerForCloudSync(storeKey, store as unknown as {
+    getState: () => unknown;
+    setState: (next: unknown) => void;
+    subscribe: (cb: () => void) => () => void;
+  });
+
+  return store;
 }
