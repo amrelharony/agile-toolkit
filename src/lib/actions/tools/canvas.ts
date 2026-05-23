@@ -29,6 +29,16 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/**
+ * Compute z-index one above the current top object on the board.
+ *
+ * Reads the store once at call time. Agent calls are serial within
+ * a single conversation turn so the snapshot is stable across the
+ * subsequent upsert. Two concurrent agent sessions COULD collide here
+ * (both read the same max, both insert at max+1), but the canvas
+ * tolerates ties — render order falls back to insertion order. Not
+ * worth a transactional claim for the workload.
+ */
 function nextZ(boardId: string): number {
   const objs = ws().whiteboardObjects ?? [];
   let max = 0;
@@ -79,8 +89,7 @@ registry.register({
       content: params.content,
       color: params.color ?? "#FFE066",
     };
-    const current = ws().whiteboardObjects ?? [];
-    useWorkspaceStore.setState({ whiteboardObjects: [...current, sticky] });
+    ws().upsertWhiteboardObject(sticky);
     return { id: sticky.id };
   },
 });
@@ -99,18 +108,15 @@ registry.register({
   }),
   handler: async (params: { id: string; x: number; y: number }) => {
     const current = ws().whiteboardObjects ?? [];
-    const idx = current.findIndex((o) => o.id === params.id);
-    if (idx === -1) return { moved: false };
-    const updated = {
-      ...current[idx],
+    const target = current.find((o) => o.id === params.id);
+    if (!target) return { moved: false };
+    ws().upsertWhiteboardObject({
+      ...target,
       x: params.x,
       y: params.y,
-      version: current[idx].version + 1,
+      version: target.version + 1,
       updatedAt: nowIso(),
-    };
-    const next = current.slice();
-    next[idx] = updated;
-    useWorkspaceStore.setState({ whiteboardObjects: next });
+    });
     return { moved: true };
   },
 });
@@ -170,8 +176,7 @@ registry.register({
       mindMapId,
       color: params.color,
     };
-    const current = ws().whiteboardObjects ?? [];
-    useWorkspaceStore.setState({ whiteboardObjects: [...current, node] });
+    ws().upsertWhiteboardObject(node);
     return { id: node.id, mindMapId: node.mindMapId };
   },
 });
