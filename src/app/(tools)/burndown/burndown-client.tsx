@@ -3,6 +3,7 @@
 import { useRef, useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   ComposedChart,
   Area,
@@ -197,6 +198,9 @@ const useBurndownStore = create<BurndownStore>()(
     ),
     {
       name: "agile-toolkit:burndown",
+      // Wrap localStorage so Safari Private Browsing / corporate-managed
+      // Chromes don't crash page-load via persist.rehydrate().
+      storage: safeJSONStorage("burndown"),
       partialize: (state) => {
         const {
           _ttPast,

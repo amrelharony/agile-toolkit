@@ -105,7 +105,16 @@ const ACTION_STATUS_BADGE: Record<ActionStatus, string> = {
 };
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  // Use LOCAL date components instead of toISOString().slice(0, 10).
+  // After ~16:00 local in west-of-UTC zones, toISOString returns
+  // tomorrow's date — defaulting a new incident's date to a future
+  // day and bumping it into the wrong quarter at quarter boundaries.
+  // Every other ceremony tool uses todayLocalISO(); we now match.
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function parseLocalDate(iso: string): Date | null {
@@ -126,9 +135,13 @@ function isThisQuarter(iso: string): boolean {
 
 function isOverdue(a: ActionItem): boolean {
   if (a.status === "done" || !a.dueDate) return false;
-  const due = new Date(a.dueDate);
-  if (Number.isNaN(due.getTime())) return false;
-  return due.getTime() < Date.now();
+  // `new Date("YYYY-MM-DD")` parses as UTC midnight, so in west-of-UTC
+  // zones a due-today action would flip to "overdue" at the *previous*
+  // local midnight (a full local-day early). Compare ISO-day strings
+  // lexicographically against today's local ISO day instead — same
+  // approach `one-on-one-client.tsx:291-301` uses for its overdue check.
+  const today = todayIso();
+  return a.dueDate < today;
 }
 
 interface NewPMDraft {

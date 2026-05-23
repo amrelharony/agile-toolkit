@@ -22,7 +22,6 @@ import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { CausalLine } from "@/components/charts/causal-annotation";
 import { generateBurnupPrompts } from "@/lib/ai-prompts/burnup";
-import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { BURNUP_ACTIONS } from "@/lib/history/event-actions";
 import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
@@ -76,12 +75,18 @@ interface BurnupStore {
 /*  Default data                                                               */
 /* -------------------------------------------------------------------------- */
 
-// Computed lazily so the start-date reflects the user's actual session, not
-// the moment the JS bundle was first loaded.
+// Static default start date — must match between SSR and CSR. Using
+// `todayLocalISO()` here produced a fresh string per render call, so
+// the server-rendered HTML and client-rendered HTML disagreed on
+// `sprintStartDate` whenever no persisted state existed → React
+// emitted a hydration mismatch warning on every cold visit. Sibling
+// burndown tool uses a static date for the same reason. Users still
+// see today's date populated as soon as they edit the field; this
+// constant only affects the very first render before hydration.
 function makeDefaultConfig(): BurnupConfig {
   return {
     sprintDays: 10,
-    sprintStartDate: todayLocalISO(),
+    sprintStartDate: "2026-01-01",
   };
 }
 

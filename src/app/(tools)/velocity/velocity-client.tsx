@@ -879,9 +879,12 @@ export function VelocityClient() {
             <span className="text-sm text-sub">
               Sprints meeting commitment:{" "}
               <span className="text-accent font-data font-semibold">
-                {sprints.filter((s) => s.completed >= s.committed).length}
+                {/* Match the predictability KPI math: skip empty rows
+                    (committed=0 AND completed=0) so an unfilled default
+                    sprint doesn't count as "met commitment" (0 >= 0). */}
+                {sprints.filter((s) => (s.committed > 0 || s.completed > 0) && s.completed >= s.committed).length}
               </span>{" "}
-              / {sprints.length}
+              / {sprints.filter((s) => s.committed > 0 || s.completed > 0).length}
             </span>
             <div className="flex items-baseline gap-1.5">
               <span className="text-2xl font-data font-bold text-accent">

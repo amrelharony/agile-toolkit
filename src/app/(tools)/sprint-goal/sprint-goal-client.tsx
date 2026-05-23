@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useMemo } from "react";
+import { usePersisted } from "@/lib/utils/use-persisted";
 import { motion, AnimatePresence } from "framer-motion";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -127,13 +128,29 @@ function genId() {
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function SprintGoalClient() {
+  // PERSIST the wizard state. Previously these were plain useState so
+  // navigating away or refreshing wiped everything — a clear data-loss
+  // bug given every sibling tool persists. `activeStep` stays in-memory
+  // (transient UI), but the four content fields go through usePersisted
+  // so the user can pick up where they left off. usePersisted internally
+  // wraps localStorage with quota + SSR guards.
   const [activeStep, setActiveStep] = useState<Step>("objective");
-  const [businessObjective, setBusinessObjective] = useState("");
-  const [sprintGoal, setSprintGoal] = useState("");
-  const [criteria, setCriteria] = useState<AcceptanceCriterion[]>([
-    { id: genId(), text: "", relevantChecked: false },
-  ]);
-  const [keyResults, setKeyResults] = useState<string[]>([""]);
+  const [businessObjective, setBusinessObjective] = usePersisted<string>(
+    "agile-toolkit:sprint-goal:objective",
+    "",
+  );
+  const [sprintGoal, setSprintGoal] = usePersisted<string>(
+    "agile-toolkit:sprint-goal:goal",
+    "",
+  );
+  const [criteria, setCriteria] = usePersisted<AcceptanceCriterion[]>(
+    "agile-toolkit:sprint-goal:criteria",
+    [{ id: genId(), text: "", relevantChecked: false }],
+  );
+  const [keyResults, setKeyResults] = usePersisted<string[]>(
+    "agile-toolkit:sprint-goal:key-results",
+    [""],
+  );
   const { log } = useHistoryLogger("sprint-goal");
   // Track whether we've already logged a GOAL_SAVED milestone for this
   // session of edits. Reset whenever the user mutates the goal/objective so

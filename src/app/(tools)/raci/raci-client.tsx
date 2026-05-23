@@ -3,6 +3,7 @@
 import { useRef, useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -254,7 +255,14 @@ const useRACIStore = create<RACIStore>()(
         });
       },
     }),
-    { name: "agile-toolkit:raci" }
+    {
+      name: "agile-toolkit:raci",
+      // Without `safeJSONStorage`, Safari Private Browsing throws
+      // SecurityError on the very first localStorage.getItem during
+      // persist.rehydrate(), crashing page-load. All other persisted
+      // tools route through this wrapper.
+      storage: safeJSONStorage("raci"),
+    }
   )
 );
 

@@ -65,7 +65,16 @@ export function CynefinClient() {
 
   const grouped = useMemo(() => {
     const m: Record<CynefinItem["domain"], CynefinItem[]> = { clear: [], complicated: [], complex: [], chaotic: [], confused: [] };
-    for (const it of list) m[it.domain].push(it);
+    for (const it of list) {
+      // Defensive lookup — pre-2014 Cynefin called the bottom-right
+      // domain "simple" (now "clear"). A persisted item with that
+      // legacy value, OR any hand-edited domain string outside the
+      // five-region enum, used to crash this loop with
+      // `Cannot read property 'push' of undefined`. Fall back to
+      // "confused" so the item still surfaces rather than disappearing.
+      const bucket = m[it.domain] ?? m.confused;
+      bucket.push(it);
+    }
     return m;
   }, [list]);
 

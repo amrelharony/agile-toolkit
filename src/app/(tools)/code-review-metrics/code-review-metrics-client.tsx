@@ -533,12 +533,16 @@ export function CodeReviewMetricsClient() {
         <StatCard
           variant="compact"
           icon={Clock}
-          label="Cycle median"
+          // Label honesty: with n<3 we can't bootstrap a median CI, so
+          // the value falls back to the simple mean. Labelling that as
+          // "median" was misleading — relabel based on which statistic
+          // is actually displayed.
+          label={cycleP50CI ? "Cycle median" : "Cycle mean"}
           value={cycleP50CI ? `${cycleP50CI.point.toFixed(1)}h` : avgCycleHours !== null ? `${avgCycleHours.toFixed(1)}h` : "—"}
           hint={
             cycleP50CI
               ? `± [${cycleP50CI.lower.toFixed(1)}, ${cycleP50CI.upper.toFixed(1)}] 95% CI`
-              : "median cycle hours"
+              : "mean cycle hours (n<3, CI unavailable)"
           }
           valueClassName="text-accent"
         />

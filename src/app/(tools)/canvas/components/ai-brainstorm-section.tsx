@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
+import { extractJson } from "@/lib/utils/extract-json";
 import { generateStickiesPrompt } from "@/lib/whiteboard/ai-actions";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
@@ -30,29 +31,24 @@ const AiRunPanel = dynamic(
  */
 function parseStickyArray(text: string): string[] | null {
   if (!text) return null;
-  const firstBracket = text.indexOf("[");
-  const lastBracket = text.lastIndexOf("]");
-  if (firstBracket === -1 || lastBracket <= firstBracket) return null;
-  const slice = text.slice(firstBracket, lastBracket + 1);
-  try {
-    const parsed = JSON.parse(slice);
-    if (!Array.isArray(parsed)) return null;
-    // Coerce + bound. The AI sometimes returns objects with a `text`
-    // field instead of bare strings; accept either shape.
-    const out: string[] = [];
-    for (const item of parsed) {
-      if (typeof item === "string") {
-        const s = item.trim();
-        if (s.length > 0 && s.length <= 5000) out.push(s);
-      } else if (item && typeof item === "object" && typeof (item as { text?: unknown }).text === "string") {
-        const s = (item as { text: string }).text.trim();
-        if (s.length > 0 && s.length <= 5000) out.push(s);
-      }
+  // Shared string-aware brace walker — previously `indexOf("[")` +
+  // `lastIndexOf("]")` over-extended through commentary like
+  // `[1,2,3] (note: the closing ] above is intentional)`.
+  const parsed = extractJson<unknown>(text, "[");
+  if (!Array.isArray(parsed)) return null;
+  // Coerce + bound. The AI sometimes returns objects with a `text`
+  // field instead of bare strings; accept either shape.
+  const out: string[] = [];
+  for (const item of parsed) {
+    if (typeof item === "string") {
+      const s = item.trim();
+      if (s.length > 0 && s.length <= 5000) out.push(s);
+    } else if (item && typeof item === "object" && typeof (item as { text?: unknown }).text === "string") {
+      const s = (item as { text: string }).text.trim();
+      if (s.length > 0 && s.length <= 5000) out.push(s);
     }
-    return out.length > 0 ? out : null;
-  } catch {
-    return null;
   }
+  return out.length > 0 ? out : null;
 }
 
 /**

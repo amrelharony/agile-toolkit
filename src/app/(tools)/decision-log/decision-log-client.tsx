@@ -252,7 +252,11 @@ export function DecisionLogClient() {
                     <Label className="text-xs text-sub">Date</Label>
                     <Input
                       type="date"
-                      value={editing.date.slice(0, 10)}
+                      // Defensive nullish — hand-edited localStorage
+                      // (or an older schema migration) could leave
+                      // `date` as null/undefined and `.slice` on null
+                      // would crash the editor open.
+                      value={(editing.date ?? "").slice(0, 10)}
                       onChange={(e) => updateDecision(editing.id, { date: e.target.value })}
                       className="bg-bg border-border"
                     />

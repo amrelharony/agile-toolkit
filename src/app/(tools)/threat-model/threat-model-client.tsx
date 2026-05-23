@@ -183,7 +183,12 @@ function ThreatRow({
           >
             <span
               className="w-2.5 h-2.5 rounded-full inline-block"
-              style={{ background: SEVERITY_COLOR[t.severity] }}
+              // Clamp the persisted severity into [1,5] before lookup.
+              // A hand-edited localStorage payload (or stale schema)
+              // with severity outside that range used to render an
+              // invisible dot — defaulting to severity 3 keeps the
+              // badge readable and lets the user repair from the UI.
+              style={{ background: SEVERITY_COLOR[Math.min(5, Math.max(1, Number(t.severity) || 3)) as 1|2|3|4|5] }}
               aria-hidden="true"
             />
             <span className="font-data text-sub">SEV {t.severity}</span>

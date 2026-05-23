@@ -138,9 +138,21 @@ const useCFDStore = create<CFDStore>()(
         })),
 
       renameColumn: (id, name) =>
-        set((s) => ({
-          columns: s.columns.map((c) => (c.id === id ? { ...c, name } : c)),
-        })),
+        set((s) => {
+          // Reject rename to a name that already exists on another
+          // column. Recharts uses the column name as the chart
+          // `dataKey` (cfd-client.tsx render line ~590), and two Area
+          // series sharing the same dataKey collapse to one, silently
+          // hiding the renamed column's data. The add-form rejects
+          // duplicate names; rename used to allow them.
+          const trimmed = name.trim();
+          if (trimmed.length === 0) return s;
+          const collides = s.columns.some((c) => c.id !== id && c.name === trimmed);
+          if (collides) return s;
+          return {
+            columns: s.columns.map((c) => (c.id === id ? { ...c, name: trimmed } : c)),
+          };
+        }),
 
       setColumnDescription: (id, description) =>
         set((s) => ({

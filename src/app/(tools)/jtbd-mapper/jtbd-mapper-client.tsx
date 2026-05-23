@@ -217,7 +217,14 @@ export function JtbdMapperClient() {
     [jobs]
   );
 
-  const renderRow = (job: JobStory, depth: number): React.ReactNode => {
+  const renderRow = (job: JobStory, depth: number, seen: Set<string> = new Set()): React.ReactNode => {
+    // Cycle guard: a hand-edited localStorage payload could carry a
+    // `parentJobId` cycle (A → B → A). Without this, renderRow would
+    // recurse forever and crash the tab. computeMaxDepth uses a
+    // visited set; the render path needs the same protection.
+    if (seen.has(job.id) || depth > 30) return null;
+    const nextSeen = new Set(seen);
+    nextSeen.add(job.id);
     const isEditing = editingId === job.id;
     const children = childrenByParent.get(job.id) ?? [];
     return (
@@ -285,7 +292,7 @@ export function JtbdMapperClient() {
         </div>
         {children.length > 0 && (
           <div className="pl-6 space-y-2 border-l border-border ml-2">
-            {children.map((c) => renderRow(c, depth + 1))}
+            {children.map((c) => renderRow(c, depth + 1, nextSeen))}
           </div>
         )}
       </div>

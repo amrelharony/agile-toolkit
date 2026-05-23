@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   ScatterChart,
   Scatter,
@@ -203,7 +204,12 @@ const usePrioritizerStore = create<PrioritizerStore>()(
 
       reset: () => set({ items: defaultItems }),
     }),
-    { name: "agile-toolkit:prioritizer" }
+    {
+      name: "agile-toolkit:prioritizer",
+      // Avoid Safari Private Browsing crash on hydration; same wrapping
+      // pattern as the other persisted tool stores.
+      storage: safeJSONStorage("prioritizer"),
+    }
   )
 );
 

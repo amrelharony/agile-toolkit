@@ -114,7 +114,17 @@ function buildWeeklyRiskSeries(risks: Risk[]): {
   const raisedDates = risks.map((r) => parseISODate(r.raisedAt)).filter((d): d is Date => d !== null);
   if (raisedDates.length === 0) return { raisedPerWeek: [], openAtWeek: [], weekLabels: [] };
 
-  const earliest = new Date(Math.min(...raisedDates.map((d) => d.getTime())));
+  // Use `reduce` instead of `Math.min(...spread)` — spreading a large
+  // array (>~100k items) into a call site can throw RangeError on V8
+  // ("Maximum call stack size exceeded"). Same fix already applied in
+  // impediments-client.tsx. The argument-count cap is theoretical for
+  // a normal risk register but the pattern is known-bad.
+  const earliest = new Date(
+    raisedDates.reduce(
+      (min, d) => Math.min(min, d.getTime()),
+      Infinity,
+    ),
+  );
   // Anchor on the Sunday of the earliest week (UTC).
   const dayOfWeek = earliest.getUTCDay();
   const weekStart = new Date(earliest);

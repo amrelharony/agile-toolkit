@@ -12,6 +12,7 @@ import {
 } from "@/lib/whiteboard/ai-actions";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
+import { extractJson } from "@/lib/utils/extract-json";
 
 const AiRunPanel = dynamic(
   () => import("@/components/shared/ai-run-panel"),
@@ -22,22 +23,14 @@ const AiRunPanel = dynamic(
  * Find the JSON payload inside an LLM response.
  *
  * Real-world output is wrapped in markdown fences, prefixed with
- * preambles, or contains commentary. We try the simplest signal —
- * the first `{` (object) or `[` (array) and the matching last
- * close-brace — and fall back to attempting JSON.parse on the
- * trimmed slice. Returns `null` on failure.
+ * preambles, or contains commentary. Delegates to the shared
+ * `extractJson` util in `lib/utils/extract-json.ts` which walks the
+ * text tracking JSON brace depth while respecting string literals.
+ * Returns `null` on any failure.
  */
-function extractJson<T>(text: string, wrapper: "{" | "["): T | null {
-  if (!text) return null;
-  const open = text.indexOf(wrapper);
-  const close = text.lastIndexOf(wrapper === "{" ? "}" : "]");
-  if (open === -1 || close <= open) return null;
-  try {
-    return JSON.parse(text.slice(open, close + 1)) as T;
-  } catch {
-    return null;
-  }
-}
+// Re-exported for the other ai-* sections so the brace-walking logic
+// lives in exactly one place. See lib/utils/extract-json.ts for the
+// pitfalls of the previous indexOf/lastIndexOf approach.
 
 const COMMON_LANGUAGES = [
   "Spanish",

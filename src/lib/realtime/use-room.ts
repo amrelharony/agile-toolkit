@@ -84,7 +84,15 @@ export function useRoom<T>(
   initialState: T,
   options: UseRoomOptions<T> = {}
 ): UseRoomResult<T> {
-  const validateState = options.validateState ?? ((_raw: unknown): _raw is T => true);
+  // Default validator REJECTS every incoming peer state. The previous
+  // default (`true`) was a type-guard lie: it claimed `_raw is T` without
+  // checking, so any hostile peer could broadcast arbitrary JSON shapes
+  // and crash render via `setStateInternal(body.state as T)`. Tools that
+  // want cross-peer state sync (vs presence-only) must opt in with an
+  // explicit validator. Tools that only need presence/broadcast keep
+  // working — state-sync messages from peers are dropped, presence and
+  // explicit `broadcast(event, payload)` still flow.
+  const validateState = options.validateState ?? ((_raw: unknown): _raw is T => false);
   const [state, setStateInternal] = useState<T>(initialState);
   const [members, setMembers] = useState<PresenceMember[]>([]);
   const [isConnected, setIsConnected] = useState(false);
@@ -149,12 +157,20 @@ export function useRoom<T>(
     // Register all listeners BEFORE calling subscribe so none are missed
     channel
       .on("broadcast", { event: "state-sync" }, (payload) => {
-        const body = payload.payload as { state: unknown; by: string };
+        // Null-check the payload shape before destructuring. A peer
+        // (or proxy mid-flight) sending `payload.payload = null` would
+        // throw on `body.by` and silently kill this listener for the
+        // rest of the session. Hostile-peer or sloppy-tool surface.
+        const raw = payload?.payload;
+        if (!raw || typeof raw !== "object") return;
+        const body = raw as { state?: unknown; by?: unknown };
+        if (typeof body.by !== "string") return;
         if (body.by === me.id) return;
-        // Run the optional validator so callers like the canvas tool
-        // can drop the default channel entirely (and not be exposed
-        // to setStateInternal storms from hostile peers spamming
-        // state-sync). Default validator accepts everything.
+        // Run the optional validator. Default (since the hardening
+        // change) rejects every peer state — tools that want cross-
+        // peer state sync MUST pass an explicit `validateState`. This
+        // hook still supports presence/broadcast for tools that only
+        // need those channels.
         if (!validateState(body.state)) return;
         setStateInternal(body.state);
         emitRtEvent("sync-remote");

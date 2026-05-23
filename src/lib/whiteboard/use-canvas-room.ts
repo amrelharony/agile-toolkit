@@ -366,6 +366,12 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
       // Suppress our pending requests for these ids — the answer is
       // about to come back from whichever peer responds.
       for (const id of req.ids) pendingDriftIds.delete(id);
+      // Read-only viewers must not answer drift requests. A viewer
+      // could otherwise broadcast a `whiteboard:patch` carrying
+      // version-bumped objects from devtools-tampered local state and
+      // editors would accept them via LWW. The heartbeat is already
+      // gated above; this is the other half of the same escalation.
+      if (readOnly) return;
       const requested = new Set(req.ids);
       const have = (useWorkspaceStore.getState().whiteboardObjects ?? []).filter(
         (o) => o.boardId === boardId && requested.has(o.id),
@@ -532,6 +538,17 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
   // we fire a fresh tick immediately so peers learn what we have.
   useEffect(() => {
     if (!roomId || room.isLocalOnly || !room.isConnected) return;
+    // Read-only viewers MUST NOT participate in the drift-sync protocol.
+    // The heartbeat broadcasts `{ id → version }` for every local object;
+    // peers then ASK for items where the viewer's version is newer (via
+    // `whiteboard:request`), and we answer at line 361 with a
+    // `whiteboard:patch` — neither path checks `readOnly`. A viewer who
+    // mutates their local store in devtools (bumping a version) can use
+    // that to write back to editors via LWW. Gating heartbeat + request
+    // response at the source closes the escalation entirely; the patch
+    // INGEST side is already guarded elsewhere, but a defence-in-depth
+    // editor still rejects writes from viewers.
+    if (readOnly) return;
     let stopped = false;
     const tick = () => {
       if (stopped) return;
@@ -560,7 +577,7 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, room.isLocalOnly, room.isConnected, boardId]);
+  }, [roomId, room.isLocalOnly, room.isConnected, boardId, readOnly]);
 
   return {
     isConnected: room.isConnected,

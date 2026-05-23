@@ -107,7 +107,13 @@ function round(v: number, d = 1) {
 }
 
 const BUCKETS: { label: string; min: number; max: number }[] = [
-  { label: "1 day", min: 1, max: 1 },
+  // Includes 0 in the "1 day" bucket so same-day tasks (start === end,
+  // cycle time = 0) aren't silently dropped from the histogram while
+  // still counted in the "X / Y with cycle time" stats line. Without
+  // the min:0 lower bound, a workspace where every task closes on the
+  // same day showed an empty histogram + a non-zero N — a visible
+  // contradiction.
+  { label: "&le;1 day", min: 0, max: 1 },
   { label: "2 days", min: 2, max: 2 },
   { label: "3-4 days", min: 3, max: 4 },
   { label: "5-7 days", min: 5, max: 7 },

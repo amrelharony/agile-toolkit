@@ -48,7 +48,22 @@ const storage = createJSONStorage(() => {
     };
   }
   return {
-    getItem: (key: string) => window.localStorage.getItem(key),
+    // Wrap reads + removes too — Safari Private Browsing and corporate-
+    // managed Chromes throw `SecurityError` on every localStorage access,
+    // not just setItem. An unwrapped getItem would crash hydration. Mirrors
+    // the pattern in `safe-storage.ts` / `workspace-store.ts`.
+    getItem: (key: string) => {
+      try {
+        return window.localStorage.getItem(key);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          "[history-store] localStorage.getItem blocked — starting with empty history.",
+          err,
+        );
+        return null;
+      }
+    },
     setItem: (key: string, value: string) => {
       try {
         window.localStorage.setItem(key, value);
@@ -67,10 +82,21 @@ const storage = createJSONStorage(() => {
             /* fall through */
           }
         }
-        throw err;
+        // Don't re-throw — that would crash any caller persisting state.
+        // History is best-effort: cloud retains the full record for
+        // signed-in users, so failing silently locally is acceptable.
+        // eslint-disable-next-line no-console
+        console.warn("[history-store] localStorage.setItem failed; history held in memory only.", err);
       }
     },
-    removeItem: (key: string) => window.localStorage.removeItem(key),
+    removeItem: (key: string) => {
+      try {
+        window.localStorage.removeItem(key);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("[history-store] localStorage.removeItem blocked.", err);
+      }
+    },
   };
 });
 

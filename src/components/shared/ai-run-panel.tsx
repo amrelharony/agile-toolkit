@@ -134,6 +134,14 @@ export default function AiRunPanel({
       toast.error("No AI provider configured");
       return;
     }
+    // Abort any in-flight run before starting a fresh one. Without
+    // this, double-clicking Run (or a runTrigger bumped twice while
+    // streaming) spawned two concurrent streams: both billed against
+    // the user's key, both fired `onResult` (parents see duplicates),
+    // both `setText`s interleaved into garbled output, and only the
+    // newest could be stopped. Aborting first cancels the prior
+    // adapter/SSE pump cleanly.
+    abortRef.current?.abort();
     setRunning(true);
     setError(null);
     setText("");
@@ -161,11 +169,23 @@ export default function AiRunPanel({
       if (!cfg) {
         throw new Error("Provider config disappeared");
       }
+      // Sanitize `toolName` before interpolating it into the system
+      // prompt. Several callers (ai-red-team, agentic-workflow,
+      // prompt-registry) pass user-controlled content as `toolName`
+      // — e.g. ai-red-team's attack-vector field flows directly here.
+      // Without sanitization, a vector like `Ignore prior instructions."}.
+      // New system: ...` closed the role string and injected fresh
+      // instructions into the system prompt, billed against the user's
+      // BYOK key. Stripping quotes, newlines, and CR collapses the
+      // interpolation to a single safe label.
+      const safeToolName = toolName
+        ? toolName.replace(/["\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 200)
+        : undefined;
       const result = await adapter.call(
         {
           prompt,
-          system: toolName
-            ? `You are an expert Agile coach reviewing data from the "${toolName}" tool. Be specific and cite values.`
+          system: safeToolName
+            ? `You are an expert Agile coach reviewing data from the "${safeToolName}" tool. Be specific and cite values.`
             : undefined,
           signal: controller.signal,
           onChunk: (chunk) => {
@@ -201,11 +221,17 @@ export default function AiRunPanel({
       // loop). Wrapped in try/catch so a workspace-store write failure
       // (quota / SecurityError) doesn't bubble into the run path.
       try {
-        const actualCost = estimateCostUsd(
-          providerId,
-          modelId,
-          result.inputTokens,
-          result.outputTokens
+        // Some adapters return -1 for tokens when the final SSE event
+        // lacks a usage payload (Gemini and OpenAI in certain stream
+        // shapes). Persisting -1 would yield a NEGATIVE cost row and
+        // silently understate the 30-day rollup in token-cost-tracker.
+        // Clamp to 0 so the spend row reads honestly: "unknown tokens,
+        // $0 estimated" rather than "phantom credit applied".
+        const inputTokens = Math.max(0, result.inputTokens);
+        const outputTokens = Math.max(0, result.outputTokens);
+        const actualCost = Math.max(
+          0,
+          estimateCostUsd(providerId, modelId, inputTokens, outputTokens),
         );
         const feature = toolName?.trim()
           ? `BYOK: ${toolName.trim()}`
@@ -217,8 +243,8 @@ export default function AiRunPanel({
           // etc.) so future analytics line up against MODELS_BY_PROVIDER.
           model: modelId,
           date: todayLocalISO(),
-          inputTokens: result.inputTokens,
-          outputTokens: result.outputTokens,
+          inputTokens,
+          outputTokens,
           costUsd: actualCost,
         });
       } catch {

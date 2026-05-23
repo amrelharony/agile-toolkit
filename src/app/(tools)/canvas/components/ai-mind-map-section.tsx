@@ -6,6 +6,7 @@ import { Network, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
 import { generateMindMapPrompt } from "@/lib/whiteboard/ai-actions";
+import { extractJson } from "@/lib/utils/extract-json";
 
 const AiRunPanel = dynamic(
   () => import("@/components/shared/ai-run-panel"),
@@ -34,15 +35,12 @@ export interface MindMapTreeNode {
  */
 function parseMindMapTree(text: string): MindMapTreeNode | null {
   if (!text) return null;
-  const open = text.indexOf("{");
-  const close = text.lastIndexOf("}");
-  if (open === -1 || close <= open) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text.slice(open, close + 1));
-  } catch {
-    return null;
-  }
+  // Use the shared string-aware brace walker. The previous
+  // indexOf/lastIndexOf approach over-extended the slice through
+  // model commentary that contained a stray `}`, and failed on
+  // mind-map labels with literal `{` characters.
+  const parsed = extractJson<unknown>(text, "{");
+  if (!parsed) return null;
   // Recursive validate-and-clean. Depth-limited so a hostile or
   // pathological response can't blow the stack.
   const MAX_DEPTH = 8;
