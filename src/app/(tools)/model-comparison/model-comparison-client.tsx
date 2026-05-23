@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useShallow } from "zustand/react/shallow";
 import { Cpu, Plus, Trash2, Beaker, Sparkles } from "lucide-react";
@@ -75,12 +75,13 @@ export function ModelComparisonClient() {
     () => new Set(configuredProviders.map((p) => p.id))
   );
   // Re-sync the selection if a provider was just configured/removed in
-  // settings while this page is open. We only flip a provider's state
-  // when it appears or disappears — existing selections are preserved.
-  const prevConfiguredKey = useRef<string>("");
+  // settings while this page is open. The prior implementation ran the
+  // setState inside the render body, gated by a useRef sentinel — that
+  // works, but it forces an extra render pass and React warns about
+  // setState-during-render. Moved into useEffect keyed on the comma-
+  // joined provider list; semantics unchanged.
   const configuredKey = configuredProviders.map((p) => p.id).join(",");
-  if (prevConfiguredKey.current !== configuredKey) {
-    prevConfiguredKey.current = configuredKey;
+  useEffect(() => {
     setSelectedProviders((prev) => {
       const next = new Set(prev);
       // Drop selections for providers that no longer have a key. We iterate
@@ -95,7 +96,8 @@ export function ModelComparisonClient() {
       });
       return next;
     });
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configuredKey]);
 
   const [livePrompt, setLivePrompt] = useState("");
   // Monotonic counter incremented on "Run all". Each AiRunPanel watches this

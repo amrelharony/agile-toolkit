@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "../stores/workspace-store";
 import { useHistoryStore } from "../history/history-store";
@@ -41,7 +41,29 @@ export function usePredictedDefault<T>(toolId: string, field: string, fallback: 
   );
   const events = useHistoryStore((s) => s.events);
 
+  // Gate against hydration. Before the Zustand persist middleware finishes
+  // rehydrating from localStorage, `workspace` reflects emptyWorkspace —
+  // a predictor sampling that "data" would return useless values (e.g.
+  // "0 stories observed → suggest velocity 0"). The user then sees the
+  // bogus suggestion as the prefilled default for one render before it
+  // jumps once hydration completes. Wait for it.
+  const [hydrated, setHydrated] = useState<boolean>(
+    () => useWorkspaceStore.persist.hasHydrated()
+  );
+  useEffect(() => {
+    if (hydrated) return;
+    if (useWorkspaceStore.persist.hasHydrated()) {
+      setHydrated(true);
+      return;
+    }
+    const unsub = useWorkspaceStore.persist.onFinishHydration(() => {
+      setHydrated(true);
+    });
+    return unsub;
+  }, [hydrated]);
+
   return useMemo(() => {
+    if (!hydrated) return { value: fallback, confidence: "none" as const };
     const fn = lookupPredictor(toolId, field);
     if (!fn) return { value: fallback, confidence: "none" as const };
     try {
@@ -50,5 +72,5 @@ export function usePredictedDefault<T>(toolId: string, field: string, fallback: 
       // A bad predictor must never crash a tool.
       return { value: fallback, confidence: "none" as const };
     }
-  }, [toolId, field, workspace, events, fallback]);
+  }, [toolId, field, workspace, events, fallback, hydrated]);
 }

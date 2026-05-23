@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useShallow } from "zustand/react/shallow";
 import { Bot, Plus, Trash2, Beaker, Sparkles } from "lucide-react";
@@ -84,20 +84,21 @@ export function RlhfLogClient() {
   }, [configured]);
   const [pickA, setPickA] = useState<PairPick | null>(initialPicks.a);
   const [pickB, setPickB] = useState<PairPick | null>(initialPicks.b);
-  // Re-default if the configured set changes (e.g. user removed a key). The
-  // initialPicks memo gives us the right values; only patch state when the
-  // previous picks point at providers no longer in the configured set.
-  const prevConfiguredKey = useRef<string>("");
+  // Re-default when the configured set changes. The prior implementation
+  // ran setState calls inside the render body guarded by a useRef sentinel
+  // — React tolerates this for "derived state" but it forces an extra
+  // render pass and any logic upstream that depends on referential
+  // stability of state ends up seeing two values in one tick. Moved into
+  // a useEffect keyed on the comma-joined provider list; the seed and the
+  // drop-stale paths both run there.
   const configuredKey = configured.map((p) => p.id).join(",");
-  if (prevConfiguredKey.current !== configuredKey) {
-    prevConfiguredKey.current = configuredKey;
-    // Drop stale picks pointing at providers the user just removed.
+  useEffect(() => {
     if (pickA && !configured.some((p) => p.id === pickA.provider)) setPickA(initialPicks.a);
     if (pickB && !configured.some((p) => p.id === pickB.provider)) setPickB(initialPicks.b);
-    // Seed on first configuration too.
     if (!pickA && initialPicks.a) setPickA(initialPicks.a);
     if (!pickB && initialPicks.b) setPickB(initialPicks.b);
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configuredKey]);
   const [pairPrompt, setPairPrompt] = useState("");
   // Monotonic counter — bumping it fires both panels in lockstep via
   // AiRunPanel's runTrigger prop.
