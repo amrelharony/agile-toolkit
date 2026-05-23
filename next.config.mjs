@@ -7,6 +7,9 @@
  *   - same-origin everything by default
  *   - inline scripts allowed (Next.js needs this for hydration boot)
  *   - Supabase project URLs for fetch + websocket (auth + realtime)
+ *   - GLM (Zhipu) chat API for the in-app agent — server-proxied, but
+ *     the browser-direct BYOK fallback in agent/client.ts hits z.ai
+ *     directly when ANTHROPIC_API_KEY is unset server-side
  *   - Google fonts (Inter, JetBrains Mono, Source Serif)
  *   - data: + blob: for images/exports
  *
@@ -20,12 +23,13 @@ const cspDirectives = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   "img-src 'self' data: blob: https://*.googleusercontent.com https://avatars.githubusercontent.com",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://accounts.google.com",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://accounts.google.com https://api.z.ai https://open.bigmodel.cn https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com",
   "frame-src 'self' https://accounts.google.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self' https://accounts.google.com",
   "object-src 'none'",
+  "upgrade-insecure-requests",
 ].join("; ");
 
 const securityHeaders = [
@@ -34,6 +38,14 @@ const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  // HSTS: 2 years, include subdomains, preload-eligible. Vercel terminates
+  // TLS so HTTPS is the only entry point in production.
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+  // Cross-origin isolation: same-origin for opener (prevents window.opener
+  // hijack from popups) and same-origin for embedder (blocks third-party
+  // documents from embedding our pages in a way they can read).
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
 ];
 
 const nextConfig = {
