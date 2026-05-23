@@ -2,6 +2,21 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { destroyEngine, getEngine } from "./engine";
+
+/**
+ * Module-scoped mount counter. The Provider is mounted once at app shell
+ * level, but React 18 StrictMode in dev double-invokes mount/unmount
+ * synchronously and HMR re-imports the module without unmounting the
+ * tree. A naive `destroyEngine()` in the unmount cleanup tore down the
+ * AudioContext mid-cycle; the remount immediately rebuilt it, but the
+ * user's autoplay-unlock gesture had only fired on the FIRST mount —
+ * sound silently stopped working until the next click anywhere.
+ *
+ * The counter pattern: increment on mount, decrement on unmount, and
+ * destroy on a microtask boundary only if the count is still zero. The
+ * StrictMode unmount/remount cycle nets to zero change.
+ */
+let providerMountCount = 0;
 import { useMousePan } from "./use-mouse-pan";
 import { useScrollFilter } from "./use-scroll-filter";
 import { SonificationEventRouter } from "./event-router";
@@ -95,10 +110,18 @@ export function SonificationProvider({ children }: { children: React.ReactNode }
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [gated]);
 
-  // Tear down on unmount (e.g., HMR) so old contexts don't accumulate.
+  // Reference-count provider mounts; destroy only when the last one
+  // unmounts and stays unmounted past the microtask boundary. See the
+  // `providerMountCount` doc comment.
   useEffect(() => {
+    providerMountCount += 1;
     return () => {
-      destroyEngine();
+      providerMountCount -= 1;
+      // Defer one tick so StrictMode's synchronous unmount/remount nets
+      // to zero by the time we check.
+      setTimeout(() => {
+        if (providerMountCount === 0) destroyEngine();
+      }, 0);
     };
   }, []);
 
