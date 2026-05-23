@@ -9,6 +9,9 @@ import type { Rect } from "@/lib/geometry/bbox";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { wbId } from "@/lib/whiteboard/clipboard";
 import { STICKY_DEFAULT } from "../constants";
+import { layoutMindMap, MIND_MAP_NODE_DEFAULT } from "@/lib/whiteboard/mind-map-layout";
+import type { WhiteboardMindMapNode } from "@/lib/stores/workspace-types";
+import type { MindMapTreeNode } from "./ai-mind-map-section";
 import { useCanvasUndoStack } from "../use-undo-stack";
 import { useCanvasStore } from "../use-canvas-store";
 import { Marquee } from "./marquee";
@@ -45,6 +48,7 @@ import { useCanvasImports } from "../hooks/use-canvas-imports";
 import { useAddObjectAt } from "../hooks/use-add-object-at";
 import { useCanvasPointerMachine } from "../hooks/use-canvas-pointer-machine";
 import { useObjectInteractions } from "../hooks/use-object-interactions";
+import { useMindMapStructural } from "../hooks/use-mind-map-structural";
 
 interface WhiteboardCanvasProps {
   boardId: string;
@@ -515,7 +519,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   const onApplyTextUpdates = useCallback(
     (updates: Record<string, string>) => {
       if (readOnly) return;
-      const fieldByType: Record<string, "content" | "label" | "title" | "question"> = {
+      const fieldByType: Record<string, "content" | "label" | "title" | "question" | "text"> = {
         sticky: "content",
         text: "content",
         rect: "content",
@@ -527,6 +531,8 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
         timer: "label",
         card: "title",
         voting: "question",
+        mindMapNode: "text",
+        diagramShape: "label",
       };
       const now = new Date().toISOString();
       const patched: WhiteboardObject[] = [];
@@ -607,6 +613,69 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   );
 
   /**
+   * AI mind-map landing: walk the tree, build a flat list of
+   * mindMapNode objects with parent/child via DFS, then run the
+   * standard right-radiating layout to position everything.
+   *
+   * Drops at viewport centre. All nodes share a single mindMapId so
+   * the layout treats them as one map and edges render between them.
+   */
+  const onApplyMindMapTree = useCallback(
+    (root: MindMapTreeNode) => {
+      if (readOnly) return;
+      const now = new Date().toISOString();
+      const zBase = (topZRef.current ?? 0) + 1;
+      // Root id doubles as the mindMapId so the whole tree shares
+      // a single identifier from creation onward.
+      const rootId = wbId("wb");
+      const created: WhiteboardMindMapNode[] = [];
+      const dfs = (n: MindMapTreeNode, parentId: string | undefined): string => {
+        const id = parentId === undefined ? rootId : wbId("wb");
+        const node: WhiteboardMindMapNode = {
+          id,
+          boardId,
+          type: "mindMapNode",
+          // Temp position — layout overwrites x/y for every node
+          // below. We seed with viewport centre so the layout sees a
+          // sensible starting point for the root.
+          x: 0,
+          y: 0,
+          w: MIND_MAP_NODE_DEFAULT.w,
+          h: MIND_MAP_NODE_DEFAULT.h,
+          z: zBase + created.length,
+          version: 1,
+          createdAt: now,
+          updatedAt: now,
+          text: n.label,
+          parentNodeId: parentId,
+          mindMapId: rootId,
+        };
+        created.push(node);
+        for (const child of n.children) dfs(child, id);
+        return id;
+      };
+      dfs(root, undefined);
+      if (created.length === 0) return;
+      // Anchor the root at the viewport centre so the user lands on
+      // it without having to pan.
+      const viewW = size.w / Math.max(0.001, camera.zoom);
+      const viewH = size.h / Math.max(0.001, camera.zoom);
+      const centreX = camera.x + viewW / 2 - MIND_MAP_NODE_DEFAULT.w / 2;
+      const centreY = camera.y + viewH / 2 - MIND_MAP_NODE_DEFAULT.h / 2;
+      const positions = layoutMindMap(created, { x: centreX, y: centreY });
+      const positioned: WhiteboardMindMapNode[] = created.map((n) => {
+        const p = positions.get(n.id);
+        return p ? { ...n, x: p.x, y: p.y } : n;
+      });
+      pushSnapshot();
+      upsertMany(positioned);
+      setSelection([rootId]);
+      logActivity("added", `AI-generated mind map with ${positioned.length} nodes`);
+    },
+    [readOnly, topZRef, boardId, size.w, size.h, camera.x, camera.y, camera.zoom, pushSnapshot, upsertMany, setSelection, logActivity],
+  );
+
+  /**
    * AI cluster summarization landing: drop a single summary sticky at
    * the cluster's bbox centre. Sized larger than a regular sticky
    * (1.25×) and tinted by the active sticky colour so it reads as the
@@ -645,8 +714,9 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
     [readOnly, topZRef, boardId, stickyColor, pushSnapshot, upsertMany, setSelection, logActivity],
   );
 
+  const pickedDiagramShape = useCanvasStore((s) => s.pickedDiagramShape);
   const addObjectAt = useAddObjectAt({
-    boardId, stickyColor, tool, topZRef,
+    boardId, stickyColor, tool, topZRef, pickedDiagramShape,
     upsert, setTool, setSelection, setEditingObjectId, logActivity,
   });
 
@@ -738,6 +808,21 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
     viewportRef, dragSnapIndexRef, topZRef,
     clientToWorld,
     pushSnapshot, log, logActivity,
+    readOnly,
+  });
+
+  // Mind-map Tab/Enter/Shift+Tab routing — wired through every
+  // mind-map node's inline editor. Owns layout + selection +
+  // edit-mode transitions for the new child/sibling.
+  const onMindMapStructural = useMindMapStructural({
+    boardId,
+    objects,
+    objectsById,
+    upsertMany,
+    setSelection,
+    setEditingObjectId,
+    pushSnapshot,
+    topZRef,
     readOnly,
   });
 
@@ -896,6 +981,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
         onObjectDoubleClick={onObjectDoubleClick}
         onCommitObjectEdit={onCommitObjectEdit}
         onObjectMutate={onObjectMutate}
+        onMindMapStructural={onMindMapStructural}
       />
 
       {/* Selection outline + resize handles — drawn in screen space so
@@ -1046,6 +1132,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
         onApplyClusterSummary={onApplyClusterSummary}
         onApplyTextUpdates={onApplyTextUpdates}
         onApplyActionItems={onApplyActionItems}
+        onApplyMindMapTree={onApplyMindMapTree}
         activeCommentThread={activeCommentThread}
         setActiveCommentThreadId={setActiveCommentThreadId}
         cardDetailId={cardDetailId}

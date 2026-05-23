@@ -36,7 +36,9 @@ export type CanvasTool =
   | "timer"
   | "voting"
   | "kanban"
-  | "table";
+  | "table"
+  | "mindMap"
+  | "diagramShape";
 
 /** 8 resize handles + 1 rotation handle (rotation comes in a later PR). */
 export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
@@ -141,6 +143,11 @@ interface CanvasUiState {
    * `tags` field doesn't intersect this set. Ephemeral; never persisted
    * (a filter that survives reload would be a UX trap). Phase 26. */
   tagFilter: string[];
+  /** When the user picks a diagram shape from the diagram-shape
+   * palette, this carries the chosen kind so the next click-create
+   * lands the right shape. Persisted so the picker remembers the
+   * last selection across sessions. */
+  pickedDiagramShape: string;
 
   setActiveBoard: (id: string | null) => void;
   setCamera: (c: Camera) => void;
@@ -168,6 +175,7 @@ interface CanvasUiState {
   setPresentationFrameIndex: (i: number | null) => void;
   setTagFilter: (tags: string[]) => void;
   toggleTagFilter: (tag: string) => void;
+  setPickedDiagramShape: (kind: string) => void;
 }
 
 export const useCanvasStore = create<CanvasUiState>()(
@@ -195,6 +203,7 @@ export const useCanvasStore = create<CanvasUiState>()(
       frameBookmarks: {},
       presentationFrameIndex: null,
       tagFilter: [],
+      pickedDiagramShape: "database",
 
       setActiveBoard: (id) => set({ activeBoardId: id, selection: [] }),
       setCamera: (c) => set({ camera: c }),
@@ -239,6 +248,7 @@ export const useCanvasStore = create<CanvasUiState>()(
           ? (state.tagFilter ?? []).filter((t) => t !== tag)
           : [...(state.tagFilter ?? []), tag],
       })),
+      setPickedDiagramShape: (kind) => set({ pickedDiagramShape: kind }),
     }),
     {
       name: "agile-toolkit:canvas",
@@ -300,6 +310,7 @@ export const useCanvasStore = create<CanvasUiState>()(
         snapToGrid: s.snapToGrid,
         snapToObjects: s.snapToObjects,
         frameBookmarks: s.frameBookmarks,
+        pickedDiagramShape: s.pickedDiagramShape,
       }),
     },
   ),

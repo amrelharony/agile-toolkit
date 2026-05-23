@@ -114,6 +114,39 @@ function PresentationModeImpl({ frames, index, onPrev, onNext, onExit }: Present
         background: "radial-gradient(circle at center, transparent 40%, rgba(0,0,0,0.55) 100%)",
       }}
     >
+      {/* Presenter notes pane — only renders when the current slide
+          has notes set. Positioned bottom-left so it sits beside (not
+          over) the control bar. pointerEvents:auto so the notes can
+          scroll if they're long. */}
+      {cur.presenterNotes && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: 70,
+            left: 16,
+            maxWidth: 360,
+            maxHeight: 200,
+            overflow: "auto",
+            background: "rgba(11,15,23,0.95)",
+            border: "1px solid #475569",
+            borderRadius: 8,
+            padding: "10px 12px",
+            pointerEvents: "auto",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+            fontFamily: "ui-sans-serif, system-ui, sans-serif",
+            fontSize: 12,
+            color: "#e5e7eb",
+            lineHeight: 1.45,
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          <div style={{ fontSize: 9, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4, fontFamily: "ui-monospace, monospace" }}>
+            Speaker notes
+          </div>
+          {cur.presenterNotes}
+        </div>
+      )}
+
       {/* Control bar at the bottom-centre */}
       <div
         style={{

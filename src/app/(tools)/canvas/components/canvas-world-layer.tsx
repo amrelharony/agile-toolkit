@@ -1,10 +1,11 @@
 "use client";
 
-import { type CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import type { Camera, Rect } from "@/lib/geometry/bbox";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import { ConnectorLayer } from "./connector-layer";
 import { ObjectRenderer } from "./object-renderer";
+import { MindMapEdges } from "./mind-map-edges";
 
 // Module-scope dimmed-wrapper style for tag-filter dimming. Hoisted
 // out of the render path so a 1000-object board doesn't allocate
@@ -54,13 +55,14 @@ export function CanvasWorldLayer(props: {
   onObjectDoubleClick: (id: string) => void;
   onCommitObjectEdit: (id: string, text: string) => void;
   onObjectMutate: (id: string, patch: Partial<WhiteboardObject>) => void;
+  onMindMapStructural?: (id: string, action: "child" | "sibling" | "promote", committedText: string) => void;
 }) {
   const {
     camera, objects, visibleObjects, selection, selectionSet,
     pendingConnectorFromId, previewCursor, viewportWorld,
     drawing, editingObjectId, tagFilter, tagFilterSet, selfId,
     onConnectorPointerDown, onObjectPointerDown, onObjectDoubleClick,
-    onCommitObjectEdit, onObjectMutate,
+    onCommitObjectEdit, onObjectMutate, onMindMapStructural,
   } = props;
 
   // Whether the currently-edited object is a connector. ConnectorLayer
@@ -71,6 +73,20 @@ export function CanvasWorldLayer(props: {
     && objects.find((o) => o.id === editingObjectId)?.type === "connector"
     ? editingObjectId
     : null;
+
+  // Precompute "which mind-map nodes have at least one child" so
+  // ObjectRenderer doesn't walk the object list per render to decide
+  // whether to show the collapse toggle. Rebuilt only when the
+  // objects array identity changes (Zustand swaps the ref on every
+  // mutation), which is roughly the same cadence as a layout
+  // re-render anyway.
+  const mindMapHasChildrenSet = useMemo(() => {
+    const out = new Set<string>();
+    for (const o of objects) {
+      if (o.type === "mindMapNode" && o.parentNodeId) out.add(o.parentNodeId);
+    }
+    return out;
+  }, [objects]);
 
   return (
     <div
@@ -86,6 +102,9 @@ export function CanvasWorldLayer(props: {
       }}
     >
       <div style={{ position: "absolute", inset: 0, pointerEvents: "auto" }}>
+        {/* Mind-map edges render behind objects + connectors so the
+            cubic Béziers sit visually beneath the node bubbles. */}
+        <MindMapEdges objects={objects} />
         <ConnectorLayer
           objects={objects}
           selectedIds={selection}
@@ -119,6 +138,8 @@ export function CanvasWorldLayer(props: {
                 onDoubleClick={onObjectDoubleClick}
                 onCommitEdit={onCommitObjectEdit}
                 onMutate={onObjectMutate}
+                onMindMapStructural={onMindMapStructural}
+                mindMapHasChildrenSet={mindMapHasChildrenSet}
                 selfId={selfId}
               />
             );
@@ -137,6 +158,8 @@ export function CanvasWorldLayer(props: {
                 onDoubleClick={onObjectDoubleClick}
                 onCommitEdit={onCommitObjectEdit}
                 onMutate={onObjectMutate}
+                onMindMapStructural={onMindMapStructural}
+                mindMapHasChildrenSet={mindMapHasChildrenSet}
                 selfId={selfId}
               />
             </div>

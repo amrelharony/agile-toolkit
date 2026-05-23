@@ -383,7 +383,9 @@ export type WhiteboardObjectKind =
   | "kanban"
   | "timer"
   | "voting"
-  | "table";
+  | "table"
+  | "mindMapNode"
+  | "diagramShape";
 
 export interface WhiteboardObjectBase {
   id: string;
@@ -492,6 +494,10 @@ export interface WhiteboardFrame extends WhiteboardObjectBase {
   type: "frame";
   label: string;
   fill?: string;
+  /** Optional speaker notes shown inside PresentationMode when this
+   * frame is the active slide. Plain text; multi-line. The frame
+   * itself stays unchanged — notes are presenter-only. */
+  presenterNotes?: string;
 }
 
 export interface WhiteboardEmbed extends WhiteboardObjectBase {
@@ -575,6 +581,63 @@ export interface WhiteboardTable extends WhiteboardObjectBase {
   borderColor?: string;
 }
 
+/**
+ * Mind map node — a single bubble in a tree-structured map.
+ *
+ * Nodes are linked into a tree by `parentNodeId` (undefined for the
+ * root) and grouped by `mindMapId` so the auto-layout knows which
+ * nodes belong together. Each node is its own WhiteboardObject so
+ * standard selection / drag / undo all work; the auto-layout sits
+ * on top, repositioning every node in a mind map whenever any
+ * node's children change.
+ *
+ * Edges (parent → child curves) are NOT stored — they're rendered
+ * procedurally by `<MindMapEdges>` from the parent/child relationship.
+ * That way deleting a parent automatically deletes the visual edges
+ * and there's no edge-state to keep in sync.
+ *
+ * `collapsed: true` hides every descendant node (and their edges)
+ * without deleting them; the renderer skips drawing collapsed
+ * subtrees, and the layout skips computing them.
+ */
+export interface WhiteboardMindMapNode extends WhiteboardObjectBase {
+  type: "mindMapNode";
+  text: string;
+  /** Undefined for the root node of a mind map. */
+  parentNodeId?: string;
+  /** Ties every node in the same mind map together for layout. */
+  mindMapId: string;
+  /** When true, hide descendants. */
+  collapsed?: boolean;
+  /** Optional accent colour for the node border + edge stroke.
+   * Defaults to the canvas accent. */
+  color?: string;
+}
+
+/**
+ * Named diagram shape — a styled box with an icon + label slot,
+ * meant for visually-distinctive diagram nodes (database, server,
+ * cloud, decision-gateway, etc.) that the generic rect/ellipse
+ * primitives can't capture.
+ *
+ * `kind` identifies which icon + visual treatment to apply. The
+ * library is small (8 kinds) but covers the common architecture-
+ * diagram vocabulary. Extending it later is a 1-line registry
+ * addition.
+ *
+ * `label` is the user-editable text shown beside / under the icon.
+ * Inline edit reuses the same textarea pattern as sticky/shape edit.
+ */
+export interface WhiteboardDiagramShape extends WhiteboardObjectBase {
+  type: "diagramShape";
+  /** Which named diagram shape this is. See DIAGRAM_SHAPE_KINDS in
+   * the renderer for the canonical list. */
+  kind: string;
+  label: string;
+  fill?: string;
+  stroke?: string;
+}
+
 /** Phase 27 — voting/estimation widget. */
 export interface WhiteboardVoting extends WhiteboardObjectBase {
   type: "voting";
@@ -604,7 +667,9 @@ export type WhiteboardObject =
   | WhiteboardKanbanFrame
   | WhiteboardTimer
   | WhiteboardVoting
-  | WhiteboardTable;
+  | WhiteboardTable
+  | WhiteboardMindMapNode
+  | WhiteboardDiagramShape;
 
 export interface Whiteboard {
   id: string;

@@ -238,7 +238,11 @@ export function useObjectInteractions(params: {
         // Connectors: double-click anywhere on the path opens label edit.
         // Frame/kanban/timer/card already have their own edit paths
         // (label tab / detail modal) so they're handled elsewhere.
-        || obj.type === "connector";
+        || obj.type === "connector"
+        // Mind-map nodes: double-click opens the node's text editor.
+        || obj.type === "mindMapNode"
+        // Diagram shapes: double-click edits the label.
+        || obj.type === "diagramShape";
       if (!editable) return;
       if (obj.locked) return;
       // Bail out of any pre-edit gestures so the textarea isn't
@@ -269,7 +273,7 @@ export function useObjectInteractions(params: {
       // `title`; voting uses `question`. Previously this always wrote
       // to `content`, producing a phantom `content: text` field on
       // frame edits that never rendered anywhere.
-      const fieldByType: Record<string, "content" | "label" | "title" | "question"> = {
+      const fieldByType: Record<string, "content" | "label" | "title" | "question" | "text"> = {
         sticky: "content",
         text: "content",
         rect: "content",
@@ -282,6 +286,8 @@ export function useObjectInteractions(params: {
         card: "title",
         voting: "question",
         connector: "label",
+        mindMapNode: "text",
+        diagramShape: "label",
       };
       const field = fieldByType[obj.type] ?? "content";
       const rec = obj as unknown as Record<string, unknown>;

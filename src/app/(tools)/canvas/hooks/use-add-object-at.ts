@@ -5,6 +5,8 @@ import { wbId } from "@/lib/whiteboard/clipboard";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import type { CanvasTool } from "../use-canvas-store";
 import { STICKY_DEFAULT, SHAPE_DEFAULT, TEXT_DEFAULT } from "../constants";
+import { MIND_MAP_NODE_DEFAULT } from "@/lib/whiteboard/mind-map-layout";
+import { DIAGRAM_SHAPE_DEFAULT, DIAGRAM_SHAPE_KINDS } from "../components/objects/diagram-shape";
 
 /**
  * Click-to-create factory: spawns a tool-appropriate object at the
@@ -30,6 +32,7 @@ export function useAddObjectAt(params: {
   stickyColor: string;
   tool: CanvasTool;
   topZRef: RefObject<number>;
+  pickedDiagramShape: string;
   upsert: (obj: WhiteboardObject) => void;
   setTool: (t: CanvasTool) => void;
   setSelection: (ids: string[]) => void;
@@ -37,7 +40,7 @@ export function useAddObjectAt(params: {
   logActivity: (kind: string, summary: string) => void;
 }) {
   const {
-    boardId, stickyColor, tool, topZRef,
+    boardId, stickyColor, tool, topZRef, pickedDiagramShape,
     upsert, setTool, setSelection, setEditingObjectId, logActivity,
   } = params;
 
@@ -150,6 +153,39 @@ export function useAddObjectAt(params: {
             headerRow: true,
           };
           break;
+        case "diagramShape": {
+          // Use whatever kind the user picked in the diagram-shape
+          // palette. Fall back to "database" if the picker hasn't
+          // run yet (first-time tool selection).
+          const kind = DIAGRAM_SHAPE_KINDS[pickedDiagramShape] ? pickedDiagramShape : "database";
+          obj = {
+            ...base, type: "diagramShape",
+            x: worldX - DIAGRAM_SHAPE_DEFAULT.w / 2,
+            y: worldY - DIAGRAM_SHAPE_DEFAULT.h / 2,
+            w: DIAGRAM_SHAPE_DEFAULT.w,
+            h: DIAGRAM_SHAPE_DEFAULT.h,
+            kind,
+            label: "",
+          };
+          break;
+        }
+        case "mindMap": {
+          // Creates JUST a root node — Tab/Enter from the keyboard
+          // hook adds descendants. The mindMapId groups the tree
+          // for layout; using the root's id keeps the value stable
+          // even if the user later reparents.
+          const mindMapId = id;
+          obj = {
+            ...base, type: "mindMapNode",
+            x: worldX - MIND_MAP_NODE_DEFAULT.w / 2,
+            y: worldY - MIND_MAP_NODE_DEFAULT.h / 2,
+            w: MIND_MAP_NODE_DEFAULT.w,
+            h: MIND_MAP_NODE_DEFAULT.h,
+            text: "",
+            mindMapId,
+          };
+          break;
+        }
         default:
           break;
       }
@@ -160,7 +196,7 @@ export function useAddObjectAt(params: {
         setTool("select");
         // Auto-enter edit mode for text-bearing objects so the user
         // can type immediately after creation (Miro/Figma convention).
-        if (obj.type === "sticky" || obj.type === "text" || obj.type === "card") {
+        if (obj.type === "sticky" || obj.type === "text" || obj.type === "card" || obj.type === "mindMapNode") {
           setSelection([obj.id]);
           setEditingObjectId(obj.id);
         }
@@ -169,6 +205,6 @@ export function useAddObjectAt(params: {
     // `topZRef` is identity-stable; reading `.current` doesn't need it
     // in deps but include it so react-hooks/exhaustive-deps doesn't
     // grumble about the destructured-ref access.
-    [boardId, stickyColor, tool, upsert, setTool, setSelection, setEditingObjectId, logActivity, topZRef],
+    [boardId, stickyColor, tool, upsert, setTool, setSelection, setEditingObjectId, logActivity, topZRef, pickedDiagramShape],
   );
 }

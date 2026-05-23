@@ -137,6 +137,10 @@ export function objectText(o: WhiteboardObject): string | null {
       return o.label ? `[Timer: ${o.label}]` : `[Timer: ${Math.round(o.durationSec)}s]`;
     case "voting":
       return o.question || "[Vote]";
+    case "mindMapNode":
+      return o.text || "[Mind-map node]";
+    case "diagramShape":
+      return o.label ? `[${o.kind}: ${o.label}]` : `[${o.kind}]`;
     case "table": {
       // Flatten the grid into one line per row, pipe-separated.
       // Trim trailing empty rows/cells so a half-filled table

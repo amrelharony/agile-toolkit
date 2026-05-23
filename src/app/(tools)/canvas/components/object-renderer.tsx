@@ -1,13 +1,15 @@
 "use client";
 
-import React, { memo, useEffect, useRef } from "react";
-import { Lock } from "lucide-react";
+import React, { memo, useEffect, useRef, useState } from "react";
+import { Lock, StickyNote } from "lucide-react";
 import type { WhiteboardObject, WhiteboardTimer, WhiteboardVoting, WhiteboardCard } from "@/lib/stores/workspace-types";
 import { TimerObject } from "./objects/timer-object";
 import { VotingObject } from "./objects/voting-object";
 import { CardObject } from "./objects/card-object";
 import { TableObject } from "./objects/table-object";
-import type { WhiteboardTable } from "@/lib/stores/workspace-types";
+import type { WhiteboardTable, WhiteboardMindMapNode, WhiteboardDiagramShape } from "@/lib/stores/workspace-types";
+import { MindMapNode } from "./objects/mind-map-node";
+import { DiagramShape } from "./objects/diagram-shape";
 import { TiptapInlineEditor } from "./tiptap-inline-editor";
 import { sanitizeRichHtml, isRichHtmlEmpty } from "@/lib/utils/safe-html";
 
@@ -76,6 +78,14 @@ interface ObjectRendererProps {
   /** Current user id — passed to voting widget so it knows which
    * vote belongs to "me". */
   selfId?: string;
+  /** Mind-map structural action from inside the node editor. Only
+   * wired for `mindMapNode` objects; other types ignore. */
+  onMindMapStructural?: (id: string, action: "child" | "sibling" | "promote", committedText: string) => void;
+  /** Set of mind-map node ids that have at least one child. Used to
+   * decide whether the collapse/expand toggle renders. Precomputed
+   * upstream so ObjectRenderer doesn't walk the whole object list
+   * per node. */
+  mindMapHasChildrenSet?: ReadonlySet<string>;
 }
 
 /**
@@ -356,7 +366,7 @@ function LockBadge({ z }: { z: number }) {
  * so future tweaks land cleanly. Memoised so a 100-object board doesn't
  * re-render every object on every camera tick.
  */
-function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDoubleClick, onCommitEdit, onMutate, selfId }: ObjectRendererProps) {
+function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDoubleClick, onCommitEdit, onMutate, selfId, onMindMapStructural, mindMapHasChildrenSet }: ObjectRendererProps) {
   const handle = (e: React.PointerEvent) => onPointerDown?.(e, o.id);
   const dblClick = () => onDoubleClick?.(o.id);
   const commitEdit = (text: string) => onCommitEdit?.(o.id, text);
@@ -681,6 +691,12 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
             )}
           </div>
           {o.locked && !editing && <LockBadge z={o.z} />}
+          {selected && !editing && onMutate && (
+            <FramePresenterNotesAffordance
+              notes={o.presenterNotes ?? ""}
+              onCommit={(text) => onMutate(o.id, { presenterNotes: text } as Partial<WhiteboardObject>)}
+            />
+          )}
         </div>
       );
 
@@ -945,6 +961,40 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
         />
       );
 
+    case "diagramShape":
+      return (
+        <DiagramShape
+          object={o as WhiteboardDiagramShape}
+          selected={selected}
+          editing={editing ?? false}
+          onPointerDown={handle}
+          onDoubleClick={() => onDoubleClick?.(o.id)}
+          onCommitEdit={(text) => onCommitEdit?.(o.id, text)}
+        />
+      );
+
+    case "mindMapNode":
+      return (
+        <MindMapNode
+          object={o as WhiteboardMindMapNode}
+          selected={selected}
+          editing={editing ?? false}
+          // hasChildren is precomputed upstream so we don't walk the
+          // full object list per render. CanvasWorldLayer builds the
+          // Set once per object-array change and passes it in.
+          hasChildren={mindMapHasChildrenSet?.has(o.id) ?? false}
+          onPointerDown={handle}
+          onDoubleClick={() => onDoubleClick?.(o.id)}
+          onCommitEdit={(text) => onCommitEdit?.(o.id, text)}
+          onMutate={(patch) => onMutate?.(o.id, patch as Partial<WhiteboardObject>)}
+          onStructuralAction={
+            onMindMapStructural
+              ? (action, text) => onMindMapStructural(o.id, action, text)
+              : undefined
+          }
+        />
+      );
+
     case "kanban":
       // Kanban frames render like Frame but with column dividers; we
       // reuse the existing frame logic by short-circuiting here.
@@ -1031,6 +1081,131 @@ function arrowheadPoints(tip: { x: number; y: number }, dir: { x: number; y: num
   const baseX = tip.x - ux * size;
   const baseY = tip.y - uy * size;
   return `${tip.x},${tip.y} ${baseX + px * size * 0.5},${baseY + py * size * 0.5} ${baseX - px * size * 0.5},${baseY - py * size * 0.5}`;
+}
+
+/**
+ * Small "Notes" pill anchored to a selected frame's bottom-right
+ * corner. Click expands an inline textarea where the user can edit
+ * presenter notes; Enter / blur commits to `frame.presenterNotes`.
+ *
+ * The popover sits OUTSIDE the frame border (bottom-right offset by
+ * 4-6 px) so it doesn't visually clip frame content. pointerEvents
+ * stop bubbling so clicking the pill doesn't trigger a frame drag.
+ *
+ * Visibility: a small dot indicator on the pill turns cyan when
+ * notes are present, helping users see at a glance which frames
+ * have speaker notes attached.
+ */
+function FramePresenterNotesAffordance({
+  notes,
+  onCommit,
+}: {
+  notes: string;
+  onCommit: (text: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(notes);
+  // Re-sync draft when notes change from upstream (peer edit, undo).
+  useEffect(() => { setDraft(notes); }, [notes]);
+  const hasNotes = notes.trim().length > 0;
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={hasNotes ? "Edit speaker notes" : "Add speaker notes"}
+        title={hasNotes ? "Edit speaker notes" : "Add speaker notes"}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        style={{
+          position: "absolute",
+          bottom: 6,
+          right: 6,
+          height: 22,
+          padding: "0 8px",
+          borderRadius: 11,
+          background: "rgba(11,15,23,0.95)",
+          border: `1px solid ${hasNotes ? "#00f0ff" : "#475569"}`,
+          color: hasNotes ? "#00f0ff" : "#94a3b8",
+          fontFamily: "ui-monospace, SF Mono, monospace",
+          fontSize: 10,
+          fontWeight: 600,
+          textTransform: "uppercase",
+          letterSpacing: 0.5,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          cursor: "pointer",
+          zIndex: 2,
+        }}
+      >
+        <StickyNote width={11} height={11} aria-hidden="true" />
+        Notes
+      </button>
+      {open && (
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          style={{
+            position: "absolute",
+            bottom: 32,
+            right: 6,
+            width: 280,
+            maxHeight: 200,
+            zIndex: 3,
+            background: "rgba(11,15,23,0.98)",
+            border: "1px solid #00f0ff",
+            borderRadius: 6,
+            padding: 8,
+            boxShadow: "0 6px 20px rgba(0,0,0,0.5)",
+          }}
+        >
+          <div style={{ fontSize: 9, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4, fontFamily: "ui-monospace, monospace" }}>
+            Speaker notes
+          </div>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => {
+              if (draft !== notes) onCommit(draft);
+              setOpen(false);
+            }}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Escape") {
+                e.preventDefault();
+                if (draft !== notes) onCommit(draft);
+                setOpen(false);
+              }
+            }}
+            autoFocus
+            maxLength={4000}
+            placeholder="What to say when this slide is up…"
+            style={{
+              width: "100%",
+              height: 120,
+              boxSizing: "border-box",
+              background: "rgba(15,23,42,0.5)",
+              border: "1px solid #475569",
+              borderRadius: 4,
+              color: "#e5e7eb",
+              fontFamily: "ui-sans-serif, system-ui, sans-serif",
+              fontSize: 12,
+              padding: 6,
+              resize: "none",
+              outline: "none",
+              lineHeight: 1.4,
+            }}
+          />
+          <div style={{ fontSize: 9, color: "#475569", marginTop: 4, fontFamily: "ui-monospace, monospace" }}>
+            Esc / click-out to save · shown in presentation mode
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
 export const ObjectRenderer = memo(ObjectRendererImpl);

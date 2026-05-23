@@ -196,6 +196,68 @@ function formatRelative(at: number, since: number): string {
 }
 
 /**
+ * Generate a mind-map tree from a single topic prompt.
+ *
+ * Output is a depth-limited JSON tree:
+ *   { "label": "Root topic", "children": [
+ *     { "label": "Branch A", "children": [
+ *       { "label": "Sub A1", "children": [] }
+ *     ] }
+ *   ] }
+ *
+ * Depth + breadth caps in the prompt keep the response bounded so
+ * the layout algorithm doesn't have to render a 500-node tree from
+ * an over-eager model. Caller walks the tree DFS to build
+ * mindMapNode objects with the right parent/child links and a
+ * shared mindMapId.
+ */
+export function generateMindMapPrompt(topic: string, maxDepth = 3, maxBranches = 5): PromptDefinition {
+  const safeTopic = sanitizePromptCell(topic, 200);
+  const safeDepth = Math.max(2, Math.min(5, Math.floor(Number(maxDepth) || 3)));
+  const safeBranches = Math.max(2, Math.min(8, Math.floor(Number(maxBranches) || 5)));
+  return {
+    id: "canvas-mind-map",
+    title: `Mind map: ${safeTopic}`,
+    description: `Build a ${safeDepth}-level mind map for "${safeTopic}".`,
+    prompt: `${buildPreamble("canvas", `Generate a mind map about: ${safeTopic}`)}
+
+## Task
+Build a mind map for the topic below. Structure it as a tree:
+  - Root: the topic itself
+  - 2-${safeBranches} top-level branches that decompose the topic
+  - Each branch can have 0-${safeBranches} sub-branches
+  - Maximum depth: ${safeDepth} levels (root counts as level 1)
+
+Aim for a USEFUL decomposition, not a comprehensive one. Skip
+trivial branches; merge near-duplicates. Each node label is 1-6
+words, plain language.
+
+## Topic
+${wrapUserContent(safeTopic)}
+
+## Output format
+Return ONE JSON object, no commentary:
+
+\`\`\`json
+{
+  "label": "Root topic",
+  "children": [
+    {
+      "label": "Branch A",
+      "children": [
+        { "label": "Leaf A1", "children": [] }
+      ]
+    }
+  ]
+}
+\`\`\`
+
+Every node MUST have both \`label\` (string) and \`children\` (array,
+possibly empty). The caller will reject malformed responses.`,
+  };
+}
+
+/**
  * Summarize a cluster of related objects into ONE concise sticky.
  *
  * Used by the AI Insights panel: the user picks a detected cluster,

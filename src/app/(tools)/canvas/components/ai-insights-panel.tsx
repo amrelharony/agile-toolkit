@@ -8,6 +8,7 @@ import { AiBrainstormSection } from "./ai-brainstorm-section";
 import { AiClusterSummarize } from "./ai-cluster-summarize";
 import { AiCatchupSection } from "./ai-catchup-section";
 import { AiSelectionActions, type ActionItem } from "./ai-selection-actions";
+import { AiMindMapSection, type MindMapTreeNode } from "./ai-mind-map-section";
 
 interface Props {
   boardId: string;
@@ -33,6 +34,9 @@ interface Props {
   /** Called when extract-action-items completes. Parent drops a
    * column of cards on the canvas with these titles + owners. */
   onApplyActionItems: (items: readonly ActionItem[]) => void;
+  /** Called when AI mind-map generation completes. Parent builds the
+   * mindMapNode hierarchy + auto-layout. */
+  onApplyMindMapTree: (root: MindMapTreeNode) => void;
 }
 
 const CLUSTER_COLORS = ["#00f0ff", "#a78bfa", "#34d399", "#f59e0b", "#f87171", "#60a5fa"];
@@ -40,7 +44,7 @@ const CLUSTER_COLORS = ["#00f0ff", "#a78bfa", "#34d399", "#f59e0b", "#f87171", "
 export function AIInsightsPanel({
   boardId, selection, clusters, insights, objects,
   onSelectCluster, onClose, onApplyStickies, onApplyClusterSummary,
-  onApplyTextUpdates, onApplyActionItems,
+  onApplyTextUpdates, onApplyActionItems, onApplyMindMapTree,
 }: Props) {
   // Pre-build a Map<id, object> so each cluster's summarize button
   // can resolve its members in O(1) without re-walking the full
@@ -72,6 +76,8 @@ export function AIInsightsPanel({
         />
 
         <AiBrainstormSection onApplyStickies={onApplyStickies} />
+
+        <AiMindMapSection onApplyTree={onApplyMindMapTree} />
 
         <section>
           <h4 className="text-xs uppercase tracking-wider text-sub mb-2">Detected clusters</h4>

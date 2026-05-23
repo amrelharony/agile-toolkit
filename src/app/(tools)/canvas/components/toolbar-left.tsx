@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState } from "react";
 import {
   MousePointer2,
   StickyNote,
@@ -20,7 +21,10 @@ import {
   Vote,
   Columns,
   Table as TableIcon,
+  Network,
+  Boxes,
 } from "lucide-react";
+import { DiagramShapePicker } from "./diagram-shape-picker";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, type CanvasTool } from "../use-canvas-store";
 
@@ -72,9 +76,10 @@ const TOOL_GROUPS: ToolDef[][] = [
     { id: "freehand", label: "Pen",  icon: PenTool, shortcut: "P" },
   ],
   [
-    { id: "frame",  label: "Frame",  icon: Frame,    shortcut: "F" },
-    { id: "kanban", label: "Kanban", icon: Columns,  shortcut: "" },
-    { id: "table",  label: "Table",  icon: TableIcon, shortcut: "" },
+    { id: "frame",   label: "Frame",     icon: Frame,    shortcut: "F" },
+    { id: "kanban",  label: "Kanban",    icon: Columns,  shortcut: "" },
+    { id: "table",   label: "Table",     icon: TableIcon, shortcut: "" },
+    { id: "mindMap", label: "Mind map",  icon: Network,  shortcut: "" },
   ],
   [
     { id: "timer",   label: "Timer",   icon: TimerIcon,     shortcut: "" },
@@ -86,6 +91,11 @@ const TOOL_GROUPS: ToolDef[][] = [
 export function ToolbarLeft() {
   const tool = useCanvasStore((s) => s.tool);
   const setTool = useCanvasStore((s) => s.setTool);
+  // Diagram picker — anchored on the Diagrams button. We capture the
+  // button's bounding rect on open so the popover renders next to it
+  // (rather than at a fixed viewport position).
+  const [pickerAnchor, setPickerAnchor] = useState<DOMRect | null>(null);
+  const diagramBtnRef = useRef<HTMLButtonElement | null>(null);
 
   return (
     <div
@@ -148,6 +158,42 @@ export function ToolbarLeft() {
           })}
         </div>
       ))}
+      {/* Diagram shape picker — separate from the regular tool grid
+          because clicking it opens a popover rather than directly
+          setting the tool. The popover then picks a shape kind and
+          sets the tool to "diagramShape" with that kind primed in
+          the store. */}
+      <div aria-hidden="true" className="h-px bg-border/50 mx-1.5 my-1" />
+      <button
+        ref={diagramBtnRef}
+        type="button"
+        title="Diagram shapes"
+        aria-label="Diagram shapes"
+        aria-pressed={tool === "diagramShape"}
+        onClick={() => {
+          // Toggle: re-click closes the picker if it's already open.
+          if (pickerAnchor) {
+            setPickerAnchor(null);
+            return;
+          }
+          const rect = diagramBtnRef.current?.getBoundingClientRect() ?? null;
+          setPickerAnchor(rect);
+        }}
+        className={cn(
+          "w-10 h-10 sm:w-9 sm:h-9 rounded-md flex items-center justify-center transition-colors shrink-0",
+          tool === "diagramShape"
+            ? "bg-accent/20 text-accent"
+            : "text-sub hover:text-text hover:bg-surface-deep",
+        )}
+      >
+        <Boxes className="w-4 h-4" aria-hidden="true" />
+      </button>
+      {pickerAnchor && (
+        <DiagramShapePicker
+          anchorRect={pickerAnchor}
+          onClose={() => setPickerAnchor(null)}
+        />
+      )}
     </div>
   );
 }

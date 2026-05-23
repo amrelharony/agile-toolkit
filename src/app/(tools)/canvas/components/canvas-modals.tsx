@@ -4,6 +4,7 @@ import type { Camera } from "@/lib/geometry/bbox";
 import type { WhiteboardObject, WhiteboardCard, WhiteboardCommentThread } from "@/lib/stores/workspace-types";
 import type { ClusterResult } from "@/lib/whiteboard/cluster-bridge";
 import type { ActionItem } from "./ai-selection-actions";
+import type { MindMapTreeNode } from "./ai-mind-map-section";
 import type { BoardInsight } from "@/lib/analytics/board-insights";
 import { MiniMap } from "./mini-map";
 import { AIInsightsPanel } from "./ai-insights-panel";
@@ -43,6 +44,7 @@ export function CanvasModals(props: {
   onApplyClusterSummary: (cluster: ClusterResult, text: string) => void;
   onApplyTextUpdates: (updates: Record<string, string>) => void;
   onApplyActionItems: (items: readonly ActionItem[]) => void;
+  onApplyMindMapTree: (root: MindMapTreeNode) => void;
   // Comment drawer
   activeCommentThread: WhiteboardCommentThread | null;
   setActiveCommentThreadId: (id: string | null) => void;
@@ -57,7 +59,7 @@ export function CanvasModals(props: {
     boardId, selection,
     showAIPanel, clusters, insights, setSelection, setShowAIPanel,
     onApplyAiStickies, onApplyClusterSummary,
-    onApplyTextUpdates, onApplyActionItems,
+    onApplyTextUpdates, onApplyActionItems, onApplyMindMapTree,
     activeCommentThread, setActiveCommentThreadId,
     cardDetailId, setCardDetailId, objectsById, onPatchStyles,
   } = props;
@@ -93,6 +95,7 @@ export function CanvasModals(props: {
           onApplyClusterSummary={onApplyClusterSummary}
           onApplyTextUpdates={onApplyTextUpdates}
           onApplyActionItems={onApplyActionItems}
+          onApplyMindMapTree={onApplyMindMapTree}
         />
       )}
 
