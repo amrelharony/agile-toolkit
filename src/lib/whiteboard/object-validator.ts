@@ -29,6 +29,11 @@ export const VALID_OBJECT_TYPES: ReadonlySet<WhiteboardObjectKind> = new Set<Whi
   "line", "arrow", "connector", "text", "freehand",
   "image", "frame", "embed",
   "card", "kanban", "timer", "voting",
+  // Post-launch additions — keep in sync with WhiteboardObjectKind.
+  // Without these, peer-broadcast patches for the new types are
+  // silently rejected by isValidPatch() and realtime breaks for
+  // every user collaborating on a board that contains them.
+  "table", "mindMapNode", "diagramShape",
 ]);
 
 /** Connector routing whitelist — must match ConnectorRouting in workspace-types.ts. */
