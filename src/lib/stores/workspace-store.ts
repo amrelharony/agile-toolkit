@@ -1149,7 +1149,10 @@ if (typeof window !== "undefined") {
     // Phase 22 — Canvas. Whiteboard objects are throttled to 2s pushes
     // because drag operations can dirty hundreds of them per second.
     registerCollection("whiteboard", "whiteboards");
-    registerCollection("whiteboardObject", "whiteboardObjects", 2000);
+    // 800ms throttle: a generous compromise between burning Supabase quota
+    // during a drag and bounding the worst-case loss on tab close. Drags
+    // commit position updates at 60Hz; we coalesce them into ≤2 pushes/sec.
+    registerCollection("whiteboardObject", "whiteboardObjects", 800);
     registerCollection("whiteboardCommentThread", "whiteboardCommentThreads");
     registerCollection("whiteboardGroup", "whiteboardGroups");
     registerCollection("whiteboardSavedTemplate", "whiteboardSavedTemplates");

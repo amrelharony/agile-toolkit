@@ -12,9 +12,14 @@ export interface PersistedStoreActions {
  * registers itself as a blob sync target so the user's preferences /
  * tool-local state mirror to Supabase. The registration is dynamic-
  * imported to avoid pulling the sync engine into server-rendered code.
+ *
+ * `allowedKeys` is the same whitelist `importJSON` uses — a poisoned
+ * cloud row that injects unknown keys gets filtered out instead of
+ * silently corrupting the in-memory store.
  */
 function registerForCloudSync(
   storeKey: string,
+  allowedKeys: Set<string>,
   store: { getState: () => unknown; setState: (next: unknown) => void; subscribe: (cb: () => void) => () => void }
 ): void {
   if (typeof window === "undefined") return;
@@ -35,16 +40,15 @@ function registerForCloudSync(
         return out;
       },
       setSnapshot: (next) => {
-        // Whitelist-apply: only known keys are accepted (mirrors importJSON
-        // sanitisation) but we don't have access to initialState here, so
-        // accept any non-function field; the store's middleware-level
-        // type-check filters at consumer level.
+        // Whitelist-apply: only keys in `allowedKeys` (the initialState
+        // shape) are accepted. Mirrors the importJSON sanitisation.
         const v = next as Record<string, unknown> | null;
         if (!v || typeof v !== "object") return;
         const cleaned: Record<string, unknown> = {};
         for (const [k, val] of Object.entries(v)) {
           if (typeof val === "function") continue;
           if (k.startsWith("_tt")) continue;
+          if (!allowedKeys.has(k)) continue;
           cleaned[k] = val;
         }
         store.setState(cleaned);
@@ -200,7 +204,7 @@ export function createPersistedStore<T extends object>(
     )
   );
 
-  registerForCloudSync(storeKey, store as unknown as {
+  registerForCloudSync(storeKey, allowedKeys, store as unknown as {
     getState: () => unknown;
     setState: (next: unknown) => void;
     subscribe: (cb: () => void) => () => void;

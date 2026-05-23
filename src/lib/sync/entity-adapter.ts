@@ -70,14 +70,15 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
   }
 
   /** Called by the workspace subscriber whenever the registered slice
-   *  may have changed. Cheap — sets a flag and schedules a flush. */
+   *  may have changed. Cheap — sets a flag and schedules a flush.
+   *
+   *  Deletion detection is deferred to push() time. The previous
+   *  implementation walked lastPushed + getEntities() on EVERY markDirty
+   *  call (called per-frame during a canvas drag of 1k+ objects → O(n²)
+   *  per second, pinning a CPU). The push loop already iterates all
+   *  entities, so detecting deletes there is free. */
   markDirty(): void {
     if (this.suppressLocalChange) return;
-    // Detect deletions: any id in lastPushed that's no longer present.
-    const liveIds = new Set(this.getEntities().map((e) => e.id));
-    this.lastPushed.forEach((_, id) => {
-      if (!liveIds.has(id)) this.pendingDeletes.add(id);
-    });
     this.dirty = true;
     syncEngine.scheduleFlush(this.id);
   }
@@ -119,6 +120,22 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
         // Local is at least as fresh; keep local copy.
         continue;
       }
+      // Preserve UNPUSHED local edits: if the local copy of this entity
+      // exists AND its JSON differs from what we last pushed (or we've
+      // never pushed it), the user has made changes that are still in
+      // the dirty queue waiting to flush. Don't clobber them with a stale
+      // remote row. Without this guard a remote pull during a 2s push
+      // throttle window reverts in-flight local edits.
+      const localEntity = localById.get(row.entity_id);
+      if (localEntity) {
+        const localJson = JSON.stringify(localEntity);
+        const lastJson = lastPushed?.json;
+        if (lastJson !== localJson) {
+          // Unpushed local changes — keep local until we've successfully
+          // pushed (which will then advance lastPushed).
+          continue;
+        }
+      }
       merged.set(row.entity_id, row.payload as T);
     }
     this.applyRemote(Array.from(merged.values()));
@@ -138,6 +155,14 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
     const live = this.getEntities();
     const clientId = syncEngine.getClientId();
     const now = new Date().toISOString();
+
+    // Detect deletions: anything in lastPushed that's no longer live.
+    // Done lazily here rather than in markDirty so a 60Hz canvas drag
+    // doesn't burn CPU on per-frame O(n) set construction.
+    const liveIds = new Set(live.map((e) => e.id));
+    this.lastPushed.forEach((_, id) => {
+      if (!liveIds.has(id)) this.pendingDeletes.add(id);
+    });
 
     // ──────── upserts: changed or new entities ────────
     const upserts: Array<{

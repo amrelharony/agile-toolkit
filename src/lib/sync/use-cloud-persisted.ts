@@ -14,34 +14,48 @@ import { registerBlobStore } from "./register";
  *   setState(...) → localStorage write → adapter.markDirty()
  *                                     → debounced push to Supabase
  *
- * Remote pulls call `setRemoteState` via the adapter, which goes through
- * the same useState setter — the hook sees a state change and writes to
- * localStorage just like a local edit (but suppressed from re-pushing).
+ * Remote pulls call `setSnapshot` via the adapter, which fans out to
+ * every mounted hook for the key. The receiving hooks call `setState`,
+ * which re-runs the write effect — that effect compares against
+ * `remoteAppliedRef` (the value just applied) and SKIPS the push back
+ * to Supabase. This prevents the echo loop where every remote arrival
+ * round-trips back as a local edit.
  *
  * The key MUST be stable across renders. The sync registration happens
  * once per key; subsequent mounts with the same key reuse the existing
  * adapter (the registry is idempotent).
  */
 
+// ──────── module-scoped state ────────
+
 // Per-key set of subscribers used to fan remote-applied snapshots back
-// to every mounted hook instance with the same key. Module-scoped so
-// multiple components watching the same key all update.
+// to every mounted hook instance with the same key.
 const subscribers = new Map<string, Set<(next: unknown) => void>>();
-// Per-key cached current snapshot — used by the adapter's getSnapshot
-// callback when no hook is currently mounted (the adapter still needs to
-// be able to push the last-known state). Also the "source of truth" the
-// adapter consults during a remote→local apply.
+
+// Per-key cached current snapshot — the adapter's getSnapshot reads this
+// when no hook is mounted, and the adapter's setSnapshot writes through it.
 const snapshots = new Map<string, unknown>();
-// Track local subscriber wiring so each key registers exactly one adapter.
+
+// Per-key adapter markDirty callback. The hook's write effect looks up
+// this single function rather than maintaining per-instance listener Sets
+// — that pattern previously captured a dead ref on first-hook unmount.
+const adapterDirty = new Map<string, () => void>();
+
+// Per-key registration flag so the registerBlobStore side-effect runs
+// exactly once even when many components mount the same key.
 const registered = new Set<string>();
 
-function notifyAllExcept(key: string, except: (next: unknown) => void, next: unknown): void {
+function notifySubs(key: string, next: unknown): void {
   const subs = subscribers.get(key);
   if (!subs) return;
-  subs.forEach((sub) => {
-    if (sub !== except) sub(next);
-  });
+  subs.forEach((sub) => sub(next));
 }
+
+// Sentinel used by the write effect to detect "this state value was just
+// applied from a remote pull" — we then skip both the redundant
+// localStorage write (setSnapshot already wrote it) AND the markDirty
+// push-back (would create an echo loop).
+const NO_REMOTE = Symbol("no-remote-apply");
 
 export function useCloudPersisted<T>(
   key: string,
@@ -50,18 +64,18 @@ export function useCloudPersisted<T>(
   const [state, setState] = useState<T>(initial);
   const [hydratedKey, setHydratedKey] = useState<string | null>(null);
   const initialRef = useRef(initial);
-  const onChangeListeners = useRef<Set<() => void>>(new Set());
-  const stateRef = useRef<T>(initial);
-  stateRef.current = state;
+  const remoteAppliedRef = useRef<unknown>(NO_REMOTE);
 
-  // Hydrate from localStorage (same logic as usePersisted) and register
-  // for remote-apply fan-out.
+  // Hydrate from localStorage and subscribe to remote-apply fan-out.
   useEffect(() => {
     if (typeof window === "undefined") return;
     let cancelled = false;
 
     const sub = (next: unknown) => {
       if (cancelled) return;
+      // Mark this value as remote-sourced so the write effect skips
+      // the push-back. Reference identity is the contract.
+      remoteAppliedRef.current = next;
       setState(next as T);
       setHydratedKey(key);
     };
@@ -112,31 +126,25 @@ export function useCloudPersisted<T>(
       }
     }
 
-    // Register the sync adapter once per key. Late registration is fine —
-    // the engine will pull this key on next visibility-change / focus.
+    // Register the sync adapter once per key. The setSnapshot path stores
+    // the new value into the module snapshot map and fans it to every
+    // mounted hook — but does NOT write localStorage here; each receiving
+    // hook's write effect writes localStorage exactly once.
     if (!registered.has(key)) {
       registered.add(key);
-      const listenersForKey = onChangeListeners.current;
       registerBlobStore({
         storeKey: key,
         getSnapshot: () => snapshots.get(key) ?? null,
         setSnapshot: (next) => {
           snapshots.set(key, next);
-          // Mirror to localStorage so the next cold-load sees the
-          // remote-sourced value even if the page reloads before another
-          // pull happens.
-          try {
-            localStorage.setItem(key, JSON.stringify(next));
-          } catch {
-            /* quota — accept loss */
-          }
-          // Fan out to every mounted hook for this key.
-          const subs = subscribers.get(key);
-          if (subs) subs.forEach((sub) => sub(next));
+          notifySubs(key, next);
         },
         subscribe: (onChange) => {
-          listenersForKey.add(onChange);
-          return () => listenersForKey.delete(onChange);
+          // Store the adapter's markDirty in a module map so every mounted
+          // hook for this key can fire it from its write effect (the prior
+          // per-hook Set captured a stale ref on first-hook unmount).
+          adapterDirty.set(key, onChange);
+          return () => adapterDirty.delete(key);
         },
       });
     }
@@ -147,10 +155,20 @@ export function useCloudPersisted<T>(
     };
   }, [key]);
 
-  // Write to localStorage + notify peers + ping the adapter.
+  // Write to localStorage + notify peers + ping the adapter. The
+  // remoteAppliedRef sentinel short-circuits both writes and the
+  // markDirty when the state change was sourced from a remote pull.
   useEffect(() => {
     if (hydratedKey !== key) return;
     if (typeof window === "undefined") return;
+    if (state === remoteAppliedRef.current) {
+      // This state arrived via the remote-apply sub. setSnapshot stored
+      // it in the module snapshot map already; another mounted hook's
+      // write effect will handle the localStorage write. Reset the
+      // sentinel so a SUBSEQUENT local edit isn't mistakenly skipped.
+      remoteAppliedRef.current = NO_REMOTE;
+      return;
+    }
     try {
       localStorage.setItem(key, JSON.stringify(state));
     } catch (e) {
@@ -161,12 +179,12 @@ export function useCloudPersisted<T>(
     }
     snapshots.set(key, state);
     // Notify other mounted hooks for this key (within the same tab) so
-    // they re-render with the new value. The sender (this setter) is
-    // already in sync; skip it.
-    // We can't easily get "this hook's" sub reference here, so iterate
-    // all and skip none — duplicate state set is harmless (React dedups).
-    notifyAllExcept(key, () => {}, state);
-    onChangeListeners.current.forEach((cb) => cb());
+    // they re-render with the new value. They re-enter via `sub` which
+    // sets their own remoteAppliedRef sentinel, suppressing echo.
+    notifySubs(key, state);
+    // Trigger the adapter's debounced push.
+    const dirty = adapterDirty.get(key);
+    if (dirty) dirty();
   }, [key, state, hydratedKey]);
 
   return [state, setState];
