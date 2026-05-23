@@ -45,7 +45,7 @@ export default function SignInPage() {
           rel="noreferrer noopener"
           className="underline underline-offset-4 hover:text-accent transition-colors"
         >
-          amrelharony
+          Amr Elharony
         </a>
       </footer>
     </main>
