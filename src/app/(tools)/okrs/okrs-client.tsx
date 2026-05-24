@@ -2,15 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
-import {
-  LineChart,
-  Line,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ReferenceLine,
-} from "recharts";
+import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ReferenceLine } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -31,7 +23,10 @@ import type { Okr, KeyResult } from "@/lib/stores/workspace-types";
 // Bayesian Holt primitive, but **only** apply it to per-OKR KR-progress
 // series with a clear "across KR sequence" caveat in the UI — never as a
 // dishonest "over time" projection.
-import { forecastBayesianHolt, bayesianForecastConfidence } from "@/lib/analytics/forecasting-bayesian";
+import {
+  forecastBayesianHolt,
+  bayesianForecastConfidence,
+} from "@/lib/analytics/forecasting-bayesian";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { cusum } from "@/lib/analytics/changepoint";
 import { chartTheme } from "@/components/charts/chart-theme";
@@ -42,7 +37,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { OKR_ACTIONS } from "@/lib/history/event-actions";
 import { ActionRow } from "@/components/shared/action-row";
 import { EmptyState } from "@/components/shared/empty-state";
-import { usePersisted } from "@/lib/utils/use-persisted";
+// usePersisted no longer used — workspace store is the single source of truth.
 
 /**
  * Numeric input with a string draft buffer so typing a multi-digit value
@@ -132,9 +127,15 @@ function objectiveHealth(okr: Okr): number {
 }
 
 export function OkrsClient() {
-  const [okrs, setOkrs] = usePersisted<Okr[]>("agile-toolkit:okrs", []);
-  const workspaceOkrs = useWorkspaceStore((s) => s.okrs);
+  // BUG-T5-okrs-4: SINGLE source of truth. The prior dual-store design
+  // (`usePersisted("agile-toolkit:okrs", ...)` + workspace.okrs with
+  // Import/Push buttons to ferry data between) raced cross-tab edits
+  // and silently overwrote workspace data on Push. The workspace store
+  // is already persisted + cloud-synced; we read/write through it
+  // directly. Import/Push become no-ops (or removed entirely).
+  const okrs = useWorkspaceStore((s) => s.okrs);
   const upsertOkr = useWorkspaceStore((s) => s.upsertOkr);
+  const removeOkr = useWorkspaceStore((s) => s.removeOkr);
   const { log } = useHistoryLogger("okrs");
 
   // Smart-default predictor for the KR target field. Returns the mean
@@ -142,62 +143,55 @@ export function OkrsClient() {
   // KRs against the team's historical sizing.
   const krTargetPrediction = usePredictedDefault<number>("okrs", "krTargetExtrapolation", 100);
 
-  useEffect(() => {
-    useWorkspaceStore.persist.rehydrate();
-  }, []);
-
   const add = () => {
     const obj = emptyOkr();
-    setOkrs((s) => [...s, obj]);
+    upsertOkr(obj);
     log(OKR_ACTIONS.OBJECTIVE_ADDED, { okrId: obj.id });
   };
   const remove = (id: string) => {
     const obj = okrs.find((o) => o.id === id);
-    setOkrs((s) => s.filter((o) => o.id !== id));
+    removeOkr(id);
     log(OKR_ACTIONS.OBJECTIVE_REMOVED, { okrId: id, objective: obj?.objective });
   };
-  const update = (id: string, patch: Partial<Okr>) =>
-    setOkrs((s) => s.map((o) => (o.id === id ? { ...o, ...patch } : o)));
+  const update = (id: string, patch: Partial<Okr>) => {
+    const current = okrs.find((o) => o.id === id);
+    if (!current) return;
+    upsertOkr({ ...current, ...patch });
+  };
 
   const addKr = (okrId: string) => {
+    const current = okrs.find((o) => o.id === okrId);
+    if (!current) return;
     const kr = emptyKr();
-    setOkrs((s) => s.map((o) => (o.id === okrId ? { ...o, keyResults: [...o.keyResults, kr] } : o)));
+    upsertOkr({ ...current, keyResults: [...current.keyResults, kr] });
     log(OKR_ACTIONS.KEY_RESULT_ADDED, { okrId, krId: kr.id });
   };
   const updateKr = (okrId: string, krId: string, patch: Partial<KeyResult>) => {
-    setOkrs((s) =>
-      s.map((o) =>
-        o.id === okrId ? { ...o, keyResults: o.keyResults.map((k) => (k.id === krId ? { ...k, ...patch } : k)) } : o
-      )
-    );
+    const current = okrs.find((o) => o.id === okrId);
+    if (!current) return;
+    upsertOkr({
+      ...current,
+      keyResults: current.keyResults.map((k) => (k.id === krId ? { ...k, ...patch } : k)),
+    });
     if (patch.current !== undefined || patch.target !== undefined) {
       log(OKR_ACTIONS.PROGRESS_UPDATED, { okrId, krId, ...patch });
     }
   };
   const removeKr = (okrId: string, krId: string) => {
-    setOkrs((s) =>
-      s.map((o) => (o.id === okrId ? { ...o, keyResults: o.keyResults.filter((k) => k.id !== krId) } : o))
-    );
+    const current = okrs.find((o) => o.id === okrId);
+    if (!current) return;
+    upsertOkr({
+      ...current,
+      keyResults: current.keyResults.filter((k) => k.id !== krId),
+    });
     log(OKR_ACTIONS.KEY_RESULT_REMOVED, { okrId, krId });
   };
 
-  const handleImport = () => {
-    const fresh = workspaceOkrs.filter((w) => !okrs.find((o) => o.id === w.id));
-    if (fresh.length === 0) return 0;
-    setOkrs((s) => [...fresh, ...s]);
-    return fresh.length;
-  };
-
-  const handlePush = () => {
-    let n = 0;
-    for (const o of okrs) {
-      if (o.objective.trim()) {
-        upsertOkr(o);
-        n++;
-      }
-    }
-    return n;
-  };
+  // Import/Push are now no-ops (workspace IS the store). Kept as
+  // identity functions so existing buttons stay wired without errors;
+  // a follow-up can remove the buttons entirely.
+  const handleImport = () => 0;
+  const handlePush = () => okrs.length;
 
   const promptConfig = useMemo(
     () => ({
@@ -273,7 +267,17 @@ export function OkrsClient() {
         <ExportButton
           filename="okrs"
           csvData={{
-            headers: ["Quarter", "Objective", "Objective Description", "KR", "KR Description", "Current", "Target", "Progress %", "Confidence"],
+            headers: [
+              "Quarter",
+              "Objective",
+              "Objective Description",
+              "KR",
+              "KR Description",
+              "Current",
+              "Target",
+              "Progress %",
+              "Confidence",
+            ],
             rows: okrs.flatMap((o) =>
               o.keyResults.map((kr) => [
                 o.quarter,
@@ -339,7 +343,11 @@ export function OkrsClient() {
                     </div>
                     <Textarea
                       value={o.description ?? ""}
-                      onChange={(e) => update(o.id, { description: e.target.value.trim() ? e.target.value : undefined })}
+                      onChange={(e) =>
+                        update(o.id, {
+                          description: e.target.value.trim() ? e.target.value : undefined,
+                        })
+                      }
                       placeholder="Description (optional)..."
                       rows={2}
                       className="bg-bg border-border resize-none text-xs"
@@ -402,73 +410,77 @@ export function OkrsClient() {
                   // chip clutter on already-set KRs.
                   const showTargetChip = kr.target === 100;
                   return (
-                  <div
-                    key={kr.id}
-                    className="space-y-2 rounded-md border border-border bg-bg p-2"
-                  >
-                    <div className="grid grid-cols-[1fr_80px_80px_80px_32px] gap-2 items-center">
-                      <Input
-                        value={kr.title}
-                        onChange={(e) => updateKr(o.id, kr.id, { title: e.target.value })}
-                        placeholder="KR: Increase DAU from 1k to 10k"
-                        className="bg-surface border-border"
-                      />
-                      <NumCell
-                        value={kr.current}
-                        onChange={(n) => updateKr(o.id, kr.id, { current: n })}
-                        placeholder="Current"
-                        className="bg-surface border-border font-data"
-                      />
-                      {showTargetChip ? (
-                        <SmartInput<number>
-                          predicted={krTargetPrediction}
-                          onAccept={(v) => updateKr(o.id, kr.id, { target: v })}
-                          render={({ chip }) => (
-                            <div className="flex flex-col gap-0">
-                              <NumCell
-                                value={kr.target}
-                                onChange={(n) => updateKr(o.id, kr.id, { target: n })}
-                                placeholder="Target"
-                                className="bg-surface border-border font-data"
-                              />
-                              {chip}
-                            </div>
-                          )}
+                    <div
+                      key={kr.id}
+                      className="space-y-2 rounded-md border border-border bg-bg p-2"
+                    >
+                      <div className="grid grid-cols-[1fr_80px_80px_80px_32px] gap-2 items-center">
+                        <Input
+                          value={kr.title}
+                          onChange={(e) => updateKr(o.id, kr.id, { title: e.target.value })}
+                          placeholder="KR: Increase DAU from 1k to 10k"
+                          className="bg-surface border-border"
                         />
-                      ) : (
                         <NumCell
-                          value={kr.target}
-                          onChange={(n) => updateKr(o.id, kr.id, { target: n })}
-                          placeholder="Target"
+                          value={kr.current}
+                          onChange={(n) => updateKr(o.id, kr.id, { current: n })}
+                          placeholder="Current"
                           className="bg-surface border-border font-data"
                         />
-                      )}
-                      <NumCell
-                        value={kr.confidence ?? 5}
-                        onChange={(n) => updateKr(o.id, kr.id, { confidence: n })}
-                        min={0}
-                        max={10}
-                        title="Confidence (0-10)"
-                        className="bg-surface border-border font-data"
+                        {showTargetChip ? (
+                          <SmartInput<number>
+                            predicted={krTargetPrediction}
+                            onAccept={(v) => updateKr(o.id, kr.id, { target: v })}
+                            render={({ chip }) => (
+                              <div className="flex flex-col gap-0">
+                                <NumCell
+                                  value={kr.target}
+                                  onChange={(n) => updateKr(o.id, kr.id, { target: n })}
+                                  placeholder="Target"
+                                  className="bg-surface border-border font-data"
+                                />
+                                {chip}
+                              </div>
+                            )}
+                          />
+                        ) : (
+                          <NumCell
+                            value={kr.target}
+                            onChange={(n) => updateKr(o.id, kr.id, { target: n })}
+                            placeholder="Target"
+                            className="bg-surface border-border font-data"
+                          />
+                        )}
+                        <NumCell
+                          value={kr.confidence ?? 5}
+                          onChange={(n) => updateKr(o.id, kr.id, { confidence: n })}
+                          min={0}
+                          max={10}
+                          title="Confidence (0-10)"
+                          className="bg-surface border-border font-data"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeKr(o.id, kr.id)}
+                          className="text-sub hover:text-danger"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                      <Textarea
+                        value={kr.description ?? ""}
+                        onChange={(e) =>
+                          updateKr(o.id, kr.id, {
+                            description: e.target.value.trim() ? e.target.value : undefined,
+                          })
+                        }
+                        placeholder="Description (optional)..."
+                        rows={2}
+                        className="bg-surface border-border resize-none text-xs"
+                        aria-label="Key result description"
                       />
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeKr(o.id, kr.id)}
-                        className="text-sub hover:text-danger"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
                     </div>
-                    <Textarea
-                      value={kr.description ?? ""}
-                      onChange={(e) => updateKr(o.id, kr.id, { description: e.target.value.trim() ? e.target.value : undefined })}
-                      placeholder="Description (optional)..."
-                      rows={2}
-                      className="bg-surface border-border resize-none text-xs"
-                      aria-label="Key result description"
-                    />
-                  </div>
                   );
                 })}
                 {/* KR-progress mini-chart with CUSUM regime markers, only
@@ -476,15 +488,21 @@ export function OkrsClient() {
                     for the analysis to mean anything — placeholder rows
                     with target=0 are excluded from the analytics series. */}
                 {measurableKrCount >= 4 && (
-                  <ChartCard
-                    title="KR progress (across KR sequence)"
-                    height={180}
-                    className="mt-2"
-                  >
-                    <LineChart data={krChartData} margin={{ top: 8, right: 12, left: -16, bottom: 4 }}>
+                  <ChartCard title="KR progress (across KR sequence)" height={180} className="mt-2">
+                    <LineChart
+                      data={krChartData}
+                      margin={{ top: 8, right: 12, left: -16, bottom: 4 }}
+                    >
                       <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-                      <XAxis dataKey="kr" tick={{ fill: chartTheme.axisColor, fontSize: 10 }} interval={0} />
-                      <YAxis domain={[0, 100]} tick={{ fill: chartTheme.axisColor, fontSize: 10 }} />
+                      <XAxis
+                        dataKey="kr"
+                        tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
+                        interval={0}
+                      />
+                      <YAxis
+                        domain={[0, 100]}
+                        tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
+                      />
                       <Tooltip contentStyle={chartTheme.tooltipStyle} />
                       <Line
                         type="monotone"
@@ -499,7 +517,12 @@ export function OkrsClient() {
                         stroke={chartTheme.colors.amber}
                         strokeDasharray="2 4"
                         strokeOpacity={0.55}
-                        label={{ value: "Target band", fill: chartTheme.colors.amber, fontSize: 10, position: "right" }}
+                        label={{
+                          value: "Target band",
+                          fill: chartTheme.colors.amber,
+                          fontSize: 10,
+                          position: "right",
+                        }}
                       />
                       {krAnnotations.map((ann, i) => (
                         <CausalLine key={`okr-cusum-${i}`} annotation={ann} />

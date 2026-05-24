@@ -196,10 +196,7 @@ function ThreatRow({
               </Badge>
             );
           })()}
-          <span
-            className="inline-flex items-center gap-1 text-xs"
-            title={`Severity ${t.severity}`}
-          >
+          <span className="inline-flex items-center gap-1 text-xs" title={`Severity ${t.severity}`}>
             <span
               className="w-2.5 h-2.5 rounded-full inline-block"
               // Clamp the persisted severity into [1,5] before lookup.
@@ -207,14 +204,17 @@ function ThreatRow({
               // with severity outside that range used to render an
               // invisible dot — defaulting to severity 3 keeps the
               // badge readable and lets the user repair from the UI.
-              style={{ background: SEVERITY_COLOR[Math.min(5, Math.max(1, Number(t.severity) || 3)) as 1|2|3|4|5] }}
+              style={{
+                background:
+                  SEVERITY_COLOR[
+                    Math.min(5, Math.max(1, Number(t.severity) || 3)) as 1 | 2 | 3 | 4 | 5
+                  ],
+              }}
               aria-hidden="true"
             />
             <span className="font-data text-sub">SEV {t.severity}</span>
           </span>
-          <span className="text-text font-medium text-sm flex-1 min-w-0 truncate">
-            {t.service}
-          </span>
+          <span className="text-text font-medium text-sm flex-1 min-w-0 truncate">{t.service}</span>
           <Select
             value={t.status}
             onValueChange={(v) => {
@@ -353,15 +353,26 @@ export function ThreatModelClient() {
     const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     for (const t of state.threats) {
       if (t.status === "mitigated") continue;
-      counts[t.severity] = (counts[t.severity] ?? 0) + 1;
+      // BUG-T9-threat-model-1: clamp severity into 1..5 before bucketing.
+      // Hand-edited / corrupted persisted rows can have severity 0, 6,
+      // "high", etc. The badge code clamps for display but the aggregate
+      // didn't, so the "Critical (4-5)" KPI would silently undercount.
+      const raw = Number(t.severity);
+      const clamped = Number.isFinite(raw) ? Math.min(5, Math.max(1, Math.round(raw))) : 3;
+      counts[clamped] = (counts[clamped] ?? 0) + 1;
     }
     return counts;
   }, [state.threats]);
 
   const mitigationRate = useMemo(() => {
-    if (state.threats.length === 0) return 0;
-    const mitigated = state.threats.filter((t) => t.status === "mitigated").length;
-    return mitigated / state.threats.length;
+    // BUG-T9-threat-model-4: exclude "accepted" risks from BOTH numerator
+    // and denominator. Accepted = we know about it, won't fix; including
+    // them in the denominator drags the rate down arbitrarily and
+    // discourages teams from honest acceptance decisions.
+    const eligible = state.threats.filter((t) => t.status !== "accepted");
+    if (eligible.length === 0) return 0;
+    const mitigated = eligible.filter((t) => t.status === "mitigated").length;
+    return mitigated / eligible.length;
   }, [state.threats]);
 
   const matrix = useMemo(() => {
@@ -479,11 +490,7 @@ export function ThreatModelClient() {
           value={(bySeverity[4] ?? 0) + (bySeverity[5] ?? 0)}
           tone={(bySeverity[4] ?? 0) + (bySeverity[5] ?? 0) > 0 ? "danger" : "default"}
         />
-        <StatCard
-          variant="compact"
-          label="Services covered"
-          value={services.length}
-        />
+        <StatCard variant="compact" label="Services covered" value={services.length} />
         <StatCard
           variant="compact"
           label="Mitigation rate"
@@ -492,11 +499,7 @@ export function ThreatModelClient() {
         />
       </KpiGrid>
 
-      <SectionCard
-        title="New threat"
-        icon={Shield}
-        className="mb-6 bg-surface border-border"
-      >
+      <SectionCard title="New threat" icon={Shield} className="mb-6 bg-surface border-border">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="space-y-1">
             <Label className="text-xs text-sub">Service</Label>
@@ -586,9 +589,7 @@ export function ThreatModelClient() {
             <table className="w-full text-xs font-data">
               <thead>
                 <tr>
-                  <th className="text-left text-sub font-medium pb-2 pr-3">
-                    Service
-                  </th>
+                  <th className="text-left text-sub font-medium pb-2 pr-3">Service</th>
                   {STRIDE_OPTIONS.map((o) => (
                     <th
                       key={o.value}
@@ -605,22 +606,13 @@ export function ThreatModelClient() {
                   const row = matrix.get(svc)!;
                   return (
                     <tr key={svc}>
-                      <td className="text-text pr-3 py-1.5 truncate max-w-[180px]">
-                        {svc}
-                      </td>
+                      <td className="text-text pr-3 py-1.5 truncate max-w-[180px]">{svc}</td>
                       {STRIDE_OPTIONS.map((o) => {
                         const count = row[o.value];
                         return (
-                          <td
-                            key={o.value}
-                            className="text-center px-2 py-1.5"
-                          >
+                          <td key={o.value} className="text-center px-2 py-1.5">
                             <span
-                              className={
-                                count === 0
-                                  ? "text-sub/40"
-                                  : "text-accent font-semibold"
-                              }
+                              className={count === 0 ? "text-sub/40" : "text-accent font-semibold"}
                               aria-label={`${o.label} count for ${svc}`}
                             >
                               {count === 0 ? "—" : count}
@@ -642,18 +634,12 @@ export function ThreatModelClient() {
           .slice()
           .sort((a, b) => b.severity - a.severity)
           .map((t) => (
-            <ThreatRow
-              key={t.id}
-              t={t}
-              update={update}
-              logUpdate={logUpdate}
-              remove={remove}
-            />
+            <ThreatRow key={t.id} t={t} update={update} logUpdate={logUpdate} remove={remove} />
           ))}
         {state.threats.length === 0 && (
           <EmptyState icon={Shield}>
-            No threats logged yet. Add a service + STRIDE category above to start
-            building the registry.
+            No threats logged yet. Add a service + STRIDE category above to start building the
+            registry.
           </EmptyState>
         )}
       </div>

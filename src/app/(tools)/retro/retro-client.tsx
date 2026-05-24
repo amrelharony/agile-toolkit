@@ -25,13 +25,7 @@ import { RETRO_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -116,7 +110,8 @@ function extractCardFeatures(text: string): number[] {
   let questions = 0;
   for (let i = 0; i < text.length; i++) {
     const ch = text.charCodeAt(i);
-    if (ch === 33) exclamations++; // !
+    if (ch === 33)
+      exclamations++; // !
     else if (ch === 63) questions++; // ?
   }
   // Affective/curiosity features are clipped to [0,1] so they don't
@@ -132,13 +127,7 @@ function extractCardFeatures(text: string): number[] {
 
 // ── Phase Indicator ──────────────────────────────────────────
 
-function PhaseIndicator({
-  current,
-  onAdvance,
-}: {
-  current: BoardPhase;
-  onAdvance: () => void;
-}) {
+function PhaseIndicator({ current, onAdvance }: { current: BoardPhase; onAdvance: () => void }) {
   const idx = PHASES.findIndex((p) => p.key === current);
   const isLast = idx === PHASES.length - 1;
 
@@ -153,15 +142,13 @@ function PhaseIndicator({
                 state === "active"
                   ? "bg-accent-cyan/20 text-accent border-accent-cyan shadow-neon-cyan"
                   : state === "done"
-                  ? "bg-accent-green/10 text-accent-green border-accent-green/30"
-                  : "bg-cardH text-sub border-border"
+                    ? "bg-accent-green/10 text-accent-green border-accent-green/30"
+                    : "bg-cardH text-sub border-border"
               }`}
             >
               {i + 1}. {phase.label}
             </span>
-            {i < PHASES.length - 1 && (
-              <ChevronRight className="w-3 h-3 text-sub" />
-            )}
+            {i < PHASES.length - 1 && <ChevronRight className="w-3 h-3 text-sub" />}
           </div>
         );
       })}
@@ -204,8 +191,8 @@ function TimerWidget({
           running && seconds <= 60
             ? "text-status-red animate-pulse"
             : running
-            ? "text-accent"
-            : "text-sub"
+              ? "text-accent"
+              : "text-sub"
         }`}
       >
         {formatTimer(seconds)}
@@ -214,7 +201,9 @@ function TimerWidget({
         {PRESETS.map((p) => (
           <button
             key={p}
-            onClick={() => { onChange(p); }}
+            onClick={() => {
+              onChange(p);
+            }}
             className="text-[10px] px-1.5 py-0.5 rounded border border-border text-sub hover:border-accent-cyan/40 hover:text-accent transition-colors"
           >
             {p / 60}m
@@ -291,7 +280,10 @@ function RetroCardItem({
               // Skip when the click bubbled from an inner interactive control
               // (vote button, delete, etc.) — we only want bare-card clicks
               // to toggle the discussing focus.
-              if ((e.target as HTMLElement).closest("button, input, select, [role='button']") !== e.currentTarget) {
+              if (
+                (e.target as HTMLElement).closest("button, input, select, [role='button']") !==
+                e.currentTarget
+              ) {
                 const targetEl = e.target as HTMLElement;
                 if (targetEl.closest("button, input, select, a")) return;
               }
@@ -318,8 +310,8 @@ function RetroCardItem({
         isDiscussing
           ? "border-accent-cyan bg-accent-cyan/10 shadow-neon-cyan"
           : card.groupedWith !== null
-          ? "border-border bg-cardH ml-6 opacity-80"
-          : "border-border bg-card hover:border-border"
+            ? "border-border bg-cardH ml-6 opacity-80"
+            : "border-border bg-card hover:border-border"
       }`}
       // Cluster theme accent — a 3-px left rule. Don't override the discussing
       // ring; that visual takes priority during the discuss phase.
@@ -346,9 +338,7 @@ function RetroCardItem({
 
         <p
           className={`flex-1 text-sm leading-relaxed ${
-            card.isActionItem && phase === "actions"
-              ? "text-accent"
-              : "text-text"
+            card.isActionItem && phase === "actions" ? "text-accent" : "text-text"
           }`}
         >
           {card.text}
@@ -364,8 +354,8 @@ function RetroCardItem({
                 phase === "vote" && canVote
                   ? "text-sub hover:text-accent-magenta hover:bg-accent-magenta/10 cursor-pointer"
                   : phase === "vote" && !canVote
-                  ? "text-sub cursor-not-allowed opacity-50"
-                  : "text-sub cursor-default"
+                    ? "text-sub cursor-not-allowed opacity-50"
+                    : "text-sub cursor-default"
               }`}
             >
               <Heart
@@ -463,8 +453,7 @@ function RetroColumnPanel({
   const inputRef = useRef<HTMLInputElement>(null);
   const canVote = userVotes < MAX_VOTES;
 
-  const displayCards =
-    phase === "discuss" || phase === "actions" ? sortedByVotes(cards) : cards;
+  const displayCards = phase === "discuss" || phase === "actions" ? sortedByVotes(cards) : cards;
 
   function handleSubmit() {
     const trimmed = inputVal.trim();
@@ -490,10 +479,7 @@ function RetroColumnPanel({
             {column.label}
           </span>
         </div>
-        <Badge
-          variant="outline"
-          className="text-[10px] bg-cardH border-border text-sub"
-        >
+        <Badge variant="outline" className="text-[10px] bg-cardH border-border text-sub">
           {cards.length}
         </Badge>
       </div>
@@ -584,9 +570,7 @@ function FormatSelector({ onSelect }: { onSelect: (format: RetroFormat) => void 
       category="Ceremonies"
     >
       <div className="space-y-6">
-        <h2 className="text-lg font-display font-bold text-text">
-          Choose a Format
-        </h2>
+        <h2 className="text-lg font-display font-bold text-text">Choose a Format</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {retroFormats.map((fmt) => (
             <Card
@@ -645,9 +629,7 @@ function buildExportText(state: BoardState): string {
   ];
 
   for (const col of state.format.columns) {
-    const colCards = state.cards.filter(
-      (c) => c.columnKey === col.key && c.groupedWith === null
-    );
+    const colCards = state.cards.filter((c) => c.columnKey === col.key && c.groupedWith === null);
     lines.push(`## ${col.label}`);
     if (colCards.length === 0) {
       lines.push("  (no cards)");
@@ -655,9 +637,7 @@ function buildExportText(state: BoardState): string {
       sortedByVotes(colCards).forEach((card) => {
         lines.push(`- [${card.votes} votes] ${card.text}`);
         if (card.isActionItem) {
-          lines.push(
-            `  → ACTION ITEM${card.assignee ? ` | Assigned to: ${card.assignee}` : ""}`
-          );
+          lines.push(`  → ACTION ITEM${card.assignee ? ` | Assigned to: ${card.assignee}` : ""}`);
         }
         const children = state.cards.filter((c) => c.groupedWith === card.id);
         children.forEach((child) => lines.push(`  • ${child.text}`));
@@ -726,17 +706,23 @@ function Board({
   }, [state.timerRunning, onUpdate]);
 
   const handleAdvancePhase = useCallback(() => {
-    let transition: { from: BoardPhase; to: BoardPhase } | null = null;
+    // BUG-T7-retro-1: compute the transition BEFORE dispatch so we
+    // never depend on an updater closure variable that React 18 may
+    // re-invoke (StrictMode) or invoke at unspecified timing.
+    const idx = PHASES.findIndex((p) => p.key === state.phase);
+    const next = PHASES[idx + 1];
+    if (!next) return;
+    const transition = { from: state.phase, to: next.key };
+    sonify("retro", "phase-advance");
     onUpdate((prev) => {
-      const idx = PHASES.findIndex((p) => p.key === prev.phase);
-      const next = PHASES[idx + 1];
-      if (!next) return prev;
-      sonify("retro", "phase-advance");
-      transition = { from: prev.phase, to: next.key };
-      return { ...prev, phase: next.key };
+      // Re-check inside the updater to handle a concurrent advance.
+      const i = PHASES.findIndex((p) => p.key === prev.phase);
+      const nx = PHASES[i + 1];
+      if (!nx) return prev;
+      return { ...prev, phase: nx.key };
     });
-    if (transition) log(RETRO_ACTIONS.PHASE_ADVANCED, transition);
-  }, [onUpdate, log]);
+    log(RETRO_ACTIONS.PHASE_ADVANCED, transition);
+  }, [onUpdate, log, state.phase]);
 
   const handleAddCard = useCallback(
     (columnKey: string, text: string) => {
@@ -765,28 +751,27 @@ function Board({
 
   const handleVote = useCallback(
     (id: string) => {
-      let nextVoteCount: number | null = null;
+      // BUG-T7-retro-1: compute the vote count + branch BEFORE dispatch.
+      // The previous pattern wrote `nextVoteCount` from inside an updater
+      // closure and read it synchronously after dispatch — React 18
+      // doesn't guarantee eager invocation of updaters.
+      if (state.phase !== "vote") return;
+      if (state.userVotes >= MAX_VOTES) return;
+      const card = state.cards.find((c) => c.id === id);
+      const nextVoteCount = (card?.votes ?? 0) + 1;
+      sonify("retro", "vote");
       onUpdate((prev) => {
         if (prev.phase !== "vote") return prev;
         if (prev.userVotes >= MAX_VOTES) return prev;
-        sonify("retro", "vote");
-        const card = prev.cards.find((c) => c.id === id);
-        nextVoteCount = (card?.votes ?? 0) + 1;
         return {
           ...prev,
           userVotes: prev.userVotes + 1,
-          cards: prev.cards.map((c) =>
-            c.id === id ? { ...c, votes: c.votes + 1 } : c
-          ),
+          cards: prev.cards.map((c) => (c.id === id ? { ...c, votes: c.votes + 1 } : c)),
         };
       });
-      // Log AFTER the updater runs (post-commit) so StrictMode's double-invoke
-      // of the pure updater doesn't double-log.
-      if (nextVoteCount !== null) {
-        log(RETRO_ACTIONS.CARD_VOTED, { cardId: id, voteCount: nextVoteCount });
-      }
+      log(RETRO_ACTIONS.CARD_VOTED, { cardId: id, voteCount: nextVoteCount });
     },
-    [onUpdate, log]
+    [onUpdate, log, state.phase, state.userVotes, state.cards]
   );
 
   const handleDelete = useCallback(
@@ -849,9 +834,7 @@ function Board({
         didGroup = { sourceId: id, targetId: parentId };
         return {
           ...prev,
-          cards: prev.cards.map((c) =>
-            c.id === id ? { ...c, groupedWith: parentId } : c
-          ),
+          cards: prev.cards.map((c) => (c.id === id ? { ...c, groupedWith: parentId } : c)),
         };
       });
       if (didGroup) log(RETRO_ACTIONS.CARDS_GROUPED, didGroup);
@@ -862,34 +845,24 @@ function Board({
 
   const handleToggleAction = useCallback(
     (id: string) => {
-      let nextIsActionItem: boolean | null = null;
-      onUpdate((prev) => {
-        const card = prev.cards.find((c) => c.id === id);
-        nextIsActionItem = !(card?.isActionItem ?? false);
-        return {
-          ...prev,
-          cards: prev.cards.map((c) =>
-            c.id === id ? { ...c, isActionItem: !c.isActionItem } : c
-          ),
-        };
-      });
-      if (nextIsActionItem !== null) {
-        log(RETRO_ACTIONS.ACTION_TOGGLED, {
-          cardId: id,
-          isActionItem: nextIsActionItem,
-        });
-      }
+      // BUG-T7-retro-1: compute next value before dispatch.
+      const card = state.cards.find((c) => c.id === id);
+      if (!card) return;
+      const nextIsActionItem = !card.isActionItem;
+      onUpdate((prev) => ({
+        ...prev,
+        cards: prev.cards.map((c) => (c.id === id ? { ...c, isActionItem: !c.isActionItem } : c)),
+      }));
+      log(RETRO_ACTIONS.ACTION_TOGGLED, { cardId: id, isActionItem: nextIsActionItem });
     },
-    [onUpdate, log]
+    [onUpdate, log, state.cards]
   );
 
   const handleAssigneeChange = useCallback(
     (id: string, val: string) => {
       onUpdate((prev) => ({
         ...prev,
-        cards: prev.cards.map((c) =>
-          c.id === id ? { ...c, assignee: val } : c
-        ),
+        cards: prev.cards.map((c) => (c.id === id ? { ...c, assignee: val } : c)),
       }));
     },
     [onUpdate]
@@ -910,8 +883,8 @@ function Board({
             c.id === id
               ? { ...c, discussing: next }
               : next && c.discussing
-              ? { ...c, discussing: false }
-              : c
+                ? { ...c, discussing: false }
+                : c
           ),
         };
       });
@@ -919,14 +892,17 @@ function Board({
     [onUpdate]
   );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Retrospective Board",
-    prompts: generateRetroPrompts({
-      formatName: state.format.name,
-      columns: state.format.columns,
-      cards: state.cards,
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Retrospective Board",
+      prompts: generateRetroPrompts({
+        formatName: state.format.name,
+        columns: state.format.columns,
+        cards: state.cards,
+      }),
     }),
-  }), [state.format, state.cards]);
+    [state.format, state.cards]
+  );
 
   // ── Phase-15: lightweight theme clustering across all cards ────────
   // Only kicks in once the board reaches CLUSTER_MIN_CARDS — small boards
@@ -985,10 +961,10 @@ function Board({
     colCount <= 2
       ? "grid-cols-1 sm:grid-cols-2"
       : colCount === 3
-      ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
-      : colCount === 4
-      ? "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4"
-      : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5";
+        ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+        : colCount === 4
+          ? "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4"
+          : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5";
 
   return (
     <ToolPageWrapper
@@ -1021,9 +997,7 @@ function Board({
             <TimerWidget
               seconds={state.timerSeconds}
               running={state.timerRunning}
-              onToggle={() =>
-                onUpdate((prev) => ({ ...prev, timerRunning: !prev.timerRunning }))
-              }
+              onToggle={() => onUpdate((prev) => ({ ...prev, timerRunning: !prev.timerRunning }))}
               onReset={() =>
                 onUpdate((prev) => ({
                   ...prev,
@@ -1074,10 +1048,7 @@ function Board({
                       background: `${color}15`,
                     }}
                   >
-                    <span
-                      className="w-2 h-2 rounded-full"
-                      style={{ background: color }}
-                    />
+                    <span className="w-2 h-2 rounded-full" style={{ background: color }} />
                     Theme {i + 1}: {count} card{count !== 1 ? "s" : ""}
                   </span>
                 );
@@ -1152,9 +1123,7 @@ function Board({
           >
             <ArrowLeft className="w-4 h-4 mr-2" /> Clear Board
           </Button>
-          <span className="ml-auto text-xs text-sub">
-            {state.format.name} · Local session
-          </span>
+          <span className="ml-auto text-xs text-sub">{state.format.name} · Local session</span>
         </div>
       </div>
     </ToolPageWrapper>
@@ -1199,23 +1168,13 @@ export function RetroClient() {
     logger.log(RETRO_ACTIONS.RETRO_RESET, {});
   }, [logger]);
 
-  const handleUpdate = useCallback(
-    (updater: (prev: BoardState) => BoardState) => {
-      setBoardState((prev) => (prev ? updater(prev) : prev));
-    },
-    []
-  );
+  const handleUpdate = useCallback((updater: (prev: BoardState) => BoardState) => {
+    setBoardState((prev) => (prev ? updater(prev) : prev));
+  }, []);
 
   if (!boardState) {
     return <FormatSelector onSelect={handleSelectFormat} />;
   }
 
-  return (
-    <Board
-      state={boardState}
-      onUpdate={handleUpdate}
-      onReset={handleReset}
-      logger={logger}
-    />
-  );
+  return <Board state={boardState} onUpdate={handleUpdate} onReset={handleReset} logger={logger} />;
 }

@@ -64,9 +64,16 @@ function empty(): SosEntry {
 function ageDays(e: SosEntry): number | null {
   // Guard against malformed meetingDate (manual import, schema drift). NaN
   // would bleed into the staleBlockers filter and the rendered "age Nd" pill.
-  const t = new Date(e.meetingDate).getTime();
-  if (!Number.isFinite(t)) return null;
-  return Math.floor((Date.now() - t) / (1000 * 60 * 60 * 24));
+  // BUG-T7-scrum-of-scrums-1: anchor both sides on LOCAL midnight, not
+  // UTC. Without this, a PDT user creating an entry late at night sees
+  // its age jump to "3d" the next calendar day instead of incrementing
+  // truthfully, falsely tripping the `staleBlockers ≥ 3d` callout.
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(e.meetingDate);
+  if (!m) return null;
+  const meeting = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Math.max(0, Math.floor((today - meeting) / (1000 * 60 * 60 * 24)));
 }
 
 export function ScrumOfScrumsClient() {
@@ -133,10 +140,16 @@ export function ScrumOfScrumsClient() {
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
-        teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-        impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-        decisions: s.decisions, techDebt: s.techDebt,
-        maturityLevel: s.maturityLevel, teamName: s.teamName,
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
       })
     )
   );
@@ -162,7 +175,15 @@ export function ScrumOfScrumsClient() {
           filename="scrum-of-scrums"
           csvData={{
             headers: ["Date", "Team", "Kind", "Text", "Blocked By", "Status", "Resolved"],
-            rows: entries.map((e) => [e.meetingDate, e.team, e.kind, e.text, e.blockedBy ?? "", e.status, e.resolvedAt ?? ""]),
+            rows: entries.map((e) => [
+              e.meetingDate,
+              e.team,
+              e.kind,
+              e.text,
+              e.blockedBy ?? "",
+              e.status,
+              e.resolvedAt ?? "",
+            ]),
           }}
           jsonData={entries}
         />
@@ -188,7 +209,10 @@ export function ScrumOfScrumsClient() {
           <strong>
             {staleBlockers.length} blocker{staleBlockers.length > 1 ? "s" : ""} aged ≥3 days:
           </strong>{" "}
-          {staleBlockers.slice(0, 3).map((e) => `${e.team}: ${e.text.slice(0, 40)}`).join(" · ")}
+          {staleBlockers
+            .slice(0, 3)
+            .map((e) => `${e.team}: ${e.text.slice(0, 40)}`)
+            .join(" · ")}
         </CalloutAlert>
       )}
 
@@ -211,8 +235,13 @@ export function ScrumOfScrumsClient() {
               placeholder="Team name"
               className="bg-bg border-border"
             />
-            <Select value={draft.kind} onValueChange={(v) => setDraft((d) => ({ ...d, kind: v as EntryKind }))}>
-              <SelectTrigger className="bg-bg border-border capitalize"><SelectValue /></SelectTrigger>
+            <Select
+              value={draft.kind}
+              onValueChange={(v) => setDraft((d) => ({ ...d, kind: v as EntryKind }))}
+            >
+              <SelectTrigger className="bg-bg border-border capitalize">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="update">Update</SelectItem>
                 <SelectItem value="blocker">Blocker</SelectItem>
@@ -251,7 +280,10 @@ export function ScrumOfScrumsClient() {
             <CardContent className="p-3">
               <div className="flex items-start gap-3">
                 <div className="flex flex-col items-center w-20 shrink-0">
-                  <div className="text-[10px] uppercase font-data" style={{ color: KIND_COLORS[e.kind] }}>
+                  <div
+                    className="text-[10px] uppercase font-data"
+                    style={{ color: KIND_COLORS[e.kind] }}
+                  >
                     {e.kind}
                   </div>
                   <div className="text-xs text-sub font-data">{e.meetingDate}</div>
@@ -266,11 +298,21 @@ export function ScrumOfScrumsClient() {
                 </div>
                 <div className="flex items-center gap-1">
                   {e.status === "open" && (
-                    <Button variant="outline" size="sm" onClick={() => resolve(e.id)} className="border-accent/40 text-accent hover:bg-accent/10">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => resolve(e.id)}
+                      className="border-accent/40 text-accent hover:bg-accent/10"
+                    >
                       Resolve
                     </Button>
                   )}
-                  <Button variant="ghost" size="sm" onClick={() => remove(e.id)} className="text-sub hover:text-danger">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => remove(e.id)}
+                    className="text-sub hover:text-danger"
+                  >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>

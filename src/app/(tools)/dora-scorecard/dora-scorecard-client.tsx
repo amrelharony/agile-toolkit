@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   LineChart,
   Line,
@@ -88,7 +88,7 @@ function bandLead(hours: number): Band {
 function bandCfr(rate: number): Band {
   if (!Number.isFinite(rate) || rate < 0) return "Low";
   if (rate <= 0.15) return "Elite";
-  if (rate <= 0.30) return "High";
+  if (rate <= 0.3) return "High";
   if (rate <= 0.45) return "Medium";
   return "Low";
 }
@@ -130,20 +130,24 @@ function makeDraft(): DraftState {
 }
 
 export function DoraScorecardClient() {
-  const [state, setState] = usePersisted<DoraState>(
-    "agile-toolkit:dora-scorecard",
-    DEFAULT_STATE
-  );
+  const [state, setState] = usePersisted<DoraState>("agile-toolkit:dora-scorecard", DEFAULT_STATE);
   const [draft, setDraft] = useState<DraftState>(makeDraft);
   const { log } = useHistoryLogger("dora-scorecard");
 
   // Numeric draft commits — clamp on blur, never mid-edit. We store the raw
   // string in `draft` and resolve to a number only inside `addSample`.
+  // BUG-T2-dora-scorecard-2: reject empty strings explicitly so a blank
+  // field doesn't parse to 0 (which would silently band as Elite for
+  // CFR / MTTR / lead-time and Low for deploy-freq, producing a
+  // "phantom Elite" sample that misrepresents missing data as best-
+  // in-class data).
   const parsePositive = (v: string): number | null => {
+    if (v.trim() === "") return null;
     const n = Number(v);
     return Number.isFinite(n) && n >= 0 ? n : null;
   };
   const parsePercent = (v: string): number | null => {
+    if (v.trim() === "") return null;
     const n = Number(v);
     if (!Number.isFinite(n)) return null;
     return Math.min(1, Math.max(0, n / 100));
@@ -347,10 +351,29 @@ export function DoraScorecardClient() {
           </KpiGrid>
           {trends && (
             <div className="flex flex-wrap gap-2 -mt-2 mb-2" aria-label="DORA metric trends">
-              <TrendChip label="Deploy/wk" trend={trends.deploy.trend} significant={trends.deploy.significant} />
-              <TrendChip label="Lead time" trend={trends.lead.trend} significant={trends.lead.significant} betterDown />
-              <TrendChip label="CFR" trend={trends.cfr.trend} significant={trends.cfr.significant} betterDown />
-              <TrendChip label="MTTR" trend={trends.mttr.trend} significant={trends.mttr.significant} betterDown />
+              <TrendChip
+                label="Deploy/wk"
+                trend={trends.deploy.trend}
+                significant={trends.deploy.significant}
+              />
+              <TrendChip
+                label="Lead time"
+                trend={trends.lead.trend}
+                significant={trends.lead.significant}
+                betterDown
+              />
+              <TrendChip
+                label="CFR"
+                trend={trends.cfr.trend}
+                significant={trends.cfr.significant}
+                betterDown
+              />
+              <TrendChip
+                label="MTTR"
+                trend={trends.mttr.trend}
+                significant={trends.mttr.significant}
+                betterDown
+              />
             </div>
           )}
         </>
@@ -373,9 +396,7 @@ export function DoraScorecardClient() {
               <Input
                 id="dora-quarter"
                 value={draft.quarter}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, quarter: e.target.value }))
-                }
+                onChange={(e) => setDraft((d) => ({ ...d, quarter: e.target.value }))}
                 placeholder="2026-Q1"
                 className="bg-surface border-border"
               />
@@ -383,18 +404,14 @@ export function DoraScorecardClient() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <SmartInput<number>
                 predicted={deployPrediction}
-                onAccept={(v) =>
-                  setDraft((d) => ({ ...d, deployFreqPerWeek: String(v) }))
-                }
+                onAccept={(v) => setDraft((d) => ({ ...d, deployFreqPerWeek: String(v) }))}
                 render={({ chip }) => (
                   <div>
                     <NumericField
                       id="dora-deploy"
                       label="Deploys / week"
                       value={draft.deployFreqPerWeek}
-                      onChange={(v) =>
-                        setDraft((d) => ({ ...d, deployFreqPerWeek: v }))
-                      }
+                      onChange={(v) => setDraft((d) => ({ ...d, deployFreqPerWeek: v }))}
                       placeholder="e.g. 12"
                     />
                     {chip}
@@ -405,27 +422,21 @@ export function DoraScorecardClient() {
                 id="dora-lead"
                 label="Lead time (hours)"
                 value={draft.leadTimeHours}
-                onChange={(v) =>
-                  setDraft((d) => ({ ...d, leadTimeHours: v }))
-                }
+                onChange={(v) => setDraft((d) => ({ ...d, leadTimeHours: v }))}
                 placeholder="e.g. 8"
               />
               <NumericField
                 id="dora-cfr"
                 label="Change-fail rate (%)"
                 value={draft.changeFailRatePct}
-                onChange={(v) =>
-                  setDraft((d) => ({ ...d, changeFailRatePct: v }))
-                }
+                onChange={(v) => setDraft((d) => ({ ...d, changeFailRatePct: v }))}
                 placeholder="e.g. 12"
               />
               <NumericField
                 id="dora-mttr"
                 label="MTTR (hours)"
                 value={draft.mttrHours}
-                onChange={(v) =>
-                  setDraft((d) => ({ ...d, mttrHours: v }))
-                }
+                onChange={(v) => setDraft((d) => ({ ...d, mttrHours: v }))}
                 placeholder="e.g. 2"
               />
             </div>
@@ -436,9 +447,7 @@ export function DoraScorecardClient() {
               <Textarea
                 id="dora-desc"
                 value={draft.description}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, description: e.target.value }))
-                }
+                onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
                 placeholder="What changed this quarter? Notable releases, incidents, etc."
                 rows={3}
                 className="bg-surface border-border resize-none text-xs"
@@ -475,10 +484,7 @@ export function DoraScorecardClient() {
             <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
             <XAxis dataKey="quarter" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
             {/* Left axis: deploy frequency (per week) and lead time (hours). */}
-            <YAxis
-              yAxisId="left"
-              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-            />
+            <YAxis yAxisId="left" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
             {/* Right axis: CFR (%) and MTTR (hours) — distinct scales/units. */}
             <YAxis
               yAxisId="right"
@@ -532,7 +538,12 @@ export function DoraScorecardClient() {
                   stroke={chartTheme.colors.cyan}
                   strokeDasharray="2 4"
                   strokeOpacity={0.55}
-                  label={{ value: "X̄", fill: chartTheme.colors.cyan, fontSize: 10, position: "right" }}
+                  label={{
+                    value: "X̄",
+                    fill: chartTheme.colors.cyan,
+                    fontSize: 10,
+                    position: "right",
+                  }}
                   ifOverflow="extendDomain"
                 />
                 <ReferenceLine
@@ -541,7 +552,12 @@ export function DoraScorecardClient() {
                   stroke={chartTheme.colors.green}
                   strokeDasharray="2 4"
                   strokeOpacity={0.55}
-                  label={{ value: "UCL", fill: chartTheme.colors.green, fontSize: 10, position: "right" }}
+                  label={{
+                    value: "UCL",
+                    fill: chartTheme.colors.green,
+                    fontSize: 10,
+                    position: "right",
+                  }}
                   ifOverflow="extendDomain"
                 />
                 <ReferenceLine
@@ -550,7 +566,12 @@ export function DoraScorecardClient() {
                   stroke={chartTheme.colors.red}
                   strokeDasharray="2 4"
                   strokeOpacity={0.55}
-                  label={{ value: "LCL", fill: chartTheme.colors.red, fontSize: 10, position: "right" }}
+                  label={{
+                    value: "LCL",
+                    fill: chartTheme.colors.red,
+                    fontSize: 10,
+                    position: "right",
+                  }}
                   ifOverflow="extendDomain"
                 />
               </>
@@ -584,9 +605,7 @@ export function DoraScorecardClient() {
                     <td className="py-2 pr-3 font-data text-text">{s.quarter}</td>
                     <td className="py-2 pr-3 font-data">{s.deployFreqPerWeek.toFixed(2)}</td>
                     <td className="py-2 pr-3 font-data">{s.leadTimeHours.toFixed(1)}</td>
-                    <td className="py-2 pr-3 font-data">
-                      {(s.changeFailRate * 100).toFixed(1)}%
-                    </td>
+                    <td className="py-2 pr-3 font-data">{(s.changeFailRate * 100).toFixed(1)}%</td>
                     <td className="py-2 pr-3 font-data">{s.mttrHours.toFixed(1)}</td>
                     <td className="py-2 pr-3 text-sub max-w-[260px]">
                       <span className="line-clamp-2 break-words whitespace-pre-wrap">
@@ -633,7 +652,10 @@ function TrendChip({
 }) {
   if (!significant || trend === "none") {
     return (
-      <Badge variant="outline" className="font-mono text-[10px] tracking-wider uppercase text-sub border-border">
+      <Badge
+        variant="outline"
+        className="font-mono text-[10px] tracking-wider uppercase text-sub border-border"
+      >
         {label} flat
       </Badge>
     );
@@ -667,9 +689,16 @@ function NumericField({
   onChange: (v: string) => void;
   placeholder?: string;
 }) {
-  const [draft, setDraft] = useState(value);
-  // Sync external value changes (e.g. parent reset) into local draft.
-  useEffect(() => setDraft(value), [value]);
+  // BUG-T2-dora-scorecard-1: commit to the parent on EVERY keystroke,
+  // not on blur. The prior buffered-on-blur pattern combined with an
+  // onMouseDown blur-flush trick on the Add button didn't actually
+  // flush because React's setState from the blur handler queues until
+  // the next render, but the click handler reads parent state from the
+  // SAME render (the previous render's closure). Result: clicking Add
+  // without first Tab-ing away silently dropped the in-progress value.
+  // Per-keystroke commit eliminates the race; the cost is one extra
+  // parent setState per keystroke, which is negligible for a 5-field
+  // form.
   return (
     <div>
       <Label htmlFor={id} className="text-xs text-sub">
@@ -679,13 +708,11 @@ function NumericField({
         id={id}
         type="text"
         inputMode="decimal"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => onChange(draft)}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
-            onChange(draft);
             (e.target as HTMLInputElement).blur();
           }
         }}

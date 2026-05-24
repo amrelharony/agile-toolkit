@@ -73,6 +73,35 @@ export function resetCloudPersistedRegistry(): void {
   registered.clear();
 }
 
+/**
+ * Write-through helper for callers that aren't mounting `useCloudPersisted`
+ * but still want a key updated everywhere: localStorage + same-tab
+ * subscribers + cloud sync. Used by cross-tool "push to X tool" flows
+ * (e.g. RFC tracker → decision log) that previously called
+ * `localStorage.setItem` directly and silently bypassed the sync layer.
+ *
+ * Safe to call before any consumer has mounted the hook for the key —
+ * the value lands in localStorage; the next hook mount will pick it up
+ * during hydration, and cloud sync will be wired then.
+ *
+ * BUG-T7-rfc-tracker-2.
+ */
+export function setCloudPersistedValue(key: string, value: unknown): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.warn(`[setCloudPersistedValue] failed to persist key=${key}`, e);
+    }
+  }
+  snapshots.set(key, value);
+  notifySubs(key, value);
+  const dirty = adapterDirty.get(key);
+  if (dirty) dirty();
+}
+
 export function useCloudPersisted<T>(key: string, initial: T): [T, Dispatch<SetStateAction<T>>] {
   const [state, setState] = useState<T>(initial);
   const [hydratedKey, setHydratedKey] = useState<string | null>(null);

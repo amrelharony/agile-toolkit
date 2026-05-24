@@ -119,94 +119,89 @@ function createDefaultEntries(sprintDays: number, totalPoints: number): DayEntry
 
 const useBurndownStore = create<BurndownStore>()(
   persist(
-    withTimeTravel<BurndownStore>(
-      { toolId: "burndown" },
-      (set) => {
+    withTimeTravel<BurndownStore>({ toolId: "burndown" }, (set) => {
       const initialConfig = makeDefaultConfig();
       return {
-      config: initialConfig,
-      entries: createDefaultEntries(initialConfig.sprintDays, initialConfig.totalPoints),
+        config: initialConfig,
+        entries: createDefaultEntries(initialConfig.sprintDays, initialConfig.totalPoints),
 
-      updateConfig: (updates) =>
-        set((s) => {
-          const newConfig = { ...s.config, ...updates };
-          // Resize entries when sprint length changes — preserve user-entered
-          // values for days that still exist, drop days past the new end, and
-          // append blank entries for new days. Prior implementation wiped all
-          // filled-in remaining-points whenever the user nudged the length.
-          if (updates.sprintDays !== undefined && updates.sprintDays !== s.config.sprintDays) {
-            const target = Math.max(1, updates.sprintDays);
-            const byDay = new Map(s.entries.map((e) => [e.day, e]));
-            const next = Array.from({ length: target + 1 }, (_, i) => {
-              const existing = byDay.get(i);
-              if (existing) return existing;
-              return {
-                id: crypto.randomUUID(),
-                day: i,
-                remaining: i === 0 ? newConfig.totalPoints : null,
-                scopeChange: false,
-              };
-            });
-            return { config: newConfig, entries: next };
-          }
-          return { config: newConfig };
-        }),
+        updateConfig: (updates) =>
+          set((s) => {
+            const newConfig = { ...s.config, ...updates };
+            // Resize entries when sprint length changes — preserve user-entered
+            // values for days that still exist, drop days past the new end, and
+            // append blank entries for new days. Prior implementation wiped all
+            // filled-in remaining-points whenever the user nudged the length.
+            if (updates.sprintDays !== undefined && updates.sprintDays !== s.config.sprintDays) {
+              const target = Math.max(1, updates.sprintDays);
+              const byDay = new Map(s.entries.map((e) => [e.day, e]));
+              const next = Array.from({ length: target + 1 }, (_, i) => {
+                const existing = byDay.get(i);
+                if (existing) return existing;
+                return {
+                  id: crypto.randomUUID(),
+                  day: i,
+                  remaining: i === 0 ? newConfig.totalPoints : null,
+                  scopeChange: false,
+                };
+              });
+              return { config: newConfig, entries: next };
+            }
+            return { config: newConfig };
+          }),
 
-      updateEntry: (id, updates) =>
-        set((s) => ({
-          entries: s.entries.map((e) => (e.id === id ? { ...e, ...updates } : e)),
-        })),
+        updateEntry: (id, updates) =>
+          set((s) => ({
+            entries: s.entries.map((e) => (e.id === id ? { ...e, ...updates } : e)),
+          })),
 
-      addEntry: () =>
-        set((s) => {
-          const maxDay = s.entries.reduce((m, e) => Math.max(m, e.day), 0);
-          return {
-            entries: [
-              ...s.entries,
-              {
-                id: crypto.randomUUID(),
-                day: maxDay + 1,
-                remaining: null,
-                scopeChange: false,
-              },
-            ],
-          };
-        }),
+        addEntry: () =>
+          set((s) => {
+            const maxDay = s.entries.reduce((m, e) => Math.max(m, e.day), 0);
+            return {
+              entries: [
+                ...s.entries,
+                {
+                  id: crypto.randomUUID(),
+                  day: maxDay + 1,
+                  remaining: null,
+                  scopeChange: false,
+                },
+              ],
+            };
+          }),
 
-      removeEntry: (id) =>
-        set((s) => ({ entries: s.entries.filter((e) => e.id !== id) })),
+        removeEntry: (id) => set((s) => ({ entries: s.entries.filter((e) => e.id !== id) })),
 
-      toggleScopeChange: (id) =>
-        set((s) => ({
-          entries: s.entries.map((e) =>
-            e.id === id ? { ...e, scopeChange: !e.scopeChange } : e
-          ),
-        })),
+        toggleScopeChange: (id) =>
+          set((s) => ({
+            entries: s.entries.map((e) =>
+              e.id === id ? { ...e, scopeChange: !e.scopeChange } : e
+            ),
+          })),
 
-      reset: () => {
-        // Use today's local date when resetting — `makeDefaultConfig`
-        // returns a STATIC date (for hydration safety on first paint), but
-        // a user clicking Reset expects "today" not "January 1st 2026".
-        const cfg = { ...makeDefaultConfig(), sprintStartDate: todayLocalISO() };
-        set({
-          config: cfg,
-          entries: createDefaultEntries(cfg.sprintDays, cfg.totalPoints),
-        });
-      },
-    };
-    }
-    ),
+        reset: () => {
+          // Use today's local date when resetting — `makeDefaultConfig`
+          // returns a STATIC date (for hydration safety on first paint), but
+          // a user clicking Reset expects "today" not "January 1st 2026".
+          const cfg = { ...makeDefaultConfig(), sprintStartDate: todayLocalISO() };
+          set({
+            config: cfg,
+            entries: createDefaultEntries(cfg.sprintDays, cfg.totalPoints),
+          });
+        },
+      };
+    }),
     {
       name: "agile-toolkit:burndown",
       // Wrap localStorage so Safari Private Browsing / corporate-managed
       // Chromes don't crash page-load via persist.rehydrate().
       storage: safeJSONStorage("burndown"),
       partialize: (state) => {
-        const {
-          _ttPast,
-          _ttFuture,
-          ...rest
-        } = state as BurndownStore & { _ttPast?: unknown; _ttFuture?: unknown };
+        const { _ttPast, _ttFuture, ...rest } = state as BurndownStore & {
+          _ttPast?: unknown;
+          _ttFuture?: unknown;
+        };
         void _ttPast;
         void _ttFuture;
         return rest;
@@ -371,14 +366,15 @@ export function BurndownClient() {
   // Falls back to confidence "none" if the workspace has no completed
   // sprints, so the chip silently disappears and the input behaves as
   // a normal number field.
-  const totalPointsPrediction = usePredictedDefault<number>("velocity", "nextSprintPlan", config.totalPoints);
+  const totalPointsPrediction = usePredictedDefault<number>(
+    "velocity",
+    "nextSprintPlan",
+    config.totalPoints
+  );
 
   /* -- Chart data ---------------------------------------------------------- */
 
-  const sortedEntries = useMemo(
-    () => [...entries].sort((a, b) => a.day - b.day),
-    [entries]
-  );
+  const sortedEntries = useMemo(() => [...entries].sort((a, b) => a.day - b.day), [entries]);
 
   // Numeric series of remaining points at the days the user has filled in.
   // Used as the input to forecastBayesianHolt + cusum below. Holes are
@@ -406,7 +402,8 @@ export function BurndownClient() {
     const sortedFilled = [...filledDays].sort((a, b) => a - b);
     const lastFilledDay =
       sortedFilled.length > 0
-        ? (sortedFilled.find((d, i, arr) => arr[i + 1] !== d + 1) ?? sortedFilled[sortedFilled.length - 1])
+        ? (sortedFilled.find((d, i, arr) => arr[i + 1] !== d + 1) ??
+          sortedFilled[sortedFilled.length - 1])
         : 0;
     const horizon = Math.max(1, config.sprintDays - lastFilledDay);
     return forecastBayesianHolt(remainingSeries, horizon);
@@ -424,7 +421,8 @@ export function BurndownClient() {
     const sortedFilled = [...filledDays].sort((a, b) => a - b);
     const lastFilledDay =
       sortedFilled.length > 0
-        ? (sortedFilled.find((d, i, arr) => arr[i + 1] !== d + 1) ?? sortedFilled[sortedFilled.length - 1])
+        ? (sortedFilled.find((d, i, arr) => arr[i + 1] !== d + 1) ??
+          sortedFilled[sortedFilled.length - 1])
         : 0;
     const m = new Map<number, (typeof forecast)[number]>();
     forecast.forEach((fp, i) => {
@@ -451,8 +449,9 @@ export function BurndownClient() {
       .map((e) => e.day);
     return changepoints
       .map((cp) => ({ day: filledDays[cp.index], direction: cp.direction }))
-      .filter((x): x is { day: number; direction: "up" | "down" } =>
-        Number.isFinite(x.day) && x.day >= 0 && x.day <= config.sprintDays,
+      .filter(
+        (x): x is { day: number; direction: "up" | "down" } =>
+          Number.isFinite(x.day) && x.day >= 0 && x.day <= config.sprintDays
       );
   }, [changepoints, sortedEntries, config.sprintDays]);
 
@@ -496,7 +495,11 @@ export function BurndownClient() {
     const variance = parseFloat((idealAtLastDay - (last.remaining ?? 0)).toFixed(1));
     const trend = variance > 0.5 ? "ahead" : variance < -0.5 ? "behind" : "neutral";
     const completed = config.totalPoints - (last.remaining ?? config.totalPoints);
-    const completionRate = Math.round((completed / config.totalPoints) * 100);
+    // BUG-T1-burndown-1: zero-guard before division. The Input has min={1}
+    // but a corrupted persisted state or hand-edited JSON can land 0 here,
+    // which would render "Infinity%" in the KPI tile.
+    const completionRate =
+      config.totalPoints > 0 ? Math.round((completed / config.totalPoints) * 100) : 0;
     return { variance, trend, completionRate, lastDay: last.day };
   }, [sortedEntries, config]);
 
@@ -521,23 +524,26 @@ export function BurndownClient() {
     [chartData]
   );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Burndown Chart",
-    prompts: generateBurndownPrompts({ config, entries }),
-  }), [config, entries]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Burndown Chart",
+      prompts: generateBurndownPrompts({ config, entries }),
+    }),
+    [config, entries]
+  );
 
   /* -- Trend icon ---------------------------------------------------------- */
 
   const TrendIcon =
     stats.trend === "ahead" ? TrendingDown : stats.trend === "behind" ? TrendingUp : Minus;
   const trendColor =
-    stats.trend === "ahead"
-      ? "#00ff88"
-      : stats.trend === "behind"
-        ? "#ef4444"
-        : "#94a3b8";
+    stats.trend === "ahead" ? "#00ff88" : stats.trend === "behind" ? "#ef4444" : "#94a3b8";
   const trendLabel =
-    stats.trend === "ahead" ? "Ahead of ideal" : stats.trend === "behind" ? "Behind ideal" : "On track";
+    stats.trend === "ahead"
+      ? "Ahead of ideal"
+      : stats.trend === "behind"
+        ? "Behind ideal"
+        : "On track";
 
   /* -- Render -------------------------------------------------------------- */
 
@@ -551,12 +557,7 @@ export function BurndownClient() {
       <div className="space-y-6">
         {/* ---- Summary Stats ---- */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            label="Total Points"
-            value={config.totalPoints}
-            unit="pts"
-            icon={BarChart3}
-          />
+          <StatCard label="Total Points" value={config.totalPoints} unit="pts" icon={BarChart3} />
           <StatCard
             label="Variance from Ideal"
             value={stats.variance > 0 ? `+${stats.variance}` : stats.variance}
@@ -571,12 +572,7 @@ export function BurndownClient() {
             icon={TrendingDown}
             color="#00f0ff"
           />
-          <StatCard
-            label="Trend"
-            value={trendLabel}
-            icon={TrendIcon}
-            color={trendColor}
-          />
+          <StatCard label="Trend" value={trendLabel} icon={TrendIcon} color={trendColor} />
         </div>
 
         {/* ---- Configuration ---- */}
@@ -613,7 +609,9 @@ export function BurndownClient() {
                           accept();
                         }
                       }}
-                      onChange={(e) => updateConfig({ totalPoints: Math.max(1, Number(e.target.value)) })}
+                      onChange={(e) =>
+                        updateConfig({ totalPoints: Math.max(1, Number(e.target.value)) })
+                      }
                       className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
                       aria-label="Total story points for the sprint"
                     />
@@ -656,23 +654,12 @@ export function BurndownClient() {
           headerExtras={
             <>
               <AiPromptGenerator config={promptConfig} />
-              <ExportButton
-                filename="burndown-chart"
-                csvData={csvData}
-                targetRef={chartRef}
-              />
+              <ExportButton filename="burndown-chart" csvData={csvData} targetRef={chartRef} />
             </>
           }
         >
-          <ComposedChart
-            data={chartData}
-            margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
-          >
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke={chartTheme.gridColor}
-              vertical={false}
-            />
+          <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
             <XAxis
               dataKey="day"
               tickFormatter={(v: number) => `D${v}`}
@@ -702,10 +689,7 @@ export function BurndownClient() {
               domain={[0, "auto"]}
             />
             <Tooltip content={<CustomTooltip />} />
-            <Legend
-              wrapperStyle={chartTheme.legendStyle}
-              iconType="line"
-            />
+            <Legend wrapperStyle={chartTheme.legendStyle} iconType="line" />
 
             {/* Scope change markers */}
             {scopeChangeDays.map((day) => (
@@ -826,19 +810,10 @@ export function BurndownClient() {
           headerClassName="pb-4"
           actions={
             <>
-              <Button
-                variant="danger-ghost"
-                size="sm"
-                onClick={reset}
-              >
+              <Button variant="danger-ghost" size="sm" onClick={reset}>
                 Reset
               </Button>
-              <Button
-                size="sm"
-                variant="toolkit"
-                onClick={addEntry}
-                className="gap-1.5"
-              >
+              <Button size="sm" variant="toolkit" onClick={addEntry} className="gap-1.5">
                 <Plus className="w-4 h-4" />
                 Add Day
               </Button>
@@ -850,15 +825,11 @@ export function BurndownClient() {
               day-row is a compact grid; a multi-line field would break the
               visual rhythm of the dense tracker. */}
           <div className="hidden sm:grid grid-cols-[80px_1fr_1.2fr_120px_auto] gap-3 px-1 pb-2 border-b border-border mb-2">
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">
-              Day
-            </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">Day</span>
             <span className="text-xs text-sub font-medium uppercase tracking-wider">
               Remaining Points
             </span>
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">
-              Note
-            </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">Note</span>
             <span className="text-xs text-sub font-medium uppercase tracking-wider flex items-center gap-1">
               <Flag className="w-3 h-3" /> Scope Change
             </span>
@@ -930,7 +901,8 @@ export function BurndownClient() {
 
           {/* Hint */}
           <p className="mt-4 text-xs text-sub">
-            Tip: Leave &quot;Remaining Points&quot; blank for days not yet reached. Day 0 is the sprint start.
+            Tip: Leave &quot;Remaining Points&quot; blank for days not yet reached. Day 0 is the
+            sprint start.
           </p>
         </SectionCard>
       </div>

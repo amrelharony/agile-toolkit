@@ -101,7 +101,7 @@ function isoWeek(d: Date): { year: number; week: number } {
   const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
   const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  const week = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
   return { year: date.getUTCFullYear(), week };
 }
 
@@ -145,6 +145,18 @@ export function KanbanClient() {
         const patch: Partial<KCard> = { column: col };
         if (col === "in_progress" && !c.startedAt) patch.startedAt = now;
         if (col === "done" && !c.completedAt) patch.completedAt = now;
+        // BUG-T4-kanban-1: clear stale completion timestamp when a card
+        // moves out of Done. Without this, cycle-time + throughput KPI +
+        // XmR control chart + Mann-Kendall trend all consume corrupted
+        // data: a card moved Done→In Progress still reports `completedAt`,
+        // so `cycleTimeDays` returns a value and `throughputLast7` counts
+        // it.
+        if (col !== "done" && c.completedAt) patch.completedAt = undefined;
+        // Similarly: moving back to backlog/ready means the card was
+        // never started — clear startedAt so re-work cycle is captured.
+        if ((col === "backlog" || col === "ready") && c.startedAt) {
+          patch.startedAt = undefined;
+        }
         return { ...c, ...patch };
       }),
     }));
@@ -177,12 +189,21 @@ export function KanbanClient() {
       },
     }));
   const setClass = (id: string, cls: ClassOfService) => {
-    setState((s) => ({ ...s, cards: s.cards.map((c) => (c.id === id ? { ...c, class: cls } : c)) }));
+    setState((s) => ({
+      ...s,
+      cards: s.cards.map((c) => (c.id === id ? { ...c, class: cls } : c)),
+    }));
     log(KANBAN_ACTIONS.CARD_UPDATED, { cardId: id, classOfService: cls });
   };
 
   const byColumn = useMemo(() => {
-    const map: Record<ColumnId, KCard[]> = { backlog: [], ready: [], in_progress: [], review: [], done: [] };
+    const map: Record<ColumnId, KCard[]> = {
+      backlog: [],
+      ready: [],
+      in_progress: [],
+      review: [],
+      done: [],
+    };
     for (const c of state.cards) {
       // Guard against persisted cards from an older build that may have a
       // column value not in the current ColumnId union (e.g. a column was
@@ -285,7 +306,7 @@ export function KanbanClient() {
       })
       .filter(
         (a): a is CausalAnnotationData =>
-          a !== null && typeof a.x === "string" && xValuesInChart.has(a.x),
+          a !== null && typeof a.x === "string" && xValuesInChart.has(a.x)
       );
   }, [weeklyThroughput, weeklyThroughputSeries]);
 
@@ -305,12 +326,24 @@ export function KanbanClient() {
     return String(state.wipLimits[col]);
   };
 
-  const violations = COLUMNS.filter((c) => c.id !== "backlog" && c.id !== "done" && state.wipLimits[c.id] > 0 && byColumn[c.id].length > state.wipLimits[c.id]);
+  const violations = COLUMNS.filter(
+    (c) =>
+      c.id !== "backlog" &&
+      c.id !== "done" &&
+      state.wipLimits[c.id] > 0 &&
+      byColumn[c.id].length > state.wipLimits[c.id]
+  );
 
   const promptConfig = useMemo(
     () => ({
       toolName: "Kanban Board",
-      prompts: generateKanbanPrompts({ cards: state.cards, wipLimits: state.wipLimits, cycleAvg, cycleP85, throughputLast7 }),
+      prompts: generateKanbanPrompts({
+        cards: state.cards,
+        wipLimits: state.wipLimits,
+        cycleAvg,
+        cycleP85,
+        throughputLast7,
+      }),
     }),
     [state.cards, state.wipLimits, cycleAvg, cycleP85, throughputLast7]
   );
@@ -327,7 +360,16 @@ export function KanbanClient() {
         <ExportButton
           filename="kanban"
           csvData={{
-            headers: ["Title", "Description", "Column", "Class", "Created", "Started", "Completed", "Cycle (days)"],
+            headers: [
+              "Title",
+              "Description",
+              "Column",
+              "Class",
+              "Created",
+              "Started",
+              "Completed",
+              "Cycle (days)",
+            ],
             rows: state.cards.map((c) => [
               c.title,
               c.description ?? "",
@@ -352,11 +394,7 @@ export function KanbanClient() {
           hint={`±${cycleStd.toFixed(1)}`}
           valueClassName="text-accent"
         />
-        <StatCard
-          variant="compact"
-          label="P85"
-          value={`${cycleP85.toFixed(1)}d`}
-        />
+        <StatCard variant="compact" label="P85" value={`${cycleP85.toFixed(1)}d`} />
         <StatCard
           variant="compact"
           icon={Zap}
@@ -387,9 +425,7 @@ export function KanbanClient() {
           variant="compact"
           icon={TrendingUp}
           label="Next week"
-          value={
-            forecast[0] ? Math.max(0, Math.round(forecast[0].yHat)) : "—"
-          }
+          value={forecast[0] ? Math.max(0, Math.round(forecast[0].yHat)) : "—"}
           hint="forecast"
         />
       </KpiGrid>
@@ -398,12 +434,7 @@ export function KanbanClient() {
           Hidden when there are fewer than 2 weeks of completion data — the
           XmR primitive collapses to a point and the chart is meaningless. */}
       {weeklyThroughputSeries.length >= 2 && (
-        <SectionCard
-          title="Weekly throughput"
-          icon={Activity}
-          titleSize="sm"
-          className="mb-4"
-        >
+        <SectionCard title="Weekly throughput" icon={Activity} titleSize="sm" className="mb-4">
           <div className="-mx-2" style={{ height: 200 }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
@@ -490,7 +521,9 @@ export function KanbanClient() {
       {violations.length > 0 && (
         <CalloutAlert tone="danger" className="mb-4">
           <strong>WIP limit violated:</strong>{" "}
-          {violations.map((v) => `${v.label} (${byColumn[v.id].length}/${state.wipLimits[v.id]})`).join(", ")}
+          {violations
+            .map((v) => `${v.label} (${byColumn[v.id].length}/${state.wipLimits[v.id]})`)
+            .join(", ")}
         </CalloutAlert>
       )}
 
@@ -550,16 +583,11 @@ export function KanbanClient() {
           const limit = state.wipLimits[col.id];
           const over = limit > 0 && cards.length > limit;
           return (
-            <div
-              key={col.id}
-              className="space-y-2 min-w-0 w-[80vw] xs:w-[70vw] sm:w-auto"
-            >
+            <div key={col.id} className="space-y-2 min-w-0 w-[80vw] xs:w-[70vw] sm:w-auto">
               <div
                 className={cn(
                   "rounded-lg border p-2",
-                  over
-                    ? "border-danger/40 bg-danger/5"
-                    : "border-border bg-surface"
+                  over ? "border-danger/40 bg-danger/5" : "border-border bg-surface"
                 )}
               >
                 <div className="flex items-center justify-between mb-1">
@@ -571,8 +599,9 @@ export function KanbanClient() {
                     {limit > 0 && ` / ${limit}`}
                   </div>
                 </div>
-                {col.id !== "backlog" && col.id !== "done" && (
-                  col.id === "in_progress" ? (
+                {col.id !== "backlog" &&
+                  col.id !== "done" &&
+                  (col.id === "in_progress" ? (
                     // SmartInput on the most-used column. Predictor returns
                     // 120% of current in-progress count when there's signal;
                     // Tab-to-accept when the field is blank.
@@ -636,8 +665,7 @@ export function KanbanClient() {
                       className="h-8 sm:h-7 text-xs bg-bg border-border font-data"
                       aria-label={`WIP limit for ${col.label}`}
                     />
-                  )
-                )}
+                  ))}
               </div>
               {/* Card pile. Mobile gets a smaller min-height so empty lanes
                   don't waste 31% of the viewport. */}
@@ -651,9 +679,7 @@ export function KanbanClient() {
                       borderLeftWidth: 3,
                     }}
                   >
-                    <div className="text-text font-medium break-words">
-                      {c.title}
-                    </div>
+                    <div className="text-text font-medium break-words">{c.title}</div>
                     {c.description && (
                       <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
                         {c.description}
@@ -664,10 +690,7 @@ export function KanbanClient() {
                         select/button is a comfortable touch target; flex row
                         on sm+ where horizontal density is fine. */}
                     <div className="flex flex-col xs:flex-row xs:items-center gap-1.5">
-                      <Select
-                        value={c.column}
-                        onValueChange={(v) => moveCard(c.id, v as ColumnId)}
-                      >
+                      <Select value={c.column} onValueChange={(v) => moveCard(c.id, v as ColumnId)}>
                         <SelectTrigger
                           className="h-9 xs:h-7 text-xs bg-surface border-border xs:w-24 w-full"
                           aria-label={`Move ${c.title}`}
@@ -676,11 +699,7 @@ export function KanbanClient() {
                         </SelectTrigger>
                         <SelectContent>
                           {COLUMNS.map((x) => (
-                            <SelectItem
-                              key={x.id}
-                              value={x.id}
-                              className="text-xs"
-                            >
+                            <SelectItem key={x.id} value={x.id} className="text-xs">
                               {x.label}
                             </SelectItem>
                           ))}
@@ -689,9 +708,7 @@ export function KanbanClient() {
                       <div className="flex items-center gap-1.5 flex-1">
                         <Select
                           value={c.class}
-                          onValueChange={(v) =>
-                            setClass(c.id, v as ClassOfService)
-                          }
+                          onValueChange={(v) => setClass(c.id, v as ClassOfService)}
                         >
                           <SelectTrigger
                             className="h-9 xs:h-7 text-xs bg-surface border-border flex-1"

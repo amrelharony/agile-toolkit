@@ -176,13 +176,10 @@ const useSprintReviewStore = create<SprintReviewStore>()(
             },
           ],
         })),
-      removeFeature: (id) =>
-        set((s) => ({ features: s.features.filter((f) => f.id !== id) })),
+      removeFeature: (id) => set((s) => ({ features: s.features.filter((f) => f.id !== id) })),
       updateFeature: (id, updates) =>
         set((s) => ({
-          features: s.features.map((f) =>
-            f.id === id ? { ...f, ...updates } : f
-          ),
+          features: s.features.map((f) => (f.id === id ? { ...f, ...updates } : f)),
         })),
 
       setMeetingDate: (v) => set({ meetingDate: v }),
@@ -204,9 +201,7 @@ const useSprintReviewStore = create<SprintReviewStore>()(
         })),
       updateFeedback: (id, updates) =>
         set((s) => ({
-          feedbackItems: s.feedbackItems.map((f) =>
-            f.id === id ? { ...f, ...updates } : f
-          ),
+          feedbackItems: s.feedbackItems.map((f) => (f.id === id ? { ...f, ...updates } : f)),
         })),
 
       toggleChecklist: (id) =>
@@ -217,10 +212,7 @@ const useSprintReviewStore = create<SprintReviewStore>()(
         })),
       addChecklistItem: (label) =>
         set((s) => ({
-          checklistItems: [
-            ...s.checklistItems,
-            { id: crypto.randomUUID(), label, checked: false },
-          ],
+          checklistItems: [...s.checklistItems, { id: crypto.randomUUID(), label, checked: false }],
         })),
       removeChecklistItem: (id) =>
         set((s) => ({
@@ -228,9 +220,7 @@ const useSprintReviewStore = create<SprintReviewStore>()(
         })),
       updateChecklistLabel: (id, label) =>
         set((s) => ({
-          checklistItems: s.checklistItems.map((c) =>
-            c.id === id ? { ...c, label } : c
-          ),
+          checklistItems: s.checklistItems.map((c) => (c.id === id ? { ...c, label } : c)),
         })),
 
       setCommitted: (v) => set({ committed: v }),
@@ -265,11 +255,7 @@ const CATEGORY_LABELS: Record<FeedbackCategory, string> = {
 /* -------------------------------------------------------------------------- */
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-xs text-sub font-medium uppercase tracking-wider mb-1">
-      {children}
-    </p>
-  );
+  return <p className="text-xs text-sub font-medium uppercase tracking-wider mb-1">{children}</p>;
 }
 
 /**
@@ -359,8 +345,7 @@ function DemoScriptTab() {
     features.forEach((f, i) => {
       lines.push(`## ${i + 1}. ${f.name || "Untitled Feature"} (${f.timeMinutes || 0} min)`);
       if (f.description) lines.push(`**Description:** ${f.description}`);
-      if (f.acceptanceCriteria)
-        lines.push(`**Acceptance Criteria:** ${f.acceptanceCriteria}`);
+      if (f.acceptanceCriteria) lines.push(`**Acceptance Criteria:** ${f.acceptanceCriteria}`);
       lines.push("");
     });
     return lines.join("\n");
@@ -400,99 +385,84 @@ function DemoScriptTab() {
         icon={Clock}
         titleSuffix={`— Total: ${totalMinutes} min`}
         actions={
-          <Button
-            size="sm"
-            variant="toolkit"
-            onClick={addFeature}
-            className="gap-1.5"
-          >
+          <Button size="sm" variant="toolkit" onClick={addFeature} className="gap-1.5">
             <Plus className="w-4 h-4" />
             Add Feature
           </Button>
         }
         contentClassName="space-y-4"
       >
-          {features.length === 0 && (
-            <p className="text-sm text-sub text-center py-4">
-              No features yet. Add one above.
-            </p>
-          )}
-          {features.map((f, i) => (
-            <div
-              key={f.id}
-              className="border border-border rounded-lg p-4 space-y-3 bg-surface-deep/50"
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-accent font-medium">
-                  Feature {i + 1}
-                </span>
-                <Button
-                  variant="danger-ghost"
-                  size="icon"
-                  onClick={() => removeFeature(f.id)}
-                  className="min-touch-coarse h-7 w-7"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
-                <div className="space-y-1.5">
-                  <SectionLabel>Feature Name</SectionLabel>
-                  <Input
-                    value={f.name}
-                    onChange={(e) =>
-                      updateFeature(f.id, { name: e.target.value })
-                    }
-                    placeholder="e.g. User Login Flow"
-                    className="input-toolkit"
-                  />
-                </div>
-                <div className="space-y-1.5 w-28">
-                  <SectionLabel>Time (min)</SectionLabel>
-                  <NumCell
-                    value={f.timeMinutes}
-                    onCommit={(n) => updateFeature(f.id, { timeMinutes: n })}
-                    min={1}
-                    className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
-                  />
-                </div>
-              </div>
+        {features.length === 0 && (
+          <p className="text-sm text-sub text-center py-4">No features yet. Add one above.</p>
+        )}
+        {features.map((f, i) => (
+          <div
+            key={f.id}
+            className="border border-border rounded-lg p-4 space-y-3 bg-surface-deep/50"
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-accent font-medium">Feature {i + 1}</span>
+              <Button
+                variant="danger-ghost"
+                size="icon"
+                onClick={() => removeFeature(f.id)}
+                className="min-touch-coarse h-7 w-7"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
               <div className="space-y-1.5">
-                <SectionLabel>Brief Description</SectionLabel>
+                <SectionLabel>Feature Name</SectionLabel>
                 <Input
-                  value={f.description}
-                  onChange={(e) =>
-                    updateFeature(f.id, { description: e.target.value })
-                  }
-                  placeholder="What was built?"
+                  value={f.name}
+                  onChange={(e) => updateFeature(f.id, { name: e.target.value })}
+                  placeholder="e.g. User Login Flow"
                   className="input-toolkit"
                 />
               </div>
-              <div className="space-y-1.5">
-                <SectionLabel>Acceptance Criteria</SectionLabel>
-                <Textarea
-                  value={f.acceptanceCriteria}
-                  onChange={(e) =>
-                    updateFeature(f.id, {
-                      acceptanceCriteria: e.target.value,
-                    })
-                  }
-                  placeholder="Given... When... Then..."
-                  rows={2}
-                  className="bg-surface-deep border-border text-text resize-none focus:border-accent/50"
+              <div className="space-y-1.5 w-28">
+                <SectionLabel>Time (min)</SectionLabel>
+                <NumCell
+                  value={f.timeMinutes}
+                  onCommit={(n) => updateFeature(f.id, { timeMinutes: n })}
+                  min={1}
+                  className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
                 />
               </div>
             </div>
-          ))}
+            <div className="space-y-1.5">
+              <SectionLabel>Brief Description</SectionLabel>
+              <Input
+                value={f.description}
+                onChange={(e) => updateFeature(f.id, { description: e.target.value })}
+                placeholder="What was built?"
+                className="input-toolkit"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <SectionLabel>Acceptance Criteria</SectionLabel>
+              <Textarea
+                value={f.acceptanceCriteria}
+                onChange={(e) =>
+                  updateFeature(f.id, {
+                    acceptanceCriteria: e.target.value,
+                  })
+                }
+                placeholder="Given... When... Then..."
+                rows={2}
+                className="bg-surface-deep border-border text-text resize-none focus:border-accent/50"
+              />
+            </div>
+          </div>
+        ))}
       </SectionCard>
 
       {/* Generated script */}
       {features.length > 0 && (
         <SectionCard
           title="Generated Demo Script"
-          actions={
-            <ExportButton filename="demo-script" clipboardText={script} />
-          }
+          actions={<ExportButton filename="demo-script" clipboardText={script} />}
         >
           <pre className="text-sm text-sub whitespace-pre-wrap font-mono leading-relaxed bg-surface-deep/60 rounded-lg p-4 border border-border">
             {script}
@@ -512,10 +482,20 @@ function FeedbackTab() {
     meetingDate,
     feedbackItems,
     setMeetingDate,
-    addFeedback,
+    addFeedback: addFeedbackRaw,
     removeFeedback,
     updateFeedback,
   } = useSprintReviewStore();
+  // BUG-T8-sprint-review-1: log FEEDBACK_ADDED on add. Cross-tool
+  // consumers (the "Last 30 days: N feedback items captured" banner)
+  // read this event via selectEvents; without the log call, the
+  // signal was dead despite a literal constant existing for the
+  // action verb.
+  const { log } = useHistoryLogger("sprint-review");
+  const addFeedback = () => {
+    addFeedbackRaw();
+    log(SPRINT_REVIEW_ACTIONS.FEEDBACK_ADDED, {});
+  };
 
   const grouped = useMemo(() => {
     return {
@@ -531,142 +511,123 @@ function FeedbackTab() {
         title="Feedback Items"
         icon={MessageSquare}
         actions={
-          <Button
-            size="sm"
-            variant="toolkit"
-            onClick={addFeedback}
-            className="gap-1.5"
-          >
+          <Button size="sm" variant="toolkit" onClick={addFeedback} className="gap-1.5">
             <Plus className="w-4 h-4" />
             Add Feedback
           </Button>
         }
         contentClassName="space-y-4"
       >
-          {/* Meeting date */}
-          <div className="flex items-center gap-3 pb-2 border-b border-border">
-            <Label className="text-sub text-xs whitespace-nowrap">
-              Meeting Date
-            </Label>
-            <Input
-              type="date"
-              value={meetingDate}
-              onChange={(e) => setMeetingDate(e.target.value)}
-              className="bg-surface-deep border-border text-text max-w-xs focus:border-accent/50"
-            />
-          </div>
+        {/* Meeting date */}
+        <div className="flex items-center gap-3 pb-2 border-b border-border">
+          <Label className="text-sub text-xs whitespace-nowrap">Meeting Date</Label>
+          <Input
+            type="date"
+            value={meetingDate}
+            onChange={(e) => setMeetingDate(e.target.value)}
+            className="bg-surface-deep border-border text-text max-w-xs focus:border-accent/50"
+          />
+        </div>
 
-          {feedbackItems.length === 0 && (
-            <p className="text-sm text-sub text-center py-4">
-              No feedback yet. Add items above.
-            </p>
-          )}
+        {feedbackItems.length === 0 && (
+          <p className="text-sm text-sub text-center py-4">No feedback yet. Add items above.</p>
+        )}
 
-          {feedbackItems.map((item) => (
-            <div
-              key={item.id}
-              className="border border-border rounded-lg p-4 space-y-3 bg-surface-deep/50"
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
-                <div className="space-y-1.5">
-                  <SectionLabel>Stakeholder</SectionLabel>
-                  <Input
-                    value={item.stakeholder}
-                    onChange={(e) =>
-                      updateFeedback(item.id, { stakeholder: e.target.value })
-                    }
-                    placeholder="Name / Role"
-                    className="input-toolkit"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <SectionLabel>Category</SectionLabel>
-                  <Select
-                    value={item.category}
-                    onValueChange={(v) =>
-                      updateFeedback(item.id, {
-                        category: v as FeedbackCategory,
-                      })
-                    }
-                  >
-                    <SelectTrigger className="input-toolkit">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-surface border-border">
-                      <SelectItem value="positive">Positive</SelectItem>
-                      <SelectItem value="concern">Concern</SelectItem>
-                      <SelectItem value="suggestion">Suggestion</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button
-                  variant="danger-ghost"
-                  size="icon"
-                  onClick={() => removeFeedback(item.id)}
-                  className="h-9 w-9"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
+        {feedbackItems.map((item) => (
+          <div
+            key={item.id}
+            className="border border-border rounded-lg p-4 space-y-3 bg-surface-deep/50"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
               <div className="space-y-1.5">
-                <SectionLabel>Feedback</SectionLabel>
-                <Textarea
-                  value={item.feedback}
-                  onChange={(e) =>
-                    updateFeedback(item.id, { feedback: e.target.value })
-                  }
-                  placeholder="What did they say?"
-                  rows={2}
-                  className="bg-surface-deep border-border text-text resize-none focus:border-accent/50"
+                <SectionLabel>Stakeholder</SectionLabel>
+                <Input
+                  value={item.stakeholder}
+                  onChange={(e) => updateFeedback(item.id, { stakeholder: e.target.value })}
+                  placeholder="Name / Role"
+                  className="input-toolkit"
                 />
               </div>
+              <div className="space-y-1.5">
+                <SectionLabel>Category</SectionLabel>
+                <Select
+                  value={item.category}
+                  onValueChange={(v) =>
+                    updateFeedback(item.id, {
+                      category: v as FeedbackCategory,
+                    })
+                  }
+                >
+                  <SelectTrigger className="input-toolkit">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-surface border-border">
+                    <SelectItem value="positive">Positive</SelectItem>
+                    <SelectItem value="concern">Concern</SelectItem>
+                    <SelectItem value="suggestion">Suggestion</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                variant="danger-ghost"
+                size="icon"
+                onClick={() => removeFeedback(item.id)}
+                className="h-9 w-9"
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
             </div>
-          ))}
+            <div className="space-y-1.5">
+              <SectionLabel>Feedback</SectionLabel>
+              <Textarea
+                value={item.feedback}
+                onChange={(e) => updateFeedback(item.id, { feedback: e.target.value })}
+                placeholder="What did they say?"
+                rows={2}
+                className="bg-surface-deep border-border text-text resize-none focus:border-accent/50"
+              />
+            </div>
+          </div>
+        ))}
       </SectionCard>
 
       {/* Summary grouped by category */}
       {feedbackItems.length > 0 && (
         <SectionCard title="Feedback Summary" contentClassName="space-y-5">
           {(["positive", "concern", "suggestion"] as FeedbackCategory[]).map(
-              (cat) =>
-                grouped[cat].length > 0 && (
-                  <div key={cat}>
-                    <div className="flex items-center gap-2 mb-3">
-                      <Badge
-                        className={`${CATEGORY_COLORS[cat]} border text-xs capitalize`}
-                      >
-                        {CATEGORY_LABELS[cat]}
-                      </Badge>
-                      <span className="text-xs text-sub">
-                        {grouped[cat].length} item
-                        {grouped[cat].length !== 1 ? "s" : ""}
-                      </span>
-                    </div>
-                    <div className="space-y-2 pl-1">
-                      {grouped[cat].map((item) => (
-                        <div
-                          key={item.id}
-                          className="border-l-2 pl-3 py-1 border-border"
-                          style={{
-                            borderColor:
-                              cat === "positive"
-                                ? "#00ff88"
-                                : cat === "concern"
+            (cat) =>
+              grouped[cat].length > 0 && (
+                <div key={cat}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Badge className={`${CATEGORY_COLORS[cat]} border text-xs capitalize`}>
+                      {CATEGORY_LABELS[cat]}
+                    </Badge>
+                    <span className="text-xs text-sub">
+                      {grouped[cat].length} item
+                      {grouped[cat].length !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                  <div className="space-y-2 pl-1">
+                    {grouped[cat].map((item) => (
+                      <div
+                        key={item.id}
+                        className="border-l-2 pl-3 py-1 border-border"
+                        style={{
+                          borderColor:
+                            cat === "positive"
+                              ? "#00ff88"
+                              : cat === "concern"
                                 ? "#ef4444"
                                 : "#ffaa00",
-                          }}
-                        >
-                          <p className="text-xs text-sub mb-0.5">
-                            {item.stakeholder || "Unknown"}
-                          </p>
-                          <p className="text-sm text-text">
-                            {item.feedback || "—"}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
+                        }}
+                      >
+                        <p className="text-xs text-sub mb-0.5">{item.stakeholder || "Unknown"}</p>
+                        <p className="text-sm text-text">{item.feedback || "—"}</p>
+                      </div>
+                    ))}
                   </div>
-                )
+                </div>
+              )
           )}
         </SectionCard>
       )}
@@ -691,9 +652,7 @@ function ShowcaseChecklistTab() {
 
   const checkedCount = checklistItems.filter((c) => c.checked).length;
   const progress =
-    checklistItems.length > 0
-      ? Math.round((checkedCount / checklistItems.length) * 100)
-      : 0;
+    checklistItems.length > 0 ? Math.round((checkedCount / checklistItems.length) * 100) : 0;
 
   const handleAdd = () => {
     const trimmed = newItem.trim();
@@ -713,99 +672,84 @@ function ShowcaseChecklistTab() {
             <span className="text-sm text-sub font-data">
               {checkedCount}/{checklistItems.length}
             </span>
-            {progress === 100 && (
-              <CheckCircle2 className="w-4 h-4 text-[#00ff88]" />
-            )}
+            {progress === 100 && <CheckCircle2 className="w-4 h-4 text-[#00ff88]" />}
           </>
         }
         contentClassName="space-y-4"
       >
-          {/* Progress bar */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs text-sub">
-              <span>Progress</span>
-              <span className="font-data">{progress}%</span>
-            </div>
-            <Progress
-              value={progress}
-              className="h-2 bg-card"
-            />
+        {/* Progress bar */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs text-sub">
+            <span>Progress</span>
+            <span className="font-data">{progress}%</span>
           </div>
+          <Progress value={progress} className="h-2 bg-card" />
+        </div>
 
-          {/* Checklist items */}
-          <div className="space-y-2">
-            {checklistItems.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-deep/40 group hover:bg-surface-deep/70 transition-colors"
-              >
-                <button
-                  onClick={() => toggleChecklist(item.id)}
-                  className={`flex-shrink-0 w-5 h-5 rounded border transition-all ${
-                    item.checked
-                      ? "bg-accent border-accent"
-                      : "border-border hover:border-accent/50"
-                  }`}
-                >
-                  {item.checked && (
-                    <svg
-                      viewBox="0 0 20 20"
-                      fill="none"
-                      className="w-full h-full"
-                    >
-                      <path
-                        d="M5 10l4 4 6-6"
-                        stroke="#0a0e1a"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  )}
-                </button>
-                <Input
-                  value={item.label}
-                  onChange={(e) =>
-                    updateChecklistLabel(item.id, e.target.value)
-                  }
-                  className={`flex-1 border-none bg-transparent p-0 h-auto text-sm focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 ${
-                    item.checked
-                      ? "line-through text-sub"
-                      : "text-text"
-                  }`}
-                />
-                <Button
-                  variant="danger-ghost"
-                  size="icon"
-                  onClick={() => removeChecklistItem(item.id)}
-                  className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-            ))}
-          </div>
-
-          {/* Add new item */}
-          <div className="flex gap-2 pt-2 border-t border-border">
-            <Input
-              value={newItem}
-              onChange={(e) => setNewItem(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-              placeholder="Add checklist item..."
-              className="input-toolkit"
-            />
-            <Button
-              size="sm"
-              variant="toolkit"
-              onClick={handleAdd}
-              disabled={!newItem.trim()}
-              className="gap-1.5"
+        {/* Checklist items */}
+        <div className="space-y-2">
+          {checklistItems.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-deep/40 group hover:bg-surface-deep/70 transition-colors"
             >
-              <Plus className="w-4 h-4" />
-              Add
-            </Button>
-          </div>
+              <button
+                onClick={() => toggleChecklist(item.id)}
+                className={`flex-shrink-0 w-5 h-5 rounded border transition-all ${
+                  item.checked ? "bg-accent border-accent" : "border-border hover:border-accent/50"
+                }`}
+              >
+                {item.checked && (
+                  <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
+                    <path
+                      d="M5 10l4 4 6-6"
+                      stroke="#0a0e1a"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+              </button>
+              <Input
+                value={item.label}
+                onChange={(e) => updateChecklistLabel(item.id, e.target.value)}
+                className={`flex-1 border-none bg-transparent p-0 h-auto text-sm focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 ${
+                  item.checked ? "line-through text-sub" : "text-text"
+                }`}
+              />
+              <Button
+                variant="danger-ghost"
+                size="icon"
+                onClick={() => removeChecklistItem(item.id)}
+                className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          ))}
+        </div>
+
+        {/* Add new item */}
+        <div className="flex gap-2 pt-2 border-t border-border">
+          <Input
+            value={newItem}
+            onChange={(e) => setNewItem(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+            placeholder="Add checklist item..."
+            className="input-toolkit"
+          />
+          <Button
+            size="sm"
+            variant="toolkit"
+            onClick={handleAdd}
+            disabled={!newItem.trim()}
+            className="gap-1.5"
+          >
+            <Plus className="w-4 h-4" />
+            Add
+          </Button>
+        </div>
       </SectionCard>
     </div>
   );
@@ -829,10 +773,8 @@ function VelocitySummaryTab() {
     setBacklogDone,
   } = useSprintReviewStore();
 
-  const completionRate =
-    committed > 0 ? Math.round((completed / committed) * 100) : 0;
-  const releaseProgress =
-    totalBacklog > 0 ? Math.round((backlogDone / totalBacklog) * 100) : 0;
+  const completionRate = committed > 0 ? Math.round((completed / committed) * 100) : 0;
+  const releaseProgress = totalBacklog > 0 ? Math.round((backlogDone / totalBacklog) * 100) : 0;
 
   const card = useMemo(
     () =>
@@ -867,11 +809,7 @@ function VelocitySummaryTab() {
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Sprint velocity inputs */}
-        <SectionCard
-          title="Sprint Velocity"
-          icon={BarChart3}
-          contentClassName="space-y-4"
-        >
+        <SectionCard title="Sprint Velocity" icon={BarChart3} contentClassName="space-y-4">
           <div className="space-y-1.5">
             <Label className="text-sub text-xs">Committed Points</Label>
             <NumCell
@@ -897,11 +835,7 @@ function VelocitySummaryTab() {
                 className="font-data font-bold"
                 style={{
                   color:
-                    completionRate >= 90
-                      ? "#00ff88"
-                      : completionRate >= 70
-                      ? "#ffaa00"
-                      : "#ef4444",
+                    completionRate >= 90 ? "#00ff88" : completionRate >= 70 ? "#ffaa00" : "#ef4444",
                 }}
               >
                 {completionRate}%
@@ -946,8 +880,8 @@ function VelocitySummaryTab() {
                     releaseProgress >= 75
                       ? "#00ff88"
                       : releaseProgress >= 40
-                      ? "#ffaa00"
-                      : "#00f0ff",
+                        ? "#ffaa00"
+                        : "#00f0ff",
                 }}
               >
                 {releaseProgress}%
@@ -961,9 +895,7 @@ function VelocitySummaryTab() {
       {/* Generated velocity card */}
       <SectionCard
         title="Velocity Summary Card"
-        actions={
-          <ExportButton filename="velocity-summary" clipboardText={card} />
-        }
+        actions={<ExportButton filename="velocity-summary" clipboardText={card} />}
       >
         <pre className="text-sm text-sub whitespace-pre-wrap font-mono leading-relaxed bg-surface-deep/60 rounded-lg p-4 border border-border">
           {card}
@@ -1013,10 +945,8 @@ export function SprintReviewClient() {
   // Build combined markdown export
   const fullExport = useMemo(() => {
     const totalMinutes = features.reduce((s, f) => s + (f.timeMinutes || 0), 0);
-    const completionRate =
-      committed > 0 ? Math.round((completed / committed) * 100) : 0;
-    const releaseProgress =
-      totalBacklog > 0 ? Math.round((backlogDone / totalBacklog) * 100) : 0;
+    const completionRate = committed > 0 ? Math.round((completed / committed) * 100) : 0;
+    const releaseProgress = totalBacklog > 0 ? Math.round((backlogDone / totalBacklog) * 100) : 0;
     const checkedCount = checklistItems.filter((c) => c.checked).length;
 
     const lines: string[] = [];
@@ -1030,12 +960,9 @@ export function SprintReviewClient() {
     lines.push(`**Estimated Duration:** ${totalMinutes} minutes`);
     lines.push("");
     features.forEach((f, i) => {
-      lines.push(
-        `### ${i + 1}. ${f.name || "Untitled Feature"} (${f.timeMinutes || 0} min)`
-      );
+      lines.push(`### ${i + 1}. ${f.name || "Untitled Feature"} (${f.timeMinutes || 0} min)`);
       if (f.description) lines.push(`**Description:** ${f.description}`);
-      if (f.acceptanceCriteria)
-        lines.push(`**Acceptance Criteria:** ${f.acceptanceCriteria}`);
+      if (f.acceptanceCriteria) lines.push(`**Acceptance Criteria:** ${f.acceptanceCriteria}`);
       lines.push("");
     });
 
@@ -1045,23 +972,15 @@ export function SprintReviewClient() {
     if (feedbackItems.length === 0) {
       lines.push("_No feedback recorded._");
     } else {
-      (["positive", "concern", "suggestion"] as FeedbackCategory[]).forEach(
-        (cat) => {
-          const items = feedbackItems.filter((f) => f.category === cat);
-          if (items.length > 0) {
-            lines.push(
-              `\n### ${
-                cat.charAt(0).toUpperCase() + cat.slice(1)
-              }`
-            );
-            items.forEach((item) => {
-              lines.push(
-                `- **${item.stakeholder || "Unknown"}:** ${item.feedback || "—"}`
-              );
-            });
-          }
+      (["positive", "concern", "suggestion"] as FeedbackCategory[]).forEach((cat) => {
+        const items = feedbackItems.filter((f) => f.category === cat);
+        if (items.length > 0) {
+          lines.push(`\n### ${cat.charAt(0).toUpperCase() + cat.slice(1)}`);
+          items.forEach((item) => {
+            lines.push(`- **${item.stakeholder || "Unknown"}:** ${item.feedback || "—"}`);
+          });
         }
-      );
+      });
     }
     lines.push("");
 
@@ -1101,18 +1020,29 @@ export function SprintReviewClient() {
     backlogDone,
   ]);
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Sprint Review",
-    prompts: generateSprintReviewPrompts({
-      sprintName,
-      sprintNumber: Number(sprintNumber),
-      features: features.map((f) => ({ name: f.name, description: f.description, timeMinutes: f.timeMinutes })),
-      feedbackItems: feedbackItems.map((f) => ({ stakeholder: f.stakeholder, feedback: f.feedback, category: f.category })),
-      checklistItems: checklistItems.map((c) => ({ label: c.label, checked: c.checked })),
-      committed,
-      completed,
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Sprint Review",
+      prompts: generateSprintReviewPrompts({
+        sprintName,
+        sprintNumber: Number(sprintNumber),
+        features: features.map((f) => ({
+          name: f.name,
+          description: f.description,
+          timeMinutes: f.timeMinutes,
+        })),
+        feedbackItems: feedbackItems.map((f) => ({
+          stakeholder: f.stakeholder,
+          feedback: f.feedback,
+          category: f.category,
+        })),
+        checklistItems: checklistItems.map((c) => ({ label: c.label, checked: c.checked })),
+        committed,
+        completed,
+      }),
     }),
-  }), [sprintName, sprintNumber, features, feedbackItems, checklistItems, committed, completed]);
+    [sprintName, sprintNumber, features, feedbackItems, checklistItems, committed, completed]
+  );
 
   // ── Cross-tool signal: review activity in the last 30 days ────────────
   // Counts past demo additions + feedback captures so the user gets a
@@ -1150,11 +1080,13 @@ export function SprintReviewClient() {
       <div className="space-y-6">
         {(recentDemoCount > 0 || recentFeedbackCount > 0) && (
           <CalloutAlert tone="info" className="mb-0">
-            Last 30 days: <strong>{recentDemoCount}</strong> demo item{recentDemoCount === 1 ? "" : "s"} added
+            Last 30 days: <strong>{recentDemoCount}</strong> demo item
+            {recentDemoCount === 1 ? "" : "s"} added
             {recentFeedbackCount > 0 && (
               <>
                 {" · "}
-                <strong>{recentFeedbackCount}</strong> feedback item{recentFeedbackCount === 1 ? "" : "s"} captured
+                <strong>{recentFeedbackCount}</strong> feedback item
+                {recentFeedbackCount === 1 ? "" : "s"} captured
               </>
             )}
             .
@@ -1163,11 +1095,8 @@ export function SprintReviewClient() {
         {/* Header actions */}
         <div className="flex items-center justify-between">
           <div className="text-sm text-sub">
-            Sprint{" "}
-            <span className="text-accent font-data font-semibold">
-              #{sprintNumber}
-            </span>{" "}
-            — {sprintName}
+            Sprint <span className="text-accent font-data font-semibold">#{sprintNumber}</span> —{" "}
+            {sprintName}
           </div>
           <div className="flex items-center gap-2">
             <AiPromptGenerator config={promptConfig} />
@@ -1190,32 +1119,29 @@ export function SprintReviewClient() {
                   "Time (min)",
                 ],
                 rows: [
-                  ...features.map((f) => [
-                    "Feature",
-                    f.name,
-                    f.description,
-                    f.acceptanceCriteria,
-                    "",
-                    "",
-                    f.timeMinutes,
-                  ] as (string | number)[]),
-                  ...feedbackItems.map((fb) => [
-                    "Feedback",
-                    fb.stakeholder,
-                    "",
-                    "",
-                    fb.feedback,
-                    fb.category,
-                    "",
-                  ] as (string | number)[]),
+                  ...features.map(
+                    (f) =>
+                      [
+                        "Feature",
+                        f.name,
+                        f.description,
+                        f.acceptanceCriteria,
+                        "",
+                        "",
+                        f.timeMinutes,
+                      ] as (string | number)[]
+                  ),
+                  ...feedbackItems.map(
+                    (fb) =>
+                      ["Feedback", fb.stakeholder, "", "", fb.feedback, fb.category, ""] as (
+                        | string
+                        | number
+                      )[]
+                  ),
                 ],
               }}
             />
-            <Button
-              variant="danger-ghost"
-              size="sm"
-              onClick={reset}
-            >
+            <Button variant="danger-ghost" size="sm" onClick={reset}>
               Reset
             </Button>
           </div>

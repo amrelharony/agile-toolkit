@@ -79,23 +79,30 @@ const useStandupStore = create<StandupStore>()(
       resolvedBlockers: [],
 
       addMember: (name) =>
-        set((s) => ({
-          members: s.members.includes(name) ? s.members : [...s.members, name],
-        })),
+        set((s) => {
+          // BUG-T8-standup-2: case-insensitive + trimmed dedup so
+          // "Alice", "alice", "Alice " don't all create separate
+          // members. Canonicalize on insert (preserve user's casing
+          // for the first time the name appears).
+          const norm = name.trim().toLowerCase();
+          if (!norm) return s;
+          if (s.members.some((m) => m.trim().toLowerCase() === norm)) {
+            return s;
+          }
+          return { members: [...s.members, name.trim()] };
+        }),
 
       removeMember: (name) =>
-        set((s) => ({ members: s.members.filter((m) => m !== name) })),
+        set((s) => ({
+          members: s.members.filter((m) => m.trim().toLowerCase() !== name.trim().toLowerCase()),
+        })),
 
       addEntry: (entry) =>
         set((s) => ({
-          entries: [
-            ...s.entries,
-            { ...entry, id: crypto.randomUUID(), timestamp: Date.now() },
-          ],
+          entries: [...s.entries, { ...entry, id: crypto.randomUUID(), timestamp: Date.now() }],
         })),
 
-      hasEntry: (member, date) =>
-        get().entries.some((e) => e.member === member && e.date === date),
+      hasEntry: (member, date) => get().entries.some((e) => e.member === member && e.date === date),
 
       upsertEntry: (entry) =>
         set((s) => {
@@ -104,10 +111,7 @@ const useStandupStore = create<StandupStore>()(
           );
           if (idx === -1) {
             return {
-              entries: [
-                ...s.entries,
-                { ...entry, id: crypto.randomUUID(), timestamp: Date.now() },
-              ],
+              entries: [...s.entries, { ...entry, id: crypto.randomUUID(), timestamp: Date.now() }],
             };
           }
           // Preserve the original id so blocker resolution / history references
@@ -261,11 +265,7 @@ function EntryCard({
             }`}
           >
             <p className="text-xs text-sub mb-1 uppercase tracking-wider">Blockers</p>
-            <p
-              className={`text-sm ${
-                isResolved ? "text-sub line-through" : "text-[#ef4444]"
-              }`}
-            >
+            <p className={`text-sm ${isResolved ? "text-sub line-through" : "text-[#ef4444]"}`}>
               {entry.blockers}
             </p>
             {!isResolved && (
@@ -309,25 +309,18 @@ function TodayTab({
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-surface border border-border rounded-lg p-3 text-center">
-          <p className="text-2xl font-data font-bold text-accent">
-            {todayEntries.length}
-          </p>
+          <p className="text-2xl font-data font-bold text-accent">{todayEntries.length}</p>
           <p className="text-xs text-sub mt-0.5">Submitted</p>
         </div>
         <div className="bg-surface border border-border rounded-lg p-3 text-center">
-          <p className="text-2xl font-data font-bold text-[#eab308]">
-            {missingMembers.length}
-          </p>
+          <p className="text-2xl font-data font-bold text-[#eab308]">{missingMembers.length}</p>
           <p className="text-xs text-sub mt-0.5">Missing</p>
         </div>
         <div className="bg-surface border border-border rounded-lg p-3 text-center">
           <p className="text-2xl font-data font-bold text-[#ef4444]">
             {
-              todayEntries.filter(
-                (e) =>
-                  e.blockers.trim() &&
-                  !resolvedBlockers.includes(e.id)
-              ).length
+              todayEntries.filter((e) => e.blockers.trim() && !resolvedBlockers.includes(e.id))
+                .length
             }
           </p>
           <p className="text-xs text-sub mt-0.5">Blockers</p>
@@ -349,9 +342,7 @@ function TodayTab({
       {/* Missing members */}
       {missingMembers.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs text-sub uppercase tracking-wider">
-            Not yet submitted
-          </p>
+          <p className="text-xs text-sub uppercase tracking-wider">Not yet submitted</p>
           <div className="flex flex-wrap gap-2">
             {missingMembers.map((m) => (
               <div
@@ -379,30 +370,19 @@ function TodayTab({
 /*  Tab 2 — History                                                           */
 /* -------------------------------------------------------------------------- */
 
-function HistoryTab({
-  entries,
-  members,
-}: {
-  entries: StandupEntry[];
-  members: string[];
-}) {
+function HistoryTab({ entries, members }: { entries: StandupEntry[]; members: string[] }) {
   const [filterMember, setFilterMember] = useState<string>("all");
   const [selectedDate, setSelectedDate] = useState<string>(todayStr());
 
   const allDates = useMemo(
-    () =>
-      Array.from(new Set(entries.map((e) => e.date))).sort((a, b) =>
-        b.localeCompare(a)
-      ),
+    () => Array.from(new Set(entries.map((e) => e.date))).sort((a, b) => b.localeCompare(a)),
     [entries]
   );
 
   const filtered = useMemo(
     () =>
       entries.filter(
-        (e) =>
-          e.date === selectedDate &&
-          (filterMember === "all" || e.member === filterMember)
+        (e) => e.date === selectedDate && (filterMember === "all" || e.member === filterMember)
       ),
     [entries, selectedDate, filterMember]
   );
@@ -450,10 +430,7 @@ function HistoryTab({
           </select>
         </div>
         <div className="ml-auto">
-          <ExportButton
-            filename={`standup-${selectedDate}`}
-            clipboardText={digestText}
-          />
+          <ExportButton filename={`standup-${selectedDate}`} clipboardText={digestText} />
         </div>
       </div>
 
@@ -463,18 +440,30 @@ function HistoryTab({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
-                <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3 pr-4">Member</th>
-                <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3 pr-4">Yesterday</th>
-                <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3 pr-4">Today</th>
-                <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3">Blockers</th>
+                <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3 pr-4">
+                  Member
+                </th>
+                <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3 pr-4">
+                  Yesterday
+                </th>
+                <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3 pr-4">
+                  Today
+                </th>
+                <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3">
+                  Blockers
+                </th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((e) => (
                 <tr key={e.id} className="border-b border-border last:border-0">
                   <td className="py-3 pr-4 text-text font-medium whitespace-nowrap">{e.member}</td>
-                  <td className="py-3 pr-4 text-sub max-w-xs">{e.yesterday || <span className="opacity-40">—</span>}</td>
-                  <td className="py-3 pr-4 text-sub max-w-xs">{e.today || <span className="opacity-40">—</span>}</td>
+                  <td className="py-3 pr-4 text-sub max-w-xs">
+                    {e.yesterday || <span className="opacity-40">—</span>}
+                  </td>
+                  <td className="py-3 pr-4 text-sub max-w-xs">
+                    {e.today || <span className="opacity-40">—</span>}
+                  </td>
                   <td className="py-3 text-sub max-w-xs">
                     {e.blockers ? (
                       <span className="text-[#ef4444]">{e.blockers}</span>
@@ -519,10 +508,7 @@ function BlockersTab({
   );
 
   const resolvedEntries = useMemo(
-    () =>
-      entries.filter(
-        (e) => e.blockers.trim() && resolvedBlockers.includes(e.id)
-      ),
+    () => entries.filter((e) => e.blockers.trim() && resolvedBlockers.includes(e.id)),
     [entries, resolvedBlockers]
   );
 
@@ -532,9 +518,7 @@ function BlockersTab({
       <div>
         <div className="flex items-center gap-2 mb-3">
           <AlertTriangle className="w-4 h-4 text-[#ef4444]" />
-          <h3 className="text-sm font-medium text-text uppercase tracking-wider">
-            Open Blockers
-          </h3>
+          <h3 className="text-sm font-medium text-text uppercase tracking-wider">Open Blockers</h3>
           {blockerEntries.length > 0 && (
             <Badge className="bg-[#ef4444]/15 text-[#ef4444] border-[#ef4444]/30">
               {blockerEntries.length}
@@ -550,17 +534,12 @@ function BlockersTab({
         ) : (
           <div className="space-y-3">
             {blockerEntries.map((e) => (
-              <div
-                key={e.id}
-                className={`border rounded-lg p-4 ${ageBg(e.timestamp)}`}
-              >
+              <div key={e.id} className={`border rounded-lg p-4 ${ageBg(e.timestamp)}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
                       <User className="w-3.5 h-3.5 text-sub shrink-0" />
-                      <span className="font-medium text-text text-sm">
-                        {e.member}
-                      </span>
+                      <span className="font-medium text-text text-sm">{e.member}</span>
                       <span className="text-sub text-xs">·</span>
                       <span className="text-sub text-xs">{e.date}</span>
                       <div className="flex items-center gap-1 ml-auto">
@@ -593,9 +572,7 @@ function BlockersTab({
         <div>
           <div className="flex items-center gap-2 mb-3">
             <CheckCircle2 className="w-4 h-4 text-[#22c55e]" />
-            <h3 className="text-sm font-medium text-sub uppercase tracking-wider">
-              Resolved
-            </h3>
+            <h3 className="text-sm font-medium text-sub uppercase tracking-wider">Resolved</h3>
           </div>
           <div className="space-y-2">
             {resolvedEntries.map((e) => (
@@ -606,9 +583,7 @@ function BlockersTab({
                 <User className="w-3.5 h-3.5 text-sub" />
                 <span className="text-sm text-sub font-medium">{e.member}</span>
                 <span className="text-xs text-sub">·</span>
-                <span className="text-sm text-sub line-through flex-1">
-                  {e.blockers}
-                </span>
+                <span className="text-sm text-sub line-through flex-1">{e.blockers}</span>
                 <span className="text-xs text-sub">{e.date}</span>
               </div>
             ))}
@@ -665,6 +640,15 @@ export function StandupClient() {
       }
       return;
     }
+    // BUG-T8-standup-1: if the user typed a custom name that's not on
+    // the roster, ADD them to the roster too. The prior flow posted
+    // the entry but left the right-column roster empty of this person,
+    // so `missingMembers` didn't include them and the green-dot
+    // "submitted today" indicator never appeared.
+    const norm = member.toLowerCase();
+    if (!members.some((m) => m.trim().toLowerCase() === norm)) {
+      addMember(member);
+    }
     const date = todayStr();
     const payload = { member, date, yesterday, today, blockers };
     if (hasEntry(member, date)) {
@@ -696,21 +680,27 @@ export function StandupClient() {
   };
 
   /* -- CSV export of all entries ------------------------------------------ */
-  const csvData = useMemo(() => ({
-    headers: ["Date", "Member", "Yesterday", "Today", "Blockers"],
-    rows: [...entries]
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .map((e) => [e.date, e.member, e.yesterday, e.today, e.blockers]),
-  }), [entries]);
+  const csvData = useMemo(
+    () => ({
+      headers: ["Date", "Member", "Yesterday", "Today", "Blockers"],
+      rows: [...entries]
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .map((e) => [e.date, e.member, e.yesterday, e.today, e.blockers]),
+    }),
+    [entries]
+  );
 
   /* -- Weekly digest text -------------------------------------------------- */
   const weeklyDigest = useMemo(() => generateWeeklyDigest(entries), [entries]);
 
   /* -- AI prompt config --------------------------------------------------- */
-  const promptConfig = useMemo(() => ({
-    toolName: "Daily Standup",
-    prompts: generateStandupPrompts({ entries, members, resolvedBlockers }),
-  }), [entries, members, resolvedBlockers]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Daily Standup",
+      prompts: generateStandupPrompts({ entries, members, resolvedBlockers }),
+    }),
+    [entries, members, resolvedBlockers]
+  );
 
   // ── Cross-tool signal: blocker activity from impediments tool ────────
   // Counts blockers raised in the last 7 days so the standup facilitator
@@ -736,7 +726,6 @@ export function StandupClient() {
       category="Ceremonies"
     >
       <div className="space-y-6">
-
         {/* ---- Top controls ---- */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3 text-sm text-sub">
@@ -755,25 +744,16 @@ export function StandupClient() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="danger-ghost"
-              size="sm"
-              onClick={reset}
-            >
+            <Button variant="danger-ghost" size="sm" onClick={reset}>
               Clear Entries
             </Button>
             <AiPromptGenerator config={promptConfig} />
-            <ExportButton
-              filename="standup-all"
-              csvData={csvData}
-              clipboardText={weeklyDigest}
-            />
+            <ExportButton filename="standup-all" csvData={csvData} clipboardText={weeklyDigest} />
           </div>
         </div>
 
         {/* ---- Two-column layout: form + team ---- */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
           {/* Entry form */}
           <div className="lg:col-span-2">
             <SectionCard
@@ -784,104 +764,96 @@ export function StandupClient() {
               headerClassName="pb-4"
               contentClassName="space-y-4"
             >
-                {/* Member selector */}
-                <div>
-                  <label className="text-xs text-sub uppercase tracking-wider mb-1.5 block">
-                    Team member
-                  </label>
-                  <div className="flex gap-2">
-                    <select
-                      value={formMember}
-                      onChange={(e) => {
-                        setFormMember(e.target.value);
-                        // Picking from the dropdown clears any ad-hoc draft so
-                        // the picked name takes effect immediately.
-                        if (e.target.value) setCustomMemberDraft("");
-                      }}
-                      className="flex-1 bg-surface-deep border border-border rounded-md px-3 py-2 text-sm text-text focus:border-accent/50 focus:outline-none"
-                    >
-                      <option value="">Select member…</option>
-                      {members.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
-                    <Input
-                      placeholder="Or type name"
-                      value={customMemberDraft}
-                      onChange={(e) => setCustomMemberDraft(e.target.value)}
-                      className="flex-1 input-toolkit"
-                    />
-                  </div>
-                </div>
-
-                {/* Yesterday */}
-                <div>
-                  <label className="text-xs text-sub uppercase tracking-wider mb-1.5 block">
-                    Yesterday
-                  </label>
-                  <Textarea
-                    value={yesterday}
-                    onChange={(e) => setYesterday(e.target.value)}
-                    placeholder="What did you complete yesterday?"
-                    rows={2}
-                    className="input-toolkit resize-none"
+              {/* Member selector */}
+              <div>
+                <label className="text-xs text-sub uppercase tracking-wider mb-1.5 block">
+                  Team member
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    value={formMember}
+                    onChange={(e) => {
+                      setFormMember(e.target.value);
+                      // Picking from the dropdown clears any ad-hoc draft so
+                      // the picked name takes effect immediately.
+                      if (e.target.value) setCustomMemberDraft("");
+                    }}
+                    className="flex-1 bg-surface-deep border border-border rounded-md px-3 py-2 text-sm text-text focus:border-accent/50 focus:outline-none"
+                  >
+                    <option value="">Select member…</option>
+                    {members.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                  <Input
+                    placeholder="Or type name"
+                    value={customMemberDraft}
+                    onChange={(e) => setCustomMemberDraft(e.target.value)}
+                    className="flex-1 input-toolkit"
                   />
                 </div>
+              </div>
 
-                {/* Today */}
-                <div>
-                  <label className="text-xs text-sub uppercase tracking-wider mb-1.5 block">
-                    Today
-                  </label>
-                  <Textarea
-                    value={today}
-                    onChange={(e) => setToday(e.target.value)}
-                    placeholder="What will you work on today?"
-                    rows={2}
-                    className="input-toolkit resize-none"
-                  />
-                </div>
+              {/* Yesterday */}
+              <div>
+                <label className="text-xs text-sub uppercase tracking-wider mb-1.5 block">
+                  Yesterday
+                </label>
+                <Textarea
+                  value={yesterday}
+                  onChange={(e) => setYesterday(e.target.value)}
+                  placeholder="What did you complete yesterday?"
+                  rows={2}
+                  className="input-toolkit resize-none"
+                />
+              </div>
 
-                {/* Blockers */}
-                <div>
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="text-xs text-sub uppercase tracking-wider">
-                      Blockers
+              {/* Today */}
+              <div>
+                <label className="text-xs text-sub uppercase tracking-wider mb-1.5 block">
+                  Today
+                </label>
+                <Textarea
+                  value={today}
+                  onChange={(e) => setToday(e.target.value)}
+                  placeholder="What will you work on today?"
+                  rows={2}
+                  className="input-toolkit resize-none"
+                />
+              </div>
+
+              {/* Blockers */}
+              <div>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-xs text-sub uppercase tracking-wider">Blockers</span>
+                  {blockers.trim() && (
+                    <span className="inline-flex items-center gap-1 text-[#ef4444] text-xs">
+                      <AlertTriangle className="w-3 h-3" />
+                      Will be flagged
                     </span>
-                    {blockers.trim() && (
-                      <span className="inline-flex items-center gap-1 text-[#ef4444] text-xs">
-                        <AlertTriangle className="w-3 h-3" />
-                        Will be flagged
-                      </span>
-                    )}
-                  </div>
-                  <Textarea
-                    value={blockers}
-                    onChange={(e) => setBlockers(e.target.value)}
-                    placeholder="Any impediments or blockers? (leave blank if none)"
-                    rows={2}
-                    className={`bg-surface-deep border-border text-text resize-none focus:border-accent/50 ${
-                      blockers.trim()
-                        ? "border-[#ef4444]/40 focus:border-[#ef4444]/60"
-                        : ""
-                    }`}
-                  />
+                  )}
                 </div>
+                <Textarea
+                  value={blockers}
+                  onChange={(e) => setBlockers(e.target.value)}
+                  placeholder="Any impediments or blockers? (leave blank if none)"
+                  rows={2}
+                  className={`bg-surface-deep border-border text-text resize-none focus:border-accent/50 ${
+                    blockers.trim() ? "border-[#ef4444]/40 focus:border-[#ef4444]/60" : ""
+                  }`}
+                />
+              </div>
 
-                <Button
-                  variant="toolkit"
-                  onClick={handleSubmit}
-                  disabled={
-                    !customMemberDraft.trim() &&
-                    !formMember.trim() &&
-                    members.length === 0
-                  }
-                  className="w-full"
-                >
-                  Submit Standup
-                </Button>
+              <Button
+                variant="toolkit"
+                onClick={handleSubmit}
+                disabled={!customMemberDraft.trim() && !formMember.trim() && members.length === 0}
+                className="w-full"
+              >
+                Submit Standup
+              </Button>
             </SectionCard>
           </div>
 
@@ -893,77 +865,72 @@ export function StandupClient() {
               headerClassName="pb-4"
               contentClassName="space-y-3"
             >
-                {/* Add member */}
-                <div className="flex gap-2">
-                  <Input
-                    value={newMember}
-                    onChange={(e) => setNewMember(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && newMember.trim()) {
-                        addMember(newMember.trim());
-                        setNewMember("");
-                      }
-                    }}
-                    placeholder="Add member…"
-                    className="input-toolkit text-sm"
-                  />
-                  <Button
-                    size="icon"
-                    variant="toolkit"
-                    onClick={() => {
-                      if (newMember.trim()) {
-                        addMember(newMember.trim());
-                        setNewMember("");
-                      }
-                    }}
-                    className="shrink-0"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                </div>
+              {/* Add member */}
+              <div className="flex gap-2">
+                <Input
+                  value={newMember}
+                  onChange={(e) => setNewMember(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newMember.trim()) {
+                      addMember(newMember.trim());
+                      setNewMember("");
+                    }
+                  }}
+                  placeholder="Add member…"
+                  className="input-toolkit text-sm"
+                />
+                <Button
+                  size="icon"
+                  variant="toolkit"
+                  onClick={() => {
+                    if (newMember.trim()) {
+                      addMember(newMember.trim());
+                      setNewMember("");
+                    }
+                  }}
+                  className="shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </div>
 
-                {/* Member list */}
-                <div className="space-y-1.5">
-                  {members.map((m) => {
-                    const submittedToday = entries.some(
-                      (e) => e.member === m && e.date === todayStr()
-                    );
-                    return (
-                      <div
-                        key={m}
-                        className="flex items-center justify-between px-3 py-2 rounded-md bg-card border border-border"
-                      >
-                        <div className="flex items-center gap-2">
-                          <div
-                            className={`w-2 h-2 rounded-full ${
-                              submittedToday ? "bg-[#22c55e]" : "bg-card-hover"
-                            }`}
-                          />
-                          <span className="text-sm text-text">{m}</span>
-                        </div>
-                        <button
-                          onClick={() => removeMember(m)}
-                          className="text-sub hover:text-red-400 transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+              {/* Member list */}
+              <div className="space-y-1.5">
+                {members.map((m) => {
+                  const submittedToday = entries.some(
+                    (e) => e.member === m && e.date === todayStr()
+                  );
+                  return (
+                    <div
+                      key={m}
+                      className="flex items-center justify-between px-3 py-2 rounded-md bg-card border border-border"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-2 h-2 rounded-full ${
+                            submittedToday ? "bg-[#22c55e]" : "bg-card-hover"
+                          }`}
+                        />
+                        <span className="text-sm text-text">{m}</span>
                       </div>
-                    );
-                  })}
-                  {members.length === 0 && (
-                    <p className="text-xs text-sub text-center py-3">
-                      No members yet
-                    </p>
-                  )}
-                </div>
+                      <button
+                        onClick={() => removeMember(m)}
+                        className="text-sub hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+                {members.length === 0 && (
+                  <p className="text-xs text-sub text-center py-3">No members yet</p>
+                )}
+              </div>
 
-                {/* Weekly digest button */}
-                <div className="pt-2 border-t border-border">
-                  <ExportButton
-                    filename="weekly-digest"
-                    clipboardText={weeklyDigest}
-                  />
-                </div>
+              {/* Weekly digest button */}
+              <div className="pt-2 border-t border-border">
+                <ExportButton filename="weekly-digest" clipboardText={weeklyDigest} />
+              </div>
             </SectionCard>
           </div>
         </div>
@@ -988,16 +955,12 @@ export function StandupClient() {
               className="data-[state=active]:bg-surface data-[state=active]:text-text text-sub"
             >
               Blockers
-              {entries.filter(
-                (e) =>
-                  e.blockers.trim() && !resolvedBlockers.includes(e.id)
-              ).length > 0 && (
+              {entries.filter((e) => e.blockers.trim() && !resolvedBlockers.includes(e.id)).length >
+                0 && (
                 <span className="ml-1.5 bg-[#ef4444] text-white text-xs rounded-full w-4 h-4 inline-flex items-center justify-center font-data">
                   {
-                    entries.filter(
-                      (e) =>
-                        e.blockers.trim() && !resolvedBlockers.includes(e.id)
-                    ).length
+                    entries.filter((e) => e.blockers.trim() && !resolvedBlockers.includes(e.id))
+                      .length
                   }
                 </span>
               )}

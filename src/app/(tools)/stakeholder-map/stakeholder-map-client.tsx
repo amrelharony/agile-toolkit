@@ -30,12 +30,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 
-type Sentiment =
-  | "champion"
-  | "supporter"
-  | "neutral"
-  | "skeptic"
-  | "blocker";
+type Sentiment = "champion" | "supporter" | "neutral" | "skeptic" | "blocker";
 
 interface Stakeholder {
   id: string;
@@ -74,14 +69,10 @@ const QUADRANT_LABEL: Record<Quadrant, string> = {
 };
 
 const QUADRANT_DESCRIPTION: Record<Quadrant, string> = {
-  manageClosely:
-    "High authority + high interest. Engage frequently, co-create plans.",
-  keepSatisfied:
-    "High authority + low interest. Brief succinctly, avoid surprises.",
-  keepInformed:
-    "Low authority + high interest. Share progress, harness for advocacy.",
-  monitor:
-    "Low authority + low interest. Light touch, watch for shifts.",
+  manageClosely: "High authority + high interest. Engage frequently, co-create plans.",
+  keepSatisfied: "High authority + low interest. Brief succinctly, avoid surprises.",
+  keepInformed: "Low authority + high interest. Share progress, harness for advocacy.",
+  monitor: "Low authority + low interest. Light touch, watch for shifts.",
 };
 
 function quadrantOf(s: Stakeholder): Quadrant {
@@ -107,11 +98,7 @@ interface InlineDescriptionEditorProps {
  * draft string, write back to the parent only on blur, and only when the
  * trimmed value actually differs from what the parent committed last.
  */
-function InlineDescriptionEditor({
-  value,
-  onChange,
-  placeholder,
-}: InlineDescriptionEditorProps) {
+function InlineDescriptionEditor({ value, onChange, placeholder }: InlineDescriptionEditorProps) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState(value);
   const lastCommittedRef = useRef(value);
@@ -218,9 +205,7 @@ function StakeholderForm({ onAdd }: StakeholderFormProps) {
           <div>
             <div className="flex items-center justify-between">
               <Label className="text-xs text-sub">Authority</Label>
-              <span className="text-xs font-data text-text">
-                {authority}/10
-              </span>
+              <span className="text-xs font-data text-text">{authority}/10</span>
             </div>
             <Slider
               min={0}
@@ -235,27 +220,18 @@ function StakeholderForm({ onAdd }: StakeholderFormProps) {
         </div>
         <div>
           <Label className="text-xs text-sub">Sentiment</Label>
-          <Select
-            value={sentiment}
-            onValueChange={(v) => setSentiment(v as Sentiment)}
-          >
+          <Select value={sentiment} onValueChange={(v) => setSentiment(v as Sentiment)}>
             <SelectTrigger className="bg-bg border-border">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {(
-                [
-                  "champion",
-                  "supporter",
-                  "neutral",
-                  "skeptic",
-                  "blocker",
-                ] as Sentiment[]
-              ).map((s) => (
-                <SelectItem key={s} value={s}>
-                  {SENTIMENT_LABEL[s]}
-                </SelectItem>
-              ))}
+              {(["champion", "supporter", "neutral", "skeptic", "blocker"] as Sentiment[]).map(
+                (s) => (
+                  <SelectItem key={s} value={s}>
+                    {SENTIMENT_LABEL[s]}
+                  </SelectItem>
+                )
+              )}
             </SelectContent>
           </Select>
         </div>
@@ -282,10 +258,7 @@ function StakeholderForm({ onAdd }: StakeholderFormProps) {
           />
         </div>
         <div className="flex justify-end">
-          <Button
-            onClick={submit}
-            className="gap-2 bg-accent text-bg hover:bg-accent/90"
-          >
+          <Button onClick={submit} className="gap-2 bg-accent text-bg hover:bg-accent/90">
             <Plus className="w-4 h-4" />
             Add stakeholder
           </Button>
@@ -351,9 +324,7 @@ export function StakeholderMapClient() {
   // the quiet path (state-only), onBlur uses the logged path
   // (committed value with single event).
   const updateStakeholderQuiet = (id: string, patch: Partial<Stakeholder>) => {
-    setStakeholders((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
-    );
+    setStakeholders((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   };
   const updateStakeholder = (id: string, patch: Partial<Stakeholder>) => {
     updateStakeholderQuiet(id, patch);
@@ -423,9 +394,7 @@ export function StakeholderMapClient() {
     [stakeholders, quadrants, sentimentCounts, workspace]
   );
 
-  const hoveredStakeholder = hovered
-    ? stakeholders.find((s) => s.id === hovered) ?? null
-    : null;
+  const hoveredStakeholder = hovered ? (stakeholders.find((s) => s.id === hovered) ?? null) : null;
 
   return (
     <ToolPageWrapper
@@ -497,8 +466,7 @@ export function StakeholderMapClient() {
 
       {stakeholders.length === 0 ? (
         <EmptyState icon={PieChart}>
-          No stakeholders mapped yet. Add your first one above to see the matrix
-          fill in.
+          No stakeholders mapped yet. Add your first one above to see the matrix fill in.
         </EmptyState>
       ) : (
         <>
@@ -506,9 +474,7 @@ export function StakeholderMapClient() {
             {/* Matrix */}
             <Card className="bg-surface border-border">
               <CardContent className="p-4">
-                <div className="text-sm font-semibold text-text mb-3">
-                  Interest × Authority
-                </div>
+                <div className="text-sm font-semibold text-text mb-3">Interest × Authority</div>
                 <div className="relative aspect-square w-full max-w-xl mx-auto">
                   {/* Quadrant background grid */}
                   <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-px bg-border rounded-lg overflow-hidden">
@@ -526,9 +492,7 @@ export function StakeholderMapClient() {
                     </div>
                     {/* bottom-left = low authority + low interest = Monitor */}
                     <div className="bg-bg p-2">
-                      <div className="text-[10px] uppercase tracking-wider text-sub">
-                        Monitor
-                      </div>
+                      <div className="text-[10px] uppercase tracking-wider text-sub">Monitor</div>
                     </div>
                     {/* bottom-right = low authority + high interest = Keep Informed */}
                     <div className="bg-emerald-500/5 p-2 text-right">
@@ -573,13 +537,9 @@ export function StakeholderMapClient() {
                           background: SENTIMENT_COLOR[s.sentiment],
                         }}
                         onMouseEnter={() => setHovered(s.id)}
-                        onMouseLeave={() =>
-                          setHovered((cur) => (cur === s.id ? null : cur))
-                        }
+                        onMouseLeave={() => setHovered((cur) => (cur === s.id ? null : cur))}
                         onFocus={() => setHovered(s.id)}
-                        onBlur={() =>
-                          setHovered((cur) => (cur === s.id ? null : cur))
-                        }
+                        onBlur={() => setHovered((cur) => (cur === s.id ? null : cur))}
                         aria-label={`${s.name}${s.role ? ", " + s.role : ""}`}
                       />
                     );
@@ -591,17 +551,12 @@ export function StakeholderMapClient() {
                       className="absolute top-2 right-2 max-w-[60%] rounded-md border border-border bg-bg p-2 text-xs shadow-lg pointer-events-none"
                       role="tooltip"
                     >
-                      <div className="font-semibold text-text">
-                        {hoveredStakeholder.name}
-                      </div>
+                      <div className="font-semibold text-text">{hoveredStakeholder.name}</div>
                       {hoveredStakeholder.role && (
-                        <div className="text-sub mt-0.5">
-                          {hoveredStakeholder.role}
-                        </div>
+                        <div className="text-sub mt-0.5">{hoveredStakeholder.role}</div>
                       )}
                       <div className="text-sub mt-0.5">
-                        Int {hoveredStakeholder.interest} · Auth{" "}
-                        {hoveredStakeholder.authority} ·{" "}
+                        Int {hoveredStakeholder.interest} · Auth {hoveredStakeholder.authority} ·{" "}
                         {SENTIMENT_LABEL[hoveredStakeholder.sentiment]}
                       </div>
                     </div>
@@ -610,57 +565,44 @@ export function StakeholderMapClient() {
 
                 {/* Legend */}
                 <div className="mt-8 flex flex-wrap gap-3 justify-center text-xs">
-                  {(
-                    [
-                      "champion",
-                      "supporter",
-                      "neutral",
-                      "skeptic",
-                      "blocker",
-                    ] as Sentiment[]
-                  ).map((s) => (
-                    <span key={s} className="flex items-center gap-1.5">
-                      <span
-                        className="w-3 h-3 rounded-full border border-bg"
-                        style={{ background: SENTIMENT_COLOR[s] }}
-                      />
-                      {SENTIMENT_LABEL[s]}
-                    </span>
-                  ))}
+                  {(["champion", "supporter", "neutral", "skeptic", "blocker"] as Sentiment[]).map(
+                    (s) => (
+                      <span key={s} className="flex items-center gap-1.5">
+                        <span
+                          className="w-3 h-3 rounded-full border border-bg"
+                          style={{ background: SENTIMENT_COLOR[s] }}
+                        />
+                        {SENTIMENT_LABEL[s]}
+                      </span>
+                    )
+                  )}
                 </div>
               </CardContent>
             </Card>
 
             {/* Quadrant strategy summary */}
             <div className="space-y-2">
-              {(
-                [
-                  "manageClosely",
-                  "keepSatisfied",
-                  "keepInformed",
-                  "monitor",
-                ] as Quadrant[]
-              ).map((q) => (
-                <Card key={q} className="bg-surface border-border">
-                  <CardContent className="p-3">
-                    <div className="text-xs uppercase tracking-wider text-sub">
-                      {QUADRANT_LABEL[q]}
-                    </div>
-                    <div className="text-sm font-data text-text mt-0.5">
-                      {quadrants[q].length} stakeholder
-                      {quadrants[q].length === 1 ? "" : "s"}
-                    </div>
-                    <div className="text-xs text-sub mt-1">
-                      {QUADRANT_DESCRIPTION[q]}
-                    </div>
-                    {quadrants[q].length > 0 && (
-                      <div className="text-xs text-text mt-2 truncate">
-                        {quadrants[q].map((s) => s.name).join(", ")}
+              {(["manageClosely", "keepSatisfied", "keepInformed", "monitor"] as Quadrant[]).map(
+                (q) => (
+                  <Card key={q} className="bg-surface border-border">
+                    <CardContent className="p-3">
+                      <div className="text-xs uppercase tracking-wider text-sub">
+                        {QUADRANT_LABEL[q]}
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
+                      <div className="text-sm font-data text-text mt-0.5">
+                        {quadrants[q].length} stakeholder
+                        {quadrants[q].length === 1 ? "" : "s"}
+                      </div>
+                      <div className="text-xs text-sub mt-1">{QUADRANT_DESCRIPTION[q]}</div>
+                      {quadrants[q].length > 0 && (
+                        <div className="text-xs text-text mt-2 truncate">
+                          {quadrants[q].map((s) => s.name).join(", ")}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )
+              )}
             </div>
           </div>
 
@@ -675,12 +617,8 @@ export function StakeholderMapClient() {
                         value={s.name}
                         // R11-fix: quiet update per keystroke (state-only),
                         // logged commit on blur.
-                        onChange={(e) =>
-                          updateStakeholderQuiet(s.id, { name: e.target.value })
-                        }
-                        onBlur={(e) =>
-                          updateStakeholder(s.id, { name: e.target.value })
-                        }
+                        onChange={(e) => updateStakeholderQuiet(s.id, { name: e.target.value })}
+                        onBlur={(e) => updateStakeholder(s.id, { name: e.target.value })}
                         className="bg-bg border-border font-semibold"
                         aria-label="Name"
                       />
@@ -748,18 +686,20 @@ export function StakeholderMapClient() {
                     <div>
                       <div className="flex items-center justify-between">
                         <Label className="text-xs text-sub">Interest</Label>
-                        <span className="text-xs font-data text-text">
-                          {s.interest}/10
-                        </span>
+                        <span className="text-xs font-data text-text">{s.interest}/10</span>
                       </div>
                       <Slider
                         min={0}
                         max={10}
                         step={1}
                         value={[s.interest]}
-                        onValueChange={(v) =>
-                          updateStakeholder(s.id, { interest: v[0] ?? 0 })
-                        }
+                        // BUG-T8-stakeholder-map-1: quiet update per
+                        // drag tick (no history log); commit ONE logged
+                        // event on release. The prior pattern emitted
+                        // STAKEHOLDER_UPDATED for every intermediate
+                        // value during a drag, spamming the history store.
+                        onValueChange={(v) => updateStakeholderQuiet(s.id, { interest: v[0] ?? 0 })}
+                        onValueCommit={(v) => updateStakeholder(s.id, { interest: v[0] ?? 0 })}
                         className="mt-2"
                         aria-label={`Interest for ${s.name}`}
                       />
@@ -767,9 +707,7 @@ export function StakeholderMapClient() {
                     <div>
                       <div className="flex items-center justify-between">
                         <Label className="text-xs text-sub">Authority</Label>
-                        <span className="text-xs font-data text-text">
-                          {s.authority}/10
-                        </span>
+                        <span className="text-xs font-data text-text">{s.authority}/10</span>
                       </div>
                       <Slider
                         min={0}
@@ -777,8 +715,9 @@ export function StakeholderMapClient() {
                         step={1}
                         value={[s.authority]}
                         onValueChange={(v) =>
-                          updateStakeholder(s.id, { authority: v[0] ?? 0 })
+                          updateStakeholderQuiet(s.id, { authority: v[0] ?? 0 })
                         }
+                        onValueCommit={(v) => updateStakeholder(s.id, { authority: v[0] ?? 0 })}
                         className="mt-2"
                         aria-label={`Authority for ${s.name}`}
                       />

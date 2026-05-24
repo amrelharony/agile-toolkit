@@ -1,15 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  AreaChart,
-  Area,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-} from "recharts";
+import { AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, Legend } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -35,7 +27,10 @@ import { chartTheme, CHART_COLORS } from "@/components/charts/chart-theme";
 import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
-import { forecastBayesianHolt, bayesianForecastConfidence } from "@/lib/analytics/forecasting-bayesian";
+import {
+  forecastBayesianHolt,
+  bayesianForecastConfidence,
+} from "@/lib/analytics/forecasting-bayesian";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { generateSloPrompts } from "@/lib/ai-prompts/slo-builder";
 import { usePersisted } from "@/lib/utils/use-persisted";
@@ -146,10 +141,7 @@ function consumedMinutes(slo: SloDefinition, burns: SloBurn[]): number {
 }
 
 export function SloBuilderClient() {
-  const [state, setState] = usePersisted<SloState>(
-    "agile-toolkit:slo-builder",
-    DEFAULT_STATE
-  );
+  const [state, setState] = usePersisted<SloState>("agile-toolkit:slo-builder", DEFAULT_STATE);
   const [sloDraft, setSloDraft] = useState<SloDraft>(makeSloDraft);
   const [burnDraft, setBurnDraft] = useState<BurnDraft>(() => makeBurnDraft(""));
   const { log } = useHistoryLogger("slo-builder");
@@ -240,8 +232,7 @@ export function SloBuilderClient() {
       state.slos.map((slo) => {
         const budget = budgetMinutes(slo);
         const consumed = consumedMinutes(slo, state.burns);
-        const remainingPct =
-          budget === 0 ? 0 : Math.max(0, ((budget - consumed) / budget) * 100);
+        const remainingPct = budget === 0 ? 0 : Math.max(0, ((budget - consumed) / budget) * 100);
         return {
           slo,
           budget,
@@ -272,7 +263,10 @@ export function SloBuilderClient() {
       }
       const row: Record<string, string | number> = { date };
       for (const s of state.slos) {
-        row[s.name] = Number((running[s.id] ?? 0).toFixed(2));
+        // BUG-T8-slo-builder-4: key by `s.id`, not `s.name`. Two SLOs
+        // sharing a name (which the schema permits) would collapse into
+        // a single dataKey, dropping one series entirely.
+        row[s.id] = Number((running[s.id] ?? 0).toFixed(2));
       }
       return row;
     });
@@ -449,9 +443,7 @@ export function SloBuilderClient() {
               <Input
                 id="slo-name"
                 value={sloDraft.name}
-                onChange={(e) =>
-                  setSloDraft((d) => ({ ...d, name: e.target.value }))
-                }
+                onChange={(e) => setSloDraft((d) => ({ ...d, name: e.target.value }))}
                 placeholder="checkout-availability"
                 className="bg-surface border-border"
               />
@@ -463,9 +455,7 @@ export function SloBuilderClient() {
               <Input
                 id="slo-sli"
                 value={sloDraft.sliDescription}
-                onChange={(e) =>
-                  setSloDraft((d) => ({ ...d, sliDescription: e.target.value }))
-                }
+                onChange={(e) => setSloDraft((d) => ({ ...d, sliDescription: e.target.value }))}
                 placeholder="Successful HTTP 2xx responses to /checkout"
                 className="bg-surface border-border"
               />
@@ -494,11 +484,18 @@ export function SloBuilderClient() {
             <SmartInput<number>
               predicted={budgetPrediction}
               onAccept={(budgetMinutes) => {
-                const windowDays = 30;
+                // BUG-T8-slo-builder-1: honour the user's typed
+                // windowDays. The previous hard-coded `30` silently
+                // overwrote what the user had typed (e.g., a 7-day
+                // window) and back-derived targetPct against the wrong
+                // denominator. Fall back to 30 only when the field is
+                // blank/invalid.
+                const typedWindow = parseInt(sloDraft.windowDays, 10);
+                const windowDays =
+                  Number.isFinite(typedWindow) && typedWindow > 0 ? typedWindow : 30;
                 const totalMinutes = windowDays * 24 * 60;
-                const targetPct = totalMinutes > 0
-                  ? (1 - budgetMinutes / totalMinutes) * 100
-                  : 99.9;
+                const targetPct =
+                  totalMinutes > 0 ? (1 - budgetMinutes / totalMinutes) * 100 : 99.9;
                 setSloDraft((d) => ({
                   ...d,
                   // Round to one decimal so 99.9 stays 99.9, not 99.90046…
@@ -515,18 +512,13 @@ export function SloBuilderClient() {
               <Textarea
                 id="slo-desc"
                 value={sloDraft.description}
-                onChange={(e) =>
-                  setSloDraft((d) => ({ ...d, description: e.target.value }))
-                }
+                onChange={(e) => setSloDraft((d) => ({ ...d, description: e.target.value }))}
                 placeholder="Why this SLO matters / who owns it..."
                 rows={2}
                 className="bg-surface border-border resize-none text-xs"
               />
             </div>
-            <Button
-              onClick={addSlo}
-              className="gap-2 bg-accent text-bg hover:bg-accent/90 w-full"
-            >
+            <Button onClick={addSlo} className="gap-2 bg-accent text-bg hover:bg-accent/90 w-full">
               <Plus className="w-4 h-4" aria-hidden="true" />
               Add SLO
             </Button>
@@ -535,9 +527,7 @@ export function SloBuilderClient() {
 
         <SectionCard title="Log a burn event" icon={AlertTriangle} titleSize="lg">
           {state.slos.length === 0 ? (
-            <p className="text-sm text-sub">
-              Define an SLO first to start logging burn events.
-            </p>
+            <p className="text-sm text-sub">Define an SLO first to start logging burn events.</p>
           ) : (
             <div className="space-y-3">
               <div>
@@ -546,14 +536,9 @@ export function SloBuilderClient() {
                 </Label>
                 <Select
                   value={burnDraft.sloId}
-                  onValueChange={(v) =>
-                    setBurnDraft((b) => ({ ...b, sloId: v }))
-                  }
+                  onValueChange={(v) => setBurnDraft((b) => ({ ...b, sloId: v }))}
                 >
-                  <SelectTrigger
-                    id="burn-slo"
-                    className="bg-surface border-border"
-                  >
+                  <SelectTrigger id="burn-slo" className="bg-surface border-border">
                     <SelectValue placeholder="Select an SLO" />
                   </SelectTrigger>
                   <SelectContent>
@@ -574,9 +559,7 @@ export function SloBuilderClient() {
                     id="burn-date"
                     type="date"
                     value={burnDraft.date}
-                    onChange={(e) =>
-                      setBurnDraft((b) => ({ ...b, date: e.target.value }))
-                    }
+                    onChange={(e) => setBurnDraft((b) => ({ ...b, date: e.target.value }))}
                     className="bg-surface border-border"
                   />
                 </div>
@@ -584,9 +567,7 @@ export function SloBuilderClient() {
                   id="burn-minutes"
                   label="Error minutes"
                   value={burnDraft.errorMinutes}
-                  onChange={(v) =>
-                    setBurnDraft((b) => ({ ...b, errorMinutes: v }))
-                  }
+                  onChange={(v) => setBurnDraft((b) => ({ ...b, errorMinutes: v }))}
                   placeholder="e.g. 4.5"
                 />
               </div>
@@ -618,18 +599,11 @@ export function SloBuilderClient() {
                     ? "border-amber-500/40 bg-amber-500/5"
                     : "border-border bg-surface";
               return (
-                <div
-                  key={slo.id}
-                  className={`rounded-lg border p-3 ${cardCls}`}
-                >
+                <div key={slo.id} className={`rounded-lg border p-3 ${cardCls}`}>
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-text">
-                        {slo.name}
-                      </div>
-                      <div className="text-xs text-sub mt-0.5">
-                        SLI: {slo.sliDescription}
-                      </div>
+                      <div className="text-sm font-medium text-text">{slo.name}</div>
+                      <div className="text-xs text-sub mt-0.5">SLI: {slo.sliDescription}</div>
                       {slo.description && (
                         <div className="text-xs text-sub mt-1 italic break-words whitespace-pre-wrap">
                           {slo.description}
@@ -648,46 +622,26 @@ export function SloBuilderClient() {
                   </div>
                   <div className="mt-3 grid grid-cols-3 gap-3 text-xs">
                     <div>
-                      <div className="text-sub uppercase tracking-wider">
-                        Target
-                      </div>
-                      <div className="font-data text-text">
-                        {(slo.target * 100).toFixed(2)}%
-                      </div>
+                      <div className="text-sub uppercase tracking-wider">Target</div>
+                      <div className="font-data text-text">{(slo.target * 100).toFixed(2)}%</div>
                       <div className="text-sub">{slo.windowDays}-day window</div>
                     </div>
                     <div>
-                      <div className="text-sub uppercase tracking-wider">
-                        Budget
-                      </div>
-                      <div className="font-data text-text">
-                        {budget.toFixed(1)} min
-                      </div>
-                      <div className="text-sub">
-                        {consumed.toFixed(1)} consumed
-                      </div>
+                      <div className="text-sub uppercase tracking-wider">Budget</div>
+                      <div className="font-data text-text">{budget.toFixed(1)} min</div>
+                      <div className="text-sub">{consumed.toFixed(1)} consumed</div>
                     </div>
                     <div>
-                      <div className="text-sub uppercase tracking-wider">
-                        Remaining
-                      </div>
+                      <div className="text-sub uppercase tracking-wider">Remaining</div>
                       <div
                         className={`font-data ${
-                          burned
-                            ? "text-danger"
-                            : atRisk
-                              ? "text-amber-300"
-                              : "text-emerald-300"
+                          burned ? "text-danger" : atRisk ? "text-amber-300" : "text-emerald-300"
                         }`}
                       >
                         {remainingPct.toFixed(1)}%
                       </div>
                       <div className="text-sub">
-                        {burned
-                          ? "Budget burned"
-                          : atRisk
-                            ? "At risk"
-                            : "Healthy"}
+                        {burned ? "Budget burned" : atRisk ? "At risk" : "Healthy"}
                       </div>
                     </div>
                   </div>
@@ -695,11 +649,7 @@ export function SloBuilderClient() {
                   <div className="mt-3 h-1.5 rounded-full bg-bg overflow-hidden">
                     <div
                       className={`h-full ${
-                        burned
-                          ? "bg-danger"
-                          : atRisk
-                            ? "bg-amber-400"
-                            : "bg-emerald-400"
+                        burned ? "bg-danger" : atRisk ? "bg-amber-400" : "bg-emerald-400"
                       }`}
                       style={{ width: `${Math.max(0, Math.min(100, 100 - remainingPct))}%` }}
                       aria-hidden="true"
@@ -714,11 +664,7 @@ export function SloBuilderClient() {
 
       {chartData.length > 0 && (
         <>
-          <ChartCard
-            title="Cumulative error consumption"
-            height={320}
-            className="mt-6"
-          >
+          <ChartCard title="Cumulative error consumption" height={320} className="mt-6">
             <AreaChart data={chartData} margin={{ top: 8, right: 12, left: -16, bottom: 4 }}>
               <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
               <XAxis dataKey="date" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
@@ -729,7 +675,10 @@ export function SloBuilderClient() {
                 <Area
                   key={slo.id}
                   type="monotone"
-                  dataKey={slo.name}
+                  // dataKey is the SLO's id; name carries the human label
+                  // for legend/tooltip without colliding on duplicates.
+                  dataKey={slo.id}
+                  name={slo.name}
                   stackId="1"
                   stroke={CHART_COLORS[i % CHART_COLORS.length]}
                   fill={CHART_COLORS[i % CHART_COLORS.length]}
@@ -769,8 +718,10 @@ export function SloBuilderClient() {
                     <strong>Projected end-of-window remaining ({burnAnalytics.sloName}):</strong>{" "}
                     {burnAnalytics.projection.remainingMin.toFixed(1)} min{" "}
                     <span className="text-sub">
-                      (80% CI {burnAnalytics.projection.ciLowMin.toFixed(1)}–{burnAnalytics.projection.ciHighMin.toFixed(1)},{" "}
-                      {burnAnalytics.projection.horizonDays}d horizon, confidence {burnAnalytics.projection.confidence})
+                      (80% CI {burnAnalytics.projection.ciLowMin.toFixed(1)}–
+                      {burnAnalytics.projection.ciHighMin.toFixed(1)},{" "}
+                      {burnAnalytics.projection.horizonDays}d horizon, confidence{" "}
+                      {burnAnalytics.projection.confidence})
                     </span>
                   </span>
                 </CalloutAlert>

@@ -12,7 +12,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { RlhfPair, Workspace } from "@/lib/stores/workspace-types";
@@ -21,6 +25,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RLHF_ACTIONS } from "@/lib/history/event-actions";
 import { useLlmStore } from "@/lib/stores/llm-store";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
+import { redactPii, looksLikePii } from "@/lib/utils/redact-pii";
 import { PROVIDER_META, MODELS_BY_PROVIDER, findModel } from "@/lib/llm/pricing";
 import type { ProviderId } from "@/lib/llm/types";
 
@@ -53,6 +58,10 @@ export function RlhfLogClient() {
   const [winner, setWinner] = useState<RlhfPair["winner"]>("A");
   const [reviewer, setReviewer] = useState("");
   const [reason, setReason] = useState("");
+  // BUG-T7-rlhf-log-1: opt-in PII redaction. When true, emails, common
+  // API key prefixes, phone numbers and credit-card-shaped digits are
+  // stripped from prompt/responses BEFORE persist + export.
+  const [redact, setRedact] = useState(true);
 
   // --- BYOK pair generator state ---
   // The configured providers (each with a saved key + a default model) drive
@@ -61,7 +70,9 @@ export function RlhfLogClient() {
   const llmProviders = useLlmStore(useShallow((s) => s.providers));
   const openLlmSettings = useLlmUiStore((s) => s.openSettings);
   const configured = useMemo(() => {
-    return (Object.entries(llmProviders) as [ProviderId, { apiKey: string; model: string } | undefined][])
+    return (
+      Object.entries(llmProviders) as [ProviderId, { apiKey: string; model: string } | undefined][]
+    )
       .filter(([, cfg]) => !!cfg && cfg.apiKey.length > 0)
       .map(([id, cfg]) => ({ id, model: cfg!.model, apiKey: cfg!.apiKey }))
       .sort((a, b) => a.id.localeCompare(b.id));
@@ -121,8 +132,7 @@ export function RlhfLogClient() {
 
   // Looking up the apiKey for a given pick — needed because PairPick only
   // tracks (provider, model); the key lives in llm-store.
-  const apiKeyFor = (pId: ProviderId): string | null =>
-    llmProviders[pId]?.apiKey ?? null;
+  const apiKeyFor = (pId: ProviderId): string | null => llmProviders[pId]?.apiKey ?? null;
 
   function runPair() {
     if (!pairPrompt.trim()) return;
@@ -143,20 +153,29 @@ export function RlhfLogClient() {
 
   function add() {
     if (!prompt.trim() || !a.trim() || !b.trim()) return;
+    const maybeRedact = (s: string) => (redact ? redactPii(s) : s);
     const item: RlhfPair = {
       id: crypto.randomUUID(),
-      prompt: prompt.trim(),
-      responseA: a.trim(),
-      responseB: b.trim(),
+      prompt: maybeRedact(prompt.trim()),
+      responseA: maybeRedact(a.trim()),
+      responseB: maybeRedact(b.trim()),
       winner,
       reviewer: reviewer.trim() || undefined,
-      reason: reason.trim() || undefined,
+      reason: reason.trim() ? maybeRedact(reason.trim()) : undefined,
       loggedAt: new Date().toISOString(),
     };
     upsert(item);
     log(RLHF_ACTIONS.PAIR_LOGGED, { winner });
-    setPrompt(""); setA(""); setB(""); setReason(""); setReviewer(""); setWinner("A");
+    setPrompt("");
+    setA("");
+    setB("");
+    setReason("");
+    setReviewer("");
+    setWinner("A");
   }
+  // Inline indicator so the user knows redaction would change something.
+  const pendingPii =
+    (prompt && looksLikePii(prompt)) || (a && looksLikePii(a)) || (b && looksLikePii(b));
 
   function remove(id: string) {
     removeOne(id);
@@ -167,22 +186,47 @@ export function RlhfLogClient() {
   const winB = list.filter((x) => x.winner === "B").length;
   const ties = list.filter((x) => x.winner === "tie").length;
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    rlhfPairs: s.rlhfPairs,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        rlhfPairs: s.rlhfPairs,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "RLHF Feedback Log",
-    prompts: generateRlhfPrompts({ items: list }, workspace),
-  }), [list, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "RLHF Feedback Log",
+      prompts: generateRlhfPrompts({ items: list }, workspace),
+    }),
+    [list, workspace]
+  );
 
   const csvData = {
     headers: ["Date", "Prompt", "A", "B", "Winner", "Reviewer", "Reason"],
-    rows: list.map((x) => [x.loggedAt.slice(0, 10), x.prompt.slice(0, 100), x.responseA.slice(0, 100), x.responseB.slice(0, 100), x.winner, x.reviewer ?? "", x.reason ?? ""]),
+    // BUG-T7-rlhf-log-2: export full prompt/response text. The prior
+    // `.slice(0, 100)` silently truncated training-dataset rows to
+    // first 100 chars with no marker — the CSV was useless for fine-
+    // tuning. The shared exportToCSV helper handles quoting/escaping.
+    rows: list.map((x) => [
+      x.loggedAt.slice(0, 10),
+      x.prompt,
+      x.responseA,
+      x.responseB,
+      x.winner,
+      x.reviewer ?? "",
+      x.reason ?? "",
+    ]),
   };
 
   return (
@@ -204,9 +248,8 @@ export function RlhfLogClient() {
             collection workflow. */}
         <SectionCard title="Generate pair (BYOK)" icon={Beaker}>
           <p className="text-xs text-sub mb-3">
-            Pick two (provider, model) combos and run the same prompt through
-            both. Responses autofill the A and B textareas below — you only
-            need to set the winner + reason.
+            Pick two (provider, model) combos and run the same prompt through both. Responses
+            autofill the A and B textareas below — you only need to set the winner + reason.
           </p>
           {configured.length === 0 ? (
             <div className="flex flex-col items-start gap-2 p-3 border border-dashed border-border rounded text-sub text-sm">
@@ -229,18 +272,8 @@ export function RlhfLogClient() {
                 className="font-mono text-xs"
               />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
-                <PairPicker
-                  label="A"
-                  pick={pickA}
-                  onPick={setPickA}
-                  configured={configured}
-                />
-                <PairPicker
-                  label="B"
-                  pick={pickB}
-                  onPick={setPickB}
-                  configured={configured}
-                />
+                <PairPicker label="A" pick={pickA} onPick={setPickA} configured={configured} />
+                <PairPicker label="B" pick={pickB} onPick={setPickB} configured={configured} />
               </div>
               <div className="mt-3 flex items-center gap-3 flex-wrap">
                 <Button
@@ -256,8 +289,8 @@ export function RlhfLogClient() {
                   {canRunPair
                     ? "Both panels stream in parallel; responses autofill below."
                     : pairPrompt.trim().length === 0
-                    ? "Add a prompt above."
-                    : "Pick provider + model for each side."}
+                      ? "Add a prompt above."
+                      : "Pick provider + model for each side."}
                 </span>
               </div>
               {/* Two side-by-side panels. The providerOverride pins each to
@@ -309,24 +342,74 @@ export function RlhfLogClient() {
         </SectionCard>
 
         <SectionCard title="Log pairwise comparison" icon={Plus}>
-          <Textarea placeholder="Prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} className="font-mono text-xs" rows={2} />
+          <Textarea
+            placeholder="Prompt"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            className="font-mono text-xs"
+            rows={2}
+          />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-            <Textarea placeholder="Response A" value={a} onChange={(e) => setA(e.target.value)} rows={4} />
-            <Textarea placeholder="Response B" value={b} onChange={(e) => setB(e.target.value)} rows={4} />
+            <Textarea
+              placeholder="Response A"
+              value={a}
+              onChange={(e) => setA(e.target.value)}
+              rows={4}
+            />
+            <Textarea
+              placeholder="Response B"
+              value={b}
+              onChange={(e) => setB(e.target.value)}
+              rows={4}
+            />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
             <Select value={winner} onValueChange={(v) => setWinner(v as RlhfPair["winner"])}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="A">A wins</SelectItem>
                 <SelectItem value="B">B wins</SelectItem>
                 <SelectItem value="tie">Tie</SelectItem>
               </SelectContent>
             </Select>
-            <Input placeholder="Reviewer (optional)" value={reviewer} onChange={(e) => setReviewer(e.target.value)} />
-            <Input placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} />
+            <Input
+              placeholder="Reviewer (optional)"
+              value={reviewer}
+              onChange={(e) => setReviewer(e.target.value)}
+            />
+            <Input
+              placeholder="Reason (optional)"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
           </div>
-          <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Log pair</Button>
+          <div className="mt-3 flex items-center justify-between flex-wrap gap-2">
+            <label className="text-xs text-sub flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={redact}
+                onChange={(e) => setRedact(e.target.checked)}
+                aria-label="Redact PII before saving"
+              />
+              Redact emails / API keys / phone numbers before saving + exporting
+            </label>
+            {pendingPii && redact && (
+              <span className="text-[11px] text-amber-300">
+                PII detected — will be redacted on save.
+              </span>
+            )}
+            {pendingPii && !redact && (
+              <span className="text-[11px] text-red-300">
+                PII detected in this entry — will be stored and exported as-is.
+              </span>
+            )}
+          </div>
+          <Button onClick={add} className="mt-2 gap-1">
+            <Plus className="w-4 h-4" />
+            Log pair
+          </Button>
         </SectionCard>
 
         {list.length > 0 && (
@@ -336,28 +419,71 @@ export function RlhfLogClient() {
             actions={
               <>
                 <AiPromptGenerator config={promptConfig} />
-                <ExportButton filename="rlhf-log" csvData={csvData} jsonData={list} targetRef={exportRef} />
+                <ExportButton
+                  filename="rlhf-log"
+                  csvData={csvData}
+                  jsonData={list}
+                  targetRef={exportRef}
+                />
               </>
             }
           >
             <ul className="space-y-2">
-              {[...list].sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime()).slice(0, 30).map((x) => (
-                <li key={x.id} className="border border-border bg-surface-deep rounded p-3 text-sm">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-sub font-mono">{x.loggedAt.slice(0, 10)} · {x.reviewer ?? "—"}</span>
-                    <span className="flex items-center gap-2">
-                      <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: x.winner === "tie" ? "#88888820" : x.winner === "A" ? "#00f0ff20" : "#ff00aa20", color: x.winner === "tie" ? "#888" : x.winner === "A" ? "#00f0ff" : "#ff00aa" }}>{x.winner}</span>
-                      <button onClick={() => remove(x.id)} aria-label="Remove pair" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
-                    </span>
-                  </div>
-                  <p className="text-xs text-text mb-2 truncate">Prompt: {x.prompt}</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                    <div className="bg-surface rounded p-2 border border-cyan-500/20"><span className="text-cyan-400 text-[10px] uppercase">A</span><div className="text-sub mt-1">{x.responseA.slice(0, 200)}</div></div>
-                    <div className="bg-surface rounded p-2 border border-pink-500/20"><span className="text-pink-400 text-[10px] uppercase">B</span><div className="text-sub mt-1">{x.responseB.slice(0, 200)}</div></div>
-                  </div>
-                  {x.reason && <p className="text-xs text-sub mt-2 italic">Reason: {x.reason}</p>}
-                </li>
-              ))}
+              {[...list]
+                .sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime())
+                .slice(0, 30)
+                .map((x) => (
+                  <li
+                    key={x.id}
+                    className="border border-border bg-surface-deep rounded p-3 text-sm"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-sub font-mono">
+                        {x.loggedAt.slice(0, 10)} · {x.reviewer ?? "—"}
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <span
+                          className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded"
+                          style={{
+                            backgroundColor:
+                              x.winner === "tie"
+                                ? "#88888820"
+                                : x.winner === "A"
+                                  ? "#00f0ff20"
+                                  : "#ff00aa20",
+                            color:
+                              x.winner === "tie"
+                                ? "#888"
+                                : x.winner === "A"
+                                  ? "#00f0ff"
+                                  : "#ff00aa",
+                          }}
+                        >
+                          {x.winner}
+                        </span>
+                        <button
+                          onClick={() => remove(x.id)}
+                          aria-label="Remove pair"
+                          className="text-sub hover:text-red-400"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </span>
+                    </div>
+                    <p className="text-xs text-text mb-2 truncate">Prompt: {x.prompt}</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      <div className="bg-surface rounded p-2 border border-cyan-500/20">
+                        <span className="text-cyan-400 text-[10px] uppercase">A</span>
+                        <div className="text-sub mt-1">{x.responseA.slice(0, 200)}</div>
+                      </div>
+                      <div className="bg-surface rounded p-2 border border-pink-500/20">
+                        <span className="text-pink-400 text-[10px] uppercase">B</span>
+                        <div className="text-sub mt-1">{x.responseB.slice(0, 200)}</div>
+                      </div>
+                    </div>
+                    {x.reason && <p className="text-xs text-sub mt-2 italic">Reason: {x.reason}</p>}
+                  </li>
+                ))}
             </ul>
           </SectionCard>
         )}
@@ -389,9 +515,7 @@ function PairPicker({
   const value = pick ? `${pick.provider}:${pick.model}` : "";
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[10px] uppercase tracking-wider text-sub font-mono">
-        Side {label}
-      </span>
+      <span className="text-[10px] uppercase tracking-wider text-sub font-mono">Side {label}</span>
       <Select
         value={value}
         onValueChange={(v) => {
@@ -401,25 +525,24 @@ function PairPicker({
           onPick({ provider: prov as ProviderId, model });
         }}
       >
-        <SelectTrigger><SelectValue placeholder="Pick provider + model" /></SelectTrigger>
+        <SelectTrigger>
+          <SelectValue placeholder="Pick provider + model" />
+        </SelectTrigger>
         <SelectContent>
-          {configured.map((p) => (
+          {configured.map((p) =>
             // Group header + that provider's models. Radix Select doesn't
             // have a built-in group component in our wrapper, so we use a
             // disabled header row trick: a non-selectable label that just
             // labels the cluster.
             MODELS_BY_PROVIDER[p.id].map((m) => (
-              <SelectItem
-                key={`${p.id}:${m.id}`}
-                value={`${p.id}:${m.id}`}
-              >
+              <SelectItem key={`${p.id}:${m.id}`} value={`${p.id}:${m.id}`}>
                 <span className="font-mono text-[10px] text-accent uppercase tracking-wider mr-1">
                   {PROVIDER_META[p.id].name}
                 </span>
                 {m.label}
               </SelectItem>
             ))
-          ))}
+          )}
         </SelectContent>
       </Select>
     </label>

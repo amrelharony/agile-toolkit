@@ -84,10 +84,7 @@ function adjustedScore(raw: number, reversed: boolean): number {
 }
 
 function defaultScores(): Record<QuestionId, number> {
-  return QUESTIONS.reduce(
-    (acc, q) => ({ ...acc, [q.id]: 3 }),
-    {} as Record<QuestionId, number>
-  );
+  return QUESTIONS.reduce((acc, q) => ({ ...acc, [q.id]: 3 }), {} as Record<QuestionId, number>);
 }
 
 interface RadarPoint {
@@ -159,9 +156,7 @@ export function PsychSafetyClient() {
     )
   );
 
-  const [draftScores, setDraftScores] = useState<Record<QuestionId, number>>(
-    defaultScores
-  );
+  const [draftScores, setDraftScores] = useState<Record<QuestionId, number>>(defaultScores);
   const [respondent, setRespondent] = useState("");
   const [description, setDescription] = useState("");
 
@@ -227,8 +222,7 @@ export function PsychSafetyClient() {
   const lowest = useMemo(() => {
     if (responses.length === 0) return undefined;
     return perQuestion.reduce(
-      (acc, q) =>
-        acc === undefined || q.reversedScore < acc.reversedScore ? q : acc,
+      (acc, q) => (acc === undefined || q.reversedScore < acc.reversedScore ? q : acc),
       undefined as undefined | (typeof perQuestion)[number]
     );
   }, [perQuestion, responses.length]);
@@ -256,10 +250,7 @@ export function PsychSafetyClient() {
     return { delta: d, anomaly: d < -0.5 };
   }, [responses]);
 
-  const radar = useMemo(
-    () => projectRadar(perQuestion, ORG_BENCHMARK),
-    [perQuestion]
-  );
+  const radar = useMemo(() => projectRadar(perQuestion, ORG_BENCHMARK), [perQuestion]);
 
   const promptConfig = useMemo(
     () => ({
@@ -290,12 +281,7 @@ export function PsychSafetyClient() {
 
   const csvData = useMemo(
     () => ({
-      headers: [
-        "Timestamp",
-        "Respondent",
-        ...QUESTIONS.map((q) => q.id),
-        "Description",
-      ],
+      headers: ["Timestamp", "Respondent", ...QUESTIONS.map((q) => q.id), "Description"],
       rows: responses.map((r) => [
         r.ts,
         r.respondent ?? "",
@@ -315,11 +301,7 @@ export function PsychSafetyClient() {
     >
       <ActionRow>
         <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="psych-safety"
-          csvData={csvData}
-          jsonData={responses}
-        />
+        <ExportButton filename="psych-safety" csvData={csvData} jsonData={responses} />
       </ActionRow>
 
       <KpiGrid cols={4} gap="lg">
@@ -332,12 +314,7 @@ export function PsychSafetyClient() {
           hint={`benchmark ${ORG_BENCHMARK.toFixed(1)}`}
           valueClassName="text-accent"
         />
-        <StatCard
-          variant="compact"
-          icon={Users}
-          label="Responses"
-          value={responses.length}
-        />
+        <StatCard variant="compact" icon={Users} label="Responses" value={responses.length} />
         <StatCard
           variant="compact"
           label="Lowest question"
@@ -360,21 +337,16 @@ export function PsychSafetyClient() {
 
       {anomaly && (
         <CalloutAlert tone="danger" className="mb-4">
-          <strong>Score dropped &gt; 0.5</strong> compared to the prior half of
-          responses — investigate which dimensions slipped.
+          <strong>Score dropped &gt; 0.5</strong> compared to the prior half of responses —
+          investigate which dimensions slipped.
         </CalloutAlert>
       )}
 
       <div className="rounded-lg border border-border bg-surface p-4 mb-4">
-        <div className="text-xs uppercase tracking-wider text-sub mb-3">
-          Log a response
-        </div>
+        <div className="text-xs uppercase tracking-wider text-sub mb-3">Log a response</div>
         <div className="space-y-3">
           {QUESTIONS.map((q) => (
-            <div
-              key={q.id}
-              className="rounded-md border border-border bg-bg p-3 space-y-2"
-            >
+            <div key={q.id} className="rounded-md border border-border bg-bg p-3 space-y-2">
               <div className="text-xs text-text">
                 <span className="text-sub mr-1">Q{q.id.slice(1)}.</span>
                 {q.text}
@@ -390,9 +362,7 @@ export function PsychSafetyClient() {
                   max={5}
                   step={1}
                   value={[draftScores[q.id]]}
-                  onValueChange={(v) =>
-                    setDraftScores((s) => ({ ...s, [q.id]: v[0] ?? 3 }))
-                  }
+                  onValueChange={(v) => setDraftScores((s) => ({ ...s, [q.id]: v[0] ?? 3 }))}
                   className="flex-1"
                   aria-label={`Score for ${q.text}`}
                 />
@@ -402,13 +372,22 @@ export function PsychSafetyClient() {
               </div>
             </div>
           ))}
+          {/* BUG-T6-psych-safety-1: be HONEST about what happens with
+              the respondent field. "anonymous-friendly" implied it was
+              stripped; in reality it's persisted, exported in CSV, and
+              shown to every viewer. Either rephrase OR remove the field
+              entirely. Here: rephrase + add a warning. */}
           <Input
             value={respondent}
             onChange={(e) => setRespondent(e.target.value)}
-            placeholder="Respondent (optional, kept anonymous-friendly)"
+            placeholder="Respondent name (visible to anyone with workspace access)"
             className="bg-bg border-border text-sm"
             aria-label="Respondent"
           />
+          <p className="text-[11px] text-amber-300 -mt-1">
+            Edmondson&rsquo;s instrument relies on anonymity for honest answers. Leave blank to
+            preserve it.
+          </p>
           <Textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -418,10 +397,7 @@ export function PsychSafetyClient() {
             aria-label="Description"
           />
           <div className="flex justify-end">
-            <Button
-              onClick={submitResponse}
-              className="gap-2 bg-accent text-bg hover:bg-accent/90"
-            >
+            <Button onClick={submitResponse} className="gap-2 bg-accent text-bg hover:bg-accent/90">
               <Plus className="w-4 h-4" aria-hidden="true" />
               Submit response
             </Button>
@@ -431,8 +407,7 @@ export function PsychSafetyClient() {
 
       {responses.length === 0 ? (
         <EmptyState icon={Heart}>
-          No responses yet. Submit the first one above to see the radar and
-          team score.
+          No responses yet. Submit the first one above to see the radar and team score.
         </EmptyState>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -478,11 +453,7 @@ export function PsychSafetyClient() {
                       fontSize={10}
                       fill="#94a3b8"
                       textAnchor={
-                        Math.abs(a.cx - radar.cx) < 4
-                          ? "middle"
-                          : a.cx > radar.cx
-                          ? "start"
-                          : "end"
+                        Math.abs(a.cx - radar.cx) < 4 ? "middle" : a.cx > radar.cx ? "start" : "end"
                       }
                       className="font-data"
                     >
@@ -509,10 +480,7 @@ export function PsychSafetyClient() {
             </div>
             <div className="flex items-center justify-center gap-4 mt-2 text-[11px] text-sub">
               <span className="flex items-center gap-1">
-                <span
-                  className="inline-block w-3 h-2 rounded"
-                  style={{ background: "#00f0ff" }}
-                />
+                <span className="inline-block w-3 h-2 rounded" style={{ background: "#00f0ff" }} />
                 Team
               </span>
               <span className="flex items-center gap-1">
@@ -580,14 +548,10 @@ export function PsychSafetyClient() {
                   {r.respondent && ` · ${r.respondent}`}
                 </div>
                 <div className="text-text font-data">
-                  {QUESTIONS.map((q) => `Q${q.id.slice(1)}=${r.scores[q.id]}`).join(
-                    " · "
-                  )}
+                  {QUESTIONS.map((q) => `Q${q.id.slice(1)}=${r.scores[q.id]}`).join(" · ")}
                 </div>
                 {r.description && (
-                  <div className="text-sub whitespace-pre-wrap">
-                    {r.description}
-                  </div>
+                  <div className="text-sub whitespace-pre-wrap">{r.description}</div>
                 )}
               </div>
               <Button

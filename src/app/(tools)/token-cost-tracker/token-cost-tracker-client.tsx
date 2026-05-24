@@ -2,7 +2,16 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from "recharts";
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+} from "recharts";
 import { CircleDollarSign, Plus, Trash2, AlertTriangle, Sparkles } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
@@ -19,10 +28,44 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
+import { MODELS_BY_PROVIDER, estimateCostUsd } from "@/lib/llm/pricing";
+import type { ProviderId } from "@/lib/llm/types";
 
-interface Cfg { monthlyBudgetUsd: number; }
+/**
+ * BUG-T9-token-cost-tracker-1: look up a model by its id across every
+ * provider in the price table. Returns the (provider, model.id) pair
+ * needed by `estimateCostUsd`. Case-insensitive substring match so
+ * "GPT-4o" matches "gpt-4o" etc.
+ */
+function findModelEverywhere(needle: string): { provider: ProviderId; modelId: string } | null {
+  if (!needle.trim()) return null;
+  const want = needle.trim().toLowerCase();
+  for (const [provider, models] of Object.entries(MODELS_BY_PROVIDER) as Array<
+    [ProviderId, ReadonlyArray<{ id: string }>]
+  >) {
+    for (const m of models) {
+      if (m.id.toLowerCase() === want) return { provider, modelId: m.id };
+    }
+  }
+  // Fall back to substring match.
+  for (const [provider, models] of Object.entries(MODELS_BY_PROVIDER) as Array<
+    [ProviderId, ReadonlyArray<{ id: string }>]
+  >) {
+    for (const m of models) {
+      if (m.id.toLowerCase().includes(want)) return { provider, modelId: m.id };
+    }
+  }
+  return null;
+}
+
+interface Cfg {
+  monthlyBudgetUsd: number;
+}
 const useCfg = create<Cfg & { setBudget: (v: number) => void }>()(
-  persist((set) => ({ monthlyBudgetUsd: 1000, setBudget: (v) => set({ monthlyBudgetUsd: v }) }), { name: "agile-toolkit:token-cost-cfg", storage: safeJSONStorage("token-cost-cfg") }),
+  persist((set) => ({ monthlyBudgetUsd: 1000, setBudget: (v) => set({ monthlyBudgetUsd: v }) }), {
+    name: "agile-toolkit:token-cost-cfg",
+    storage: safeJSONStorage("token-cost-cfg"),
+  })
 );
 
 export function TokenCostTrackerClient() {
@@ -44,7 +87,23 @@ export function TokenCostTrackerClient() {
   const [costUsd, setCostUsd] = useState("");
 
   function add() {
-    const it = parseFloat(inputTokens), ot = parseFloat(outputTokens), c = parseFloat(costUsd);
+    const it = parseFloat(inputTokens),
+      ot = parseFloat(outputTokens);
+    let c = parseFloat(costUsd);
+    // BUG-T9-token-cost-tracker-1: if the user left `costUsd` blank but
+    // typed token counts AND a known model, derive cost from the price
+    // table instead of forcing them to type it. Keeps the user-typed
+    // override when present (CSV-imported rows, custom-model pricing).
+    if (
+      (!Number.isFinite(c) || c <= 0) &&
+      Number.isFinite(it) &&
+      it >= 0 &&
+      Number.isFinite(ot) &&
+      ot >= 0
+    ) {
+      const hit = findModelEverywhere(model);
+      if (hit) c = estimateCostUsd(hit.provider, hit.modelId, it, ot);
+    }
     // Reject obviously-bad inputs at the entry point: negative tokens / cost
     // would otherwise sneak into totals and the projection (which is the
     // budget signal), where a single typo turns the alert green forever.
@@ -60,8 +119,21 @@ export function TokenCostTrackerClient() {
     };
     upsert(item);
     log(TOKEN_COST_ACTIONS.SPEND_LOGGED, { feature: item.feature, costUsd: item.costUsd });
-    setInputTokens(""); setOutputTokens(""); setCostUsd("");
+    setInputTokens("");
+    setOutputTokens("");
+    setCostUsd("");
   }
+
+  // Live preview of the auto-derived cost so the user knows when leaving
+  // costUsd blank will be filled in.
+  const previewCost: number | null = useMemo(() => {
+    const it = parseFloat(inputTokens);
+    const ot = parseFloat(outputTokens);
+    if (!Number.isFinite(it) || !Number.isFinite(ot) || it < 0 || ot < 0) return null;
+    const hit = findModelEverywhere(model);
+    if (!hit) return null;
+    return estimateCostUsd(hit.provider, hit.modelId, it, ot);
+  }, [model, inputTokens, outputTokens]);
 
   function remove(id: string) {
     removeOne(id);
@@ -82,15 +154,14 @@ export function TokenCostTrackerClient() {
   const featureBreakdown = useMemo(() => {
     const m: Record<string, number> = {};
     for (const x of list) m[x.feature] = (m[x.feature] ?? 0) + x.costUsd;
-    return Object.entries(m).map(([feature, cost]) => ({ feature, cost })).sort((a, b) => b.cost - a.cost);
+    return Object.entries(m)
+      .map(([feature, cost]) => ({ feature, cost }))
+      .sort((a, b) => b.cost - a.cost);
   }, [list]);
 
   // Guard against NaN in totals: a corrupted persisted entry with non-finite
   // costUsd would otherwise poison every downstream KPI and the budget badge.
-  const totalSpend = list.reduce(
-    (s, x) => s + (Number.isFinite(x.costUsd) ? x.costUsd : 0),
-    0,
-  );
+  const totalSpend = list.reduce((s, x) => s + (Number.isFinite(x.costUsd) ? x.costUsd : 0), 0);
   const last30Spend = useMemo(() => {
     // R5: previously mixed UTC date strings with local-time entries from
     // the user input. Use local-day strings consistently so an entry
@@ -110,18 +181,35 @@ export function TokenCostTrackerClient() {
   const projected = last30Spend; // simple linear projection — last 30 days = next 30 days
   const overBudget = projected > cfg.monthlyBudgetUsd;
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    tokenSpend: s.tokenSpend, models: s.models,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        tokenSpend: s.tokenSpend,
+        models: s.models,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Token-Cost Tracker",
-    prompts: generateTokenCostPrompts({ items: list, monthlyBudgetUsd: cfg.monthlyBudgetUsd }, workspace),
-  }), [list, cfg.monthlyBudgetUsd, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Token-Cost Tracker",
+      prompts: generateTokenCostPrompts(
+        { items: list, monthlyBudgetUsd: cfg.monthlyBudgetUsd },
+        workspace
+      ),
+    }),
+    [list, cfg.monthlyBudgetUsd, workspace]
+  );
 
   const csvData = {
     headers: ["Date", "Feature", "Model", "Input tokens", "Output tokens", "Cost USD"],
@@ -138,14 +226,19 @@ export function TokenCostTrackerClient() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <KPI label="Total spend" value={`$${totalSpend.toFixed(2)}`} />
           <KPI label="Last 30d" value={`$${last30Spend.toFixed(2)}`} />
-          <KPI label="Projected next 30d" value={`$${projected.toFixed(2)}`} tone={overBudget ? "danger" : "default"} />
+          <KPI
+            label="Projected next 30d"
+            value={`$${projected.toFixed(2)}`}
+            tone={overBudget ? "danger" : "default"}
+          />
           <KPI label="Monthly budget" value={`$${cfg.monthlyBudgetUsd.toFixed(0)}`} tone="ok" />
         </div>
 
         {overBudget && (
           <div className="rounded border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-300 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
-            Projected spend ${projected.toFixed(2)} exceeds monthly budget ${cfg.monthlyBudgetUsd.toFixed(0)}.
+            Projected spend ${projected.toFixed(2)} exceeds monthly budget $
+            {cfg.monthlyBudgetUsd.toFixed(0)}.
           </div>
         )}
 
@@ -156,24 +249,54 @@ export function TokenCostTrackerClient() {
         <div className="rounded border border-accent/20 bg-accent/5 p-3 text-sm text-text flex items-start gap-2">
           <Sparkles className="w-4 h-4 text-accent shrink-0 mt-0.5" />
           <span>
-            <strong>Live auto-tracking is on.</strong> Every BYOK run anywhere
-            in the toolkit appends a <span className="font-mono text-xs">BYOK: …</span>{" "}
-            row here automatically — using the provider&apos;s actual usage
-            payload, not an estimate. Remove individual rows below to exclude
-            specific runs from your totals.
+            <strong>Live auto-tracking is on.</strong> Every BYOK run anywhere in the toolkit
+            appends a <span className="font-mono text-xs">BYOK: …</span> row here automatically —
+            using the provider&apos;s actual usage payload, not an estimate. Remove individual rows
+            below to exclude specific runs from your totals.
           </span>
         </div>
 
         <SectionCard title="Log spend" icon={Plus}>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            <Input placeholder="Feature" value={feature} onChange={(e) => setFeature(e.target.value)} />
+            <Input
+              placeholder="Feature"
+              value={feature}
+              onChange={(e) => setFeature(e.target.value)}
+            />
             <Input placeholder="Model" value={model} onChange={(e) => setModel(e.target.value)} />
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-            <Input type="number" placeholder="Input tokens" value={inputTokens} onChange={(e) => setInputTokens(e.target.value)} />
-            <Input type="number" placeholder="Output tokens" value={outputTokens} onChange={(e) => setOutputTokens(e.target.value)} />
-            <Input type="number" step="0.01" placeholder="Cost USD" value={costUsd} onChange={(e) => setCostUsd(e.target.value)} />
+            <Input
+              type="number"
+              placeholder="Input tokens"
+              value={inputTokens}
+              onChange={(e) => setInputTokens(e.target.value)}
+            />
+            <Input
+              type="number"
+              placeholder="Output tokens"
+              value={outputTokens}
+              onChange={(e) => setOutputTokens(e.target.value)}
+            />
+            <Input
+              type="number"
+              step="0.01"
+              placeholder={
+                previewCost !== null ? `Cost USD (auto ≈ $${previewCost.toFixed(4)})` : "Cost USD"
+              }
+              value={costUsd}
+              onChange={(e) => setCostUsd(e.target.value)}
+            />
           </div>
-          <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Log</Button>
+          {previewCost !== null && (
+            <p className="mt-2 text-[11px] text-sub">
+              Price-table match: leave Cost blank to auto-fill with ${previewCost.toFixed(4)}. Type
+              a value to override (e.g. for custom-priced model variants).
+            </p>
+          )}
+          <Button onClick={add} className="mt-3 gap-1">
+            <Plus className="w-4 h-4" />
+            Log
+          </Button>
         </SectionCard>
 
         <SectionCard title="Monthly budget">
@@ -201,7 +324,12 @@ export function TokenCostTrackerClient() {
             actions={
               <>
                 <AiPromptGenerator config={promptConfig} />
-                <ExportButton filename="token-cost" csvData={csvData} jsonData={list} targetRef={exportRef} />
+                <ExportButton
+                  filename="token-cost"
+                  csvData={csvData}
+                  jsonData={list}
+                  targetRef={exportRef}
+                />
               </>
             }
           >
@@ -211,8 +339,24 @@ export function TokenCostTrackerClient() {
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                   <XAxis dataKey="date" stroke="#888" fontSize={11} />
                   <YAxis stroke="#888" fontSize={11} />
-                  <Tooltip contentStyle={{ backgroundColor: "#0f1117", border: "1px solid #2a2f3a", fontSize: 12 }} />
-                  <ReferenceLine y={cfg.monthlyBudgetUsd / 30} stroke="#ff6b6b" strokeDasharray="4 4" label={{ value: "daily budget", position: "right", fill: "#ff6b6b", fontSize: 10 }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#0f1117",
+                      border: "1px solid #2a2f3a",
+                      fontSize: 12,
+                    }}
+                  />
+                  <ReferenceLine
+                    y={cfg.monthlyBudgetUsd / 30}
+                    stroke="#ff6b6b"
+                    strokeDasharray="4 4"
+                    label={{
+                      value: "daily budget",
+                      position: "right",
+                      fill: "#ff6b6b",
+                      fontSize: 10,
+                    }}
+                  />
                   <Area dataKey="cost" stroke="#00f0ff" fill="#00f0ff20" />
                 </AreaChart>
               </ResponsiveContainer>
@@ -237,17 +381,26 @@ export function TokenCostTrackerClient() {
           <SectionCard title={`Spend log (${list.length})`} icon={CircleDollarSign}>
             <div className="table-wrap-responsive">
               <table className="w-full text-sm">
-                <thead><tr className="text-left text-xs text-sub uppercase">
-                  <th className="p-2">Date</th><th className="p-2">Feature</th><th className="p-2">Model</th>
-                  <th className="p-2 text-right">Tokens</th><th className="p-2 text-right">Cost</th><th className="p-2 w-10"></th>
-                </tr></thead>
+                <thead>
+                  <tr className="text-left text-xs text-sub uppercase">
+                    <th className="p-2">Date</th>
+                    <th className="p-2">Feature</th>
+                    <th className="p-2">Model</th>
+                    <th className="p-2 text-right">Tokens</th>
+                    <th className="p-2 text-right">Cost</th>
+                    <th className="p-2 w-10"></th>
+                  </tr>
+                </thead>
                 <tbody>
-                  {[...list].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 50).map((x) => (
-                    <tr key={x.id} className="border-t border-border">
-                      <td className="p-2 font-mono text-xs">{x.date}</td>
-                      <td className="p-2">{x.feature}</td>
-                      <td className="p-2 text-sub">{x.model}</td>
-                      {/* R11-fix: NaN-guard. The add() path validates
+                  {[...list]
+                    .sort((a, b) => b.date.localeCompare(a.date))
+                    .slice(0, 50)
+                    .map((x) => (
+                      <tr key={x.id} className="border-t border-border">
+                        <td className="p-2 font-mono text-xs">{x.date}</td>
+                        <td className="p-2">{x.feature}</td>
+                        <td className="p-2 text-sub">{x.model}</td>
+                        {/* R11-fix: NaN-guard. The add() path validates
                           inputs, but a persisted entry from an older
                           schema or corrupted localStorage can carry
                           NaN that crashes `.toLocaleString()` /
@@ -256,17 +409,25 @@ export function TokenCostTrackerClient() {
                           row mis-matches the cell vs totals readout
                           and hides the corruption from users. Render
                           a clear "—" when values aren't finite. */}
-                      <td className="p-2 text-right font-mono text-xs">
-                        {Number.isFinite(x.inputTokens + x.outputTokens)
-                          ? (x.inputTokens + x.outputTokens).toLocaleString()
-                          : "—"}
-                      </td>
-                      <td className="p-2 text-right font-mono">
-                        {Number.isFinite(x.costUsd) ? `$${x.costUsd.toFixed(2)}` : "—"}
-                      </td>
-                      <td className="p-2"><button onClick={() => remove(x.id)} aria-label="Remove spend entry" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button></td>
-                    </tr>
-                  ))}
+                        <td className="p-2 text-right font-mono text-xs">
+                          {Number.isFinite(x.inputTokens + x.outputTokens)
+                            ? (x.inputTokens + x.outputTokens).toLocaleString()
+                            : "—"}
+                        </td>
+                        <td className="p-2 text-right font-mono">
+                          {Number.isFinite(x.costUsd) ? `$${x.costUsd.toFixed(2)}` : "—"}
+                        </td>
+                        <td className="p-2">
+                          <button
+                            onClick={() => remove(x.id)}
+                            aria-label="Remove spend entry"
+                            className="text-sub hover:text-red-400"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
@@ -277,8 +438,17 @@ export function TokenCostTrackerClient() {
   );
 }
 
-function KPI({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "ok" | "danger" }) {
-  const colorClass = tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+function KPI({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "ok" | "danger";
+}) {
+  const colorClass =
+    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

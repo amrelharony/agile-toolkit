@@ -93,8 +93,7 @@ const useReleasePlannerStore = create<ReleasePlannerStore>()(
     (set) => ({
       config: makeDefaultConfig(),
 
-      updateConfig: (updates) =>
-        set((s) => ({ config: { ...s.config, ...updates } })),
+      updateConfig: (updates) => set((s) => ({ config: { ...s.config, ...updates } })),
 
       reset: () => set({ config: makeDefaultConfig() }),
     }),
@@ -118,10 +117,7 @@ interface SimulationResult {
   maxSprints: number;
 }
 
-function runSimulation(
-  effectiveBacklog: number,
-  velocities: number[]
-): SimulationResult {
+function runSimulation(effectiveBacklog: number, velocities: number[]): SimulationResult {
   if (velocities.length === 0 || effectiveBacklog <= 0) {
     return {
       histogram: [],
@@ -258,13 +254,17 @@ const inputCls =
 /* -------------------------------------------------------------------------- */
 
 export function ReleasePlannerClient() {
-  const {
-    config,
-    updateConfig: updateConfigRaw,
-    reset: resetRaw,
-  } = useReleasePlannerStore();
+  const { config, updateConfig: updateConfigRaw, reset: resetRaw } = useReleasePlannerStore();
   const { log } = useHistoryLogger("release-planner");
 
+  // BUG-T7-release-planner-1: split into quiet vs logged variants so
+  // slider/keystroke drag doesn't spam one history event per
+  // intermediate value. Use `updateConfigQuiet` for `onChange` /
+  // slider `onValueChange`; reserve the logged `updateConfig` for
+  // commit moments (`onBlur`, slider `onValueCommit`, button click).
+  const updateConfigQuiet: typeof updateConfigRaw = (updates) => {
+    updateConfigRaw(updates);
+  };
   const updateConfig: typeof updateConfigRaw = (updates) => {
     updateConfigRaw(updates);
     log(RELEASE_PLANNER_ACTIONS.RELEASE_UPDATED, {
@@ -278,10 +278,7 @@ export function ReleasePlannerClient() {
 
   const chartRef = useRef<HTMLDivElement>(null);
 
-  const velocities = useMemo(
-    () => parseVelocities(config.velocityInput),
-    [config.velocityInput]
-  );
+  const velocities = useMemo(() => parseVelocities(config.velocityInput), [config.velocityInput]);
 
   const avgVelocity = useMemo(
     () =>
@@ -336,25 +333,25 @@ export function ReleasePlannerClient() {
   }, [velocities, effectiveBacklog]);
 
   /* -- CUSUM regime-shift detection on the velocity series ------------------ */
-  const velocityRegimeShift = useMemo(
-    () => hasRecentChangepoint(velocities, 3),
-    [velocities],
-  );
+  const velocityRegimeShift = useMemo(() => hasRecentChangepoint(velocities, 3), [velocities]);
 
   /* -- SmartInput predicted default for the "sprints to release" target ---- */
   const sprintsToReleasePred = usePredictedDefault<number>(
     "release-planner",
     "sprintsToRelease",
-    Math.max(1, sim.p50 || 4),
+    Math.max(1, sim.p50 || 4)
   );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Release Planner",
-    prompts: generateReleasePlannerPrompts({
-      config,
-      results: sim.p50 > 0 ? { p50: sim.p50, p75: sim.p75, p85: sim.p85, p95: sim.p95 } : null,
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Release Planner",
+      prompts: generateReleasePlannerPrompts({
+        config,
+        results: sim.p50 > 0 ? { p50: sim.p50, p75: sim.p75, p85: sim.p85, p95: sim.p95 } : null,
+      }),
     }),
-  }), [config, sim]);
+    [config, sim]
+  );
 
   const confidenceRows = useMemo(() => {
     if (sim.p50 === 0) return [];
@@ -378,14 +375,18 @@ export function ReleasePlannerClient() {
       `Sprint length: ${config.sprintLengthDays} days | Start: ${config.startDate}`,
       "",
       "Confidence  Sprints  Target Date",
-      ...confidenceRows.map(
-        (r) => `${r.pct}%         ${String(r.sprints).padStart(7)}  ${r.date}`
-      ),
+      ...confidenceRows.map((r) => `${r.pct}%         ${String(r.sprints).padStart(7)}  ${r.date}`),
     ];
     return lines.join("\n");
   }, [confidenceRows, config, effectiveBacklog, avgVelocity]);
 
+  // BUG-T7-release-planner-1: quiet per-tick during the drag, ONE
+  // logged event on release.
   const handleScopeAdjustment = useCallback(
+    (val: number[]) => updateConfigQuiet({ scopeAdjustment: val[0] }),
+    [updateConfigQuiet]
+  );
+  const handleScopeAdjustmentCommit = useCallback(
     (val: number[]) => updateConfig({ scopeAdjustment: val[0] }),
     [updateConfig]
   );
@@ -400,12 +401,7 @@ export function ReleasePlannerClient() {
       <div className="space-y-6">
         {/* Actions */}
         <div className="flex items-center justify-between">
-          <Button
-            variant="danger-ghost"
-            size="sm"
-            onClick={reset}
-            className="gap-1.5"
-          >
+          <Button variant="danger-ghost" size="sm" onClick={reset} className="gap-1.5">
             <RefreshCw className="w-3.5 h-3.5" />
             Reset
           </Button>
@@ -438,7 +434,11 @@ export function ReleasePlannerClient() {
           <StatCard
             label="50% Confidence"
             value={sim.p50 > 0 ? `${sim.p50} sprints` : "—"}
-            sub={sim.p50 > 0 ? sprintToDate(config.startDate, sim.p50, config.sprintLengthDays) : undefined}
+            sub={
+              sim.p50 > 0
+                ? sprintToDate(config.startDate, sim.p50, config.sprintLengthDays)
+                : undefined
+            }
             icon={Calendar}
             color="#00f0ff"
           />
@@ -475,185 +475,165 @@ export function ReleasePlannerClient() {
                 Recent regime shift in velocity detected
               </div>
               <div className="text-sub">
-                CUSUM flagged a changepoint in the last few sprints. The projection
-                blends old and new regimes — re-fit once the new velocity stabilises,
-                or trim the historical sample to the post-shift window.
+                CUSUM flagged a changepoint in the last few sprints. The projection blends old and
+                new regimes — re-fit once the new velocity stabilises, or trim the historical sample
+                to the post-shift window.
               </div>
             </div>
           </CalloutAlert>
         )}
 
         {/* Configuration */}
-        <SectionCard
-          title="Configuration"
-          icon={Settings2}
-          titleSize="lg"
-          headerClassName="pb-4"
-        >
+        <SectionCard title="Configuration" icon={Settings2} titleSize="lg" headerClassName="pb-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              <div className="space-y-1.5">
-                <Label className="text-sub text-xs">
-                  Backlog Size (story points)
-                </Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={config.backlogSize}
-                  onChange={(e) => {
-                    const n = Number(e.target.value);
-                    if (Number.isFinite(n)) {
-                      updateConfig({ backlogSize: Math.max(1, n) });
-                    }
-                  }}
-                  className={inputCls}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sub text-xs">Scope Buffer %</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={config.scopeBuffer}
-                  onChange={(e) => {
-                    const n = Number(e.target.value);
-                    if (Number.isFinite(n)) {
-                      updateConfig({ scopeBuffer: Math.min(100, Math.max(0, n)) });
-                    }
-                  }}
-                  className={inputCls}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sub text-xs">
-                  Sprint Length (days)
-                </Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={90}
-                  value={config.sprintLengthDays}
-                  onChange={(e) => {
-                    const n = Number(e.target.value);
-                    if (Number.isFinite(n)) {
-                      updateConfig({ sprintLengthDays: Math.min(90, Math.max(1, n)) });
-                    }
-                  }}
-                  className={inputCls}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sub text-xs">Start Date</Label>
-                <Input
-                  type="date"
-                  value={config.startDate}
-                  onChange={(e) => updateConfig({ startDate: e.target.value })}
-                  className={inputCls}
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label className="text-sub text-xs">Backlog Size (story points)</Label>
+              <Input
+                type="number"
+                min={1}
+                value={config.backlogSize}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (Number.isFinite(n)) {
+                    updateConfig({ backlogSize: Math.max(1, n) });
+                  }
+                }}
+                className={inputCls}
+              />
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-sub text-xs">Scope Buffer %</Label>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                value={config.scopeBuffer}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (Number.isFinite(n)) {
+                    updateConfig({ scopeBuffer: Math.min(100, Math.max(0, n)) });
+                  }
+                }}
+                className={inputCls}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sub text-xs">Sprint Length (days)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={90}
+                value={config.sprintLengthDays}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (Number.isFinite(n)) {
+                    updateConfig({ sprintLengthDays: Math.min(90, Math.max(1, n)) });
+                  }
+                }}
+                className={inputCls}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-sub text-xs">Start Date</Label>
+              <Input
+                type="date"
+                value={config.startDate}
+                onChange={(e) => updateConfig({ startDate: e.target.value })}
+                className={inputCls}
+              />
+            </div>
+          </div>
 
-            {/* SmartInput — target sprints to release. The user can pin a
+          {/* SmartInput — target sprints to release. The user can pin a
                 target; the Bayesian forecast suggests a value as a Tab-to-
                 accept ghost. When set, the histogram below renders a vertical
                 target line so the user can eyeball where their goal sits in
                 the simulated distribution. */}
-            <div className="mt-5 space-y-1.5">
-              <Label className="text-sub text-xs">
-                Target sprints to release (optional)
-              </Label>
-              <SmartInput<number>
-                predicted={sprintsToReleasePred}
-                onAccept={(v) => updateConfig({ sprintsToReleaseTarget: String(v) })}
-                render={({ ghost, chip, accept }) => (
-                  <div>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={config.sprintsToReleaseTarget ?? ""}
-                      placeholder={ghost ?? "e.g. 6"}
-                      onKeyDown={(e) => {
-                        if (
-                          e.key === "Tab" &&
-                          (config.sprintsToReleaseTarget ?? "") === ""
-                        ) {
-                          e.preventDefault();
-                          accept();
-                        }
-                      }}
-                      onChange={(e) =>
-                        updateConfig({ sprintsToReleaseTarget: e.target.value })
+          <div className="mt-5 space-y-1.5">
+            <Label className="text-sub text-xs">Target sprints to release (optional)</Label>
+            <SmartInput<number>
+              predicted={sprintsToReleasePred}
+              onAccept={(v) => updateConfig({ sprintsToReleaseTarget: String(v) })}
+              render={({ ghost, chip, accept }) => (
+                <div>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={config.sprintsToReleaseTarget ?? ""}
+                    placeholder={ghost ?? "e.g. 6"}
+                    onKeyDown={(e) => {
+                      if (e.key === "Tab" && (config.sprintsToReleaseTarget ?? "") === "") {
+                        e.preventDefault();
+                        accept();
                       }
-                      className={inputCls + " sm:max-w-xs"}
-                    />
-                    {chip}
-                  </div>
-                )}
-              />
-            </div>
+                    }}
+                    onChange={(e) => updateConfig({ sprintsToReleaseTarget: e.target.value })}
+                    className={inputCls + " sm:max-w-xs"}
+                  />
+                  {chip}
+                </div>
+              )}
+            />
+          </div>
 
-            <div className="mt-5 space-y-1.5">
-              <Label className="text-sub text-xs">
-                Historical Velocities (comma-separated or one per line)
-              </Label>
-              <textarea
-                value={config.velocityInput}
-                onChange={(e) => updateConfig({ velocityInput: e.target.value })}
-                rows={3}
-                placeholder="18, 22, 19, 25, 21, 17, 23, 20"
-                className="w-full px-3 py-2 rounded-md text-sm bg-surface-deep border border-border text-text font-data focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 resize-none"
-              />
-              {velocities.length === 0 && (
-                <p className="text-xs text-red-400">
-                  Enter at least one positive velocity value.
-                </p>
-              )}
-              {velocities.length > 0 && (
-                <p className="text-xs text-sub">
-                  {velocities.length} data point{velocities.length !== 1 ? "s" : ""} — avg{" "}
-                  {avgVelocity} pts/sprint
-                </p>
-              )}
-            </div>
+          <div className="mt-5 space-y-1.5">
+            <Label className="text-sub text-xs">
+              Historical Velocities (comma-separated or one per line)
+            </Label>
+            <textarea
+              value={config.velocityInput}
+              onChange={(e) => updateConfig({ velocityInput: e.target.value })}
+              rows={3}
+              placeholder="18, 22, 19, 25, 21, 17, 23, 20"
+              className="w-full px-3 py-2 rounded-md text-sm bg-surface-deep border border-border text-text font-data focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 resize-none"
+            />
+            {velocities.length === 0 && (
+              <p className="text-xs text-red-400">Enter at least one positive velocity value.</p>
+            )}
+            {velocities.length > 0 && (
+              <p className="text-xs text-sub">
+                {velocities.length} data point{velocities.length !== 1 ? "s" : ""} — avg{" "}
+                {avgVelocity} pts/sprint
+              </p>
+            )}
+          </div>
         </SectionCard>
 
         {/* Sensitivity slider */}
-        <SectionCard
-          title="Scope Sensitivity"
-          icon={TrendingUp}
-        >
+        <SectionCard title="Scope Sensitivity" icon={TrendingUp}>
           <div className="flex items-center gap-4">
-              <span className="text-xs text-sub w-8 text-right">-50%</span>
-              <div className="flex-1">
-                <Slider
-                  min={-50}
-                  max={50}
-                  step={1}
-                  value={[config.scopeAdjustment]}
-                  onValueChange={handleScopeAdjustment}
-                  className=""
-                />
-              </div>
-              <span className="text-xs text-sub w-8">+50%</span>
-              <span
-                className="text-sm font-data font-bold w-16 text-center"
-                style={{
-                  color:
-                    config.scopeAdjustment > 0
-                      ? "#ef4444"
-                      : config.scopeAdjustment < 0
+            <span className="text-xs text-sub w-8 text-right">-50%</span>
+            <div className="flex-1">
+              <Slider
+                min={-50}
+                max={50}
+                step={1}
+                value={[config.scopeAdjustment]}
+                onValueChange={handleScopeAdjustment}
+                onValueCommit={handleScopeAdjustmentCommit}
+                className=""
+              />
+            </div>
+            <span className="text-xs text-sub w-8">+50%</span>
+            <span
+              className="text-sm font-data font-bold w-16 text-center"
+              style={{
+                color:
+                  config.scopeAdjustment > 0
+                    ? "#ef4444"
+                    : config.scopeAdjustment < 0
                       ? "#00ff88"
                       : "#94a3b8",
-                }}
-              >
-                {config.scopeAdjustment > 0 ? "+" : ""}
-                {config.scopeAdjustment}%
-              </span>
-            </div>
-            <p className="mt-2 text-xs text-sub">
-              Adjust scope by ±50% to model optimistic or pessimistic scenarios. Current effective
-              backlog: <span className="text-accent font-data">{effectiveBacklog} pts</span>.
-            </p>
+              }}
+            >
+              {config.scopeAdjustment > 0 ? "+" : ""}
+              {config.scopeAdjustment}%
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-sub">
+            Adjust scope by ±50% to model optimistic or pessimistic scenarios. Current effective
+            backlog: <span className="text-accent font-data">{effectiveBacklog} pts</span>.
+          </p>
         </SectionCard>
 
         {/* Histogram chart */}
@@ -664,217 +644,201 @@ export function ReleasePlannerClient() {
           titleSuffix={`(${ITERATIONS.toLocaleString()} iterations)`}
           headerClassName="pb-2"
         >
-            {sim.histogram.length === 0 ? (
-              <div className="flex items-center justify-center h-60 text-sub text-sm">
-                Enter velocity data to run simulation.
-              </div>
-            ) : (
-              <div ref={chartRef} className="w-full pt-2">
-                <ResponsiveContainer width="100%" height={350}>
-                  <BarChart
-                    data={sim.histogram}
-                    margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
-                    barSize={
-                      sim.histogram.length > 30 ? 4 : sim.histogram.length > 15 ? 8 : 16
-                    }
-                  >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke={chartTheme.gridColor}
-                      vertical={false}
-                    />
-                    <XAxis
-                      dataKey="sprints"
-                      tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                      axisLine={{ stroke: chartTheme.gridColor }}
-                      tickLine={false}
-                      label={{
-                        value: "Sprints needed",
-                        position: "insideBottomRight",
-                        offset: -10,
-                        fill: chartTheme.axisColor,
-                        fontSize: 11,
-                      }}
-                    />
-                    <YAxis
-                      tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                      label={{
-                        value: "Frequency",
-                        angle: -90,
-                        position: "insideLeft",
-                        fill: chartTheme.axisColor,
-                        fontSize: 11,
-                        offset: 10,
-                      }}
-                    />
-                    <Tooltip
-                      content={
-                        <HistogramTooltip total={ITERATIONS} />
-                      }
-                    />
+          {sim.histogram.length === 0 ? (
+            <div className="flex items-center justify-center h-60 text-sub text-sm">
+              Enter velocity data to run simulation.
+            </div>
+          ) : (
+            <div ref={chartRef} className="w-full pt-2">
+              <ResponsiveContainer width="100%" height={350}>
+                <BarChart
+                  data={sim.histogram}
+                  margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+                  barSize={sim.histogram.length > 30 ? 4 : sim.histogram.length > 15 ? 8 : 16}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke={chartTheme.gridColor}
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="sprints"
+                    tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                    axisLine={{ stroke: chartTheme.gridColor }}
+                    tickLine={false}
+                    label={{
+                      value: "Sprints needed",
+                      position: "insideBottomRight",
+                      offset: -10,
+                      fill: chartTheme.axisColor,
+                      fontSize: 11,
+                    }}
+                  />
+                  <YAxis
+                    tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    label={{
+                      value: "Frequency",
+                      angle: -90,
+                      position: "insideLeft",
+                      fill: chartTheme.axisColor,
+                      fontSize: 11,
+                      offset: 10,
+                    }}
+                  />
+                  <Tooltip content={<HistogramTooltip total={ITERATIONS} />} />
 
-                    {/* Percentile reference lines */}
-                    <ReferenceLine
-                      x={sim.p50}
-                      stroke="#00f0ff"
-                      strokeWidth={2}
-                      strokeDasharray="5 3"
-                      label={{
-                        value: "P50",
-                        position: "top",
-                        fill: "#00f0ff",
-                        fontSize: 10,
-                        fontWeight: 600,
-                      }}
-                    />
-                    <ReferenceLine
-                      x={sim.p85}
-                      stroke="#ffaa00"
-                      strokeWidth={2}
-                      strokeDasharray="5 3"
-                      label={{
-                        value: "P85",
-                        position: "top",
-                        fill: "#ffaa00",
-                        fontSize: 10,
-                        fontWeight: 600,
-                      }}
-                    />
-                    <ReferenceLine
-                      x={sim.p95}
-                      stroke="#ef4444"
-                      strokeWidth={2}
-                      strokeDasharray="5 3"
-                      label={{
-                        value: "P95",
-                        position: "top",
-                        fill: "#ef4444",
-                        fontSize: 10,
-                        fontWeight: 600,
-                      }}
-                    />
+                  {/* Percentile reference lines */}
+                  <ReferenceLine
+                    x={sim.p50}
+                    stroke="#00f0ff"
+                    strokeWidth={2}
+                    strokeDasharray="5 3"
+                    label={{
+                      value: "P50",
+                      position: "top",
+                      fill: "#00f0ff",
+                      fontSize: 10,
+                      fontWeight: 600,
+                    }}
+                  />
+                  <ReferenceLine
+                    x={sim.p85}
+                    stroke="#ffaa00"
+                    strokeWidth={2}
+                    strokeDasharray="5 3"
+                    label={{
+                      value: "P85",
+                      position: "top",
+                      fill: "#ffaa00",
+                      fontSize: 10,
+                      fontWeight: 600,
+                    }}
+                  />
+                  <ReferenceLine
+                    x={sim.p95}
+                    stroke="#ef4444"
+                    strokeWidth={2}
+                    strokeDasharray="5 3"
+                    label={{
+                      value: "P95",
+                      position: "top",
+                      fill: "#ef4444",
+                      fontSize: 10,
+                      fontWeight: 600,
+                    }}
+                  />
 
-                    {/* Bootstrap P85 reference — non-parametric companion. */}
-                    {bootstrapResult && (
+                  {/* Bootstrap P85 reference — non-parametric companion. */}
+                  {bootstrapResult && (
+                    <ReferenceLine
+                      x={bootstrapResult.point}
+                      stroke="#a78bfa"
+                      strokeWidth={2}
+                      strokeDasharray="2 4"
+                      label={{
+                        value: "Boot",
+                        position: "insideTop",
+                        fill: "#a78bfa",
+                        fontSize: 10,
+                        fontWeight: 600,
+                      }}
+                    />
+                  )}
+
+                  {/* User-pinned target line — only shown when the user
+                        enters a positive integer in the SmartInput field. */}
+                  {(() => {
+                    const t = Number(config.sprintsToReleaseTarget);
+                    return Number.isFinite(t) && t > 0 ? (
                       <ReferenceLine
-                        x={bootstrapResult.point}
-                        stroke="#a78bfa"
+                        x={t}
+                        stroke="#22c55e"
                         strokeWidth={2}
-                        strokeDasharray="2 4"
                         label={{
-                          value: "Boot",
+                          value: "Target",
                           position: "insideTop",
-                          fill: "#a78bfa",
+                          fill: "#22c55e",
                           fontSize: 10,
                           fontWeight: 600,
                         }}
                       />
-                    )}
+                    ) : null;
+                  })()}
 
-                    {/* User-pinned target line — only shown when the user
-                        enters a positive integer in the SmartInput field. */}
-                    {(() => {
-                      const t = Number(config.sprintsToReleaseTarget);
-                      return Number.isFinite(t) && t > 0 ? (
-                        <ReferenceLine
-                          x={t}
-                          stroke="#22c55e"
-                          strokeWidth={2}
-                          label={{
-                            value: "Target",
-                            position: "insideTop",
-                            fill: "#22c55e",
-                            fontSize: 10,
-                            fontWeight: 600,
-                          }}
-                        />
-                      ) : null;
-                    })()}
-
-                    <Bar dataKey="count" fill="#00f0ff" fillOpacity={0.7} radius={[2, 2, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
+                  <Bar dataKey="count" fill="#00f0ff" fillOpacity={0.7} radius={[2, 2, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </SectionCard>
 
         {/* Confidence table */}
         {confidenceRows.length > 0 && (
-          <SectionCard
-            title="Delivery Forecast"
-            icon={Calendar}
-          >
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-6">
-                        Confidence
-                      </th>
-                      <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-4">
-                        Sprints
-                      </th>
-                      <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-4">
-                        Calendar Days
-                      </th>
-                      <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-2 pl-4">
-                        Target Date
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {confidenceRows.map((row) => (
-                      <tr
-                        key={row.pct}
-                        className="border-b border-border hover:bg-card-hover"
-                      >
-                        <td className="py-4 pr-6">
-                          <div className="flex items-center gap-3">
-                            <span
-                              className="inline-block w-2.5 h-2.5 rounded-full"
-                              style={{ background: row.color }}
-                            />
-                            <span
-                              className="text-base font-data font-bold"
-                              style={{ color: row.color }}
-                            >
-                              {row.pct}%
-                            </span>
-                            <span className="text-xs text-sub">
-                              confidence
-                            </span>
-                          </div>
-                        </td>
-                        <td className="py-4 px-4 text-center">
-                          <span className="font-data font-bold text-text text-lg">
-                            {row.sprints}
+          <SectionCard title="Delivery Forecast" icon={Calendar}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-6">
+                      Confidence
+                    </th>
+                    <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-4">
+                      Sprints
+                    </th>
+                    <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-4">
+                      Calendar Days
+                    </th>
+                    <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-2 pl-4">
+                      Target Date
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {confidenceRows.map((row) => (
+                    <tr key={row.pct} className="border-b border-border hover:bg-card-hover">
+                      <td className="py-4 pr-6">
+                        <div className="flex items-center gap-3">
+                          <span
+                            className="inline-block w-2.5 h-2.5 rounded-full"
+                            style={{ background: row.color }}
+                          />
+                          <span
+                            className="text-base font-data font-bold"
+                            style={{ color: row.color }}
+                          >
+                            {row.pct}%
                           </span>
-                        </td>
-                        <td className="py-4 px-4 text-center font-data text-sub">
-                          {row.sprints * config.sprintLengthDays}
-                        </td>
-                        <td className="py-4 pl-4">
-                          <span className="font-semibold text-text">{row.date}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                          <span className="text-xs text-sub">confidence</span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-4 text-center">
+                        <span className="font-data font-bold text-text text-lg">{row.sprints}</span>
+                      </td>
+                      <td className="py-4 px-4 text-center font-data text-sub">
+                        {row.sprints * config.sprintLengthDays}
+                      </td>
+                      <td className="py-4 pl-4">
+                        <span className="font-semibold text-text">{row.date}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-              <div className="mt-4 p-3 rounded-lg bg-card-hover border border-border">
-                <p className="text-xs text-sub">
-                  <span className="text-text font-medium">How to read this:</span> At 85%
-                  confidence, there is an 85% chance delivery completes by{" "}
-                  <span className="text-[#ffaa00] font-data">
-                    {confidenceRows.find((r) => r.pct === 85)?.date ?? "—"}
-                  </span>
-                  . The simulation sampled {velocities.length} historical velocities across{" "}
-                  {ITERATIONS.toLocaleString()} iterations.
-                </p>
-              </div>
+            <div className="mt-4 p-3 rounded-lg bg-card-hover border border-border">
+              <p className="text-xs text-sub">
+                <span className="text-text font-medium">How to read this:</span> At 85% confidence,
+                there is an 85% chance delivery completes by{" "}
+                <span className="text-[#ffaa00] font-data">
+                  {confidenceRows.find((r) => r.pct === 85)?.date ?? "—"}
+                </span>
+                . The simulation sampled {velocities.length} historical velocities across{" "}
+                {ITERATIONS.toLocaleString()} iterations.
+              </p>
+            </div>
           </SectionCard>
         )}
       </div>

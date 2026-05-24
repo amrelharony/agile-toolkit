@@ -20,6 +20,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { INTERVIEW_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { EmptyState } from "@/components/shared/empty-state";
+import { redactPii } from "@/lib/utils/redact-pii";
 
 interface Interview {
   id: string;
@@ -47,13 +48,7 @@ function parseTags(input: string): string[] {
  *  isn't dropped while the user is mid-type. Commits parsed tags to the
  *  parent on blur or Enter. Re-syncs from props when the underlying tag
  *  array changes (e.g. another quote update overrides). */
-function TagInput({
-  tags,
-  onCommit,
-}: {
-  tags: string[];
-  onCommit: (next: string[]) => void;
-}) {
+function TagInput({ tags, onCommit }: { tags: string[]; onCommit: (next: string[]) => void }) {
   const [draft, setDraft] = useState(tags.join(", "));
   // Re-sync from props only when the joined external value differs from our
   // current draft — otherwise we'd clobber the user's in-progress typing.
@@ -86,8 +81,17 @@ function TagInput({
 }
 
 export function UserInterviewsClient() {
-  const [interviews, setInterviews] = usePersisted<Interview[]>("agile-toolkit:user-interviews", []);
+  const [interviews, setInterviews] = usePersisted<Interview[]>(
+    "agile-toolkit:user-interviews",
+    []
+  );
   const [editing, setEditing] = useState<string | null>(null);
+  // BUG-T9-user-interviews-1: opt-in "anonymize on export" — strips
+  // emails / phone numbers / API keys from the exported quotes (does
+  // not touch participant names; user redacts those manually). The
+  // banner above the table reminds the user that stored data is
+  // unencrypted on this device.
+  const [anonymizeOnExport, setAnonymizeOnExport] = useState(true);
   const { log } = useHistoryLogger("user-interviews");
 
   const add = () => {
@@ -96,7 +100,8 @@ export function UserInterviewsClient() {
     setEditing(i.id);
     log(INTERVIEW_ACTIONS.INTERVIEW_ADDED, { interviewId: i.id });
   };
-  const update = (id: string, patch: Partial<Interview>) => setInterviews((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  const update = (id: string, patch: Partial<Interview>) =>
+    setInterviews((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   const remove = (id: string) => {
     const interview = interviews.find((x) => x.id === id);
     setInterviews((s) => s.filter((x) => x.id !== id));
@@ -160,10 +165,16 @@ export function UserInterviewsClient() {
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
-        teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-        impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-        decisions: s.decisions, techDebt: s.techDebt,
-        maturityLevel: s.maturityLevel, teamName: s.teamName,
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
       })
     )
   );
@@ -183,15 +194,49 @@ export function UserInterviewsClient() {
       description="Capture quotes, tag themes, and synthesize research across multiple user interviews."
       category="Product Discovery"
     >
-      <div className="flex flex-wrap items-center justify-end gap-2 mb-4">
+      {/* BUG-T9-user-interviews-1: privacy banner. */}
+      <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200 flex items-start gap-2">
+        <Quote className="w-4 h-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
+        <div>
+          Stored unencrypted on this device (and synced to your account if signed in). Don&rsquo;t
+          paste customer-identifiable quotes verbatim — redact names, employers, and other PII
+          before saving. The toggle below also strips emails / phone numbers / API keys from
+          exports.
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-3 mb-4">
+        <label className="text-xs text-sub flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={anonymizeOnExport}
+            onChange={(e) => setAnonymizeOnExport(e.target.checked)}
+            aria-label="Anonymize on export"
+          />
+          Anonymize on export
+        </label>
         <AiPromptGenerator config={promptConfig} />
         <ExportButton
           filename="user-interviews"
           csvData={{
             headers: ["Date", "Participant", "Quote", "Tags"],
-            rows: interviews.flatMap((i) => i.quotes.map((q) => [i.date, i.participant, q.text, q.tags.join(", ")])),
+            rows: interviews.flatMap((i) =>
+              i.quotes.map((q) => [
+                i.date,
+                anonymizeOnExport ? "[redacted]" : i.participant,
+                anonymizeOnExport ? redactPii(q.text) : q.text,
+                q.tags.join(", "),
+              ])
+            ),
           }}
-          jsonData={interviews}
+          jsonData={
+            anonymizeOnExport
+              ? interviews.map((i) => ({
+                  ...i,
+                  participant: "[redacted]",
+                  quotes: i.quotes.map((q) => ({ ...q, text: redactPii(q.text) })),
+                }))
+              : interviews
+          }
         />
         <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
           <Plus className="w-4 h-4" />
@@ -239,8 +284,12 @@ export function UserInterviewsClient() {
               onClick={() => setEditing(i.id)}
               className={`w-full text-left rounded-lg border p-3 transition hover:border-accent/40 ${editing === i.id ? "border-accent/60 bg-accent/5" : "border-border bg-surface"}`}
             >
-              <div className="text-sm font-semibold text-text truncate">{i.participant || "(unnamed)"}</div>
-              <div className="text-xs text-sub">{i.date} · {i.quotes.length} quote{i.quotes.length === 1 ? "" : "s"}</div>
+              <div className="text-sm font-semibold text-text truncate">
+                {i.participant || "(unnamed)"}
+              </div>
+              <div className="text-xs text-sub">
+                {i.date} · {i.quotes.length} quote{i.quotes.length === 1 ? "" : "s"}
+              </div>
             </button>
           ))}
         </div>
@@ -280,23 +329,31 @@ export function UserInterviewsClient() {
                         rows={2}
                         value={q.text}
                         onChange={(e) => updateQuote(active.id, q.id, { text: e.target.value })}
-                        placeholder="&quot;...&quot;"
+                        placeholder='"..."'
                         className="bg-surface border-border text-sm"
                       />
                       <div className="flex items-center gap-2">
                         <TagInput
                           tags={q.tags}
-                          onCommit={(next) =>
-                            updateQuote(active.id, q.id, { tags: next })
-                          }
+                          onCommit={(next) => updateQuote(active.id, q.id, { tags: next })}
                         />
-                        <Button variant="ghost" size="sm" onClick={() => removeQuote(active.id, q.id)} className="text-sub hover:text-danger">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeQuote(active.id, q.id)}
+                          className="text-sub hover:text-danger"
+                        >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </div>
                     </div>
                   ))}
-                  <Button variant="outline" size="sm" onClick={() => addQuote(active.id)} className="gap-2 border-border text-sub hover:text-accent">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => addQuote(active.id)}
+                    className="gap-2 border-border text-sub hover:text-accent"
+                  >
                     <Plus className="w-3.5 h-3.5" />
                     Add Quote
                   </Button>
@@ -314,9 +371,7 @@ export function UserInterviewsClient() {
               </CardContent>
             </Card>
           ) : (
-            <EmptyState>
-              Select or create an interview to begin capturing quotes.
-            </EmptyState>
+            <EmptyState>Select or create an interview to begin capturing quotes.</EmptyState>
           )}
         </div>
       </div>

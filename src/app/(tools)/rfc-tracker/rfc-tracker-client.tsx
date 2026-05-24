@@ -30,6 +30,7 @@ import {
   Clock,
 } from "lucide-react";
 import { usePersisted } from "@/lib/utils/use-persisted";
+import { setCloudPersistedValue } from "@/lib/sync/use-cloud-persisted";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RFC_TRACKER_ACTIONS } from "@/lib/history/event-actions";
@@ -70,7 +71,16 @@ const STATUS_LABEL: Record<RfcStatus, string> = {
 };
 
 function daysSince(iso: string): number {
-  return Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24));
+  // BUG-T7-rfc-tracker-4: anchor both sides on LOCAL midnight so a PDT
+  // user opening an RFC at 23:30 doesn't see "day 1" 30 minutes later
+  // when UTC-parsed midnight (May 24) is 17 local-hours past local
+  // creation time (May 23 23:30).
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return 0;
+  const opened = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Math.max(0, Math.floor((today - opened) / (1000 * 60 * 60 * 24)));
 }
 
 export function RfcTrackerClient() {
@@ -98,9 +108,7 @@ export function RfcTrackerClient() {
   const [newDescription, setNewDescription] = useState("");
 
   // Per-RFC reviewer-add and comment-add transient input state.
-  const [reviewerInputs, setReviewerInputs] = useState<Record<string, string>>(
-    {}
-  );
+  const [reviewerInputs, setReviewerInputs] = useState<Record<string, string>>({});
   const [commentInputs, setCommentInputs] = useState<
     Record<string, { author: string; text: string }>
   >({});
@@ -138,9 +146,15 @@ export function RfcTrackerClient() {
   };
 
   const setStatus = (id: string, status: RfcStatus) => {
-    let logged = false;
-    setRfcs((prev) =>
-      prev.map((r) => {
+    // BUG-T7-rfc-tracker-1: compute the decision BEFORE dispatching the
+    // setState. The prior pattern assigned `logged = true` inside the
+    // updater and read it synchronously after — React 18 does not
+    // guarantee eager invocation of updaters, so `RFC_DECIDED` would
+    // intermittently never fire.
+    const prev = rfcs.find((r) => r.id === id);
+    const isFirstDecide = status === "decided" && !!prev && !prev.decidedAt;
+    setRfcs((arr) =>
+      arr.map((r) => {
         if (r.id !== id) return r;
         const next: Rfc = { ...r, status };
         // R-STATUS-PRESERVE: stamp decidedAt on first transition to "decided",
@@ -148,12 +162,11 @@ export function RfcTrackerClient() {
         // record (e.g. if a decided RFC is re-opened to "in_review").
         if (status === "decided" && !r.decidedAt) {
           next.decidedAt = todayLocalISO();
-          logged = true;
         }
         return next;
       })
     );
-    if (logged) {
+    if (isFirstDecide) {
       log(RFC_TRACKER_ACTIONS.RFC_DECIDED, { rfcId: id });
     } else {
       log(RFC_TRACKER_ACTIONS.RFC_UPDATED, { rfcId: id, fields: ["status"] });
@@ -162,9 +175,7 @@ export function RfcTrackerClient() {
 
   const setDecision = (id: string, decision: string) => {
     const trimmed = decision.trim() || undefined;
-    setRfcs((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, decision: trimmed } : r))
-    );
+    setRfcs((prev) => prev.map((r) => (r.id === id ? { ...r, decision: trimmed } : r)));
   };
 
   const addReviewer = (id: string) => {
@@ -186,9 +197,7 @@ export function RfcTrackerClient() {
   const removeReviewer = (id: string, name: string) => {
     setRfcs((prev) =>
       prev.map((r) =>
-        r.id === id
-          ? { ...r, reviewers: r.reviewers.filter((n) => n !== name) }
-          : r
+        r.id === id ? { ...r, reviewers: r.reviewers.filter((n) => n !== name) } : r
       )
     );
     log(RFC_TRACKER_ACTIONS.RFC_UPDATED, { rfcId: id, fields: ["reviewers"] });
@@ -206,9 +215,7 @@ export function RfcTrackerClient() {
       text,
     };
     setRfcs((prev) =>
-      prev.map((r) =>
-        r.id === id ? { ...r, comments: [...r.comments, comment] } : r
-      )
+      prev.map((r) => (r.id === id ? { ...r, comments: [...r.comments, comment] } : r))
     );
     setCommentInputs((prev) => ({
       ...prev,
@@ -222,10 +229,7 @@ export function RfcTrackerClient() {
     const STORAGE_KEY = "agile-toolkit:decision-log";
     let existing: Decision[] = [];
     try {
-      const raw =
-        typeof window !== "undefined"
-          ? window.localStorage.getItem(STORAGE_KEY)
-          : null;
+      const raw = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
       // R9: validate Array shape before treating as Decision[]. A
       // tampered/older persisted blob containing an object made
       // `existing.find(...)` crash with "find is not a function".
@@ -248,7 +252,7 @@ export function RfcTrackerClient() {
         (d) =>
           d &&
           typeof (d as { title?: unknown }).title === "string" &&
-          (d as { title: string }).title.toLowerCase() === rfc.title.toLowerCase(),
+          (d as { title: string }).title.toLowerCase() === rfc.title.toLowerCase()
       )
     ) {
       toast.error("A decision with this title already exists in the log.");
@@ -266,18 +270,22 @@ export function RfcTrackerClient() {
     };
     try {
       const updated = [decision, ...existing];
-      const serialized = JSON.stringify(updated);
-      window.localStorage.setItem(STORAGE_KEY, serialized);
-      // usePersisted reads localStorage once on mount only — it does not
-      // currently subscribe to native `storage` events, so a same-tab open
-      // Decision Log won't repaint until the next mount. We still dispatch a
-      // synthetic event so any future cross-tool listener picks up the
-      // change without coupling here; cross-tab natural events also keep
-      // working unchanged.
+      // BUG-T7-rfc-tracker-2: route through `setCloudPersistedValue`
+      // instead of a raw `localStorage.setItem`. The helper writes
+      // localStorage AND notifies same-tab `useCloudPersisted`
+      // subscribers AND fires the cloud-sync `markDirty` so the
+      // Decision Log mounted in another tab refreshes immediately and
+      // the new decision is mirrored to Supabase. The prior direct
+      // write didn't do any of that — silent loss on a cross-tab race
+      // and no Supabase mirror.
+      setCloudPersistedValue(STORAGE_KEY, updated);
+      // Synthetic StorageEvent kept for back-compat with any cross-tool
+      // listener that may have been added meanwhile; the helper already
+      // covers the same-tab subscribers path.
       window.dispatchEvent(
         new StorageEvent("storage", {
           key: STORAGE_KEY,
-          newValue: serialized,
+          newValue: JSON.stringify(updated),
         })
       );
       toast.success("Pushed to Decision Log");
@@ -298,14 +306,13 @@ export function RfcTrackerClient() {
   }, [rfcs]);
 
   const decidedThisMonth = useMemo(() => {
-    const now = new Date();
-    return rfcs.filter((r) => {
-      if (!r.decidedAt) return false;
-      const d = new Date(r.decidedAt);
-      return (
-        d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
-      );
-    }).length;
+    // BUG-T7-rfc-tracker-3: substring-compare on local "yyyy-mm" instead
+    // of `new Date(...).getMonth()`. r.decidedAt is local "yyyy-mm-dd"
+    // (from todayLocalISO), but `new Date("2026-05-01")` is UTC midnight
+    // — for users west of UTC that's local April 30, mis-bucketing every
+    // first-of-month decision.
+    const todayPrefix = todayLocalISO().slice(0, 7); // "yyyy-mm"
+    return rfcs.filter((r) => r.decidedAt?.slice(0, 7) === todayPrefix).length;
   }, [rfcs]);
 
   const avgTimeToDecide = useMemo(() => {
@@ -389,12 +396,7 @@ export function RfcTrackerClient() {
       </ActionRow>
 
       <KpiGrid cols={4} gap="lg">
-        <StatCard
-          variant="compact"
-          icon={FileText}
-          label="Drafts"
-          value={counts.draft}
-        />
+        <StatCard variant="compact" icon={FileText} label="Drafts" value={counts.draft} />
         <StatCard
           variant="compact"
           icon={MessageSquare}
@@ -412,9 +414,7 @@ export function RfcTrackerClient() {
           variant="compact"
           icon={Clock}
           label="Avg time-to-decide"
-          value={
-            avgTimeToDecide !== null ? `${avgTimeToDecide.toFixed(1)}d` : "—"
-          }
+          value={avgTimeToDecide !== null ? `${avgTimeToDecide.toFixed(1)}d` : "—"}
         />
       </KpiGrid>
 
@@ -472,16 +472,13 @@ export function RfcTrackerClient() {
           {rfcs.map((r) => {
             const ageDays = daysSince(r.openedAt);
             const reviewerInput = reviewerInputs[r.id] ?? "";
-            const commentDraft =
-              commentInputs[r.id] ?? { author: "", text: "" };
+            const commentDraft = commentInputs[r.id] ?? { author: "", text: "" };
             return (
               <Card key={r.id} className="bg-surface border-border">
                 <CardContent className="p-4 space-y-3">
                   <div className="flex flex-col xs:flex-row xs:items-start xs:justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold text-text break-words">
-                        {r.title}
-                      </div>
+                      <div className="text-sm font-semibold text-text break-words">{r.title}</div>
                       <div className="text-xs text-sub mt-0.5">
                         by {r.author} · opened {r.openedAt} · day {ageDays}
                         {r.decidedAt && ` · decided ${r.decidedAt}`}
@@ -504,13 +501,13 @@ export function RfcTrackerClient() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {(
-                            ["draft", "in_review", "decided", "withdrawn"] as RfcStatus[]
-                          ).map((s) => (
-                            <SelectItem key={s} value={s} className="text-xs">
-                              {STATUS_LABEL[s]}
-                            </SelectItem>
-                          ))}
+                          {(["draft", "in_review", "decided", "withdrawn"] as RfcStatus[]).map(
+                            (s) => (
+                              <SelectItem key={s} value={s} className="text-xs">
+                                {STATUS_LABEL[s]}
+                              </SelectItem>
+                            )
+                          )}
                         </SelectContent>
                       </Select>
                       <Button
@@ -530,9 +527,7 @@ export function RfcTrackerClient() {
                     <Label className="text-xs text-sub mb-1">Reviewers</Label>
                     <div className="flex flex-wrap gap-1.5 mb-2">
                       {r.reviewers.length === 0 && (
-                        <span className="text-xs text-sub italic">
-                          None yet
-                        </span>
+                        <span className="text-xs text-sub italic">None yet</span>
                       )}
                       {r.reviewers.map((name) => (
                         <span
@@ -580,9 +575,7 @@ export function RfcTrackerClient() {
 
                   {/* Comments */}
                   <div>
-                    <Label className="text-xs text-sub mb-1">
-                      Comments ({r.comments.length})
-                    </Label>
+                    <Label className="text-xs text-sub mb-1">Comments ({r.comments.length})</Label>
                     {r.comments.length > 0 && (
                       <div className="space-y-1.5 mb-2 max-h-48 overflow-y-auto">
                         {r.comments.map((c) => (
@@ -591,16 +584,12 @@ export function RfcTrackerClient() {
                             className="rounded-md border border-border bg-bg p-2 text-xs"
                           >
                             <div className="flex items-baseline justify-between gap-2 mb-0.5">
-                              <span className="font-semibold text-text">
-                                {c.author}
-                              </span>
+                              <span className="font-semibold text-text">{c.author}</span>
                               <span className="text-[10px] text-sub font-data">
                                 {new Date(c.ts).toLocaleString()}
                               </span>
                             </div>
-                            <div className="text-sub whitespace-pre-wrap break-words">
-                              {c.text}
-                            </div>
+                            <div className="text-sub whitespace-pre-wrap break-words">{c.text}</div>
                           </div>
                         ))}
                       </div>
@@ -651,9 +640,7 @@ export function RfcTrackerClient() {
                   {/* Decision (only when decided) */}
                   {r.status === "decided" && (
                     <div>
-                      <Label className="text-xs text-sub mb-1">
-                        Decision
-                      </Label>
+                      <Label className="text-xs text-sub mb-1">Decision</Label>
                       <Textarea
                         value={r.decision ?? ""}
                         onChange={(e) => setDecision(r.id, e.target.value)}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 export type WorkerTask = "monte-carlo" | "bootstrap" | "changepoint" | "kmeans";
 
@@ -23,7 +23,9 @@ function getWorker(): Worker | null {
   if (workerInstance) return workerInstance;
   try {
     // Use Webpack 5 / Next.js native worker support.
-    workerInstance = new Worker(new URL("./compute.worker.ts", import.meta.url), { type: "module" });
+    workerInstance = new Worker(new URL("./compute.worker.ts", import.meta.url), {
+      type: "module",
+    });
     workerInstance.onmessage = (e: MessageEvent) => {
       const { id, ok, value, error } = e.data ?? {};
       const req = pending.get(id);
@@ -106,25 +108,33 @@ export function useWorkerCompute<I, O>(
   const [data, setData] = useState<O | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const cancelledRef = useRef(false);
+  // BUG-L1: per-effect-run cancellation flag, captured by both the
+  // promise callbacks and the cleanup. The prior implementation used a
+  // single hook-wide ref that was reset to false on every effect run,
+  // so the cleanup→re-effect sequence raced against in-flight promises:
+  //   1. Effect A: ref=false; promise A pending.
+  //   2. deps change → cleanup A: ref=true.
+  //   3. Effect B: ref=false again.
+  //   4. Promise A resolves → reads ref===false → applies STALE data.
+  // Captured-per-effect-run `cancelled` closes the window.
 
   useEffect(() => {
-    cancelledRef.current = false;
+    let cancelled = false;
     setLoading(true);
     setError(null);
     runInWorker<I, O>(task, input)
       .then((result) => {
-        if (cancelledRef.current) return;
+        if (cancelled) return;
         setData(result);
         setLoading(false);
       })
       .catch((err: Error) => {
-        if (cancelledRef.current) return;
+        if (cancelled) return;
         setError(err);
         setLoading(false);
       });
     return () => {
-      cancelledRef.current = true;
+      cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);

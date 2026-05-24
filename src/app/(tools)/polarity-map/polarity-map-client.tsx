@@ -15,7 +15,6 @@ import type { Polarity, PolarityPole, Workspace } from "@/lib/stores/workspace-t
 import { generatePolarityPrompts } from "@/lib/ai-prompts/polarity-map";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { POLARITY_ACTIONS } from "@/lib/history/event-actions";
-import { emitSignal } from "@/lib/signals/signal-bus";
 
 /**
  * Per-pole textarea that holds a local draft of newline-separated bullet
@@ -46,7 +45,10 @@ function PoleListTextarea({
   }, [joined]);
   const commit = () => {
     if (draft === committedRef.current) return;
-    const lines = draft.split("\n").map((s) => s.trim()).filter(Boolean);
+    const lines = draft
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
     committedRef.current = lines.join("\n");
     onCommit(lines);
   };
@@ -78,13 +80,40 @@ export function PolarityMapClient() {
 
   function add() {
     if (!title.trim() || !leftLabel.trim() || !rightLabel.trim()) return;
-    const pol: Polarity = { id: crypto.randomUUID(), title: title.trim(), greaterPurpose: greater.trim() || undefined, deeperFear: deeper.trim() || undefined };
+    const pol: Polarity = {
+      id: crypto.randomUUID(),
+      title: title.trim(),
+      greaterPurpose: greater.trim() || undefined,
+      deeperFear: deeper.trim() || undefined,
+    };
     upsertPol(pol);
-    upsertPole({ id: crypto.randomUUID(), polarityId: pol.id, side: "left", label: leftLabel.trim(), upsides: [], downsides: [] });
-    upsertPole({ id: crypto.randomUUID(), polarityId: pol.id, side: "right", label: rightLabel.trim(), upsides: [], downsides: [] });
+    upsertPole({
+      id: crypto.randomUUID(),
+      polarityId: pol.id,
+      side: "left",
+      label: leftLabel.trim(),
+      upsides: [],
+      downsides: [],
+    });
+    upsertPole({
+      id: crypto.randomUUID(),
+      polarityId: pol.id,
+      side: "right",
+      label: rightLabel.trim(),
+      upsides: [],
+      downsides: [],
+    });
     log(POLARITY_ACTIONS.POLARITY_ADDED, { title: pol.title });
-    emitSignal({ kind: "decision.polarityMapped", at: new Date().toISOString(), toolId: "polarity-map", payload: pol });
-    setTitle(""); setLeftLabel(""); setRightLabel(""); setGreater(""); setDeeper("");
+    // BUG-T6-polarity-map-1: do NOT emitSignal here — signal-bridge.ts
+    // watches the workspace store and fires `decision.polarityMapped`
+    // on `onAdded` for the polarities collection. Direct emit + bridge
+    // emit = double-fire to every subscriber (downstream invalidation
+    // double-busts cache keys `polarity:` and `decision:`).
+    setTitle("");
+    setLeftLabel("");
+    setRightLabel("");
+    setGreater("");
+    setDeeper("");
   }
 
   function updatePoleLines(p: PolarityPole, kind: "upsides" | "downsides", lines: string[]) {
@@ -97,24 +126,44 @@ export function PolarityMapClient() {
     log(POLARITY_ACTIONS.POLARITY_REMOVED, { id });
   }
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    polarities: s.polarities, polarityPoles: s.polarityPoles,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        polarities: s.polarities,
+        polarityPoles: s.polarityPoles,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Polarity Map",
-    prompts: generatePolarityPrompts({ polarities, poles }, workspace),
-  }), [polarities, poles, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Polarity Map",
+      prompts: generatePolarityPrompts({ polarities, poles }, workspace),
+    }),
+    [polarities, poles, workspace]
+  );
 
   const csvData = {
     headers: ["Polarity", "Pole", "Side", "Upsides", "Downsides"],
     rows: poles.map((p) => {
       const pol = polarities.find((x) => x.id === p.polarityId);
-      return [pol?.title ?? "", p.label, p.side, (p.upsides ?? []).join("; "), (p.downsides ?? []).join("; ")];
+      return [
+        pol?.title ?? "",
+        p.label,
+        p.side,
+        (p.upsides ?? []).join("; "),
+        (p.downsides ?? []).join("; "),
+      ];
     }),
   };
 
@@ -126,14 +175,39 @@ export function PolarityMapClient() {
     >
       <div ref={exportRef} className="space-y-4">
         <SectionCard title="New polarity" icon={Plus}>
-          <Input placeholder="Polarity title (e.g. Autonomy ↔ Standardisation)" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <Input
+            placeholder="Polarity title (e.g. Autonomy ↔ Standardisation)"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-            <Input placeholder="Left pole label" value={leftLabel} onChange={(e) => setLeftLabel(e.target.value)} />
-            <Input placeholder="Right pole label" value={rightLabel} onChange={(e) => setRightLabel(e.target.value)} />
+            <Input
+              placeholder="Left pole label"
+              value={leftLabel}
+              onChange={(e) => setLeftLabel(e.target.value)}
+            />
+            <Input
+              placeholder="Right pole label"
+              value={rightLabel}
+              onChange={(e) => setRightLabel(e.target.value)}
+            />
           </div>
-          <Input placeholder="Greater purpose (above both poles)" value={greater} onChange={(e) => setGreater(e.target.value)} className="mt-2" />
-          <Input placeholder="Deeper fear (below both poles)" value={deeper} onChange={(e) => setDeeper(e.target.value)} className="mt-2" />
-          <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Create polarity</Button>
+          <Input
+            placeholder="Greater purpose (above both poles)"
+            value={greater}
+            onChange={(e) => setGreater(e.target.value)}
+            className="mt-2"
+          />
+          <Input
+            placeholder="Deeper fear (below both poles)"
+            value={deeper}
+            onChange={(e) => setDeeper(e.target.value)}
+            className="mt-2"
+          />
+          <Button onClick={add} className="mt-3 gap-1">
+            <Plus className="w-4 h-4" />
+            Create polarity
+          </Button>
         </SectionCard>
 
         {polarities.map((pol) => {
@@ -145,21 +219,42 @@ export function PolarityMapClient() {
               key={pol.id}
               title={pol.title}
               icon={CircuitBoard}
-              actions={<button onClick={() => remove(pol.id)} aria-label="Remove polarity" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button>}
+              actions={
+                <button
+                  onClick={() => remove(pol.id)}
+                  aria-label="Remove polarity"
+                  className="text-sub hover:text-red-400"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              }
             >
-              {pol.greaterPurpose && <div className="text-center text-xs text-emerald-300 mb-2">↑ {pol.greaterPurpose}</div>}
+              {pol.greaterPurpose && (
+                <div className="text-center text-xs text-emerald-300 mb-2">
+                  ↑ {pol.greaterPurpose}
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[left, right].map((p) => (
                   <div key={p.id} className="border border-border rounded p-3 bg-surface-deep">
-                    <div className="font-bold text-sm mb-2" style={{ color: p.side === "left" ? "#00f0ff" : "#ff00aa" }}>{p.label}</div>
-                    <label className="block text-[10px] uppercase text-emerald-400 mb-1">Upsides (one per line)</label>
+                    <div
+                      className="font-bold text-sm mb-2"
+                      style={{ color: p.side === "left" ? "#00f0ff" : "#ff00aa" }}
+                    >
+                      {p.label}
+                    </div>
+                    <label className="block text-[10px] uppercase text-emerald-400 mb-1">
+                      Upsides (one per line)
+                    </label>
                     <PoleListTextarea
                       key={`up-${p.id}`}
                       initial={p.upsides ?? []}
                       onCommit={(lines) => updatePoleLines(p, "upsides", lines)}
                       placeholder="What goes well at this pole?"
                     />
-                    <label className="block text-[10px] uppercase text-red-400 mt-2 mb-1">Downsides (one per line)</label>
+                    <label className="block text-[10px] uppercase text-red-400 mt-2 mb-1">
+                      Downsides (one per line)
+                    </label>
                     <PoleListTextarea
                       key={`dn-${p.id}`}
                       initial={p.downsides ?? []}
@@ -169,7 +264,9 @@ export function PolarityMapClient() {
                   </div>
                 ))}
               </div>
-              {pol.deeperFear && <div className="text-center text-xs text-red-300 mt-2">↓ {pol.deeperFear}</div>}
+              {pol.deeperFear && (
+                <div className="text-center text-xs text-red-300 mt-2">↓ {pol.deeperFear}</div>
+              )}
             </SectionCard>
           );
         })}
@@ -177,7 +274,12 @@ export function PolarityMapClient() {
         {polarities.length > 0 && (
           <div className="flex gap-2">
             <AiPromptGenerator config={promptConfig} />
-            <ExportButton filename="polarity-map" csvData={csvData} jsonData={{ polarities, poles }} targetRef={exportRef} />
+            <ExportButton
+              filename="polarity-map"
+              csvData={csvData}
+              jsonData={{ polarities, poles }}
+              targetRef={exportRef}
+            />
           </div>
         )}
       </div>

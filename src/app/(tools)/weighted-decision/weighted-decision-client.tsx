@@ -44,7 +44,8 @@ export function WeightedDecisionClient() {
     const c: WeightedCriterion = { id: crypto.randomUUID(), name: criterionName.trim(), weight };
     upsertCriterion(c);
     log(WEIGHTED_DECISION_ACTIONS.CRITERION_ADDED, { name: c.name });
-    setCriterionName(""); setCriterionWeight("1");
+    setCriterionName("");
+    setCriterionWeight("1");
   }
 
   function removeCriterionCascade(criterionId: string) {
@@ -72,10 +73,34 @@ export function WeightedDecisionClient() {
   function setScore(o: WeightedOption, criterionId: string, n: number) {
     upsertOption({ ...o, scores: { ...o.scores, [criterionId]: n } });
     log(WEIGHTED_DECISION_ACTIONS.SCORE_CHANGED, { optionId: o.id, criterionId, n });
-    emitSignal({ kind: "decision.weightedScored", at: new Date().toISOString(), toolId: "weighted-decision", payload: { optionId: o.id, criterionId } });
+    emitSignal({
+      kind: "decision.weightedScored",
+      at: new Date().toISOString(),
+      toolId: "weighted-decision",
+      payload: { optionId: o.id, criterionId },
+    });
   }
 
-  const weights = useMemo(() => Object.fromEntries(criteria.map((c) => [c.id, c.weight])), [criteria]);
+  const weights = useMemo(
+    () => Object.fromEntries(criteria.map((c) => [c.id, c.weight])),
+    [criteria]
+  );
+  // BUG-T9-weighted-decision-1: surface a sum-of-weights signal.
+  // Pugh/MCDA literature normalizes weights to sum=1.0; a rubric where
+  // one criterion has weight 100 and the others 1 swamps every option.
+  // We don't auto-normalize (that would silently change scores already
+  // recorded), but we warn when the sum drifts past ±5% of 1.0 or 100%.
+  const weightSum = useMemo(
+    () => criteria.reduce((s, c) => s + (Number.isFinite(c.weight) ? c.weight : 0), 0),
+    [criteria]
+  );
+  const weightsBalanced = useMemo(() => {
+    if (criteria.length === 0) return true;
+    // Accept either "sums to ~1.0" or "sums to ~100" — either convention.
+    const near1 = Math.abs(weightSum - 1) <= 0.05;
+    const near100 = Math.abs(weightSum - 100) <= 5;
+    return near1 || near100;
+  }, [criteria.length, weightSum]);
   const ranked = useMemo(() => {
     return [...options]
       .map((o) => ({ ...o, score: weightedScore(o.scores, weights) }))
@@ -96,22 +121,40 @@ export function WeightedDecisionClient() {
     score: Number(o.score.toFixed(2)),
   }));
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    weightedCriteria: s.weightedCriteria, weightedOptions: s.weightedOptions,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        weightedCriteria: s.weightedCriteria,
+        weightedOptions: s.weightedOptions,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Weighted Decision Matrix",
-    prompts: generateWeightedPrompts({ criteria, ranked }, workspace),
-  }), [criteria, ranked, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Weighted Decision Matrix",
+      prompts: generateWeightedPrompts({ criteria, ranked }, workspace),
+    }),
+    [criteria, ranked, workspace]
+  );
 
   const csvData = {
     headers: ["Option", ...criteria.map((c) => `${c.name} (w${c.weight})`), "Total"],
-    rows: ranked.map((o) => [o.name, ...criteria.map((c) => o.scores[c.id] ?? 0), o.score.toFixed(2)]),
+    rows: ranked.map((o) => [
+      o.name,
+      ...criteria.map((c) => o.scores[c.id] ?? 0),
+      o.score.toFixed(2),
+    ]),
   };
 
   return (
@@ -123,15 +166,43 @@ export function WeightedDecisionClient() {
       <div ref={exportRef} className="space-y-4">
         <SectionCard title="Criteria">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <Input placeholder="Criterion name" value={criterionName} onChange={(e) => setCriterionName(e.target.value)} />
-            <Input type="number" step="0.5" placeholder="Weight" value={criterionWeight} onChange={(e) => setCriterionWeight(e.target.value)} />
-            <Button onClick={addCriterion} className="gap-1"><Plus className="w-4 h-4" />Add criterion</Button>
+            <Input
+              placeholder="Criterion name"
+              value={criterionName}
+              onChange={(e) => setCriterionName(e.target.value)}
+            />
+            <Input
+              type="number"
+              step="0.5"
+              placeholder="Weight"
+              value={criterionWeight}
+              onChange={(e) => setCriterionWeight(e.target.value)}
+            />
+            <Button onClick={addCriterion} className="gap-1">
+              <Plus className="w-4 h-4" />
+              Add criterion
+            </Button>
           </div>
+          {criteria.length > 0 && !weightsBalanced && (
+            <div className="mt-2 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[11px] text-amber-300">
+              Weights sum to {weightSum.toFixed(2)}. Pugh/MCDA convention is sum=1.0 (or sum=100).
+              Unequal totals make per-option scores hard to compare across rubrics.
+            </div>
+          )}
           <ul className="mt-2 flex flex-wrap gap-2">
             {criteria.map((c) => (
-              <li key={c.id} className="text-xs bg-surface-deep border border-border rounded px-2 py-1 flex items-center gap-1">
+              <li
+                key={c.id}
+                className="text-xs bg-surface-deep border border-border rounded px-2 py-1 flex items-center gap-1"
+              >
                 {c.name} <span className="text-sub">w{c.weight}</span>
-                <button onClick={() => removeCriterionCascade(c.id)} className="text-sub hover:text-red-400 ml-1" aria-label={`Remove criterion ${c.name}`}><Trash2 className="w-3 h-3" /></button>
+                <button
+                  onClick={() => removeCriterionCascade(c.id)}
+                  className="text-sub hover:text-red-400 ml-1"
+                  aria-label={`Remove criterion ${c.name}`}
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
               </li>
             ))}
           </ul>
@@ -139,8 +210,15 @@ export function WeightedDecisionClient() {
 
         <SectionCard title="Options">
           <div className="flex gap-2">
-            <Input placeholder="Option name" value={optionName} onChange={(e) => setOptionName(e.target.value)} />
-            <Button onClick={addOption} className="gap-1"><Plus className="w-4 h-4" />Add option</Button>
+            <Input
+              placeholder="Option name"
+              value={optionName}
+              onChange={(e) => setOptionName(e.target.value)}
+            />
+            <Button onClick={addOption} className="gap-1">
+              <Plus className="w-4 h-4" />
+              Add option
+            </Button>
           </div>
         </SectionCard>
 
@@ -151,21 +229,39 @@ export function WeightedDecisionClient() {
             actions={
               <>
                 <AiPromptGenerator config={promptConfig} />
-                <ExportButton filename="weighted-decision" csvData={csvData} jsonData={{ criteria, options: ranked }} targetRef={exportRef} />
+                <ExportButton
+                  filename="weighted-decision"
+                  csvData={csvData}
+                  jsonData={{ criteria, options: ranked }}
+                  targetRef={exportRef}
+                />
               </>
             }
           >
             <div className="table-wrap-responsive">
               <table className="w-full text-sm">
-                <thead><tr className="text-left text-xs text-sub uppercase">
-                  <th className="p-2">Option</th>
-                  {criteria.map((c) => <th key={c.id} className="p-2 text-center">{c.name} <span className="text-sub">×{c.weight}</span></th>)}
-                  <th className="p-2 text-right">Total</th><th className="p-2 w-10"></th>
-                </tr></thead>
+                <thead>
+                  <tr className="text-left text-xs text-sub uppercase">
+                    <th className="p-2">Option</th>
+                    {criteria.map((c) => (
+                      <th key={c.id} className="p-2 text-center">
+                        {c.name} <span className="text-sub">×{c.weight}</span>
+                      </th>
+                    ))}
+                    <th className="p-2 text-right">Total</th>
+                    <th className="p-2 w-10"></th>
+                  </tr>
+                </thead>
                 <tbody>
                   {ranked.map((o, i) => (
-                    <tr key={o.id} className={`border-t border-border ${i === 0 ? "bg-emerald-500/5" : ""}`}>
-                      <td className="p-2">{o.name}{i === 0 && <span className="ml-1 text-emerald-400 text-xs">★</span>}</td>
+                    <tr
+                      key={o.id}
+                      className={`border-t border-border ${i === 0 ? "bg-emerald-500/5" : ""}`}
+                    >
+                      <td className="p-2">
+                        {o.name}
+                        {i === 0 && <span className="ml-1 text-emerald-400 text-xs">★</span>}
+                      </td>
                       {criteria.map((c) => (
                         <td key={c.id} className="p-1 text-center">
                           <Input
@@ -175,13 +271,26 @@ export function WeightedDecisionClient() {
                             // (a valid score) and silently stored 0 for
                             // junk like "abc". Treat non-finite as 0 but
                             // preserve legitimate 0 entries.
-                            onChange={(e) => { const n = parseFloat(e.target.value); setScore(o, c.id, Number.isFinite(n) ? n : 0); }}
+                            onChange={(e) => {
+                              const n = parseFloat(e.target.value);
+                              setScore(o, c.id, Number.isFinite(n) ? n : 0);
+                            }}
                             className="h-7 w-16 text-center text-xs"
                           />
                         </td>
                       ))}
                       <td className="p-2 text-right font-mono">{o.score.toFixed(2)}</td>
-                      <td className="p-2"><button onClick={() => { removeOption(o.id); log(WEIGHTED_DECISION_ACTIONS.OPTION_REMOVED, { id: o.id }); }} className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button></td>
+                      <td className="p-2">
+                        <button
+                          onClick={() => {
+                            removeOption(o.id);
+                            log(WEIGHTED_DECISION_ACTIONS.OPTION_REMOVED, { id: o.id });
+                          }}
+                          className="text-sub hover:text-red-400"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -198,7 +307,13 @@ export function WeightedDecisionClient() {
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                   <XAxis type="number" stroke="#888" fontSize={11} />
                   <YAxis type="category" dataKey="name" stroke="#888" fontSize={11} width={150} />
-                  <Tooltip contentStyle={{ backgroundColor: "#0f1117", border: "1px solid #2a2f3a", fontSize: 12 }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#0f1117",
+                      border: "1px solid #2a2f3a",
+                      fontSize: 12,
+                    }}
+                  />
                   <Bar dataKey="score" fill="#00ff88" />
                 </BarChart>
               </ResponsiveContainer>
