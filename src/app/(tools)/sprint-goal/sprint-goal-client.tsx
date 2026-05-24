@@ -15,8 +15,7 @@ import { CalloutAlert } from "@/components/shared/callout-alert";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import { Badge } from "@/components/ui/badge";
 import {
   Plus,
@@ -357,10 +356,10 @@ export function SprintGoalClient() {
                       What high-level business objective does this sprint serve? This provides
                       context for why the sprint work matters.
                     </p>
-                    <Textarea
+                    <BlurTextarea
                       placeholder="e.g., Increase user retention by streamlining the onboarding experience..."
                       value={businessObjective}
-                      onChange={(e) => setBusinessObjective(e.target.value)}
+                      onCommit={setBusinessObjective}
                       className="min-h-[120px] bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
                     />
                   </motion.div>
@@ -377,10 +376,11 @@ export function SprintGoalClient() {
                       outcome-focused, and achievable.
                     </p>
                     <div className="relative">
-                      <Textarea
+                      <BlurTextarea
                         placeholder="e.g., Deliver a self-service onboarding flow that allows new users to complete setup within 3 minutes..."
                         value={sprintGoal}
-                        onChange={(e) => setSprintGoal(e.target.value.slice(0, GOAL_MAX_CHARS))}
+                        onCommit={(v) => setSprintGoal(v.slice(0, GOAL_MAX_CHARS))}
+                        maxLength={GOAL_MAX_CHARS}
                         className="min-h-[120px] bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
                       />
                       <span
@@ -430,10 +430,10 @@ export function SprintGoalClient() {
                             className="p-4 rounded-lg bg-card border border-border"
                           >
                             <div className="flex gap-2 mb-3">
-                              <Textarea
+                              <BlurTextarea
                                 placeholder="e.g., 90% of new users complete onboarding within 3 minutes by end of sprint"
                                 value={criterion.text}
-                                onChange={(e) => updateCriterionText(criterion.id, e.target.value)}
+                                onCommit={(v) => updateCriterionText(criterion.id, v)}
                                 className="flex-1 min-h-[60px] bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
                               />
                               <Button
@@ -538,10 +538,10 @@ export function SprintGoalClient() {
                     <div className="space-y-3">
                       {keyResults.map((kr, index) => (
                         <div key={index} className="flex gap-2">
-                          <Input
+                          <BlurInput
                             placeholder={`e.g., Onboarding completion rate reaches 90%`}
                             value={kr}
-                            onChange={(e) => updateKeyResult(index, e.target.value)}
+                            onCommit={(v) => updateKeyResult(index, v)}
                             className="flex-1 bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
                           />
                           <Button
