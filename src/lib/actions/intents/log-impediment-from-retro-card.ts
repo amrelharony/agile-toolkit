@@ -2,6 +2,7 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { serverUpsertEntity } from "../server-store";
 import type { Impediment, ImpedimentSeverity } from "@/lib/stores/workspace-types";
 
 /**
@@ -44,6 +45,19 @@ registry.register({
       tags: params.tags,
     };
     useWorkspaceStore.getState().upsertImpediment(impediment);
+    return { impedimentId: impediment.id };
+  },
+  mcpHandler: async (params, ctx) => {
+    const impediment: Impediment = {
+      id: `imp_${nanoid(8)}`,
+      title: params.text,
+      severity: params.severity ?? "medium",
+      raisedAt: new Date().toISOString(),
+      source: "retro",
+      owner: params.owner,
+      tags: params.tags,
+    };
+    await serverUpsertEntity<Impediment>(ctx.userId, "workspace:impediment", impediment);
     return { impedimentId: impediment.id };
   },
 });

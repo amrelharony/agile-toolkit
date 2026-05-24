@@ -2,7 +2,16 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Okr, KeyResult } from "@/lib/stores/workspace-types";
+import { serverGetEntity, serverUpsertEntity } from "../server-store";
+import type { Okr, KeyResult, Sprint } from "@/lib/stores/workspace-types";
+
+function quarterFromSprintStart(startDate: string): string {
+  const d = new Date(startDate);
+  if (Number.isNaN(d.getTime())) {
+    throw new Error(`Sprint has invalid startDate.`);
+  }
+  return `Q${Math.floor(d.getUTCMonth() / 3) + 1} ${d.getUTCFullYear()}`;
+}
 
 /**
  * Compose-action: create an OKR aligned with a sprint.
@@ -66,6 +75,31 @@ registry.register({
 
     useWorkspaceStore.getState().upsertOkr(okr);
 
+    return {
+      okrId: okr.id,
+      quarter,
+      sprintName: sprint.name,
+      keyResultIds: krs.map((k) => k.id),
+    };
+  },
+  mcpHandler: async (params, ctx) => {
+    const sprint = await serverGetEntity<Sprint>(ctx.userId, "workspace:sprint", params.sprintId);
+    if (!sprint) throw new Error(`Sprint ${params.sprintId} not found.`);
+    const quarter = quarterFromSprintStart(sprint.startDate);
+    const krs: KeyResult[] = params.keyResults.map((title) => ({
+      id: `kr_${nanoid(8)}`,
+      title,
+      target: 1,
+      current: 0,
+    }));
+    const okr: Okr = {
+      id: `okr_${nanoid(8)}`,
+      objective: params.objective,
+      keyResults: krs,
+      quarter,
+      owner: params.owner,
+    };
+    await serverUpsertEntity<Okr>(ctx.userId, "workspace:okr", okr);
     return {
       okrId: okr.id,
       quarter,

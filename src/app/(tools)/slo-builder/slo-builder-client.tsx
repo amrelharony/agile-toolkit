@@ -130,12 +130,25 @@ function parseDateLocal(iso: string): number {
  * (from `today - windowDays` up to `today`, inclusive).
  */
 function consumedMinutes(slo: SloDefinition, burns: SloBurn[]): number {
-  const cutoff = Date.now() - slo.windowDays * 24 * 60 * 60 * 1000;
+  // BUG-T8-slo-builder-2: anchor the cutoff at LOCAL start-of-today
+  // minus N days so the window edge is calendar-aligned, not
+  // wall-clock-aligned. The prior `Date.now() - N*86_400_000` cutoff
+  // drifted across the day — a burn dated exactly N days ago at
+  // local midnight intermittently fell in or out of the window
+  // depending on what time the page was loaded.
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const cutoff = start.getTime() - slo.windowDays * 24 * 60 * 60 * 1000;
+  // BUG-T8-slo-builder-3: also bound the upper edge so future-dated
+  // burns (typos / wrong-locale imports) don't inflate the window.
+  // Allow a small +1d slack to tolerate timezone-edge near-midnight
+  // entries without rejecting them outright.
+  const upper = start.getTime() + 2 * 24 * 60 * 60 * 1000;
   return burns
     .filter((b) => b.sloId === slo.id)
     .filter((b) => {
       const t = parseDateLocal(b.date);
-      return Number.isFinite(t) && t >= cutoff;
+      return Number.isFinite(t) && t >= cutoff && t <= upper;
     })
     .reduce((acc, b) => acc + b.errorMinutes, 0);
 }

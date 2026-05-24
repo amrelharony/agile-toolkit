@@ -116,8 +116,8 @@ export function JtbdMapperClient() {
       parentJobId === "__none__" || !parentJobId
         ? undefined
         : jobs.some((j) => j.id === parentJobId)
-        ? parentJobId
-        : undefined;
+          ? parentJobId
+          : undefined;
     const job: JobStory = {
       id,
       situation: situation.trim().slice(0, 500),
@@ -143,6 +143,36 @@ export function JtbdMapperClient() {
   };
 
   const updateJob = (id: string, patch: Partial<JobStory>) => {
+    // BUG-T4-jtbd-mapper-1: if the patch reparents this job, walk the
+    // proposed parent's ancestry to ensure assigning `patch.parentJobId`
+    // wouldn't create a cycle. Reject silently (preserve current parent)
+    // when a cycle would result. Bare equality check covers the
+    // self-parent case.
+    if (patch.parentJobId !== undefined && patch.parentJobId !== null) {
+      const newParent = patch.parentJobId;
+      if (newParent === id) {
+        // self-parent: drop the patch.parentJobId field.
+        patch = { ...patch };
+        delete patch.parentJobId;
+      } else {
+        const byId = new Map(jobs.map((j) => [j.id, j]));
+        const seen = new Set<string>([id]);
+        let cursor: string | undefined | null = newParent;
+        let cycle = false;
+        while (cursor) {
+          if (seen.has(cursor)) {
+            cycle = true;
+            break;
+          }
+          seen.add(cursor);
+          cursor = byId.get(cursor)?.parentJobId;
+        }
+        if (cycle) {
+          patch = { ...patch };
+          delete patch.parentJobId;
+        }
+      }
+    }
     setJobs((s) => s.map((j) => (j.id === id ? { ...j, ...patch } : j)));
     log(JTBD_ACTIONS.JOB_STORY_UPDATED, { jobId: id, patch });
   };
@@ -202,9 +232,7 @@ export function JtbdMapperClient() {
     () => ({
       headers: ["Situation", "Motivation", "Outcome", "Parent", "Description"],
       rows: jobs.map((j) => {
-        const parent = j.parentJobId
-          ? jobs.find((p) => p.id === j.parentJobId)
-          : undefined;
+        const parent = j.parentJobId ? jobs.find((p) => p.id === j.parentJobId) : undefined;
         return [
           j.situation,
           j.motivation,
@@ -217,7 +245,11 @@ export function JtbdMapperClient() {
     [jobs]
   );
 
-  const renderRow = (job: JobStory, depth: number, seen: Set<string> = new Set()): React.ReactNode => {
+  const renderRow = (
+    job: JobStory,
+    depth: number,
+    seen: Set<string> = new Set()
+  ): React.ReactNode => {
     // Cycle guard: a hand-edited localStorage payload could carry a
     // `parentJobId` cycle (A → B → A). Without this, renderRow would
     // recurse forever and crash the tab. computeMaxDepth uses a
@@ -234,31 +266,18 @@ export function JtbdMapperClient() {
           style={{ borderLeftColor: "var(--accent3)", borderLeftWidth: 3 }}
         >
           {isEditing ? (
-            <JobRowEditor
-              job={job}
-              onCommit={updateJob}
-              onDone={() => setEditingId(null)}
-            />
+            <JobRowEditor job={job} onCommit={updateJob} onDone={() => setEditingId(null)} />
           ) : (
             <div className="flex items-start gap-2">
-              <User
-                className="w-4 h-4 mt-0.5 shrink-0"
-                style={{ color: "var(--accent3)" }}
-              />
+              <User className="w-4 h-4 mt-0.5 shrink-0" style={{ color: "var(--accent3)" }} />
               <div className="flex-1 min-w-0 space-y-1">
                 <p className="text-sm text-text break-words">
                   <span className="text-sub">When </span>
-                  <span className="font-medium">
-                    {job.situation || "(situation)"}
-                  </span>
+                  <span className="font-medium">{job.situation || "(situation)"}</span>
                   <span className="text-sub">, I want to </span>
-                  <span className="font-medium">
-                    {job.motivation || "(motivation)"}
-                  </span>
+                  <span className="font-medium">{job.motivation || "(motivation)"}</span>
                   <span className="text-sub">, so I can </span>
-                  <span className="font-medium">
-                    {job.outcome || "(outcome)"}
-                  </span>
+                  <span className="font-medium">{job.outcome || "(outcome)"}</span>
                   <span className="text-sub">.</span>
                 </p>
                 {job.description && (
@@ -319,18 +338,8 @@ export function JtbdMapperClient() {
           value={jobs.length}
           valueClassName="text-accent"
         />
-        <StatCard
-          variant="compact"
-          icon={GitBranch}
-          label="Top-level"
-          value={rootJobs.length}
-        />
-        <StatCard
-          variant="compact"
-          icon={Layers}
-          label="Max depth"
-          value={maxDepth}
-        />
+        <StatCard variant="compact" icon={GitBranch} label="Top-level" value={rootJobs.length} />
+        <StatCard variant="compact" icon={Layers} label="Max depth" value={maxDepth} />
         <StatCard
           variant="compact"
           icon={AlertCircle}
@@ -341,9 +350,7 @@ export function JtbdMapperClient() {
       </KpiGrid>
 
       <div className="rounded-lg border border-border bg-surface p-4 mb-4">
-        <div className="text-xs uppercase tracking-wider text-sub mb-3">
-          Add job story
-        </div>
+        <div className="text-xs uppercase tracking-wider text-sub mb-3">Add job story</div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
           <Input
             value={situation}
@@ -404,13 +411,10 @@ export function JtbdMapperClient() {
 
       {jobs.length === 0 ? (
         <EmptyState icon={User}>
-          No job stories yet. Capture your first one above using the
-          when/want/so format.
+          No job stories yet. Capture your first one above using the when/want/so format.
         </EmptyState>
       ) : (
-        <div className="space-y-2">
-          {rootJobs.map((j) => renderRow(j, 0))}
-        </div>
+        <div className="space-y-2">{rootJobs.map((j) => renderRow(j, 0))}</div>
       )}
     </ToolPageWrapper>
   );

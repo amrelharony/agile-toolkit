@@ -220,7 +220,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single();
       if (error) {
         setState((s) => ({ ...s, error: error.message }));
-        return;
+        // BUG-X1: throw so callers (e.g., RolePickerDialog) can show an
+        // inline error instead of silently closing as if save succeeded.
+        throw new Error(error.message);
       }
       setState((s) => ({ ...s, profile: data as Profile, error: null }));
       if ((data as Profile).scrum_role) setRolePickerOpen(false);

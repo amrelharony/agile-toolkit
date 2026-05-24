@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 
 // Module-scope keymap for quick emoji reactions — hoisted out of the
 // render path so the `EMOJI_KEYS` object isn't allocated on every render
 // (and so the keydown effect's dependency tree doesn't need to list it).
 const EMOJI_KEYS: Record<string, string> = {
-  "1": "👍", "2": "❤️", "3": "😂", "4": "🎉", "5": "🤔", "6": "👀",
+  "1": "👍",
+  "2": "❤️",
+  "3": "😂",
+  "4": "🎉",
+  "5": "🤔",
+  "6": "👀",
 };
 
 type PresencePatch = {
@@ -31,7 +36,18 @@ export function useCursorChatAndReactions(params: {
   publish: (patch: PresencePatch) => void;
   clientToWorld: (clientX: number, clientY: number) => { x: number; y: number };
 }) {
-  const { chatComposerScreen, setChatComposerScreen, lastPointerRef, publish, clientToWorld } = params;
+  const { chatComposerScreen, setChatComposerScreen, lastPointerRef, publish, clientToWorld } =
+    params;
+
+  // BUG-T1-canvas-2: keep the latest `clientToWorld` in a ref so the
+  // keydown handler always reads against the CURRENT camera. The
+  // previous closure captured `clientToWorld` from the render the
+  // effect last re-ran, so after panning, an emoji reaction (1-6)
+  // landed at the world coords corresponding to the prior camera
+  // position. The dep list still excludes `clientToWorld` so we don't
+  // rebind at 60 Hz during a drag.
+  const clientToWorldRef = useRef(clientToWorld);
+  clientToWorldRef.current = clientToWorld;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -49,7 +65,7 @@ export function useCursorChatAndReactions(params: {
       // 1-6 spawn an emoji reaction at the cursor world position.
       const emoji = EMOJI_KEYS[e.key];
       if (emoji && lastPointerRef.current) {
-        const world = clientToWorld(lastPointerRef.current.x, lastPointerRef.current.y);
+        const world = clientToWorldRef.current(lastPointerRef.current.x, lastPointerRef.current.y);
         publish({
           reaction: { emoji, x: world.x, y: world.y, expiresAt: Date.now() + 6_000 },
         });
@@ -58,10 +74,6 @@ export function useCursorChatAndReactions(params: {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // `lastPointerRef` + `clientToWorld` deliberately omitted from deps:
-    // the ref is stable across renders and clientToWorld's identity
-    // changes on every camera change (~60 Hz during a drag), which
-    // would otherwise re-bind the keydown listener at the same rate.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatComposerScreen, publish, setChatComposerScreen]);
 }

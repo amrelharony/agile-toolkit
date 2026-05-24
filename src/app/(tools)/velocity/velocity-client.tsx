@@ -275,7 +275,17 @@ export function VelocityClient() {
     // come from `crypto.randomUUID()` (buildDefaultSprints + createSprint)
     // which never produce a "spr_" prefix, so the removal branch never
     // fired and workspace.sprints accumulated zombies forever.
-    const ownedIds = new Set<string>();
+    // BUG-T9-velocity-2: hoist ownedIds onto window so it survives
+    // React 18 StrictMode's double-mount. Without this, the second
+    // mount starts with an empty ownedIds and never re-claims the
+    // ones the first mount upserted, leaving deletions un-propagated
+    // to workspace.sprints (zombies in dev that don't reproduce in prod).
+    type WindowWithBridge = Window & { __velocityBridgeOwnedIds?: Set<string> };
+    const w = window as WindowWithBridge;
+    if (!w.__velocityBridgeOwnedIds) {
+      w.__velocityBridgeOwnedIds = new Set<string>();
+    }
+    const ownedIds = w.__velocityBridgeOwnedIds;
     const sync = (snapshot: typeof sprints) => {
       const workspace = useWorkspaceStore.getState();
       const wsSprints = workspace.sprints ?? [];

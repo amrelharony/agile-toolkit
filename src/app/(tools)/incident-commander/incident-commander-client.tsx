@@ -47,10 +47,7 @@ import { INCIDENT_ACTIONS } from "@/lib/history/event-actions";
 import { generateIncidentCommanderPrompts } from "@/lib/ai-prompts/incident-commander";
 import { toast } from "@/lib/utils/toast";
 import { chartTheme } from "@/components/charts/chart-theme";
-import {
-  kaplanMeier,
-  medianSurvivalTime,
-} from "@/lib/analytics/survival";
+import { kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 import { mannKendall } from "@/lib/analytics/trend-test";
 
@@ -217,16 +214,10 @@ export function IncidentCommanderClient() {
     });
   };
 
-  const assignRole = (
-    id: string,
-    role: "commander" | "scribe",
-    value: string
-  ) => {
+  const assignRole = (id: string, role: "commander" | "scribe", value: string) => {
     const trimmed = value.trim();
     setState((s) => ({
-      incidents: s.incidents.map((i) =>
-        i.id === id ? { ...i, [role]: trimmed || undefined } : i
-      ),
+      incidents: s.incidents.map((i) => (i.id === id ? { ...i, [role]: trimmed || undefined } : i)),
     }));
     log(INCIDENT_ACTIONS.ROLE_ASSIGNED, {
       incidentId: id,
@@ -266,10 +257,7 @@ export function IncidentCommanderClient() {
   const recent = useMemo(
     () =>
       [...state.incidents]
-        .sort(
-          (a, b) =>
-            new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime()
-        )
+        .sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime())
         .slice(0, 10),
     [state.incidents]
   );
@@ -319,32 +307,36 @@ export function IncidentCommanderClient() {
       .filter((m) => Number.isFinite(m));
   }, [state.incidents]);
 
-  // KM curve uses durations rounded to whole minutes; pass an explicit `now`
-  // so right-censoring of in-flight incidents lines up with the MTTR memo.
+  // BUG-T4-incident-commander-1: the prior implementation included
+  // active (right-censored) incidents bucketed at hour resolution.
+  // When the hour rolled over, every active incident's duration
+  // jumped by 60 minutes simultaneously, redistributing the KM
+  // curve discontinuously even with no new resolutions. Fix: only
+  // include RESOLVED incidents (true events with known end times) —
+  // the KM curve is therefore a Kaplan-Meier estimator without right-
+  // censoring, equivalent to the empirical CDF of resolution times.
+  // Statistically less rich but visually stable across the hour
+  // boundary, which matches what the user expects from a "median
+  // MTTR" panel.
   const survivalCurve = useMemo(() => {
     if (mttrMinutesResolved.length < 4) return [];
-    // Build observations directly on minutes — the helper only does days, so
-    // pre-compute the {duration, event} pairs ourselves.
-    const obs = state.incidents.map((i) => {
-      const start = new Date(i.openedAt).getTime();
-      const end = i.resolvedAt
-        ? new Date(i.resolvedAt).getTime()
-        : nowHourBucket * 3600000;
-      const duration = Math.max(0, Math.round((end - start) / 60000));
-      return { duration, event: Boolean(i.resolvedAt) };
-    });
+    const obs = state.incidents
+      .filter((i) => i.resolvedAt)
+      .map((i) => {
+        const start = new Date(i.openedAt).getTime();
+        const end = new Date(i.resolvedAt!).getTime();
+        const duration = Math.max(0, Math.round((end - start) / 60000));
+        return { duration, event: true };
+      });
     return kaplanMeier(obs.filter((o) => Number.isFinite(o.duration)));
-  }, [state.incidents, mttrMinutesResolved.length, nowHourBucket]);
+  }, [state.incidents, mttrMinutesResolved.length]);
 
   const survivalChartData = useMemo(
     () => survivalCurve.map((p) => ({ t: p.t, survival: Math.round(p.survival * 1000) / 1000 })),
-    [survivalCurve],
+    [survivalCurve]
   );
 
-  const medianMttrMinutes = useMemo(
-    () => medianSurvivalTime(survivalCurve),
-    [survivalCurve],
-  );
+  const medianMttrMinutes = useMemo(() => medianSurvivalTime(survivalCurve), [survivalCurve]);
 
   const medianMttrCI = useMemo(() => {
     if (mttrMinutesResolved.length < 3) return null;
@@ -368,7 +360,7 @@ export function IncidentCommanderClient() {
     const today = new Date(nowHourBucket * 3600000);
     const totalWeeks = Math.max(
       1,
-      Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1,
+      Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1
     );
     const cappedWeeks = Math.min(totalWeeks, 26);
     const series = new Array(cappedWeeks).fill(0) as number[];
@@ -465,15 +457,15 @@ export function IncidentCommanderClient() {
             medianMttrMinutes !== null
               ? `${medianMttrMinutes}m`
               : avgMttrHours === null
-              ? "—"
-              : `${avgMttrHours.toFixed(1)}h`
+                ? "—"
+                : `${avgMttrHours.toFixed(1)}h`
           }
           hint={
             medianMttrCI && medianMttrMinutes !== null
               ? `95% CI [${Math.round(medianMttrCI.lower)}, ${Math.round(medianMttrCI.upper)}]`
               : avgMttrHours === null
-              ? "No resolutions"
-              : "resolved"
+                ? "No resolutions"
+                : "resolved"
           }
         />
         <StatCard
@@ -488,9 +480,7 @@ export function IncidentCommanderClient() {
           variant="compact"
           icon={Activity}
           label="Total (30d)"
-          value={
-            bySeverity.sev1 + bySeverity.sev2 + bySeverity.sev3 + bySeverity.sev4
-          }
+          value={bySeverity.sev1 + bySeverity.sev2 + bySeverity.sev3 + bySeverity.sev4}
           hint="all severities"
         />
       </KpiGrid>
@@ -577,10 +567,9 @@ export function IncidentCommanderClient() {
             </ResponsiveContainer>
           </div>
           <p className="text-[11px] text-sub mt-2">
-            Kaplan-Meier estimate over {mttrMinutesResolved.length} resolved
-            incident{mttrMinutesResolved.length === 1 ? "" : "s"} (active
-            incidents are right-censored). Y-axis: probability the incident is
-            still open after N minutes.
+            Kaplan-Meier estimate over {mttrMinutesResolved.length} resolved incident
+            {mttrMinutesResolved.length === 1 ? "" : "s"} (active incidents are right-censored).
+            Y-axis: probability the incident is still open after N minutes.
           </p>
         </SectionCard>
       )}
@@ -595,9 +584,7 @@ export function IncidentCommanderClient() {
               <Input
                 id="ic-title"
                 value={draft.title}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, title: e.target.value }))
-                }
+                onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") addIncident();
                 }}
@@ -612,9 +599,7 @@ export function IncidentCommanderClient() {
                 </Label>
                 <Select
                   value={draft.severity}
-                  onValueChange={(v) =>
-                    setDraft((d) => ({ ...d, severity: v as Severity }))
-                  }
+                  onValueChange={(v) => setDraft((d) => ({ ...d, severity: v as Severity }))}
                 >
                   <SelectTrigger id="ic-sev" className="bg-surface border-border">
                     <SelectValue />
@@ -635,9 +620,7 @@ export function IncidentCommanderClient() {
                 <Input
                   id="ic-cmd"
                   value={draft.commander}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, commander: e.target.value }))
-                  }
+                  onChange={(e) => setDraft((d) => ({ ...d, commander: e.target.value }))}
                   placeholder="optional"
                   className="bg-surface border-border"
                 />
@@ -649,9 +632,7 @@ export function IncidentCommanderClient() {
                 <Input
                   id="ic-scribe"
                   value={draft.scribe}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, scribe: e.target.value }))
-                  }
+                  onChange={(e) => setDraft((d) => ({ ...d, scribe: e.target.value }))}
                   placeholder="optional"
                   className="bg-surface border-border"
                 />
@@ -664,9 +645,7 @@ export function IncidentCommanderClient() {
               <Textarea
                 id="ic-desc"
                 value={draft.description}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, description: e.target.value }))
-                }
+                onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
                 rows={2}
                 placeholder="What's the user-visible symptom? Any blast-radius hints?"
                 className="bg-surface border-border resize-none text-xs"
@@ -704,8 +683,8 @@ export function IncidentCommanderClient() {
 
       {active.length === 0 ? (
         <EmptyState icon={CheckCircle2} className="mb-6">
-          No active incidents. When a new one is declared it will appear here
-          with timeline log and comms templates.
+          No active incidents. When a new one is declared it will appear here with timeline log and
+          comms templates.
         </EmptyState>
       ) : (
         <div className="space-y-4 mb-6">
@@ -755,10 +734,7 @@ export function IncidentCommanderClient() {
                         </Badge>
                       </td>
                       <td className="py-2 pr-3">
-                        <Badge
-                          variant="outline"
-                          className={STATUS_BADGE_CLASS[i.status]}
-                        >
+                        <Badge variant="outline" className={STATUS_BADGE_CLASS[i.status]}>
                           {i.status}
                         </Badge>
                       </td>
@@ -768,9 +744,7 @@ export function IncidentCommanderClient() {
                       <td className="py-2 pr-3 font-data">
                         {m === null ? "—" : `${m.toFixed(2)}h`}
                       </td>
-                      <td className="py-2 pr-3 text-sub">
-                        {i.commander ?? "—"}
-                      </td>
+                      <td className="py-2 pr-3 text-sub">{i.commander ?? "—"}</td>
                       <td className="py-2 pr-3 text-right">
                         <Button
                           variant="ghost"
@@ -805,11 +779,7 @@ function ActiveIncidentCard({
   incident: Incident;
   now: number;
   onMarkStatus: (id: string, status: IncidentStatus) => void;
-  onAssignRole: (
-    id: string,
-    role: "commander" | "scribe",
-    value: string
-  ) => void;
+  onAssignRole: (id: string, role: "commander" | "scribe", value: string) => void;
   onRemove: (id: string) => void;
   onAddTimelineEntry: (id: string, author: string, text: string) => void;
 }) {
@@ -841,9 +811,8 @@ function ActiveIncidentCard({
   }, [incident.scribe]);
 
   const elapsedMs =
-    (incident.resolvedAt
-      ? new Date(incident.resolvedAt).getTime()
-      : now) - new Date(incident.openedAt).getTime();
+    (incident.resolvedAt ? new Date(incident.resolvedAt).getTime() : now) -
+    new Date(incident.openedAt).getTime();
 
   const slackTemplate =
     `:rotating_light: ${SEVERITY_LABEL[incident.severity]} INCIDENT — ${incident.title}\n` +
@@ -893,20 +862,14 @@ function ActiveIncidentCard({
           >
             {SEVERITY_LABEL[incident.severity]}
           </Badge>
-          <Badge
-            variant="outline"
-            className={STATUS_BADGE_CLASS[incident.status]}
-          >
+          <Badge variant="outline" className={STATUS_BADGE_CLASS[incident.status]}>
             {incident.status}
           </Badge>
         </span>
       }
       actions={
         <div className="flex items-center gap-2">
-          <span
-            className="font-data text-sm text-accent"
-            aria-label="elapsed time"
-          >
+          <span className="font-data text-sm text-accent" aria-label="elapsed time">
             <Clock className="w-3.5 h-3.5 inline mr-1" aria-hidden="true" />
             {formatDuration(elapsedMs)}
           </span>
@@ -915,9 +878,7 @@ function ActiveIncidentCard({
     >
       <div className="space-y-4">
         {incident.description && (
-          <p className="text-xs text-sub whitespace-pre-wrap break-words">
-            {incident.description}
-          </p>
+          <p className="text-xs text-sub whitespace-pre-wrap break-words">{incident.description}</p>
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -958,9 +919,7 @@ function ActiveIncidentCard({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="rounded-md border border-border bg-bg p-3">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs uppercase tracking-wider text-sub">
-                Slack template
-              </span>
+              <span className="text-xs uppercase tracking-wider text-sub">Slack template</span>
               <Button
                 variant="ghost"
                 size="sm"
@@ -976,9 +935,7 @@ function ActiveIncidentCard({
           </div>
           <div className="rounded-md border border-border bg-bg p-3">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs uppercase tracking-wider text-sub">
-                Email template
-              </span>
+              <span className="text-xs uppercase tracking-wider text-sub">Email template</span>
               <Button
                 variant="ghost"
                 size="sm"
@@ -1008,17 +965,12 @@ function ActiveIncidentCard({
           {incident.timeline.length > 0 && (
             <ul className="space-y-1.5 mb-3 max-h-48 overflow-y-auto pr-2">
               {incident.timeline.map((e) => (
-                <li
-                  key={e.id}
-                  className="text-xs border-l-2 border-accent/40 pl-2"
-                >
+                <li key={e.id} className="text-xs border-l-2 border-accent/40 pl-2">
                   <span className="font-data text-sub mr-2">
                     {new Date(e.ts).toLocaleTimeString()}
                   </span>
                   <span className="text-accent mr-2">{e.author}:</span>
-                  <span className="text-text whitespace-pre-wrap break-words">
-                    {e.text}
-                  </span>
+                  <span className="text-text whitespace-pre-wrap break-words">{e.text}</span>
                 </li>
               ))}
             </ul>
@@ -1041,10 +993,7 @@ function ActiveIncidentCard({
               className="bg-surface border-border flex-1"
               aria-label="Timeline entry text"
             />
-            <Button
-              onClick={submitEntry}
-              className="gap-2 bg-accent text-bg hover:bg-accent/90"
-            >
+            <Button onClick={submitEntry} className="gap-2 bg-accent text-bg hover:bg-accent/90">
               <Plus className="w-4 h-4" aria-hidden="true" /> Entry
             </Button>
           </div>

@@ -15,10 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Trophy, Lock, Crown, Flag, Users, Activity } from "lucide-react";
-import {
-  achievements,
-  achievementsByCategory,
-} from "@/lib/gamification/achievements";
+import { achievements, achievementsByCategory } from "@/lib/gamification/achievements";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { computeLevel } from "@/lib/gamification/xp-curve";
 import { prestige } from "@/lib/gamification/engine";
@@ -77,7 +74,11 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-lg font-bold text-text">Level {info.level}</span>
-                  {info.atMax && <Badge variant="outline" className="border-accent/50 text-accent">MAX</Badge>}
+                  {info.atMax && (
+                    <Badge variant="outline" className="border-accent/50 text-accent">
+                      MAX
+                    </Badge>
+                  )}
                   {dna.prestige > 0 && (
                     <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/40 gap-1">
                       <Crown className="w-3 h-3" />
@@ -110,7 +111,9 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
               </div>
               <div>
                 <div className="text-xs text-sub uppercase tracking-wider">Tools</div>
-                <div className="font-data text-xl text-text">{dna.toolsVisited.length} / {toolRegistry.length}</div>
+                <div className="font-data text-xl text-text">
+                  {dna.toolsVisited.length} / {toolRegistry.length}
+                </div>
               </div>
               <div>
                 <div className="text-xs text-sub uppercase tracking-wider">Unlocks</div>
@@ -124,7 +127,11 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                 variant="outline"
                 className="w-full border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
                 onClick={() => {
-                  if (confirm("Prestige will reset XP and level. Achievements and streaks stay. Continue?")) {
+                  if (
+                    confirm(
+                      "Prestige will reset XP and level. Achievements and streaks stay. Continue?"
+                    )
+                  ) {
                     prestige();
                   }
                 }}
@@ -136,12 +143,21 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
           </div>
 
           {/* Settings sidebar */}
+          {/* BUG-C5: associate labels with controls via htmlFor/id +
+              aria-label on the two Switches, so screen readers no
+              longer announce them as bare "edit text" / "switch on/off"
+              with no context. */}
           <div className="space-y-3 rounded-xl border border-border bg-surface p-4">
             <div>
-              <label className="text-xs text-sub">Display name</label>
+              <label htmlFor="trophy-display-name" className="text-xs text-sub">
+                Display name
+              </label>
               <Input
+                id="trophy-display-name"
                 value={dna.displayName ?? ""}
-                onChange={(e) => useVDnaStore.getState().setDisplayName(e.target.value || undefined)}
+                onChange={(e) =>
+                  useVDnaStore.getState().setDisplayName(e.target.value || undefined)
+                }
                 placeholder="Anonymous"
                 className="bg-bg border-border mt-1"
                 maxLength={24}
@@ -149,27 +165,31 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
             </div>
             <div className="flex items-center justify-between gap-2">
               <div>
-                <div className="text-xs text-text">Share on leaderboard</div>
+                <div id="trophy-share-label" className="text-xs text-text">
+                  Share on leaderboard
+                </div>
                 <div className="text-[10px] text-sub">Requires Supabase env</div>
               </div>
               <Switch
                 checked={dna.shareOnLeaderboard}
                 onCheckedChange={(v) => useVDnaStore.getState().setShareOnLeaderboard(v)}
+                aria-labelledby="trophy-share-label"
               />
             </div>
             <div className="flex items-center justify-between gap-2">
               <div>
-                <div className="text-xs text-text">Silent mode</div>
+                <div id="trophy-silent-label" className="text-xs text-text">
+                  Silent mode
+                </div>
                 <div className="text-[10px] text-sub">Suppress toasts</div>
               </div>
               <Switch
                 checked={dna.silentMode}
                 onCheckedChange={(v) => useVDnaStore.getState().setSilentMode(v)}
+                aria-labelledby="trophy-silent-label"
               />
             </div>
-            <div className="text-[10px] text-sub font-mono">
-              ID: {dna.visitorId.slice(0, 10)}…
-            </div>
+            <div className="text-[10px] text-sub font-mono">ID: {dna.visitorId.slice(0, 10)}…</div>
           </div>
         </div>
 
@@ -213,9 +233,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                         )}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold truncate">
-                            {hidden ? "???" : a.title}
-                          </span>
+                          <span className="font-semibold truncate">{hidden ? "???" : a.title}</span>
                           {unlocked ? (
                             <Trophy className="w-3.5 h-3.5 text-accent shrink-0" />
                           ) : (
@@ -266,7 +284,9 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                   );
                 })}
                 {dna.dailyChallenges.length === 0 && (
-                  <div className="text-sm text-sub">No challenges yet. Interact with any tool to generate today&apos;s set.</div>
+                  <div className="text-sm text-sub">
+                    No challenges yet. Interact with any tool to generate today&apos;s set.
+                  </div>
                 )}
               </div>
             </div>
@@ -303,7 +323,8 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
               </div>
             </div>
             <div className="text-[11px] text-sub/70">
-              Pool: {DAILY_POOL.length} daily · {WEEKLY_POOL.length} weekly · rotates at local midnight / Monday.
+              Pool: {DAILY_POOL.length} daily · {WEEKLY_POOL.length} weekly · rotates at local
+              midnight / Monday.
             </div>
           </TabsContent>
 
@@ -318,7 +339,10 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                 <div className="text-sm text-sub">No events logged yet.</div>
               )}
               {dna.recentEvents.slice(0, 25).map((e, i) => (
-                <div key={`${e.at}-${i}`} className="flex items-center gap-3 text-xs font-data px-2 py-1 rounded border border-border bg-surface">
+                <div
+                  key={`${e.at}-${i}`}
+                  className="flex items-center gap-3 text-xs font-data px-2 py-1 rounded border border-border bg-surface"
+                >
                   <span className="text-accent w-14">+{e.amount}</span>
                   <span className="text-sub w-24 truncate">{e.source}</span>
                   {e.multiplier > 1 && <span className="text-amber-300">×{e.multiplier}</span>}

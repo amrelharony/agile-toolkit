@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
+import type { Sprint, Story } from "@/lib/stores/workspace-types";
 
 /**
  * Compose-action: capacity-based sprint planner.
@@ -53,6 +55,42 @@ registry.register({
       }
     }
 
+    return {
+      sprintId: params.sprintId,
+      sprintName: sprint.name,
+      capacityPoints: params.capacityPoints,
+      selected: selected.map((s) => ({ id: s.id, title: s.title, points: s.points })),
+      totalPointsSelected: params.capacityPoints - remaining,
+      committed: Boolean(params.commit),
+    };
+  },
+  mcpHandler: async (params, ctx) => {
+    // C1 follow-up: server-side variant against Supabase.
+    const sprint = await serverGetEntity<Sprint>(ctx.userId, "workspace:sprint", params.sprintId);
+    if (!sprint) throw new Error(`Sprint ${params.sprintId} not found.`);
+    const stories = await serverListEntities<Story>(ctx.userId, "workspace:story");
+    const candidates = stories
+      .filter((s) => s.status === "backlog")
+      .slice()
+      .sort((a, b) => (b.priorityScore ?? -Infinity) - (a.priorityScore ?? -Infinity));
+    const selected: Story[] = [];
+    let remaining = params.capacityPoints;
+    for (const story of candidates) {
+      const pts = story.points ?? 0;
+      if (pts <= 0) continue;
+      if (pts > remaining) continue;
+      selected.push(story);
+      remaining -= pts;
+    }
+    if (params.commit) {
+      for (const story of selected) {
+        await serverUpsertEntity<Story>(ctx.userId, "workspace:story", {
+          ...story,
+          sprintId: params.sprintId,
+          status: "todo",
+        });
+      }
+    }
     return {
       sprintId: params.sprintId,
       sprintName: sprint.name,

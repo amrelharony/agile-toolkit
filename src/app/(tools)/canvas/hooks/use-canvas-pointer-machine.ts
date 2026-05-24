@@ -2,9 +2,21 @@
 
 import { useCallback, useEffect, useRef, type RefObject, type MutableRefObject } from "react";
 import { panBy } from "@/lib/whiteboard/canvas-transform";
-import { aabbIntersect, boundingBoxOfFlatPoints, rectFromCorners, rectOverlapsPolygon } from "@/lib/geometry/bbox";
+import {
+  aabbIntersect,
+  boundingBoxOfFlatPoints,
+  rectFromCorners,
+  rectOverlapsPolygon,
+} from "@/lib/geometry/bbox";
 import type { Camera } from "@/lib/geometry/bbox";
-import { snapToGrid as snapToGridFn, snapToObjects as snapToObjectsFn, DEFAULT_GRID_SIZE, DEFAULT_GUIDE_TOLERANCE, type SpatialIndex, type AlignmentGuide } from "@/lib/whiteboard/snap";
+import {
+  snapToGrid as snapToGridFn,
+  snapToObjects as snapToObjectsFn,
+  DEFAULT_GRID_SIZE,
+  DEFAULT_GUIDE_TOLERANCE,
+  type SpatialIndex,
+  type AlignmentGuide,
+} from "@/lib/whiteboard/snap";
 import { layoutMindMap, isMindMapDescendant } from "@/lib/whiteboard/mind-map-layout";
 import type { WhiteboardMindMapNode } from "@/lib/stores/workspace-types";
 import { wbId } from "@/lib/whiteboard/clipboard";
@@ -21,7 +33,10 @@ type LogFn = ReturnType<typeof useHistoryLogger>["log"];
 
 // Read-only state shapes — the hook reads ephemeral state but never
 // constructs it (set by other code paths via the canvas store).
-type DragState = { startWorld: { x: number; y: number }; initialRects: Record<string, { x: number; y: number; w: number; h: number }> };
+type DragState = {
+  startWorld: { x: number; y: number };
+  initialRects: Record<string, { x: number; y: number; w: number; h: number }>;
+};
 type ResizeState = {
   handle: "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
   startWorld: { x: number; y: number };
@@ -138,7 +153,13 @@ export function useCanvasPointerMachine(params: {
   objectsById: ReadonlyMap<string, WhiteboardObject>;
   upsert: (obj: WhiteboardObject) => void;
   upsertMany: (objs: WhiteboardObject[]) => void;
-  upsertCommentThread: (t: { id: string; boardId: string; x: number; y: number; comments: [] }) => void;
+  upsertCommentThread: (t: {
+    id: string;
+    boardId: string;
+    x: number;
+    y: number;
+    comments: [];
+  }) => void;
   // Refs from parent
   viewportRef: RefObject<HTMLDivElement | null>;
   viewportRectRef: RefObject<DOMRect | null>;
@@ -163,19 +184,51 @@ export function useCanvasPointerMachine(params: {
   onCanvasPointerUp: (e: React.PointerEvent<HTMLDivElement>) => void;
 } & PointerMachineRefs {
   const {
-    boardId, readOnly, canComment,
-    camera, tool, stickyColor, snapToGridEnabled, snapToObjectsEnabled,
+    boardId,
+    readOnly,
+    canComment,
+    camera,
+    tool,
+    stickyColor,
+    snapToGridEnabled,
+    snapToObjectsEnabled,
     pendingConnectorFromId,
-    drag, resize, rotation, marquee, drawing,
-    setMarquee, setDrawing, setDrag, setResize, setRotation,
-    setPendingConnectorFromId, setDragGuides, setEditingObjectId, setTool,
-    selection, setSelection, clearSelection,
-    objects, objectsById, upsert, upsertMany, upsertCommentThread,
-    viewportRef, viewportRectRef, spaceHeldRef, topZRef, dragGuidesRef,
-    throttledSetCamera, clientToWorld,
-    publish, setPreviewCursor, setActiveCommentThreadId,
+    drag,
+    resize,
+    rotation,
+    marquee,
+    drawing,
+    setMarquee,
+    setDrawing,
+    setDrag,
+    setResize,
+    setRotation,
+    setPendingConnectorFromId,
+    setDragGuides,
+    setEditingObjectId,
+    setTool,
+    selection,
+    setSelection,
+    clearSelection,
+    objects,
+    objectsById,
+    upsert,
+    upsertMany,
+    upsertCommentThread,
+    viewportRef,
+    viewportRectRef,
+    spaceHeldRef,
+    topZRef,
+    dragGuidesRef,
+    throttledSetCamera,
+    clientToWorld,
+    publish,
+    setPreviewCursor,
+    setActiveCommentThreadId,
     addObjectAt,
-    pushSnapshot, log, logActivity,
+    pushSnapshot,
+    log,
+    logActivity,
   } = params;
 
   // Pan latches
@@ -216,7 +269,17 @@ export function useCanvasPointerMachine(params: {
       dragSnapIndexRef.current = null;
       lastPointerRef.current = null;
     };
-  }, [boardId, setDrag, setResize, setRotation, setMarquee, setDrawing, setPendingConnectorFromId, setDragGuides, setEditingObjectId]);
+  }, [
+    boardId,
+    setDrag,
+    setResize,
+    setRotation,
+    setMarquee,
+    setDrawing,
+    setPendingConnectorFromId,
+    setDragGuides,
+    setEditingObjectId,
+  ]);
 
   // Cancel in-flight interactions when the tab is hidden. Without this,
   // a user who Cmd-Tabs away mid-drag returns to find the canvas stuck
@@ -254,7 +317,21 @@ export function useCanvasPointerMachine(params: {
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [drag, resize, rotation, marquee, drawing, setDrag, setResize, setRotation, setMarquee, setDrawing, setDragGuides, dragGuidesRef, spaceHeldRef]);
+  }, [
+    drag,
+    resize,
+    rotation,
+    marquee,
+    drawing,
+    setDrag,
+    setResize,
+    setRotation,
+    setMarquee,
+    setDrawing,
+    setDragGuides,
+    dragGuidesRef,
+    spaceHeldRef,
+  ]);
 
   // ─── Pointer down on empty canvas ────────────────────────────────────
   const onCanvasPointerDown = useCallback(
@@ -273,8 +350,17 @@ export function useCanvasPointerMachine(params: {
         }
         if (canComment && e.button === 0) {
           const target = e.target as HTMLElement;
-          // Only act on truly-empty clicks (not on an object).
-          if (target === viewportRef.current || target === viewportRef.current?.firstChild) {
+          // BUG-T1-canvas-19: detect empty-canvas via the viewport
+          // ref OR any element marked `data-canvas-empty`. The prior
+          // `firstChild` heuristic assumed the grid was always there;
+          // when grid is hidden, the first child becomes the world
+          // layer, so empty clicks were misclassified as object
+          // clicks and the comment gesture was dropped.
+          if (
+            target === viewportRef.current ||
+            target === viewportRef.current?.firstChild ||
+            target?.hasAttribute?.("data-canvas-empty")
+          ) {
             const rect = viewportRectRef.current;
             if (!rect) return;
             const world = {
@@ -295,8 +381,14 @@ export function useCanvasPointerMachine(params: {
         return;
       }
       const target = e.target as HTMLElement;
-      // Click landed on an object — let its handler deal with it.
-      if (target !== viewportRef.current && target !== viewportRef.current?.firstChild) return;
+      // BUG-T1-canvas-19: same broadened empty-canvas detection here.
+      if (
+        target !== viewportRef.current &&
+        target !== viewportRef.current?.firstChild &&
+        !target?.hasAttribute?.("data-canvas-empty")
+      ) {
+        return;
+      }
 
       const middleButton = e.button === 1;
       const shouldPan = tool === "hand" || middleButton || spaceHeldRef.current;
@@ -337,10 +429,19 @@ export function useCanvasPointerMachine(params: {
         const now = new Date().toISOString();
         const topZ = claimNextZ(topZRef);
         setDrawing({
-          id, boardId, type: tool,
-          x: world.x, y: world.y, w: 0, h: 0,
-          stroke: "#94a3b8", strokeWidth: 2,
-          version: 1, z: topZ, createdAt: now, updatedAt: now,
+          id,
+          boardId,
+          type: tool,
+          x: world.x,
+          y: world.y,
+          w: 0,
+          h: 0,
+          stroke: "#94a3b8",
+          strokeWidth: 2,
+          version: 1,
+          z: topZ,
+          createdAt: now,
+          updatedAt: now,
         });
         viewportRef.current?.setPointerCapture(e.pointerId);
         return;
@@ -350,11 +451,20 @@ export function useCanvasPointerMachine(params: {
         const now = new Date().toISOString();
         const topZ = claimNextZ(topZRef);
         setDrawing({
-          id, boardId, type: "freehand",
-          x: world.x, y: world.y, w: 0, h: 0,
+          id,
+          boardId,
+          type: "freehand",
+          x: world.x,
+          y: world.y,
+          w: 0,
+          h: 0,
           points: [world.x, world.y],
-          stroke: "#e5e7eb", strokeWidth: 3,
-          version: 1, z: topZ, createdAt: now, updatedAt: now,
+          stroke: "#e5e7eb",
+          strokeWidth: 3,
+          version: 1,
+          z: topZ,
+          createdAt: now,
+          updatedAt: now,
         });
         viewportRef.current?.setPointerCapture(e.pointerId);
         return;
@@ -399,13 +509,26 @@ export function useCanvasPointerMachine(params: {
         const now = new Date().toISOString();
         const topZ = claimNextZ(topZRef);
         const baseProps = {
-          id, boardId, version: 1, z: topZ, createdAt: now, updatedAt: now,
-          x: world.x, y: world.y, w: 0, h: 0,
+          id,
+          boardId,
+          version: 1,
+          z: topZ,
+          createdAt: now,
+          updatedAt: now,
+          x: world.x,
+          y: world.y,
+          w: 0,
+          h: 0,
         };
         let draft: WhiteboardObject | null = null;
         if (tool === "sticky") {
           draft = { ...baseProps, type: "sticky", content: "", color: stickyColor };
-        } else if (tool === "rect" || tool === "ellipse" || tool === "diamond" || tool === "triangle") {
+        } else if (
+          tool === "rect" ||
+          tool === "ellipse" ||
+          tool === "diamond" ||
+          tool === "triangle"
+        ) {
           draft = {
             ...baseProps,
             type: tool,
@@ -414,7 +537,14 @@ export function useCanvasPointerMachine(params: {
             fill: "rgba(148, 163, 184, 0.12)",
           };
         } else if (tool === "text") {
-          draft = { ...baseProps, type: "text", content: "", fontSize: 18, color: "#e5e7eb", align: "left" };
+          draft = {
+            ...baseProps,
+            type: "text",
+            content: "",
+            fontSize: 18,
+            color: "#e5e7eb",
+            align: "left",
+          };
         } else if (tool === "frame") {
           draft = { ...baseProps, type: "frame", label: "Frame" };
         } else if (tool === "card") {
@@ -432,12 +562,30 @@ export function useCanvasPointerMachine(params: {
       addObjectAt(world.x, world.y);
     },
     [
-      tool, addObjectAt, clearSelection, clientToWorld, selection,
-      setMarquee, setDrawing, pendingConnectorFromId, setPendingConnectorFromId,
-      boardId, upsertCommentThread, setTool, readOnly, canComment,
-      camera.x, camera.y, camera.zoom, setActiveCommentThreadId, stickyColor,
-      viewportRef, viewportRectRef, spaceHeldRef, topZRef,
-    ],
+      tool,
+      addObjectAt,
+      clearSelection,
+      clientToWorld,
+      selection,
+      setMarquee,
+      setDrawing,
+      pendingConnectorFromId,
+      setPendingConnectorFromId,
+      boardId,
+      upsertCommentThread,
+      setTool,
+      readOnly,
+      canComment,
+      camera.x,
+      camera.y,
+      camera.zoom,
+      setActiveCommentThreadId,
+      stickyColor,
+      viewportRef,
+      viewportRectRef,
+      spaceHeldRef,
+      topZRef,
+    ]
   );
 
   // ─── Pointer move — pan, marquee, drag, resize, rotation, drawing ───
@@ -505,7 +653,11 @@ export function useCanvasPointerMachine(params: {
             const ay = Math.abs(dy);
             if (ax > ay * 2) dy = 0;
             else if (ay > ax * 2) dx = 0;
-            else { const m = Math.max(ax, ay); dx = Math.sign(dx) * m; dy = Math.sign(dy) * m; }
+            else {
+              const m = Math.max(ax, ay);
+              dx = Math.sign(dx) * m;
+              dy = Math.sign(dy) * m;
+            }
           }
           setDrawing({ ...drawing, w: dx, h: dy });
         } else if (drawing.type === "freehand") {
@@ -533,7 +685,10 @@ export function useCanvasPointerMachine(params: {
         const lassoActive = !!marquee.lassoPoints;
         const LASSO_MAX_POINTS = 1000;
         if (lassoActive) {
-          if (!lassoPointsRef.current) lassoPointsRef.current = marquee.lassoPoints ? marquee.lassoPoints.slice() : [world.x, world.y];
+          if (!lassoPointsRef.current)
+            lassoPointsRef.current = marquee.lassoPoints
+              ? marquee.lassoPoints.slice()
+              : [world.x, world.y];
           const buf = lassoPointsRef.current;
           if (buf.length < LASSO_MAX_POINTS * 2) {
             const lastX = buf[buf.length - 2];
@@ -568,7 +723,10 @@ export function useCanvasPointerMachine(params: {
                   ? Array.from(new Set([...liveMarquee.initialSelection, ...hit]))
                   : hit;
                 const liveSelection = useCanvasStore.getState().selection;
-                if (next.length !== liveSelection.length || next.some((id, i) => liveSelection[i] !== id)) {
+                if (
+                  next.length !== liveSelection.length ||
+                  next.some((id, i) => liveSelection[i] !== id)
+                ) {
                   setSelection(next);
                 }
               }
@@ -601,8 +759,10 @@ export function useCanvasPointerMachine(params: {
         const ids = Object.keys(drag.initialRects);
 
         const first = drag.initialRects[ids[0]];
-        let minX = first.x + dx, minY = first.y + dy;
-        let maxX = minX + first.w, maxY = minY + first.h;
+        let minX = first.x + dx,
+          minY = first.y + dy;
+        let maxX = minX + first.w,
+          maxY = minY + first.h;
         for (let i = 1; i < ids.length; i++) {
           const r = drag.initialRects[ids[i]];
           const nx = r.x + dx;
@@ -617,7 +777,10 @@ export function useCanvasPointerMachine(params: {
         const gridFlip = e.metaKey || e.ctrlKey;
         const gridActive = snapToGridEnabled !== gridFlip;
         if (gridActive) {
-          const snapped = snapToGridFn({ x: proposedUnion.x, y: proposedUnion.y }, DEFAULT_GRID_SIZE);
+          const snapped = snapToGridFn(
+            { x: proposedUnion.x, y: proposedUnion.y },
+            DEFAULT_GRID_SIZE
+          );
           dx += snapped.x - proposedUnion.x;
           dy += snapped.y - proposedUnion.y;
           proposedUnion.x = snapped.x;
@@ -635,7 +798,11 @@ export function useCanvasPointerMachine(params: {
               .filter((o) => !draggingSet.has(o.id))
               .map((o) => ({ x: o.x, y: o.y, w: o.w, h: o.h }));
           }
-          const { rect: snappedRect, guides } = snapToObjectsFn(proposedUnion, others, zoomAdjustedTol);
+          const { rect: snappedRect, guides } = snapToObjectsFn(
+            proposedUnion,
+            others,
+            zoomAdjustedTol
+          );
           dx += snappedRect.x - proposedUnion.x;
           dy += snappedRect.y - proposedUnion.y;
           if (guides.length > 0 || (dragGuidesRef.current?.length ?? 0) > 0) setDragGuides(guides);
@@ -675,9 +842,14 @@ export function useCanvasPointerMachine(params: {
           const obj = objectsById.get(id);
           if (!obj) continue;
           let r = initRot + delta;
-          r = ((r + 180) % 360 + 360) % 360 - 180;
+          r = ((((r + 180) % 360) + 360) % 360) - 180;
           if (r === -180) r = 180;
-          updates.push({ ...obj, rotation: r, version: obj.version + 1, updatedAt: now } as WhiteboardObject);
+          updates.push({
+            ...obj,
+            rotation: r,
+            version: obj.version + 1,
+            updatedAt: now,
+          } as WhiteboardObject);
         }
         if (updates.length === 1) upsert(updates[0]);
         else if (updates.length > 1) upsertMany(updates);
@@ -690,15 +862,28 @@ export function useCanvasPointerMachine(params: {
         const dy = world.y - resize.startWorld.y;
         const union = resize.initialUnion ?? resize.initialRect;
         const initRects = resize.initialRects ?? { [resize.objectId]: resize.initialRect };
-        let unx = union.x, uny = union.y, unw = union.w, unh = union.h;
+        let unx = union.x,
+          uny = union.y,
+          unw = union.w,
+          unh = union.h;
         if (resize.handle.includes("e")) unw = Math.max(20, union.w + dx);
         if (resize.handle.includes("s")) unh = Math.max(20, union.h + dy);
-        if (resize.handle.includes("w")) { unw = Math.max(20, union.w - dx); unx = union.x + (union.w - unw); }
-        if (resize.handle.includes("n")) { unh = Math.max(20, union.h - dy); uny = union.y + (union.h - unh); }
+        if (resize.handle.includes("w")) {
+          unw = Math.max(20, union.w - dx);
+          unx = union.x + (union.w - unw);
+        }
+        if (resize.handle.includes("n")) {
+          unh = Math.max(20, union.h - dy);
+          uny = union.y + (union.h - unh);
+        }
         if (e.shiftKey && union.w > 0 && union.h > 0) {
           const sxR = unw / union.w;
           const syR = unh / union.h;
-          const isCorner = resize.handle === "nw" || resize.handle === "ne" || resize.handle === "sw" || resize.handle === "se";
+          const isCorner =
+            resize.handle === "nw" ||
+            resize.handle === "ne" ||
+            resize.handle === "sw" ||
+            resize.handle === "se";
           if (isCorner) {
             const s = Math.max(sxR, syR);
             const newW = union.w * s;
@@ -722,7 +907,15 @@ export function useCanvasPointerMachine(params: {
           const ny = uny + offY * sy;
           const nw = Math.max(20, ir.w * sx);
           const nh = Math.max(20, ir.h * sy);
-          updates.push({ ...obj, x: nx, y: ny, w: nw, h: nh, version: obj.version + 1, updatedAt: now } as WhiteboardObject);
+          updates.push({
+            ...obj,
+            x: nx,
+            y: ny,
+            w: nw,
+            h: nh,
+            version: obj.version + 1,
+            updatedAt: now,
+          } as WhiteboardObject);
         }
         if (updates.length === 1) {
           upsert(updates[0]);
@@ -733,332 +926,381 @@ export function useCanvasPointerMachine(params: {
       }
     },
     [
-      camera, throttledSetCamera, marquee, drag, resize, rotation, drawing,
-      pendingConnectorFromId, objects, objectsById, selection, setSelection,
-      setMarquee, setDrawing, upsert, upsertMany, clientToWorld, setDragGuides,
-      snapToGridEnabled, snapToObjectsEnabled, publish, setPreviewCursor,
+      camera,
+      throttledSetCamera,
+      marquee,
+      drag,
+      resize,
+      rotation,
+      drawing,
+      pendingConnectorFromId,
+      objects,
+      objectsById,
+      selection,
+      setSelection,
+      setMarquee,
+      setDrawing,
+      upsert,
+      upsertMany,
+      clientToWorld,
+      setDragGuides,
+      snapToGridEnabled,
+      snapToObjectsEnabled,
+      publish,
+      setPreviewCursor,
       dragGuidesRef,
-    ],
+    ]
   );
 
   // ─── Pointer up ──────────────────────────────────────────────────────
-  const onCanvasPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    isPanningRef.current = false;
-    lastPointerRef.current = null;
-    if (marquee) {
-      if (lassoRafRef.current != null) {
-        cancelAnimationFrame(lassoRafRef.current);
-        lassoRafRef.current = null;
+  const onCanvasPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      isPanningRef.current = false;
+      lastPointerRef.current = null;
+      if (marquee) {
+        if (lassoRafRef.current != null) {
+          cancelAnimationFrame(lassoRafRef.current);
+          lassoRafRef.current = null;
+        }
+        lassoPointsRef.current = null;
+        lastLassoWorldRef.current = null;
+        setMarquee(null);
       }
-      lassoPointsRef.current = null;
-      lastLassoWorldRef.current = null;
-      setMarquee(null);
-    }
-    if (drag) {
-      const ids = Object.keys(drag.initialRects);
-      let movedAny = false;
-      if (ids.length > 0) {
-        for (const id of ids) {
-          const obj = objectsById.get(id);
-          if (!obj) continue;
-          const init = drag.initialRects[id];
-          if (Math.abs(obj.x - init.x) + Math.abs(obj.y - init.y) > 0.5) {
-            movedAny = true;
-            break;
+      if (drag) {
+        const ids = Object.keys(drag.initialRects);
+        let movedAny = false;
+        if (ids.length > 0) {
+          for (const id of ids) {
+            const obj = objectsById.get(id);
+            if (!obj) continue;
+            const init = drag.initialRects[id];
+            if (Math.abs(obj.x - init.x) + Math.abs(obj.y - init.y) > 0.5) {
+              movedAny = true;
+              break;
+            }
           }
         }
-      }
-      if (ids.length > 0) {
-        // pushSnapshot was already called at drag START — calling it
-        // here would capture the post-drag state and undo would be a
-        // no-op.
-        if (movedAny) log(CANVAS_ACTIONS.OBJECTS_MOVED, { count: ids.length, ids });
-        if (movedAny) {
-          logActivity(
-            "moved",
-            ids.length === 1
-              ? `Moved ${objectsById.get(ids[0])?.type ?? "object"}`
-              : `Moved ${ids.length} objects`,
-          );
-        }
-        // ─── Kanban drop-into-column (Phase 26) ─────────────────────
-        // After a drag, snap any dropped Card to the Kanban column it
-        // landed in. Cards dragged OUT of a kanban have their frameId
-        // cleared. Skip rotated kanban frames — axis-aligned bounds
-        // check no longer matches what the user sees.
-        const cardUpdates: WhiteboardObject[] = [];
-        if (!readOnly) for (const id of ids) {
-          const obj = objectsById.get(id);
-          if (!obj || obj.type !== "card") continue;
-          const cx = obj.x + obj.w / 2;
-          const cy = obj.y + obj.h / 2;
-          const kanban = objects
-            .filter((o) =>
-              o.type === "kanban" &&
-              (!o.rotation || o.rotation === 0) &&
-              cx >= o.x && cx <= o.x + o.w &&
-              cy >= o.y && cy <= o.y + o.h,
-            )
-            .sort((a, b) => b.z - a.z)[0];
-          if (kanban && kanban.type === "kanban" && kanban.columns.length > 0) {
-            const colWidth = kanban.w / kanban.columns.length;
-            const colIdx = Math.min(
-              kanban.columns.length - 1,
-              Math.max(0, Math.floor((cx - kanban.x) / colWidth)),
+        if (ids.length > 0) {
+          // pushSnapshot was already called at drag START — calling it
+          // here would capture the post-drag state and undo would be a
+          // no-op.
+          if (movedAny) log(CANVAS_ACTIONS.OBJECTS_MOVED, { count: ids.length, ids });
+          if (movedAny) {
+            logActivity(
+              "moved",
+              ids.length === 1
+                ? `Moved ${objectsById.get(ids[0])?.type ?? "object"}`
+                : `Moved ${ids.length} objects`
             );
-            const newStatus = kanban.columns[colIdx];
-            if (obj.status !== newStatus || obj.frameId !== kanban.id) {
-              cardUpdates.push({
-                ...obj,
-                status: newStatus,
-                frameId: kanban.id,
-                version: obj.version + 1,
-                updatedAt: new Date().toISOString(),
-              } as WhiteboardObject);
-            }
-          } else if (obj.frameId) {
-            const prev = objectsById.get(obj.frameId);
-            if (prev?.type === "kanban") {
-              cardUpdates.push({
-                ...obj,
-                frameId: undefined,
-                version: obj.version + 1,
-                updatedAt: new Date().toISOString(),
-              } as WhiteboardObject);
-            }
           }
-        }
-        if (cardUpdates.length > 0) {
-          upsertMany(cardUpdates);
-          log(CANVAS_ACTIONS.OBJECT_UPDATED, { count: cardUpdates.length, action: "kanban-drop" });
-          // R11-fix: propagate Card.status → linked Story.status when
-          // the kanban-drop changed `obj.status`. Bidirectional sync
-          // does NOT loop: the signal-bridge fires `story.statusChanged`
-          // off the upsert; canvas-client's listener calls upsertCard
-          // with status that matches what we just wrote (no-op due to
-          // version-equal LWW).
-          const ws = useWorkspaceStore.getState();
-          for (const updated of cardUpdates) {
-            if (updated.type !== "card") continue;
-            const ref = updated.sourceRef;
-            if (!ref?.entityId || !updated.status) continue;
-            if (ref.tool === "story" || ref.tool === "backlog") {
-              const story = ws.stories?.find((s) => s.id === ref.entityId);
-              if (story && story.status !== updated.status) {
-                ws.upsertStory({ ...story, status: updated.status as typeof story.status });
+          // ─── Kanban drop-into-column (Phase 26) ─────────────────────
+          // After a drag, snap any dropped Card to the Kanban column it
+          // landed in. Cards dragged OUT of a kanban have their frameId
+          // cleared. Skip rotated kanban frames — axis-aligned bounds
+          // check no longer matches what the user sees.
+          const cardUpdates: WhiteboardObject[] = [];
+          if (!readOnly)
+            for (const id of ids) {
+              const obj = objectsById.get(id);
+              if (!obj || obj.type !== "card") continue;
+              const cx = obj.x + obj.w / 2;
+              const cy = obj.y + obj.h / 2;
+              const kanban = objects
+                .filter(
+                  (o) =>
+                    o.type === "kanban" &&
+                    (!o.rotation || o.rotation === 0) &&
+                    cx >= o.x &&
+                    cx <= o.x + o.w &&
+                    cy >= o.y &&
+                    cy <= o.y + o.h
+                )
+                .sort((a, b) => b.z - a.z)[0];
+              if (kanban && kanban.type === "kanban" && kanban.columns.length > 0) {
+                const colWidth = kanban.w / kanban.columns.length;
+                const colIdx = Math.min(
+                  kanban.columns.length - 1,
+                  Math.max(0, Math.floor((cx - kanban.x) / colWidth))
+                );
+                const newStatus = kanban.columns[colIdx];
+                if (obj.status !== newStatus || obj.frameId !== kanban.id) {
+                  cardUpdates.push({
+                    ...obj,
+                    status: newStatus,
+                    frameId: kanban.id,
+                    version: obj.version + 1,
+                    updatedAt: new Date().toISOString(),
+                  } as WhiteboardObject);
+                }
+              } else if (obj.frameId) {
+                const prev = objectsById.get(obj.frameId);
+                if (prev?.type === "kanban") {
+                  cardUpdates.push({
+                    ...obj,
+                    frameId: undefined,
+                    version: obj.version + 1,
+                    updatedAt: new Date().toISOString(),
+                  } as WhiteboardObject);
+                }
+              }
+            }
+          if (cardUpdates.length > 0) {
+            upsertMany(cardUpdates);
+            log(CANVAS_ACTIONS.OBJECT_UPDATED, {
+              count: cardUpdates.length,
+              action: "kanban-drop",
+            });
+            // R11-fix: propagate Card.status → linked Story.status when
+            // the kanban-drop changed `obj.status`. Bidirectional sync
+            // does NOT loop: the signal-bridge fires `story.statusChanged`
+            // off the upsert; canvas-client's listener calls upsertCard
+            // with status that matches what we just wrote (no-op due to
+            // version-equal LWW).
+            const ws = useWorkspaceStore.getState();
+            for (const updated of cardUpdates) {
+              if (updated.type !== "card") continue;
+              const ref = updated.sourceRef;
+              if (!ref?.entityId || !updated.status) continue;
+              if (ref.tool === "story" || ref.tool === "backlog") {
+                const story = ws.stories?.find((s) => s.id === ref.entityId);
+                if (story && story.status !== updated.status) {
+                  ws.upsertStory({ ...story, status: updated.status as typeof story.status });
+                }
               }
             }
           }
-        }
 
-        // ─── Mind-map drag-to-reparent ─────────────────────────────
-        // If the user dragged a mind-map node and dropped it on top
-        // of another mind-map node in the same map, reparent the
-        // dragged node and re-layout. Cycle guard prevents dropping
-        // a node onto one of its own descendants (which would create
-        // an infinite tree).
-        //
-        // The drag-end centre point (current obj position + half
-        // size) is the "drop point". We find a candidate target
-        // mind-map node whose AABB contains the drop point and whose
-        // mindMapId matches the dragged node. The dragged node's
-        // own AABB is excluded so a small move-in-place doesn't
-        // self-reparent.
-        if (!readOnly) {
-          const mindMapUpdates = new Map<string, WhiteboardMindMapNode>();
-          for (const id of ids) {
-            const dragged = objectsById.get(id);
-            if (!dragged || dragged.type !== "mindMapNode") continue;
-            const cx = dragged.x + dragged.w / 2;
-            const cy = dragged.y + dragged.h / 2;
-            // Candidate: any other mindMapNode in the same map
-            // whose AABB contains the drop point. Pick the
-            // top-most (highest z) when multiple match.
-            const candidate = objects
-              .filter((o): o is WhiteboardMindMapNode =>
-                o.type === "mindMapNode" &&
-                o.id !== id &&
-                o.mindMapId === dragged.mindMapId &&
-                cx >= o.x && cx <= o.x + o.w &&
-                cy >= o.y && cy <= o.y + o.h,
-              )
-              .sort((a, b) => b.z - a.z)[0];
-            if (!candidate) continue;
-            // Already this node's parent? Nothing to do.
-            if (dragged.parentNodeId === candidate.id) continue;
-            // Cycle guard — refuse to drop a node onto one of its
-            // own descendants.
-            const family = objects.filter(
-              (o): o is WhiteboardMindMapNode =>
-                o.type === "mindMapNode" && o.mindMapId === dragged.mindMapId,
-            );
-            if (isMindMapDescendant(id, candidate.id, family)) continue;
+          // ─── Mind-map drag-to-reparent ─────────────────────────────
+          // If the user dragged a mind-map node and dropped it on top
+          // of another mind-map node in the same map, reparent the
+          // dragged node and re-layout. Cycle guard prevents dropping
+          // a node onto one of its own descendants (which would create
+          // an infinite tree).
+          //
+          // The drag-end centre point (current obj position + half
+          // size) is the "drop point". We find a candidate target
+          // mind-map node whose AABB contains the drop point and whose
+          // mindMapId matches the dragged node. The dragged node's
+          // own AABB is excluded so a small move-in-place doesn't
+          // self-reparent.
+          if (!readOnly) {
+            const mindMapUpdates = new Map<string, WhiteboardMindMapNode>();
+            for (const id of ids) {
+              const dragged = objectsById.get(id);
+              if (!dragged || dragged.type !== "mindMapNode") continue;
+              const cx = dragged.x + dragged.w / 2;
+              const cy = dragged.y + dragged.h / 2;
+              // Candidate: any other mindMapNode in the same map
+              // whose AABB contains the drop point. Pick the
+              // top-most (highest z) when multiple match.
+              const candidate = objects
+                .filter(
+                  (o): o is WhiteboardMindMapNode =>
+                    o.type === "mindMapNode" &&
+                    o.id !== id &&
+                    o.mindMapId === dragged.mindMapId &&
+                    cx >= o.x &&
+                    cx <= o.x + o.w &&
+                    cy >= o.y &&
+                    cy <= o.y + o.h
+                )
+                .sort((a, b) => b.z - a.z)[0];
+              if (!candidate) continue;
+              // Already this node's parent? Nothing to do.
+              if (dragged.parentNodeId === candidate.id) continue;
+              // Cycle guard — refuse to drop a node onto one of its
+              // own descendants.
+              const family = objects.filter(
+                (o): o is WhiteboardMindMapNode =>
+                  o.type === "mindMapNode" && o.mindMapId === dragged.mindMapId
+              );
+              if (isMindMapDescendant(id, candidate.id, family)) continue;
 
-            // Apply the reparent and re-layout the whole family.
-            const reparented: WhiteboardMindMapNode = {
-              ...dragged,
-              parentNodeId: candidate.id,
-              version: dragged.version + 1,
-              updatedAt: new Date().toISOString(),
-            };
-            const familyMap = new Map<string, WhiteboardMindMapNode>();
-            for (const n of family) familyMap.set(n.id, n);
-            familyMap.set(id, reparented);
-            const familyArr = Array.from(familyMap.values());
-            const rootNode = familyArr.find((n) => !n.parentNodeId);
-            const rootAnchor = rootNode ? { x: rootNode.x, y: rootNode.y } : null;
-            const positions = layoutMindMap(familyArr, rootAnchor);
-            const now2 = new Date().toISOString();
-            for (const fam of familyArr) {
-              const pos = positions.get(fam.id);
-              if (!pos) continue;
-              const moved = pos.x !== fam.x || pos.y !== fam.y;
-              const isStructural = fam.id === id;
-              if (!moved && !isStructural) continue;
-              mindMapUpdates.set(fam.id, {
-                ...fam,
-                x: pos.x,
-                y: pos.y,
-                version: fam.version + (isStructural ? 0 : 1),
-                updatedAt: now2,
+              // Apply the reparent and re-layout the whole family.
+              const reparented: WhiteboardMindMapNode = {
+                ...dragged,
+                parentNodeId: candidate.id,
+                version: dragged.version + 1,
+                updatedAt: new Date().toISOString(),
+              };
+              const familyMap = new Map<string, WhiteboardMindMapNode>();
+              for (const n of family) familyMap.set(n.id, n);
+              familyMap.set(id, reparented);
+              const familyArr = Array.from(familyMap.values());
+              const rootNode = familyArr.find((n) => !n.parentNodeId);
+              const rootAnchor = rootNode ? { x: rootNode.x, y: rootNode.y } : null;
+              const positions = layoutMindMap(familyArr, rootAnchor);
+              const now2 = new Date().toISOString();
+              for (const fam of familyArr) {
+                const pos = positions.get(fam.id);
+                if (!pos) continue;
+                const moved = pos.x !== fam.x || pos.y !== fam.y;
+                const isStructural = fam.id === id;
+                if (!moved && !isStructural) continue;
+                mindMapUpdates.set(fam.id, {
+                  ...fam,
+                  x: pos.x,
+                  y: pos.y,
+                  version: fam.version + (isStructural ? 0 : 1),
+                  updatedAt: now2,
+                });
+              }
+              // Make sure the reparented node lands even if it didn't
+              // visually move (rare — usually layout re-positions it).
+              if (!mindMapUpdates.has(id)) mindMapUpdates.set(id, reparented);
+            }
+            if (mindMapUpdates.size > 0) {
+              upsertMany(Array.from(mindMapUpdates.values()));
+              log(CANVAS_ACTIONS.OBJECT_UPDATED, {
+                count: mindMapUpdates.size,
+                action: "mindmap-reparent",
               });
             }
-            // Make sure the reparented node lands even if it didn't
-            // visually move (rare — usually layout re-positions it).
-            if (!mindMapUpdates.has(id)) mindMapUpdates.set(id, reparented);
-          }
-          if (mindMapUpdates.size > 0) {
-            upsertMany(Array.from(mindMapUpdates.values()));
-            log(CANVAS_ACTIONS.OBJECT_UPDATED, { count: mindMapUpdates.size, action: "mindmap-reparent" });
           }
         }
+        // Release the spatial index so the candidate rects can be GC'd;
+        // next drag-start rebuilds with fresh objects.
+        dragSnapIndexRef.current = null;
+        setDrag(null);
+        if ((dragGuidesRef.current?.length ?? 0) > 0) setDragGuides([]);
       }
-      // Release the spatial index so the candidate rects can be GC'd;
-      // next drag-start rebuilds with fresh objects.
-      dragSnapIndexRef.current = null;
-      setDrag(null);
-      if ((dragGuidesRef.current?.length ?? 0) > 0) setDragGuides([]);
-    }
-    if (resize) {
-      log(CANVAS_ACTIONS.OBJECT_UPDATED, { id: resize.objectId, action: "resize" });
-      const count = resize.initialRects ? Object.keys(resize.initialRects).length : 1;
-      logActivity(
-        "resized",
-        count === 1
-          ? `Resized ${objectsById.get(resize.objectId)?.type ?? "object"}`
-          : `Resized ${count} objects`,
-      );
-      setResize(null);
-    }
-    if (rotation) {
-      const count = Object.keys(rotation.initialRotations).length;
-      log(CANVAS_ACTIONS.OBJECT_UPDATED, { count, action: "rotate" });
-      logActivity(
-        "rotated",
-        count === 1 ? `Rotated 1 object` : `Rotated ${count} objects`,
-      );
-      setRotation(null);
-    }
-    // Commit drawing-in-progress.
-    if (drawing) {
-      const isShapeCreate =
-        createStartRef.current &&
-        (drawing.type === "sticky" ||
-          drawing.type === "rect" ||
-          drawing.type === "ellipse" ||
-          drawing.type === "diamond" ||
-          drawing.type === "triangle" ||
-          drawing.type === "text" ||
-          drawing.type === "frame" ||
-          drawing.type === "card");
+      if (resize) {
+        log(CANVAS_ACTIONS.OBJECT_UPDATED, { id: resize.objectId, action: "resize" });
+        const count = resize.initialRects ? Object.keys(resize.initialRects).length : 1;
+        logActivity(
+          "resized",
+          count === 1
+            ? `Resized ${objectsById.get(resize.objectId)?.type ?? "object"}`
+            : `Resized ${count} objects`
+        );
+        setResize(null);
+      }
+      if (rotation) {
+        const count = Object.keys(rotation.initialRotations).length;
+        log(CANVAS_ACTIONS.OBJECT_UPDATED, { count, action: "rotate" });
+        logActivity("rotated", count === 1 ? `Rotated 1 object` : `Rotated ${count} objects`);
+        setRotation(null);
+      }
+      // Commit drawing-in-progress.
+      if (drawing) {
+        const isShapeCreate =
+          createStartRef.current &&
+          (drawing.type === "sticky" ||
+            drawing.type === "rect" ||
+            drawing.type === "ellipse" ||
+            drawing.type === "diamond" ||
+            drawing.type === "triangle" ||
+            drawing.type === "text" ||
+            drawing.type === "frame" ||
+            drawing.type === "card");
 
-      if (isShapeCreate && !readOnly) {
-        const sx = createStartRef.current!.x;
-        const sy = createStartRef.current!.y;
-        const trivial = drawing.w < 4 && drawing.h < 4;
-        let committed: WhiteboardObject = drawing;
-        if (trivial) {
-          const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
-            sticky: { w: STICKY_DEFAULT.w, h: STICKY_DEFAULT.h },
-            rect: { w: SHAPE_DEFAULT.w, h: SHAPE_DEFAULT.h },
-            ellipse: { w: SHAPE_DEFAULT.w, h: SHAPE_DEFAULT.h },
-            diamond: { w: SHAPE_DEFAULT.w, h: SHAPE_DEFAULT.h },
-            triangle: { w: SHAPE_DEFAULT.w, h: SHAPE_DEFAULT.h },
-            text: { w: TEXT_DEFAULT.w, h: TEXT_DEFAULT.h },
-            frame: { w: 640, h: 400 },
-            card: { w: 200, h: 120 },
-          };
-          const d = DEFAULT_SIZE[drawing.type] ?? { w: 160, h: 120 };
-          committed = {
-            ...drawing,
-            x: sx - d.w / 2,
-            y: sy - d.h / 2,
-            w: d.w,
-            h: d.h,
-          } as WhiteboardObject;
-        } else {
-          const MIN_W = drawing.type === "frame" ? 120 : 40;
-          const MIN_H = drawing.type === "frame" ? 80 : 30;
-          committed = {
-            ...drawing,
-            w: Math.max(drawing.w, MIN_W),
-            h: Math.max(drawing.h, MIN_H),
-          } as WhiteboardObject;
+        if (isShapeCreate && !readOnly) {
+          const sx = createStartRef.current!.x;
+          const sy = createStartRef.current!.y;
+          const trivial = drawing.w < 4 && drawing.h < 4;
+          let committed: WhiteboardObject = drawing;
+          if (trivial) {
+            const DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
+              sticky: { w: STICKY_DEFAULT.w, h: STICKY_DEFAULT.h },
+              rect: { w: SHAPE_DEFAULT.w, h: SHAPE_DEFAULT.h },
+              ellipse: { w: SHAPE_DEFAULT.w, h: SHAPE_DEFAULT.h },
+              diamond: { w: SHAPE_DEFAULT.w, h: SHAPE_DEFAULT.h },
+              triangle: { w: SHAPE_DEFAULT.w, h: SHAPE_DEFAULT.h },
+              text: { w: TEXT_DEFAULT.w, h: TEXT_DEFAULT.h },
+              frame: { w: 640, h: 400 },
+              card: { w: 200, h: 120 },
+            };
+            const d = DEFAULT_SIZE[drawing.type] ?? { w: 160, h: 120 };
+            committed = {
+              ...drawing,
+              x: sx - d.w / 2,
+              y: sy - d.h / 2,
+              w: d.w,
+              h: d.h,
+            } as WhiteboardObject;
+          } else {
+            const MIN_W = drawing.type === "frame" ? 120 : 40;
+            const MIN_H = drawing.type === "frame" ? 80 : 30;
+            committed = {
+              ...drawing,
+              w: Math.max(drawing.w, MIN_W),
+              h: Math.max(drawing.h, MIN_H),
+            } as WhiteboardObject;
+          }
+          pushSnapshot();
+          upsert(committed);
+          log(CANVAS_ACTIONS.OBJECT_ADDED, { id: committed.id, type: committed.type });
+          logActivity("added", `Created ${committed.type}`);
+          setSelection([committed.id]);
+          if (
+            committed.type === "sticky" ||
+            committed.type === "text" ||
+            committed.type === "card"
+          ) {
+            setEditingObjectId(committed.id);
+          }
+          createStartRef.current = null;
+          setDrawing(null);
+          // Pointer capture may not have been acquired (e.g. when the user
+          // never moved past the trivial-stroke threshold), so guard the
+          // release. Calling releasePointerCapture on a pointer we don't
+          // hold throws "NotFoundError" and noisily fails the gesture.
+          if (viewportRef.current?.hasPointerCapture?.(e.pointerId)) {
+            viewportRef.current.releasePointerCapture(e.pointerId);
+          }
+          setTool("select");
+          return;
         }
-        pushSnapshot();
-        upsert(committed);
-        log(CANVAS_ACTIONS.OBJECT_ADDED, { id: committed.id, type: committed.type });
-        logActivity("added", `Created ${committed.type}`);
-        setSelection([committed.id]);
-        if (
-          committed.type === "sticky" ||
-          committed.type === "text" ||
-          committed.type === "card"
-        ) {
-          setEditingObjectId(committed.id);
+
+        const isTrivial =
+          drawing.type === "line" || drawing.type === "arrow"
+            ? Math.hypot(drawing.w, drawing.h) < 4
+            : drawing.type === "freehand"
+              ? drawing.points.length < 6
+              : false;
+        if (!isTrivial && !readOnly) {
+          pushSnapshot();
+          upsert(drawing);
+          log(CANVAS_ACTIONS.OBJECT_ADDED, { id: drawing.id, type: drawing.type });
+          setSelection([drawing.id]);
         }
         createStartRef.current = null;
         setDrawing(null);
-        // Pointer capture may not have been acquired (e.g. when the user
-        // never moved past the trivial-stroke threshold), so guard the
-        // release. Calling releasePointerCapture on a pointer we don't
-        // hold throws "NotFoundError" and noisily fails the gesture.
-        if (viewportRef.current?.hasPointerCapture?.(e.pointerId)) {
-          viewportRef.current.releasePointerCapture(e.pointerId);
-        }
         setTool("select");
-        return;
       }
-
-      const isTrivial =
-        (drawing.type === "line" || drawing.type === "arrow")
-          ? Math.hypot(drawing.w, drawing.h) < 4
-          : drawing.type === "freehand"
-            ? drawing.points.length < 6
-            : false;
-      if (!isTrivial && !readOnly) {
-        pushSnapshot();
-        upsert(drawing);
-        log(CANVAS_ACTIONS.OBJECT_ADDED, { id: drawing.id, type: drawing.type });
-        setSelection([drawing.id]);
+      // Same guard as above — pointer-up can fire without a matching
+      // capture (e.g. when a click never crosses any gesture threshold).
+      if (viewportRef.current?.hasPointerCapture?.(e.pointerId)) {
+        viewportRef.current.releasePointerCapture(e.pointerId);
       }
-      createStartRef.current = null;
-      setDrawing(null);
-      setTool("select");
-    }
-    // Same guard as above — pointer-up can fire without a matching
-    // capture (e.g. when a click never crosses any gesture threshold).
-    if (viewportRef.current?.hasPointerCapture?.(e.pointerId)) {
-      viewportRef.current.releasePointerCapture(e.pointerId);
-    }
-  }, [
-    marquee, drag, resize, rotation, drawing,
-    setMarquee, setDrag, setResize, setRotation, setDrawing,
-    setTool, setSelection, setEditingObjectId,
-    upsert, upsertMany, log, logActivity, setDragGuides, pushSnapshot,
-    objectsById, objects, readOnly,
-    viewportRef, dragGuidesRef,
-  ]);
+    },
+    [
+      marquee,
+      drag,
+      resize,
+      rotation,
+      drawing,
+      setMarquee,
+      setDrag,
+      setResize,
+      setRotation,
+      setDrawing,
+      setTool,
+      setSelection,
+      setEditingObjectId,
+      upsert,
+      upsertMany,
+      log,
+      logActivity,
+      setDragGuides,
+      pushSnapshot,
+      objectsById,
+      objects,
+      readOnly,
+      viewportRef,
+      dragGuidesRef,
+    ]
+  );
 
   return {
     onCanvasPointerDown,

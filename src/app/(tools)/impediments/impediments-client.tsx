@@ -86,57 +86,51 @@ interface ImpedimentStore {
 
 const useImpedimentStore = create<ImpedimentStore>()(
   persist(
-    withTimeTravel<ImpedimentStore>(
-      { toolId: "impediments" },
-      (set) => ({
-        impediments: [],
+    withTimeTravel<ImpedimentStore>({ toolId: "impediments" }, (set) => ({
+      impediments: [],
 
-        addImpediment: (imp) =>
-          set((s) => ({
-            impediments: [
-              {
-                ...imp,
-                id: crypto.randomUUID(),
-                raisedDate: todayLocalISO(),
-                status: "Open",
-              },
-              ...s.impediments,
-            ],
-          })),
+      addImpediment: (imp) =>
+        set((s) => ({
+          impediments: [
+            {
+              ...imp,
+              id: crypto.randomUUID(),
+              raisedDate: todayLocalISO(),
+              status: "Open",
+            },
+            ...s.impediments,
+          ],
+        })),
 
-        updateStatus: (id, status, resolvedDate) =>
-          set((s) => ({
-            impediments: s.impediments.map((i) =>
-              i.id === id
-                ? {
-                    ...i,
-                    status,
-                    resolvedDate:
-                      status === "Resolved"
-                        ? resolvedDate || todayLocalISO()
-                        : i.resolvedDate,
-                  }
-                : i
-            ),
-          })),
+      updateStatus: (id, status, resolvedDate) =>
+        set((s) => ({
+          impediments: s.impediments.map((i) =>
+            i.id === id
+              ? {
+                  ...i,
+                  status,
+                  resolvedDate:
+                    status === "Resolved" ? resolvedDate || todayLocalISO() : i.resolvedDate,
+                }
+              : i
+          ),
+        })),
 
-        remove: (id) =>
-          set((s) => ({
-            impediments: s.impediments.filter((i) => i.id !== id),
-          })),
+      remove: (id) =>
+        set((s) => ({
+          impediments: s.impediments.filter((i) => i.id !== id),
+        })),
 
-        reset: () => set({ impediments: [] }),
-      })
-    ),
+      reset: () => set({ impediments: [] }),
+    })),
     {
       name: "agile-toolkit:impediments",
       storage: safeJSONStorage("impediments"),
       partialize: (state) => {
-        const {
-          _ttPast,
-          _ttFuture,
-          ...rest
-        } = state as ImpedimentStore & { _ttPast?: unknown; _ttFuture?: unknown };
+        const { _ttPast, _ttFuture, ...rest } = state as ImpedimentStore & {
+          _ttPast?: unknown;
+          _ttFuture?: unknown;
+        };
         void _ttPast;
         void _ttFuture;
         return rest;
@@ -160,9 +154,7 @@ function daysSince(dateStr: string): number {
 }
 
 function avgResolutionDays(impediments: Impediment[]): number {
-  const resolved = impediments.filter(
-    (i) => i.status === "Resolved" && i.resolvedDate
-  );
+  const resolved = impediments.filter((i) => i.status === "Resolved" && i.resolvedDate);
   if (resolved.length === 0) return 0;
   let validCount = 0;
   const total = resolved.reduce((sum, i) => {
@@ -225,7 +217,7 @@ function buildWeeklyImpedimentSeries(impediments: Impediment[]): {
   today.setUTCHours(0, 0, 0, 0);
   const totalWeeks = Math.max(
     1,
-    Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1,
+    Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1
   );
   const cappedWeeks = Math.min(totalWeeks, 26);
 
@@ -284,33 +276,30 @@ const SEVERITY_CONFIG: Record<
   },
 };
 
-const STATUS_CONFIG: Record<
-  Status,
-  { label: string; color: string; bg: string; border: string }
-> = {
-  Open: {
-    label: "Open",
-    color: "#00f0ff",
-    bg: "bg-accent/10",
-    border: "border-accent/20",
-  },
-  Escalated: {
-    label: "Escalated",
-    color: "#ffaa00",
-    bg: "bg-[#ffaa00]/10",
-    border: "border-[#ffaa00]/20",
-  },
-  Resolved: {
-    label: "Resolved",
-    color: "#00ff88",
-    bg: "bg-[#00ff88]/10",
-    border: "border-[#00ff88]/20",
-  },
-};
+const STATUS_CONFIG: Record<Status, { label: string; color: string; bg: string; border: string }> =
+  {
+    Open: {
+      label: "Open",
+      color: "#00f0ff",
+      bg: "bg-accent/10",
+      border: "border-accent/20",
+    },
+    Escalated: {
+      label: "Escalated",
+      color: "#ffaa00",
+      bg: "bg-[#ffaa00]/10",
+      border: "border-[#ffaa00]/20",
+    },
+    Resolved: {
+      label: "Resolved",
+      color: "#00ff88",
+      bg: "bg-[#00ff88]/10",
+      border: "border-[#00ff88]/20",
+    },
+  };
 
 function AgeIndicator({ days }: { days: number }) {
-  const color =
-    days < 3 ? "#00ff88" : days < 7 ? "#ffaa00" : "#ef4444";
+  const color = days < 3 ? "#00ff88" : days < 7 ? "#ffaa00" : "#ef4444";
   return (
     <span className="flex items-center gap-1 text-xs font-data" style={{ color }}>
       <Clock className="w-3 h-3" />
@@ -336,10 +325,7 @@ function SeverityBadge({ severity }: { severity: Severity }) {
 function StatusBadge({ status }: { status: Status }) {
   const cfg = STATUS_CONFIG[status];
   return (
-    <Badge
-      className={`${cfg.bg} border ${cfg.border} text-xs`}
-      style={{ color: cfg.color }}
-    >
+    <Badge className={`${cfg.bg} border ${cfg.border} text-xs`} style={{ color: cfg.color }}>
       {cfg.label}
     </Badge>
   );
@@ -367,7 +353,7 @@ function LogForm() {
   const expectedResolutionPrediction = usePredictedDefault<number>(
     "impediments",
     "expectedResolutionDays",
-    3,
+    3
   );
 
   const handleSubmit = () => {
@@ -386,11 +372,7 @@ function LogForm() {
 
   if (!open) {
     return (
-      <Button
-        variant="toolkit"
-        onClick={() => setOpen(true)}
-        className="gap-2"
-      >
+      <Button variant="toolkit" onClick={() => setOpen(true)} className="gap-2">
         <Plus className="w-4 h-4" />
         Log Impediment
       </Button>
@@ -414,153 +396,151 @@ function LogForm() {
       }
       contentClassName="space-y-4"
     >
+      <div className="space-y-1.5">
+        <Label className="text-sub text-xs">Title *</Label>
+        <Input
+          value={form.title}
+          onChange={(e) => setForm({ ...form, title: e.target.value })}
+          placeholder="Short description of the impediment"
+          className="input-toolkit"
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-sub text-xs">Description</Label>
+        <Textarea
+          value={form.description}
+          onChange={(e) => setForm({ ...form, description: e.target.value })}
+          placeholder="Provide context and impact details..."
+          rows={3}
+          className="bg-surface-deep border-border text-text resize-none focus:border-accent/50"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
-          <Label className="text-sub text-xs">Title *</Label>
+          <Label className="text-sub text-xs">Category</Label>
+          <Select
+            value={form.category}
+            onValueChange={(v) => setForm({ ...form, category: v as Category })}
+          >
+            <SelectTrigger className="bg-surface-deep border-border text-text">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-surface border-border">
+              {(["Technical", "Organizational", "External", "Process"] as Category[]).map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-sub text-xs">Severity</Label>
+          <Select
+            value={form.severity}
+            onValueChange={(v) => setForm({ ...form, severity: v as Severity })}
+          >
+            <SelectTrigger className="bg-surface-deep border-border text-text">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-surface border-border">
+              {(["Low", "Medium", "High", "Critical"] as Severity[]).map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-sub text-xs">Raised By</Label>
           <Input
-            value={form.title}
-            onChange={(e) => setForm({ ...form, title: e.target.value })}
-            placeholder="Short description of the impediment"
+            value={form.raisedBy}
+            onChange={(e) => setForm({ ...form, raisedBy: e.target.value })}
+            placeholder="Name / Role"
             className="input-toolkit"
           />
         </div>
 
         <div className="space-y-1.5">
-          <Label className="text-sub text-xs">Description</Label>
-          <Textarea
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-            placeholder="Provide context and impact details..."
-            rows={3}
-            className="bg-surface-deep border-border text-text resize-none focus:border-accent/50"
+          <Label className="text-sub text-xs">Assigned To</Label>
+          <Input
+            value={form.assignedTo}
+            onChange={(e) => setForm({ ...form, assignedTo: e.target.value })}
+            placeholder="Name / Role"
+            className="input-toolkit"
           />
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label className="text-sub text-xs">Category</Label>
-            <Select
-              value={form.category}
-              onValueChange={(v) => setForm({ ...form, category: v as Category })}
-            >
-              <SelectTrigger className="bg-surface-deep border-border text-text">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-surface border-border">
-                {(["Technical", "Organizational", "External", "Process"] as Category[]).map(
-                  (c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  )
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-sub text-xs">Severity</Label>
-            <Select
-              value={form.severity}
-              onValueChange={(v) => setForm({ ...form, severity: v as Severity })}
-            >
-              <SelectTrigger className="bg-surface-deep border-border text-text">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-surface border-border">
-                {(["Low", "Medium", "High", "Critical"] as Severity[]).map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-sub text-xs">Raised By</Label>
-            <Input
-              value={form.raisedBy}
-              onChange={(e) => setForm({ ...form, raisedBy: e.target.value })}
-              placeholder="Name / Role"
-              className="input-toolkit"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-sub text-xs">Assigned To</Label>
-            <Input
-              value={form.assignedTo}
-              onChange={(e) => setForm({ ...form, assignedTo: e.target.value })}
-              placeholder="Name / Role"
-              className="input-toolkit"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-sub text-xs">Expected Resolution (days)</Label>
-            <SmartInput<number>
-              predicted={expectedResolutionPrediction}
-              onAccept={(value) => setForm((f) => ({ ...f, expectedResolutionDays: value }))}
-              render={({ ghost, accept, chip }) => (
-                <div className="flex flex-col gap-1">
-                  <Input
-                    type="number"
-                    min={1}
-                    value={form.expectedResolutionDays ?? ""}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      const n = Number(v);
-                      // Cap at 3650 days (~10 years) so a stray keystroke
-                      // (e.g. typing 99999999) doesn't bloat the persisted
-                      // store or break downstream forecasting helpers that
-                      // assume "reasonable" lead times.
-                      setForm((f) => ({
-                        ...f,
-                        expectedResolutionDays:
-                          v === ""
-                            ? undefined
-                            : Number.isFinite(n)
+        <div className="space-y-1.5">
+          <Label className="text-sub text-xs">Expected Resolution (days)</Label>
+          <SmartInput<number>
+            predicted={expectedResolutionPrediction}
+            onAccept={(value) => setForm((f) => ({ ...f, expectedResolutionDays: value }))}
+            render={({ ghost, accept, chip }) => (
+              <div className="flex flex-col gap-1">
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.expectedResolutionDays ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    const n = Number(v);
+                    // Cap at 3650 days (~10 years) so a stray keystroke
+                    // (e.g. typing 99999999) doesn't bloat the persisted
+                    // store or break downstream forecasting helpers that
+                    // assume "reasonable" lead times.
+                    setForm((f) => ({
+                      ...f,
+                      expectedResolutionDays:
+                        v === ""
+                          ? undefined
+                          : Number.isFinite(n)
                             ? Math.min(3650, Math.max(1, n))
                             : f.expectedResolutionDays,
-                      }));
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Tab" && form.expectedResolutionDays === undefined && ghost) {
-                        e.preventDefault();
-                        accept();
-                      }
-                    }}
-                    placeholder={ghost ?? "e.g. 3"}
-                    className="input-toolkit"
-                  />
-                  {form.expectedResolutionDays === undefined && chip}
-                </div>
-              )}
-            />
-          </div>
+                    }));
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Tab" && form.expectedResolutionDays === undefined && ghost) {
+                      e.preventDefault();
+                      accept();
+                    }
+                  }}
+                  placeholder={ghost ?? "e.g. 3"}
+                  className="input-toolkit"
+                />
+                {form.expectedResolutionDays === undefined && chip}
+              </div>
+            )}
+          />
         </div>
+      </div>
 
-        <div className="flex gap-2 pt-1">
-          <Button
-            variant="toolkit"
-            onClick={handleSubmit}
-            disabled={!form.title.trim()}
-            className="gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            Log Impediment
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setForm(EMPTY_FORM);
-              setOpen(false);
-            }}
-            className="text-sub hover:text-text hover:bg-cardH"
-          >
-            Cancel
-          </Button>
-        </div>
+      <div className="flex gap-2 pt-1">
+        <Button
+          variant="toolkit"
+          onClick={handleSubmit}
+          disabled={!form.title.trim()}
+          className="gap-2"
+        >
+          <Plus className="w-4 h-4" />
+          Log Impediment
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setForm(EMPTY_FORM);
+            setOpen(false);
+          }}
+          className="text-sub hover:text-text hover:bg-cardH"
+        >
+          Cancel
+        </Button>
+      </div>
     </SectionCard>
   );
 }
@@ -618,20 +598,16 @@ function ImpedimentCard({ impediment }: { impediment: Impediment }) {
           impediment.severity === "Critical"
             ? "rgba(239,68,68,0.4)"
             : impediment.severity === "High"
-            ? "rgba(239,68,68,0.2)"
-            : "rgba(255,255,255,0.1)",
+              ? "rgba(239,68,68,0.2)"
+              : "rgba(255,255,255,0.1)",
       }}
     >
       {/* Top row */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-text truncate">
-            {impediment.title}
-          </p>
+          <p className="text-sm font-medium text-text truncate">{impediment.title}</p>
           {impediment.description && (
-            <p className="text-xs text-sub mt-0.5 line-clamp-2">
-              {impediment.description}
-            </p>
+            <p className="text-xs text-sub mt-0.5 line-clamp-2">{impediment.description}</p>
           )}
         </div>
         <Button
@@ -651,23 +627,23 @@ function ImpedimentCard({ impediment }: { impediment: Impediment }) {
         <Badge className="bg-card border border-border text-sub text-xs">
           {impediment.category}
         </Badge>
-        {impediment.status !== "Resolved" && (
-          <AgeIndicator days={age} />
-        )}
+        {impediment.status !== "Resolved" && <AgeIndicator days={age} />}
         {impediment.status === "Resolved" && impediment.resolvedDate && (
-          <span className="text-xs text-sub">
-            Resolved {impediment.resolvedDate}
-          </span>
+          <span className="text-xs text-sub">Resolved {impediment.resolvedDate}</span>
         )}
       </div>
 
       {/* Meta */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-sub">
         {impediment.raisedBy && (
-          <span>Raised by: <span className="text-text">{impediment.raisedBy}</span></span>
+          <span>
+            Raised by: <span className="text-text">{impediment.raisedBy}</span>
+          </span>
         )}
         {impediment.assignedTo && (
-          <span>Assigned: <span className="text-text">{impediment.assignedTo}</span></span>
+          <span>
+            Assigned: <span className="text-text">{impediment.assignedTo}</span>
+          </span>
         )}
         <span>Raised: {impediment.raisedDate}</span>
       </div>
@@ -675,10 +651,7 @@ function ImpedimentCard({ impediment }: { impediment: Impediment }) {
       {/* Status controls */}
       {impediment.status !== "Resolved" && (
         <div className="flex items-center gap-2 pt-1 border-t border-border">
-          <Select
-            value={impediment.status}
-            onValueChange={(v) => handleStatusChange(v as Status)}
-          >
+          <Select value={impediment.status} onValueChange={(v) => handleStatusChange(v as Status)}>
             <SelectTrigger className="min-touch-coarse h-7 text-xs bg-surface-deep border-border text-text w-36">
               <SelectValue />
             </SelectTrigger>
@@ -731,15 +704,24 @@ export function ImpedimentsClient() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const sevMap: Record<Severity, "low" | "medium" | "high" | "critical"> = {
-      Low: "low", Medium: "medium", High: "high", Critical: "critical",
+      Low: "low",
+      Medium: "medium",
+      High: "high",
+      Critical: "critical",
     };
-    // R11-fix: track ids the bridge has ever upserted. The previous
-    // heuristic `ws.id.startsWith("imp_")` was dead code — local
-    // impediment ids come from `crypto.randomUUID()` so the prefix
-    // never matched and workspace.impediments accumulated zombies on
-    // every local delete. Cross-tool consumers (insights-engine,
-    // anti-pattern detector) treated resolved/deleted items as open.
-    const ownedIds = new Set<string>();
+    // BUG-T4-impediments-2: hoist ownedIds onto window so it survives
+    // React 18 StrictMode's double-mount (and HMR remounts), instead
+    // of being recreated as an empty Set on every effect run. Without
+    // this, the second StrictMode mount re-claims ownership of every
+    // current id, then a subsequent local delete cascades through
+    // workspace.removeImpediment — which removes any canvas object
+    // pinned to that impediment id via the workspace store's cascade.
+    type WindowWithBridge = Window & { __impedimentBridgeOwnedIds?: Set<string> };
+    const w = window as WindowWithBridge;
+    if (!w.__impedimentBridgeOwnedIds) {
+      w.__impedimentBridgeOwnedIds = new Set<string>();
+    }
+    const ownedIds = w.__impedimentBridgeOwnedIds;
     const sync = (snapshot: Impediment[]) => {
       const workspace = useWorkspaceStore.getState();
       const wsItems = workspace.impediments ?? [];
@@ -764,7 +746,8 @@ export function ImpedimentsClient() {
           existing.raisedAt === next.raisedAt &&
           existing.resolvedAt === next.resolvedAt &&
           existing.owner === next.owner
-        ) continue;
+        )
+          continue;
         workspace.upsertImpediment(next);
       }
       // Remove workspace rows we previously owned but the user deleted.
@@ -816,7 +799,7 @@ export function ImpedimentsClient() {
 
   const { raisedPerWeek, openAtWeek } = useMemo(
     () => buildWeeklyImpedimentSeries(impediments),
-    [impediments],
+    [impediments]
   );
 
   // Mann-Kendall trend test on weekly raised count.
@@ -840,7 +823,7 @@ export function ImpedimentsClient() {
         week: `W${i + 1}`,
         raised: count,
       })),
-    [raisedPerWeek],
+    [raisedPerWeek]
   );
 
   // CUSUM markers on raised-per-week, anchored to the chart's week labels
@@ -877,8 +860,7 @@ export function ImpedimentsClient() {
         const severityOrder = { Critical: 0, High: 1, Medium: 2, Low: 3 };
         const statusOrder = { Open: 0, Escalated: 1, Resolved: 2 };
         if (a.status !== b.status) return statusOrder[a.status] - statusOrder[b.status];
-        if (a.severity !== b.severity)
-          return severityOrder[a.severity] - severityOrder[b.severity];
+        if (a.severity !== b.severity) return severityOrder[a.severity] - severityOrder[b.severity];
         return daysSince(b.raisedDate) - daysSince(a.raisedDate);
       }),
     [filtered]
@@ -917,10 +899,13 @@ export function ImpedimentsClient() {
     [impediments]
   );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Impediment Tracker",
-    prompts: generateImpedimentPrompts({ impediments }),
-  }), [impediments]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Impediment Tracker",
+      prompts: generateImpedimentPrompts({ impediments }),
+    }),
+    [impediments]
+  );
 
   const hasActiveFilters =
     filterStatus !== "All" || filterCategory !== "All" || filterSeverity !== "All";
@@ -938,17 +923,13 @@ export function ImpedimentsClient() {
           <Card className="bg-surface border-border">
             <CardContent className="p-4">
               <p className="text-xs text-sub mb-1">Total Open</p>
-              <p className="text-3xl font-data font-bold text-accent">
-                {stats.open}
-              </p>
+              <p className="text-3xl font-data font-bold text-accent">{stats.open}</p>
             </CardContent>
           </Card>
           <Card className="bg-surface border-border">
             <CardContent className="p-4">
               <p className="text-xs text-sub mb-1">Escalated</p>
-              <p className="text-3xl font-data font-bold text-[#ffaa00]">
-                {stats.escalated}
-              </p>
+              <p className="text-3xl font-data font-bold text-[#ffaa00]">{stats.escalated}</p>
             </CardContent>
           </Card>
           <Card className="bg-surface border-border">
@@ -963,7 +944,8 @@ export function ImpedimentsClient() {
                     <span className="text-sm font-normal text-sub ml-1">days</span>
                   </p>
                   <p className="text-[11px] text-sub mt-1 font-data">
-                    95% CI [{Math.round(medianResolutionCI.lower)}, {Math.round(medianResolutionCI.upper)}]
+                    95% CI [{Math.round(medianResolutionCI.lower)},{" "}
+                    {Math.round(medianResolutionCI.upper)}]
                   </p>
                 </>
               ) : (
@@ -981,14 +963,9 @@ export function ImpedimentsClient() {
                 {stats.byCategory
                   .filter((c) => c.count > 0)
                   .map((c) => (
-                    <div
-                      key={c.label}
-                      className="flex items-center justify-between text-xs"
-                    >
+                    <div key={c.label} className="flex items-center justify-between text-xs">
                       <span className="text-sub truncate">{c.label}</span>
-                      <span className="text-text font-data font-semibold ml-2">
-                        {c.count}
-                      </span>
+                      <span className="text-text font-data font-semibold ml-2">{c.count}</span>
                     </div>
                   ))}
                 {stats.byCategory.every((c) => c.count === 0) && (
@@ -1002,8 +979,8 @@ export function ImpedimentsClient() {
         {/* Phase-15 trend + changepoint signals */}
         {(raisedTrend || openChangepoints.length > 0) && (
           <div className="flex flex-wrap items-center gap-2">
-            {raisedTrend && (
-              raisedTrend.significant ? (
+            {raisedTrend &&
+              (raisedTrend.significant ? (
                 <span
                   className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
                     raisedTrend.trend === "up"
@@ -1011,7 +988,9 @@ export function ImpedimentsClient() {
                       : "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
                   }`}
                 >
-                  <TrendingUp className={`w-3 h-3 ${raisedTrend.trend === "down" ? "rotate-180" : ""}`} />
+                  <TrendingUp
+                    className={`w-3 h-3 ${raisedTrend.trend === "down" ? "rotate-180" : ""}`}
+                  />
                   Impediment creation trending {raisedTrend.trend} significantly
                   <span className="opacity-60">· p={raisedTrend.pValue.toFixed(3)}</span>
                 </span>
@@ -1020,12 +999,12 @@ export function ImpedimentsClient() {
                   <TrendingUp className="w-3 h-3" />
                   Impediment creation trend: no significant change
                 </span>
-              )
-            )}
+              ))}
             {openChangepoints.length > 0 && (
               <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-[#ffaa00]/40 text-[#ffaa00] bg-[#ffaa00]/10">
                 <AlertTriangle className="w-3 h-3" />
-                {openChangepoints.length} regime shift{openChangepoints.length !== 1 ? "s" : ""} detected (CUSUM)
+                {openChangepoints.length} regime shift{openChangepoints.length !== 1 ? "s" : ""}{" "}
+                detected (CUSUM)
               </span>
             )}
           </div>
@@ -1098,13 +1077,11 @@ export function ImpedimentsClient() {
               </SelectTrigger>
               <SelectContent className="bg-surface border-border">
                 <SelectItem value="All">All Categories</SelectItem>
-                {(["Technical", "Organizational", "External", "Process"] as Category[]).map(
-                  (c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  )
-                )}
+                {(["Technical", "Organizational", "External", "Process"] as Category[]).map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
 
@@ -1145,18 +1122,10 @@ export function ImpedimentsClient() {
           <div className="flex items-center gap-2">
             <AiPromptGenerator config={promptConfig} />
             {impediments.length > 0 && (
-              <ExportButton
-                filename="impediments"
-                csvData={csvData}
-                jsonData={impediments}
-              />
+              <ExportButton filename="impediments" csvData={csvData} jsonData={impediments} />
             )}
             {impediments.length > 0 && (
-              <Button
-                variant="danger-ghost"
-                size="sm"
-                onClick={reset}
-              >
+              <Button variant="danger-ghost" size="sm" onClick={reset}>
                 Reset
               </Button>
             )}
@@ -1171,7 +1140,7 @@ export function ImpedimentsClient() {
                 <AlertTriangle className="w-8 h-8 text-sub mx-auto mb-3 opacity-40" />
                 <p className="text-sub text-sm">
                   {impediments.length === 0
-                    ? "No impediments logged. Click \"Log Impediment\" to add one."
+                    ? 'No impediments logged. Click "Log Impediment" to add one.'
                     : "No impediments match the current filters."}
                 </p>
               </CardContent>
