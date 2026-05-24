@@ -39,7 +39,11 @@ const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
 >(({ className, ...props }, ref) => (
-  <div className="flex items-center border-b px-3" cmdk-input-wrapper="">
+  // `mx-1 mt-1` gives the focused input's 2px+2px outline-offset ring room
+  // to render — without it the top + side portions of the ring get clipped
+  // by DialogContent's `overflow-hidden` because CommandInput sits flush
+  // with the dialog's edge (the wrapping DialogContent uses `p-0`).
+  <div className="flex items-center border-b px-3 mx-1 mt-1" cmdk-input-wrapper="">
     <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
     <CommandPrimitive.Input
       ref={ref}
