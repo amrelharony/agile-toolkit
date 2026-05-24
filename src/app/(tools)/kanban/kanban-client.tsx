@@ -302,12 +302,25 @@ export function KanbanClient() {
     };
   }, [state.cards]);
 
+  // BUG-RD3-kanban-3: throughputLast7 used `Date.now()` inside a memo
+  // whose only dep was `state.cards`. A tab left open past midnight
+  // kept the cutoff frozen at the moment the last card mutated; a
+  // card completed 7 days before THAT instant counted forever even
+  // though the wall clock had moved on. Add an hourly ticker so the
+  // memo re-evaluates the cutoff at least hourly (sufficient
+  // granularity for a 7-day window).
+  const [hourTick, setHourTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setHourTick((n) => n + 1), 60 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
   const throughputLast7 = useMemo(() => {
     const now = Date.now();
     return state.cards.filter(
       (c) => c.completedAt && now - new Date(c.completedAt).getTime() <= 7 * 24 * 60 * 60 * 1000
     ).length;
-  }, [state.cards]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.cards, hourTick]);
 
   // Keep both the (label, value) pairs (for charting) and the value-only
   // series (for the analytics primitives that take number[]).

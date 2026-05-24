@@ -4,15 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ReferenceLine,
-} from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -126,18 +118,13 @@ const useRefinementStore = create<RefinementStore>()(
       setCriterionDescription: (id, description) =>
         set((s) => ({
           criteria: s.criteria.map((c) =>
-            c.id === id
-              ? { ...c, description: description.trim() || undefined }
-              : c
+            c.id === id ? { ...c, description: description.trim() || undefined } : c
           ),
         })),
 
       addCriterion: () =>
         set((s) => ({
-          criteria: [
-            ...s.criteria,
-            { id: crypto.randomUUID(), label: "New criterion" },
-          ],
+          criteria: [...s.criteria, { id: crypto.randomUUID(), label: "New criterion" }],
         })),
 
       removeCriterion: (id) =>
@@ -163,10 +150,7 @@ const useRefinementStore = create<RefinementStore>()(
         const { criteria, storyName, storyDescription, currentChecks } = get();
         if (!storyName.trim()) return;
         const metCount = criteria.filter((c) => currentChecks[c.id]).length;
-        const passRate =
-          criteria.length > 0
-            ? Math.round((metCount / criteria.length) * 100)
-            : 0;
+        const passRate = criteria.length > 0 ? Math.round((metCount / criteria.length) * 100) : 0;
 
         const save: StorySave = {
           id: crypto.randomUUID(),
@@ -190,13 +174,11 @@ const useRefinementStore = create<RefinementStore>()(
         }));
       },
 
-      removeHistory: (id) =>
-        set((s) => ({ history: s.history.filter((h) => h.id !== id) })),
+      removeHistory: (id) => set((s) => ({ history: s.history.filter((h) => h.id !== id) })),
 
       clearHistory: () => set({ history: [] }),
 
-      resetCurrent: () =>
-        set({ storyName: "", storyDescription: "", currentChecks: {} }),
+      resetCurrent: () => set({ storyName: "", storyDescription: "", currentChecks: {} }),
 
       reset: () =>
         set({
@@ -225,20 +207,14 @@ const TOOLTIP_STYLE = {
 function ReadinessIndicator({ pct }: { pct: number }) {
   if (pct === 100)
     return (
-      <Badge className="bg-[#00ff88]/10 text-[#00ff88] border border-[#00ff88]/20">
-        Ready
-      </Badge>
+      <Badge className="bg-[#00ff88]/10 text-[#00ff88] border border-[#00ff88]/20">Ready</Badge>
     );
   if (pct > 0)
     return (
-      <Badge className="bg-[#ffaa00]/10 text-[#ffaa00] border border-[#ffaa00]/20">
-        Partial
-      </Badge>
+      <Badge className="bg-[#ffaa00]/10 text-[#ffaa00] border border-[#ffaa00]/20">Partial</Badge>
     );
   return (
-    <Badge className="bg-[#ef4444]/10 text-[#ef4444] border border-[#ef4444]/20">
-      Not Ready
-    </Badge>
+    <Badge className="bg-[#ef4444]/10 text-[#ef4444] border border-[#ef4444]/20">Not Ready</Badge>
   );
 }
 
@@ -290,9 +266,7 @@ function CriterionRow({
           onClick={onToggle}
           aria-label={`Toggle ${criterion.label}`}
           className={`flex-shrink-0 w-5 h-5 mt-0.5 rounded border transition-all ${
-            checked
-              ? "bg-accent border-accent"
-              : "border-border hover:border-accent/50"
+            checked ? "bg-accent border-accent" : "border-border hover:border-accent/50"
           }`}
         >
           {checked && (
@@ -357,9 +331,7 @@ function CriterionRow({
         <div className="flex-1 min-w-0">
           <span
             className={`block text-sm ${
-              showCheckbox && checked
-                ? "line-through text-sub"
-                : "text-text"
+              showCheckbox && checked ? "line-through text-sub" : "text-text"
             }`}
           >
             {criterion.label}
@@ -436,8 +408,7 @@ export function RefinementClient() {
   };
 
   const metCount = criteria.filter((c) => currentChecks[c.id]).length;
-  const pct =
-    criteria.length > 0 ? Math.round((metCount / criteria.length) * 100) : 0;
+  const pct = criteria.length > 0 ? Math.round((metCount / criteria.length) * 100) : 0;
 
   // Chart data — last 20 saves in chronological order. We label each point with
   // the actual story name so the x-axis stays stable across renders (sequential
@@ -469,9 +440,7 @@ export function RefinementClient() {
       uclPct: limits.ucl * 100,
       lclPct: limits.lcl * 100,
       // Series scaled to 0-1 for Western Electric — limits are in fractions.
-      ratioSeries: window.map((h) =>
-        h.totalCriteria > 0 ? h.metCount / h.totalCriteria : 0
-      ),
+      ratioSeries: window.map((h) => (h.totalCriteria > 0 ? h.metCount / h.totalCriteria : 0)),
       rawLimits: limits,
       lastStoryName: window[window.length - 1]?.storyName,
     };
@@ -482,14 +451,9 @@ export function RefinementClient() {
   // the rule so a sustained drift is hard to miss.
   const rule2Signal = useMemo(() => {
     if (!passRateControl) return null;
-    const signals = westernElectricRules(
-      passRateControl.ratioSeries,
-      passRateControl.rawLimits
-    );
+    const signals = westernElectricRules(passRateControl.ratioSeries, passRateControl.rawLimits);
     const lastIndex = passRateControl.ratioSeries.length - 1;
-    return signals.find(
-      (s) => s.rule === "rule-2" && s.index === lastIndex
-    ) ?? null;
+    return signals.find((s) => s.rule === "rule-2" && s.index === lastIndex) ?? null;
   }, [passRateControl]);
 
   // Mann-Kendall trend test on the rolling pass-rate series.
@@ -501,14 +465,7 @@ export function RefinementClient() {
   // CSV export
   const csvData = useMemo(
     () => ({
-      headers: [
-        "Story",
-        "Description",
-        "Date",
-        "% Ready",
-        "Criteria Met",
-        "Total Criteria",
-      ],
+      headers: ["Story", "Description", "Date", "% Ready", "Criteria Met", "Total Criteria"],
       rows: history.map((h) => [
         h.storyName,
         h.description ?? "",
@@ -521,17 +478,20 @@ export function RefinementClient() {
     [history]
   );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Refinement Checklist",
-    prompts: generateRefinementPrompts({
-      criteria,
-      history: history.map((h) => ({
-        storyName: h.storyName,
-        passRate: h.passRate,
-        checks: Object.fromEntries(h.checks.map((c) => [c.criterionId, c.checked])),
-      })),
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Refinement Checklist",
+      prompts: generateRefinementPrompts({
+        criteria,
+        history: history.map((h) => ({
+          storyName: h.storyName,
+          passRate: h.passRate,
+          checks: Object.fromEntries(h.checks.map((c) => [c.criterionId, c.checked])),
+        })),
+      }),
     }),
-  }), [criteria, history]);
+    [criteria, history]
+  );
 
   return (
     <ToolPageWrapper
@@ -544,20 +504,14 @@ export function RefinementClient() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-sm text-sub">
-              {criteria.length} criteria defined
-            </span>
+            <span className="text-sm text-sub">{criteria.length} criteria defined</span>
             {history.length > 0 && (
               <Badge className="bg-accent/10 text-accent border border-accent/20 text-xs">
                 {history.length} stories saved
               </Badge>
             )}
           </div>
-          <Button
-            variant="danger-ghost"
-            size="sm"
-            onClick={reset}
-          >
+          <Button variant="danger-ghost" size="sm" onClick={reset}>
             Reset All
           </Button>
         </div>
@@ -570,12 +524,7 @@ export function RefinementClient() {
               title="Definition of Ready"
               icon={CheckSquare}
               actions={
-                <Button
-                  size="sm"
-                  variant="toolkit"
-                  onClick={addCriterion}
-                  className="gap-1.5"
-                >
+                <Button size="sm" variant="toolkit" onClick={addCriterion} className="gap-1.5">
                   <Plus className="w-4 h-4" />
                   Add
                 </Button>
@@ -588,9 +537,7 @@ export function RefinementClient() {
                   criterion={c}
                   checked={false}
                   onLabelChange={(label) => setCriterion(c.id, label)}
-                  onDescriptionChange={(desc) =>
-                    setCriterionDescription(c.id, desc)
-                  }
+                  onDescriptionChange={(desc) => setCriterionDescription(c.id, desc)}
                   onRemove={() => removeCriterion(c.id)}
                   showCheckbox={false}
                 />
@@ -608,104 +555,89 @@ export function RefinementClient() {
               actions={<ReadinessIndicator pct={pct} />}
               contentClassName="space-y-4"
             >
-                <div className="space-y-1.5">
-                  <Label className="text-sub text-xs">
-                    Story Name / ID
-                  </Label>
-                  <Input
-                    value={storyName}
-                    onChange={(e) => setStoryName(e.target.value)}
-                    placeholder="e.g. USER-42 — Add dark mode toggle"
-                    className="input-toolkit"
-                  />
-                  {/* Optional description for the saved story snapshot;
+              <div className="space-y-1.5">
+                <Label className="text-sub text-xs">Story Name / ID</Label>
+                <Input
+                  value={storyName}
+                  onChange={(e) => setStoryName(e.target.value)}
+                  placeholder="e.g. USER-42 — Add dark mode toggle"
+                  className="input-toolkit"
+                />
+                {/* Optional description for the saved story snapshot;
                       empty trims to undefined when committed via saveStory. */}
-                  <Textarea
-                    value={storyDescription}
-                    onChange={(e) => setStoryDescription(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey))
-                        saveStory();
-                    }}
-                    placeholder="Description (optional)..."
-                    rows={2}
-                    className="bg-surface border-border resize-none text-xs"
-                    aria-label="Story description"
+                <Textarea
+                  value={storyDescription}
+                  onChange={(e) => setStoryDescription(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveStory();
+                  }}
+                  placeholder="Description (optional)..."
+                  rows={2}
+                  className="bg-surface border-border resize-none text-xs"
+                  aria-label="Story description"
+                />
+              </div>
+
+              <div className="space-y-2">
+                {criteria.map((c) => (
+                  <CriterionRow
+                    key={c.id}
+                    criterion={c}
+                    checked={!!currentChecks[c.id]}
+                    onToggle={() => toggleCheck(c.id)}
+                    onLabelChange={(label) => setCriterion(c.id, label)}
+                    onDescriptionChange={(desc) => setCriterionDescription(c.id, desc)}
+                    onRemove={() => removeCriterion(c.id)}
+                    showCheckbox={true}
                   />
-                </div>
+                ))}
+              </div>
 
-                <div className="space-y-2">
-                  {criteria.map((c) => (
-                    <CriterionRow
-                      key={c.id}
-                      criterion={c}
-                      checked={!!currentChecks[c.id]}
-                      onToggle={() => toggleCheck(c.id)}
-                      onLabelChange={(label) => setCriterion(c.id, label)}
-                      onDescriptionChange={(desc) =>
-                        setCriterionDescription(c.id, desc)
-                      }
-                      onRemove={() => removeCriterion(c.id)}
-                      showCheckbox={true}
-                    />
-                  ))}
-                </div>
-
-                {criteria.length > 0 && (
-                  <div className="pt-2 border-t border-border">
-                    <div className="flex items-center justify-between text-xs text-sub mb-2">
-                      <span>
-                        {metCount} / {criteria.length} criteria met
-                      </span>
-                      <span
-                        className="font-data font-bold"
-                        style={{
-                          color:
-                            pct === 100
-                              ? "#00ff88"
-                              : pct > 0
-                              ? "#ffaa00"
-                              : "#ef4444",
-                        }}
-                      >
-                        {pct}%
-                      </span>
-                    </div>
-                    <div className="w-full h-2 bg-card rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-300"
-                        style={{
-                          width: `${pct}%`,
-                          background:
-                            pct === 100
-                              ? "#00ff88"
-                              : pct > 0
-                              ? "#ffaa00"
-                              : "#ef4444",
-                        }}
-                      />
-                    </div>
+              {criteria.length > 0 && (
+                <div className="pt-2 border-t border-border">
+                  <div className="flex items-center justify-between text-xs text-sub mb-2">
+                    <span>
+                      {metCount} / {criteria.length} criteria met
+                    </span>
+                    <span
+                      className="font-data font-bold"
+                      style={{
+                        color: pct === 100 ? "#00ff88" : pct > 0 ? "#ffaa00" : "#ef4444",
+                      }}
+                    >
+                      {pct}%
+                    </span>
                   </div>
-                )}
-
-                <div className="flex gap-2 pt-1">
-                  <Button
-                    variant="toolkit"
-                    onClick={saveStory}
-                    disabled={!storyName.trim()}
-                    className="flex-1 gap-2"
-                  >
-                    <Save className="w-4 h-4" />
-                    Save to History
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={resetCurrent}
-                    className="text-sub hover:text-text hover:bg-cardH"
-                  >
-                    Clear
-                  </Button>
+                  <div className="w-full h-2 bg-card rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${pct}%`,
+                        background: pct === 100 ? "#00ff88" : pct > 0 ? "#ffaa00" : "#ef4444",
+                      }}
+                    />
+                  </div>
                 </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <Button
+                  variant="toolkit"
+                  onClick={saveStory}
+                  disabled={!storyName.trim()}
+                  className="flex-1 gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  Save to History
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={resetCurrent}
+                  className="text-sub hover:text-text hover:bg-cardH"
+                >
+                  Clear
+                </Button>
+              </div>
             </SectionCard>
           </div>
 
@@ -715,24 +647,17 @@ export function RefinementClient() {
                 of the p-chart center line — sustained drift in DoR adherence. */}
             {rule2Signal && passRateControl && (
               <CalloutAlert tone="warning">
-                <strong className="font-semibold">DoR adherence drift:</strong>{" "}
-                The last 9 saved stories sit on one side of the long-run
-                pass-rate baseline ({passRateControl.centerLinePct.toFixed(0)}%).
-                Investigate before it shifts the team baseline.
+                <strong className="font-semibold">DoR adherence drift:</strong> The last 9 saved
+                stories sit on one side of the long-run pass-rate baseline (
+                {passRateControl.centerLinePct.toFixed(0)}%). Investigate before it shifts the team
+                baseline.
               </CalloutAlert>
             )}
 
             {/* Pass rate chart */}
             {chartData.length > 1 && (
-              <ChartCard
-                title="Pass Rate Trend"
-                icon={TrendingUp}
-                height={200}
-              >
-                <LineChart
-                  data={chartData}
-                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                >
+              <ChartCard title="Pass Rate Trend" icon={TrendingUp} height={200}>
+                <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid
                     strokeDasharray="3 3"
                     stroke="rgba(255,255,255,0.06)"
@@ -753,9 +678,14 @@ export function RefinementClient() {
                   />
                   <Tooltip
                     contentStyle={TOOLTIP_STYLE}
+                    // BUG-RD3-refinement-1: Recharts may invoke the
+                    // formatter on a ReferenceLine hover where
+                    // `props.payload` is undefined. The prior
+                    // `props.payload.story` threw TypeError and the
+                    // chart tooltip crashed. Optional-chain through.
                     formatter={(v, _name, props) => [
                       `${v}%`,
-                      props.payload.story,
+                      (props as { payload?: { story?: string } }).payload?.story ?? "",
                     ]}
                   />
                   <ReferenceLine
@@ -839,12 +769,8 @@ export function RefinementClient() {
                   }`}
                   title={`Mann-Kendall p=${passRateTrend.pValue.toFixed(3)}`}
                 >
-                  <span>
-                    {passRateTrend.trend === "up" ? "↗" : "↘"} pass-rate trend
-                  </span>
-                  <span className="opacity-60">
-                    p={passRateTrend.pValue.toFixed(2)}
-                  </span>
+                  <span>{passRateTrend.trend === "up" ? "↗" : "↘"} pass-rate trend</span>
+                  <span className="opacity-60">p={passRateTrend.pValue.toFixed(2)}</span>
                 </span>
               </div>
             )}
@@ -853,17 +779,12 @@ export function RefinementClient() {
             <SectionCard
               title="Story History"
               icon={History}
-              titleSuffix={
-                history.length > 0 ? `(${history.length})` : undefined
-              }
+              titleSuffix={history.length > 0 ? `(${history.length})` : undefined}
               actions={
                 history.length > 0 ? (
                   <>
                     <AiPromptGenerator config={promptConfig} />
-                    <ExportButton
-                      filename="refinement-history"
-                      csvData={csvData}
-                    />
+                    <ExportButton filename="refinement-history" csvData={csvData} />
                     <Button
                       variant="danger-ghost"
                       size="sm"
@@ -877,85 +798,80 @@ export function RefinementClient() {
               }
             >
               {history.length === 0 ? (
-                  <p className="text-sm text-sub text-center py-8">
-                    No stories saved yet. Check a story above and click &ldquo;Save to
-                    History&rdquo;.
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-4">
-                            Story
-                          </th>
-                          <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-4">
-                            Date
-                          </th>
-                          <th className="text-right text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-4">
-                            % Ready
-                          </th>
-                          <th className="text-right text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-4">
-                            Met
-                          </th>
-                          <th className="text-right text-xs text-sub font-medium uppercase tracking-wider pb-2">
-                            Status
-                          </th>
-                          <th className="w-8" />
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/5">
-                        {history.map((h) => (
-                          <tr key={h.id} className="group">
-                            <td className="py-2.5 pr-4 max-w-[200px]">
-                              <div className="text-text font-medium truncate">
-                                {h.storyName}
+                <p className="text-sm text-sub text-center py-8">
+                  No stories saved yet. Check a story above and click &ldquo;Save to History&rdquo;.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-4">
+                          Story
+                        </th>
+                        <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-4">
+                          Date
+                        </th>
+                        <th className="text-right text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-4">
+                          % Ready
+                        </th>
+                        <th className="text-right text-xs text-sub font-medium uppercase tracking-wider pb-2 pr-4">
+                          Met
+                        </th>
+                        <th className="text-right text-xs text-sub font-medium uppercase tracking-wider pb-2">
+                          Status
+                        </th>
+                        <th className="w-8" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {history.map((h) => (
+                        <tr key={h.id} className="group">
+                          <td className="py-2.5 pr-4 max-w-[200px]">
+                            <div className="text-text font-medium truncate">{h.storyName}</div>
+                            {h.description && (
+                              <div className="text-sub text-[11px] mt-0.5 whitespace-pre-wrap break-words">
+                                {h.description}
                               </div>
-                              {h.description && (
-                                <div className="text-sub text-[11px] mt-0.5 whitespace-pre-wrap break-words">
-                                  {h.description}
-                                </div>
-                              )}
-                            </td>
-                            <td className="py-2.5 pr-4 text-sub text-xs">
-                              {h.date}
-                            </td>
-                            <td className="py-2.5 pr-4 text-right font-data font-semibold">
-                              <span
-                                style={{
-                                  color:
-                                    h.passRate === 100
-                                      ? "#00ff88"
-                                      : h.passRate > 0
+                            )}
+                          </td>
+                          <td className="py-2.5 pr-4 text-sub text-xs">{h.date}</td>
+                          <td className="py-2.5 pr-4 text-right font-data font-semibold">
+                            <span
+                              style={{
+                                color:
+                                  h.passRate === 100
+                                    ? "#00ff88"
+                                    : h.passRate > 0
                                       ? "#ffaa00"
                                       : "#ef4444",
-                                }}
-                              >
-                                {h.passRate}%
-                              </span>
-                            </td>
-                            <td className="py-2.5 pr-4 text-right text-sub text-xs font-data">
-                              {h.metCount}/{h.totalCriteria}
-                            </td>
-                            <td className="py-2.5 pr-4 text-right">
-                              <ReadinessIndicator pct={h.passRate} />
-                            </td>
-                            <td className="py-2.5">
-                              <Button
-                                variant="danger-ghost"
-                                size="icon"
-                                onClick={() => removeHistory(h.id)}
-                                className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                              }}
+                            >
+                              {h.passRate}%
+                            </span>
+                          </td>
+                          <td className="py-2.5 pr-4 text-right text-sub text-xs font-data">
+                            {h.metCount}/{h.totalCriteria}
+                          </td>
+                          <td className="py-2.5 pr-4 text-right">
+                            <ReadinessIndicator pct={h.passRate} />
+                          </td>
+                          <td className="py-2.5">
+                            <Button
+                              variant="danger-ghost"
+                              size="icon"
+                              onClick={() => removeHistory(h.id)}
+                              className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </SectionCard>
           </div>
         </div>
