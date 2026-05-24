@@ -24,7 +24,12 @@ export async function GET() {
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
+    // Don't echo Supabase error text — column names and constraint codes
+    // are an information-disclosure channel for an attacker probing the
+    // schema. Log server-side, return a generic code to the client.
+    // eslint-disable-next-line no-console
+    console.error("[access-tokens GET] supabase error", error);
+    return Response.json({ error: "server_error" }, { status: 500 });
   }
   return Response.json({ tokens: data ?? [] });
 }
@@ -49,7 +54,20 @@ export async function POST(req: NextRequest) {
   if (!name) {
     return Response.json({ error: "name_required" }, { status: 400 });
   }
-  const expiresAt = typeof b.expiresAt === "string" ? b.expiresAt : null;
+  // Default expiration: 90 days. A token with `expires_at = null` lives
+  // forever; if it leaks, the only mitigation is manual revocation. A
+  // 90-day default means a forgotten/leaked token self-expires within a
+  // quarter. Callers who genuinely want a long-lived token can pass an
+  // explicit ISO date.
+  const DEFAULT_TTL_DAYS = 90;
+  let expiresAt: string | null = null;
+  if (typeof b.expiresAt === "string") {
+    expiresAt = b.expiresAt;
+  } else {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + DEFAULT_TTL_DAYS);
+    expiresAt = d.toISOString();
+  }
 
   const raw = generateRawToken();
   // BUG-A3: per-token salt for new tokens. Existing tokens (minted
@@ -72,7 +90,9 @@ export async function POST(req: NextRequest) {
     .select("id, name, prefix, created_at, last_used_at, expires_at, revoked_at")
     .single();
   if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
+    // eslint-disable-next-line no-console
+    console.error("[access-tokens POST] supabase error", error);
+    return Response.json({ error: "server_error" }, { status: 500 });
   }
 
   // CRITICAL: this is the only time the raw token is sent to the client.

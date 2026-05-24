@@ -24,7 +24,11 @@ export async function DELETE(req: Request, ctx: { params: { id: string } }) {
       .delete()
       .eq("id", id)
       .eq("user_id", user.id);
-    if (error) return Response.json({ error: error.message }, { status: 500 });
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.error("[access-tokens hard DELETE] supabase error", error);
+      return Response.json({ error: "server_error" }, { status: 500 });
+    }
     return new Response(null, { status: 204 });
   }
 
@@ -38,6 +42,10 @@ export async function DELETE(req: Request, ctx: { params: { id: string } }) {
     .eq("id", id)
     .eq("user_id", user.id)
     .is("revoked_at", null);
-  if (error) return Response.json({ error: error.message }, { status: 500 });
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.error("[access-tokens revoke] supabase error", error);
+    return Response.json({ error: "server_error" }, { status: 500 });
+  }
   return new Response(null, { status: 204 });
 }

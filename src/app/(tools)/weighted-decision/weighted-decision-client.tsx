@@ -116,8 +116,11 @@ export function WeightedDecisionClient() {
   // beyond char-18 (e.g. "Migration plan — A", "Migration plan — B"),
   // Recharts silently merged the duplicate Y-categories and dropped a
   // bar. Same fix pattern as WSJF.
+  // Truncate the option name BEFORE prepending the rank so the rank
+  // prefix isn't squeezed out of the 150px YAxis tick. Budget ~18 chars
+  // total after the rank prefix.
   const chartData = ranked.map((o, idx) => ({
-    name: `${idx + 1}. ${o.name.length > 18 ? o.name.slice(0, 18) + "…" : o.name}`,
+    name: `${idx + 1}. ${o.name.length > 14 ? o.name.slice(0, 14) + "…" : o.name}`,
     score: Number(o.score.toFixed(2)),
   }));
 

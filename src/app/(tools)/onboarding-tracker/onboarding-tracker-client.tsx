@@ -105,6 +105,10 @@ function isAtRisk(
   todayMs: number
 ): boolean {
   if (milestone.completedAt) return false;
+  // Guard against targetDays <= 0 (legacy / imported data, or an accidental
+  // 0-day milestone). Without this, `elapsed > 0` triggers "at risk" the
+  // instant the person starts.
+  if (!Number.isFinite(milestone.targetDays) || milestone.targetDays <= 0) return false;
   const start = parseLocalDate(startDate);
   if (!start) return false;
   const elapsed = (todayMs - start.getTime()) / 86400000;

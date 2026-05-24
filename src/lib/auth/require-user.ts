@@ -80,13 +80,20 @@ export async function requireAuthorizedUser(): Promise<{
   // later must not silently widen who can sign in just because their email
   // collides with an allowlist entry. Today (Google-only) this is redundant;
   // tomorrow it's load-bearing.
+  //
+  // Fail-closed on undefined provider: a row without `app_metadata.provider`
+  // could come from a manually inserted user, a misconfigured OAuth flow,
+  // or a future provider that doesn't populate the field. None of those
+  // should pass the Google-only gate.
   const provider = (data.user.app_metadata as { provider?: unknown } | null)?.provider;
-  if (provider !== undefined && provider !== "google") {
+  if (provider !== "google") {
     throw jsonError(403, "wrong_provider", "Only Google identities are accepted.");
   }
-  // If the OAuth provider supplied identity records, require the matched one
-  // to be email-verified. Falls back permissively if identities aren't
-  // populated (some Supabase configs omit the array).
+  // Require email-verified. Prefer the identity record's own flag (which
+  // reflects the verification state the provider asserted at sign-in); if
+  // identities is empty (some Supabase configs omit it), fall back to the
+  // top-level `email_confirmed_at` timestamp. Either signal must affirmatively
+  // confirm — we never permissively accept an unverified email.
   const identities = (data.user.identities ?? []) as Array<{
     provider: string;
     identity_data?: { email_verified?: boolean; email?: string };
@@ -95,9 +102,11 @@ export async function requireAuthorizedUser(): Promise<{
     const matched = identities.find(
       (i) => i.identity_data?.email?.toLowerCase() === data.user.email?.toLowerCase()
     );
-    if (matched && matched.identity_data?.email_verified === false) {
+    if (!matched || matched.identity_data?.email_verified === false) {
       throw jsonError(403, "email_unverified", "Email not verified.");
     }
+  } else if (!data.user.email_confirmed_at) {
+    throw jsonError(403, "email_unverified", "Email not verified.");
   }
 
   return { user: data.user, supabase };

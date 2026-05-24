@@ -123,6 +123,26 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Bound the incoming body. JSON-RPC payloads for our toolset are tiny
+  // (≪10kB even with large argument blobs); a megabyte is more headroom
+  // than any well-behaved client will ever need. Without this, a token
+  // holder with a buggy or malicious client can stream multi-MB JSON at
+  // a serverless function, forcing it to buffer the body before parsing.
+  const MAX_BODY_BYTES = 1_048_576; // 1 MiB
+  const lenHeader = req.headers.get("content-length");
+  if (lenHeader) {
+    const len = Number(lenHeader);
+    if (Number.isFinite(len) && len > MAX_BODY_BYTES) {
+      return Response.json(
+        {
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32600, message: "Request body too large" },
+        },
+        { status: 413 }
+      );
+    }
+  }
   let body: unknown;
   try {
     body = await req.json();

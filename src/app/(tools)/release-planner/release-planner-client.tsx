@@ -495,6 +495,12 @@ export function ReleasePlannerClient() {
                 onChange={(e) => {
                   const n = Number(e.target.value);
                   if (Number.isFinite(n)) {
+                    updateConfigQuiet({ backlogSize: Math.max(1, n) });
+                  }
+                }}
+                onBlur={(e) => {
+                  const n = Number(e.target.value);
+                  if (Number.isFinite(n)) {
                     updateConfig({ backlogSize: Math.max(1, n) });
                   }
                 }}
@@ -511,6 +517,12 @@ export function ReleasePlannerClient() {
                 onChange={(e) => {
                   const n = Number(e.target.value);
                   if (Number.isFinite(n)) {
+                    updateConfigQuiet({ scopeBuffer: Math.min(100, Math.max(0, n)) });
+                  }
+                }}
+                onBlur={(e) => {
+                  const n = Number(e.target.value);
+                  if (Number.isFinite(n)) {
                     updateConfig({ scopeBuffer: Math.min(100, Math.max(0, n)) });
                   }
                 }}
@@ -525,6 +537,12 @@ export function ReleasePlannerClient() {
                 max={90}
                 value={config.sprintLengthDays}
                 onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (Number.isFinite(n)) {
+                    updateConfigQuiet({ sprintLengthDays: Math.min(90, Math.max(1, n)) });
+                  }
+                }}
+                onBlur={(e) => {
                   const n = Number(e.target.value);
                   if (Number.isFinite(n)) {
                     updateConfig({ sprintLengthDays: Math.min(90, Math.max(1, n)) });

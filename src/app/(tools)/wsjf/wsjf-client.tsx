@@ -47,45 +47,91 @@ export function WsjfClient() {
     const jobSize = Math.max(0.5, fn(size, 1));
     const score = wsjfScore(businessValue, timeCriticality, rrOeVal, jobSize);
     const item: PrioritizationItem = {
-      id: crypto.randomUUID(), framework: "wsjf", title: title.trim().slice(0, 200),
+      id: crypto.randomUUID(),
+      framework: "wsjf",
+      title: title.trim().slice(0, 200),
       score,
       fields: { businessValue, timeCriticality, rrOe: rrOeVal, jobSize },
-      status: "scored", updatedAt: new Date().toISOString(),
+      status: "scored",
+      updatedAt: new Date().toISOString(),
     };
     upsert(item);
     log(WSJF_ACTIONS.ITEM_ADDED, { title: item.title, score });
-    emitSignal({ kind: "prioritization.scored", at: item.updatedAt, toolId: "wsjf", payload: { framework: "wsjf", id: item.id, score } });
-    setTitle(""); setBv(""); setTc(""); setRrOe(""); setSize("");
+    emitSignal({
+      kind: "prioritization.scored",
+      at: item.updatedAt,
+      toolId: "wsjf",
+      payload: { framework: "wsjf", id: item.id, score },
+    });
+    setTitle("");
+    setBv("");
+    setTc("");
+    setRrOe("");
+    setSize("");
   }
 
-  const ranked = useMemo(() => rank(items.map((x) => ({
-    id: x.id, title: x.title, fields: x.fields ?? {}, score: x.score ?? 0,
-  }))), [items]);
+  const ranked = useMemo(
+    () =>
+      rank(
+        items.map((x) => ({
+          id: x.id,
+          title: x.title,
+          fields: x.fields ?? {},
+          score: x.score ?? 0,
+        }))
+      ),
+    [items]
+  );
 
   // R10: prefix with rank so two features with the same (or same-truncated)
   // title don't collapse into one bar — Recharts uses dataKey="title" as
   // YAxis category and duplicate categories silently merge, hiding scores.
+  //
+  // Truncate the title BEFORE prefixing so the rank stays inside the 80px
+  // YAxis margin even at rank ≥ 10 (where the prefix is "#10 " = 4 chars).
+  // Total label width stays ≤ 18 chars.
   const chartData = ranked.slice(0, 10).map((r) => {
-    const t = r.title.length > 18 ? r.title.slice(0, 18) + "…" : r.title;
+    const t = r.title.length > 14 ? r.title.slice(0, 14) + "…" : r.title;
     return { title: `#${r.rank} ${t}`, score: Number(r.score.toFixed(2)) };
   });
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    prioritizations: s.prioritizations,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        prioritizations: s.prioritizations,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "WSJF Calculator",
-    prompts: generateWsjfPrompts({ items: ranked }, workspace),
-  }), [ranked, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "WSJF Calculator",
+      prompts: generateWsjfPrompts({ items: ranked }, workspace),
+    }),
+    [ranked, workspace]
+  );
 
   const csvData = {
     headers: ["Rank", "Title", "BV", "TC", "RR/OE", "Size", "WSJF"],
-    rows: ranked.map((r) => [r.rank, r.title, r.fields.businessValue ?? "", r.fields.timeCriticality ?? "", r.fields.rrOe ?? "", r.fields.jobSize ?? "", r.score.toFixed(2)]),
+    rows: ranked.map((r) => [
+      r.rank,
+      r.title,
+      r.fields.businessValue ?? "",
+      r.fields.timeCriticality ?? "",
+      r.fields.rrOe ?? "",
+      r.fields.jobSize ?? "",
+      r.score.toFixed(2),
+    ]),
   };
 
   return (
@@ -97,21 +143,55 @@ export function WsjfClient() {
       <div ref={exportRef} className="space-y-4">
         <SectionCard title="Add feature" icon={Plus}>
           <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
-            <Input className="sm:col-span-2" placeholder="Feature title" value={title} onChange={(e) => setTitle(e.target.value)} />
-            <Input type="number" placeholder="Business Value" value={bv} onChange={(e) => setBv(e.target.value)} />
-            <Input type="number" placeholder="Time Criticality" value={tc} onChange={(e) => setTc(e.target.value)} />
-            <Input type="number" placeholder="RR/OE" value={rrOe} onChange={(e) => setRrOe(e.target.value)} />
-            <Input type="number" placeholder="Job Size" value={size} onChange={(e) => setSize(e.target.value)} />
+            <Input
+              className="sm:col-span-2"
+              placeholder="Feature title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+            <Input
+              type="number"
+              placeholder="Business Value"
+              value={bv}
+              onChange={(e) => setBv(e.target.value)}
+            />
+            <Input
+              type="number"
+              placeholder="Time Criticality"
+              value={tc}
+              onChange={(e) => setTc(e.target.value)}
+            />
+            <Input
+              type="number"
+              placeholder="RR/OE"
+              value={rrOe}
+              onChange={(e) => setRrOe(e.target.value)}
+            />
+            <Input
+              type="number"
+              placeholder="Job Size"
+              value={size}
+              onChange={(e) => setSize(e.target.value)}
+            />
           </div>
-          <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Add & score</Button>
+          <Button onClick={add} className="mt-3 gap-1">
+            <Plus className="w-4 h-4" />
+            Add & score
+          </Button>
         </SectionCard>
 
         {chartData.length > 0 && (
-          <SectionCard title="Top 10 by WSJF"
+          <SectionCard
+            title="Top 10 by WSJF"
             actions={
               <>
                 <AiPromptGenerator config={promptConfig} />
-                <ExportButton filename="wsjf-scores" csvData={csvData} jsonData={ranked} targetRef={exportRef} />
+                <ExportButton
+                  filename="wsjf-scores"
+                  csvData={csvData}
+                  jsonData={ranked}
+                  targetRef={exportRef}
+                />
               </>
             }
           >
@@ -121,7 +201,13 @@ export function WsjfClient() {
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                   <XAxis type="number" stroke="#888" fontSize={11} />
                   <YAxis type="category" dataKey="title" stroke="#888" fontSize={11} width={150} />
-                  <Tooltip contentStyle={{ backgroundColor: "#0f1117", border: "1px solid #2a2f3a", fontSize: 12 }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#0f1117",
+                      border: "1px solid #2a2f3a",
+                      fontSize: 12,
+                    }}
+                  />
                   <Bar dataKey="score" fill="#9d4edd" />
                 </BarChart>
               </ResponsiveContainer>
@@ -133,22 +219,42 @@ export function WsjfClient() {
           <SectionCard title="Features (sorted by WSJF)">
             <div className="table-wrap-responsive">
               <table className="w-full text-sm">
-                <thead><tr className="text-left text-xs text-sub uppercase">
-                  <th className="p-2">#</th><th className="p-2">Title</th>
-                  <th className="p-2 text-right">BV</th><th className="p-2 text-right">TC</th>
-                  <th className="p-2 text-right">RR/OE</th><th className="p-2 text-right">Size</th>
-                  <th className="p-2 text-right">WSJF</th><th className="p-2 w-10"></th>
-                </tr></thead>
+                <thead>
+                  <tr className="text-left text-xs text-sub uppercase">
+                    <th className="p-2">#</th>
+                    <th className="p-2">Title</th>
+                    <th className="p-2 text-right">BV</th>
+                    <th className="p-2 text-right">TC</th>
+                    <th className="p-2 text-right">RR/OE</th>
+                    <th className="p-2 text-right">Size</th>
+                    <th className="p-2 text-right">WSJF</th>
+                    <th className="p-2 w-10"></th>
+                  </tr>
+                </thead>
                 <tbody>
                   {ranked.map((r) => (
                     <tr key={r.id} className="border-t border-border">
-                      <td className="p-2 font-mono text-xs">{r.rank}</td><td className="p-2">{r.title}</td>
+                      <td className="p-2 font-mono text-xs">{r.rank}</td>
+                      <td className="p-2">{r.title}</td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.businessValue}</td>
-                      <td className="p-2 text-right font-mono text-xs">{r.fields.timeCriticality}</td>
+                      <td className="p-2 text-right font-mono text-xs">
+                        {r.fields.timeCriticality}
+                      </td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.rrOe}</td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.jobSize}</td>
                       <td className="p-2 text-right font-mono">{r.score.toFixed(2)}</td>
-                      <td className="p-2"><button onClick={() => { removeOne(r.id); log(WSJF_ACTIONS.ITEM_REMOVED, { id: r.id }); }} aria-label="Remove feature" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button></td>
+                      <td className="p-2">
+                        <button
+                          onClick={() => {
+                            removeOne(r.id);
+                            log(WSJF_ACTIONS.ITEM_REMOVED, { id: r.id });
+                          }}
+                          aria-label="Remove feature"
+                          className="text-sub hover:text-red-400"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
