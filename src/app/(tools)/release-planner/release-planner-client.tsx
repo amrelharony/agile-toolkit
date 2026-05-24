@@ -567,7 +567,11 @@ export function ReleasePlannerClient() {
                         accept();
                       }
                     }}
-                    onChange={(e) => updateConfig({ sprintsToReleaseTarget: e.target.value })}
+                    // Quiet on keystroke (state-only), logged on blur.
+                    // Otherwise typing "12" emits two RELEASE_UPDATED events
+                    // ("1" then "12") even though only the final value matters.
+                    onChange={(e) => updateConfigQuiet({ sprintsToReleaseTarget: e.target.value })}
+                    onBlur={(e) => updateConfig({ sprintsToReleaseTarget: e.target.value })}
                     className={inputCls + " sm:max-w-xs"}
                   />
                   {chip}
@@ -582,7 +586,10 @@ export function ReleasePlannerClient() {
             </Label>
             <textarea
               value={config.velocityInput}
-              onChange={(e) => updateConfig({ velocityInput: e.target.value })}
+              // Quiet on keystroke, logged on blur — typing a long comma list
+              // shouldn't write one RELEASE_UPDATED event per character.
+              onChange={(e) => updateConfigQuiet({ velocityInput: e.target.value })}
+              onBlur={(e) => updateConfig({ velocityInput: e.target.value })}
               rows={3}
               placeholder="18, 22, 19, 25, 21, 17, 23, 20"
               className="w-full px-3 py-2 rounded-md text-sm bg-surface-deep border border-border text-text font-data focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 resize-none"

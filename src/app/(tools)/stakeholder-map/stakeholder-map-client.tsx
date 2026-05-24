@@ -12,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -613,28 +614,15 @@ export function StakeholderMapClient() {
                 <CardContent className="p-3 space-y-2">
                   <div className="flex flex-col xs:flex-row xs:items-start xs:justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <Input
+                      <BlurInput
                         value={s.name}
-                        // R11-fix: quiet update per keystroke (state-only),
-                        // logged commit on blur.
-                        onChange={(e) => updateStakeholderQuiet(s.id, { name: e.target.value })}
-                        onBlur={(e) => updateStakeholder(s.id, { name: e.target.value })}
+                        onCommit={(v) => updateStakeholder(s.id, { name: v })}
                         className="bg-bg border-border font-semibold"
                         aria-label="Name"
                       />
-                      <Input
+                      <BlurInput
                         value={s.role ?? ""}
-                        onChange={(e) =>
-                          // R-TYPE: store raw, trim on blur — trimming
-                          // mid-keystroke strips trailing spaces and breaks
-                          // multi-word roles ("VP Eng " → "VPEng" feel).
-                          updateStakeholderQuiet(s.id, { role: e.target.value })
-                        }
-                        onBlur={(e) =>
-                          updateStakeholder(s.id, {
-                            role: e.target.value.trim() || undefined,
-                          })
-                        }
+                        onCommit={(v) => updateStakeholder(s.id, { role: v.trim() || undefined })}
                         placeholder="Role (optional)"
                         className="bg-bg border-border mt-1 text-xs"
                         aria-label="Role"
@@ -723,18 +711,9 @@ export function StakeholderMapClient() {
                       />
                     </div>
                   </div>
-                  <Textarea
+                  <BlurTextarea
                     value={s.strategy ?? ""}
-                    onChange={(e) =>
-                      // R-TYPE: store raw, trim on blur.
-                      // R11-fix: quiet update per keystroke (was log-spamming).
-                      updateStakeholderQuiet(s.id, { strategy: e.target.value })
-                    }
-                    onBlur={(e) =>
-                      updateStakeholder(s.id, {
-                        strategy: e.target.value.trim() || undefined,
-                      })
-                    }
+                    onCommit={(v) => updateStakeholder(s.id, { strategy: v.trim() || undefined })}
                     placeholder="Engagement strategy..."
                     rows={2}
                     className="bg-bg border-border text-sm resize-none"
