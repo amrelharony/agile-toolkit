@@ -8,26 +8,14 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ICEBREAKER_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { icebreakers, type IceBreaker } from "@/lib/constants/icebreakers";
 
 // ── Types ───────────────────────────────────────────────────
 type TimeFilter = "all" | 2 | 5 | 10 | 15;
 type SizeFilter = "all" | "small" | "medium" | "large";
 type EnergyFilter = "all" | "low" | "medium" | "high";
-type CategoryFilter =
-  | "all"
-  | "question"
-  | "activity"
-  | "game"
-  | "creative"
-  | "agile";
+type CategoryFilter = "all" | "question" | "activity" | "game" | "creative" | "agile";
 
 // Namespace under `agile-toolkit:` like every other persisted store so it
 // shows up in the same group when teams audit/inspect their localStorage.
@@ -39,15 +27,25 @@ const LEGACY_FAVORITES_KEY = "icebreaker-favorites";
 function loadFavorites(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
-    const raw =
-      localStorage.getItem(FAVORITES_KEY) ?? localStorage.getItem(LEGACY_FAVORITES_KEY);
+    const fresh = localStorage.getItem(FAVORITES_KEY);
+    const legacy = localStorage.getItem(LEGACY_FAVORITES_KEY);
+    const raw = fresh ?? legacy;
     if (!raw) return new Set();
     const parsed = JSON.parse(raw);
-    // Guard the shape: `new Set(42)` and `new Set({})` throw at runtime, and
-    // `new Set("hello")` returns a Set of character codepoints — neither is
-    // what we want. Accept only an array of strings.
     if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((v): v is string => typeof v === "string"));
+    const set = new Set(parsed.filter((v): v is string => typeof v === "string"));
+    // BUG-T4-icebreaker-2: migrate the legacy key on first read so we
+    // don't keep tripping over a stale copy. Write the canonical key
+    // and delete the legacy one in one shot.
+    if (!fresh && legacy) {
+      try {
+        localStorage.setItem(FAVORITES_KEY, JSON.stringify(Array.from(set)));
+        localStorage.removeItem(LEGACY_FAVORITES_KEY);
+      } catch {
+        /* quota / private mode — keep the in-memory set */
+      }
+    }
+    return set;
   } catch {
     return new Set();
   }
@@ -152,23 +150,14 @@ function IceBreakerCard({
       </CardHeader>
       <CardContent className="pt-0">
         <div className="flex flex-wrap gap-1.5">
-          <Badge
-            variant="outline"
-            className={`text-[10px] ${categoryColors[icebreaker.category]}`}
-          >
+          <Badge variant="outline" className={`text-[10px] ${categoryColors[icebreaker.category]}`}>
             {icebreaker.category}
           </Badge>
-          <Badge
-            variant="outline"
-            className="text-[10px] bg-cardH text-sub border-border"
-          >
+          <Badge variant="outline" className="text-[10px] bg-cardH text-sub border-border">
             <Clock className="w-3 h-3 mr-0.5" />
             {icebreaker.timeMinutes}m
           </Badge>
-          <Badge
-            variant="outline"
-            className="text-[10px] bg-cardH text-sub border-border"
-          >
+          <Badge variant="outline" className="text-[10px] bg-cardH text-sub border-border">
             <Users className="w-3 h-3 mr-0.5" />
             {sizeLabel[icebreaker.teamSize]}
           </Badge>
@@ -237,37 +226,23 @@ function FeaturedCard({
               <h4 className="text-xs font-semibold text-accent uppercase tracking-wider">
                 Instructions
               </h4>
-              <p className="text-sm text-sub leading-relaxed">
-                {icebreaker.instructions}
-              </p>
+              <p className="text-sm text-sub leading-relaxed">{icebreaker.instructions}</p>
             </div>
 
             <div className="flex flex-wrap gap-2 pt-2">
-              <Badge
-                variant="outline"
-                className={`${categoryColors[icebreaker.category]}`}
-              >
+              <Badge variant="outline" className={`${categoryColors[icebreaker.category]}`}>
                 <Tag className="w-3 h-3 mr-1" />
                 {icebreaker.category}
               </Badge>
-              <Badge
-                variant="outline"
-                className="bg-cardH text-sub border-border"
-              >
+              <Badge variant="outline" className="bg-cardH text-sub border-border">
                 <Clock className="w-3 h-3 mr-1" />
                 {icebreaker.timeMinutes} minutes
               </Badge>
-              <Badge
-                variant="outline"
-                className="bg-cardH text-sub border-border"
-              >
+              <Badge variant="outline" className="bg-cardH text-sub border-border">
                 <Users className="w-3 h-3 mr-1" />
                 {icebreaker.teamSize} ({sizeLabel[icebreaker.teamSize]} people)
               </Badge>
-              <Badge
-                variant="outline"
-                className={`${energyColors[icebreaker.energyLevel]}`}
-              >
+              <Badge variant="outline" className={`${energyColors[icebreaker.energyLevel]}`}>
                 <Zap className="w-3 h-3 mr-1" />
                 {icebreaker.energyLevel} energy
               </Badge>
@@ -284,8 +259,7 @@ export function IceBreakerClient() {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
   const [sizeFilter, setSizeFilter] = useState<SizeFilter>("all");
   const [energyFilter, setEnergyFilter] = useState<EnergyFilter>("all");
-  const [categoryFilter, setCategoryFilter] =
-    useState<CategoryFilter>("all");
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [selected, setSelected] = useState<IceBreaker | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [isSpinning, setIsSpinning] = useState(false);
@@ -327,10 +301,8 @@ export function IceBreakerClient() {
     return icebreakers.filter((ib) => {
       if (timeFilter !== "all" && ib.timeMinutes !== timeFilter) return false;
       if (sizeFilter !== "all" && ib.teamSize !== sizeFilter) return false;
-      if (energyFilter !== "all" && ib.energyLevel !== energyFilter)
-        return false;
-      if (categoryFilter !== "all" && ib.category !== categoryFilter)
-        return false;
+      if (energyFilter !== "all" && ib.energyLevel !== energyFilter) return false;
+      if (categoryFilter !== "all" && ib.category !== categoryFilter) return false;
       return true;
     });
   }, [timeFilter, sizeFilter, energyFilter, categoryFilter]);
@@ -350,6 +322,24 @@ export function IceBreakerClient() {
     // could be an item NOT in the (new) `filtered` set, confusing the
     // user. Pin the array once.
     const snapshot = filtered;
+    // BUG-T4-icebreaker-1: if only one item matches the filter, the
+    // spin animation completes and the user sees no movement — looks
+    // broken. Short-circuit to the single item without animating.
+    if (snapshot.length === 1) {
+      const only = snapshot[0];
+      setSelected(only);
+      setIsSpinning(false);
+      log(ICEBREAKER_ACTIONS.PROMPT_DRAWN, {
+        promptId: only.id,
+        name: only.name,
+        category: only.category,
+      });
+      return;
+    }
+    // Track the previous selection so the final pick can EXCLUDE it
+    // when there's more than one option — a draw that lands on the
+    // same item the user just saw is unsatisfying.
+    const prevId = selected?.id;
     let count = 0;
     const totalFlashes = 6;
     const interval = setInterval(() => {
@@ -359,9 +349,11 @@ export function IceBreakerClient() {
       if (count >= totalFlashes) {
         clearInterval(interval);
         spinIntervalRef.current = null;
-        // Final pick
-        const finalIndex = Math.floor(Math.random() * snapshot.length);
-        const final = snapshot[finalIndex];
+        // Final pick — exclude prevId when length > 1.
+        const candidates =
+          snapshot.length > 1 && prevId ? snapshot.filter((s) => s.id !== prevId) : snapshot;
+        const finalIndex = Math.floor(Math.random() * candidates.length);
+        const final = candidates[finalIndex];
         setSelected(final);
         setIsSpinning(false);
         log(ICEBREAKER_ACTIONS.PROMPT_DRAWN, {
@@ -494,14 +486,11 @@ export function IceBreakerClient() {
             className="bg-accent-cyan text-bg font-bold hover:bg-accent-cyan/90 shadow-neon-cyan transition-all duration-200 px-6"
             size="lg"
           >
-            <Shuffle
-              className={`w-5 h-5 mr-2 ${isSpinning ? "animate-spin" : ""}`}
-            />
+            <Shuffle className={`w-5 h-5 mr-2 ${isSpinning ? "animate-spin" : ""}`} />
             {isSpinning ? "Picking..." : "Random Pick"}
           </Button>
           <span className="text-sm text-sub">
-            {filtered.length} icebreaker{filtered.length !== 1 && "s"} match
-            your filters
+            {filtered.length} icebreaker{filtered.length !== 1 && "s"} match your filters
           </span>
         </div>
 
@@ -516,15 +505,12 @@ export function IceBreakerClient() {
 
         {/* ── Browse All ─────────────────────────────────── */}
         <div className="space-y-4">
-          <h2 className="text-lg font-display font-bold text-text">
-            Browse All
-          </h2>
+          <h2 className="text-lg font-display font-bold text-text">Browse All</h2>
           {filtered.length === 0 ? (
             <Card className="bg-card border-border">
               <CardContent className="p-8 text-center">
                 <p className="text-sub">
-                  No icebreakers match your current filters. Try broadening your
-                  selection.
+                  No icebreakers match your current filters. Try broadening your selection.
                 </p>
               </CardContent>
             </Card>

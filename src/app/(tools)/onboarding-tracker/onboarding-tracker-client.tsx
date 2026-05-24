@@ -21,6 +21,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BlurInput } from "@/components/shared/blur-fields";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, UserPlus, Check, Clock, TrendingUp, AlertTriangle } from "lucide-react";
@@ -552,9 +553,13 @@ export function OnboardingTrackerClient() {
                                   </span>
                                 )}
                               </div>
-                              <Input
+                              {/* BUG-T5-onboarding-tracker-3:
+                                  commit on blur instead of every
+                                  keystroke. The prior pattern wrote
+                                  to localStorage per character. */}
+                              <BlurInput
                                 value={m.notes ?? ""}
-                                onChange={(e) => updateNote(p.id, m.id, e.target.value)}
+                                onCommit={(v) => updateNote(p.id, m.id, v)}
                                 placeholder="Note (optional)"
                                 className="mt-1 bg-surface border-border h-7 text-xs"
                                 aria-label={`Note for ${m.name}`}

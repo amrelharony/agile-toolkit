@@ -21,6 +21,7 @@ import { INTERVIEW_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { EmptyState } from "@/components/shared/empty-state";
 import { redactPii } from "@/lib/utils/redact-pii";
+import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 
 interface Interview {
   id: string;
@@ -80,62 +81,8 @@ function TagInput({ tags, onCommit }: { tags: string[]; onCommit: (next: string[
   );
 }
 
-/**
- * BUG-T9-user-interviews-2: text input/textarea that holds a local
- * string draft and only commits to the parent on blur (or Enter for
- * single-line). The previous per-keystroke `update(active.id, ...)`
- * path triggered a full setInterviews → localStorage write on every
- * character; with 50 interviews this was visibly laggy.
- */
-function BlurInput(props: {
-  value: string;
-  onCommit: (v: string) => void;
-  type?: string;
-  placeholder?: string;
-  className?: string;
-}) {
-  const [draft, setDraft] = useState(props.value);
-  useEffect(() => setDraft(props.value), [props.value]);
-  return (
-    <Input
-      type={props.type}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => {
-        if (draft !== props.value) props.onCommit(draft);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" && props.type !== undefined) {
-          (e.target as HTMLInputElement).blur();
-        }
-      }}
-      placeholder={props.placeholder}
-      className={props.className}
-    />
-  );
-}
-function BlurTextarea(props: {
-  value: string;
-  onCommit: (v: string) => void;
-  rows?: number;
-  placeholder?: string;
-  className?: string;
-}) {
-  const [draft, setDraft] = useState(props.value);
-  useEffect(() => setDraft(props.value), [props.value]);
-  return (
-    <Textarea
-      rows={props.rows}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => {
-        if (draft !== props.value) props.onCommit(draft);
-      }}
-      placeholder={props.placeholder}
-      className={props.className}
-    />
-  );
-}
+// BUG-T9-user-interviews-2: BlurInput/BlurTextarea moved to
+// `@/components/shared/blur-fields` so other tools can reuse them.
 
 export function UserInterviewsClient() {
   const [interviews, setInterviews] = usePersisted<Interview[]>(

@@ -1,14 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import {
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar,
-  Tooltip,
-} from "recharts";
+import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -17,7 +10,7 @@ import { SectionCard } from "@/components/shared/section-card";
 import { ChartCard } from "@/components/shared/chart-card";
 import { CalloutAlert } from "@/components/shared/callout-alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { BlurInput } from "@/components/shared/blur-fields";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Layers, ChevronRight, Save, RotateCcw } from "lucide-react";
@@ -171,9 +164,7 @@ export function PlatformMaturityClient() {
   const saveAssessment = () => {
     // Use the same clamp as the radar / KPI so the snapshot matches what's
     // shown on screen (corrupt imports can't poison the avg).
-    const clamped = DIMENSIONS.map((d) =>
-      Math.min(5, Math.max(1, state.dimensions[d.id] ?? 1))
-    );
+    const clamped = DIMENSIONS.map((d) => Math.min(5, Math.max(1, state.dimensions[d.id] ?? 1)));
     log(
       PLATFORM_MATURITY_ACTIONS.ASSESSMENT_SAVED,
       {
@@ -204,10 +195,8 @@ export function PlatformMaturityClient() {
 
   const avg = useMemo(
     () =>
-      DIMENSIONS.reduce(
-        (a, d) => a + Math.min(5, Math.max(1, state.dimensions[d.id] ?? 1)),
-        0
-      ) / DIMENSIONS.length,
+      DIMENSIONS.reduce((a, d) => a + Math.min(5, Math.max(1, state.dimensions[d.id] ?? 1)), 0) /
+      DIMENSIONS.length,
     [state.dimensions]
   );
 
@@ -300,11 +289,9 @@ export function PlatformMaturityClient() {
       </ActionRow>
 
       <CalloutAlert tone="info" className="mb-4">
-        Average maturity:{" "}
-        <span className="font-data text-text">{avg.toFixed(2)}</span> / 5 across
-        {" "}
-        {DIMENSIONS.length} dimensions. Click <strong>Save snapshot</strong> to
-        log this assessment to history.
+        Average maturity: <span className="font-data text-text">{avg.toFixed(2)}</span> / 5 across{" "}
+        {DIMENSIONS.length} dimensions. Click <strong>Save snapshot</strong> to log this assessment
+        to history.
       </CalloutAlert>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -315,12 +302,8 @@ export function PlatformMaturityClient() {
               return (
                 <div key={d.id} className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-text">
-                      {d.label}
-                    </span>
-                    <span className="text-xs font-data text-accent">
-                      {score} / 5
-                    </span>
+                    <span className="text-sm font-medium text-text">{d.label}</span>
+                    <span className="text-xs font-data text-accent">{score} / 5</span>
                   </div>
                   <Slider
                     min={1}
@@ -332,16 +315,14 @@ export function PlatformMaturityClient() {
                     aria-label={`${d.label} maturity score`}
                   />
                   <div>
-                    <Label
-                      htmlFor={`platform-note-${d.id}`}
-                      className="text-xs text-sub sr-only"
-                    >
+                    <Label htmlFor={`platform-note-${d.id}`} className="text-xs text-sub sr-only">
                       {d.label} description
                     </Label>
-                    <Input
+                    {/* BUG-T6-platform-maturity-1: commit-on-blur. */}
+                    <BlurInput
                       id={`platform-note-${d.id}`}
                       value={state.notes[d.id] ?? ""}
-                      onChange={(e) => setNote(d.id, e.target.value)}
+                      onCommit={(v) => setNote(d.id, v)}
                       placeholder="Brief description / evidence (optional)"
                       className="bg-surface border-border text-xs"
                     />
@@ -353,15 +334,9 @@ export function PlatformMaturityClient() {
         </SectionCard>
 
         <ChartCard title="Maturity radar" height={360}>
-          <RadarChart
-            data={radarData}
-            margin={{ top: 16, right: 24, bottom: 16, left: 24 }}
-          >
+          <RadarChart data={radarData} margin={{ top: 16, right: 24, bottom: 16, left: 24 }}>
             <PolarGrid stroke={chartTheme.gridColor} />
-            <PolarAngleAxis
-              dataKey="subject"
-              tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
-            />
+            <PolarAngleAxis dataKey="subject" tick={{ fill: chartTheme.axisColor, fontSize: 10 }} />
             <PolarRadiusAxis
               angle={90}
               domain={[0, 5]}
@@ -380,24 +355,16 @@ export function PlatformMaturityClient() {
         </ChartCard>
       </div>
 
-      <SectionCard
-        title="Improvement roadmap"
-        icon={ChevronRight}
-        titleSize="lg"
-        className="mt-6"
-      >
+      <SectionCard title="Improvement roadmap" icon={ChevronRight} titleSize="lg" className="mt-6">
         {roadmap.length === 0 ? (
           <p className="text-sm text-sub">
-            All 8 dimensions are at level 3 or above — nice work. Raise the bar
-            by lifting any dimension towards level 4 or 5.
+            All 8 dimensions are at level 3 or above — nice work. Raise the bar by lifting any
+            dimension towards level 4 or 5.
           </p>
         ) : (
           <div className="space-y-3">
             {roadmap.map(({ dim, current, nextLevel, criteria }) => (
-              <div
-                key={dim.id}
-                className="rounded-lg border border-border bg-surface p-3"
-              >
+              <div key={dim.id} className="rounded-lg border border-border bg-surface p-3">
                 <div className="flex items-start gap-2 flex-wrap">
                   <ChevronRight
                     className="w-4 h-4 text-accent shrink-0 mt-0.5"
@@ -410,9 +377,7 @@ export function PlatformMaturityClient() {
                         (level {current} → {nextLevel})
                       </span>
                     </div>
-                    <p className="text-xs text-sub mt-1 leading-relaxed">
-                      {criteria}
-                    </p>
+                    <p className="text-xs text-sub mt-1 leading-relaxed">{criteria}</p>
                   </div>
                 </div>
               </div>

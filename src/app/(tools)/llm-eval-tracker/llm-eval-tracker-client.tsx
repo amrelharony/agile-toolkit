@@ -71,8 +71,8 @@ export function LLMEvalTrackerClient() {
       toast.error("Set a dataset name first");
       return;
     }
-    if (!Number.isFinite(sc)) {
-      toast.error("Score must be a number 0-1");
+    if (!Number.isFinite(sc) || sc < 0 || sc > 1) {
+      toast.error("Score must be a number between 0 and 1");
       return;
     }
     if (!llm.model) {
@@ -86,13 +86,18 @@ export function LLMEvalTrackerClient() {
       // the BYOK store directly.
       model: llm.model,
       dataset: liveDataset.trim(),
-      score: Math.max(0, Math.min(1, sc)),
+      score: sc,
       promptVersion: livePromptVersion.trim() || undefined,
       recordedAt: new Date().toISOString(),
     };
     upsertLLMEval(item);
     log(LLM_EVAL_ACTIONS.EVAL_LOGGED, { model: item.model, score: item.score });
-    emitSignal({ kind: "llmEval.recorded", at: item.recordedAt, toolId: "llm-eval-tracker", payload: item });
+    emitSignal({
+      kind: "llmEval.recorded",
+      at: item.recordedAt,
+      toolId: "llm-eval-tracker",
+      payload: item,
+    });
     toast.success(`Logged ${(item.score * 100).toFixed(0)}% for ${item.model} on ${item.dataset}`);
     // Clear only the score so the user can iterate (re-run, re-grade) on
     // the same prompt without re-typing dataset + prompt + version.
@@ -101,18 +106,23 @@ export function LLMEvalTrackerClient() {
 
   function addEval() {
     const sc = parseFloat(score);
-    if (!model.trim() || !dataset.trim() || !Number.isFinite(sc)) return;
+    if (!model.trim() || !dataset.trim() || !Number.isFinite(sc) || sc < 0 || sc > 1) return;
     const item: LLMEval = {
       id: crypto.randomUUID(),
       model: model.trim(),
       dataset: dataset.trim(),
-      score: Math.max(0, Math.min(1, sc)),
+      score: sc,
       promptVersion: promptVersion.trim() || undefined,
       recordedAt: new Date().toISOString(),
     };
     upsertLLMEval(item);
     log(LLM_EVAL_ACTIONS.EVAL_LOGGED, { model: item.model, score: item.score });
-    emitSignal({ kind: "llmEval.recorded", at: item.recordedAt, toolId: "llm-eval-tracker", payload: item });
+    emitSignal({
+      kind: "llmEval.recorded",
+      at: item.recordedAt,
+      toolId: "llm-eval-tracker",
+      payload: item,
+    });
     setScore("");
   }
 
@@ -148,9 +158,14 @@ export function LLMEvalTrackerClient() {
       const raw = window.localStorage.getItem(DEDUPE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) emittedRegressionsRef.current = new Set(parsed.filter((x): x is string => typeof x === "string"));
+        if (Array.isArray(parsed))
+          emittedRegressionsRef.current = new Set(
+            parsed.filter((x): x is string => typeof x === "string")
+          );
       }
-    } catch { /* corrupted or quota — fresh start */ }
+    } catch {
+      /* corrupted or quota — fresh start */
+    }
   }, []);
   useEffect(() => {
     let added = false;
@@ -190,7 +205,9 @@ export function LLMEvalTrackerClient() {
         const capped = arr.length > DEDUPE_CAP ? arr.slice(arr.length - DEDUPE_CAP) : arr;
         if (capped.length !== arr.length) emittedRegressionsRef.current = new Set(capped);
         window.localStorage.setItem(DEDUPE_KEY, JSON.stringify(capped));
-      } catch { /* SecurityError / quota — silently drop */ }
+      } catch {
+        /* SecurityError / quota — silently drop */
+      }
     }
   }, [regressionFindings]);
 
@@ -207,7 +224,7 @@ export function LLMEvalTrackerClient() {
   const chartData = useMemo(() => {
     const keyByName = new Map(datasetSeries.map((d) => [d.label, d.key]));
     const sorted = [...evals].sort(
-      (a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime(),
+      (a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime()
     );
     return sorted.map((e, i) => {
       const point: Record<string, string | number> = {
@@ -223,27 +240,47 @@ export function LLMEvalTrackerClient() {
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
-        teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-        impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-        decisions: s.decisions, techDebt: s.techDebt,
-        maturityLevel: s.maturityLevel, teamName: s.teamName,
-        llmEvals: s.llmEvals, prompts: s.prompts, hallucinations: s.hallucinations,
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        llmEvals: s.llmEvals,
+        prompts: s.prompts,
+        hallucinations: s.hallucinations,
         models: s.models,
       })
     )
   );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "LLM Eval Tracker",
-    prompts: generateLLMEvalPrompts({ evals, regressions: regressionFindings }, workspace),
-  }), [evals, regressionFindings, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "LLM Eval Tracker",
+      prompts: generateLLMEvalPrompts({ evals, regressions: regressionFindings }, workspace),
+    }),
+    [evals, regressionFindings, workspace]
+  );
 
   const csvData = {
     headers: ["Date", "Model", "Dataset", "Prompt Version", "Score"],
-    rows: evals.map((e) => [e.recordedAt.slice(0, 10), e.model, e.dataset, e.promptVersion ?? "", e.score]),
+    rows: evals.map((e) => [
+      e.recordedAt.slice(0, 10),
+      e.model,
+      e.dataset,
+      e.promptVersion ?? "",
+      e.score,
+    ]),
   };
 
-  const recentMean = evals.length === 0 ? 0 : evals.slice(-5).reduce((s, e) => s + e.score, 0) / Math.min(5, evals.length);
+  const recentMean =
+    evals.length === 0
+      ? 0
+      : evals.slice(-5).reduce((s, e) => s + e.score, 0) / Math.min(5, evals.length);
 
   return (
     <ToolPageWrapper
@@ -266,7 +303,11 @@ export function LLMEvalTrackerClient() {
 
         {/* Regression alerts */}
         {regressionFindings.length > 0 && (
-          <SectionCard title="Detected regressions" icon={TrendingDown} iconClassName="text-red-400">
+          <SectionCard
+            title="Detected regressions"
+            icon={TrendingDown}
+            iconClassName="text-red-400"
+          >
             <ul className="space-y-2 text-sm">
               {regressionFindings.map((f) => (
                 <li
@@ -279,7 +320,8 @@ export function LLMEvalTrackerClient() {
                     {(f.baselineMean * 100).toFixed(1)}% → {(f.recentMean * 100).toFixed(1)}%
                   </span>
                   <span className="text-xs text-red-300">
-                    Δ {(f.delta * 100).toFixed(1)} pts · t={f.tStat.toFixed(2)} · {(f.confidence * 100).toFixed(0)}% conf
+                    Δ {(f.delta * 100).toFixed(1)} pts · t={f.tStat.toFixed(2)} ·{" "}
+                    {(f.confidence * 100).toFixed(0)}% conf
                   </span>
                 </li>
               ))}
@@ -293,10 +335,9 @@ export function LLMEvalTrackerClient() {
             provider this is the faster path. */}
         <SectionCard title="Live Eval Run (BYOK)" icon={Beaker}>
           <p className="text-xs text-sub mb-3">
-            Run a prompt against your active BYOK provider, read the
-            streamed output, then grade it. The score is logged against the
-            provider&apos;s actual model id, so it lines up with the rest of
-            your eval history.
+            Run a prompt against your active BYOK provider, read the streamed output, then grade it.
+            The score is logged against the provider&apos;s actual model id, so it lines up with the
+            rest of your eval history.
           </p>
           {!llm.isReady ? (
             <div className="flex flex-col items-start gap-2 p-4 border border-dashed border-border rounded text-sub text-sm">
@@ -334,17 +375,17 @@ export function LLMEvalTrackerClient() {
                   it would show a Run button that no-ops on empty input. */}
               {livePrompt.trim().length > 0 && (
                 <div className="mt-3">
-                  <AiRunPanel
-                    prompt={livePrompt}
-                    toolName="LLM Eval Tracker (live)"
-                  />
+                  <AiRunPanel prompt={livePrompt} toolName="LLM Eval Tracker (live)" />
                 </div>
               )}
               {/* Grade strip — always visible so the user grasps the full
                   flow at a glance, even before they've run anything. */}
               <div className="mt-3 flex items-end gap-2 flex-wrap">
                 <div className="flex flex-col gap-1 min-w-[8rem]">
-                  <label htmlFor="live-eval-score" className="text-[10px] uppercase tracking-wider text-sub font-mono">
+                  <label
+                    htmlFor="live-eval-score"
+                    className="text-[10px] uppercase tracking-wider text-sub font-mono"
+                  >
                     Score 0–1
                   </label>
                   <Input
@@ -474,7 +515,9 @@ export function LLMEvalTrackerClient() {
                 </thead>
                 <tbody>
                   {[...evals]
-                    .sort((a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime())
+                    .sort(
+                      (a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
+                    )
                     .map((e) => (
                       <tr key={e.id} className="border-t border-border">
                         <td className="p-2 font-mono text-xs">{e.recordedAt.slice(0, 10)}</td>
@@ -503,8 +546,17 @@ export function LLMEvalTrackerClient() {
   );
 }
 
-function KPI({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "ok" | "danger" }) {
-  const colorClass = tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+function KPI({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "ok" | "danger";
+}) {
+  const colorClass =
+    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

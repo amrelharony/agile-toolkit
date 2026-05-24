@@ -8,6 +8,7 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Trash2, CalendarRange, AlertCircle } from "lucide-react";
 import { simulateVelocityDistribution } from "@/lib/analytics/monte-carlo";
@@ -60,21 +61,37 @@ export function PiPlanningClient() {
   const addTeam = () => {
     if (!newTeam.name.trim()) return;
     const description = newTeam.description.trim() || undefined;
-    const team: PiTeam = { id: nanoid(6), name: newTeam.name.trim(), velocity: newTeam.velocity, description };
+    const team: PiTeam = {
+      id: nanoid(6),
+      name: newTeam.name.trim(),
+      velocity: newTeam.velocity,
+      description,
+    };
     setState((s) => ({ ...s, teams: [...s.teams, team] }));
     log(PI_PLANNING_ACTIONS.TEAM_ADDED, { teamId: team.id, name: team.name, description });
     setNewTeam({ name: "", velocity: 20, description: "" });
   };
   const removeTeam = (id: string) => {
     const team = state.teams.find((t) => t.id === id);
-    setState((s) => ({ ...s, teams: s.teams.filter((t) => t.id !== id), items: s.items.filter((i) => i.teamId !== id) }));
+    setState((s) => ({
+      ...s,
+      teams: s.teams.filter((t) => t.id !== id),
+      items: s.items.filter((i) => i.teamId !== id),
+    }));
     log(PI_PLANNING_ACTIONS.TEAM_REMOVED, { teamId: id, name: team?.name });
   };
   const updateTeam = (id: string, patch: Partial<PiTeam>) =>
     setState((s) => ({ ...s, teams: s.teams.map((t) => (t.id === id ? { ...t, ...patch } : t)) }));
 
   const addItem = (teamId: string, iteration: number) => {
-    const item = { id: nanoid(6), title: "", teamId, iteration, points: 3, kind: "feature" as const };
+    const item = {
+      id: nanoid(6),
+      title: "",
+      teamId,
+      iteration,
+      points: 3,
+      kind: "feature" as const,
+    };
     setState((s) => ({ ...s, items: [...s.items, item] }));
     log(PI_PLANNING_ACTIONS.ITEM_ADDED, { itemId: item.id, teamId, iteration });
   };
@@ -171,7 +188,12 @@ export function PiPlanningClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "PI Planning Board",
-      prompts: generatePiPlanningPrompts({ teams: state.teams, items: state.items, iterations: state.iterations, overloads }),
+      prompts: generatePiPlanningPrompts({
+        teams: state.teams,
+        items: state.items,
+        iterations: state.iterations,
+        overloads,
+      }),
     }),
     [state, overloads]
   );
@@ -204,7 +226,15 @@ export function PiPlanningClient() {
         <ExportButton
           filename="pi-planning"
           csvData={{
-            headers: ["Team", "Team Description", "Iteration", "Item", "Item Description", "Points", "Kind"],
+            headers: [
+              "Team",
+              "Team Description",
+              "Iteration",
+              "Item",
+              "Item Description",
+              "Points",
+              "Kind",
+            ],
             rows: state.items.map((i) => {
               const team = state.teams.find((t) => t.id === i.teamId);
               return [
@@ -225,7 +255,8 @@ export function PiPlanningClient() {
       {sprintsSincePiStart.length > 0 && (
         <div className="mb-3">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/5 text-accent px-2.5 py-1 text-[11px]">
-            {sprintsSincePiStart.length} sprint{sprintsSincePiStart.length === 1 ? "" : "s"} completed since PI start
+            {sprintsSincePiStart.length} sprint{sprintsSincePiStart.length === 1 ? "" : "s"}{" "}
+            completed since PI start
           </span>
         </div>
       )}
@@ -294,7 +325,10 @@ export function PiPlanningClient() {
               // invalid input.
               onChange={(e) => {
                 const n = Number(e.target.value);
-                setNewTeam((nt) => ({ ...nt, velocity: Number.isFinite(n) && n >= 0 ? n : nt.velocity }));
+                setNewTeam((nt) => ({
+                  ...nt,
+                  velocity: Number.isFinite(n) && n >= 0 ? n : nt.velocity,
+                }));
               }}
               placeholder="Velocity"
               className="bg-bg border-border font-data w-24"
@@ -324,7 +358,10 @@ export function PiPlanningClient() {
             <tr>
               <th className="text-left text-xs text-sub uppercase tracking-wider w-40">Team</th>
               {Array.from({ length: state.iterations }).map((_, it) => (
-                <th key={it} className="text-left text-xs text-sub uppercase tracking-wider min-w-[180px]">
+                <th
+                  key={it}
+                  className="text-left text-xs text-sub uppercase tracking-wider min-w-[180px]"
+                >
                   Iteration {it + 1}
                 </th>
               ))}
@@ -359,7 +396,12 @@ export function PiPlanningClient() {
                           className="bg-bg border-border font-data text-xs h-7 w-20"
                         />
                         <span className="text-xs text-sub">vel</span>
-                        <Button variant="ghost" size="sm" onClick={() => removeTeam(team.id)} className="ml-auto h-7 text-sub hover:text-danger">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeTeam(team.id)}
+                          className="ml-auto h-7 text-sub hover:text-danger"
+                        >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </div>
@@ -367,27 +409,45 @@ export function PiPlanningClient() {
                   </Card>
                 </td>
                 {Array.from({ length: state.iterations }).map((_, it) => {
-                  const items = state.items.filter((i) => i.teamId === team.id && i.iteration === it);
-                  const planned = items.filter((i) => i.kind === "feature").reduce((a, b) => a + b.points, 0);
+                  const items = state.items.filter(
+                    (i) => i.teamId === team.id && i.iteration === it
+                  );
+                  const planned = items
+                    .filter((i) => i.kind === "feature")
+                    .reduce((a, b) => a + b.points, 0);
                   const over = planned > team.velocity * 1.15;
                   return (
                     <td key={it} className="align-top">
-                      <div className={`rounded-lg border p-2 space-y-1 min-h-[100px] ${over ? "border-danger/40 bg-danger/5" : "border-border bg-surface"}`}>
+                      <div
+                        className={`rounded-lg border p-2 space-y-1 min-h-[100px] ${over ? "border-danger/40 bg-danger/5" : "border-border bg-surface"}`}
+                      >
                         <div className="flex items-center justify-between text-[10px] text-sub font-data">
-                          <span>{planned} / {team.velocity}</span>
+                          <span>
+                            {planned} / {team.velocity}
+                          </span>
                           {over && <AlertCircle className="w-3 h-3 text-danger" />}
                         </div>
                         {items.map((item) => (
-                          <div key={item.id} className="rounded border border-border bg-bg p-1.5 space-y-1" style={{ borderLeftWidth: 3, borderLeftColor: KIND_COLORS[item.kind] }}>
-                            <Input
+                          <div
+                            key={item.id}
+                            className="rounded border border-border bg-bg p-1.5 space-y-1"
+                            style={{ borderLeftWidth: 3, borderLeftColor: KIND_COLORS[item.kind] }}
+                          >
+                            {/* BUG-T6-pi-planning-3: commit-on-blur for
+                                title + description so a board with many
+                                items doesn't write to localStorage on
+                                every keystroke. */}
+                            <BlurInput
                               value={item.title}
-                              onChange={(e) => updateItem(item.id, { title: e.target.value })}
+                              onCommit={(v) => updateItem(item.id, { title: v })}
                               placeholder="Item"
                               className="bg-surface border-border text-xs h-6"
                             />
-                            <Textarea
+                            <BlurTextarea
                               value={item.description ?? ""}
-                              onChange={(e) => updateItem(item.id, { description: e.target.value.trim() ? e.target.value : undefined })}
+                              onCommit={(v) =>
+                                updateItem(item.id, { description: v.trim() ? v : undefined })
+                              }
                               placeholder="Description (optional)..."
                               rows={2}
                               className="bg-surface border-border resize-none text-[10px] py-1"
@@ -403,26 +463,39 @@ export function PiPlanningClient() {
                                 // false → overload silently hidden.
                                 onChange={(e) => {
                                   const n = Number(e.target.value);
-                                  if (Number.isFinite(n) && n >= 0) updateItem(item.id, { points: n });
+                                  if (Number.isFinite(n) && n >= 0)
+                                    updateItem(item.id, { points: n });
                                 }}
                                 className="bg-surface border-border font-data text-[10px] h-6 w-12"
                               />
                               <select
                                 value={item.kind}
-                                onChange={(e) => updateItem(item.id, { kind: e.target.value as PiItem["kind"] })}
+                                onChange={(e) =>
+                                  updateItem(item.id, { kind: e.target.value as PiItem["kind"] })
+                                }
                                 className="bg-surface border border-border rounded text-[10px] h-6 flex-1 px-1"
                               >
                                 <option value="feature">feature</option>
                                 <option value="dependency">dep</option>
                                 <option value="risk">risk</option>
                               </select>
-                              <Button variant="ghost" size="sm" onClick={() => removeItem(item.id)} className="h-5 w-5 p-0 text-sub hover:text-danger">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeItem(item.id)}
+                                className="h-5 w-5 p-0 text-sub hover:text-danger"
+                              >
                                 <Trash2 className="w-3 h-3" />
                               </Button>
                             </div>
                           </div>
                         ))}
-                        <Button variant="ghost" size="sm" onClick={() => addItem(team.id, it)} className="w-full h-6 text-[10px] text-sub hover:text-accent">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => addItem(team.id, it)}
+                          className="w-full h-6 text-[10px] text-sub hover:text-accent"
+                        >
                           <Plus className="w-3 h-3" />
                         </Button>
                       </div>

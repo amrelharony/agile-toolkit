@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { BlurInput } from "@/components/shared/blur-fields";
 import {
   Coffee,
   Plus,
@@ -517,16 +518,16 @@ export function OneOnOneClient() {
                       <div className="text-text break-words">{a.text}</div>
                       {a.status === "action_required" && (
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
-                          <Input
+                          <BlurInput
                             value={a.action ?? ""}
-                            onChange={(e) => updateAgendaItem(a.id, { action: e.target.value })}
+                            onCommit={(v) => updateAgendaItem(a.id, { action: v })}
                             placeholder="Action..."
                             className="bg-bg border-border text-xs h-7"
                             aria-label="Action"
                           />
-                          <Input
+                          <BlurInput
                             value={a.owner ?? ""}
-                            onChange={(e) => updateAgendaItem(a.id, { owner: e.target.value })}
+                            onCommit={(v) => updateAgendaItem(a.id, { owner: v })}
                             placeholder="Owner"
                             className="bg-bg border-border text-xs h-7"
                             aria-label="Owner"

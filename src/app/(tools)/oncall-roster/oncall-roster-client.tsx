@@ -377,7 +377,13 @@ export function OncallRosterClient() {
     // UTC, so the same page can land in different weekly buckets
     // across runs and the week-over-week trend is off by one for
     // non-UTC users.
-    const anchor = new Date(today.getTime() - WEEKS * 7 * 86_400_000);
+    // BUG-T5-oncall-roster-4: step back via `setDate(-N)` rather than
+    // subtracting `N * 86_400_000` ms. The ms-arithmetic ignores DST
+    // transitions — across a spring-forward / fall-back boundary the
+    // anchor lands 1h off the local midnight and `setHours(0,0,0,0)`
+    // can pull it back to the *previous* day, shifting all 26 buckets.
+    const anchor = new Date(today);
+    anchor.setDate(today.getDate() - WEEKS * 7);
     const weekStart = new Date(anchor);
     weekStart.setDate(anchor.getDate() - anchor.getDay());
     weekStart.setHours(0, 0, 0, 0);

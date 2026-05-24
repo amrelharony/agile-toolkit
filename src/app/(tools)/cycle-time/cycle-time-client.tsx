@@ -35,13 +35,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import {
-  Clock,
-  Plus,
-  Trash2,
-  BarChart3,
-  Target,
-} from "lucide-react";
+import { Clock, Plus, Trash2, BarChart3, Target } from "lucide-react";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -113,7 +107,10 @@ const BUCKETS: { label: string; min: number; max: number }[] = [
   // the min:0 lower bound, a workspace where every task closes on the
   // same day showed an empty histogram + a non-zero N — a visible
   // contradiction.
-  { label: "&le;1 day", min: 0, max: 1 },
+  // BUG-T2-cycle-time-1: use the unicode "≤" character. SVG <text>
+  // doesn't interpret HTML entities; the chart axis was rendering the
+  // literal "&le;1 day".
+  { label: "≤1 day", min: 0, max: 1 },
   { label: "2 days", min: 2, max: 2 },
   { label: "3-4 days", min: 3, max: 4 },
   { label: "5-7 days", min: 5, max: 7 },
@@ -148,11 +145,9 @@ const useCycleTimeStore = create<CycleTimeStore>()(
     (set) => ({
       items: [defaultFirstItem],
 
-      addItem: () =>
-        set((s) => ({ items: [...s.items, createItem()] })),
+      addItem: () => set((s) => ({ items: [...s.items, createItem()] })),
 
-      removeItem: (id) =>
-        set((s) => ({ items: s.items.filter((i) => i.id !== id) })),
+      removeItem: (id) => set((s) => ({ items: s.items.filter((i) => i.id !== id) })),
 
       updateItem: (id, updates) =>
         set((s) => ({
@@ -191,9 +186,7 @@ function StatCard({
       <CardContent className="p-5">
         <p className="text-xs text-sub mb-2">{label}</p>
         <div className="flex items-baseline gap-1.5 flex-wrap">
-          <span
-            className={`text-2xl font-data font-bold ${accent ? "text-accent" : "text-text"}`}
-          >
+          <span className={`text-2xl font-data font-bold ${accent ? "text-accent" : "text-text"}`}>
             {value}
           </span>
           {unit && <span className="text-sm text-sub">{unit}</span>}
@@ -237,7 +230,9 @@ function ScatterTooltip({
   const d = payload[0].payload;
   return (
     <div className="bg-surface border border-border rounded-lg p-3 shadow-xl text-sm">
-      <p className="text-sub mb-1">#{d.idx} — {d.name || "(unnamed)"}</p>
+      <p className="text-sub mb-1">
+        #{d.idx} — {d.name || "(unnamed)"}
+      </p>
       <p className="font-data font-bold text-accent">{d.cycleTime} days</p>
     </div>
   );
@@ -307,9 +302,10 @@ export function CycleTimeClient() {
   /* -- Percentile map ------------------------------------------------------ */
   const percentileMap = useMemo(
     () =>
-      Object.fromEntries(
-        PERCENTILE_KEYS.map((p) => [p, percentile(sortedCT, p)])
-      ) as Record<(typeof PERCENTILE_KEYS)[number], number>,
+      Object.fromEntries(PERCENTILE_KEYS.map((p) => [p, percentile(sortedCT, p)])) as Record<
+        (typeof PERCENTILE_KEYS)[number],
+        number
+      >,
     [sortedCT]
   );
 
@@ -340,10 +336,7 @@ export function CycleTimeClient() {
     if (validCycleTimes.length < 4) return [];
     return cusum(validCycleTimes).map((cp) => ({
       x: cp.index + 1,
-      label:
-        cp.direction === "up"
-          ? "Cycle-time regime up"
-          : "Cycle-time regime down",
+      label: cp.direction === "up" ? "Cycle-time regime up" : "Cycle-time regime down",
       detail: `CUSUM detected a sustained ${cp.direction === "up" ? "increase" : "decrease"} starting at item #${cp.index + 1}.`,
       confidence: cp.cumulativeStat >= 6 ? "strong" : "moderate",
     }));
@@ -370,7 +363,7 @@ export function CycleTimeClient() {
       const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
       date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
       const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-      const week = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+      const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
       const key = `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
       const arr = buckets.get(key) ?? [];
       arr.push(i.cycleTime);
@@ -424,16 +417,19 @@ export function CycleTimeClient() {
   );
 
   /* -- Export data --------------------------------------------------------- */
-  const csvData = useMemo(() => ({
-    headers: ["Item Name", "Description", "Start Date", "End Date", "Cycle Time (days)"],
-    rows: itemsWithCT.map((i) => [
-      i.name || "(unnamed)",
-      i.description ?? "",
-      i.startDate,
-      i.endDate,
-      i.cycleTime ?? "N/A",
-    ]),
-  }), [itemsWithCT]);
+  const csvData = useMemo(
+    () => ({
+      headers: ["Item Name", "Description", "Start Date", "End Date", "Cycle Time (days)"],
+      rows: itemsWithCT.map((i) => [
+        i.name || "(unnamed)",
+        i.description ?? "",
+        i.startDate,
+        i.endDate,
+        i.cycleTime ?? "N/A",
+      ]),
+    }),
+    [itemsWithCT]
+  );
 
   const jsonData = useMemo(
     () => ({
@@ -450,15 +446,30 @@ export function CycleTimeClient() {
     [itemsWithCT, stats, percentileMap]
   );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Cycle Time Tracker",
-    prompts: generateCycleTimePrompts({
-      items: itemsWithCT
-        .filter((i): i is typeof i & { cycleTime: number } => i.cycleTime !== null)
-        .map((i) => ({ name: i.name, startDate: i.startDate, endDate: i.endDate, cycleTimeDays: i.cycleTime, description: i.description })),
-      stats: { mean: stats.avg, median: stats.median, p85: stats.p85, p95: percentileMap[95], stdDev: stats.stddev },
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Cycle Time Tracker",
+      prompts: generateCycleTimePrompts({
+        items: itemsWithCT
+          .filter((i): i is typeof i & { cycleTime: number } => i.cycleTime !== null)
+          .map((i) => ({
+            name: i.name,
+            startDate: i.startDate,
+            endDate: i.endDate,
+            cycleTimeDays: i.cycleTime,
+            description: i.description,
+          })),
+        stats: {
+          mean: stats.avg,
+          median: stats.median,
+          p85: stats.p85,
+          p95: percentileMap[95],
+          stdDev: stats.stddev,
+        },
+      }),
     }),
-  }), [itemsWithCT, stats, percentileMap]);
+    [itemsWithCT, stats, percentileMap]
+  );
 
   /* -- Render -------------------------------------------------------------- */
   return (
@@ -604,7 +615,9 @@ export function CycleTimeClient() {
                           0d, P95 falls below the 1-day bucket), which threw
                           console warnings and rendered phantom lines. */}
                       {(() => {
-                        const idx = BUCKETS.findIndex((b) => stats.median >= b.min && stats.median <= b.max);
+                        const idx = BUCKETS.findIndex(
+                          (b) => stats.median >= b.min && stats.median <= b.max
+                        );
                         return idx >= 0 ? (
                           <ReferenceLine
                             x={BUCKETS[idx].label}
@@ -615,7 +628,9 @@ export function CycleTimeClient() {
                         ) : null;
                       })()}
                       {(() => {
-                        const idx = BUCKETS.findIndex((b) => stats.p85 >= b.min && stats.p85 <= b.max);
+                        const idx = BUCKETS.findIndex(
+                          (b) => stats.p85 >= b.min && stats.p85 <= b.max
+                        );
                         return idx >= 0 ? (
                           <ReferenceLine
                             x={BUCKETS[idx].label}
@@ -626,7 +641,9 @@ export function CycleTimeClient() {
                         ) : null;
                       })()}
                       {(() => {
-                        const idx = BUCKETS.findIndex((b) => percentileMap[95] >= b.min && percentileMap[95] <= b.max);
+                        const idx = BUCKETS.findIndex(
+                          (b) => percentileMap[95] >= b.min && percentileMap[95] <= b.max
+                        );
                         return idx >= 0 ? (
                           <ReferenceLine
                             x={BUCKETS[idx].label}
@@ -668,7 +685,13 @@ export function CycleTimeClient() {
                         tickLine={false}
                         allowDecimals={false}
                       >
-                        <RechartsLabel value="Item #" offset={-10} position="insideBottom" fill="#94a3b8" fontSize={12} />
+                        <RechartsLabel
+                          value="Item #"
+                          offset={-10}
+                          position="insideBottom"
+                          fill="#94a3b8"
+                          fontSize={12}
+                        />
                       </XAxis>
                       <YAxis
                         dataKey="cycleTime"
@@ -690,19 +713,34 @@ export function CycleTimeClient() {
                         y={stats.median}
                         stroke="#00f0ff"
                         strokeDasharray="5 3"
-                        label={{ value: `P50 (${stats.median}d)`, fill: "#00f0ff", fontSize: 10, position: "right" }}
+                        label={{
+                          value: `P50 (${stats.median}d)`,
+                          fill: "#00f0ff",
+                          fontSize: 10,
+                          position: "right",
+                        }}
                       />
                       <ReferenceLine
                         y={stats.p85}
                         stroke="#f59e0b"
                         strokeDasharray="5 3"
-                        label={{ value: `P85 (${stats.p85}d)`, fill: "#f59e0b", fontSize: 10, position: "right" }}
+                        label={{
+                          value: `P85 (${stats.p85}d)`,
+                          fill: "#f59e0b",
+                          fontSize: 10,
+                          position: "right",
+                        }}
                       />
                       <ReferenceLine
                         y={percentileMap[95]}
                         stroke="#ef4444"
                         strokeDasharray="5 3"
-                        label={{ value: `P95 (${percentileMap[95]}d)`, fill: "#ef4444", fontSize: 10, position: "right" }}
+                        label={{
+                          value: `P95 (${percentileMap[95]}d)`,
+                          fill: "#ef4444",
+                          fontSize: 10,
+                          position: "right",
+                        }}
                       />
                       {scatterCusumAnnotations.map((a, i) => (
                         <CausalLine key={i} annotation={a} />
@@ -719,8 +757,7 @@ export function CycleTimeClient() {
                     <div className="rounded-xl bg-accent/5 border border-accent/20 p-5 text-center">
                       <p className="text-sub text-sm mb-1">Service Level Expectation</p>
                       <p className="text-2xl font-display font-bold text-text">
-                        <span className="text-accent">{targetPct}%</span>
-                        {" "}of items complete within{" "}
+                        <span className="text-accent">{targetPct}%</span> of items complete within{" "}
                         <span className="text-[#00ff88]">{sleValue} days</span>
                       </p>
                     </div>
@@ -743,9 +780,7 @@ export function CycleTimeClient() {
                           className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
                         />
                       </div>
-                      <p className="text-xs text-sub pb-2.5">
-                        = {sleValue} days
-                      </p>
+                      <p className="text-xs text-sub pb-2.5">= {sleValue} days</p>
                     </div>
 
                     {/* Target Days Input — SmartInput-backed. The predictor
@@ -771,8 +806,8 @@ export function CycleTimeClient() {
                                   sleDaysBuffer !== null
                                     ? sleDaysBuffer
                                     : sleTargetDays !== null
-                                    ? String(sleTargetDays)
-                                    : ""
+                                      ? String(sleTargetDays)
+                                      : ""
                                 }
                                 placeholder={ghost ?? "e.g. 5"}
                                 onKeyDown={(e) => {
@@ -845,8 +880,8 @@ export function CycleTimeClient() {
                                         p <= 50
                                           ? "text-accent"
                                           : p <= 85
-                                          ? "text-amber-400"
-                                          : "text-red-400"
+                                            ? "text-amber-400"
+                                            : "text-red-400"
                                       }`}
                                     >
                                       {val} days
@@ -886,19 +921,10 @@ export function CycleTimeClient() {
                 </Badge>
               </CardTitle>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="danger-ghost"
-                  size="sm"
-                  onClick={reset}
-                >
+                <Button variant="danger-ghost" size="sm" onClick={reset}>
                   Reset
                 </Button>
-                <Button
-                  size="sm"
-                  variant="toolkit"
-                  onClick={addItem}
-                  className="gap-1.5"
-                >
+                <Button size="sm" variant="toolkit" onClick={addItem} className="gap-1.5">
                   <Plus className="w-4 h-4" />
                   Add Item
                 </Button>

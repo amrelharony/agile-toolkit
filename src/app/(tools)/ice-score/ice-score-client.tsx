@@ -38,41 +38,90 @@ export function IceScoreClient() {
     // empty.  `iceScore` will then clamp into [1, 10].
     const safeNum = (raw: string): number => {
       const n = parseFloat(raw);
-      return Number.isFinite(n) ? n : 5;
+      if (!Number.isFinite(n)) return 5;
+      // BUG-T4-ice-score-1: clamp into [1, 10] HERE so the stored
+      // fields match the input's documented range. The prior code
+      // relied on `iceScore`'s internal clamp, which left the stored
+      // `fields.impact` = "100" while the score reflected `10` —
+      // confusing in the table.
+      return Math.min(10, Math.max(1, n));
     };
-    const i = safeNum(impact), c = safeNum(confidence), e = safeNum(ease);
+    const i = safeNum(impact),
+      c = safeNum(confidence),
+      e = safeNum(ease);
     const score = iceScore(i, c, e);
     const item: PrioritizationItem = {
-      id: crypto.randomUUID(), framework: "ice", title: title.trim(),
-      score, fields: { impact: i, confidence: c, ease: e },
-      status: "scored", updatedAt: new Date().toISOString(),
+      id: crypto.randomUUID(),
+      framework: "ice",
+      title: title.trim(),
+      score,
+      fields: { impact: i, confidence: c, ease: e },
+      status: "scored",
+      updatedAt: new Date().toISOString(),
     };
     upsert(item);
     log(ICE_ACTIONS.ITEM_ADDED, { title: item.title, score });
-    emitSignal({ kind: "prioritization.scored", at: item.updatedAt, toolId: "ice-score", payload: { framework: "ice", id: item.id, score } });
-    setTitle(""); setImpact(""); setConfidence(""); setEase("");
+    emitSignal({
+      kind: "prioritization.scored",
+      at: item.updatedAt,
+      toolId: "ice-score",
+      payload: { framework: "ice", id: item.id, score },
+    });
+    setTitle("");
+    setImpact("");
+    setConfidence("");
+    setEase("");
   }
 
-  const ranked = useMemo(() => rank(items.map((x) => ({
-    id: x.id, title: x.title, fields: x.fields ?? {}, score: x.score ?? 0,
-  }))), [items]);
+  const ranked = useMemo(
+    () =>
+      rank(
+        items.map((x) => ({
+          id: x.id,
+          title: x.title,
+          fields: x.fields ?? {},
+          score: x.score ?? 0,
+        }))
+      ),
+    [items]
+  );
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    prioritizations: s.prioritizations,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        prioritizations: s.prioritizations,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "ICE Score",
-    prompts: generateIcePrompts({ items: ranked }, workspace),
-  }), [ranked, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "ICE Score",
+      prompts: generateIcePrompts({ items: ranked }, workspace),
+    }),
+    [ranked, workspace]
+  );
 
   const csvData = {
     headers: ["Rank", "Title", "Impact", "Confidence", "Ease", "Score"],
-    rows: ranked.map((r) => [r.rank, r.title, r.fields.impact, r.fields.confidence, r.fields.ease, r.score]),
+    rows: ranked.map((r) => [
+      r.rank,
+      r.title,
+      r.fields.impact,
+      r.fields.confidence,
+      r.fields.ease,
+      r.score,
+    ]),
   };
 
   return (
@@ -84,12 +133,41 @@ export function IceScoreClient() {
       <div ref={exportRef} className="space-y-4">
         <SectionCard title="Add experiment / idea" icon={Plus}>
           <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
-            <Input className="sm:col-span-2" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-            <Input type="number" min="1" max="10" placeholder="Impact 1-10" value={impact} onChange={(e) => setImpact(e.target.value)} />
-            <Input type="number" min="1" max="10" placeholder="Confidence 1-10" value={confidence} onChange={(e) => setConfidence(e.target.value)} />
-            <Input type="number" min="1" max="10" placeholder="Ease 1-10" value={ease} onChange={(e) => setEase(e.target.value)} />
+            <Input
+              className="sm:col-span-2"
+              placeholder="Title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+            <Input
+              type="number"
+              min="1"
+              max="10"
+              placeholder="Impact 1-10"
+              value={impact}
+              onChange={(e) => setImpact(e.target.value)}
+            />
+            <Input
+              type="number"
+              min="1"
+              max="10"
+              placeholder="Confidence 1-10"
+              value={confidence}
+              onChange={(e) => setConfidence(e.target.value)}
+            />
+            <Input
+              type="number"
+              min="1"
+              max="10"
+              placeholder="Ease 1-10"
+              value={ease}
+              onChange={(e) => setEase(e.target.value)}
+            />
           </div>
-          <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Add & score</Button>
+          <Button onClick={add} className="mt-3 gap-1">
+            <Plus className="w-4 h-4" />
+            Add & score
+          </Button>
         </SectionCard>
 
         {ranked.length > 0 && (
@@ -99,17 +177,28 @@ export function IceScoreClient() {
             actions={
               <>
                 <AiPromptGenerator config={promptConfig} />
-                <ExportButton filename="ice-scores" csvData={csvData} jsonData={ranked} targetRef={exportRef} />
+                <ExportButton
+                  filename="ice-scores"
+                  csvData={csvData}
+                  jsonData={ranked}
+                  targetRef={exportRef}
+                />
               </>
             }
           >
             <div className="table-wrap-responsive">
               <table className="w-full text-sm">
-                <thead><tr className="text-left text-xs text-sub uppercase">
-                  <th className="p-2">#</th><th className="p-2">Title</th>
-                  <th className="p-2 text-right">I</th><th className="p-2 text-right">C</th><th className="p-2 text-right">E</th>
-                  <th className="p-2 text-right">Score</th><th className="p-2 w-10"></th>
-                </tr></thead>
+                <thead>
+                  <tr className="text-left text-xs text-sub uppercase">
+                    <th className="p-2">#</th>
+                    <th className="p-2">Title</th>
+                    <th className="p-2 text-right">I</th>
+                    <th className="p-2 text-right">C</th>
+                    <th className="p-2 text-right">E</th>
+                    <th className="p-2 text-right">Score</th>
+                    <th className="p-2 w-10"></th>
+                  </tr>
+                </thead>
                 <tbody>
                   {ranked.map((r) => (
                     <tr key={r.id} className="border-t border-border">
@@ -119,7 +208,18 @@ export function IceScoreClient() {
                       <td className="p-2 text-right font-mono text-xs">{r.fields.confidence}</td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.ease}</td>
                       <td className="p-2 text-right font-mono">{r.score}</td>
-                      <td className="p-2"><button onClick={() => { removeOne(r.id); log(ICE_ACTIONS.ITEM_REMOVED, { id: r.id }); }} aria-label="Remove item" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button></td>
+                      <td className="p-2">
+                        <button
+                          onClick={() => {
+                            removeOne(r.id);
+                            log(ICE_ACTIONS.ITEM_REMOVED, { id: r.id });
+                          }}
+                          aria-label="Remove item"
+                          className="text-sub hover:text-red-400"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

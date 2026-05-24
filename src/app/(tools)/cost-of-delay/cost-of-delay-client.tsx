@@ -32,21 +32,34 @@ export function CostOfDelayClient() {
 
   function add() {
     if (!title.trim()) return;
-    const wk = parseFloat(perWeekUsd);
-    const dl = parseFloat(weeksDelayed);
+    // BUG-T2-cost-of-delay-1: use Number() not parseFloat() so "12abc"
+    // or "$10,000" stop silently. The user gets nothing instead of
+    // misleading partial parses.
+    const wk = Number(perWeekUsd);
+    const dl = Number(weeksDelayed);
     const safeWk = Number.isFinite(wk) ? Math.max(0, wk) : 0;
     const safeDl = Number.isFinite(dl) ? Math.max(0, dl) : 0;
     const total = safeWk * safeDl;
     const item: PrioritizationItem = {
-      id: crypto.randomUUID(), framework: "cost-of-delay", title: title.trim().slice(0, 200),
+      id: crypto.randomUUID(),
+      framework: "cost-of-delay",
+      title: title.trim().slice(0, 200),
       score: total,
       fields: { perWeekUsd: safeWk, weeksDelayed: safeDl, totalCost: total },
-      status: "scored", updatedAt: new Date().toISOString(),
+      status: "scored",
+      updatedAt: new Date().toISOString(),
     };
     upsert(item);
     log(COD_ACTIONS.ITEM_ADDED, { title: item.title, totalCost: item.score });
-    emitSignal({ kind: "prioritization.scored", at: item.updatedAt, toolId: "cost-of-delay", payload: { framework: "cost-of-delay", id: item.id, score: total } });
-    setTitle(""); setPerWeekUsd(""); setWeeksDelayed("");
+    emitSignal({
+      kind: "prioritization.scored",
+      at: item.updatedAt,
+      toolId: "cost-of-delay",
+      payload: { framework: "cost-of-delay", id: item.id, score: total },
+    });
+    setTitle("");
+    setPerWeekUsd("");
+    setWeeksDelayed("");
   }
   const totalCost = codItems.reduce((s, x) => s + (x.score ?? 0), 0);
   const sorted = [...codItems].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
@@ -55,22 +68,40 @@ export function CostOfDelayClient() {
     cost: Math.round(it.score ?? 0),
   }));
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    prioritizations: s.prioritizations,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        prioritizations: s.prioritizations,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Cost-of-Delay Tracker",
-    prompts: generateCostOfDelayPrompts({ items: sorted, totalCost }, workspace),
-  }), [sorted, totalCost, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Cost-of-Delay Tracker",
+      prompts: generateCostOfDelayPrompts({ items: sorted, totalCost }, workspace),
+    }),
+    [sorted, totalCost, workspace]
+  );
 
   const csvData = {
     headers: ["Title", "Per week ($)", "Weeks delayed", "Total cost ($)"],
-    rows: codItems.map((it) => [it.title, it.fields?.perWeekUsd ?? 0, it.fields?.weeksDelayed ?? 0, it.score ?? 0]),
+    rows: codItems.map((it) => [
+      it.title,
+      it.fields?.perWeekUsd ?? 0,
+      it.fields?.weeksDelayed ?? 0,
+      it.score ?? 0,
+    ]),
   };
 
   return (
@@ -82,11 +113,35 @@ export function CostOfDelayClient() {
       <div ref={exportRef} className="space-y-4">
         <SectionCard title="Add initiative & estimate cost" icon={Plus}>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-            <Input className="sm:col-span-2" placeholder="Initiative" value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Initiative title" />
-            <Input type="number" min={0} step="100" placeholder="Cost per week ($)" value={perWeekUsd} onChange={(e) => setPerWeekUsd(e.target.value)} aria-label="Cost per week in dollars" />
-            <Input type="number" min={0} placeholder="Weeks delayed" value={weeksDelayed} onChange={(e) => setWeeksDelayed(e.target.value)} aria-label="Weeks delayed" />
+            <Input
+              className="sm:col-span-2"
+              placeholder="Initiative"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              aria-label="Initiative title"
+            />
+            <Input
+              type="number"
+              min={0}
+              step="100"
+              placeholder="Cost per week ($)"
+              value={perWeekUsd}
+              onChange={(e) => setPerWeekUsd(e.target.value)}
+              aria-label="Cost per week in dollars"
+            />
+            <Input
+              type="number"
+              min={0}
+              placeholder="Weeks delayed"
+              value={weeksDelayed}
+              onChange={(e) => setWeeksDelayed(e.target.value)}
+              aria-label="Weeks delayed"
+            />
           </div>
-          <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Add</Button>
+          <Button onClick={add} className="mt-3 gap-1">
+            <Plus className="w-4 h-4" />
+            Add
+          </Button>
         </SectionCard>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -101,7 +156,12 @@ export function CostOfDelayClient() {
             actions={
               <>
                 <AiPromptGenerator config={promptConfig} />
-                <ExportButton filename="cost-of-delay" csvData={csvData} jsonData={codItems} targetRef={exportRef} />
+                <ExportButton
+                  filename="cost-of-delay"
+                  csvData={csvData}
+                  jsonData={codItems}
+                  targetRef={exportRef}
+                />
               </>
             }
           >
@@ -111,7 +171,13 @@ export function CostOfDelayClient() {
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                   <XAxis type="number" stroke="#888" fontSize={11} />
                   <YAxis type="category" dataKey="title" stroke="#888" fontSize={11} width={150} />
-                  <Tooltip contentStyle={{ backgroundColor: "#0f1117", border: "1px solid #2a2f3a", fontSize: 12 }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#0f1117",
+                      border: "1px solid #2a2f3a",
+                      fontSize: 12,
+                    }}
+                  />
                   <Bar dataKey="cost" fill="#ff6b6b" />
                 </BarChart>
               </ResponsiveContainer>
@@ -123,21 +189,40 @@ export function CostOfDelayClient() {
           <SectionCard title={`Items (${sorted.length})`}>
             <div className="table-wrap-responsive">
               <table className="w-full text-sm">
-                <thead><tr className="text-left text-xs text-sub uppercase">
-                  <th className="p-2">Title</th>
-                  <th className="p-2 text-right">$/week</th>
-                  <th className="p-2 text-right">Weeks</th>
-                  <th className="p-2 text-right">Total</th>
-                  <th className="p-2 w-10"></th>
-                </tr></thead>
+                <thead>
+                  <tr className="text-left text-xs text-sub uppercase">
+                    <th className="p-2">Title</th>
+                    <th className="p-2 text-right">$/week</th>
+                    <th className="p-2 text-right">Weeks</th>
+                    <th className="p-2 text-right">Total</th>
+                    <th className="p-2 w-10"></th>
+                  </tr>
+                </thead>
                 <tbody>
                   {sorted.map((it) => (
                     <tr key={it.id} className="border-t border-border">
                       <td className="p-2">{it.title}</td>
-                      <td className="p-2 text-right font-mono text-xs">${(Number(it.fields?.perWeekUsd) || 0).toLocaleString()}</td>
-                      <td className="p-2 text-right font-mono text-xs">{Number(it.fields?.weeksDelayed) || 0}</td>
-                      <td className="p-2 text-right font-mono">${Math.round(it.score ?? 0).toLocaleString()}</td>
-                      <td className="p-2"><button onClick={() => { removeOne(it.id); log(COD_ACTIONS.ITEM_REMOVED, { id: it.id }); }} aria-label="Remove initiative" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button></td>
+                      <td className="p-2 text-right font-mono text-xs">
+                        ${(Number(it.fields?.perWeekUsd) || 0).toLocaleString()}
+                      </td>
+                      <td className="p-2 text-right font-mono text-xs">
+                        {Number(it.fields?.weeksDelayed) || 0}
+                      </td>
+                      <td className="p-2 text-right font-mono">
+                        ${Math.round(it.score ?? 0).toLocaleString()}
+                      </td>
+                      <td className="p-2">
+                        <button
+                          onClick={() => {
+                            removeOne(it.id);
+                            log(COD_ACTIONS.ITEM_REMOVED, { id: it.id });
+                          }}
+                          aria-label="Remove initiative"
+                          className="text-sub hover:text-red-400"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

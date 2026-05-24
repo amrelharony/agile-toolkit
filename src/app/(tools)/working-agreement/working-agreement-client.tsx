@@ -11,6 +11,7 @@ import { CalloutAlert } from "@/components/shared/callout-alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { BlurInput } from "@/components/shared/blur-fields";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -38,13 +39,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 
-type RuleCategory =
-  | "communication"
-  | "meetings"
-  | "decisions"
-  | "work"
-  | "conflict"
-  | "other";
+type RuleCategory = "communication" | "meetings" | "decisions" | "work" | "conflict" | "other";
 
 interface Rule {
   id: string;
@@ -69,9 +64,21 @@ interface State {
 }
 
 const CATEGORIES: { id: RuleCategory; label: string; color: string }[] = [
-  { id: "communication", label: "Communication", color: "border-accent/40 bg-accent/10 text-accent" },
-  { id: "meetings", label: "Meetings", color: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
-  { id: "decisions", label: "Decisions", color: "border-purple-500/40 bg-purple-500/10 text-purple-300" },
+  {
+    id: "communication",
+    label: "Communication",
+    color: "border-accent/40 bg-accent/10 text-accent",
+  },
+  {
+    id: "meetings",
+    label: "Meetings",
+    color: "border-amber-500/40 bg-amber-500/10 text-amber-300",
+  },
+  {
+    id: "decisions",
+    label: "Decisions",
+    color: "border-purple-500/40 bg-purple-500/10 text-purple-300",
+  },
   { id: "work", label: "Work", color: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
   { id: "conflict", label: "Conflict", color: "border-danger/40 bg-danger/10 text-danger" },
   { id: "other", label: "Other", color: "border-border bg-surface text-sub" },
@@ -91,13 +98,22 @@ interface StarterRule {
 }
 
 const STARTER_CATALOG: StarterRule[] = [
-  { category: "communication", text: "Default to async comms; use sync only when alignment is needed" },
+  {
+    category: "communication",
+    text: "Default to async comms; use sync only when alignment is needed",
+  },
   { category: "communication", text: "Acknowledge messages within 4 working hours" },
-  { category: "communication", text: "No back-channel decisions — bring discussions to the team channel" },
+  {
+    category: "communication",
+    text: "No back-channel decisions — bring discussions to the team channel",
+  },
   { category: "meetings", text: "Cameras-on for retros and 1:1s, optional otherwise" },
   { category: "meetings", text: "Every meeting has a written agenda 24h before" },
   { category: "meetings", text: "Standups are timeboxed to 15 min, no exceptions" },
-  { category: "decisions", text: "Use the consent model — silence is consent if you're in the meeting" },
+  {
+    category: "decisions",
+    text: "Use the consent model — silence is consent if you're in the meeting",
+  },
   { category: "decisions", text: "Reversible decisions ship today; irreversible ones get an RFC" },
   { category: "work", text: "PRs are reviewed within one working day" },
   { category: "work", text: "No solo merges to main — at least one approval required" },
@@ -146,10 +162,7 @@ function AgreedByInput({
   const inputRef = useRef<HTMLInputElement>(null);
   const lastCommittedRef = useRef(value);
   useEffect(() => {
-    if (
-      typeof document !== "undefined" &&
-      document.activeElement === inputRef.current
-    ) {
+    if (typeof document !== "undefined" && document.activeElement === inputRef.current) {
       return;
     }
     if (value === lastCommittedRef.current) return;
@@ -174,14 +187,10 @@ function AgreedByInput({
 }
 
 export function WorkingAgreementClient() {
-  const [state, setState] = usePersisted<State>(
-    "agile-toolkit:working-agreement",
-    DEFAULT_STATE
-  );
+  const [state, setState] = usePersisted<State>("agile-toolkit:working-agreement", DEFAULT_STATE);
   const [newRuleText, setNewRuleText] = useState("");
   const [newRuleDesc, setNewRuleDesc] = useState("");
-  const [newRuleCategory, setNewRuleCategory] =
-    useState<RuleCategory>("communication");
+  const [newRuleCategory, setNewRuleCategory] = useState<RuleCategory>("communication");
   const [teamNameDraft, setTeamNameDraft] = useState("");
   const [metaDescDraft, setMetaDescDraft] = useState("");
   const { log } = useHistoryLogger("working-agreement");
@@ -248,18 +257,16 @@ export function WorkingAgreementClient() {
     });
   };
 
-  const updateRuleText = (id: string, text: string) => {
+  // BUG-T9-working-agreement-2: commit-on-blur path. The setState
+  // write and the audit log both happen here in one call — the prior
+  // dual onChange/onBlur fired setState per keystroke (write storm)
+  // and the log only on blur. Use BlurInput at the call site to drive
+  // this single entry point.
+  const commitRuleText = (id: string, text: string) => {
     setState((s) => ({
       ...s,
       rules: s.rules.map((r) => (r.id === id ? { ...r, text } : r)),
     }));
-  };
-
-  // Commit takes the new text explicitly so the log entry reflects what the
-  // user typed, not whatever stale snapshot of `state.rules` the closure
-  // captured at render time. (React batches setState, so reading state here
-  // would race the just-fired updateRuleText.)
-  const commitRuleText = (id: string, text: string) => {
     log(WORKING_AGREEMENT_ACTIONS.RULE_UPDATED, {
       ruleId: id,
       text,
@@ -269,9 +276,7 @@ export function WorkingAgreementClient() {
   const updateAgreedBy = (id: string, raw: string) => {
     setState((s) => ({
       ...s,
-      rules: s.rules.map((r) =>
-        r.id === id ? { ...r, agreedBy: parseAgreedBy(raw) } : r
-      ),
+      rules: s.rules.map((r) => (r.id === id ? { ...r, agreedBy: parseAgreedBy(raw) } : r)),
     }));
   };
 
@@ -294,8 +299,7 @@ export function WorkingAgreementClient() {
     const r = state.rules.find((x) => x.id === id);
     log(WORKING_AGREEMENT_ACTIONS.RULE_UPDATED, {
       ruleId: id,
-      stillWorking:
-        r?.stillWorking === undefined ? true : !r.stillWorking,
+      stillWorking: r?.stillWorking === undefined ? true : !r.stillWorking,
     });
   };
 
@@ -405,23 +409,13 @@ export function WorkingAgreementClient() {
         <ExportButton
           filename="working-agreement"
           csvData={{
-            headers: [
-              "Category",
-              "Rule",
-              "Description",
-              "Agreed By",
-              "Still Working?",
-            ],
+            headers: ["Category", "Rule", "Description", "Agreed By", "Still Working?"],
             rows: state.rules.map((r) => [
               r.category,
               r.text,
               r.description ?? "",
               r.agreedBy.join("; "),
-              r.stillWorking === undefined
-                ? ""
-                : r.stillWorking
-                  ? "Yes"
-                  : "No",
+              r.stillWorking === undefined ? "" : r.stillWorking ? "Yes" : "No",
             ]),
           }}
           jsonData={state}
@@ -473,8 +467,8 @@ export function WorkingAgreementClient() {
 
       {state.rules.length === 0 && (
         <CalloutAlert tone="info" className="mb-4">
-          <strong>Empty charter.</strong> Pick from the starter catalog below or
-          add your first custom rule to begin.
+          <strong>Empty charter.</strong> Pick from the starter catalog below or add your first
+          custom rule to begin.
         </CalloutAlert>
       )}
 
@@ -514,18 +508,13 @@ export function WorkingAgreementClient() {
       {/* Starter catalog */}
       <Card className="bg-surface border-border mb-6">
         <CardContent className="p-4">
-          <div className="text-sm font-semibold text-text mb-2">
-            Starter catalog
-          </div>
+          <div className="text-sm font-semibold text-text mb-2">Starter catalog</div>
           <div className="text-xs text-sub mb-3">
             Tap any rule to add it. Already-added rules are hidden.
           </div>
           <div className="flex flex-wrap gap-2">
             {STARTER_CATALOG.filter(
-              (s) =>
-                !state.rules.some(
-                  (r) => r.text === s.text && r.category === s.category
-                )
+              (s) => !state.rules.some((r) => r.text === s.text && r.category === s.category)
             ).map((s) => (
               <button
                 key={`${s.category}::${s.text}`}
@@ -548,9 +537,7 @@ export function WorkingAgreementClient() {
       {/* Custom add */}
       <Card className="bg-surface border-border mb-6">
         <CardContent className="p-4 space-y-2">
-          <div className="text-sm font-semibold text-text mb-1">
-            Add custom rule
-          </div>
+          <div className="text-sm font-semibold text-text mb-1">Add custom rule</div>
           <div className="grid grid-cols-1 md:grid-cols-[200px_1fr_auto] gap-2">
             <Select
               value={newRuleCategory}
@@ -575,10 +562,7 @@ export function WorkingAgreementClient() {
               className="bg-bg border-border"
               aria-label="Rule text"
             />
-            <Button
-              onClick={addCustomRule}
-              className="gap-2 bg-accent text-bg hover:bg-accent/90"
-            >
+            <Button onClick={addCustomRule} className="gap-2 bg-accent text-bg hover:bg-accent/90">
               <Plus className="w-4 h-4" />
               Add
             </Button>
@@ -605,15 +589,10 @@ export function WorkingAgreementClient() {
           return (
             <div key={cat.id} className="space-y-2">
               <div className="flex items-center gap-2">
-                <Badge
-                  variant="outline"
-                  className={`${cat.color} text-xs`}
-                >
+                <Badge variant="outline" className={`${cat.color} text-xs`}>
                   {cat.label}
                 </Badge>
-                <span className="text-xs font-data text-sub">
-                  {list.length}
-                </span>
+                <span className="text-xs font-data text-sub">{list.length}</span>
               </div>
               {list.map((r) => (
                 <div
@@ -621,10 +600,9 @@ export function WorkingAgreementClient() {
                   className="rounded-lg border border-border bg-surface p-3 space-y-2"
                 >
                   <div className="flex flex-col xs:flex-row gap-2">
-                    <Input
+                    <BlurInput
                       value={r.text}
-                      onChange={(e) => updateRuleText(r.id, e.target.value)}
-                      onBlur={(e) => commitRuleText(r.id, e.target.value)}
+                      onCommit={(v) => commitRuleText(r.id, v)}
                       className="bg-bg border-border text-sm"
                       aria-label="Rule text"
                     />

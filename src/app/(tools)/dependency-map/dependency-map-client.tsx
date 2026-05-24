@@ -144,7 +144,11 @@ function computeCriticalPath(nodes: Node[], edges: Edge[]): string[] {
 export function DependencyMapClient() {
   const [state, setState] = usePersisted<State>("agile-toolkit:dependency-map", DEFAULT_STATE);
   const [newNode, setNewNode] = useState({ label: "", team: "", description: "" });
-  const [newEdge, setNewEdge] = useState<{ from: string; to: string; kind: Edge["kind"] }>({ from: "", to: "", kind: "blocks" });
+  const [newEdge, setNewEdge] = useState<{ from: string; to: string; kind: Edge["kind"] }>({
+    from: "",
+    to: "",
+    kind: "blocks",
+  });
   const { log } = useHistoryLogger("dependency-map");
 
   const addNode = () => {
@@ -165,11 +169,25 @@ export function DependencyMapClient() {
   };
   const removeNode = (id: string) => {
     const node = state.nodes.find((n) => n.id === id);
-    setState((s) => ({ nodes: s.nodes.filter((n) => n.id !== id), edges: s.edges.filter((e) => e.from !== id && e.to !== id) }));
+    setState((s) => ({
+      nodes: s.nodes.filter((n) => n.id !== id),
+      edges: s.edges.filter((e) => e.from !== id && e.to !== id),
+    }));
     log(DEPENDENCY_MAP_ACTIONS.NODE_REMOVED, { nodeId: id, label: node?.label });
   };
   const addEdge = () => {
     if (!newEdge.from || !newEdge.to || newEdge.from === newEdge.to) return;
+    // BUG-T2-dependency-map-1: skip exact-duplicate (from, to, kind)
+    // triples. Without this, clicking Add twice produced two edges
+    // with the same endpoints + kind; cycle detection traversed both
+    // and inflated the longest-path computation.
+    if (
+      state.edges.some(
+        (e) => e.from === newEdge.from && e.to === newEdge.to && e.kind === newEdge.kind
+      )
+    ) {
+      return;
+    }
     const edge = { id: nanoid(6), ...newEdge };
     setState((s) => ({ ...s, edges: [...s.edges, edge] }));
     log(DEPENDENCY_MAP_ACTIONS.EDGE_ADDED, {
@@ -197,11 +215,18 @@ export function DependencyMapClient() {
     const ids = new Set(state.nodes.map((n) => n.id));
     const knownKinds = new Set<Edge["kind"]>(["blocks", "needs", "informs"]);
     return state.edges.filter(
-      (e) => ids.has(e.from) && ids.has(e.to) && knownKinds.has(e.kind),
+      // BUG-T2-dependency-map-2: also drop self-edges (from === to).
+      // The UI blocks creating one, but a hand-edited or pre-fix
+      // persisted state can still contain one — detectCycles then
+      // reports a meaningless "A → A" cycle.
+      (e) => ids.has(e.from) && ids.has(e.to) && e.from !== e.to && knownKinds.has(e.kind)
     );
   }, [state.nodes, state.edges]);
   const cycles = useMemo(() => detectCycles(state.nodes, validEdges), [state.nodes, validEdges]);
-  const criticalPath = useMemo(() => computeCriticalPath(state.nodes, validEdges), [state.nodes, validEdges]);
+  const criticalPath = useMemo(
+    () => computeCriticalPath(state.nodes, validEdges),
+    [state.nodes, validEdges]
+  );
   const nodeLabel = (id: string) => state.nodes.find((n) => n.id === id)?.label ?? id;
 
   const promptConfig = useMemo(
@@ -210,7 +235,12 @@ export function DependencyMapClient() {
       // Pass the cleaned `validEdges` set so the AI prompt doesn't include
       // dangling edges referencing deleted nodes (would otherwise produce
       // confusing "From: undefined → To: foo" lines in the generated brief).
-      prompts: generateDependencyMapPrompts({ nodes: state.nodes, edges: validEdges, cycles, criticalPath }),
+      prompts: generateDependencyMapPrompts({
+        nodes: state.nodes,
+        edges: validEdges,
+        cycles,
+        criticalPath,
+      }),
     }),
     [state.nodes, validEdges, cycles, criticalPath]
   );
@@ -245,8 +275,20 @@ export function DependencyMapClient() {
           csvData={{
             headers: ["Type", "ID", "Label/Kind", "Description", "From", "To", "Team"],
             rows: [
-              ...state.nodes.map((n) => ["node", n.id, n.label, n.description ?? "", "", "", n.team ?? ""] as (string | number)[]),
-              ...state.edges.map((e) => ["edge", e.id, e.kind, "", nodeLabel(e.from), nodeLabel(e.to), ""] as (string | number)[]),
+              ...state.nodes.map(
+                (n) =>
+                  ["node", n.id, n.label, n.description ?? "", "", "", n.team ?? ""] as (
+                    | string
+                    | number
+                  )[]
+              ),
+              ...state.edges.map(
+                (e) =>
+                  ["edge", e.id, e.kind, "", nodeLabel(e.from), nodeLabel(e.to), ""] as (
+                    | string
+                    | number
+                  )[]
+              ),
             ],
           }}
           jsonData={state}
@@ -261,12 +303,7 @@ export function DependencyMapClient() {
           value={state.nodes.length}
           valueClassName="text-accent"
         />
-        <StatCard
-          variant="compact"
-          icon={GitBranch}
-          label="Edges"
-          value={state.edges.length}
-        />
+        <StatCard variant="compact" icon={GitBranch} label="Edges" value={state.edges.length} />
         <StatCard
           variant="compact"
           icon={AlertTriangle}
@@ -278,13 +315,16 @@ export function DependencyMapClient() {
 
       {recentBlockers.length >= 3 && (
         <CalloutAlert tone="info" className="mb-3">
-          {recentBlockers.length} blockers raised in last 14 days &mdash; review whether they map to known dependencies.
+          {recentBlockers.length} blockers raised in last 14 days &mdash; review whether they map to
+          known dependencies.
         </CalloutAlert>
       )}
 
       {cycles.length > 0 && (
         <CalloutAlert tone="danger" className="mb-4">
-          <strong>Circular dependencies detected — critical path unavailable while cycles exist.</strong>
+          <strong>
+            Circular dependencies detected — critical path unavailable while cycles exist.
+          </strong>
           <ul className="mt-1 space-y-0.5">
             {cycles.slice(0, 3).map((c) => (
               // Use the cycle's canonicalized id sequence as the key — index
@@ -348,14 +388,28 @@ export function DependencyMapClient() {
             Add dependency
           </div>
           <div className="grid grid-cols-1 md:grid-cols-[1fr_140px_1fr_auto] gap-2">
-            <Select value={newEdge.from} onValueChange={(v) => setNewEdge((e) => ({ ...e, from: v }))}>
-              <SelectTrigger className="bg-bg border-border"><SelectValue placeholder="From..." /></SelectTrigger>
+            <Select
+              value={newEdge.from}
+              onValueChange={(v) => setNewEdge((e) => ({ ...e, from: v }))}
+            >
+              <SelectTrigger className="bg-bg border-border">
+                <SelectValue placeholder="From..." />
+              </SelectTrigger>
               <SelectContent>
-                {state.nodes.map((n) => <SelectItem key={n.id} value={n.id}>{n.label}</SelectItem>)}
+                {state.nodes.map((n) => (
+                  <SelectItem key={n.id} value={n.id}>
+                    {n.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            <Select value={newEdge.kind} onValueChange={(v) => setNewEdge((e) => ({ ...e, kind: v as Edge["kind"] }))}>
-              <SelectTrigger className="bg-bg border-border"><SelectValue /></SelectTrigger>
+            <Select
+              value={newEdge.kind}
+              onValueChange={(v) => setNewEdge((e) => ({ ...e, kind: v as Edge["kind"] }))}
+            >
+              <SelectTrigger className="bg-bg border-border">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="blocks">blocks</SelectItem>
                 <SelectItem value="needs">needs</SelectItem>
@@ -363,9 +417,15 @@ export function DependencyMapClient() {
               </SelectContent>
             </Select>
             <Select value={newEdge.to} onValueChange={(v) => setNewEdge((e) => ({ ...e, to: v }))}>
-              <SelectTrigger className="bg-bg border-border"><SelectValue placeholder="To..." /></SelectTrigger>
+              <SelectTrigger className="bg-bg border-border">
+                <SelectValue placeholder="To..." />
+              </SelectTrigger>
               <SelectContent>
-                {state.nodes.map((n) => <SelectItem key={n.id} value={n.id}>{n.label}</SelectItem>)}
+                {state.nodes.map((n) => (
+                  <SelectItem key={n.id} value={n.id}>
+                    {n.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Button onClick={addEdge} className="gap-2 bg-accent text-bg hover:bg-accent/90">
@@ -383,7 +443,10 @@ export function DependencyMapClient() {
             {state.nodes.map((n) => {
               const onCritical = criticalPath.includes(n.id);
               return (
-                <div key={n.id} className={`flex items-start gap-2 rounded-lg border p-2 ${onCritical ? "border-amber-500/40 bg-amber-500/5" : "border-border bg-surface"}`}>
+                <div
+                  key={n.id}
+                  className={`flex items-start gap-2 rounded-lg border p-2 ${onCritical ? "border-amber-500/40 bg-amber-500/5" : "border-border bg-surface"}`}
+                >
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-text truncate">{n.label}</div>
                     {n.description && (
@@ -393,7 +456,12 @@ export function DependencyMapClient() {
                     )}
                   </div>
                   {n.team && <span className="text-xs text-sub font-mono mt-0.5">{n.team}</span>}
-                  <Button variant="ghost" size="sm" onClick={() => removeNode(n.id)} className="text-sub hover:text-danger">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeNode(n.id)}
+                    className="text-sub hover:text-danger"
+                  >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>
@@ -407,11 +475,19 @@ export function DependencyMapClient() {
             {/* Render the cleaned edge list — orphan edges (referencing
                 deleted nodes) are filtered upstream and shown nowhere. */}
             {validEdges.map((e) => (
-              <div key={e.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface p-2 text-xs">
+              <div
+                key={e.id}
+                className="flex items-center gap-2 rounded-lg border border-border bg-surface p-2 text-xs"
+              >
                 <span className="truncate text-text">{nodeLabel(e.from)}</span>
                 <span className="text-accent uppercase">{e.kind}</span>
                 <span className="truncate text-text flex-1">{nodeLabel(e.to)}</span>
-                <Button variant="ghost" size="sm" onClick={() => removeEdge(e.id)} className="text-sub hover:text-danger">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeEdge(e.id)}
+                  className="text-sub hover:text-danger"
+                >
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
               </div>
