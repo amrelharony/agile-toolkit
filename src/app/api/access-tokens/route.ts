@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { requireAuthorizedUser } from "@/lib/auth/require-user";
-import { generateRawToken, hashToken, prefixOf } from "@/lib/mcp/pat";
+import { generateRawToken, generateSalt, hashTokenWithSalt, prefixOf } from "@/lib/mcp/pat";
 
 /**
  * Personal access token CRUD (list + create). Delete lives at /[id].
@@ -52,7 +52,11 @@ export async function POST(req: NextRequest) {
   const expiresAt = typeof b.expiresAt === "string" ? b.expiresAt : null;
 
   const raw = generateRawToken();
-  const hash = hashToken(raw);
+  // BUG-A3: per-token salt for new tokens. Existing tokens (minted
+  // before migration 0008) keep verifying via the legacy fixed-salt
+  // back-compat path in verifyBearer().
+  const salt = generateSalt();
+  const hash = hashTokenWithSalt(raw, salt);
   const prefix = prefixOf(raw);
 
   const { data, error } = await supabase
@@ -61,6 +65,7 @@ export async function POST(req: NextRequest) {
       user_id: user.id,
       name,
       token_hash: hash,
+      salt,
       prefix,
       expires_at: expiresAt,
     })

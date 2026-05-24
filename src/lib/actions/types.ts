@@ -33,6 +33,16 @@ export interface ToolAction<P = unknown, R = unknown> {
    *  executing. `write` and `intent` default to true; `read` to false. */
   requiresConfirmation?: boolean;
   handler: (params: P, ctx: ActionContext) => Promise<R>;
+  /**
+   * Optional server-only handler used when `ctx.source === "mcp"`. MCP
+   * requests run server-side where the browser Zustand workspace store
+   * is a fresh empty singleton — actions that read or write workspace
+   * data via `useWorkspaceStore.getState()` would silently no-op for
+   * the real user. The mcpHandler reads/writes Supabase directly via
+   * `src/lib/actions/server-store.ts` using `ctx.userId` (resolved
+   * from the PAT bearer). Omit to fall back to `handler`.
+   */
+  mcpHandler?: (params: P, ctx: ActionContext) => Promise<R>;
 }
 
 /** Untyped variant used by the registry's internal storage. */

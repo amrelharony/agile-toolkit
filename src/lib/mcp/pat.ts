@@ -14,20 +14,43 @@ import { createClient } from "@supabase/supabase-js";
  * layer because the bearer is not a Supabase JWT.
  */
 
-const SCRYPT_SALT = "agile-toolkit-pat-v1";
+/**
+ * BUG-A3: legacy fixed salt. Retained for back-compat — tokens minted
+ * before migration 0008 (`salt` column null) verify via this salt.
+ * NEVER use for new tokens; use {@link generateSalt} + {@link hashTokenWithSalt}.
+ */
+const LEGACY_SCRYPT_SALT = "agile-toolkit-pat-v1";
 const SCRYPT_KEYLEN = 32;
 const TOKEN_PREFIX = "pat_";
 const TOKEN_BODY_BYTES = 24; // base64url(24) = 32 chars
+const SALT_BYTES = 24; // base64url(24) = 32 chars — comfortably above the SQL min(16)
 
 export function generateRawToken(): string {
   return TOKEN_PREFIX + randomBytes(TOKEN_BODY_BYTES).toString("base64url");
 }
 
+/** Generate a per-token random salt. Stored alongside the hash. */
+export function generateSalt(): string {
+  return randomBytes(SALT_BYTES).toString("base64url");
+}
+
+/**
+ * Hash a raw bearer token with a per-token random salt. This is the
+ * forward path for new tokens — see BUG-A3 in the security review.
+ * A DB dump now requires per-row scrypt work to crack, restoring the
+ * KDF's design intent.
+ */
+export function hashTokenWithSalt(raw: string, salt: string): string {
+  return scryptSync(raw, salt, SCRYPT_KEYLEN).toString("base64");
+}
+
+/**
+ * Legacy hash function (fixed salt). Only used by the back-compat
+ * verification path for tokens minted before migration 0008.
+ * @deprecated — new tokens must use {@link hashTokenWithSalt}.
+ */
 export function hashToken(raw: string): string {
-  // scrypt is intentionally slow — fast enough for per-request verification
-  // (single-user, low call volume) and slow enough to make any leaked DB
-  // dump uneconomical to crack offline.
-  return scryptSync(raw, SCRYPT_SALT, SCRYPT_KEYLEN).toString("base64");
+  return scryptSync(raw, LEGACY_SCRYPT_SALT, SCRYPT_KEYLEN).toString("base64");
 }
 
 /**
@@ -54,7 +77,9 @@ export function constantTimeEqual(a: string, b: string): boolean {
  *   - Token doesn't match any row
  *   - Token is revoked or expired
  */
-export async function verifyBearer(bearer: string): Promise<{ userId: string; tokenId: string } | null> {
+export async function verifyBearer(
+  bearer: string
+): Promise<{ userId: string; tokenId: string } | null> {
   if (!bearer.startsWith(TOKEN_PREFIX)) return null;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -66,17 +91,61 @@ export async function verifyBearer(bearer: string): Promise<{ userId: string; to
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  const hash = hashToken(bearer);
-  const { data, error } = await admin.rpc("resolve_pat", { p_hash: hash });
-  if (error) {
+  // BUG-A3 back-compat: look up the token's salt first. Rows minted
+  // before migration 0008 have salt=null and verify via the legacy
+  // fixed-salt code path; rows minted after carry a per-row random
+  // salt. We need to know which to use BEFORE computing the hash, so
+  // probe by the token's plaintext prefix (8 chars — already stored
+  // for the UI display) and find the matching row.
+  //
+  // The prefix is a partial credential — knowing 8 base64url chars
+  // (~48 bits) doesn't grant access on its own (the bearer needs all
+  // 192 bits to verify), and it's already stored plaintext for the
+  // token-list UI. This SELECT is on a narrow column with low
+  // cardinality; if two tokens ever shared a prefix, we iterate
+  // candidates and verify against each.
+  const prefix = prefixOf(bearer);
+  const { data: candidates, error: probeError } = await admin
+    .from("access_tokens")
+    .select("id, user_id, salt, token_hash")
+    .eq("prefix", prefix)
+    .is("revoked_at", null);
+  if (probeError) {
     // eslint-disable-next-line no-console
-    console.warn("[mcp/pat] resolve_pat failed:", error.message);
+    console.warn("[mcp/pat] probe failed:", probeError.message);
     return null;
   }
-  const rows = Array.isArray(data) ? data : [];
-  if (rows.length === 0) return null;
-  const row = rows[0] as { token_id: string; user_id: string };
-  return { userId: row.user_id, tokenId: row.token_id };
+  if (!candidates || candidates.length === 0) return null;
+
+  for (const row of candidates as Array<{
+    id: string;
+    user_id: string;
+    salt: string | null;
+    token_hash: string;
+  }>) {
+    const expectedHash = row.salt ? hashTokenWithSalt(bearer, row.salt) : hashToken(bearer);
+    // Constant-time compare per row to avoid timing oracles across
+    // candidates. constantTimeEqual rejects length mismatches first,
+    // so a fake-prefix candidate fails fast without leaking timing.
+    if (!constantTimeEqual(expectedHash, row.token_hash)) continue;
+    // Hit. Call the appropriate resolve_pat overload so last_used_at
+    // updates atomically via the security-definer function (keeps the
+    // RLS-bypass surface localised to that function).
+    const rpcArgs = row.salt
+      ? { p_hash: expectedHash, p_salt: row.salt }
+      : { p_hash: expectedHash };
+    const { data, error } = await admin.rpc("resolve_pat", rpcArgs);
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.warn("[mcp/pat] resolve_pat failed:", error.message);
+      return null;
+    }
+    const rows = Array.isArray(data) ? data : [];
+    if (rows.length === 0) return null;
+    const resolved = rows[0] as { token_id: string; user_id: string };
+    return { userId: resolved.user_id, tokenId: resolved.token_id };
+  }
+  return null;
 }
 
 export function prefixOf(rawToken: string): string {

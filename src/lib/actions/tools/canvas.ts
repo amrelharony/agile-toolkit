@@ -2,6 +2,13 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import {
+  serverListEntities,
+  serverGetEntity,
+  serverUpsertEntity,
+  serverDeleteEntity,
+  serverNextZForBoard,
+} from "../server-store";
 import type {
   Whiteboard,
   WhiteboardObject,
@@ -9,6 +16,12 @@ import type {
   WhiteboardMindMapNode,
   WhiteboardConnector,
 } from "@/lib/stores/workspace-types";
+
+/** Entity kinds used in user_entities for the cloud-synced collections
+ *  this file operates against. Matches the registrations in
+ *  workspace-store.ts → registerCollection(...). */
+const KIND_WHITEBOARD = "workspace:whiteboard";
+const KIND_WHITEBOARD_OBJECT = "workspace:whiteboardObject";
 
 /**
  * Canvas (whiteboard) actions. The agent / MCP can:
@@ -92,6 +105,25 @@ registry.register({
     ws().upsertWhiteboardObject(sticky);
     return { id: sticky.id };
   },
+  mcpHandler: async (params, ctx) => {
+    const sticky: WhiteboardSticky = {
+      id: `obj_${nanoid(10)}`,
+      boardId: params.boardId,
+      type: "sticky",
+      x: params.x,
+      y: params.y,
+      w: params.w ?? 200,
+      h: params.h ?? 200,
+      z: await serverNextZForBoard(ctx.userId, params.boardId),
+      version: 1,
+      updatedAt: nowIso(),
+      createdAt: nowIso(),
+      content: params.content,
+      color: params.color ?? "#FFE066",
+    };
+    await serverUpsertEntity(ctx.userId, KIND_WHITEBOARD_OBJECT, sticky);
+    return { id: sticky.id };
+  },
 });
 
 // ──────── tool.canvas.move_object ────────
@@ -111,6 +143,22 @@ registry.register({
     const target = current.find((o) => o.id === params.id);
     if (!target) return { moved: false };
     ws().upsertWhiteboardObject({
+      ...target,
+      x: params.x,
+      y: params.y,
+      version: target.version + 1,
+      updatedAt: nowIso(),
+    });
+    return { moved: true };
+  },
+  mcpHandler: async (params, ctx) => {
+    const target = await serverGetEntity<WhiteboardObject>(
+      ctx.userId,
+      KIND_WHITEBOARD_OBJECT,
+      params.id
+    );
+    if (!target) return { moved: false };
+    await serverUpsertEntity(ctx.userId, KIND_WHITEBOARD_OBJECT, {
       ...target,
       x: params.x,
       y: params.y,
@@ -179,6 +227,41 @@ registry.register({
     ws().upsertWhiteboardObject(node);
     return { id: node.id, mindMapId: node.mindMapId };
   },
+  mcpHandler: async (params, ctx) => {
+    let mindMapId = params.mindMapId;
+    if (!mindMapId && params.parentNodeId) {
+      const parent = await serverGetEntity<WhiteboardMindMapNode>(
+        ctx.userId,
+        KIND_WHITEBOARD_OBJECT,
+        params.parentNodeId
+      );
+      if (parent && parent.type === "mindMapNode") {
+        mindMapId = parent.mindMapId;
+      }
+    }
+    if (!mindMapId) {
+      mindMapId = `mindmap_${nanoid(8)}`;
+    }
+    const node: WhiteboardMindMapNode = {
+      id: `obj_${nanoid(10)}`,
+      boardId: params.boardId,
+      type: "mindMapNode",
+      x: params.x,
+      y: params.y,
+      w: 180,
+      h: 60,
+      z: await serverNextZForBoard(ctx.userId, params.boardId),
+      version: 1,
+      updatedAt: nowIso(),
+      createdAt: nowIso(),
+      text: params.text,
+      parentNodeId: params.parentNodeId,
+      mindMapId,
+      color: params.color,
+    };
+    await serverUpsertEntity(ctx.userId, KIND_WHITEBOARD_OBJECT, node);
+    return { id: node.id, mindMapId: node.mindMapId };
+  },
 });
 
 // ──────── tool.canvas.list_objects ────────
@@ -194,6 +277,13 @@ registry.register({
   }),
   handler: async (params: { boardId: string; type?: string }) => {
     const all = ws().whiteboardObjects ?? [];
+    const filtered = all.filter(
+      (o) => o.boardId === params.boardId && (!params.type || o.type === params.type)
+    );
+    return { items: filtered };
+  },
+  mcpHandler: async (params, ctx) => {
+    const all = await serverListEntities<WhiteboardObject>(ctx.userId, KIND_WHITEBOARD_OBJECT);
     const filtered = all.filter(
       (o) => o.boardId === params.boardId && (!params.type || o.type === params.type)
     );
@@ -227,6 +317,18 @@ registry.register({
     ws().upsertWhiteboard(board);
     return { boardId: board.id };
   },
+  mcpHandler: async (params, ctx) => {
+    const now = nowIso();
+    const board: Whiteboard = {
+      id: `wb_${nanoid(8)}`,
+      name: params.name,
+      template: params.template,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await serverUpsertEntity(ctx.userId, KIND_WHITEBOARD, board);
+    return { boardId: board.id };
+  },
 });
 
 // ──────── tool.canvas.delete_object ────────
@@ -239,12 +341,29 @@ registry.register({
   toolId: "tool.canvas",
   name: "delete_object",
   category: "write",
-  description: "Delete a whiteboard object by id. Cascades connectors, comment threads, and frameId references.",
+  description:
+    "Delete a whiteboard object by id. Cascades connectors, comment threads, and frameId references.",
   paramsSchema: z.object({ id: z.string() }),
   handler: async (params: { id: string }) => {
     const existed = (ws().whiteboardObjects ?? []).some((o) => o.id === params.id);
     if (!existed) return { deleted: false };
     ws().removeWhiteboardObject(params.id);
+    return { deleted: true };
+  },
+  mcpHandler: async (params, ctx) => {
+    const existing = await serverGetEntity<WhiteboardObject>(
+      ctx.userId,
+      KIND_WHITEBOARD_OBJECT,
+      params.id
+    );
+    if (!existing) return { deleted: false };
+    // NB: server-side delete only writes the tombstone for THIS object.
+    // The browser store's `removeWhiteboardObject` cascades connectors and
+    // clears frameId references in place; an MCP-driven delete relies on
+    // the next browser pull to apply those cascades locally (or on a
+    // subsequent agent invocation to clean up dangling refs). Document as
+    // a known asymmetry rather than rewalk every object server-side.
+    await serverDeleteEntity(ctx.userId, KIND_WHITEBOARD_OBJECT, params.id);
     return { deleted: true };
   },
 });
@@ -269,7 +388,8 @@ registry.register({
   toolId: "tool.canvas",
   name: "set_object_text",
   category: "write",
-  description: "Change the text/label/title/content/question of a whiteboard object. The actual field updated depends on object type; the agent passes the new value and the action figures out the right slot.",
+  description:
+    "Change the text/label/title/content/question of a whiteboard object. The actual field updated depends on object type; the agent passes the new value and the action figures out the right slot.",
   paramsSchema: z.object({
     id: z.string(),
     text: z.string(),
@@ -323,6 +443,50 @@ registry.register({
     ws().upsertWhiteboardObject(next);
     return { updated: true };
   },
+  mcpHandler: async (params, ctx) => {
+    const obj = await serverGetEntity<WhiteboardObject>(
+      ctx.userId,
+      KIND_WHITEBOARD_OBJECT,
+      params.id
+    );
+    if (!obj) return { updated: false };
+    const now = nowIso();
+    const baseBump = { version: obj.version + 1, updatedAt: now } as const;
+    let next: WhiteboardObject;
+    switch (obj.type) {
+      case "sticky":
+      case "text":
+      case "rect":
+      case "ellipse":
+      case "diamond":
+      case "triangle":
+        next = { ...obj, content: params.text, ...baseBump };
+        break;
+      case "freehand":
+        return { updated: false };
+      case "frame":
+      case "kanban":
+        next = { ...obj, label: params.text, ...baseBump };
+        break;
+      case "card":
+        next = { ...obj, title: params.text, ...baseBump };
+        break;
+      case "voting":
+        next = { ...obj, question: params.text, ...baseBump };
+        break;
+      case "mindMapNode":
+        next = { ...obj, text: params.text, ...baseBump };
+        break;
+      case "diagramShape":
+      case "connector":
+        next = { ...obj, label: params.text, ...baseBump };
+        break;
+      default:
+        return { updated: false };
+    }
+    await serverUpsertEntity(ctx.userId, KIND_WHITEBOARD_OBJECT, next);
+    return { updated: true };
+  },
 });
 
 // ──────── tool.canvas.add_connector ────────
@@ -364,7 +528,7 @@ registry.register({
     if (!to) throw new Error(`Connector target object ${params.toId} not found.`);
     if (from.boardId !== to.boardId) {
       throw new Error(
-        `Connector endpoints must live on the same board (from=${from.boardId}, to=${to.boardId}).`,
+        `Connector endpoints must live on the same board (from=${from.boardId}, to=${to.boardId}).`
       );
     }
     const now = nowIso();
@@ -393,6 +557,50 @@ registry.register({
       dashed: params.dashed,
     };
     ws().upsertWhiteboardObject(connector);
+    return { id: connector.id };
+  },
+  mcpHandler: async (params, ctx) => {
+    const from = await serverGetEntity<WhiteboardObject>(
+      ctx.userId,
+      KIND_WHITEBOARD_OBJECT,
+      params.fromId
+    );
+    const to = await serverGetEntity<WhiteboardObject>(
+      ctx.userId,
+      KIND_WHITEBOARD_OBJECT,
+      params.toId
+    );
+    if (!from) throw new Error(`Connector source object ${params.fromId} not found.`);
+    if (!to) throw new Error(`Connector target object ${params.toId} not found.`);
+    if (from.boardId !== to.boardId) {
+      throw new Error(
+        `Connector endpoints must live on the same board (from=${from.boardId}, to=${to.boardId}).`
+      );
+    }
+    const now = nowIso();
+    const connector: WhiteboardConnector = {
+      id: `obj_${nanoid(10)}`,
+      boardId: from.boardId,
+      type: "connector",
+      x: from.x,
+      y: from.y,
+      w: 0,
+      h: 0,
+      z: await serverNextZForBoard(ctx.userId, from.boardId),
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+      fromId: params.fromId,
+      toId: params.toId,
+      routing: params.routing ?? "orthogonal",
+      arrowStart: params.arrowStart ?? false,
+      arrowEnd: params.arrowEnd ?? true,
+      stroke: params.stroke ?? "#94a3b8",
+      strokeWidth: params.strokeWidth ?? 2,
+      label: params.label,
+      dashed: params.dashed,
+    };
+    await serverUpsertEntity(ctx.userId, KIND_WHITEBOARD_OBJECT, connector);
     return { id: connector.id };
   },
 });

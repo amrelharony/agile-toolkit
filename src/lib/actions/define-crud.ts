@@ -1,5 +1,12 @@
 import { z } from "zod";
 import { registry } from "./registry";
+import {
+  serverListEntities,
+  serverGetEntity,
+  serverUpsertEntity,
+  serverDeleteEntity,
+  kindFromToolId,
+} from "./server-store";
 
 /**
  * Generate the four standard CRUD actions for a workspace entity in
@@ -38,6 +45,19 @@ interface CrudOptions<T extends { id: string }> {
 
 export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>): void {
   const { toolId, schema, entityName, selectAll, upsert, remove } = opts;
+  // C1: server-side counterpart key for MCP. e.g. "workspace.sprint"
+  // → "workspace:sprint" in user_entities.
+  const serverKind = kindFromToolId(toolId);
+
+  // Defensive: typing safeParse via the wider z.ZodType<T> shape.
+  type SafeParseFn = (v: unknown) => {
+    success: boolean;
+    data?: T;
+    error?: { message: string };
+  };
+  const safeParseSchema: SafeParseFn = (
+    schema as unknown as { safeParse: SafeParseFn }
+  ).safeParse.bind(schema);
 
   // ──────── create ────────
   // Accept the same schema with `id` optional; auto-generate if absent.
@@ -59,6 +79,14 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
       upsert(entity);
       return { id: entity.id };
     },
+    mcpHandler: async (params: { entity: T }, ctx) => {
+      const entity = params.entity;
+      if (!entity.id && opts.generateId) {
+        (entity as { id: string }).id = opts.generateId();
+      }
+      await serverUpsertEntity<T>(ctx.userId, serverKind, entity);
+      return { id: entity.id };
+    },
   });
 
   // ──────── list ────────
@@ -71,6 +99,10 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
     paramsSchema: z.object({}),
     handler: async (): Promise<{ items: readonly T[] }> => {
       return { items: selectAll() };
+    },
+    mcpHandler: async (_params, ctx) => {
+      const items = await serverListEntities<T>(ctx.userId, serverKind);
+      return { items };
     },
   });
 
@@ -87,20 +119,35 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
     category: "write",
     description: `Update a ${entityName} by id (partial patch merged into existing record).`,
     paramsSchema: updateSchema,
-    handler: async (params: { id: string; patch: Record<string, unknown> }): Promise<{ updated: boolean }> => {
+    handler: async (params: {
+      id: string;
+      patch: Record<string, unknown>;
+    }): Promise<{ updated: boolean }> => {
       const current = selectAll().find((e) => e.id === params.id);
       if (!current) return { updated: false };
       // Validate the merged result against the entity schema — reject
       // if a malformed patch would produce an invalid entity.
       const merged = { ...current, ...params.patch, id: params.id };
-      // Zod 4: safeParse signature accepts (input, options?). The
-      // legacy z.ZodType<T> typing wrapping our generic schema can
-      // confuse TS; cast through unknown to a callable shape.
-      const parsed = (schema as { safeParse: (v: unknown) => { success: boolean; data?: T; error?: { message: string } } }).safeParse(merged);
+      const parsed = safeParseSchema(merged);
       if (!parsed.success) {
-        throw new Error(`Patch produces invalid ${entityName}: ${parsed.error?.message ?? "validation failed"}`);
+        throw new Error(
+          `Patch produces invalid ${entityName}: ${parsed.error?.message ?? "validation failed"}`
+        );
       }
       upsert(parsed.data as T);
+      return { updated: true };
+    },
+    mcpHandler: async (params, ctx) => {
+      const current = await serverGetEntity<T>(ctx.userId, serverKind, params.id);
+      if (!current) return { updated: false };
+      const merged = { ...current, ...params.patch, id: params.id };
+      const parsed = safeParseSchema(merged);
+      if (!parsed.success) {
+        throw new Error(
+          `Patch produces invalid ${entityName}: ${parsed.error?.message ?? "validation failed"}`
+        );
+      }
+      await serverUpsertEntity<T>(ctx.userId, serverKind, parsed.data as T);
       return { updated: true };
     },
   });
@@ -115,6 +162,10 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
     paramsSchema: z.object({ id: z.string() }),
     handler: async (params: { id: string }): Promise<{ deleted: boolean }> => {
       remove(params.id);
+      return { deleted: true };
+    },
+    mcpHandler: async (params, ctx) => {
+      await serverDeleteEntity(ctx.userId, serverKind, params.id);
       return { deleted: true };
     },
   });

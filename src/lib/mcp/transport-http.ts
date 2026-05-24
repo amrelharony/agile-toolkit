@@ -109,13 +109,18 @@ export async function handleJsonRpc(
         );
       }
       const ctx = makeContext(userId, "mcp");
+      // C1: dispatch to mcpHandler if the action defined one — it reads/
+      // writes Supabase directly via server-store.ts. Without it, the
+      // fallback `handler` operates on the empty server-side Zustand
+      // singleton and silently no-ops for the real user.
+      const fn = action.mcpHandler ?? action.handler;
       // Wrap handler call so semantic failures surface as isError:true in
       // the content block rather than -32603 internal errors. MCP clients
       // distinguish these.
       let payload: unknown;
       let isError = false;
       try {
-        payload = await action.handler(parsed.data, ctx);
+        payload = await fn(parsed.data, ctx);
       } catch (err) {
         isError = true;
         payload = { error: err instanceof Error ? err.message : String(err) };
