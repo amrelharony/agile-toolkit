@@ -49,10 +49,12 @@ interface MinimalSpeechRecognition extends EventTarget {
   // is new since the previous `onresult` fire. We must use it as the
   // iteration start — iterating from 0 every time double-counts finals
   // in continuous mode.
-  onresult: ((ev: {
-    results: ArrayLike<ArrayLike<{ transcript: string; isFinal?: boolean }>>;
-    resultIndex: number;
-  }) => void) | null;
+  onresult:
+    | ((ev: {
+        results: ArrayLike<ArrayLike<{ transcript: string; isFinal?: boolean }>>;
+        resultIndex: number;
+      }) => void)
+    | null;
   onstart: (() => void) | null;
   onend: (() => void) | null;
   onerror: ((ev: { error?: string; message?: string }) => void) | null;
@@ -186,7 +188,7 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
       });
       return true;
     },
-    [worldCenter, boardId, upsert, setSelection],
+    [worldCenter, boardId, upsert, setSelection]
   );
 
   // Keep the ref pointed at the latest commitSticky so the recognizer's
@@ -200,7 +202,11 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
     if (r) {
       // Idempotent — the recognizer may already be in a terminal state
       // from a prior stop()/abort() or a natural onend.
-      try { r.stop(); } catch { /* ignore — race with onend */ }
+      try {
+        r.stop();
+      } catch {
+        /* ignore — race with onend */
+      }
     }
   }, []);
 
@@ -237,7 +243,11 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
         setError("Microphone failed to open. Try again.");
         setConnecting(false);
         setListening(false);
-        try { r.abort(); } catch { /* ignore */ }
+        try {
+          r.abort();
+        } catch {
+          /* ignore */
+        }
         recognizerRef.current = null;
       }
     }, 5_000);
@@ -270,11 +280,12 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
     };
     r.onerror = (e) => {
       clearTimeout(startTimer);
-      const msg = e.error === "not-allowed"
-        ? "Microphone permission denied."
-        : e.error === "no-speech"
-          ? "No speech detected."
-          : `Voice input error${e.message ? `: ${e.message}` : ""}.`;
+      const msg =
+        e.error === "not-allowed"
+          ? "Microphone permission denied."
+          : e.error === "no-speech"
+            ? "No speech detected."
+            : `Voice input error${e.message ? `: ${e.message}` : ""}.`;
       setError(msg);
       // Clear both, since onerror can fire before onstart promotes us.
       setConnecting(false);
@@ -326,9 +337,7 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
       const target = e.target as HTMLElement | null;
       if (
         target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
       ) {
         return;
       }
@@ -357,7 +366,11 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
         r.onstart = null;
         r.onend = null;
         r.onerror = null;
-        try { r.abort(); } catch { /* ignore */ }
+        try {
+          r.abort();
+        } catch {
+          /* ignore */
+        }
       }
     };
   }, []);
@@ -422,7 +435,11 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
       </button>
       {/* aria-live region announces transcript progress for screen readers. */}
       <span className="sr-only" role="status" aria-live="polite">
-        {connecting ? "Opening microphone." : listening ? `Listening: ${liveText}${interim ? " " + interim : ""}` : ""}
+        {connecting
+          ? "Opening microphone."
+          : listening
+            ? `Listening: ${liveText}${interim ? " " + interim : ""}`
+            : ""}
       </span>
       {active && (
         <div
@@ -468,7 +485,7 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
       {error && (
         <div
           role="alert"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-surface border border-amber-400/40 rounded-full px-4 py-2 shadow-xl"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-modal bg-surface border border-amber-400/40 rounded-full px-4 py-2 shadow-xl"
           data-canvas-export-ignore="true"
         >
           <span className="text-xs text-amber-200">{error}</span>

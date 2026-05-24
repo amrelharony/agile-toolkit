@@ -117,7 +117,7 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
       aria-modal="true"
       aria-label="Share or save board"
       ref={dialogRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-bg/80 backdrop-blur-sm"
+      className="fixed inset-0 z-modal flex items-center justify-center bg-bg/80 backdrop-blur-sm"
       onClick={onClose}
     >
       <div

@@ -37,9 +37,7 @@ export function TemplateGallery({ boardId, onClose }: Props) {
       const target = e.target as HTMLElement | null;
       if (
         target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
       ) {
         return;
       }
@@ -58,7 +56,7 @@ export function TemplateGallery({ boardId, onClose }: Props) {
   const allObjects = useWorkspaceStore((s) => s.whiteboardObjects);
   const objects = useMemo(
     () => (allObjects ?? []).filter((o) => o.boardId === boardId),
-    [allObjects, boardId],
+    [allObjects, boardId]
   );
   // Saved templates from the workspace (Phase 31). These appear in a
   // "Custom" category alongside the 11 built-ins.
@@ -67,7 +65,9 @@ export function TemplateGallery({ boardId, onClose }: Props) {
   const [confirm, setConfirm] = useState<string | null>(null);
   // Phase 31 — search + category filter for the gallery.
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState<"all" | "custom" | "retro" | "planning" | "strategy" | "brainstorm">("all");
+  const [category, setCategory] = useState<
+    "all" | "custom" | "retro" | "planning" | "strategy" | "brainstorm"
+  >("all");
 
   // Combine built-ins + saved templates into a single filterable list.
   const allTemplates = useMemo(() => {
@@ -105,10 +105,7 @@ export function TemplateGallery({ boardId, onClose }: Props) {
         if (category !== "custom" && c !== category) return false;
       }
       if (q.length === 0) return true;
-      return (
-        t.name.toLowerCase().includes(q) ||
-        t.description.toLowerCase().includes(q)
-      );
+      return t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q);
     });
   }, [allTemplates, search, category]);
 
@@ -127,7 +124,7 @@ export function TemplateGallery({ boardId, onClose }: Props) {
     let seeded: WhiteboardObject[] = [];
     const builtIn = TEMPLATES.find((x) => x.id === id);
     if (builtIn) {
-      seeded = builtIn.build().map((o) => ({ ...o, boardId, z: o.z + zBase } as WhiteboardObject));
+      seeded = builtIn.build().map((o) => ({ ...o, boardId, z: o.z + zBase }) as WhiteboardObject);
     } else {
       const saved = savedTemplates.find((x) => x.id === id);
       if (!saved) return;
@@ -137,28 +134,30 @@ export function TemplateGallery({ boardId, onClose }: Props) {
       const freshId = () => wbId("wb");
       for (const o of saved.objects) remap[o.id] = freshId();
       const now = new Date().toISOString();
-      seeded = saved.objects.map((o) => {
-        const next: WhiteboardObject = {
-          ...o,
-          id: remap[o.id],
-          boardId,
-          z: o.z + zBase,
-          version: 1,
-          createdAt: now,
-          updatedAt: now,
-        } as WhiteboardObject;
-        // Remap connector endpoints so they continue to land on the
-        // cloned objects rather than the original ids.
-        if (next.type === "connector") {
-          next.fromId = remap[next.fromId] ?? next.fromId;
-          next.toId = remap[next.toId] ?? next.toId;
-          // If an endpoint isn't in the saved set, drop the connector.
-          if (!remap[(o as { fromId: string }).fromId] || !remap[(o as { toId: string }).toId]) {
-            return null;
+      seeded = saved.objects
+        .map((o) => {
+          const next: WhiteboardObject = {
+            ...o,
+            id: remap[o.id],
+            boardId,
+            z: o.z + zBase,
+            version: 1,
+            createdAt: now,
+            updatedAt: now,
+          } as WhiteboardObject;
+          // Remap connector endpoints so they continue to land on the
+          // cloned objects rather than the original ids.
+          if (next.type === "connector") {
+            next.fromId = remap[next.fromId] ?? next.fromId;
+            next.toId = remap[next.toId] ?? next.toId;
+            // If an endpoint isn't in the saved set, drop the connector.
+            if (!remap[(o as { fromId: string }).fromId] || !remap[(o as { toId: string }).toId]) {
+              return null;
+            }
           }
-        }
-        return next;
-      }).filter((x): x is WhiteboardObject => x !== null);
+          return next;
+        })
+        .filter((x): x is WhiteboardObject => x !== null);
     }
     if (seeded.length > 0) {
       upsertMany(seeded);
@@ -183,7 +182,7 @@ export function TemplateGallery({ boardId, onClose }: Props) {
       aria-modal="true"
       aria-label="Template gallery"
       ref={dialogRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-bg/80 backdrop-blur-sm"
+      className="fixed inset-0 z-modal flex items-center justify-center bg-bg/80 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -203,15 +202,22 @@ export function TemplateGallery({ boardId, onClose }: Props) {
           Templates
         </h2>
         <p className="text-sm text-sub mb-3">
-          Click a template to seed the active board. {objects.length > 0 && (
-            <span className="text-amber-400"> Confirm twice if the board already has content — templates append, not replace.</span>
+          Click a template to seed the active board.{" "}
+          {objects.length > 0 && (
+            <span className="text-amber-400">
+              {" "}
+              Confirm twice if the board already has content — templates append, not replace.
+            </span>
           )}
         </p>
 
         {/* Search + category filter (Phase 31). */}
         <div className="flex items-center gap-2 mb-3">
           <div className="relative flex-1">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-sub" aria-hidden="true" />
+            <Search
+              className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-sub"
+              aria-hidden="true"
+            />
             <input
               type="text"
               value={search}
