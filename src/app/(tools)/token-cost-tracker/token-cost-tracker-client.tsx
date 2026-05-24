@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   ResponsiveContainer,
@@ -34,8 +34,16 @@ import type { ProviderId } from "@/lib/llm/types";
 /**
  * BUG-T9-token-cost-tracker-1: look up a model by its id across every
  * provider in the price table. Returns the (provider, model.id) pair
- * needed by `estimateCostUsd`. Case-insensitive substring match so
- * "GPT-4o" matches "gpt-4o" etc.
+ * needed by `estimateCostUsd`. Case-insensitive exact match first,
+ * substring fallback only when EXACTLY ONE model id contains the
+ * needle.
+ *
+ * BUG-RD3-token-cost-tracker-1: previously the substring fallback
+ * iterated providers in `Object.entries` order and returned the FIRST
+ * `.includes(want)` hit. Typing "gpt-4" would silently lock onto
+ * "gpt-4o" (or whichever id contained "gpt-4" first), applying that
+ * model's pricing without warning. Require exactly one match —
+ * otherwise return null and let the user pick the precise id.
  */
 function findModelEverywhere(needle: string): { provider: ProviderId; modelId: string } | null {
   if (!needle.trim()) return null;
@@ -47,15 +55,16 @@ function findModelEverywhere(needle: string): { provider: ProviderId; modelId: s
       if (m.id.toLowerCase() === want) return { provider, modelId: m.id };
     }
   }
-  // Fall back to substring match.
+  // Substring fallback — only accept when unambiguous.
+  const matches: Array<{ provider: ProviderId; modelId: string }> = [];
   for (const [provider, models] of Object.entries(MODELS_BY_PROVIDER) as Array<
     [ProviderId, ReadonlyArray<{ id: string }>]
   >) {
     for (const m of models) {
-      if (m.id.toLowerCase().includes(want)) return { provider, modelId: m.id };
+      if (m.id.toLowerCase().includes(want)) matches.push({ provider, modelId: m.id });
     }
   }
-  return null;
+  return matches.length === 1 ? matches[0] : null;
 }
 
 interface Cfg {
@@ -67,6 +76,43 @@ const useCfg = create<Cfg & { setBudget: (v: number) => void }>()(
     storage: safeJSONStorage("token-cost-cfg"),
   })
 );
+
+/**
+ * Local-draft budget input. BUG-RD3-token-cost-tracker-4: the prior
+ * code wrote to the persisted cfg store on every keystroke, so typing
+ * "1500" momentarily set the budget to 1 → 15 → 150 → 1500 and
+ * flickered the over-budget banner / alert badge in between (one
+ * localStorage write per character). Hold a string draft, commit on
+ * blur / Enter only.
+ */
+function BudgetInput({ value, onCommit }: { value: number; onCommit: (v: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const n = parseFloat(draft);
+    if (Number.isFinite(n) && n >= 0 && n !== value) {
+      onCommit(n);
+    } else if (!Number.isFinite(n)) {
+      // Invalid input — revert the draft to the live value.
+      setDraft(String(value));
+    }
+  };
+  return (
+    <Input
+      type="number"
+      min="0"
+      step="50"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      className="max-w-[160px]"
+      aria-label="Monthly budget USD"
+    />
+  );
+}
 
 export function TokenCostTrackerClient() {
   const list = useWorkspaceStore((s) => s.tokenSpend ?? []);
@@ -166,9 +212,13 @@ export function TokenCostTrackerClient() {
     // R5: previously mixed UTC date strings with local-time entries from
     // the user input. Use local-day strings consistently so an entry
     // logged at 11pm local on day-of-cutoff isn't silently filtered out.
+    // BUG-RD3-token-cost-tracker-2: cutoff was `today - 30 days`, which
+    // makes the inclusive `>= cutoff && <= today` filter cover 31 days,
+    // not 30 — the headline "Last 30d" KPI was 1/31 too low. Use 29 so
+    // the inclusive window is exactly 30 calendar days.
     const today = todayLocalISO();
     const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - 30);
+    cutoffDate.setDate(cutoffDate.getDate() - 29);
     const cutoff = todayLocalISO(cutoffDate);
     // Bound the window on BOTH sides — without an upper bound, future-dated
     // entries (typos like 2099-01-01, or imports from a wrong-locale ISO
@@ -187,18 +237,34 @@ export function TokenCostTrackerClient() {
   // extrapolate per-day-rate × 30.
   const projected = useMemo(() => {
     if (last30Spend === 0) return 0;
+    // BUG-RD3-token-cost-tracker-3a: use the SAME local-day string
+    // filter as `last30Spend` above. The prior code switched to
+    // `Date.parse(x.date)` UTC milliseconds vs `cutoffDate.getTime()`
+    // (a local-now-minus-30d ms), so the two filters disagreed near
+    // the boundary — `dates.length===0` could be true while
+    // `last30Spend>0`, silently returning the un-annualised fallback
+    // and under-reporting projected burn.
+    // BUG-RD3-token-cost-tracker-3b: replace `Math.min(...dates)` with
+    // a reduce. Spreading a large array hits the V8 arg-count cap and
+    // throws `RangeError`, killing the projection memo (and the whole
+    // page) once the user accumulates a few thousand auto-logged rows.
+    const today = todayLocalISO();
     const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - 30);
-    const cutoffMs = cutoffDate.getTime();
-    const dates = list
-      .filter((x) => Number.isFinite(x.costUsd))
-      .map((x) => Date.parse(x.date))
-      .filter((t) => Number.isFinite(t) && t >= cutoffMs);
-    if (dates.length === 0) return last30Spend;
-    const earliest = Math.min(...dates);
+    cutoffDate.setDate(cutoffDate.getDate() - 29);
+    const cutoff = todayLocalISO(cutoffDate);
+    const dateStrings = list
+      .filter((x) => Number.isFinite(x.costUsd) && x.date >= cutoff && x.date <= today)
+      .map((x) => x.date);
+    if (dateStrings.length === 0) return last30Spend;
+    const earliestStr = dateStrings.reduce((min, d) => (d < min ? d : min), dateStrings[0]);
+    // Parse the earliest local date string as a local Date (not UTC), then
+    // compare against local "today" so the day-count is in the user's wall
+    // clock.
+    const [ey, em, ed] = earliestStr.split("-").map(Number);
+    const earliestMs = new Date(ey, em - 1, ed).getTime();
     const daysObserved = Math.min(
       30,
-      Math.max(1, Math.ceil((Date.now() - earliest) / (1000 * 60 * 60 * 24)) + 1)
+      Math.max(1, Math.ceil((Date.now() - earliestMs) / (1000 * 60 * 60 * 24)) + 1)
     );
     return (last30Spend / daysObserved) * 30;
   }, [last30Spend, list]);
@@ -325,18 +391,7 @@ export function TokenCostTrackerClient() {
         <SectionCard title="Monthly budget">
           <div className="flex items-center gap-3">
             <span className="text-sm text-sub">USD/month</span>
-            <Input
-              type="number"
-              min="0"
-              step="50"
-              value={cfg.monthlyBudgetUsd}
-              onChange={(e) => {
-                // Only accept finite, non-negative values — empty/garbage input keeps the prior budget.
-                const v = parseFloat(e.target.value);
-                if (Number.isFinite(v) && v >= 0) cfg.setBudget(v);
-              }}
-              className="max-w-[160px]"
-            />
+            <BudgetInput value={cfg.monthlyBudgetUsd} onCommit={cfg.setBudget} />
           </div>
         </SectionCard>
 

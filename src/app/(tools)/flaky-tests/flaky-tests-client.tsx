@@ -276,14 +276,32 @@ export function FlakyTestsClient() {
     const sortedKeys = Array.from(buckets.keys()).sort();
     const firstKey = sortedKeys[0];
     const lastKey = sortedKeys[sortedKeys.length - 1];
-    const startDate = new Date(`${firstKey}T00:00:00Z`);
-    const endDate = new Date(`${lastKey}T00:00:00Z`);
+    // BUG-RD3-flaky-tests-1: bucket KEYS are built from local date
+    // components above (line 263-267). Iterating the dense fill with
+    // UTC components (getUTCFullYear/getUTCMonth/getUTCDate) produced
+    // keys that, for any user west of UTC, didn't match the put-keys
+    // — every bucket lookup returned undefined and the chart showed
+    // all zeros. Mirror the local-date scheme on both sides so the
+    // counts actually surface.
+    const startDate = new Date(
+      Number(firstKey.slice(0, 4)),
+      Number(firstKey.slice(5, 7)) - 1,
+      Number(firstKey.slice(8, 10))
+    );
+    const endDate = new Date(
+      Number(lastKey.slice(0, 4)),
+      Number(lastKey.slice(5, 7)) - 1,
+      Number(lastKey.slice(8, 10))
+    );
     const filled: Array<{ week: string; count: number }> = [];
-    let cur = new Date(startDate);
+    const cur = new Date(startDate);
     while (cur.getTime() <= endDate.getTime()) {
-      const iso = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, "0")}-${String(cur.getUTCDate()).padStart(2, "0")}`;
+      const iso = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
       filled.push({ week: iso, count: buckets.get(iso) ?? 0 });
-      cur = new Date(cur.getTime() + 7 * 24 * 60 * 60 * 1000);
+      // Step by 7 calendar days via `setDate` so DST transitions in
+      // the bucketed range don't shift the boundary by an hour and
+      // miss a week.
+      cur.setDate(cur.getDate() + 7);
     }
     return filled;
   }, [state.tests]);

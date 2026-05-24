@@ -97,8 +97,21 @@ export function HitlQualityClient() {
   // Drop entries with malformed ratings before averaging — a hand-edited
   // localStorage payload could have a rating outside 1..5, which would
   // skew the mean indefinitely. Same for trend math below.
+  // BUG-RD3-hitl-quality-1: `Number.isFinite` alone passes a rating of
+  // 6 (or 0, or -3) since those are finite numbers. The chart's Y axis
+  // is `domain={[1, 5]}` so an out-of-range mean clips off the chart
+  // silently — the user sees a flat line at the top/bottom of the
+  // axis with no hint that real data is being hidden. Bound the
+  // rating to the documented 1..5 scale at the filter step.
   const validList = useMemo(
-    () => list.filter((x) => Number.isFinite(x.rating) && typeof x.loggedAt === "string"),
+    () =>
+      list.filter(
+        (x) =>
+          Number.isFinite(x.rating) &&
+          x.rating >= 1 &&
+          x.rating <= 5 &&
+          typeof x.loggedAt === "string"
+      ),
     [list]
   );
   const meanRating =

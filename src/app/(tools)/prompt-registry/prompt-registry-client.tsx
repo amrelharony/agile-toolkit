@@ -277,9 +277,9 @@ export function PromptRegistryClient() {
                           >
                             {p.status}
                           </span>
-                          {typeof p.evalScore === "number" && (
+                          {Number.isFinite(p.evalScore) && (
                             <span className="text-xs text-sub">
-                              eval: {(p.evalScore * 100).toFixed(0)}%
+                              eval: {(p.evalScore! * 100).toFixed(0)}%
                             </span>
                           )}
                         </span>

@@ -12,7 +12,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { ModelEntry, Workspace } from "@/lib/stores/workspace-types";
@@ -62,7 +66,9 @@ export function ModelComparisonClient() {
   // Stable, deterministic provider order so the grid layout doesn't shuffle
   // between renders. We sort by ProviderId alphabetically for predictability.
   const configuredProviders = useMemo(() => {
-    return (Object.entries(llmProviders) as [ProviderId, { apiKey: string; model: string } | undefined][])
+    return (
+      Object.entries(llmProviders) as [ProviderId, { apiKey: string; model: string } | undefined][]
+    )
       .filter(([, cfg]) => !!cfg && cfg.apiKey.length > 0)
       .map(([id, cfg]) => ({ id, model: cfg!.model, apiKey: cfg!.apiKey }))
       .sort((a, b) => a.id.localeCompare(b.id));
@@ -118,8 +124,15 @@ export function ModelComparisonClient() {
       return Number.isFinite(n) ? n : undefined;
     };
     const trimmedName = name.trim();
+    // Match by name (the existing dedup signal) so re-entering an existing
+    // model genuinely triggers `model.upgraded` AND replaces the prior row.
+    // BUG-RD3-model-comparison-1: the previous code minted a fresh UUID
+    // unconditionally, so `upsert(item)` always appended — leaving two
+    // rows with the same name in the catalog every time a user "edited"
+    // a model by re-entering it. Reuse `prior.id` when one exists.
+    const prior = list.find((m) => m.name === trimmedName);
     const item: ModelEntry = {
-      id: crypto.randomUUID(),
+      id: prior?.id ?? crypto.randomUUID(),
       name: trimmedName,
       vendor: vendor.trim(),
       inputCostPer1k: parseFloatField(inputCost),
@@ -130,18 +143,24 @@ export function ModelComparisonClient() {
       evalScore: parseFloatField(evalScore),
       status,
     };
-    // Match by name (the existing dedup signal) so re-entering an existing
-    // model genuinely triggers `model.upgraded`. The previous check compared
-    // against a brand-new UUID, making `prior.id !== item.id` always true and
-    // emitting the signal even for a fresh entry where nothing was upgraded.
-    const prior = list.find((m) => m.name === trimmedName);
     upsert(item);
     log(MODEL_COMPARISON_ACTIONS.MODEL_ADDED, { name: item.name });
     if (prior) {
-      emitSignal({ kind: "model.upgraded", at: new Date().toISOString(), toolId: "model-comparison", payload: { name: item.name } });
+      emitSignal({
+        kind: "model.upgraded",
+        at: new Date().toISOString(),
+        toolId: "model-comparison",
+        payload: { name: item.name },
+      });
     }
-    setName(""); setVendor(""); setInputCost(""); setOutputCost(""); setContextWin("");
-    setLatencyP50(""); setLatencyP95(""); setEvalScore("");
+    setName("");
+    setVendor("");
+    setInputCost("");
+    setOutputCost("");
+    setContextWin("");
+    setLatencyP50("");
+    setLatencyP95("");
+    setEvalScore("");
   }
 
   function remove(id: string) {
@@ -176,26 +195,61 @@ export function ModelComparisonClient() {
     });
   }
 
-  const sorted = useMemo(() =>
-    [...list].sort((a, b) => (b.evalScore ?? 0) - (a.evalScore ?? 0)),
-  [list]);
+  const sorted = useMemo(
+    () => [...list].sort((a, b) => (b.evalScore ?? 0) - (a.evalScore ?? 0)),
+    [list]
+  );
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    models: s.models, llmEvals: s.llmEvals,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        models: s.models,
+        llmEvals: s.llmEvals,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Model Comparison",
-    prompts: generateModelComparisonPrompts({ items: list }, workspace),
-  }), [list, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Model Comparison",
+      prompts: generateModelComparisonPrompts({ items: list }, workspace),
+    }),
+    [list, workspace]
+  );
 
   const csvData = {
-    headers: ["Name", "Vendor", "Input/1k", "Output/1k", "Context", "p50ms", "p95ms", "Eval", "Status"],
-    rows: list.map((m) => [m.name, m.vendor, m.inputCostPer1k ?? "", m.outputCostPer1k ?? "", m.contextWindow ?? "", m.latencyP50Ms ?? "", m.latencyP95Ms ?? "", m.evalScore ?? "", m.status]),
+    headers: [
+      "Name",
+      "Vendor",
+      "Input/1k",
+      "Output/1k",
+      "Context",
+      "p50ms",
+      "p95ms",
+      "Eval",
+      "Status",
+    ],
+    rows: list.map((m) => [
+      m.name,
+      m.vendor,
+      m.inputCostPer1k ?? "",
+      m.outputCostPer1k ?? "",
+      m.contextWindow ?? "",
+      m.latencyP50Ms ?? "",
+      m.latencyP95Ms ?? "",
+      m.evalScore ?? "",
+      m.status,
+    ]),
   };
 
   return (
@@ -208,10 +262,7 @@ export function ModelComparisonClient() {
         {/* Live Compare — the headline BYOK feature. Sits above "Add model"
             because the catalog you maintain below is supposed to be informed
             by what you observe here. */}
-        <SectionCard
-          title="Live Compare (BYOK)"
-          icon={Beaker}
-        >
+        <SectionCard title="Live Compare (BYOK)" icon={Beaker}>
           <p className="text-xs text-sub mb-3">
             {configuredProviders.length === 0
               ? "Configure one or more BYOK providers to run the same prompt across them and see results side-by-side."
@@ -264,9 +315,7 @@ export function ModelComparisonClient() {
                       <span className="font-mono uppercase tracking-wider text-[10px] text-accent">
                         {PROVIDER_META[p.id].name}
                       </span>
-                      <span className="text-sub normal-case">
-                        {modelInfo?.label ?? p.model}
-                      </span>
+                      <span className="text-sub normal-case">{modelInfo?.label ?? p.model}</span>
                     </label>
                   );
                 })}
@@ -286,8 +335,8 @@ export function ModelComparisonClient() {
                   {activeLiveProviders.length === 0
                     ? "Select at least one provider."
                     : livePrompt.trim().length === 0
-                    ? "Add a prompt above."
-                    : `Each provider runs independently — total cost = sum of all panels.`}
+                      ? "Add a prompt above."
+                      : `Each provider runs independently — total cost = sum of all panels.`}
                 </span>
               </div>
 
@@ -315,20 +364,72 @@ export function ModelComparisonClient() {
 
         <SectionCard title="Add model" icon={Plus}>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <Input placeholder="Model name" value={name} onChange={(e) => setName(e.target.value)} />
-            <Input placeholder="Vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} />
-            <Input type="number" step="0.001" placeholder="Input $/1k tok" value={inputCost} onChange={(e) => setInputCost(e.target.value)} />
-            <Input type="number" step="0.001" placeholder="Output $/1k tok" value={outputCost} onChange={(e) => setOutputCost(e.target.value)} />
-            <Input type="number" placeholder="Context window" value={contextWin} onChange={(e) => setContextWin(e.target.value)} />
-            <Input type="number" placeholder="Latency p50 ms" value={latencyP50} onChange={(e) => setLatencyP50(e.target.value)} />
-            <Input type="number" placeholder="Latency p95 ms" value={latencyP95} onChange={(e) => setLatencyP95(e.target.value)} />
-            <Input type="number" step="0.001" placeholder="Eval score 0-1" value={evalScore} onChange={(e) => setEvalScore(e.target.value)} />
+            <Input
+              placeholder="Model name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <Input
+              placeholder="Vendor"
+              value={vendor}
+              onChange={(e) => setVendor(e.target.value)}
+            />
+            <Input
+              type="number"
+              step="0.001"
+              placeholder="Input $/1k tok"
+              value={inputCost}
+              onChange={(e) => setInputCost(e.target.value)}
+            />
+            <Input
+              type="number"
+              step="0.001"
+              placeholder="Output $/1k tok"
+              value={outputCost}
+              onChange={(e) => setOutputCost(e.target.value)}
+            />
+            <Input
+              type="number"
+              placeholder="Context window"
+              value={contextWin}
+              onChange={(e) => setContextWin(e.target.value)}
+            />
+            <Input
+              type="number"
+              placeholder="Latency p50 ms"
+              value={latencyP50}
+              onChange={(e) => setLatencyP50(e.target.value)}
+            />
+            <Input
+              type="number"
+              placeholder="Latency p95 ms"
+              value={latencyP95}
+              onChange={(e) => setLatencyP95(e.target.value)}
+            />
+            <Input
+              type="number"
+              step="0.001"
+              placeholder="Eval score 0-1"
+              value={evalScore}
+              onChange={(e) => setEvalScore(e.target.value)}
+            />
             <Select value={status} onValueChange={(v) => setStatus(v as ModelEntry["status"])}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STATUSES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
-          <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Add model</Button>
+          <Button onClick={add} className="mt-3 gap-1">
+            <Plus className="w-4 h-4" />
+            Add model
+          </Button>
         </SectionCard>
 
         {list.length > 0 && (
@@ -338,31 +439,64 @@ export function ModelComparisonClient() {
             actions={
               <>
                 <AiPromptGenerator config={promptConfig} />
-                <ExportButton filename="model-comparison" csvData={csvData} jsonData={list} targetRef={exportRef} />
+                <ExportButton
+                  filename="model-comparison"
+                  csvData={csvData}
+                  jsonData={list}
+                  targetRef={exportRef}
+                />
               </>
             }
           >
             <div className="table-wrap-responsive">
               <table className="w-full text-sm">
-                <thead><tr className="text-left text-xs text-sub uppercase">
-                  <th className="p-2">Model</th><th className="p-2">Vendor</th>
-                  <th className="p-2 text-right">In $/1k</th><th className="p-2 text-right">Out $/1k</th>
-                  <th className="p-2 text-right">Ctx</th><th className="p-2 text-right">p50</th><th className="p-2 text-right">p95</th>
-                  <th className="p-2 text-right">Eval</th><th className="p-2">Status</th><th className="p-2 w-10"></th>
-                </tr></thead>
+                <thead>
+                  <tr className="text-left text-xs text-sub uppercase">
+                    <th className="p-2">Model</th>
+                    <th className="p-2">Vendor</th>
+                    <th className="p-2 text-right">In $/1k</th>
+                    <th className="p-2 text-right">Out $/1k</th>
+                    <th className="p-2 text-right">Ctx</th>
+                    <th className="p-2 text-right">p50</th>
+                    <th className="p-2 text-right">p95</th>
+                    <th className="p-2 text-right">Eval</th>
+                    <th className="p-2">Status</th>
+                    <th className="p-2 w-10"></th>
+                  </tr>
+                </thead>
                 <tbody>
                   {sorted.map((m) => (
                     <tr key={m.id} className="border-t border-border">
                       <td className="p-2 font-mono text-xs">{m.name}</td>
                       <td className="p-2">{m.vendor}</td>
-                      <td className="p-2 text-right font-mono text-xs">{m.inputCostPer1k != null ? `$${m.inputCostPer1k}` : "—"}</td>
-                      <td className="p-2 text-right font-mono text-xs">{m.outputCostPer1k != null ? `$${m.outputCostPer1k}` : "—"}</td>
-                      <td className="p-2 text-right font-mono text-xs">{m.contextWindow?.toLocaleString() ?? "—"}</td>
-                      <td className="p-2 text-right font-mono text-xs">{m.latencyP50Ms ?? "—"}ms</td>
-                      <td className="p-2 text-right font-mono text-xs">{m.latencyP95Ms ?? "—"}ms</td>
-                      <td className="p-2 text-right font-mono">{m.evalScore != null ? `${(m.evalScore * 100).toFixed(0)}%` : "—"}</td>
+                      <td className="p-2 text-right font-mono text-xs">
+                        {m.inputCostPer1k != null ? `$${m.inputCostPer1k}` : "—"}
+                      </td>
+                      <td className="p-2 text-right font-mono text-xs">
+                        {m.outputCostPer1k != null ? `$${m.outputCostPer1k}` : "—"}
+                      </td>
+                      <td className="p-2 text-right font-mono text-xs">
+                        {m.contextWindow?.toLocaleString() ?? "—"}
+                      </td>
+                      <td className="p-2 text-right font-mono text-xs">
+                        {m.latencyP50Ms ?? "—"}ms
+                      </td>
+                      <td className="p-2 text-right font-mono text-xs">
+                        {m.latencyP95Ms ?? "—"}ms
+                      </td>
+                      <td className="p-2 text-right font-mono">
+                        {m.evalScore != null ? `${(m.evalScore * 100).toFixed(0)}%` : "—"}
+                      </td>
                       <td className="p-2 text-xs text-sub">{m.status}</td>
-                      <td className="p-2"><button onClick={() => remove(m.id)} aria-label="Remove model" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button></td>
+                      <td className="p-2">
+                        <button
+                          onClick={() => remove(m.id)}
+                          aria-label="Remove model"
+                          className="text-sub hover:text-red-400"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
