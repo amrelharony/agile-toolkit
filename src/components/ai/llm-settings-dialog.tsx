@@ -32,11 +32,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useLlmStore } from "@/lib/stores/llm-store";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
-import {
-  DEFAULT_MODEL_BY_PROVIDER,
-  MODELS_BY_PROVIDER,
-  PROVIDER_META,
-} from "@/lib/llm/pricing";
+import { DEFAULT_MODEL_BY_PROVIDER, MODELS_BY_PROVIDER, PROVIDER_META } from "@/lib/llm/pricing";
 import { getAdapter, PROVIDER_IDS } from "@/lib/llm/registry";
 import type { ProviderId } from "@/lib/llm/types";
 import { isLlmError } from "@/lib/llm/types";
@@ -84,8 +80,8 @@ export function LlmSettingsDialog() {
             Bring your own AI key
           </DialogTitle>
           <DialogDescription className="text-sub">
-            Paste a key from any supported provider to run the toolkit&apos;s
-            prompts directly. Copy-paste keeps working with or without a key.
+            Paste a key from any supported provider to run the toolkit&apos;s prompts directly.
+            Copy-paste keeps working with or without a key.
           </DialogDescription>
         </DialogHeader>
 
@@ -172,23 +168,24 @@ export function LlmSettingsDialog() {
             <Label htmlFor="llm-max-tokens" className="text-xs text-text shrink-0">
               Max output tokens per call
             </Label>
-            <Input
+            {/* BUG-X2: hold a local string draft, commit on blur. The
+                prior per-keystroke `setMaxOutputTokens(Number(...))`
+                triggered the store's clamp(64, 8192) on every key, so
+                typing "100" → store snapped to 64 → field re-renders
+                to "64" → the user can never reach a 3-digit value
+                below 640 without backspacing through the clamp. */}
+            <MaxTokensField
               id="llm-max-tokens"
-              type="number"
-              min={64}
-              max={8192}
               value={maxOutputTokens}
-              onChange={(e) => setMaxOutputTokens(Number(e.target.value))}
-              className="bg-surface-deep border-border w-28 text-text font-data"
+              onCommit={setMaxOutputTokens}
             />
             <span className="text-[11px] text-sub">caps cost per request</span>
           </div>
 
           <p className="text-[11px] leading-relaxed">
-            Your key is stored only in this browser. Requests go directly from
-            your browser to the provider — they never touch the toolkit&apos;s
-            servers. Any browser extension or XSS in this app could read your
-            key. Use session mode for the strongest default.
+            Your key is stored only in this browser. Requests go directly from your browser to the
+            provider — they never touch the toolkit&apos;s servers. Any browser extension or XSS in
+            this app could read your key. Use session mode for the strongest default.
           </p>
         </div>
 
@@ -212,6 +209,58 @@ interface ProviderPanelProps {
 }
 
 const CUSTOM_MODEL_VALUE = "__custom__";
+
+/**
+ * BUG-X2: Max-output-tokens input that holds a local string draft and
+ * only commits to the (clamping) store on blur / Enter. Without this,
+ * the store's `setMaxOutputTokens` clamp(64, 8192) fires on every
+ * keystroke and snaps a partial value like "1" → 64, so the user can
+ * never type a 3-digit value below 640.
+ */
+function MaxTokensField({
+  id,
+  value,
+  onCommit,
+}: {
+  id: string;
+  value: number;
+  onCommit: (n: number) => void;
+}) {
+  const [draft, setDraft] = useState<string>(String(value));
+  // Re-sync if parent value changes (reset, external update).
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+  const commit = () => {
+    const n = Number(draft);
+    if (!Number.isFinite(n)) {
+      setDraft(String(value));
+      return;
+    }
+    const clamped = Math.min(8192, Math.max(64, Math.round(n)));
+    onCommit(clamped);
+    setDraft(String(clamped));
+  };
+  return (
+    <Input
+      id={id}
+      type="number"
+      min={64}
+      max={8192}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      className="bg-surface-deep border-border w-28 text-text font-data"
+    />
+  );
+}
 
 function ProviderPanel({
   providerId,
@@ -331,9 +380,7 @@ function ProviderPanel({
             {reveal ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </Button>
         </div>
-        {keyHint && (
-          <p className="text-[11px] text-amber-300/80">{keyHint}</p>
-        )}
+        {keyHint && <p className="text-[11px] text-amber-300/80">{keyHint}</p>}
       </div>
 
       <div className="space-y-1.5">
@@ -414,11 +461,7 @@ function ProviderPanel({
           Save &amp; make active
         </Button>
         {existing && !isActive && (
-          <Button
-            variant="outline"
-            onClick={onMakeActive}
-            className="border-border"
-          >
+          <Button variant="outline" onClick={onMakeActive} className="border-border">
             Make active
           </Button>
         )}

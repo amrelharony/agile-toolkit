@@ -119,19 +119,19 @@ export function OneOnOneClient() {
     // date are broken by preferring the meeting with a non-empty agenda
     // (so an empty placeholder doesn't shadow a populated one).
     const pk = pairKey(newMeeting);
-    const prior = meetings
-      .filter(
-        (m) =>
-          pairKey(m) === pk &&
-          m.id !== newMeeting.id &&
-          m.date <= newMeeting.date
-      )
-      .sort((a, b) => {
-        if (a.date !== b.date) return b.date.localeCompare(a.date);
-        const aHas = a.agenda.length > 0 ? 1 : 0;
-        const bHas = b.agenda.length > 0 ? 1 : 0;
-        return bHas - aHas;
-      })[0];
+    // BUG-T5-one-on-one-6: prefer the most recent meeting with a
+    // populated agenda over a strictly-newer empty meeting. The prior
+    // sort only broke same-date ties on agenda-non-emptiness, so a
+    // newest-date empty placeholder always won the lookup and
+    // wiped any open items from the actual prior populated meeting.
+    const candidates = meetings.filter(
+      (m) => pairKey(m) === pk && m.id !== newMeeting.id && m.date <= newMeeting.date
+    );
+    const populated = candidates
+      .filter((m) => m.agenda.length > 0)
+      .sort((a, b) => b.date.localeCompare(a.date))[0];
+    const newest = candidates.sort((a, b) => b.date.localeCompare(a.date))[0];
+    const prior = populated ?? newest;
     if (prior) {
       const carry = prior.agenda
         .filter((a) => a.status === "open")
@@ -177,9 +177,7 @@ export function OneOnOneClient() {
       status: "open",
     };
     setMeetings((s) =>
-      s.map((m) =>
-        m.id === activeMeeting.id ? { ...m, agenda: [...m.agenda, item] } : m
-      )
+      s.map((m) => (m.id === activeMeeting.id ? { ...m, agenda: [...m.agenda, item] } : m))
     );
     log(ONE_ON_ONE_ACTIONS.AGENDA_ITEM_ADDED, {
       meetingId: activeMeeting.id,
@@ -199,9 +197,7 @@ export function OneOnOneClient() {
         m.id === activeMeeting.id
           ? {
               ...m,
-              agenda: m.agenda.map((a) =>
-                a.id === itemId ? { ...a, status: next } : a
-              ),
+              agenda: m.agenda.map((a) => (a.id === itemId ? { ...a, status: next } : a)),
             }
           : m
       )
@@ -221,9 +217,7 @@ export function OneOnOneClient() {
         m.id === activeMeeting.id
           ? {
               ...m,
-              agenda: m.agenda.map((a) =>
-                a.id === itemId ? { ...a, ...patch } : a
-              ),
+              agenda: m.agenda.map((a) => (a.id === itemId ? { ...a, ...patch } : a)),
             }
           : m
       )
@@ -234,9 +228,7 @@ export function OneOnOneClient() {
     if (!activeMeeting) return;
     setMeetings((s) =>
       s.map((m) =>
-        m.id === activeMeeting.id
-          ? { ...m, agenda: m.agenda.filter((a) => a.id !== itemId) }
-          : m
+        m.id === activeMeeting.id ? { ...m, agenda: m.agenda.filter((a) => a.id !== itemId) } : m
       )
     );
   };
@@ -245,11 +237,7 @@ export function OneOnOneClient() {
   // every keystroke) so we don't write to localStorage per character.
   const updateNotes = (val: string) => {
     if (!activeMeeting) return;
-    setMeetings((s) =>
-      s.map((m) =>
-        m.id === activeMeeting.id ? { ...m, notes: val } : m
-      )
-    );
+    setMeetings((s) => s.map((m) => (m.id === activeMeeting.id ? { ...m, notes: val } : m)));
   };
 
   // Local draft mirrors the active meeting's notes — typing only touches
@@ -282,9 +270,10 @@ export function OneOnOneClient() {
   // KPIs.
   const meetingsThisMonth = useMemo(() => {
     const todayDate = new Date();
-    const yearMonth = `${todayDate.getFullYear()}-${String(
-      todayDate.getMonth() + 1
-    ).padStart(2, "0")}`;
+    const yearMonth = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}`;
     return meetings.filter((m) => m.date.startsWith(yearMonth)).length;
   }, [meetings]);
 
@@ -292,12 +281,7 @@ export function OneOnOneClient() {
     const today = todayLocalISO();
     return meetings
       .flatMap((m) => m.agenda)
-      .filter(
-        (a) =>
-          a.status === "action_required" &&
-          a.dueDate &&
-          a.dueDate < today
-      ).length;
+      .filter((a) => a.status === "action_required" && a.dueDate && a.dueDate < today).length;
   }, [meetings]);
 
   const discussedPct = useMemo(() => {
@@ -305,9 +289,7 @@ export function OneOnOneClient() {
     if (total === 0) return 0;
     const discussed = meetings
       .flatMap((m) => m.agenda)
-      .filter(
-        (a) => a.status === "discussed" || a.status === "action_required"
-      ).length;
+      .filter((a) => a.status === "discussed" || a.status === "action_required").length;
     return Math.round((discussed / total) * 100);
   }, [meetings]);
 
@@ -358,16 +340,7 @@ export function OneOnOneClient() {
 
   const csvData = useMemo(
     () => ({
-      headers: [
-        "Meeting Date",
-        "Manager",
-        "Report",
-        "Agenda",
-        "Status",
-        "Action",
-        "Owner",
-        "Due",
-      ],
+      headers: ["Meeting Date", "Manager", "Report", "Agenda", "Status", "Action", "Owner", "Due"],
       rows: meetings.flatMap((m) =>
         m.agenda.length > 0
           ? m.agenda.map((a) => [
@@ -397,11 +370,7 @@ export function OneOnOneClient() {
     >
       <ActionRow>
         <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="one-on-one"
-          csvData={csvData}
-          jsonData={meetings}
-        />
+        <ExportButton filename="one-on-one" csvData={csvData} jsonData={meetings} />
       </ActionRow>
 
       <KpiGrid cols={4} gap="lg">
@@ -422,9 +391,13 @@ export function OneOnOneClient() {
         <StatCard
           variant="compact"
           icon={CheckSquare}
-          label="Discussed"
+          // BUG-T5-one-on-one-3: "Discussed" is misleading because
+          // discussedPct also includes status="action_required" (a
+          // discussed item that needs follow-up, NOT closed). The
+          // closer term is "Addressed" — covers both paths.
+          label="Addressed"
           value={`${discussedPct}%`}
-          hint="of agenda items"
+          hint="discussed or action queued"
         />
         <StatCard
           variant="compact"
@@ -436,9 +409,7 @@ export function OneOnOneClient() {
       </KpiGrid>
 
       <div className="rounded-lg border border-border bg-surface p-4 mb-4">
-        <div className="text-xs uppercase tracking-wider text-sub mb-3">
-          Start a new 1:1
-        </div>
+        <div className="text-xs uppercase tracking-wider text-sub mb-3">Start a new 1:1</div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
           <Input
             value={manager}
@@ -486,12 +457,9 @@ export function OneOnOneClient() {
         <div className="rounded-lg border border-accent/40 bg-accent/5 p-4 mb-4">
           <div className="flex items-start justify-between gap-2 mb-3">
             <div>
-              <div className="text-xs uppercase tracking-wider text-accent">
-                Active 1:1
-              </div>
+              <div className="text-xs uppercase tracking-wider text-accent">Active 1:1</div>
               <div className="text-sm font-medium text-text">
-                {activeMeeting.manager} ↔ {activeMeeting.report} ·{" "}
-                {activeMeeting.date}
+                {activeMeeting.manager} ↔ {activeMeeting.report} · {activeMeeting.date}
               </div>
             </div>
             <Button
@@ -504,9 +472,7 @@ export function OneOnOneClient() {
             </Button>
           </div>
 
-          <div className="text-xs uppercase tracking-wider text-sub mb-2">
-            Agenda
-          </div>
+          <div className="text-xs uppercase tracking-wider text-sub mb-2">Agenda</div>
           <div className="flex gap-2 mb-3">
             <Input
               value={newAgendaText}
@@ -530,8 +496,8 @@ export function OneOnOneClient() {
           <div className="space-y-2 mb-4">
             {activeMeeting.agenda.length === 0 ? (
               <p className="text-xs text-sub">
-                No agenda items yet. Carry-forward items from the prior 1:1
-                appear here automatically when one exists.
+                No agenda items yet. Carry-forward items from the prior 1:1 appear here
+                automatically when one exists.
               </p>
             ) : (
               activeMeeting.agenda.map((a) => (
@@ -553,18 +519,14 @@ export function OneOnOneClient() {
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
                           <Input
                             value={a.action ?? ""}
-                            onChange={(e) =>
-                              updateAgendaItem(a.id, { action: e.target.value })
-                            }
+                            onChange={(e) => updateAgendaItem(a.id, { action: e.target.value })}
                             placeholder="Action..."
                             className="bg-bg border-border text-xs h-7"
                             aria-label="Action"
                           />
                           <Input
                             value={a.owner ?? ""}
-                            onChange={(e) =>
-                              updateAgendaItem(a.id, { owner: e.target.value })
-                            }
+                            onChange={(e) => updateAgendaItem(a.id, { owner: e.target.value })}
                             placeholder="Owner"
                             className="bg-bg border-border text-xs h-7"
                             aria-label="Owner"
@@ -598,9 +560,7 @@ export function OneOnOneClient() {
             )}
           </div>
 
-          <div className="text-xs uppercase tracking-wider text-sub mb-2">
-            Notes
-          </div>
+          <div className="text-xs uppercase tracking-wider text-sub mb-2">Notes</div>
           <Textarea
             value={notesDraft}
             onChange={(e) => setNotesDraft(e.target.value)}
@@ -625,16 +585,11 @@ export function OneOnOneClient() {
       ) : (
         pastMeetings.length > 0 && (
           <div className="space-y-2">
-            <div className="text-xs uppercase tracking-wider text-sub">
-              Past meetings
-            </div>
+            <div className="text-xs uppercase tracking-wider text-sub">Past meetings</div>
             {pastMeetings.map((m) => {
               const expanded = expandedPast.has(m.id);
               return (
-                <div
-                  key={m.id}
-                  className="rounded-lg border border-border bg-surface"
-                >
+                <div key={m.id} className="rounded-lg border border-border bg-surface">
                   <button
                     onClick={() => togglePastExpanded(m.id)}
                     className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-bg/40"
@@ -682,9 +637,7 @@ export function OneOnOneClient() {
                   {expanded && (
                     <div className="px-3 pb-3 space-y-1.5">
                       {m.description && (
-                        <div className="text-xs text-sub whitespace-pre-wrap">
-                          {m.description}
-                        </div>
+                        <div className="text-xs text-sub whitespace-pre-wrap">{m.description}</div>
                       )}
                       {m.agenda.map((a) => (
                         <div

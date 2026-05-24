@@ -42,11 +42,85 @@ export interface ClusterOptions {
  * cosine-similarity clustering so common words ("the", "a", "to")
  * don't dominate the signal. */
 const STOPWORDS = new Set([
-  "a","an","the","and","or","but","if","of","in","on","at","by","for","to","with","from",
-  "is","are","was","were","be","been","being","do","does","did","done","have","has","had",
-  "this","that","these","those","it","its","as","not","no","yes","i","we","you","he","she","they","them",
-  "our","their","my","your","his","her","when","where","why","how","what","who","which",
-  "so","up","out","can","will","would","could","should","just","also","than","then","more","most","some","any","all","each","every",
+  "a",
+  "an",
+  "the",
+  "and",
+  "or",
+  "but",
+  "if",
+  "of",
+  "in",
+  "on",
+  "at",
+  "by",
+  "for",
+  "to",
+  "with",
+  "from",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "do",
+  "does",
+  "did",
+  "done",
+  "have",
+  "has",
+  "had",
+  "this",
+  "that",
+  "these",
+  "those",
+  "it",
+  "its",
+  "as",
+  "not",
+  "no",
+  "yes",
+  "i",
+  "we",
+  "you",
+  "he",
+  "she",
+  "they",
+  "them",
+  "our",
+  "their",
+  "my",
+  "your",
+  "his",
+  "her",
+  "when",
+  "where",
+  "why",
+  "how",
+  "what",
+  "who",
+  "which",
+  "so",
+  "up",
+  "out",
+  "can",
+  "will",
+  "would",
+  "could",
+  "should",
+  "just",
+  "also",
+  "than",
+  "then",
+  "more",
+  "most",
+  "some",
+  "any",
+  "all",
+  "each",
+  "every",
 ]);
 
 /** Tokenise a text into a multiset of lower-cased stems. The "stem"
@@ -89,10 +163,15 @@ function vectorise(objects: readonly WhiteboardObject[]): { vectors: number[][];
     .slice(0, 64)
     .map(([t]) => t);
   if (vocab.length === 0) {
-    // Fall back to a sparse vocab from singletons so we still produce
-    // SOMETHING usable (better than collapsing every object to the
-    // zero vector).
-    const singletons = Array.from(df.entries()).slice(0, 32).map(([t]) => t);
+    // BUG-L7: actually pick singleton tokens (df === 1), not the
+    // first 32 entries of the Map (which are the most-common tokens
+    // by insertion order — the OPPOSITE of singletons). The prior
+    // fallback filled vocab with tokens shared across every doc,
+    // producing uniform vectors that collapsed kMeans to one cluster.
+    const singletons = Array.from(df.entries())
+      .filter(([, f]) => f === 1)
+      .slice(0, 32)
+      .map(([t]) => t);
     vocab.push(...singletons);
   }
   const vocabIdx = new Map(vocab.map((t, i) => [t, i] as const));
@@ -132,7 +211,7 @@ function vectorise(objects: readonly WhiteboardObject[]): { vectors: number[][];
 
 export function clusterObjects(
   objects: readonly WhiteboardObject[],
-  opts: ClusterOptions = {},
+  opts: ClusterOptions = {}
 ): ClusterResult[] {
   const kinds = opts.kinds ?? ["sticky"];
   const subset = objects.filter((o) => kinds.includes(o.type));

@@ -74,7 +74,8 @@ export function OodaLoopClient() {
   function start() {
     if (!topic.trim()) return;
     const item: OODACycle = {
-      id: crypto.randomUUID(), topic: topic.trim(),
+      id: crypto.randomUUID(),
+      topic: topic.trim(),
       startedAt: new Date().toISOString(),
     };
     upsert(item);
@@ -83,7 +84,14 @@ export function OodaLoopClient() {
   }
 
   function update(c: OODACycle, field: keyof OODACycle, value: string) {
-    upsert({ ...c, [field]: value });
+    // BUG-T4-ooda-loop-3: read the LATEST cycle from the store inside
+    // the callback. The previous `upsert({ ...c, [field]: value })`
+    // used the cycle from the map-closure snapshot — if the user
+    // commits observe="X" then immediately commits orient="Y" before
+    // React re-renders, the closure for the second commit still has
+    // observe="" so the upsert reverts observe to "".
+    const latest = (useWorkspaceStore.getState().oodaCycles ?? []).find((x) => x.id === c.id) ?? c;
+    upsert({ ...latest, [field]: value });
     log(OODA_ACTIONS.STAGE_UPDATED, { id: c.id, field });
   }
 
@@ -91,25 +99,51 @@ export function OodaLoopClient() {
     const next: OODACycle = { ...c, completedAt: new Date().toISOString() };
     upsert(next);
     log(OODA_ACTIONS.CYCLE_COMPLETED, { topic: c.topic });
-    emitSignal({ kind: "ooda.cycleCompleted", at: next.completedAt!, toolId: "ooda-loop", payload: next });
+    emitSignal({
+      kind: "ooda.cycleCompleted",
+      at: next.completedAt!,
+      toolId: "ooda-loop",
+      payload: next,
+    });
   }
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    oodaCycles: s.oodaCycles,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        oodaCycles: s.oodaCycles,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "OODA Loop",
-    prompts: generateOodaPrompts({ items: list }, workspace),
-  }), [list, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "OODA Loop",
+      prompts: generateOodaPrompts({ items: list }, workspace),
+    }),
+    [list, workspace]
+  );
 
   const csvData = {
     headers: ["Topic", "Started", "Observe", "Orient", "Decide", "Act", "Completed"],
-    rows: list.map((c) => [c.topic, c.startedAt, c.observe ?? "", c.orient ?? "", c.decide ?? "", c.act ?? "", c.completedAt ?? ""]),
+    rows: list.map((c) => [
+      c.topic,
+      c.startedAt,
+      c.observe ?? "",
+      c.orient ?? "",
+      c.decide ?? "",
+      c.act ?? "",
+      c.completedAt ?? "",
+    ]),
   };
 
   return (
@@ -121,8 +155,15 @@ export function OodaLoopClient() {
       <div ref={exportRef} className="space-y-4">
         <SectionCard title="Start new cycle" icon={Plus}>
           <div className="flex gap-2">
-            <Input placeholder="Topic / situation" value={topic} onChange={(e) => setTopic(e.target.value)} />
-            <Button onClick={start} className="gap-1"><Plus className="w-4 h-4" />Start</Button>
+            <Input
+              placeholder="Topic / situation"
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+            />
+            <Button onClick={start} className="gap-1">
+              <Plus className="w-4 h-4" />
+              Start
+            </Button>
           </div>
         </SectionCard>
 
@@ -133,41 +174,85 @@ export function OodaLoopClient() {
             actions={
               <>
                 <AiPromptGenerator config={promptConfig} />
-                <ExportButton filename="ooda-cycles" csvData={csvData} jsonData={list} targetRef={exportRef} />
+                <ExportButton
+                  filename="ooda-cycles"
+                  csvData={csvData}
+                  jsonData={list}
+                  targetRef={exportRef}
+                />
               </>
             }
           >
             <ul className="space-y-3">
-              {[...list].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()).map((c) => (
-                <li key={c.id} className={`border rounded p-3 ${c.completedAt ? "bg-emerald-500/5 border-emerald-500/30" : "bg-surface-deep border-border"}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium text-text">{c.topic}</span>
-                    <span className="flex items-center gap-2">
-                      <span className="text-xs text-sub font-mono">{(c.startedAt ?? "").slice(0, 16).replace("T", " ")}</span>
-                      {!c.completedAt && <button onClick={() => complete(c)} className="text-emerald-400 hover:text-emerald-300"><CheckCircle2 className="w-4 h-4" /></button>}
-                      <button onClick={() => { removeOne(c.id); log(OODA_ACTIONS.CYCLE_REMOVED, { id: c.id }); }} aria-label="Remove cycle" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <label className="block text-cyan-400 font-bold mb-1">Observe</label>
-                      <StageTextarea value={c.observe ?? ""} onCommit={(v) => update(c, "observe", v)} placeholder="What's happening?" />
+              {[...list]
+                .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
+                .map((c) => (
+                  <li
+                    key={c.id}
+                    className={`border rounded p-3 ${c.completedAt ? "bg-emerald-500/5 border-emerald-500/30" : "bg-surface-deep border-border"}`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium text-text">{c.topic}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="text-xs text-sub font-mono">
+                          {(c.startedAt ?? "").slice(0, 16).replace("T", " ")}
+                        </span>
+                        {!c.completedAt && (
+                          <button
+                            onClick={() => complete(c)}
+                            className="text-emerald-400 hover:text-emerald-300"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            removeOne(c.id);
+                            log(OODA_ACTIONS.CYCLE_REMOVED, { id: c.id });
+                          }}
+                          aria-label="Remove cycle"
+                          className="text-sub hover:text-red-400"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </span>
                     </div>
-                    <div>
-                      <label className="block text-emerald-400 font-bold mb-1">Orient</label>
-                      <StageTextarea value={c.orient ?? ""} onCommit={(v) => update(c, "orient", v)} placeholder="What does it mean? Context, biases, mental models." />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <label className="block text-cyan-400 font-bold mb-1">Observe</label>
+                        <StageTextarea
+                          value={c.observe ?? ""}
+                          onCommit={(v) => update(c, "observe", v)}
+                          placeholder="What's happening?"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-emerald-400 font-bold mb-1">Orient</label>
+                        <StageTextarea
+                          value={c.orient ?? ""}
+                          onCommit={(v) => update(c, "orient", v)}
+                          placeholder="What does it mean? Context, biases, mental models."
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-amber-400 font-bold mb-1">Decide</label>
+                        <StageTextarea
+                          value={c.decide ?? ""}
+                          onCommit={(v) => update(c, "decide", v)}
+                          placeholder="What's the call?"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-pink-400 font-bold mb-1">Act</label>
+                        <StageTextarea
+                          value={c.act ?? ""}
+                          onCommit={(v) => update(c, "act", v)}
+                          placeholder="What did we do? Outcome."
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-amber-400 font-bold mb-1">Decide</label>
-                      <StageTextarea value={c.decide ?? ""} onCommit={(v) => update(c, "decide", v)} placeholder="What's the call?" />
-                    </div>
-                    <div>
-                      <label className="block text-pink-400 font-bold mb-1">Act</label>
-                      <StageTextarea value={c.act ?? ""} onCommit={(v) => update(c, "act", v)} placeholder="What did we do? Outcome." />
-                    </div>
-                  </div>
-                </li>
-              ))}
+                  </li>
+                ))}
             </ul>
           </SectionCard>
         )}

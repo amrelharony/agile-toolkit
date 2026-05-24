@@ -114,7 +114,10 @@ export function rotateRect(r: Rect, deg: number): Rect {
 
 export function boundingBoxOfPoints(points: readonly Vec2[]): Rect {
   if (points.length === 0) return { x: 0, y: 0, w: 0, h: 0 };
-  let minX = points[0].x, minY = points[0].y, maxX = points[0].x, maxY = points[0].y;
+  let minX = points[0].x,
+    minY = points[0].y,
+    maxX = points[0].x,
+    maxY = points[0].y;
   for (const p of points) {
     if (p.x < minX) minX = p.x;
     if (p.y < minY) minY = p.y;
@@ -139,7 +142,10 @@ export function boundingBoxOfFlatPoints(flat: readonly number[]): Rect {
   // to the nearest even count.
   const n = (flat.length >> 1) * 2;
   if (n < 2) return { x: 0, y: 0, w: 0, h: 0 };
-  let minX = flat[0], minY = flat[1], maxX = flat[0], maxY = flat[1];
+  let minX = flat[0],
+    minY = flat[1],
+    maxX = flat[0],
+    maxY = flat[1];
   for (let i = 0; i < n; i += 2) {
     const x = flat[i];
     const y = flat[i + 1];
@@ -193,8 +199,7 @@ export function pointInPolygon(p: Vec2, flat: readonly number[]): boolean {
     const xj = flat[j * 2];
     const yj = flat[j * 2 + 1];
     const intersect =
-      (yi > p.y) !== (yj > p.y) &&
-      p.x < ((xj - xi) * (p.y - yi)) / (yj - yi + 1e-12) + xi;
+      yi > p.y !== yj > p.y && p.x < ((xj - xi) * (p.y - yi)) / (yj - yi + 1e-12) + xi;
     if (intersect) inside = !inside;
   }
   return inside;
@@ -209,9 +214,20 @@ export function pointInPolygon(p: Vec2, flat: readonly number[]): boolean {
 export function rectOverlapsPolygon(r: Rect, flat: readonly number[]): boolean {
   if (flat.length < 6) return false;
   if (pointInPolygon({ x: r.x + r.w / 2, y: r.y + r.h / 2 }, flat)) return true;
-  if (pointInPolygon({ x: r.x,         y: r.y },         flat)) return true;
-  if (pointInPolygon({ x: r.x + r.w,   y: r.y },         flat)) return true;
-  if (pointInPolygon({ x: r.x,         y: r.y + r.h },   flat)) return true;
-  if (pointInPolygon({ x: r.x + r.w,   y: r.y + r.h },   flat)) return true;
+  if (pointInPolygon({ x: r.x, y: r.y }, flat)) return true;
+  if (pointInPolygon({ x: r.x + r.w, y: r.y }, flat)) return true;
+  if (pointInPolygon({ x: r.x, y: r.y + r.h }, flat)) return true;
+  if (pointInPolygon({ x: r.x + r.w, y: r.y + r.h }, flat)) return true;
+  // BUG-L2: also handle "polygon entirely inside rect" — a lasso drawn
+  // INSIDE a large frame visually overlaps the frame, but every rect
+  // corner was outside the polygon so the prior heuristic missed it.
+  // Cheap O(P) walk over polygon vertices catches this case.
+  const rx2 = r.x + r.w;
+  const ry2 = r.y + r.h;
+  for (let i = 0; i < flat.length; i += 2) {
+    const px = flat[i];
+    const py = flat[i + 1];
+    if (px >= r.x && px <= rx2 && py >= r.y && py <= ry2) return true;
+  }
   return false;
 }

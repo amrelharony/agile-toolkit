@@ -91,7 +91,11 @@ function notify(effect: GamificationSideEffect) {
  * Rule: given event name + current VDna, return true if the achievement should
  * unlock NOW.  Rules are evaluated only for still-locked achievements.
  */
-type Rule = (eventName: string, meta: Record<string, unknown> | undefined, state: ReturnType<typeof useVDnaStore.getState>) => boolean;
+type Rule = (
+  eventName: string,
+  meta: Record<string, unknown> | undefined,
+  state: ReturnType<typeof useVDnaStore.getState>
+) => boolean;
 
 const rules: Partial<Record<string, Rule>> = {
   "first-click": (evt) => evt === "click",
@@ -119,7 +123,8 @@ const rules: Partial<Record<string, Rule>> = {
   "burndown-full": (_e, _m, s) => (s.counters["tool:burndown:day-logged"] ?? 0) >= 10,
   "velocity-five": (_e, _m, s) => (s.counters["tool:velocity:sprint-added"] ?? 0) >= 5,
   "risk-closer": (_e, _m, s) => (s.counters["tool:risk-register:close"] ?? 0) >= 5,
-  "impediments-clear": (_e, _m, s) => (s.counters["tool:impediments:impediment-resolved"] ?? 0) >= 10,
+  "impediments-clear": (_e, _m, s) =>
+    (s.counters["tool:impediments:impediment-resolved"] ?? 0) >= 10,
   "okr-complete": (evt) => evt === "tool:okrs:okr-achieved",
   "debt-paydown": (_e, _m, s) => (s.counters["tool:tech-debt:debt-resolved"] ?? 0) >= 5,
   "adr-writer": (_e, _m, s) => (s.counters["tool:decision-log:adr-new"] ?? 0) >= 5,
@@ -133,8 +138,10 @@ const rules: Partial<Record<string, Rule>> = {
   "combo-5": (_e, m) => typeof m?.comboDepth === "number" && m.comboDepth >= 4,
   "marathon-30": (_e, _m, s) => (s.counters["session-minutes"] ?? 0) >= 30,
   "marathon-60": (_e, _m, s) => (s.counters["session-minutes"] ?? 0) >= 60,
-  "daily-three": (_e, _m, s) => s.dailyChallenges.length > 0 && s.dailyChallenges.every((c) => c.completed),
-  "weekly-sweep": (_e, _m, s) => s.weeklyChallenges.length > 0 && s.weeklyChallenges.every((c) => c.completed),
+  "daily-three": (_e, _m, s) =>
+    s.dailyChallenges.length > 0 && s.dailyChallenges.every((c) => c.completed),
+  "weekly-sweep": (_e, _m, s) =>
+    s.weeklyChallenges.length > 0 && s.weeklyChallenges.every((c) => c.completed),
   "sprint-complete": (evt) => evt === "sprint-completed",
   "release-forecast": (evt) => evt === "tool:release-planner:simulate",
   "dependency-free": (_e, m) => evtFlag(m, "zeroCycles"),
@@ -160,14 +167,13 @@ const rules: Partial<Record<string, Rule>> = {
     (s.counters["export-json"] ?? 0) > 0,
   "reduce-motion": (evt) => evt === "reduce-motion-on",
   "level-ten": (_e, _m, s) => s.level >= 10,
-  "konami": (evt) => evt === "secret:konami",
+  konami: (evt) => evt === "secret:konami",
   "logo-whisperer": (_e, _m, s) => (s.counters["logo-hover"] ?? 0) >= 10,
   "triple-tap": (evt) => evt === "secret:triple-tap",
   "footer-click": (evt) => evt === "secret:footer-click",
   "type-agile": (evt) => evt === "secret:typed-agile",
   "type-scrum": (evt) => evt === "secret:typed-scrum",
-  "silent-run": (_e, _m, s) =>
-    s.silentMode && (s.counters["session-minutes-silent"] ?? 0) >= 10,
+  "silent-run": (_e, _m, s) => s.silentMode && (s.counters["session-minutes-silent"] ?? 0) >= 10,
   "midnight-commit": () => {
     const d = new Date();
     return d.getHours() === 0 && d.getMinutes() === 0;
@@ -198,8 +204,10 @@ function xpForEvent(name: string): { amount: number; source: XpSource } {
   if (name.startsWith("secret:")) return { amount: 100, source: "secret" };
   if (name.startsWith("tool:")) {
     // Tool-specific events: most are entity creation or state transitions.
-    if (name.endsWith(":finish") || name.endsWith(":achieved")) return { amount: 50, source: "tool-completed" };
-    if (name.endsWith(":resolved") || name.endsWith(":completed")) return { amount: 30, source: "entity-resolved" };
+    if (name.endsWith(":finish") || name.endsWith(":achieved"))
+      return { amount: 50, source: "tool-completed" };
+    if (name.endsWith(":resolved") || name.endsWith(":completed"))
+      return { amount: 30, source: "entity-resolved" };
     return { amount: 5, source: "entity-added" };
   }
   return { amount: 1, source: "click" };
@@ -232,7 +240,10 @@ function refreshChallengesIfStale() {
 
 function advanceChallenges(eventName: string, meta: Record<string, unknown> | undefined) {
   const state = useVDnaStore.getState();
-  const mutate = (list: typeof state.dailyChallenges, defLookup: (id: string) => ReturnType<typeof findDaily>) => {
+  const mutate = (
+    list: typeof state.dailyChallenges,
+    defLookup: (id: string) => ReturnType<typeof findDaily>
+  ) => {
     let mutated = false;
     const next = list.map((c) => {
       if (c.completed) return c;
@@ -260,10 +271,14 @@ function advanceChallenges(eventName: string, meta: Record<string, unknown> | un
   // Fire XP rewards for newly completed challenges (re-entrant-safe).
   [...daily.next, ...weekly.next].forEach((c) => {
     if (c.completed && c.completedAt) {
-      const prev = state.dailyChallenges.find((x) => x.id === c.id) ?? state.weeklyChallenges.find((x) => x.id === c.id);
+      const prev =
+        state.dailyChallenges.find((x) => x.id === c.id) ??
+        state.weeklyChallenges.find((x) => x.id === c.id);
       if (prev && !prev.completed) {
         notify({ kind: "challenge-complete", payload: { id: c.id, kind: c.kind, xp: c.xp } });
-        awardXp(c.xp, c.kind === "daily" ? "daily-challenge" : "weekly-challenge", { challengeId: c.id });
+        awardXp(c.xp, c.kind === "daily" ? "daily-challenge" : "weekly-challenge", {
+          challengeId: c.id,
+        });
       }
     }
   });
@@ -300,7 +315,11 @@ function registerToolVisit(toolId: string) {
 // XP award + level handling
 // ──────────────────────────────────────────────────────────────────────────
 
-function awardXp(amount: number, source: XpSource, meta?: Record<string, string | number | boolean>) {
+function awardXp(
+  amount: number,
+  source: XpSource,
+  meta?: Record<string, string | number | boolean>
+) {
   if (amount <= 0) return;
   if (emitDepth >= MAX_EMIT_DEPTH) return; // re-entrant circuit breaker
   emitDepth++;
@@ -312,6 +331,12 @@ function awardXp(amount: number, source: XpSource, meta?: Record<string, string 
     // so both reads share one snapshot.
     const combos = getCombo();
     const effectiveAmount = Math.round(amount * combos.multiplier);
+    // BUG-L6: a 0.2-XP hover event rounds to 0 at combo multiplier 1.
+    // The legacy code still pushed a {amount: 0} XpEvent into the
+    // events ring AND scheduled a Supabase profile sync AND fired the
+    // OPFS-disk-write subscriber. Over a long session that's thousands
+    // of useless writes per hour. Bail at 0 instead.
+    if (effectiveAmount === 0) return;
     let nextXp = 0;
     let nextLevel = 1;
     let leveledUp = false;
@@ -339,7 +364,10 @@ function awardXp(amount: number, source: XpSource, meta?: Record<string, string 
     useVDnaStore.getState().pushEvent(evt);
     notify({ kind: "xp", payload: { ...evt } });
     if (leveledUp) {
-      notify({ kind: "level-up", payload: { level: nextLevel, xp: nextXp, prestige: prestigeAtTime } });
+      notify({
+        kind: "level-up",
+        payload: { level: nextLevel, xp: nextXp, prestige: prestigeAtTime },
+      });
     }
   } finally {
     emitDepth--;
@@ -392,7 +420,14 @@ export function dispatch(event: GamificationEvent) {
     }
 
     // Counter bumps for any tool:* or named event.
-    if (name.startsWith("tool:") || name === "click" || name === "hover" || name === "export-png" || name === "export-csv" || name === "export-json") {
+    if (
+      name.startsWith("tool:") ||
+      name === "click" ||
+      name === "hover" ||
+      name === "export-png" ||
+      name === "export-csv" ||
+      name === "export-json"
+    ) {
       useVDnaStore.getState().bumpCounter(name, 1);
     }
 
@@ -439,7 +474,9 @@ export function dispatch(event: GamificationEvent) {
   }
 }
 
-function safeMeta(m: Record<string, unknown> | undefined): Record<string, string | number | boolean> | undefined {
+function safeMeta(
+  m: Record<string, unknown> | undefined
+): Record<string, string | number | boolean> | undefined {
   if (!m) return undefined;
   const out: Record<string, string | number | boolean> = {};
   for (const [k, v] of Object.entries(m)) {

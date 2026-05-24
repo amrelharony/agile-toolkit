@@ -1,14 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar,
-  Tooltip,
-} from "recharts";
+import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -98,19 +91,20 @@ function makeDraft(): DraftState {
 }
 
 export function SpacePulseClient() {
-  const [state, setState] = usePersisted<SpaceState>(
-    "agile-toolkit:space-pulse",
-    DEFAULT_STATE
-  );
+  const [state, setState] = usePersisted<SpaceState>("agile-toolkit:space-pulse", DEFAULT_STATE);
   const [draft, setDraft] = useState<DraftState>(makeDraft);
   const { log } = useHistoryLogger("space-pulse");
 
   const addScore = () => {
-    const quarter = draft.quarter.trim();
+    // BUG-T8-space-pulse-2: canonicalize to upper-case "YYYY-QN" on
+    // commit so "2026-q1" and "2026-Q1" dedupe against each other.
+    // The prior dedup compared raw strings and silently created two
+    // entries for the same quarter.
+    const quarter = draft.quarter.trim().toUpperCase();
     if (!quarter) return;
     if (!QUARTER_FORMAT.test(quarter)) {
       toast.warning(
-        "Quarter should be formatted as YYYY-Q1..Q4 (e.g. 2026-Q1) — sort order may be off otherwise.",
+        "Quarter should be formatted as YYYY-Q1..Q4 (e.g. 2026-Q1) — sort order may be off otherwise."
       );
     }
     const score: SpaceScore = {
@@ -250,13 +244,7 @@ export function SpacePulseClient() {
       ) : (
         <KpiGrid cols={5} gap="md">
           {DIMENSIONS.map((d) => (
-            <StatCard
-              key={d.key}
-              variant="compact"
-              label={d.label}
-              value="—"
-              hint="No data"
-            />
+            <StatCard key={d.key} variant="compact" label={d.label} value="—" hint="No data" />
           ))}
         </KpiGrid>
       )}
@@ -271,9 +259,7 @@ export function SpacePulseClient() {
               <Input
                 id="space-quarter"
                 value={draft.quarter}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, quarter: e.target.value }))
-                }
+                onChange={(e) => setDraft((d) => ({ ...d, quarter: e.target.value }))}
                 placeholder="2026-Q1"
                 className="bg-surface border-border"
               />
@@ -281,21 +267,15 @@ export function SpacePulseClient() {
             {DIMENSIONS.map((dim) => (
               <div key={dim.key} className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-text">
-                    {dim.label}
-                  </span>
-                  <span className="text-xs font-data text-accent">
-                    {draft[dim.key]} / 5
-                  </span>
+                  <span className="text-sm font-medium text-text">{dim.label}</span>
+                  <span className="text-xs font-data text-accent">{draft[dim.key]} / 5</span>
                 </div>
                 <Slider
                   min={1}
                   max={5}
                   step={1}
                   value={[draft[dim.key]]}
-                  onValueChange={([v]) =>
-                    setDraft((d) => ({ ...d, [dim.key]: v }))
-                  }
+                  onValueChange={([v]) => setDraft((d) => ({ ...d, [dim.key]: v }))}
                   className="w-full"
                 />
               </div>
@@ -307,9 +287,7 @@ export function SpacePulseClient() {
               <Textarea
                 id="space-desc"
                 value={draft.description}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, description: e.target.value }))
-                }
+                onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
                 placeholder="Context about the survey period..."
                 rows={3}
                 className="bg-surface border-border resize-none text-xs"
@@ -325,19 +303,10 @@ export function SpacePulseClient() {
           </div>
         </SectionCard>
 
-        <ChartCard
-          title={latest ? `Radar — ${latest.quarter}` : "Radar"}
-          height={360}
-        >
-          <RadarChart
-            data={radarData}
-            margin={{ top: 16, right: 24, bottom: 16, left: 24 }}
-          >
+        <ChartCard title={latest ? `Radar — ${latest.quarter}` : "Radar"} height={360}>
+          <RadarChart data={radarData} margin={{ top: 16, right: 24, bottom: 16, left: 24 }}>
             <PolarGrid stroke={chartTheme.gridColor} />
-            <PolarAngleAxis
-              dataKey="subject"
-              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-            />
+            <PolarAngleAxis dataKey="subject" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
             <PolarRadiusAxis
               angle={90}
               domain={[0, 5]}
@@ -425,8 +394,7 @@ function DimensionStat({
   prior?: number;
 }) {
   const delta = prior === undefined ? undefined : current - prior;
-  const ArrowIcon =
-    delta === undefined || delta === 0 ? Minus : delta > 0 ? ArrowUp : ArrowDown;
+  const ArrowIcon = delta === undefined || delta === 0 ? Minus : delta > 0 ? ArrowUp : ArrowDown;
   const trendColor =
     delta === undefined || delta === 0
       ? "text-sub"

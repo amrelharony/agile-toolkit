@@ -81,9 +81,7 @@ function createSprint(existing: Sprint[]): Sprint {
   // Pick the first unused integer suffix so deleting "Sprint 2" then adding
   // a new one doesn't produce "Sprint 4" — the user expects gaps to fill.
   const used = new Set(
-    existing
-      .map((s) => parseInt(String(s.name).replace(/\D/g, ""), 10))
-      .filter(Number.isFinite)
+    existing.map((s) => parseInt(String(s.name).replace(/\D/g, ""), 10)).filter(Number.isFinite)
   );
   let n = 1;
   while (used.has(n)) n++;
@@ -101,29 +99,22 @@ function createSprint(existing: Sprint[]): Sprint {
 
 const useVelocityStore = create<VelocityStore>()(
   persist(
-    withTimeTravel<VelocityStore>(
-      { toolId: "velocity" },
-      (set) => ({
-        sprints: buildDefaultSprints(),
+    withTimeTravel<VelocityStore>({ toolId: "velocity" }, (set) => ({
+      sprints: buildDefaultSprints(),
 
-        addSprint: () =>
-          set((s) => ({ sprints: [...s.sprints, createSprint(s.sprints)] })),
+      addSprint: () => set((s) => ({ sprints: [...s.sprints, createSprint(s.sprints)] })),
 
-        removeSprint: (id) =>
-          set((s) => ({ sprints: s.sprints.filter((sp) => sp.id !== id) })),
+      removeSprint: (id) => set((s) => ({ sprints: s.sprints.filter((sp) => sp.id !== id) })),
 
-        updateSprint: (id, updates) =>
-          set((s) => ({
-            sprints: s.sprints.map((sp) =>
-              sp.id === id ? { ...sp, ...updates } : sp
-            ),
-          })),
+      updateSprint: (id, updates) =>
+        set((s) => ({
+          sprints: s.sprints.map((sp) => (sp.id === id ? { ...sp, ...updates } : sp)),
+        })),
 
-        // Re-build defaults on each reset so we mint fresh ids — never reuse
-        // the originals, otherwise sprint identity would alias old data.
-        reset: () => set({ sprints: buildDefaultSprints() }),
-      })
-    ),
+      // Re-build defaults on each reset so we mint fresh ids — never reuse
+      // the originals, otherwise sprint identity would alias old data.
+      reset: () => set({ sprints: buildDefaultSprints() }),
+    })),
     {
       name: "agile-toolkit:velocity",
       storage: safeJSONStorage("velocity"),
@@ -156,21 +147,28 @@ function rollingAverage(values: number[], window = 3): (number | null)[] {
 function linearRegression(values: number[]): number[] {
   // Defensive filter — a single NaN would propagate through every reduction
   // and yield a NaN slope/intercept that taints the entire trend line.
-  const valid = values.filter(Number.isFinite);
-  const n = valid.length;
+  // BUG-T9-velocity-1: fit against (originalIndex, value) pairs, NOT
+  // against a collapsed `valid` array. The prior code computed slope
+  // over xs=[0..valid.length-1] and then projected back across the
+  // ORIGINAL indices — off-by-one for every gap. With values=[10,
+  // NaN, 12, 14], slope was fit on (0,10)/(1,12)/(2,14) but projected
+  // at i=0,1,2,3, so the trend at position 3 was a 4th-step
+  // extrapolation when only 3 data points existed.
+  const pairs: Array<[number, number]> = [];
+  values.forEach((v, i) => {
+    if (Number.isFinite(v)) pairs.push([i, v]);
+  });
+  const n = pairs.length;
   if (n < 2) {
-    const fallback = Number.isFinite(valid[0]) ? valid[0] : 0;
+    const fallback = n === 1 ? pairs[0][1] : 0;
     return values.map(() => fallback);
   }
-  const xs = valid.map((_, i) => i);
-  const xMean = (n - 1) / 2;
-  const yMean = valid.reduce((a, b) => a + b, 0) / n;
-  const ssXX = xs.reduce((sum, x) => sum + (x - xMean) ** 2, 0);
-  const ssXY = xs.reduce((sum, x, i) => sum + (x - xMean) * (valid[i] - yMean), 0);
+  const xMean = pairs.reduce((a, [x]) => a + x, 0) / n;
+  const yMean = pairs.reduce((a, [, y]) => a + y, 0) / n;
+  const ssXX = pairs.reduce((s, [x]) => s + (x - xMean) ** 2, 0);
+  const ssXY = pairs.reduce((s, [x, y]) => s + (x - xMean) * (y - yMean), 0);
   const slope = ssXX === 0 ? 0 : ssXY / ssXX;
   const intercept = yMean - slope * xMean;
-  // Project the regression back across every original index so the consumer
-  // gets one trend value per input — even slots that held a non-finite value.
   return values.map((_, i) => Math.max(0, slope * i + intercept));
 }
 
@@ -322,7 +320,8 @@ export function VelocityClient() {
           existing.pointsPlanned === next.pointsPlanned &&
           existing.pointsCompleted === next.pointsCompleted &&
           existing.status === next.status
-        ) return;
+        )
+          return;
         workspace.upsertSprint(next);
       });
       // Remove workspace sprints WE previously pushed but the user has
@@ -477,9 +476,8 @@ export function VelocityClient() {
     // incremented both numerator and denominator.
     const completedSprints = sprints.filter((s) => s.committed > 0 || s.completed > 0);
     const predictable = completedSprints.filter((s) => s.completed >= s.committed).length;
-    const predictability = completedSprints.length > 0
-      ? (predictable / completedSprints.length) * 100
-      : 0;
+    const predictability =
+      completedSprints.length > 0 ? (predictable / completedSprints.length) * 100 : 0;
     const sd = stdDev(completedValues);
 
     // Trend direction: compare last 2 trend values, but the deadband is now
@@ -503,31 +501,33 @@ export function VelocityClient() {
 
   /* -- Export data --------------------------------------------------------- */
 
-  const csvData = useMemo(() => ({
-    headers: ["Sprint", "Description", "Committed", "Completed"],
-    rows: sprints.map((s) => [s.name, s.description ?? "", s.committed, s.completed]),
-  }), [sprints]);
+  const csvData = useMemo(
+    () => ({
+      headers: ["Sprint", "Description", "Committed", "Completed"],
+      rows: sprints.map((s) => [s.name, s.description ?? "", s.committed, s.completed]),
+    }),
+    [sprints]
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Velocity Tracker",
-    prompts: generateVelocityPrompts({ sprints, stats }),
-  }), [sprints, stats]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Velocity Tracker",
+      prompts: generateVelocityPrompts({ sprints, stats }),
+    }),
+    [sprints, stats]
+  );
 
   /* -- Trend icon ---------------------------------------------------------- */
 
   const TrendIcon =
-    stats.trendDir === "up"
-      ? TrendingUp
-      : stats.trendDir === "down"
-      ? TrendingDown
-      : Minus;
+    stats.trendDir === "up" ? TrendingUp : stats.trendDir === "down" ? TrendingDown : Minus;
 
   const trendColor =
     stats.trendDir === "up"
       ? chartTheme.colors.cyan
       : stats.trendDir === "down"
-      ? chartTheme.colors.magenta
-      : chartTheme.axisColor;
+        ? chartTheme.colors.magenta
+        : chartTheme.axisColor;
 
   /* -- Render -------------------------------------------------------------- */
 
@@ -539,7 +539,6 @@ export function VelocityClient() {
       category="Metrics & Dashboards"
     >
       <div ref={exportRef} className="space-y-6">
-
         {/* ---- Stats Cards ---- */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
@@ -579,23 +578,12 @@ export function VelocityClient() {
           headerExtras={
             <>
               <AiPromptGenerator config={promptConfig} />
-              <ExportButton
-                filename="velocity-tracker"
-                csvData={csvData}
-                targetRef={exportRef}
-              />
+              <ExportButton filename="velocity-tracker" csvData={csvData} targetRef={exportRef} />
             </>
           }
         >
-          <ComposedChart
-            data={chartData}
-            margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
-          >
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke="rgba(255,255,255,0.06)"
-              vertical={false}
-            />
+          <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
             <XAxis
               dataKey="name"
               tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
@@ -607,10 +595,7 @@ export function VelocityClient() {
               axisLine={false}
               tickLine={false}
             />
-            <Tooltip
-              contentStyle={TOOLTIP_STYLE}
-              cursor={{ fill: "rgba(255,255,255,0.04)" }}
-            />
+            <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
             <Legend
               wrapperStyle={{ paddingTop: "16px", color: chartTheme.axisColor, fontSize: 12 }}
             />
@@ -710,9 +695,7 @@ export function VelocityClient() {
               }`}
               title={`Mann-Kendall p=${trendTest.pValue.toFixed(3)}`}
             >
-              <span>
-                {trendTest.trend === "up" ? "↗" : "↘"} trend significant
-              </span>
+              <span>{trendTest.trend === "up" ? "↗" : "↘"} trend significant</span>
               <span className="opacity-60">p={trendTest.pValue.toFixed(2)}</span>
             </span>
           </div>
@@ -800,19 +783,10 @@ export function VelocityClient() {
           contentClassName="space-y-3"
           actions={
             <>
-              <Button
-                variant="danger-ghost"
-                size="sm"
-                onClick={reset}
-              >
+              <Button variant="danger-ghost" size="sm" onClick={reset}>
                 Reset
               </Button>
-              <Button
-                size="sm"
-                variant="toolkit"
-                onClick={addSprint}
-                className="gap-1.5"
-              >
+              <Button size="sm" variant="toolkit" onClick={addSprint} className="gap-1.5">
                 <Plus className="w-4 h-4" />
                 Add Sprint
               </Button>
@@ -821,17 +795,16 @@ export function VelocityClient() {
         >
           {/* Header row */}
           <div className="grid grid-cols-[1fr_0.6fr_0.6fr_auto] gap-3 px-1 pb-2 border-b border-border">
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">Sprint Name</span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">
+              Sprint Name
+            </span>
             <span className="text-xs text-sub font-medium uppercase tracking-wider">Committed</span>
             <span className="text-xs text-sub font-medium uppercase tracking-wider">Completed</span>
             <span className="w-9" />
           </div>
 
           {sprints.map((sp) => (
-            <div
-              key={sp.id}
-              className="grid grid-cols-[1fr_0.6fr_0.6fr_auto] gap-3 items-center"
-            >
+            <div key={sp.id} className="grid grid-cols-[1fr_0.6fr_0.6fr_auto] gap-3 items-center">
               {/* Single-line Input chosen over Textarea here — sprint rows are
                   in a tight 4-column data grid, so a multi-line description
                   would break the row height alignment. Empty trims to undefined. */}
@@ -889,7 +862,11 @@ export function VelocityClient() {
                 {/* Match the predictability KPI math: skip empty rows
                     (committed=0 AND completed=0) so an unfilled default
                     sprint doesn't count as "met commitment" (0 >= 0). */}
-                {sprints.filter((s) => (s.committed > 0 || s.completed > 0) && s.completed >= s.committed).length}
+                {
+                  sprints.filter(
+                    (s) => (s.committed > 0 || s.completed > 0) && s.completed >= s.committed
+                  ).length
+                }
               </span>{" "}
               / {sprints.filter((s) => s.committed > 0 || s.completed > 0).length}
             </span>

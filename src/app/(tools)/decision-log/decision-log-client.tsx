@@ -67,24 +67,24 @@ export function DecisionLogClient() {
   };
 
   const updateDecision = (id: string, patch: Partial<Decision>) => {
-    // Capture the previous decision atomically inside the functional setter so
-    // STATUS_CHANGED logs the actually-current `from` value. Reading from the
-    // outer `decisions` closure was stale: a rapid Select change would log
-    // the prior render's status (often the same value as `to`), and React
-    // batched updates would compound the drift.
-    setDecisions((d) => {
-      const prev = patch.status ? d.find((x) => x.id === id) : undefined;
-      const next = d.map((x) => (x.id === id ? { ...x, ...patch } : x));
-      if (patch.status && prev) {
-        log(DECISION_ACTIONS.STATUS_CHANGED, {
-          decisionId: id,
-          title: prev.title,
-          from: prev.status,
-          to: patch.status,
-        });
-      }
-      return next;
-    });
+    // BUG-T2-decision-log-1: do NOT call `log()` from inside the
+    // setState updater. React 18 StrictMode re-invokes pure updaters
+    // in dev, which previously double-logged every status change. The
+    // freshest snapshot is the live store, NOT the closure — read it
+    // via `setDecisions((d) => …)` ONLY to compute `next`, and call
+    // the side-effecting log AFTER the dispatch using the current
+    // closure's prev (acceptable: this same render's value is what
+    // the user saw when they clicked).
+    const prev = patch.status ? decisions.find((x) => x.id === id) : undefined;
+    setDecisions((d) => d.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+    if (patch.status && prev) {
+      log(DECISION_ACTIONS.STATUS_CHANGED, {
+        decisionId: id,
+        title: prev.title,
+        from: prev.status,
+        to: patch.status,
+      });
+    }
     if (editing?.id === id) setEditing((prev) => (prev ? { ...prev, ...patch } : prev));
   };
 
@@ -109,7 +109,12 @@ export function DecisionLogClient() {
   };
 
   const counts = useMemo(() => {
-    const c: Record<Decision["status"], number> = { proposed: 0, accepted: 0, deprecated: 0, superseded: 0 };
+    const c: Record<Decision["status"], number> = {
+      proposed: 0,
+      accepted: 0,
+      deprecated: 0,
+      superseded: 0,
+    };
     // Guard against legacy / imported decisions whose status falls
     // outside the known set. Without this, `c[d.status] += 1` becomes
     // `undefined + 1 = NaN`, and every KPI card on the page renders
@@ -154,16 +159,21 @@ export function DecisionLogClient() {
       category="Risk & Governance"
     >
       <ActionRow>
-        <WorkspaceSyncButton
-          toolName="Decision Log"
-          onImport={handleImport}
-          onPush={handlePush}
-        />
+        <WorkspaceSyncButton toolName="Decision Log" onImport={handleImport} onPush={handlePush} />
         <AiPromptGenerator config={promptConfig} />
         <ExportButton
           filename="decision-log"
           csvData={{
-            headers: ["ID", "Title", "Status", "Date", "Context", "Decision", "Consequences", "Alternatives"],
+            headers: [
+              "ID",
+              "Title",
+              "Status",
+              "Date",
+              "Context",
+              "Decision",
+              "Consequences",
+              "Alternatives",
+            ],
             rows: decisions.map((d) => [
               d.id,
               d.title,
@@ -180,7 +190,11 @@ export function DecisionLogClient() {
           }}
           jsonData={decisions}
         />
-        <Button onClick={addDecision} size="sm" className="gap-2 bg-accent text-bg hover:bg-accent/90">
+        <Button
+          onClick={addDecision}
+          size="sm"
+          className="gap-2 bg-accent text-bg hover:bg-accent/90"
+        >
           <Plus className="w-4 h-4" />
           New ADR
         </Button>
@@ -210,7 +224,9 @@ export function DecisionLogClient() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-text truncate">{d.title || "(untitled)"}</div>
+                    <div className="text-sm font-semibold text-text truncate">
+                      {d.title || "(untitled)"}
+                    </div>
                     <div className="text-xs text-sub mt-0.5">{d.date}</div>
                   </div>
                   <Badge className="shrink-0 capitalize" variant="outline">
@@ -240,7 +256,9 @@ export function DecisionLogClient() {
                     <Label className="text-xs text-sub">Status</Label>
                     <Select
                       value={editing.status}
-                      onValueChange={(v) => updateDecision(editing.id, { status: v as Decision["status"] })}
+                      onValueChange={(v) =>
+                        updateDecision(editing.id, { status: v as Decision["status"] })
+                      }
                     >
                       <SelectTrigger className="bg-bg border-border capitalize">
                         <SelectValue />
@@ -331,9 +349,7 @@ export function DecisionLogClient() {
               </CardContent>
             </Card>
           ) : (
-            <EmptyState>
-              Select an ADR on the left to edit its details.
-            </EmptyState>
+            <EmptyState>Select an ADR on the left to edit its details.</EmptyState>
           )}
         </div>
       </div>

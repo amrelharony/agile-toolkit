@@ -94,8 +94,7 @@ function playFinishAlarm(): void {
   const Ctx =
     typeof window !== "undefined" &&
     (window.AudioContext ||
-      (window as unknown as { webkitAudioContext?: typeof AudioContext })
-        .webkitAudioContext);
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext);
   if (!Ctx) return;
   try {
     const ctx = new Ctx();
@@ -123,9 +122,12 @@ function playFinishAlarm(): void {
     playBeep(0.3);
     playBeep(0.6);
 
-    setTimeout(() => {
-      void ctx.close().catch(() => undefined);
-    }, (closeAt - ctx.currentTime) * 1000);
+    setTimeout(
+      () => {
+        void ctx.close().catch(() => undefined);
+      },
+      (closeAt - ctx.currentTime) * 1000
+    );
   } catch {
     /* AudioContext creation failed (sandboxed iframe, etc.) — fall back to
      * the existing sonify("finish") path which the caller invoked too */
@@ -154,6 +156,18 @@ export function CeremonyTimerClient() {
   const [nameInput, setNameInput] = useState("");
   const [currentPerson, setCurrentPerson] = useState(0);
   const prevPersonRef = useRef(0);
+  // BUG-T1-ceremony-timer-1: reset prevPersonRef when rotation mode
+  // turns on OR when the participants list changes shape. Without this,
+  // a previous session's index leaks: 3-person rotation finishes at
+  // index 3, user toggles rotation off then back on with 5 new people,
+  // and the rotation effect sees newPerson=0 vs prev=3 and spuriously
+  // plays the "rotate" sound on the next tick.
+  useEffect(() => {
+    if (rotationMode) prevPersonRef.current = 0;
+  }, [rotationMode]);
+  useEffect(() => {
+    prevPersonRef.current = Math.min(prevPersonRef.current, Math.max(0, participants.length - 1));
+  }, [participants.length]);
   // Suppresses the rotation sonification when the active-person index changes
   // because a participant was removed (vs. because the timer rolled forward).
   // Without this, deleting the active participant plays "rotate" spuriously.
@@ -207,9 +221,7 @@ export function CeremonyTimerClient() {
       : totalSeconds;
 
   const currentPersonName =
-    rotationMode && participants.length > 0
-      ? participants[currentPerson]
-      : null;
+    rotationMode && participants.length > 0 ? participants[currentPerson] : null;
 
   // ---------------------------------------------------------------------------
   // Timer tick
@@ -250,7 +262,9 @@ export function CeremonyTimerClient() {
       setRemaining(next);
     };
     intervalRef.current = setInterval(tick, 1000);
-    const onVis = () => { if (document.visibilityState === "visible") tick(); };
+    const onVis = () => {
+      if (document.visibilityState === "visible") tick();
+    };
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVis);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
@@ -341,10 +355,7 @@ export function CeremonyTimerClient() {
     if (!rotationMode || participants.length === 0 || totalSeconds === 0) return;
     if (perPersonSeconds <= 0) return;
     const elapsed = totalSeconds - remaining;
-    const newPerson = Math.min(
-      Math.floor(elapsed / perPersonSeconds),
-      participants.length - 1
-    );
+    const newPerson = Math.min(Math.floor(elapsed / perPersonSeconds), participants.length - 1);
     if (newPerson !== prevPersonRef.current) {
       prevPersonRef.current = newPerson;
       setCurrentPerson(newPerson);
@@ -390,10 +401,14 @@ export function CeremonyTimerClient() {
     if (remaining <= 0) return;
     if (!running) {
       sonify("start");
-      // Decrement immediately on play so the display drops from N → N-1
-      // right away instead of freezing at N for the full first second
-      // (setInterval waits the full delay before its first invocation).
-      setRemaining((prev) => (prev > 0 ? prev - 1 : prev));
+      // BUG-T1-ceremony-timer-2: only pre-decrement on the very FIRST
+      // start. The prior unconditional pre-decrement also fired on
+      // resume-from-pause, so pausing at 30s and immediately resuming
+      // visibly jumped to 29s with no actual elapsed time. After
+      // `started === true`, the interval tick handles the next decrement.
+      if (!started) {
+        setRemaining((prev) => (prev > 0 ? prev - 1 : prev));
+      }
     }
     setStarted(true);
     setRunning((r) => !r);
@@ -457,9 +472,7 @@ export function CeremonyTimerClient() {
         <Card
           ref={cardRef}
           className={`border-border/40 bg-surface ${
-            isFullscreen
-              ? "!bg-bg !border-0 !rounded-none flex items-center justify-center"
-              : ""
+            isFullscreen ? "!bg-bg !border-0 !rounded-none flex items-center justify-center" : ""
           }`}
         >
           <CardContent
@@ -514,10 +527,7 @@ export function CeremonyTimerClient() {
 
               {/* Center time display */}
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span
-                  className="font-data text-5xl tabular-nums tracking-tight"
-                  style={{ color }}
-                >
+                <span className="font-data text-5xl tabular-nums tracking-tight" style={{ color }}>
                   {formatTime(remaining)}
                 </span>
                 {currentPersonName && started && (
@@ -569,11 +579,7 @@ export function CeremonyTimerClient() {
                   color: running ? "var(--accent)" : "var(--bg)",
                 }}
               >
-                {running ? (
-                  <Pause className="h-6 w-6" />
-                ) : (
-                  <Play className="h-6 w-6 ml-0.5" />
-                )}
+                {running ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 ml-0.5" />}
               </Button>
               <Button
                 size="lg"
@@ -654,9 +660,7 @@ export function CeremonyTimerClient() {
                   }`}
                 >
                   <span>{p.label}</span>
-                  <span className="font-data tabular-nums text-xs opacity-70">
-                    {p.minutes} min
-                  </span>
+                  <span className="font-data tabular-nums text-xs opacity-70">{p.minutes} min</span>
                 </Button>
               ))}
 
@@ -706,9 +710,7 @@ export function CeremonyTimerClient() {
                   variant="ghost"
                   onClick={() => setRotationMode((v) => !v)}
                   className={`h-7 px-3 text-xs rounded-full ${
-                    rotationMode
-                      ? "bg-accent/10 text-accent"
-                      : "text-sub"
+                    rotationMode ? "bg-accent/10 text-accent" : "text-sub"
                   }`}
                 >
                   {rotationMode ? "On" : "Off"}
@@ -747,15 +749,11 @@ export function CeremonyTimerClient() {
                         // rename or paste) doesn't collapse into one row.
                         key={`${i}-${name}`}
                         className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${
-                          started && i === currentPerson
-                            ? "bg-accent/10 text-accent"
-                            : "text-sub"
+                          started && i === currentPerson ? "bg-accent/10 text-accent" : "text-sub"
                         }`}
                       >
                         <span className="flex items-center gap-2">
-                          <span className="font-data text-xs opacity-50">
-                            {i + 1}.
-                          </span>
+                          <span className="font-data text-xs opacity-50">{i + 1}.</span>
                           {name}
                         </span>
                         <Button

@@ -39,15 +39,30 @@ export function appendXpEvent(event: XpEvent & { visitorId?: string }) {
         const file = await fileHandle.getFile();
         const target: FileSystemFileHandle = fileHandle;
         if (file.size > MAX_SIZE_BYTES) {
-          // Rotate: rename to .old and create fresh.  FileSystemAccess spec
-          // doesn't support rename portably, so we just truncate via new write.
+          // BUG-L3: ACTUALLY rotate — copy current contents to .old
+          // before truncating. The prior implementation only truncated,
+          // permanently discarding every event in the file when it hit
+          // the cap. Users lost their whole XP audit trail with no
+          // warning, breaking the Supabase leaderboard backfill too.
           if (dirHandle) {
             try {
+              // 1. Read the current contents.
+              const oldData = await file.arrayBuffer();
+              // 2. Write to <name>.old (overwriting any prior .old).
+              const oldName = `${FILE_NAME}.old`;
+              const oldHandle = await dirHandle.getFileHandle(oldName, { create: true });
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const oldW = await (oldHandle as any).createWritable({ keepExistingData: false });
+              await oldW.write(oldData);
+              await oldW.close();
+              // 3. Truncate the live file.
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const w = await (target as any).createWritable({ keepExistingData: false });
               await w.close();
             } catch {
-              /* best effort */
+              /* best effort — even if rotation fails, fall through and
+                 keep appending; data integrity is preferred over the
+                 size cap. */
             }
           }
         }

@@ -33,15 +33,18 @@ export function TimeTravelShortcuts() {
 
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
-      if (e.key.toLowerCase() !== "z" && e.key.toLowerCase() !== "y") return;
+      const key = e.key.toLowerCase();
+      if (key !== "z" && key !== "y") return;
       if (isEditable(e.target)) return;
+      // BUG-C1: Cmd+Y on Mac is the browser's History menu, NOT redo;
+      // ignore it entirely on Mac so we neither trigger undo nor
+      // preventDefault the native shortcut.
+      if (key === "y" && e.metaKey) return;
 
       const controls = timeTravelRegistry.get(toolId);
       if (!controls) return;
 
-      const isRedo =
-        (e.key.toLowerCase() === "z" && e.shiftKey) ||
-        (e.key.toLowerCase() === "y" && !e.metaKey);
+      const isRedo = (key === "z" && e.shiftKey) || (key === "y" && !e.metaKey);
       const did = isRedo ? controls.redo() : controls.undo();
       if (did) e.preventDefault();
     };

@@ -113,61 +113,60 @@ const useBurnupStore = create<BurnupStore>()(
       // two values to drift if the helper ever became non-deterministic.
       const initialConfig = makeDefaultConfig();
       return {
-      config: initialConfig,
-      entries: createDefaultEntries(initialConfig.sprintDays),
+        config: initialConfig,
+        entries: createDefaultEntries(initialConfig.sprintDays),
 
-      updateConfig: (updates) =>
-        set((s) => {
-          const newConfig = { ...s.config, ...updates };
-          // Resize entries when sprint length changes — preserve user-entered
-          // values for days that still exist, drop days past the new end, and
-          // append blank entries for new days. The previous implementation
-          // wiped ALL user data whenever the user nudged the sprint length.
-          if (updates.sprintDays !== undefined && updates.sprintDays !== s.config.sprintDays) {
-            const target = Math.max(1, updates.sprintDays);
-            const byDay = new Map(s.entries.map((e) => [e.day, e]));
-            const next = Array.from({ length: target + 1 }, (_, i) => {
-              const existing = byDay.get(i);
-              if (existing) return existing;
-              return {
-                id: crypto.randomUUID(),
-                day: i,
-                scope: i === 0 ? 40 : null,
-                completed: i === 0 ? 0 : null,
-              };
-            });
-            return { config: newConfig, entries: next };
-          }
-          return { config: newConfig };
-        }),
+        updateConfig: (updates) =>
+          set((s) => {
+            const newConfig = { ...s.config, ...updates };
+            // Resize entries when sprint length changes — preserve user-entered
+            // values for days that still exist, drop days past the new end, and
+            // append blank entries for new days. The previous implementation
+            // wiped ALL user data whenever the user nudged the sprint length.
+            if (updates.sprintDays !== undefined && updates.sprintDays !== s.config.sprintDays) {
+              const target = Math.max(1, updates.sprintDays);
+              const byDay = new Map(s.entries.map((e) => [e.day, e]));
+              const next = Array.from({ length: target + 1 }, (_, i) => {
+                const existing = byDay.get(i);
+                if (existing) return existing;
+                return {
+                  id: crypto.randomUUID(),
+                  day: i,
+                  scope: i === 0 ? 40 : null,
+                  completed: i === 0 ? 0 : null,
+                };
+              });
+              return { config: newConfig, entries: next };
+            }
+            return { config: newConfig };
+          }),
 
-      updateEntry: (id, updates) =>
-        set((s) => ({
-          entries: s.entries.map((e) => (e.id === id ? { ...e, ...updates } : e)),
-        })),
+        updateEntry: (id, updates) =>
+          set((s) => ({
+            entries: s.entries.map((e) => (e.id === id ? { ...e, ...updates } : e)),
+          })),
 
-      addEntry: () =>
-        set((s) => {
-          const maxDay = s.entries.reduce((m, e) => Math.max(m, e.day), 0);
-          return {
-            entries: [
-              ...s.entries,
-              { id: crypto.randomUUID(), day: maxDay + 1, scope: null, completed: null },
-            ],
-          };
-        }),
+        addEntry: () =>
+          set((s) => {
+            const maxDay = s.entries.reduce((m, e) => Math.max(m, e.day), 0);
+            return {
+              entries: [
+                ...s.entries,
+                { id: crypto.randomUUID(), day: maxDay + 1, scope: null, completed: null },
+              ],
+            };
+          }),
 
-      removeEntry: (id) =>
-        set((s) => ({ entries: s.entries.filter((e) => e.id !== id) })),
+        removeEntry: (id) => set((s) => ({ entries: s.entries.filter((e) => e.id !== id) })),
 
-      reset: () => {
-        const cfg = makeDefaultConfig();
-        set({
-          config: cfg,
-          entries: createDefaultEntries(cfg.sprintDays),
-        });
-      },
-    };
+        reset: () => {
+          const cfg = makeDefaultConfig();
+          set({
+            config: cfg,
+            entries: createDefaultEntries(cfg.sprintDays),
+          });
+        },
+      };
     },
     { name: "agile-toolkit:burnup", storage: safeJSONStorage("burnup") }
   )
@@ -302,10 +301,7 @@ export function BurnupClient() {
 
   /* -- Sorted entries ------------------------------------------------------ */
 
-  const sortedEntries = useMemo(
-    () => [...entries].sort((a, b) => a.day - b.day),
-    [entries]
-  );
+  const sortedEntries = useMemo(() => [...entries].sort((a, b) => a.day - b.day), [entries]);
 
   /* -- Carry-forward scope (scope persists until changed) ------------------ */
 
@@ -322,30 +318,40 @@ export function BurnupClient() {
 
   // Bayesian forecast for the days remaining in the sprint after the last
   // logged completed point. Returns [] when n<2 — band area then renders
-  // as nothing.
+  // BUG-T1-burnup-1: use the contiguous-prefix last-filled-day so Holt's
+  // smoothing isn't fit against a discontinuous series. Burndown already
+  // does this; the prior `Math.max(...filledDays)` accepted skipped
+  // days (e.g. 0,1,5) and produced a misleading projection band.
+  const contiguousLastFilledDay = useMemo(() => {
+    // Walk from day 0 upward, stop at the first hole.
+    const filledSet = new Set(
+      sortedEntries
+        .filter((e) => e.completed !== null && Number.isFinite(e.completed))
+        .map((e) => e.day)
+    );
+    let last = -1;
+    for (let d = 0; d <= config.sprintDays; d++) {
+      if (filledSet.has(d)) last = d;
+      else if (last >= 0) break; // first gap after some fill
+    }
+    return last >= 0 ? last : 0;
+  }, [sortedEntries, config.sprintDays]);
+
   const forecast = useMemo(() => {
     if (completedSeries.length < 2) return [];
-    const filledDays = sortedEntries
-      .filter((e) => e.completed !== null && Number.isFinite(e.completed))
-      .map((e) => e.day);
-    const lastFilledDay = filledDays.length > 0 ? Math.max(...filledDays) : 0;
-    const horizon = Math.max(1, config.sprintDays - lastFilledDay);
+    const horizon = Math.max(1, config.sprintDays - contiguousLastFilledDay);
     return forecastBayesianHolt(completedSeries, horizon);
-  }, [completedSeries, sortedEntries, config.sprintDays]);
+  }, [completedSeries, contiguousLastFilledDay, config.sprintDays]);
 
   // Forecast lookup keyed by sprint-day.
   const forecastByDay = useMemo(() => {
     if (forecast.length === 0) return new Map<number, (typeof forecast)[number]>();
-    const filledDays = sortedEntries
-      .filter((e) => e.completed !== null && Number.isFinite(e.completed))
-      .map((e) => e.day);
-    const lastFilledDay = filledDays.length > 0 ? Math.max(...filledDays) : 0;
     const m = new Map<number, (typeof forecast)[number]>();
     forecast.forEach((fp, i) => {
-      m.set(lastFilledDay + i + 1, fp);
+      m.set(contiguousLastFilledDay + i + 1, fp);
     });
     return m;
-  }, [forecast, sortedEntries]);
+  }, [forecast, contiguousLastFilledDay]);
 
   // CUSUM on completed-points series. Useful for spotting "team unblocked"
   // (sustained acceleration) or "delivery stalled" (sustained flatten).
@@ -433,9 +439,7 @@ export function BurnupClient() {
   /* -- Summary stats ------------------------------------------------------- */
 
   const stats = useMemo(() => {
-    const filledEntries = sortedEntries.filter(
-      (e) => e.scope !== null || e.completed !== null
-    );
+    const filledEntries = sortedEntries.filter((e) => e.scope !== null || e.completed !== null);
     if (filledEntries.length === 0) {
       return {
         initialScope: 0,
@@ -447,20 +451,17 @@ export function BurnupClient() {
       };
     }
 
-    const initialScope =
-      chartData.find((d) => d.scope !== null)?.scope ?? 0;
+    const initialScope = chartData.find((d) => d.scope !== null)?.scope ?? 0;
     const scopeVals = chartData.map((d) => d.scope ?? 0);
     const maxScope = scopeVals.length > 0 ? Math.max(...scopeVals) : 0;
     const scopeCreep = Math.max(0, maxScope - initialScope);
 
-    const lastFilledEntry = [...sortedEntries]
-      .reverse()
-      .find((e) => e.completed !== null);
+    const lastFilledEntry = [...sortedEntries].reverse().find((e) => e.completed !== null);
     const latestCompleted = lastFilledEntry?.completed ?? 0;
     const currentScope = chartData[chartData.length - 1]?.scope ?? maxScope;
     const completionPct = Math.max(
       0,
-      Math.min(100, currentScope > 0 ? Math.round((latestCompleted / currentScope) * 100) : 0),
+      Math.min(100, currentScope > 0 ? Math.round((latestCompleted / currentScope) * 100) : 0)
     );
 
     // Projected completion: linear extrapolation from last two filled entries
@@ -469,7 +470,7 @@ export function BurnupClient() {
     // on the SAME day (possible if the user clicks "Add Day" twice for
     // the same idx) produced `Math.max(1, 0) === 1` in the denominator,
     // yielding a huge spurious rate spike → wildly wrong projection.
-    const dedupedByDay = new Map<number, typeof sortedEntries[number]>();
+    const dedupedByDay = new Map<number, (typeof sortedEntries)[number]>();
     for (const e of sortedEntries) {
       if (e.completed === null) continue;
       // Last-write-wins on duplicate days.
@@ -480,17 +481,13 @@ export function BurnupClient() {
       const n = completedEntries.length;
       const last = completedEntries[n - 1];
       const prev = completedEntries[n - 2];
-      const rate =
-        (last.completed! - prev.completed!) / Math.max(1, last.day - prev.day);
+      const rate = (last.completed! - prev.completed!) / Math.max(1, last.day - prev.day);
       if (rate > 0 && Number.isFinite(rate)) {
         const daysLeft = (currentScope - latestCompleted) / rate;
         if (Number.isFinite(daysLeft) && daysLeft >= 0) {
           // Cap projected day at sprintDays + 365 — beyond that the band is
           // meaningless and a huge number would clobber the UI.
-          projectedDay = Math.min(
-            config.sprintDays + 365,
-            Math.round(last.day + daysLeft),
-          );
+          projectedDay = Math.min(config.sprintDays + 365, Math.round(last.day + daysLeft));
         }
       }
     }
@@ -510,20 +507,18 @@ export function BurnupClient() {
   const csvData = useMemo(
     () => ({
       headers: ["Day", "Scope (pts)", "Completed (pts)", "Note"],
-      rows: chartData.map((d) => [
-        d.day,
-        d.scope ?? "",
-        d.completed ?? "",
-        d.description ?? "",
-      ]),
+      rows: chartData.map((d) => [d.day, d.scope ?? "", d.completed ?? "", d.description ?? ""]),
     }),
     [chartData]
   );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Burnup Chart",
-    prompts: generateBurnupPrompts({ config, entries }),
-  }), [config, entries]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Burnup Chart",
+      prompts: generateBurnupPrompts({ config, entries }),
+    }),
+    [config, entries]
+  );
 
   /* -- Render -------------------------------------------------------------- */
 
@@ -593,7 +588,8 @@ export function BurnupClient() {
                 value={config.sprintDays}
                 onChange={(e) => {
                   const n = Number(e.target.value);
-                  if (Number.isFinite(n)) updateConfig({ sprintDays: Math.max(1, Math.min(60, n)) });
+                  if (Number.isFinite(n))
+                    updateConfig({ sprintDays: Math.max(1, Math.min(60, n)) });
                 }}
                 className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
               />
@@ -624,11 +620,7 @@ export function BurnupClient() {
           headerExtras={
             <>
               <AiPromptGenerator config={promptConfig} />
-              <ExportButton
-                filename="burnup-chart"
-                csvData={csvData}
-                targetRef={chartRef}
-              />
+              <ExportButton filename="burnup-chart" csvData={csvData} targetRef={chartRef} />
             </>
           }
           footer={
@@ -641,141 +633,131 @@ export function BurnupClient() {
             ) : null
           }
         >
-          <ComposedChart
-                  data={chartData}
-                  margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke={chartTheme.gridColor}
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="day"
-                    tickFormatter={(v: number) => `D${v}`}
-                    tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                    axisLine={{ stroke: chartTheme.gridColor }}
-                    tickLine={false}
-                    label={{
-                      value: "Sprint Day",
-                      position: "insideBottomRight",
-                      offset: -10,
-                      fill: chartTheme.axisColor,
-                      fontSize: 11,
-                    }}
-                  />
-                  <YAxis
-                    tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                    label={{
-                      value: "Points",
-                      angle: -90,
-                      position: "insideLeft",
-                      fill: chartTheme.axisColor,
-                      fontSize: 11,
-                      offset: 10,
-                    }}
-                    domain={[0, "auto"]}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Legend
-                    wrapperStyle={chartTheme.legendStyle}
-                    iconType="line"
-                  />
+          <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
+            <XAxis
+              dataKey="day"
+              tickFormatter={(v: number) => `D${v}`}
+              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+              axisLine={{ stroke: chartTheme.gridColor }}
+              tickLine={false}
+              label={{
+                value: "Sprint Day",
+                position: "insideBottomRight",
+                offset: -10,
+                fill: chartTheme.axisColor,
+                fontSize: 11,
+              }}
+            />
+            <YAxis
+              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              label={{
+                value: "Points",
+                angle: -90,
+                position: "insideLeft",
+                fill: chartTheme.axisColor,
+                fontSize: 11,
+                offset: 10,
+              }}
+              domain={[0, "auto"]}
+            />
+            <Tooltip content={<CustomTooltip />} />
+            <Legend wrapperStyle={chartTheme.legendStyle} iconType="line" />
 
-                  {/* Today marker */}
-                  {todayDay !== null && (
-                    <ReferenceLine
-                      x={todayDay}
-                      stroke="#ff00aa"
-                      strokeWidth={2}
-                      strokeDasharray="5 3"
-                      label={{
-                        value: "Today",
-                        position: "top",
-                        fill: "#ff00aa",
-                        fontSize: 11,
-                        fontWeight: 600,
-                      }}
-                    />
-                  )}
+            {/* Today marker */}
+            {todayDay !== null && (
+              <ReferenceLine
+                x={todayDay}
+                stroke="#ff00aa"
+                strokeWidth={2}
+                strokeDasharray="5 3"
+                label={{
+                  value: "Today",
+                  position: "top",
+                  fill: "#ff00aa",
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+              />
+            )}
 
-                  {/* Bayesian 80% forecast band — drawn before the actual
+            {/* Bayesian 80% forecast band — drawn before the actual
                       completed area so the lines render on top. The
                       lower-mask Area uses var(--bg) at fillOpacity 1 to clip
                       the upper Area down to a true band rather than a solid
                       wedge from 0. */}
-                  <Area
-                    dataKey="band80Upper"
-                    name="80% forecast"
-                    stroke="none"
-                    fill="#00f0ff"
-                    fillOpacity={0.18}
-                    connectNulls
-                    isAnimationActive={false}
-                  />
-                  <Area
-                    dataKey="band80Lower"
-                    stroke="none"
-                    fill="var(--bg, #06080f)"
-                    fillOpacity={1}
-                    legendType="none"
-                    connectNulls
-                    isAnimationActive={false}
-                  />
+            <Area
+              dataKey="band80Upper"
+              name="80% forecast"
+              stroke="none"
+              fill="#00f0ff"
+              fillOpacity={0.18}
+              connectNulls
+              isAnimationActive={false}
+            />
+            <Area
+              dataKey="band80Lower"
+              stroke="none"
+              fill="var(--bg, #06080f)"
+              fillOpacity={1}
+              legendType="none"
+              connectNulls
+              isAnimationActive={false}
+            />
 
-                  {/* Completed area */}
-                  <Area
-                    type="monotone"
-                    dataKey="completed"
-                    name="Completed"
-                    fill="rgba(0,240,255,0.15)"
-                    stroke="#00f0ff"
-                    strokeWidth={2.5}
-                    dot={{ fill: "#00f0ff", r: 4, strokeWidth: 0 }}
-                    activeDot={{ r: 6, fill: "#00f0ff", strokeWidth: 0 }}
-                    connectNulls={false}
-                  />
+            {/* Completed area */}
+            <Area
+              type="monotone"
+              dataKey="completed"
+              name="Completed"
+              fill="rgba(0,240,255,0.15)"
+              stroke="#00f0ff"
+              strokeWidth={2.5}
+              dot={{ fill: "#00f0ff", r: 4, strokeWidth: 0 }}
+              activeDot={{ r: 6, fill: "#00f0ff", strokeWidth: 0 }}
+              connectNulls={false}
+            />
 
-                  {/* Scope line */}
-                  <Line
-                    type="stepAfter"
-                    dataKey="scope"
-                    name="Scope"
-                    stroke="#ff00aa"
-                    strokeWidth={2}
-                    strokeDasharray="4 4"
-                    dot={false}
-                    activeDot={{ r: 5, fill: "#ff00aa", strokeWidth: 0 }}
-                    connectNulls
-                  />
+            {/* Scope line */}
+            <Line
+              type="stepAfter"
+              dataKey="scope"
+              name="Scope"
+              stroke="#ff00aa"
+              strokeWidth={2}
+              strokeDasharray="4 4"
+              dot={false}
+              activeDot={{ r: 5, fill: "#ff00aa", strokeWidth: 0 }}
+              connectNulls
+            />
 
-                  {/* Forecast centre-line (dashed) — paired with the band
+            {/* Forecast centre-line (dashed) — paired with the band
                       Area; only renders when the forecast has data. */}
-                  <Line
-                    type="monotone"
-                    dataKey="forecast"
-                    name="Forecast"
-                    stroke="#00f0ff"
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    dot={false}
-                    connectNulls
-                  />
+            <Line
+              type="monotone"
+              dataKey="forecast"
+              name="Forecast"
+              stroke="#00f0ff"
+              strokeWidth={2}
+              strokeDasharray="5 5"
+              dot={false}
+              connectNulls
+            />
 
-                  {/* CUSUM regime-shift markers on completed-points series. */}
-                  {changepointDays.map((cp, i) => (
-                    <CausalLine
-                      key={`cusum-${cp.day}-${cp.direction}-${i}`}
-                      annotation={{
-                        x: cp.day,
-                        label: `Delivery shift ${cp.direction}`,
-                        detail: `CUSUM detected a ${cp.direction === "up" ? "sustained acceleration" : "sustained slow-down"} in completed points around day ${cp.day}.`,
-                        confidence: "moderate",
-                      }}
-                    />
-                  ))}
+            {/* CUSUM regime-shift markers on completed-points series. */}
+            {changepointDays.map((cp, i) => (
+              <CausalLine
+                key={`cusum-${cp.day}-${cp.direction}-${i}`}
+                annotation={{
+                  x: cp.day,
+                  label: `Delivery shift ${cp.direction}`,
+                  detail: `CUSUM detected a ${cp.direction === "up" ? "sustained acceleration" : "sustained slow-down"} in completed points around day ${cp.day}.`,
+                  confidence: "moderate",
+                }}
+              />
+            ))}
           </ComposedChart>
         </ChartCard>
 
@@ -794,9 +776,7 @@ export function BurnupClient() {
               }`}
               title={`Mann-Kendall p=${trendTest.pValue.toFixed(3)}`}
             >
-              <span>
-                {trendTest.trend === "up" ? "↗" : "↘"} trend significant
-              </span>
+              <span>{trendTest.trend === "up" ? "↗" : "↘"} trend significant</span>
               <span className="opacity-60">p={trendTest.pValue.toFixed(2)}</span>
             </span>
           </div>
@@ -810,19 +790,10 @@ export function BurnupClient() {
           headerClassName="pb-4"
           actions={
             <>
-              <Button
-                variant="danger-ghost"
-                size="sm"
-                onClick={reset}
-              >
+              <Button variant="danger-ghost" size="sm" onClick={reset}>
                 Reset
               </Button>
-              <Button
-                size="sm"
-                variant="toolkit"
-                onClick={addEntry}
-                className="gap-1.5"
-              >
+              <Button size="sm" variant="toolkit" onClick={addEntry} className="gap-1.5">
                 <Plus className="w-4 h-4" />
                 Add Day
               </Button>
@@ -834,18 +805,14 @@ export function BurnupClient() {
               because each day-row is a compact grid; a multi-line field
               would break the visual rhythm of the dense tracker. */}
           <div className="hidden sm:grid grid-cols-[80px_1fr_1fr_1.2fr_auto] gap-3 px-1 pb-2 border-b border-border mb-2">
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">
-              Day
-            </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">Day</span>
             <span className="text-xs text-sub font-medium uppercase tracking-wider">
               Scope (Total pts)
             </span>
             <span className="text-xs text-sub font-medium uppercase tracking-wider">
               Completed (pts)
             </span>
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">
-              Note
-            </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">Note</span>
             <span className="w-9" />
           </div>
 
@@ -855,9 +822,7 @@ export function BurnupClient() {
                 key={entry.id}
                 className="grid grid-cols-[80px_1fr_1fr_1.2fr_auto] gap-3 items-center"
               >
-                <span className="font-data text-sm font-semibold text-accent">
-                  Day {entry.day}
-                </span>
+                <span className="font-data text-sm font-semibold text-accent">Day {entry.day}</span>
 
                 <Input
                   type="number"

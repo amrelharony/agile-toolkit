@@ -13,9 +13,9 @@ export interface SurvivalCurvePoint {
 export function kaplanMeier(observations: SurvivalObservation[]): SurvivalCurvePoint[] {
   if (observations.length === 0) return [];
   const sorted = observations.slice().sort((a, b) => a.duration - b.duration);
-  const distinctTimes = Array.from(new Set(sorted.filter((o) => o.event).map((o) => o.duration))).sort(
-    (a, b) => a - b
-  );
+  const distinctTimes = Array.from(
+    new Set(sorted.filter((o) => o.event).map((o) => o.duration))
+  ).sort((a, b) => a - b);
 
   const points: SurvivalCurvePoint[] = [{ t: 0, survival: 1, atRisk: sorted.length, events: 0 }];
   let survival = 1;
@@ -66,19 +66,37 @@ export function survivalAt(curve: SurvivalCurvePoint[], t: number): number {
 }
 
 export function durationsFromTimeRanges(
-  items: { raisedAt: string; resolvedAt?: string }[],
+  items: {
+    raisedAt: string;
+    resolvedAt?: string;
+    /**
+     * BUG-T7-risk-register-3: when present, the "event" flag is derived
+     * from `status === "closed"` rather than just `Boolean(resolvedAt)`.
+     * Reopened risks may still carry `resolvedAt` (preserved as the
+     * historical close timestamp) but should be censored as still-open
+     * observations in K-M analysis, not counted as closed events.
+     */
+    status?: string;
+  }[],
   now: Date = new Date()
 ): SurvivalObservation[] {
-  return items
-    .map((item) => {
-      const start = new Date(item.raisedAt).getTime();
-      const end = item.resolvedAt ? new Date(item.resolvedAt).getTime() : now.getTime();
-      const rawDays = (end - start) / (1000 * 60 * 60 * 24);
-      return { duration: Math.round(rawDays), event: Boolean(item.resolvedAt), rawDays };
-    })
-    // Drop observations where end is strictly before start — clamping to 0
-    // would silently fold negative durations into the at-risk set at t=0,
-    // which biases survival calculations. Better to exclude bad data.
-    .filter((o) => Number.isFinite(o.duration) && o.rawDays >= 0)
-    .map(({ duration, event }) => ({ duration, event }));
+  return (
+    items
+      .map((item) => {
+        const start = new Date(item.raisedAt).getTime();
+        const end = item.resolvedAt ? new Date(item.resolvedAt).getTime() : now.getTime();
+        const rawDays = (end - start) / (1000 * 60 * 60 * 24);
+        // If status is provided, only treat the item as a "closed event"
+        // when status is explicitly closed. Otherwise fall back to the
+        // legacy `resolvedAt` heuristic.
+        const event =
+          item.status !== undefined ? item.status === "closed" : Boolean(item.resolvedAt);
+        return { duration: Math.round(rawDays), event, rawDays };
+      })
+      // Drop observations where end is strictly before start — clamping to 0
+      // would silently fold negative durations into the at-risk set at t=0,
+      // which biases survival calculations. Better to exclude bad data.
+      .filter((o) => Number.isFinite(o.duration) && o.rawDays >= 0)
+      .map(({ duration, event }) => ({ duration, event }))
+  );
 }

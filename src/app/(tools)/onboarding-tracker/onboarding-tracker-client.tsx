@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -23,15 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import {
-  Plus,
-  Trash2,
-  UserPlus,
-  Check,
-  Clock,
-  TrendingUp,
-  AlertTriangle,
-} from "lucide-react";
+import { Plus, Trash2, UserPlus, Check, Clock, TrendingUp, AlertTriangle } from "lucide-react";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -208,6 +200,14 @@ export function OnboardingTrackerClient() {
         milestoneName: milestone.name,
         completedAt,
       });
+    } else {
+      // BUG-T5-onboarding-tracker-2: log un-complete too so the audit
+      // trail captures rollback events.
+      log(ONBOARDING_TRACKER_ACTIONS.MILESTONE_UNCOMPLETED, {
+        personId,
+        milestoneId,
+        milestoneName: milestone.name,
+      });
     }
   };
 
@@ -227,13 +227,24 @@ export function OnboardingTrackerClient() {
     );
   };
 
+  // BUG-T5-onboarding-tracker-4: tick a `now` clock every minute so the
+  // at-risk KPI invalidates as real time passes. Without this, the
+  // stats memo only re-runs when onboardees mutate; a fresh-loaded
+  // dashboard left open across midnight shows the at-risk count from
+  // when the page loaded.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const i = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(i);
+  }, []);
+
   const stats = useMemo(() => {
     let firstPRTotal = 0;
     let firstPRCount = 0;
     let productivityTotal = 0;
     let productivityCount = 0;
     let atRisk = 0;
-    const today = Date.now();
+    const today = nowTick;
     for (const p of onboardees) {
       for (const m of p.milestones) {
         if (!m.completedAt) {
@@ -253,11 +264,10 @@ export function OnboardingTrackerClient() {
     }
     return {
       avgFirstPR: firstPRCount > 0 ? firstPRTotal / firstPRCount : null,
-      avgProductivity:
-        productivityCount > 0 ? productivityTotal / productivityCount : null,
+      avgProductivity: productivityCount > 0 ? productivityTotal / productivityCount : null,
       atRiskCount: atRisk,
     };
-  }, [onboardees]);
+  }, [onboardees, nowTick]);
 
   const rampCurveData = useMemo(() => {
     // Build an avg "% milestones complete by day X" curve across people.
@@ -361,19 +371,13 @@ export function OnboardingTrackerClient() {
           variant="compact"
           icon={Clock}
           label="Avg time-to-first-PR"
-          value={
-            stats.avgFirstPR !== null ? `${stats.avgFirstPR.toFixed(1)}d` : "—"
-          }
+          value={stats.avgFirstPR !== null ? `${stats.avgFirstPR.toFixed(1)}d` : "—"}
         />
         <StatCard
           variant="compact"
           icon={TrendingUp}
           label="Avg time-to-productivity"
-          value={
-            stats.avgProductivity !== null
-              ? `${stats.avgProductivity.toFixed(1)}d`
-              : "—"
-          }
+          value={stats.avgProductivity !== null ? `${stats.avgProductivity.toFixed(1)}d` : "—"}
           hint="Independent feature"
         />
         <StatCard
@@ -388,8 +392,8 @@ export function OnboardingTrackerClient() {
       {stats.atRiskCount > 0 && (
         <CalloutAlert tone="warning" className="mb-4">
           <strong>{stats.atRiskCount}</strong> milestone
-          {stats.atRiskCount === 1 ? " is" : "s are"} more than 50% past their
-          target days without completion. Consider a check-in.
+          {stats.atRiskCount === 1 ? " is" : "s are"} more than 50% past their target days without
+          completion. Consider a check-in.
         </CalloutAlert>
       )}
 
@@ -452,16 +456,13 @@ export function OnboardingTrackerClient() {
 
       {onboardees.length === 0 ? (
         <EmptyState icon={UserPlus}>
-          No onboardees yet. Add your first new joiner above to start tracking
-          their ramp.
+          No onboardees yet. Add your first new joiner above to start tracking their ramp.
         </EmptyState>
       ) : (
         <div className="space-y-3 mb-6">
           {onboardees.map((p) => {
             const ageDays = daysSince(p.startDate);
-            const completedCount = p.milestones.filter(
-              (m) => m.completedAt
-            ).length;
+            const completedCount = p.milestones.filter((m) => m.completedAt).length;
             return (
               <Card key={p.id} className="bg-surface border-border">
                 <CardContent className="p-4 space-y-3">
@@ -469,15 +470,11 @@ export function OnboardingTrackerClient() {
                     <div className="min-w-0">
                       <div className="text-sm font-semibold text-text">
                         {p.name}
-                        {p.role && (
-                          <span className="text-sub font-normal ml-2">
-                            · {p.role}
-                          </span>
-                        )}
+                        {p.role && <span className="text-sub font-normal ml-2">· {p.role}</span>}
                       </div>
                       <div className="text-xs text-sub mt-0.5">
-                        Started {p.startDate} · Day {ageDays} ·{" "}
-                        {completedCount}/{p.milestones.length} milestones
+                        Started {p.startDate} · Day {ageDays} · {completedCount}/
+                        {p.milestones.length} milestones
                       </div>
                       {p.description && (
                         <div className="text-xs text-sub mt-1 whitespace-pre-wrap">
@@ -500,10 +497,8 @@ export function OnboardingTrackerClient() {
                     {p.milestones.map((m) => {
                       const completed = Boolean(m.completedAt);
                       const elapsed = ageDays;
-                      const overdue =
-                        !completed && elapsed > m.targetDays;
-                      const atRisk =
-                        !completed && elapsed > m.targetDays * 0.5;
+                      const overdue = !completed && elapsed > m.targetDays;
+                      const atRisk = !completed && elapsed > m.targetDays * 0.5;
                       const completedDays = completed
                         ? daysBetween(p.startDate, m.completedAt!)
                         : null;
@@ -515,10 +510,10 @@ export function OnboardingTrackerClient() {
                             completed
                               ? "border-emerald-500/40 bg-emerald-500/5"
                               : overdue
-                              ? "border-danger/40 bg-danger/5"
-                              : atRisk
-                              ? "border-amber-500/40 bg-amber-500/5"
-                              : "border-border bg-bg"
+                                ? "border-danger/40 bg-danger/5"
+                                : atRisk
+                                  ? "border-amber-500/40 bg-amber-500/5"
+                                  : "border-border bg-bg"
                           )}
                         >
                           <div className="flex items-start gap-2">
@@ -532,18 +527,14 @@ export function OnboardingTrackerClient() {
                                   : "border-border bg-surface text-transparent hover:text-sub"
                               )}
                               aria-label={
-                                completed
-                                  ? `Mark ${m.name} incomplete`
-                                  : `Mark ${m.name} complete`
+                                completed ? `Mark ${m.name} incomplete` : `Mark ${m.name} complete`
                               }
                             >
                               <Check className="w-3 h-3" />
                             </button>
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                                <span className="text-sm font-medium text-text">
-                                  {m.name}
-                                </span>
+                                <span className="text-sm font-medium text-text">{m.name}</span>
                                 <span className="text-[11px] text-sub font-data">
                                   target {m.targetDays}d
                                 </span>
@@ -553,9 +544,7 @@ export function OnboardingTrackerClient() {
                                   </span>
                                 )}
                                 {!completed && overdue && (
-                                  <span className="text-[11px] text-danger font-data">
-                                    overdue
-                                  </span>
+                                  <span className="text-[11px] text-danger font-data">overdue</span>
                                 )}
                                 {!completed && atRisk && !overdue && (
                                   <span className="text-[11px] text-amber-300 font-data">
@@ -565,9 +554,7 @@ export function OnboardingTrackerClient() {
                               </div>
                               <Input
                                 value={m.notes ?? ""}
-                                onChange={(e) =>
-                                  updateNote(p.id, m.id, e.target.value)
-                                }
+                                onChange={(e) => updateNote(p.id, m.id, e.target.value)}
                                 placeholder="Note (optional)"
                                 className="mt-1 bg-surface border-border h-7 text-xs"
                                 aria-label={`Note for ${m.name}`}
@@ -596,10 +583,7 @@ export function OnboardingTrackerClient() {
             <div className="h-64 -mx-2">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={rampCurveData}>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke={chartTheme.gridColor}
-                  />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} />
                   <XAxis
                     dataKey="day"
                     tick={{ fill: chartTheme.axisColor, fontSize: 11 }}

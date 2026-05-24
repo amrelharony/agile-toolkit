@@ -178,7 +178,30 @@ export function TokenCostTrackerClient() {
       .filter((x) => x.date >= cutoff && x.date <= today)
       .reduce((s, x) => s + (Number.isFinite(x.costUsd) ? x.costUsd : 0), 0);
   }, [list]);
-  const projected = last30Spend; // simple linear projection — last 30 days = next 30 days
+  // BUG-T9-token-cost-tracker-5: scale `projected` to a full 30-day
+  // window. The prior `projected = last30Spend` reported raw observed
+  // spend, so a user tracking for only 5 days at $50/day saw projected
+  // = $250 — comfortably under a $1000 monthly budget — even though
+  // the actual annualised burn would be ~$1500. Compute days-observed
+  // from the earliest entry in the window (capped at 30), and
+  // extrapolate per-day-rate × 30.
+  const projected = useMemo(() => {
+    if (last30Spend === 0) return 0;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 30);
+    const cutoffMs = cutoffDate.getTime();
+    const dates = list
+      .filter((x) => Number.isFinite(x.costUsd))
+      .map((x) => Date.parse(x.date))
+      .filter((t) => Number.isFinite(t) && t >= cutoffMs);
+    if (dates.length === 0) return last30Spend;
+    const earliest = Math.min(...dates);
+    const daysObserved = Math.min(
+      30,
+      Math.max(1, Math.ceil((Date.now() - earliest) / (1000 * 60 * 60 * 24)) + 1)
+    );
+    return (last30Spend / daysObserved) * 30;
+  }, [last30Spend, list]);
   const overBudget = projected > cfg.monthlyBudgetUsd;
 
   const workspace = useWorkspaceStore(

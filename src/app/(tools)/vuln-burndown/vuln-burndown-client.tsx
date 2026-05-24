@@ -1,15 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  AreaChart,
-  Area,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-} from "recharts";
+import { AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, Legend } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -103,20 +95,12 @@ function dayDiff(fromIso: string, toIso?: string): number {
   // parsing + setHours combos.
   const m1 = /^(\d{4})-(\d{2})-(\d{2})/.exec(fromIso);
   if (!m1) return 0;
-  const from = new Date(
-    Number(m1[1]),
-    Number(m1[2]) - 1,
-    Number(m1[3])
-  ).getTime();
+  const from = new Date(Number(m1[1]), Number(m1[2]) - 1, Number(m1[3])).getTime();
   let to: number;
   if (toIso) {
     const m2 = /^(\d{4})-(\d{2})-(\d{2})/.exec(toIso);
     if (!m2) return 0;
-    to = new Date(
-      Number(m2[1]),
-      Number(m2[2]) - 1,
-      Number(m2[3])
-    ).getTime();
+    to = new Date(Number(m2[1]), Number(m2[2]) - 1, Number(m2[3])).getTime();
   } else {
     const now = new Date();
     to = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -132,19 +116,14 @@ function ageDays(v: Vuln): number {
 /* ── Main client ────────────────────────────────────────────────────────── */
 
 export function VulnBurndownClient() {
-  const [state, setState] = usePersisted<VulnState>(
-    "agile-toolkit:vuln-burndown",
-    DEFAULT_STATE
-  );
+  const [state, setState] = usePersisted<VulnState>("agile-toolkit:vuln-burndown", DEFAULT_STATE);
   const { log } = useHistoryLogger("vuln-burndown");
   const chartRef = useRef<HTMLDivElement>(null);
 
   // Add-form draft state (string-draft for numeric SLA).
   const [cve, setCve] = useState("");
   const [severity, setSeverity] = useState<Severity>("high");
-  const [slaDraft, setSlaDraft] = useState<string>(
-    String(SEVERITY_DEFAULT_SLA.high)
-  );
+  const [slaDraft, setSlaDraft] = useState<string>(String(SEVERITY_DEFAULT_SLA.high));
   const [owner, setOwner] = useState("");
   const [description, setDescription] = useState("");
 
@@ -201,22 +180,22 @@ export function VulnBurndownClient() {
 
   const setStatus = (id: string, status: Status) => {
     const prev = state.vulns.find((v) => v.id === id);
-    // Only "resolved" carries a resolution timestamp. "accepted" is a risk
-    // decision, not a fix, so it should NOT inherit a resolvedAt — and any
-    // other transition clears the timestamp explicitly.
+    // BUG-T9-vuln-burndown-1: PRESERVE the original resolvedAt across
+    // non-resolved transitions, mirroring threat-model's preserve-on-
+    // transition-out pattern. The prior `undefined` reset wiped the
+    // original resolution date when a user clicked Open→Resolved
+    // immediately after misclicking Resolved→Open, silently corrupting
+    // the burn-down chart (item appeared to just resolve today instead
+    // of N days ago).
     const resolvedAt =
-      status === "resolved"
-        ? prev?.resolvedAt ?? todayLocalISO()
-        : undefined;
+      status === "resolved" ? (prev?.resolvedAt ?? todayLocalISO()) : prev?.resolvedAt;
     update(id, { status, resolvedAt });
     if (status === "resolved") {
       const stamp = prev?.resolvedAt ?? todayLocalISO();
       log(VULN_ACTIONS.VULN_RESOLVED, {
         vulnId: id,
         cve: prev?.cve,
-        ageDays: prev
-          ? ageDays({ ...prev, status, resolvedAt: stamp })
-          : undefined,
+        ageDays: prev ? ageDays({ ...prev, status, resolvedAt: stamp }) : undefined,
       });
     } else {
       log(VULN_ACTIONS.VULN_UPDATED, { vulnId: id, fields: ["status"] });
@@ -232,10 +211,7 @@ export function VulnBurndownClient() {
   /* ── Aggregations ───────────────────────────────────────────────────── */
 
   const totalOpen = useMemo(
-    () =>
-      state.vulns.filter(
-        (v) => v.status === "open" || v.status === "in_progress"
-      ).length,
+    () => state.vulns.filter((v) => v.status === "open" || v.status === "in_progress").length,
     [state.vulns]
   );
 
@@ -249,9 +225,7 @@ export function VulnBurndownClient() {
   );
 
   const avgResolveDays = useMemo<number | null>(() => {
-    const resolved = state.vulns.filter(
-      (v) => v.status === "resolved" && v.resolvedAt
-    );
+    const resolved = state.vulns.filter((v) => v.status === "resolved" && v.resolvedAt);
     if (resolved.length === 0) return null;
     const sum = resolved.reduce((acc, v) => acc + ageDays(v), 0);
     return sum / resolved.length;
@@ -353,8 +327,7 @@ export function VulnBurndownClient() {
           ageDays: ageDays(v),
           slaTargetDays: v.slaTargetDays,
           slaBreached:
-            (v.status === "open" || v.status === "in_progress") &&
-            ageDays(v) > v.slaTargetDays,
+            (v.status === "open" || v.status === "in_progress") && ageDays(v) > v.slaTargetDays,
           owner: v.owner,
           description: v.description,
         })),
@@ -399,8 +372,7 @@ export function VulnBurndownClient() {
               v.resolvedAt ?? "",
               ageDays(v),
               v.slaTargetDays,
-              (v.status === "open" || v.status === "in_progress") &&
-              ageDays(v) > v.slaTargetDays
+              (v.status === "open" || v.status === "in_progress") && ageDays(v) > v.slaTargetDays
                 ? "YES"
                 : "no",
               v.owner ?? "",
@@ -553,10 +525,7 @@ export function VulnBurndownClient() {
             />
           </div>
           <div className="flex items-end">
-            <Button
-              onClick={addVuln}
-              className="gap-2 w-full bg-accent text-bg hover:bg-accent/90"
-            >
+            <Button onClick={addVuln} className="gap-2 w-full bg-accent text-bg hover:bg-accent/90">
               <Plus className="w-4 h-4" />
               Add vuln
             </Button>
@@ -659,13 +628,11 @@ export function VulnBurndownClient() {
               low: 1,
             };
             const aBreach =
-              (a.status === "open" || a.status === "in_progress") &&
-              ageDays(a) > a.slaTargetDays
+              (a.status === "open" || a.status === "in_progress") && ageDays(a) > a.slaTargetDays
                 ? 1
                 : 0;
             const bBreach =
-              (b.status === "open" || b.status === "in_progress") &&
-              ageDays(b) > b.slaTargetDays
+              (b.status === "open" || b.status === "in_progress") && ageDays(b) > b.slaTargetDays
                 ? 1
                 : 0;
             if (aBreach !== bBreach) return bBreach - aBreach;
@@ -674,8 +641,7 @@ export function VulnBurndownClient() {
           .map((v) => {
             const age = ageDays(v);
             const breaching =
-              (v.status === "open" || v.status === "in_progress") &&
-              age > v.slaTargetDays;
+              (v.status === "open" || v.status === "in_progress") && age > v.slaTargetDays;
             return (
               <Card key={v.id} className="bg-surface border-border">
                 <CardContent className="p-3 space-y-2">
@@ -690,26 +656,16 @@ export function VulnBurndownClient() {
                     >
                       {v.severity}
                     </Badge>
-                    {v.cve && (
-                      <span className="font-data text-xs text-text">{v.cve}</span>
-                    )}
+                    {v.cve && <span className="font-data text-xs text-text">{v.cve}</span>}
                     <span
-                      className={
-                        "font-data text-xs " +
-                        (breaching ? "text-danger" : "text-sub")
-                      }
+                      className={"font-data text-xs " + (breaching ? "text-danger" : "text-sub")}
                       title={`Age ${age}d / SLA ${v.slaTargetDays}d`}
                     >
                       {age}d / {v.slaTargetDays}d
                     </span>
-                    {v.owner && (
-                      <span className="text-xs text-sub">@{v.owner}</span>
-                    )}
+                    {v.owner && <span className="text-xs text-sub">@{v.owner}</span>}
                     <div className="ml-auto flex items-center gap-2">
-                      <Select
-                        value={v.status}
-                        onValueChange={(s) => setStatus(v.id, s as Status)}
-                      >
+                      <Select value={v.status} onValueChange={(s) => setStatus(v.id, s as Status)}>
                         <SelectTrigger
                           className="h-8 w-36 bg-bg border-border text-xs capitalize"
                           aria-label={`Status for ${v.cve ?? "vuln"}`}

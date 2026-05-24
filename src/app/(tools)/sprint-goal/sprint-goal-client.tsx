@@ -68,18 +68,24 @@ const QUANTIFIABLE_PATTERNS =
 const TIME_PATTERNS =
   /by end of sprint|by sprint end|deadline|before|after|within \d|by \w+day|by \d{1,2}\/|by \d{4}|end of day|EOD|end of week|EOW|by close|due date|sprint \d|week \d|day \d|hours?|days?|date/i;
 
-function validateSmart(
-  criterion: AcceptanceCriterion
-): SmartResult {
+function validateSmart(criterion: AcceptanceCriterion): SmartResult {
   const text = criterion.text.trim();
   const words = text.toLowerCase().split(/\s+/);
 
   // Match by stem so "improving" / "optimization" / "enhanced" still trip
   // the vague-word detector. Strip simple verb/noun suffixes before testing.
   const stem = (w: string) => w.replace(/(?:ing|ed|es|s|ation|ment|ly)$/, "");
+  // BUG-T8-sprint-goal-1: the prior `s === vague || s.startsWith(vague)`
+  // never matched plural VAGUE_WORDS entries like "things" or "various"
+  // because the word's plural-s gets stripped to "thing"/"variou", which
+  // neither equals "things" nor starts with it. Compare with the
+  // ALSO-stemmed vague word too, so plural list entries fire.
   const hasVague = words.some((w) => {
     const s = stem(w);
-    return VAGUE_WORDS.some((vague) => s === vague || s.startsWith(vague));
+    return VAGUE_WORDS.some((vague) => {
+      const v = stem(vague);
+      return s === vague || s === v || s.startsWith(v);
+    });
   });
   const hasConcreteNoun = text.length > 10 && !hasVague;
 
@@ -114,7 +120,7 @@ const STEP_ICONS: Record<Step, React.ReactNode> = {
 const GOAL_MAX_CHARS = 300;
 
 const TIPS = [
-  "Start with a verb: \"Deliver...\", \"Enable...\", \"Validate...\"",
+  'Start with a verb: "Deliver...", "Enable...", "Validate..."',
   "Focus on the outcome, not the tasks",
   "Make it achievable within a single sprint",
   "Ensure the whole team can rally behind it",
@@ -137,19 +143,16 @@ export function SprintGoalClient() {
   const [activeStep, setActiveStep] = useState<Step>("objective");
   const [businessObjective, setBusinessObjective] = usePersisted<string>(
     "agile-toolkit:sprint-goal:objective",
-    "",
+    ""
   );
-  const [sprintGoal, setSprintGoal] = usePersisted<string>(
-    "agile-toolkit:sprint-goal:goal",
-    "",
-  );
+  const [sprintGoal, setSprintGoal] = usePersisted<string>("agile-toolkit:sprint-goal:goal", "");
   const [criteria, setCriteria] = usePersisted<AcceptanceCriterion[]>(
     "agile-toolkit:sprint-goal:criteria",
-    [{ id: genId(), text: "", relevantChecked: false }],
+    [{ id: genId(), text: "", relevantChecked: false }]
   );
   const [keyResults, setKeyResults] = usePersisted<string[]>(
     "agile-toolkit:sprint-goal:key-results",
-    [""],
+    [""]
   );
   const { log } = useHistoryLogger("sprint-goal");
   // Track whether we've already logged a GOAL_SAVED milestone for this
@@ -195,10 +198,7 @@ export function SprintGoalClient() {
   // ── Criteria helpers ────────────────────────────────────────────────────
 
   const addCriterion = () => {
-    setCriteria((prev) => [
-      ...prev,
-      { id: genId(), text: "", relevantChecked: false },
-    ]);
+    setCriteria((prev) => [...prev, { id: genId(), text: "", relevantChecked: false }]);
     log(SPRINT_GOAL_ACTIONS.CRITERION_ADDED, {});
   };
 
@@ -208,15 +208,11 @@ export function SprintGoalClient() {
   };
 
   const updateCriterionText = (id: string, text: string) =>
-    setCriteria((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, text } : c))
-    );
+    setCriteria((prev) => prev.map((c) => (c.id === id ? { ...c, text } : c)));
 
   const toggleRelevant = (id: string) =>
     setCriteria((prev) =>
-      prev.map((c) =>
-        c.id === id ? { ...c, relevantChecked: !c.relevantChecked } : c
-      )
+      prev.map((c) => (c.id === id ? { ...c, relevantChecked: !c.relevantChecked } : c))
     );
 
   // ── Key results helpers ─────────────────────────────────────────────────
@@ -224,9 +220,7 @@ export function SprintGoalClient() {
   const addKeyResult = () => setKeyResults((prev) => [...prev, ""]);
 
   const removeKeyResult = (index: number) =>
-    setKeyResults((prev) =>
-      prev.length > 1 ? prev.filter((_, i) => i !== index) : prev
-    );
+    setKeyResults((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
 
   const updateKeyResult = (index: number, value: string) =>
     setKeyResults((prev) => prev.map((kr, i) => (i === index ? value : kr)));
@@ -260,15 +254,18 @@ export function SprintGoalClient() {
   );
 
   // AI prompt config
-  const promptConfig = useMemo(() => ({
-    toolName: "Sprint Goal Builder",
-    prompts: generateSprintGoalPrompts({
-      businessObjective,
-      sprintGoal,
-      criteria: criteria.map((c) => ({ text: c.text, smartRelevant: c.relevantChecked })),
-      keyResults,
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Sprint Goal Builder",
+      prompts: generateSprintGoalPrompts({
+        businessObjective,
+        sprintGoal,
+        criteria: criteria.map((c) => ({ text: c.text, smartRelevant: c.relevantChecked })),
+        keyResults,
+      }),
     }),
-  }), [businessObjective, sprintGoal, criteria, keyResults]);
+    [businessObjective, sprintGoal, criteria, keyResults]
+  );
 
   // ── Cross-tool signal: recent sprint additions in velocity tool ─────────
   // Surface a tiny callout when at least one sprint was added in the last
@@ -329,17 +326,15 @@ export function SprintGoalClient() {
     >
       {recentSprintAdds.length >= 1 && (
         <CalloutAlert tone="info" className="mb-3">
-          {recentSprintAdds.length} sprint{recentSprintAdds.length === 1 ? " was" : "s were"} logged in the last 14 days — review the latest sprint&apos;s goal performance.
+          {recentSprintAdds.length} sprint{recentSprintAdds.length === 1 ? " was" : "s were"} logged
+          in the last 14 days — review the latest sprint&apos;s goal performance.
         </CalloutAlert>
       )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ── Wizard Panel ─────────────────────────────────────────── */}
         <div className="lg:col-span-2">
           <Card className="bg-card border-border p-6">
-            <Tabs
-              value={activeStep}
-              onValueChange={(v) => setActiveStep(v as Step)}
-            >
+            <Tabs value={activeStep} onValueChange={(v) => setActiveStep(v as Step)}>
               <TabsList className="w-full bg-card border border-border mb-6">
                 {STEPS.map((step) => (
                   <TabsTrigger
@@ -357,12 +352,10 @@ export function SprintGoalClient() {
               <TabsContent value="objective">
                 <AnimatePresence mode="wait">
                   <motion.div key="objective" {...tabMotion}>
-                    <h2 className="text-lg font-semibold text-text mb-2">
-                      Business Objective
-                    </h2>
+                    <h2 className="text-lg font-semibold text-text mb-2">Business Objective</h2>
                     <p className="text-sm text-sub mb-4">
-                      What high-level business objective does this sprint serve?
-                      This provides context for why the sprint work matters.
+                      What high-level business objective does this sprint serve? This provides
+                      context for why the sprint work matters.
                     </p>
                     <Textarea
                       placeholder="e.g., Increase user retention by streamlining the onboarding experience..."
@@ -378,27 +371,21 @@ export function SprintGoalClient() {
               <TabsContent value="goal">
                 <AnimatePresence mode="wait">
                   <motion.div key="goal" {...tabMotion}>
-                    <h2 className="text-lg font-semibold text-text mb-2">
-                      Sprint Goal
-                    </h2>
+                    <h2 className="text-lg font-semibold text-text mb-2">Sprint Goal</h2>
                     <p className="text-sm text-sub mb-4">
-                      Define the specific goal for this sprint. A good sprint
-                      goal is concise, outcome-focused, and achievable.
+                      Define the specific goal for this sprint. A good sprint goal is concise,
+                      outcome-focused, and achievable.
                     </p>
                     <div className="relative">
                       <Textarea
                         placeholder="e.g., Deliver a self-service onboarding flow that allows new users to complete setup within 3 minutes..."
                         value={sprintGoal}
-                        onChange={(e) =>
-                          setSprintGoal(e.target.value.slice(0, GOAL_MAX_CHARS))
-                        }
+                        onChange={(e) => setSprintGoal(e.target.value.slice(0, GOAL_MAX_CHARS))}
                         className="min-h-[120px] bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
                       />
                       <span
                         className={`absolute bottom-2 right-3 text-xs ${
-                          sprintGoal.length > GOAL_MAX_CHARS * 0.9
-                            ? "text-red-400"
-                            : "text-sub/60"
+                          sprintGoal.length > GOAL_MAX_CHARS * 0.9 ? "text-red-400" : "text-sub/60"
                         }`}
                       >
                         {sprintGoal.length}/{GOAL_MAX_CHARS}
@@ -413,10 +400,7 @@ export function SprintGoalClient() {
                       </h3>
                       <ul className="space-y-1">
                         {TIPS.map((tip, i) => (
-                          <li
-                            key={i}
-                            className="text-sm text-sub flex items-start gap-2"
-                          >
+                          <li key={i} className="text-sm text-sub flex items-start gap-2">
                             <span className="text-accent mt-0.5">-</span>
                             {tip}
                           </li>
@@ -431,13 +415,10 @@ export function SprintGoalClient() {
               <TabsContent value="criteria">
                 <AnimatePresence mode="wait">
                   <motion.div key="criteria" {...tabMotion}>
-                    <h2 className="text-lg font-semibold text-text mb-2">
-                      Acceptance Criteria
-                    </h2>
+                    <h2 className="text-lg font-semibold text-text mb-2">Acceptance Criteria</h2>
                     <p className="text-sm text-sub mb-4">
-                      Define measurable criteria that determine when the sprint
-                      goal is met. Each criterion is validated against SMART
-                      principles.
+                      Define measurable criteria that determine when the sprint goal is met. Each
+                      criterion is validated against SMART principles.
                     </p>
 
                     <div className="space-y-4">
@@ -452,12 +433,7 @@ export function SprintGoalClient() {
                               <Textarea
                                 placeholder="e.g., 90% of new users complete onboarding within 3 minutes by end of sprint"
                                 value={criterion.text}
-                                onChange={(e) =>
-                                  updateCriterionText(
-                                    criterion.id,
-                                    e.target.value
-                                  )
-                                }
+                                onChange={(e) => updateCriterionText(criterion.id, e.target.value)}
                                 className="flex-1 min-h-[60px] bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
                               />
                               <Button
@@ -474,9 +450,7 @@ export function SprintGoalClient() {
                             {/* SMART badges */}
                             {criterion.text.trim().length > 0 && (
                               <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-xs text-sub mr-1">
-                                  SMART:
-                                </span>
+                                <span className="text-xs text-sub mr-1">SMART:</span>
                                 <SmartBadge
                                   label="Specific"
                                   passes={smart.specific}
@@ -517,9 +491,7 @@ export function SprintGoalClient() {
                                   <input
                                     type="checkbox"
                                     checked={criterion.relevantChecked}
-                                    onChange={() =>
-                                      toggleRelevant(criterion.id)
-                                    }
+                                    onChange={() => toggleRelevant(criterion.id)}
                                     className="w-3.5 h-3.5 rounded border-border bg-card accent-[#00ff88] cursor-pointer"
                                     title="Confirm this criterion is relevant to the sprint goal"
                                   />
@@ -557,12 +529,10 @@ export function SprintGoalClient() {
               <TabsContent value="results">
                 <AnimatePresence mode="wait">
                   <motion.div key="results" {...tabMotion}>
-                    <h2 className="text-lg font-semibold text-text mb-2">
-                      Key Results
-                    </h2>
+                    <h2 className="text-lg font-semibold text-text mb-2">Key Results</h2>
                     <p className="text-sm text-sub mb-4">
-                      Define the measurable outcomes that indicate success.
-                      These should be observable and verifiable.
+                      Define the measurable outcomes that indicate success. These should be
+                      observable and verifiable.
                     </p>
 
                     <div className="space-y-3">
@@ -571,9 +541,7 @@ export function SprintGoalClient() {
                           <Input
                             placeholder={`e.g., Onboarding completion rate reaches 90%`}
                             value={kr}
-                            onChange={(e) =>
-                              updateKeyResult(index, e.target.value)
-                            }
+                            onChange={(e) => updateKeyResult(index, e.target.value)}
                             className="flex-1 bg-card border-border text-text placeholder:text-sub/50 focus:border-accent-cyan/50 focus:ring-accent-cyan/20"
                           />
                           <Button
@@ -633,9 +601,7 @@ export function SprintGoalClient() {
         <div className="lg:col-span-1">
           <Card className="bg-card border-border p-6 sticky top-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-text">
-                Preview
-              </h2>
+              <h2 className="text-lg font-semibold text-text">Preview</h2>
               <div className="flex items-center gap-2">
                 <AiPromptGenerator config={promptConfig} />
                 <ExportButton
@@ -657,11 +623,7 @@ export function SprintGoalClient() {
                   Business Objective
                 </span>
                 <p className="text-text mt-1">
-                  {businessObjective || (
-                    <span className="text-sub/40 italic">
-                      Not yet defined
-                    </span>
-                  )}
+                  {businessObjective || <span className="text-sub/40 italic">Not yet defined</span>}
                 </p>
               </div>
 
@@ -671,11 +633,7 @@ export function SprintGoalClient() {
                   Sprint Goal
                 </span>
                 <p className="text-text mt-1">
-                  {sprintGoal || (
-                    <span className="text-sub/40 italic">
-                      Not yet defined
-                    </span>
-                  )}
+                  {sprintGoal || <span className="text-sub/40 italic">Not yet defined</span>}
                 </p>
               </div>
 
@@ -695,9 +653,7 @@ export function SprintGoalClient() {
                       ))}
                   </ol>
                 ) : (
-                  <p className="text-sub/40 italic mt-1">
-                    No criteria added
-                  </p>
+                  <p className="text-sub/40 italic mt-1">No criteria added</p>
                 )}
               </div>
 
@@ -717,9 +673,7 @@ export function SprintGoalClient() {
                       ))}
                   </ul>
                 ) : (
-                  <p className="text-sub/40 italic mt-1">
-                    No key results added
-                  </p>
+                  <p className="text-sub/40 italic mt-1">No key results added</p>
                 )}
               </div>
             </div>

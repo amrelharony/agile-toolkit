@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { KeyRound, Trash2, Copy, Check } from "lucide-react";
+import { KeyRound, Trash2, Copy, Check, Eye, EyeOff } from "lucide-react";
 
 interface TokenRow {
   id: string;
@@ -27,6 +27,11 @@ export function AccessTokensClient() {
   const [newName, setNewName] = useState("");
   const [revealed, setRevealed] = useState<CreatedToken | null>(null);
   const [copied, setCopied] = useState(false);
+  // BUG-X4: default the freshly-minted token display to masked, with an
+  // explicit reveal toggle (matches the LLM settings dialog's BYOK
+  // input pattern). Eliminates the "fullscreen on a projector"
+  // shoulder-surf failure mode.
+  const [revealVisible, setRevealVisible] = useState(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -34,8 +39,12 @@ export function AccessTokensClient() {
     try {
       const res = await fetch("/api/access-tokens");
       if (!res.ok) throw new Error(`Failed: ${res.status}`);
-      const json = (await res.json()) as { tokens: TokenRow[] };
-      setTokens(json.tokens);
+      const json = (await res.json()) as { tokens?: unknown };
+      // BUG-X9: validate response shape before set.
+      if (!Array.isArray(json?.tokens)) {
+        throw new Error("Server returned an unexpected response shape.");
+      }
+      setTokens(json.tokens as TokenRow[]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load tokens");
     } finally {
@@ -63,7 +72,14 @@ export function AccessTokensClient() {
         throw new Error(j.error ?? `Failed: ${res.status}`);
       }
       const json = (await res.json()) as CreatedToken;
+      // BUG-X9: defensive shape check.
+      if (!json || typeof json.rawToken !== "string" || !json.token) {
+        throw new Error("Server returned an unexpected response shape.");
+      }
       setRevealed(json);
+      // Reset reveal visibility for the new token — never inherit the
+      // prior token's reveal state.
+      setRevealVisible(false);
       setNewName("");
       await refresh();
     } catch (err) {
@@ -74,7 +90,8 @@ export function AccessTokensClient() {
   };
 
   const onRevoke = async (id: string) => {
-    if (!confirm("Revoke this token? External agents using it will lose access immediately.")) return;
+    if (!confirm("Revoke this token? External agents using it will lose access immediately."))
+      return;
     try {
       const res = await fetch(`/api/access-tokens/${id}`, { method: "DELETE" });
       if (!res.ok && res.status !== 204) throw new Error(`Failed: ${res.status}`);
@@ -118,7 +135,15 @@ export function AccessTokensClient() {
             maxLength={80}
             disabled={creating}
           />
-          <Button type="submit" disabled={creating || !newName.trim()}>
+          <Button
+            type="submit"
+            // BUG-X3: block Create while an un-dismissed reveal panel
+            // is open. Without this, a second create silently
+            // overwrites `revealed` and the first raw token is lost
+            // forever (the server doesn't store it).
+            disabled={creating || !newName.trim() || revealed !== null}
+            title={revealed !== null ? "Dismiss the current reveal panel first" : undefined}
+          >
             {creating ? "Creating…" : "Create"}
           </Button>
         </form>
@@ -129,16 +154,40 @@ export function AccessTokensClient() {
         <section className="rounded-lg border border-accent/40 bg-accent/5 p-4 space-y-3">
           <h2 className="text-sm font-semibold text-accent">Token created — copy now</h2>
           <p className="text-xs text-sub">
-            This is the only time you&apos;ll see <code>{revealed.token.name}</code>&apos;s
-            raw value. Store it in your agent&apos;s config (e.g. <code>AGILE_TOOLKIT_PAT</code>{" "}
-            env var).
+            This is the only time you&apos;ll see <code>{revealed.token.name}</code>&apos;s raw
+            value. Store it in your agent&apos;s config (e.g. <code>AGILE_TOOLKIT_PAT</code> env
+            var).
           </p>
           <div className="flex gap-2">
             <code className="flex-1 font-mono text-sm bg-bg rounded-md border border-border px-3 py-2 break-all">
-              {revealed.rawToken}
+              {revealVisible
+                ? revealed.rawToken
+                : `${revealed.rawToken.slice(0, 8)}${"•".repeat(Math.max(0, revealed.rawToken.length - 8))}`}
             </code>
-            <Button onClick={() => void onCopy(revealed.rawToken)} size="icon" variant="outline" aria-label="Copy token">
-              {copied ? <Check className="w-4 h-4" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
+            <Button
+              onClick={() => setRevealVisible((v) => !v)}
+              size="icon"
+              variant="outline"
+              aria-label={revealVisible ? "Hide token" : "Reveal token"}
+              title={revealVisible ? "Hide" : "Reveal"}
+            >
+              {revealVisible ? (
+                <EyeOff className="w-4 h-4" aria-hidden="true" />
+              ) : (
+                <Eye className="w-4 h-4" aria-hidden="true" />
+              )}
+            </Button>
+            <Button
+              onClick={() => void onCopy(revealed.rawToken)}
+              size="icon"
+              variant="outline"
+              aria-label="Copy token"
+            >
+              {copied ? (
+                <Check className="w-4 h-4" aria-hidden="true" />
+              ) : (
+                <Copy className="w-4 h-4" aria-hidden="true" />
+              )}
             </Button>
           </div>
           <Button onClick={() => setRevealed(null)} variant="outline" size="sm">
@@ -148,7 +197,10 @@ export function AccessTokensClient() {
       )}
 
       {error && (
-        <div className="rounded-md bg-destructive/10 border border-destructive/40 text-destructive text-sm p-3" role="alert">
+        <div
+          className="rounded-md bg-destructive/10 border border-destructive/40 text-destructive text-sm p-3"
+          role="alert"
+        >
           {error}
         </div>
       )}
@@ -175,7 +227,9 @@ export function AccessTokensClient() {
                   </div>
                   <div className="text-xs text-sub mt-0.5 font-mono">
                     {t.prefix}…&nbsp;·&nbsp;
-                    {t.last_used_at ? `last used ${new Date(t.last_used_at).toLocaleDateString()}` : "never used"}
+                    {t.last_used_at
+                      ? `last used ${new Date(t.last_used_at).toLocaleDateString()}`
+                      : "never used"}
                   </div>
                 </div>
                 {!t.revoked_at && (
@@ -197,8 +251,11 @@ export function AccessTokensClient() {
       <section className="text-xs text-sub space-y-2">
         <h3 className="text-text">Connecting from Claude Desktop / Claude Code</h3>
         <ol className="list-decimal ml-5 space-y-1">
-          <li>Install the stdio relay: <code>npm i -g @agile-toolkit/mcp</code></li>
-          <li>Add to your MCP config:
+          <li>
+            Install the stdio relay: <code>npm i -g @agile-toolkit/mcp</code>
+          </li>
+          <li>
+            Add to your MCP config:
             <pre className="bg-bg border border-border rounded p-2 mt-1 overflow-x-auto">{`{
   "mcpServers": {
     "agile-toolkit": {
@@ -211,7 +268,9 @@ export function AccessTokensClient() {
   }
 }`}</pre>
           </li>
-          <li>Restart your MCP client. Tools appear as <code>workspace.sprint.create</code> etc.</li>
+          <li>
+            Restart your MCP client. Tools appear as <code>workspace.sprint.create</code> etc.
+          </li>
         </ol>
       </section>
     </div>

@@ -58,7 +58,8 @@ export interface SpatialIndex {
 
 export function buildSpatialIndex(rects: readonly Rect[], cellSize = 200): SpatialIndex {
   const buckets = new Map<string, Rect[]>();
-  const key = (cx: number, cy: number) => `${Math.floor(cx / cellSize)}:${Math.floor(cy / cellSize)}`;
+  const key = (cx: number, cy: number) =>
+    `${Math.floor(cx / cellSize)}:${Math.floor(cy / cellSize)}`;
   // R11-fix: track the largest candidate half-extent across all
   // indexed rects. The previous reach formula only added cellSize/2 to
   // the drag half-extent, but a 600×40 frame sits in one bucket whose
@@ -70,7 +71,13 @@ export function buildSpatialIndex(rects: readonly Rect[], cellSize = 200): Spati
   for (const r of rects) {
     // Skip rects with non-finite coords — they'd produce key="NaN:NaN"
     // and bucket every other NaN rect together, defeating spatial cull.
-    if (!Number.isFinite(r.x) || !Number.isFinite(r.y) || !Number.isFinite(r.w) || !Number.isFinite(r.h)) continue;
+    if (
+      !Number.isFinite(r.x) ||
+      !Number.isFinite(r.y) ||
+      !Number.isFinite(r.w) ||
+      !Number.isFinite(r.h)
+    )
+      continue;
     // R11-fix: reject negative dimensions. A negative-width rect would
     // place its center to the LEFT of its origin, bucketing it in the
     // wrong cell relative to its visual span; consumers would then
@@ -96,9 +103,14 @@ export function buildSpatialIndex(rects: readonly Rect[], cellSize = 200): Spati
       // aren't pruned. Also clamp to a sane upper bound to defend
       // against pathological tol/cellSize ratios.
       const dragHalf = Math.max(drag.w, drag.h) / 2;
+      // BUG-L8: scale the upper cap with maxHalfExtent so giant frames
+      // (kanban backdrops, large imported diagrams) stay in the
+      // candidate list. The prior `cellSize * 50` (10k px at default
+      // 200-px cells) silently dropped frames whose half-extent
+      // exceeded the cap from any snap target.
       const reach = Math.min(
         tol + dragHalf + maxHalfExtent + cellSize / 2,
-        cellSize * 50,
+        Math.max(cellSize * 50, maxHalfExtent * 5)
       );
       const minX = Math.floor((dcx - reach) / cellSize);
       const maxX = Math.floor((dcx + reach) / cellSize);
@@ -137,7 +149,7 @@ export function buildSpatialIndex(rects: readonly Rect[], cellSize = 200): Spati
 export function snapToObjects(
   dragging: Rect,
   others: readonly Rect[],
-  tol = DEFAULT_GUIDE_TOLERANCE,
+  tol = DEFAULT_GUIDE_TOLERANCE
 ): { rect: Rect; guides: AlignmentGuide[] } {
   let snapX: number | null = null;
   let snapY: number | null = null;

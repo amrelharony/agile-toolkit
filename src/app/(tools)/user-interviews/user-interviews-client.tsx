@@ -80,6 +80,63 @@ function TagInput({ tags, onCommit }: { tags: string[]; onCommit: (next: string[
   );
 }
 
+/**
+ * BUG-T9-user-interviews-2: text input/textarea that holds a local
+ * string draft and only commits to the parent on blur (or Enter for
+ * single-line). The previous per-keystroke `update(active.id, ...)`
+ * path triggered a full setInterviews → localStorage write on every
+ * character; with 50 interviews this was visibly laggy.
+ */
+function BlurInput(props: {
+  value: string;
+  onCommit: (v: string) => void;
+  type?: string;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(props.value);
+  useEffect(() => setDraft(props.value), [props.value]);
+  return (
+    <Input
+      type={props.type}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (draft !== props.value) props.onCommit(draft);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && props.type !== undefined) {
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      placeholder={props.placeholder}
+      className={props.className}
+    />
+  );
+}
+function BlurTextarea(props: {
+  value: string;
+  onCommit: (v: string) => void;
+  rows?: number;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(props.value);
+  useEffect(() => setDraft(props.value), [props.value]);
+  return (
+    <Textarea
+      rows={props.rows}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (draft !== props.value) props.onCommit(draft);
+      }}
+      placeholder={props.placeholder}
+      className={props.className}
+    />
+  );
+}
+
 export function UserInterviewsClient() {
   const [interviews, setInterviews] = usePersisted<Interview[]>(
     "agile-toolkit:user-interviews",
@@ -299,23 +356,23 @@ export function UserInterviewsClient() {
             <Card className="bg-surface border-border">
               <CardContent className="p-4 space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-[1fr_160px] gap-2">
-                  <Input
+                  <BlurInput
                     value={active.participant}
-                    onChange={(e) => update(active.id, { participant: e.target.value })}
+                    onCommit={(v) => update(active.id, { participant: v })}
                     placeholder="Participant name or pseudonym"
                     className="bg-bg border-border"
                   />
-                  <Input
+                  <BlurInput
                     type="date"
                     value={active.date}
-                    onChange={(e) => update(active.id, { date: e.target.value })}
+                    onCommit={(v) => update(active.id, { date: v })}
                     className="bg-bg border-border"
                   />
                 </div>
-                <Textarea
+                <BlurTextarea
                   rows={2}
                   value={active.context ?? ""}
-                  onChange={(e) => update(active.id, { context: e.target.value })}
+                  onCommit={(v) => update(active.id, { context: v })}
                   placeholder="Context (role, product use, what we were exploring)"
                   className="bg-bg border-border"
                 />

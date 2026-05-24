@@ -31,7 +31,7 @@ export interface LayoutEdge {
 
 export function gridLayout(
   nodes: readonly LayoutNode[],
-  opts: { cols?: number; gap?: number; originX?: number; originY?: number } = {},
+  opts: { cols?: number; gap?: number; originX?: number; originY?: number } = {}
 ): Record<string, Vec2> {
   const cols = Math.max(1, opts.cols ?? Math.ceil(Math.sqrt(nodes.length)));
   const gap = opts.gap ?? 24;
@@ -60,7 +60,7 @@ export function gridLayout(
 export function treeLayout(
   nodes: readonly LayoutNode[],
   parents: Record<string, string | null>,
-  opts: { rowGap?: number; colGap?: number } = {},
+  opts: { rowGap?: number; colGap?: number } = {}
 ): Record<string, Vec2> {
   const rowGap = opts.rowGap ?? 80;
   const colGap = opts.colGap ?? 40;
@@ -110,10 +110,21 @@ export function treeLayout(
   // Second pass: assign positions top-down — also cycle-safe via `placed`.
   const placed = new Set<string>();
   const place = (id: string, leftX: number, y: number) => {
-    if (placed.has(id)) return; // cycle guard
+    // BUG-L5: assign a fallback position BEFORE the cycle short-circuit
+    // so a node visited twice (diamond DAG, multiple parents) still has
+    // SOME `out[id]` entry. Without this, downstream consumers reading
+    // `positions[id].x` for the missed node get `undefined` and produce
+    // NaN-position cards.
+    if (placed.has(id)) {
+      if (!out[id]) out[id] = { x: leftX, y };
+      return;
+    }
     placed.add(id);
     const n = byId.get(id);
-    if (!n) return;
+    if (!n) {
+      if (!out[id]) out[id] = { x: leftX, y };
+      return;
+    }
     const w = subtreeWidth.get(id)!;
     const centerX = leftX + w / 2;
     out[id] = { x: centerX - n.w / 2, y };
@@ -136,8 +147,8 @@ export function treeLayout(
   // Any node that wasn't reachable from a root (e.g. all involved in
   // a cycle, or parent points at a non-existent id) still needs a
   // position. Append them in a trailing row so the user sees them.
-  const trailY = roots.length === 0 ? 0
-    : Math.max(...roots.map((r) => (byId.get(r)?.h ?? 80))) + rowGap * 2;
+  const trailY =
+    roots.length === 0 ? 0 : Math.max(...roots.map((r) => byId.get(r)?.h ?? 80)) + rowGap * 2;
   let trailX = 0;
   for (const n of nodes) {
     if (placed.has(n.id)) continue;
@@ -166,7 +177,7 @@ export function forceLayout(
     width?: number;
     height?: number;
     initial?: Record<string, Vec2>;
-  } = {},
+  } = {}
 ): Record<string, Vec2> {
   const W = opts.width ?? Math.max(800, Math.sqrt(nodes.length) * 100);
   const H = opts.height ?? Math.max(600, Math.sqrt(nodes.length) * 100);

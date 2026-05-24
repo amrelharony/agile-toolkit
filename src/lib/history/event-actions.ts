@@ -550,6 +550,11 @@ export const ONBOARDING_TRACKER_ACTIONS = {
   PERSON_ADDED: "person_added",
   PERSON_REMOVED: "person_removed",
   MILESTONE_LOGGED: "milestone_logged", // milestone
+  // BUG-T5-onboarding-tracker-2: emit on un-complete too so the audit
+  // trail captures rollback events. Without this, a manager cannot
+  // tell "Jane's first PR was marked complete then uncompleted on
+  // May 22" from "Jane never marked it complete".
+  MILESTONE_UNCOMPLETED: "milestone_uncompleted",
   ONBOARDING_RESET: "onboarding_reset",
 } as const;
 
@@ -831,20 +836,20 @@ export const POLARITY_ACTIONS = {
 // Phase 22 — Canvas (whiteboard)
 // ════════════════════════════════════════════════════════════════════
 export const CANVAS_ACTIONS = {
-  BOARD_CREATED: "board_created",        // milestone
+  BOARD_CREATED: "board_created", // milestone
   BOARD_RENAMED: "board_renamed",
-  BOARD_DELETED: "board_deleted",        // milestone
+  BOARD_DELETED: "board_deleted", // milestone
   OBJECT_ADDED: "object_added",
   OBJECT_REMOVED: "object_removed",
   OBJECT_UPDATED: "object_updated",
   OBJECTS_MOVED: "objects_moved",
   OBJECTS_PASTED: "objects_pasted",
-  TEMPLATE_APPLIED: "template_applied",  // milestone
-  IMPORT_PERFORMED: "import_performed",  // milestone
+  TEMPLATE_APPLIED: "template_applied", // milestone
+  IMPORT_PERFORMED: "import_performed", // milestone
   EXPORT_PERFORMED: "export_performed",
   COMMENT_ADDED: "comment_added",
   COMMENT_RESOLVED: "comment_resolved",
-  CANVAS_RESET: "canvas_reset",          // milestone
+  CANVAS_RESET: "canvas_reset", // milestone
 } as const;
 
 /**

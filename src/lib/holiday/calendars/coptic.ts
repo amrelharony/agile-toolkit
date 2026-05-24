@@ -19,11 +19,25 @@ export function computeJulianPaschalEaster(year: number): { month: number; day: 
   return { month, day };
 }
 
-/** Julian → Gregorian offset (days) valid for 1900-2099: +13. */
+/**
+ * Julian → Gregorian offset (days) for a given year. The offset grows
+ * by one day at each non-divisible-by-400 centennial transition (1900,
+ * 2100, 2200 — but NOT 2000, 2400). Without this, the hard-coded +13
+ * offset (correct only for 1900-2099) silently shifts Coptic Easter
+ * one day late starting in March 2100. (BUG-L4)
+ */
+function julianGregorianOffset(year: number, monthOneBased: number): number {
+  // Formula per Calendrical Calculations (Reingold & Dershowitz):
+  //   offset = floor(year/100) - floor(year/400) - 2
+  // The centennial transition itself happens on March 1 of that year,
+  // so January/February of a transition year still use the prior offset.
+  const y = monthOneBased < 3 ? year - 1 : year;
+  return Math.floor(y / 100) - Math.floor(y / 400) - 2;
+}
+
 function julianToGregorian(year: number, month: number, day: number): Date {
-  // Construct as a Julian calendar date, then advance +13 days for 1900-2099
   const jd = Date.UTC(year, month - 1, day);
-  const offsetDays = 13;
+  const offsetDays = julianGregorianOffset(year, month);
   return new Date(jd + offsetDays * 86_400_000);
 }
 

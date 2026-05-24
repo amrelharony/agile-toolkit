@@ -358,9 +358,15 @@ export function OkrsClient() {
                       <Badge variant="outline" className="font-data">
                         {Math.round(health * 100)}%
                       </Badge>
-                      {/* Mann-Kendall trend across the KR sequence (not
-                          temporal — see comment near analytics). */}
-                      {mk && (
+                      {/* BUG-T5-okrs-3: only surface the cross-KR
+                          trend chip + Bayesian projection when there
+                          are ≥10 KRs on the objective — below that,
+                          the across-the-list signal is statistical
+                          noise that invites real decision-making
+                          errors. Adding one low-progress KR at the end
+                          flipped "trend up" to "trend down" instantly
+                          in the prior gate. */}
+                      {mk && measurableKrCount >= 10 && (
                         <Badge
                           variant="outline"
                           className={`font-mono text-[10px] tracking-wider uppercase ${
@@ -370,25 +376,22 @@ export function OkrsClient() {
                                 ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
                                 : "border-amber-500/40 text-amber-300 bg-amber-500/10"
                           }`}
-                          title="Mann-Kendall trend across the KR sequence (KR ordering, not over time)"
+                          title="Mann-Kendall trend across the KR list (NOT temporal). Shown only with ≥10 KRs."
                         >
                           {!mk.significant || mk.trend === "none"
-                            ? "KR-seq flat"
+                            ? "List flat"
                             : mk.trend === "up"
-                              ? "KR-seq ↗ significant"
-                              : "KR-seq ↘ significant"}
+                              ? "List ↗"
+                              : "List ↘"}
                         </Badge>
                       )}
-                      {/* Bayesian-Holt forecast for the next KR's expected
-                          progress. Honestly labeled as "next KR" not "next
-                          quarter" to avoid the previous over-claim. */}
-                      {fc.length > 0 && fcConfidence && (
+                      {fc.length > 0 && fcConfidence && measurableKrCount >= 10 && (
                         <Badge
                           variant="outline"
                           className="font-mono text-[10px] tracking-wider uppercase text-accent border-accent/40 bg-accent/10"
-                          title={`Bayesian Holt projection of the next KR's progress under the current sequence trend. Confidence: ${fcConfidence}.`}
+                          title={`Across-the-list projection (NOT temporal). Confidence: ${fcConfidence}. Shown only with ≥10 KRs.`}
                         >
-                          Next-KR ~ {Math.round(Math.max(0, Math.min(1, fc[0].yHat)) * 100)}%
+                          List proj ~ {Math.round(Math.max(0, Math.min(1, fc[0].yHat)) * 100)}%
                         </Badge>
                       )}
                       <Button

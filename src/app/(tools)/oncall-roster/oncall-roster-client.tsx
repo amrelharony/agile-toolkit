@@ -134,9 +134,7 @@ function activeShiftAt(shifts: OncallShift[], ts: number): OncallShift | null {
   // hand-over to the next shift is reflected immediately.
   const candidates = shifts.filter((s) => shiftCovers(s, ts));
   if (candidates.length === 0) return null;
-  return [...candidates].sort((a, b) =>
-    b.startDate.localeCompare(a.startDate)
-  )[0];
+  return [...candidates].sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -191,11 +189,7 @@ function ExpectedPagesInput({
     lastSyncedRef.current = value;
     setDraft(value === undefined ? "" : String(value));
   }, [value]);
-  const pred = usePredictedDefault<number>(
-    "oncall-roster",
-    "expectedPagesPerWeek",
-    5,
-  );
+  const pred = usePredictedDefault<number>("oncall-roster", "expectedPagesPerWeek", 5);
   return (
     <SmartInput<number>
       predicted={pred}
@@ -243,10 +237,7 @@ function ExpectedPagesInput({
 }
 
 export function OncallRosterClient() {
-  const [state, setState] = usePersisted<OncallState>(
-    "agile-toolkit:oncall-roster",
-    DEFAULT_STATE
-  );
+  const [state, setState] = usePersisted<OncallState>("agile-toolkit:oncall-roster", DEFAULT_STATE);
   const { log } = useHistoryLogger("oncall-roster");
   const [shiftDraft, setShiftDraft] = useState<ShiftDraft>(emptyShiftDraft);
   const [pageDraft, setPageDraft] = useState<PageDraft>(emptyPageDraft);
@@ -323,10 +314,7 @@ export function OncallRosterClient() {
   const active = useMemo(() => activeShiftAt(state.shifts, now), [state.shifts, now]);
 
   const sortedShifts = useMemo(
-    () =>
-      [...state.shifts].sort((a, b) =>
-        a.startDate.localeCompare(b.startDate)
-      ),
+    () => [...state.shifts].sort((a, b) => a.startDate.localeCompare(b.startDate)),
     [state.shifts]
   );
 
@@ -351,10 +339,7 @@ export function OncallRosterClient() {
 
   // Per-person aggregates.
   const personStats = useMemo(() => {
-    const map = new Map<
-      string,
-      { person: string; totalPages: number; shifts: number }
-    >();
+    const map = new Map<string, { person: string; totalPages: number; shifts: number }>();
     for (const s of state.shifts) {
       const cur = map.get(s.person) ?? {
         person: s.person,
@@ -386,11 +371,16 @@ export function OncallRosterClient() {
     if (state.pages.length === 0) return { counts: [], weekLabels: [] };
     const WEEKS = 26;
     const today = new Date(now);
-    // Anchor at today - 26 weeks, then snap to the start of that week (Sunday).
+    // BUG-T5-oncall-roster-3: anchor on LOCAL week start (Sunday), not
+    // UTC. The rest of the file uses local date math; a UTC anchor
+    // here shifts the bucket boundary by up to 24h for users west of
+    // UTC, so the same page can land in different weekly buckets
+    // across runs and the week-over-week trend is off by one for
+    // non-UTC users.
     const anchor = new Date(today.getTime() - WEEKS * 7 * 86_400_000);
     const weekStart = new Date(anchor);
-    weekStart.setUTCDate(anchor.getUTCDate() - anchor.getUTCDay());
-    weekStart.setUTCHours(0, 0, 0, 0);
+    weekStart.setDate(anchor.getDate() - anchor.getDay());
+    weekStart.setHours(0, 0, 0, 0);
     const ts = state.pages
       .map((p) => new Date(p.ts).getTime())
       .filter((t) => Number.isFinite(t) && t >= weekStart.getTime());
@@ -399,9 +389,7 @@ export function OncallRosterClient() {
     const labels: string[] = [];
     for (let w = 0; w < WEEKS; w++) {
       const start = new Date(weekStart.getTime() + w * 7 * 86_400_000);
-      labels.push(
-        `${start.getUTCMonth() + 1}/${String(start.getUTCDate()).padStart(2, "0")}`,
-      );
+      labels.push(`${start.getMonth() + 1}/${String(start.getDate()).padStart(2, "0")}`);
     }
     for (const t of ts) {
       const w = Math.floor((t - weekStart.getTime()) / (7 * 86_400_000));
@@ -419,10 +407,7 @@ export function OncallRosterClient() {
     if (weeklyPageSeries.counts.length < 4) return [];
     return cusum(weeklyPageSeries.counts).map((cp) => ({
       x: weeklyPageSeries.weekLabels[cp.index] ?? String(cp.index),
-      label:
-        cp.direction === "up"
-          ? "Paging volume regime up"
-          : "Paging volume regime down",
+      label: cp.direction === "up" ? "Paging volume regime up" : "Paging volume regime down",
       detail: `CUSUM detected a sustained ${
         cp.direction === "up" ? "increase" : "decrease"
       } in paging starting in week ${cp.index + 1}.`,
@@ -436,7 +421,7 @@ export function OncallRosterClient() {
         week: weeklyPageSeries.weekLabels[i] ?? String(i),
         pages: c,
       })),
-    [weeklyPageSeries.counts, weeklyPageSeries.weekLabels],
+    [weeklyPageSeries.counts, weeklyPageSeries.weekLabels]
   );
 
   const promptConfig = useMemo(
@@ -455,13 +440,7 @@ export function OncallRosterClient() {
         topPagedPerson,
       }),
     }),
-    [
-      state.shifts,
-      pageCountByShift,
-      personStats,
-      pagesThisMonth,
-      topPagedPerson,
-    ]
+    [state.shifts, pageCountByShift, personStats, pagesThisMonth, topPagedPerson]
   );
 
   return (
@@ -476,13 +455,7 @@ export function OncallRosterClient() {
         <ExportButton
           filename="oncall-roster"
           csvData={{
-            headers: [
-              "Person",
-              "Start",
-              "End",
-              "Pages",
-              "Description",
-            ],
+            headers: ["Person", "Start", "End", "Pages", "Description"],
             rows: sortedShifts.map((s) => [
               s.person,
               s.startDate,
@@ -523,36 +496,22 @@ export function OncallRosterClient() {
           icon={Flame}
           label="Top-paged person"
           value={topPagedPerson ?? "—"}
-          hint={
-            personStats[0]
-              ? `${personStats[0].totalPages} pages`
-              : "no pages logged"
-          }
+          hint={personStats[0] ? `${personStats[0].totalPages} pages` : "no pages logged"}
         />
       </KpiGrid>
 
-      <SectionCard
-        title="Capacity expectation"
-        icon={Phone}
-        titleSize="lg"
-        className="mb-6"
-      >
+      <SectionCard title="Capacity expectation" icon={Phone} titleSize="lg" className="mb-6">
         <div className="grid grid-cols-1 sm:grid-cols-[260px_1fr] gap-4 items-start">
           <div>
-            <Label className="text-xs text-sub mb-1 block">
-              Expected pages per week
-            </Label>
+            <Label className="text-xs text-sub mb-1 block">Expected pages per week</Label>
             <ExpectedPagesInput
               value={state.expectedPagesPerWeek}
-              commit={(next) =>
-                setState((s) => ({ ...s, expectedPagesPerWeek: next }))
-              }
+              commit={(next) => setState((s) => ({ ...s, expectedPagesPerWeek: next }))}
             />
           </div>
           <p className="text-xs text-sub max-w-prose">
-            The team&apos;s expected paging load. Used as a baseline for the
-            capacity-planning conversation; the predictor seeds a default if
-            you haven&apos;t set one.
+            The team&apos;s expected paging load. Used as a baseline for the capacity-planning
+            conversation; the predictor seeds a default if you haven&apos;t set one.
           </p>
         </div>
       </SectionCard>
@@ -567,9 +526,7 @@ export function OncallRosterClient() {
                   : "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
               }`}
             >
-              <TrendingUp
-                className={`w-3 h-3 ${pageTrend.trend === "down" ? "rotate-180" : ""}`}
-              />
+              <TrendingUp className={`w-3 h-3 ${pageTrend.trend === "down" ? "rotate-180" : ""}`} />
               Weekly paging volume trending {pageTrend.trend} significantly
               <span className="opacity-60">· p={pageTrend.pValue.toFixed(3)}</span>
             </span>
@@ -590,18 +547,10 @@ export function OncallRosterClient() {
       )}
 
       {pagingChartData.length > 1 && (
-        <SectionCard
-          title="Paging frequency by week"
-          icon={Phone}
-          titleSize="lg"
-          className="mb-6"
-        >
+        <SectionCard title="Paging frequency by week" icon={Phone} titleSize="lg" className="mb-6">
           <div className="h-44 -mx-2">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={pagingChartData}
-                margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
-              >
+              <LineChart data={pagingChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
                 <XAxis
                   dataKey="week"
@@ -632,8 +581,8 @@ export function OncallRosterClient() {
             </ResponsiveContainer>
           </div>
           <p className="text-[11px] text-sub mt-2">
-            Pages aggregated by week. Dashed vertical lines mark CUSUM-detected
-            regime shifts (sustained changes in paging volume).
+            Pages aggregated by week. Dashed vertical lines mark CUSUM-detected regime shifts
+            (sustained changes in paging volume).
           </p>
         </SectionCard>
       )}
@@ -648,9 +597,7 @@ export function OncallRosterClient() {
               <Input
                 id="oc-person"
                 value={shiftDraft.person}
-                onChange={(e) =>
-                  setShiftDraft((d) => ({ ...d, person: e.target.value }))
-                }
+                onChange={(e) => setShiftDraft((d) => ({ ...d, person: e.target.value }))}
                 placeholder="e.g. @aalvarez"
                 className="bg-surface border-border"
               />
@@ -664,9 +611,7 @@ export function OncallRosterClient() {
                   id="oc-start"
                   type="date"
                   value={shiftDraft.startDate}
-                  onChange={(e) =>
-                    setShiftDraft((d) => ({ ...d, startDate: e.target.value }))
-                  }
+                  onChange={(e) => setShiftDraft((d) => ({ ...d, startDate: e.target.value }))}
                   className="bg-surface border-border font-data"
                 />
               </div>
@@ -678,9 +623,7 @@ export function OncallRosterClient() {
                   id="oc-end"
                   type="date"
                   value={shiftDraft.endDate}
-                  onChange={(e) =>
-                    setShiftDraft((d) => ({ ...d, endDate: e.target.value }))
-                  }
+                  onChange={(e) => setShiftDraft((d) => ({ ...d, endDate: e.target.value }))}
                   className="bg-surface border-border font-data"
                 />
               </div>
@@ -692,9 +635,7 @@ export function OncallRosterClient() {
               <Textarea
                 id="oc-shift-desc"
                 value={shiftDraft.description}
-                onChange={(e) =>
-                  setShiftDraft((d) => ({ ...d, description: e.target.value }))
-                }
+                onChange={(e) => setShiftDraft((d) => ({ ...d, description: e.target.value }))}
                 placeholder="Notes about this shift (handover, expected events…)"
                 rows={2}
                 className="bg-surface border-border resize-none text-xs"
@@ -712,15 +653,14 @@ export function OncallRosterClient() {
         <SectionCard title="Log a page" icon={Phone} titleSize="lg">
           {!active ? (
             <p className="text-xs text-sub italic">
-              No active shift covers right now. Add a shift covering today
-              before logging pages.
+              No active shift covers right now. Add a shift covering today before logging pages.
             </p>
           ) : (
             <div className="space-y-3">
               <p className="text-xs text-sub">
                 Page will be assigned to{" "}
-                <span className="text-accent font-data">{active.person}</span>{" "}
-                ({active.startDate} → {active.endDate}).
+                <span className="text-accent font-data">{active.person}</span> ({active.startDate} →{" "}
+                {active.endDate}).
               </p>
               <div>
                 <Label htmlFor="oc-page-sev" className="text-xs text-sub">
@@ -728,14 +668,9 @@ export function OncallRosterClient() {
                 </Label>
                 <Select
                   value={pageDraft.severity}
-                  onValueChange={(v) =>
-                    setPageDraft((d) => ({ ...d, severity: v as Severity }))
-                  }
+                  onValueChange={(v) => setPageDraft((d) => ({ ...d, severity: v as Severity }))}
                 >
-                  <SelectTrigger
-                    id="oc-page-sev"
-                    className="bg-surface border-border"
-                  >
+                  <SelectTrigger id="oc-page-sev" className="bg-surface border-border">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -754,9 +689,7 @@ export function OncallRosterClient() {
                 <Textarea
                   id="oc-page-desc"
                   value={pageDraft.description}
-                  onChange={(e) =>
-                    setPageDraft((d) => ({ ...d, description: e.target.value }))
-                  }
+                  onChange={(e) => setPageDraft((d) => ({ ...d, description: e.target.value }))}
                   placeholder="What was paged? Any false-positive note?"
                   rows={2}
                   className="bg-surface border-border resize-none text-xs"
@@ -775,8 +708,7 @@ export function OncallRosterClient() {
 
       {state.shifts.length === 0 ? (
         <EmptyState icon={Calendar}>
-          No shifts yet. Add an oncall shift above to start tracking pages and
-          burnout signals.
+          No shifts yet. Add an oncall shift above to start tracking pages and burnout signals.
         </EmptyState>
       ) : (
         <SectionCard
@@ -786,8 +718,7 @@ export function OncallRosterClient() {
           className="mb-6"
         >
           <p className="text-xs text-sub mb-3">
-            Each shift is colored by page count. Green &lt; 3 · amber 3-5 ·
-            red &gt; 5.
+            Each shift is colored by page count. Green &lt; 3 · amber 3-5 · red &gt; 5.
           </p>
           <div className="space-y-2">
             {sortedShifts.map((s) => {
@@ -801,9 +732,7 @@ export function OncallRosterClient() {
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2 mb-0.5">
-                      <span className="text-sm font-semibold text-text">
-                        {s.person}
-                      </span>
+                      <span className="text-sm font-semibold text-text">{s.person}</span>
                       <span className="text-xs font-data text-sub">
                         {s.startDate} → {s.endDate}
                       </span>
@@ -823,12 +752,8 @@ export function OncallRosterClient() {
                     )}
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="font-data text-lg leading-tight">
-                      {count}
-                    </div>
-                    <div className="text-[10px] uppercase tracking-wider opacity-70">
-                      pages
-                    </div>
+                    <div className="font-data text-lg leading-tight">{count}</div>
+                    <div className="text-[10px] uppercase tracking-wider opacity-70">pages</div>
                   </div>
                   <Button
                     variant="ghost"
@@ -847,12 +772,7 @@ export function OncallRosterClient() {
       )}
 
       {personStats.length > 0 && (
-        <SectionCard
-          title="Per-person paging stats"
-          icon={User}
-          titleSize="lg"
-          className="mb-6"
-        >
+        <SectionCard title="Per-person paging stats" icon={User} titleSize="lg" className="mb-6">
           <div className="overflow-x-auto -mx-4 px-4">
             <table className="w-full text-xs min-w-[480px]">
               <thead>
@@ -869,16 +789,11 @@ export function OncallRosterClient() {
                     <td className="py-2 pr-3 text-text">{p.person}</td>
                     <td className="py-2 pr-3 font-data">{p.shifts}</td>
                     <td className="py-2 pr-3 font-data">
-                      <Badge
-                        variant="outline"
-                        className={burnoutClasses(p.pagesPerShift)}
-                      >
+                      <Badge variant="outline" className={burnoutClasses(p.pagesPerShift)}>
                         {p.totalPages}
                       </Badge>
                     </td>
-                    <td className="py-2 pr-3 font-data">
-                      {p.pagesPerShift.toFixed(2)}
-                    </td>
+                    <td className="py-2 pr-3 font-data">{p.pagesPerShift.toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -891,10 +806,7 @@ export function OncallRosterClient() {
         <SectionCard title="Recent pages" icon={Phone} titleSize="lg">
           <ul className="space-y-2 max-h-72 overflow-y-auto pr-2">
             {[...state.pages]
-              .sort(
-                (a, b) =>
-                  new Date(b.ts).getTime() - new Date(a.ts).getTime()
-              )
+              .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
               .slice(0, 30)
               .map((p) => {
                 const shift = state.shifts.find((s) => s.id === p.shiftId);
@@ -915,9 +827,7 @@ export function OncallRosterClient() {
                           {new Date(p.ts).toLocaleString()}
                         </span>
                         <span className="text-sub">→</span>
-                        <span className="text-accent">
-                          {shift?.person ?? "(unknown)"}
-                        </span>
+                        <span className="text-accent">{shift?.person ?? "(unknown)"}</span>
                       </div>
                       {p.description && (
                         <p className="text-sub mt-0.5 whitespace-pre-wrap break-words">

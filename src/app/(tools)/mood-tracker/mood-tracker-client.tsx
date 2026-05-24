@@ -11,7 +11,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Smile, Heart, TrendingUp } from "lucide-react";
-import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from "recharts";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -42,6 +50,14 @@ interface MoodEntry {
   date: string;
   score: 1 | 2 | 3 | 4 | 5;
   note?: string;
+  /**
+   * True when this entry was created by typing a note BEFORE picking
+   * a face. The score is a placeholder (3 / Neutral) and the row is
+   * EXCLUDED from averages / CUSUM / Mann-Kendall until a real score
+   * lands. The flag is cleared inside `log` once a face is clicked.
+   * (BUG-T5-mood-tracker-1)
+   */
+  isPlaceholder?: boolean;
 }
 
 const FACES = [
@@ -123,7 +139,14 @@ export function MoodTrackerClient() {
       const idx = e.findIndex((x) => x.memberId === memberId && x.date === today);
       if (idx >= 0) {
         const next = e.slice();
-        next[idx] = { ...next[idx], score, note: note ?? next[idx].note };
+        // BUG-T5-mood-tracker-1: clear placeholder flag when a real
+        // face is picked — the row now contributes to analytics.
+        next[idx] = {
+          ...next[idx],
+          score,
+          note: note ?? next[idx].note,
+          isPlaceholder: false,
+        };
         return next;
       }
       return [...e, { id: nanoid(8), memberId, date: today, score, note }];
@@ -163,7 +186,19 @@ export function MoodTrackerClient() {
         // members who only typed a note — preferable to silent data
         // loss.
         if (trimmed === "") return e;
-        return [...e, { id: nanoid(8), memberId, date: today, score: 3, note: trimmed }];
+        // BUG-T5-mood-tracker-1: tag the row as a placeholder so
+        // analytics filter it out until the user clicks a real face.
+        return [
+          ...e,
+          {
+            id: nanoid(8),
+            memberId,
+            date: today,
+            score: 3,
+            note: trimmed,
+            isPlaceholder: true,
+          },
+        ];
       }
       return e.map((x, i) => (i === idx ? { ...x, note: trimmed || undefined } : x));
     });
@@ -178,8 +213,16 @@ export function MoodTrackerClient() {
 
   const averageByDay = useMemo(() => {
     return days.map((d) => {
-      const todays = entries.filter((e) => e.date === d);
-      return { date: d, avg: todays.length > 0 ? mean(todays.map((x) => x.score)) : null, count: todays.length };
+      // BUG-T5-mood-tracker-1: exclude placeholders (a row created by
+      // typing a note before clicking a face) from analytics. They
+      // stay visible in the UI but don't bias the trend / CUSUM /
+      // Mann-Kendall until the user picks a real score.
+      const todays = entries.filter((e) => e.date === d && !e.isPlaceholder);
+      return {
+        date: d,
+        avg: todays.length > 0 ? mean(todays.map((x) => x.score)) : null,
+        count: todays.length,
+      };
     });
   }, [entries, days]);
 
@@ -298,8 +341,8 @@ export function MoodTrackerClient() {
                   trend === "rising"
                     ? "text-green-400"
                     : trend === "falling"
-                    ? "text-danger"
-                    : "text-sub"
+                      ? "text-danger"
+                      : "text-sub"
                 }`}
               />
             </>
@@ -448,8 +491,17 @@ export function MoodTrackerClient() {
             </div>
             <ResponsiveContainer width="100%" height={220}>
               <LineChart data={dailySeries} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="date" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} axisLine={{ stroke: chartTheme.gridColor }} tickLine={false} />
+                <CartesianGrid
+                  stroke={chartTheme.gridColor}
+                  strokeDasharray="3 3"
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
+                  axisLine={{ stroke: chartTheme.gridColor }}
+                  tickLine={false}
+                />
                 <YAxis
                   tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
                   axisLine={false}
@@ -458,7 +510,14 @@ export function MoodTrackerClient() {
                   ticks={[1, 2, 3, 4, 5]}
                 />
                 <Tooltip contentStyle={chartTheme.tooltipStyle} />
-                <Line type="monotone" dataKey="avg" stroke={chartTheme.colors.cyan} strokeWidth={2} dot={{ r: 3 }} name="Daily avg" />
+                <Line
+                  type="monotone"
+                  dataKey="avg"
+                  stroke={chartTheme.colors.cyan}
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                  name="Daily avg"
+                />
                 {dailyChangepoints.map((cp, i) => (
                   <CausalLine key={`cusum-${i}`} annotation={cp} />
                 ))}
@@ -475,7 +534,9 @@ export function MoodTrackerClient() {
             <h3 className="text-sm font-semibold text-text">14-day Heatmap</h3>
           </div>
           {members.length === 0 ? (
-            <div className="text-center py-8 text-sub text-sm">Add a team member to see the heatmap.</div>
+            <div className="text-center py-8 text-sub text-sm">
+              Add a team member to see the heatmap.
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <div
@@ -484,7 +545,10 @@ export function MoodTrackerClient() {
               >
                 <div />
                 {days.map((d) => (
-                  <div key={d} className="text-[9px] text-sub font-data text-center rotate-[-45deg] origin-bottom-left mt-4">
+                  <div
+                    key={d}
+                    className="text-[9px] text-sub font-data text-center rotate-[-45deg] origin-bottom-left mt-4"
+                  >
                     {d.slice(5)}
                   </div>
                 ))}
@@ -494,7 +558,9 @@ export function MoodTrackerClient() {
                     {days.map((d) => {
                       const entry = entries.find((e) => e.memberId === m.id && e.date === d);
                       const score = entry?.score ?? null;
-                      const color = score ? FACES.find((f) => f.score === score)?.color : "transparent";
+                      const color = score
+                        ? FACES.find((f) => f.score === score)?.color
+                        : "transparent";
                       // Append the note to the tooltip when present so the
                       // heatmap doubles as a hover-explorer over what people
                       // wrote that day, without bloating the cell visually.
