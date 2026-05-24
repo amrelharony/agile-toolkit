@@ -35,6 +35,7 @@ import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BlurInput } from "@/components/shared/blur-fields";
 import { Plus, Trash2, Activity, TrendingUp, TrendingDown, Minus } from "lucide-react";
 
 /* -------------------------------------------------------------------------- */
@@ -819,20 +820,17 @@ export function VelocityClient() {
                   in a tight 4-column data grid, so a multi-line description
                   would break the row height alignment. Empty trims to undefined. */}
               <div className="space-y-1">
-                <Input
+                <BlurInput
                   value={sp.name}
-                  onChange={(e) => updateSprint(sp.id, { name: e.target.value })}
-                  onBlur={(e) => logSprintCommit(sp.id, "name", e.target.value)}
+                  onCommit={(v) => {
+                    updateSprint(sp.id, { name: v });
+                    logSprintCommit(sp.id, "name", v);
+                  }}
                   className="input-toolkit focus:ring-accent/20"
                 />
-                <Input
+                <BlurInput
                   value={sp.description ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    updateSprint(sp.id, {
-                      description: v.trim() ? v : undefined,
-                    });
-                  }}
+                  onCommit={(v) => updateSprint(sp.id, { description: v.trim() ? v : undefined })}
                   placeholder="Description (optional)..."
                   className="input-toolkit text-xs h-7"
                   aria-label={`Description for ${sp.name}`}

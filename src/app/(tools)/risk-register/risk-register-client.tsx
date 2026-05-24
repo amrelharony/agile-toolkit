@@ -20,7 +20,7 @@ import { WorkspaceSyncButton } from "@/components/shared/workspace-sync-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import {
   Select,
   SelectContent,
@@ -111,7 +111,9 @@ function buildWeeklyRiskSeries(risks: Risk[]): {
   weekLabels: string[];
 } {
   if (risks.length === 0) return { raisedPerWeek: [], openAtWeek: [], weekLabels: [] };
-  const raisedDates = risks.map((r) => parseISODate(r.raisedAt)).filter((d): d is Date => d !== null);
+  const raisedDates = risks
+    .map((r) => parseISODate(r.raisedAt))
+    .filter((d): d is Date => d !== null);
   if (raisedDates.length === 0) return { raisedPerWeek: [], openAtWeek: [], weekLabels: [] };
 
   // Use `reduce` instead of `Math.min(...spread)` — spreading a large
@@ -119,12 +121,7 @@ function buildWeeklyRiskSeries(risks: Risk[]): {
   // ("Maximum call stack size exceeded"). Same fix already applied in
   // impediments-client.tsx. The argument-count cap is theoretical for
   // a normal risk register but the pattern is known-bad.
-  const earliest = new Date(
-    raisedDates.reduce(
-      (min, d) => Math.min(min, d.getTime()),
-      Infinity,
-    ),
-  );
+  const earliest = new Date(raisedDates.reduce((min, d) => Math.min(min, d.getTime()), Infinity));
   // Anchor on the Sunday of the earliest week (UTC).
   const dayOfWeek = earliest.getUTCDay();
   const weekStart = new Date(earliest);
@@ -135,7 +132,7 @@ function buildWeeklyRiskSeries(risks: Risk[]): {
   today.setUTCHours(0, 0, 0, 0);
   const totalWeeks = Math.max(
     1,
-    Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1,
+    Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1
   );
   const cappedWeeks = Math.min(totalWeeks, 26);
 
@@ -152,7 +149,7 @@ function buildWeeklyRiskSeries(risks: Risk[]): {
       if (!raised) return null;
       return {
         raisedT: raised.getTime(),
-        resolvedT: r.resolvedAt ? parseISODate(r.resolvedAt)?.getTime() ?? null : null,
+        resolvedT: r.resolvedAt ? (parseISODate(r.resolvedAt)?.getTime() ?? null) : null,
       };
     })
     .filter((x): x is { raisedT: number; resolvedT: number | null } => x !== null);
@@ -194,16 +191,13 @@ export function RiskRegisterClient() {
     setRisks((r) => [risk, ...r]);
     log(RISK_ACTIONS.RISK_ADDED, { riskId: risk.id });
   };
-  // R11-fix: split logged vs quiet update so per-keystroke onChange
-  // doesn't emit a history event per character. Title + mitigation
-  // text fields use `updateQuiet` on input; their onBlur commits via
-  // the logged `update`. Numeric / select / status fields keep using
-  // `update` directly since each click is a meaningful event.
-  const updateQuiet = (id: string, patch: Partial<Risk>) => {
-    setRisks((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)));
-  };
+  // Title + mitigation text fields commit via BlurInput/BlurTextarea,
+  // so we no longer need the split quiet/logged pair. `update` writes
+  // state AND emits a single audit event per blur. Numeric / select /
+  // status fields keep using `update` directly since each click is a
+  // meaningful event.
   const update = (id: string, patch: Partial<Risk>) => {
-    updateQuiet(id, patch);
+    setRisks((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)));
     log(RISK_ACTIONS.RISK_UPDATED, { riskId: id, fields: Object.keys(patch) });
   };
   const remove = (id: string) => {
@@ -227,7 +221,9 @@ export function RiskRegisterClient() {
   }, [risks]);
 
   const survivalCurve = useMemo(() => {
-    const obs = durationsFromTimeRanges(risks.map((r) => ({ raisedAt: r.raisedAt, resolvedAt: r.resolvedAt })));
+    const obs = durationsFromTimeRanges(
+      risks.map((r) => ({ raisedAt: r.raisedAt, resolvedAt: r.resolvedAt }))
+    );
     return kaplanMeier(obs);
   }, [risks]);
 
@@ -236,7 +232,7 @@ export function RiskRegisterClient() {
   // ── Phase-15 analytics: weekly trend, forecast, changepoints ─────────
   const { raisedPerWeek, openAtWeek, weekLabels } = useMemo(
     () => buildWeeklyRiskSeries(risks),
-    [risks],
+    [risks]
   );
 
   // Mann-Kendall on the raised-per-week series (need n>=5 for meaningful trend).
@@ -266,7 +262,7 @@ export function RiskRegisterClient() {
         detail: `CUSUM detected a ${cp.direction === "up" ? "rise" : "fall"} regime shift in open-risk count at week ${weekLabels[cp.index] ?? cp.index} (cumulative stat ${cp.cumulativeStat.toFixed(2)}σ).`,
         confidence: Math.abs(cp.cumulativeStat) > 6 ? "strong" : "moderate",
       })),
-    [openChangepoints, weekLabels],
+    [openChangepoints, weekLabels]
   );
 
   // Build the chart data: historical actuals + forecast band.
@@ -305,7 +301,7 @@ export function RiskRegisterClient() {
   const mitigationDaysPrediction = usePredictedDefault<number>(
     "risk-register",
     "mitigationDays",
-    14,
+    14
   );
 
   // Pre-compute per-risk SmartInput.predicted objects keyed by risk id so the
@@ -314,9 +310,7 @@ export function RiskRegisterClient() {
   // the ghost. The map only changes when the prediction outputs or any
   // risk's raisedAt changes. Type matches SmartInputProps<string>['predicted'].
   const predictedMitigationByRisk = useMemo(() => {
-    type PredictedDate =
-      | PredictedValue<string>
-      | { value: string; confidence: "none" };
+    type PredictedDate = PredictedValue<string> | { value: string; confidence: "none" };
     const m = new Map<string, PredictedDate>();
     for (const r of risks) {
       if (mitigationDaysPrediction.confidence === "none") {
@@ -376,7 +370,17 @@ export function RiskRegisterClient() {
         <ExportButton
           filename="risk-register"
           csvData={{
-            headers: ["Title", "Probability", "Impact", "Score", "Status", "Mitigation", "Mitigation Due", "Raised", "Resolved"],
+            headers: [
+              "Title",
+              "Probability",
+              "Impact",
+              "Score",
+              "Status",
+              "Mitigation",
+              "Mitigation Due",
+              "Raised",
+              "Resolved",
+            ],
             rows: risks.map((r) => [
               r.title,
               r.probability,
@@ -421,7 +425,11 @@ export function RiskRegisterClient() {
                       <div
                         key={`${prob}-${imp}`}
                         className="h-8 rounded flex items-center justify-center font-data text-xs"
-                        style={{ background: `${riskColor(score)}33`, color: riskColor(score), border: `1px solid ${riskColor(score)}66` }}
+                        style={{
+                          background: `${riskColor(score)}33`,
+                          color: riskColor(score),
+                          border: `1px solid ${riskColor(score)}66`,
+                        }}
                       >
                         {count || ""}
                       </div>
@@ -468,7 +476,9 @@ export function RiskRegisterClient() {
                   : "border-[#34d399]/40 text-[#34d399] bg-[#34d399]/10"
               }`}
             >
-              <TrendingUp className={`w-3 h-3 ${raisedTrend.trend === "down" ? "rotate-180" : ""}`} />
+              <TrendingUp
+                className={`w-3 h-3 ${raisedTrend.trend === "down" ? "rotate-180" : ""}`}
+              />
               Risk creation trending {raisedTrend.trend} significantly
               <span className="opacity-60">· p={raisedTrend.pValue.toFixed(3)}</span>
             </span>
@@ -537,7 +547,8 @@ export function RiskRegisterClient() {
             </div>
             {causalAnnotations.length > 0 && (
               <div className="mt-2 text-[11px] text-sub">
-                {causalAnnotations.length} regime shift{causalAnnotations.length !== 1 ? "s" : ""} detected (CUSUM markers)
+                {causalAnnotations.length} regime shift{causalAnnotations.length !== 1 ? "s" : ""}{" "}
+                detected (CUSUM markers)
               </div>
             )}
           </SectionCard>
@@ -555,11 +566,9 @@ export function RiskRegisterClient() {
                 <CardContent className="p-3 space-y-2">
                   <div className="grid grid-cols-1 md:grid-cols-[1fr_80px_80px_140px_auto] gap-2">
                     <div className="space-y-0.5">
-                      <Input
+                      <BlurInput
                         value={r.title}
-                        // R11-fix: quiet per keystroke, logged commit on blur.
-                        onChange={(e) => updateQuiet(r.id, { title: e.target.value })}
-                        onBlur={(e) => update(r.id, { title: e.target.value })}
+                        onCommit={(v) => update(r.id, { title: v })}
                         placeholder="Risk title"
                         className="bg-bg border-border"
                       />
@@ -573,38 +582,57 @@ export function RiskRegisterClient() {
                         </div>
                       )}
                     </div>
-                    <Select value={String(r.probability)} onValueChange={(v) => update(r.id, { probability: Number(v) as Risk["probability"] })}>
-                      <SelectTrigger className="bg-bg border-border font-data">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[1, 2, 3, 4, 5].map((i) => <SelectItem key={i} value={String(i)}>P{i}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <Select value={String(r.impact)} onValueChange={(v) => update(r.id, { impact: Number(v) as Risk["impact"] })}>
-                      <SelectTrigger className="bg-bg border-border font-data">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[1, 2, 3, 4, 5].map((i) => <SelectItem key={i} value={String(i)}>I{i}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <Select value={r.status} onValueChange={(v) => {
-                      // R5: when REOPENING a previously-closed risk
-                      // (non-closed transition), preserve the existing
-                      // `resolvedAt` rather than wiping it. The K-M
-                      // survival analysis chart relies on the
-                      // historical closure timestamp, and the old
-                      // behaviour of `resolvedAt: undefined` on every
-                      // non-closed transition silently corrupted that
-                      // data the moment a user moved a risk from
-                      // closed → mitigating to add a follow-up note.
-                      const next: Partial<Risk> = { status: v as Risk["status"] };
-                      if (v === "closed" && !r.resolvedAt) {
-                        next.resolvedAt = todayLocalISO();
+                    <Select
+                      value={String(r.probability)}
+                      onValueChange={(v) =>
+                        update(r.id, { probability: Number(v) as Risk["probability"] })
                       }
-                      update(r.id, next);
-                    }}>
+                    >
+                      <SelectTrigger className="bg-bg border-border font-data">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[1, 2, 3, 4, 5].map((i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            P{i}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={String(r.impact)}
+                      onValueChange={(v) => update(r.id, { impact: Number(v) as Risk["impact"] })}
+                    >
+                      <SelectTrigger className="bg-bg border-border font-data">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[1, 2, 3, 4, 5].map((i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            I{i}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={r.status}
+                      onValueChange={(v) => {
+                        // R5: when REOPENING a previously-closed risk
+                        // (non-closed transition), preserve the existing
+                        // `resolvedAt` rather than wiping it. The K-M
+                        // survival analysis chart relies on the
+                        // historical closure timestamp, and the old
+                        // behaviour of `resolvedAt: undefined` on every
+                        // non-closed transition silently corrupted that
+                        // data the moment a user moved a risk from
+                        // closed → mitigating to add a follow-up note.
+                        const next: Partial<Risk> = { status: v as Risk["status"] };
+                        if (v === "closed" && !r.resolvedAt) {
+                          next.resolvedAt = todayLocalISO();
+                        }
+                        update(r.id, next);
+                      }}
+                    >
                       <SelectTrigger className="bg-bg border-border capitalize">
                         <SelectValue />
                       </SelectTrigger>
@@ -616,20 +644,30 @@ export function RiskRegisterClient() {
                       </SelectContent>
                     </Select>
                     <div className="flex items-center gap-2">
-                      <span className="px-2 py-1 rounded-md font-data text-sm" style={{ background: `${riskColor(score)}22`, color: riskColor(score), border: `1px solid ${riskColor(score)}66` }}>
+                      <span
+                        className="px-2 py-1 rounded-md font-data text-sm"
+                        style={{
+                          background: `${riskColor(score)}22`,
+                          color: riskColor(score),
+                          border: `1px solid ${riskColor(score)}66`,
+                        }}
+                      >
                         {score}
                       </span>
-                      <Button variant="ghost" size="sm" onClick={() => remove(r.id)} className="text-sub hover:text-danger">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => remove(r.id)}
+                        className="text-sub hover:text-danger"
+                      >
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>
                   </div>
-                  <Textarea
+                  <BlurTextarea
                     rows={2}
                     value={r.mitigation ?? ""}
-                    // R11-fix: quiet per keystroke, logged commit on blur.
-                    onChange={(e) => updateQuiet(r.id, { mitigation: e.target.value })}
-                    onBlur={(e) => update(r.id, { mitigation: e.target.value })}
+                    onCommit={(v) => update(r.id, { mitigation: v })}
                     placeholder="Mitigation plan..."
                     className="bg-bg border-border text-sm"
                   />
@@ -651,7 +689,9 @@ export function RiskRegisterClient() {
                             <Input
                               type="date"
                               value={r.mitigationDueAt ?? ""}
-                              onChange={(e) => update(r.id, { mitigationDueAt: e.target.value || undefined })}
+                              onChange={(e) =>
+                                update(r.id, { mitigationDueAt: e.target.value || undefined })
+                              }
                               onKeyDown={(e) => {
                                 if (e.key === "Tab" && !r.mitigationDueAt && ghost) {
                                   e.preventDefault();
