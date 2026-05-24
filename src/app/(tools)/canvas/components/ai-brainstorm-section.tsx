@@ -14,10 +14,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
  * bundle when the user actually clicks Generate. Non-AI users pay
  * zero — they see only the Generate button + the BYOK nudge.
  */
-const AiRunPanel = dynamic(
-  () => import("@/components/shared/ai-run-panel"),
-  { ssr: false },
-);
+const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), { ssr: false });
 
 /**
  * Best-effort JSON extractor for LLM responses.
@@ -43,7 +40,11 @@ function parseStickyArray(text: string): string[] | null {
     if (typeof item === "string") {
       const s = item.trim();
       if (s.length > 0 && s.length <= 5000) out.push(s);
-    } else if (item && typeof item === "object" && typeof (item as { text?: unknown }).text === "string") {
+    } else if (
+      item &&
+      typeof item === "object" &&
+      typeof (item as { text?: unknown }).text === "string"
+    ) {
       const s = (item as { text: string }).text.trim();
       if (s.length > 0 && s.length <= 5000) out.push(s);
     }
@@ -73,7 +74,6 @@ export function AiBrainstormSection({
   onApplyStickies: (texts: string[]) => void;
 }) {
   const { isReady, openSettings } = useActiveLlm();
-  const workspace = useWorkspaceStore.getState();
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(10);
   const [runTrigger, setRunTrigger] = useState(0);
@@ -83,6 +83,13 @@ export function AiBrainstormSection({
 
   const onGenerate = () => {
     if (!canGenerate) return;
+    // BUG-RD3-canvas-ai-brainstorm-1: read the workspace snapshot INSIDE
+    // the click handler, not at component render. The prior
+    // `useWorkspaceStore.getState()` at render time captured a
+    // closure-frozen snapshot — any stories/risks/decisions added
+    // between component mount and the user clicking "Generate" were
+    // missing from the prompt sent to the LLM.
+    const workspace = useWorkspaceStore.getState();
     const def = generateStickiesPrompt(topic, count, workspace);
     setArmedPrompt(def.prompt);
     // runTrigger increment fires the next AiRunPanel mount immediately.
@@ -132,7 +139,11 @@ export function AiBrainstormSection({
             disabled={!canGenerate || !isReady}
             className="ml-auto gap-1.5 bg-accent text-bg hover:bg-accent/90 font-semibold disabled:opacity-50"
           >
-            {armedPrompt ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            {armedPrompt ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5" />
+            )}
             Generate
           </Button>
         </div>

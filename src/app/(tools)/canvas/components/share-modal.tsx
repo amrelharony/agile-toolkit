@@ -55,11 +55,11 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       const target = e.target as HTMLElement | null;
-      if (target && (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
-      )) return;
+      if (
+        target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
+      )
+        return;
       // Stop propagation only after we've decided to act, so a stacked
       // modal underneath doesn't also close on the same keystroke.
       e.stopPropagation();
@@ -77,7 +77,7 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
   const objects = useWorkspaceStore((s) => s.whiteboardObjects);
   const boardObjects = useMemo(
     () => (objects ?? []).filter((o) => o.boardId === boardId),
-    [objects, boardId],
+    [objects, boardId]
   );
   const upsertSavedTemplate = useWorkspaceStore((s) => s.upsertWhiteboardSavedTemplate);
 
@@ -130,7 +130,9 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
               type="button"
               onClick={() => setTab("share")}
               className={`px-3 py-1.5 rounded text-sm flex items-center gap-1.5 transition-colors ${
-                tab === "share" ? "bg-accent/15 text-accent border border-accent/40" : "text-sub hover:text-text"
+                tab === "share"
+                  ? "bg-accent/15 text-accent border border-accent/40"
+                  : "text-sub hover:text-text"
               }`}
             >
               <Share2 className="w-4 h-4" />
@@ -140,7 +142,9 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
               type="button"
               onClick={() => setTab("save")}
               className={`px-3 py-1.5 rounded text-sm flex items-center gap-1.5 transition-colors ${
-                tab === "save" ? "bg-accent/15 text-accent border border-accent/40" : "text-sub hover:text-text"
+                tab === "save"
+                  ? "bg-accent/15 text-accent border border-accent/40"
+                  : "text-sub hover:text-text"
               }`}
             >
               <BookmarkPlus className="w-4 h-4" />
@@ -150,7 +154,9 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
               type="button"
               onClick={() => setTab("post")}
               className={`px-3 py-1.5 rounded text-sm flex items-center gap-1.5 transition-colors ${
-                tab === "post" ? "bg-accent/15 text-accent border border-accent/40" : "text-sub hover:text-text"
+                tab === "post"
+                  ? "bg-accent/15 text-accent border border-accent/40"
+                  : "text-sub hover:text-text"
               }`}
             >
               <Send className="w-4 h-4" />
@@ -233,7 +239,7 @@ function ShareTab({
           (err: unknown) => {
             console.warn("clipboard write failed:", err);
             setCopyError("Couldn't copy to clipboard — link is in the list below.");
-          },
+          }
         );
       }
     } catch (err) {
@@ -242,7 +248,10 @@ function ShareTab({
       // server-persisted token. ShareTokenAuthRequiredError carries a
       // canned message; everything else falls through to its `.message`.
       const message =
-        err && typeof err === "object" && "message" in err && typeof (err as Error).message === "string"
+        err &&
+        typeof err === "object" &&
+        "message" in err &&
+        typeof (err as Error).message === "string"
           ? (err as Error).message
           : "Couldn't create share link.";
       setCopyError(message);
@@ -270,7 +279,7 @@ function ShareTab({
       (err: unknown) => {
         console.warn("clipboard write failed:", err);
         setCopyError("Couldn't copy to clipboard.");
-      },
+      }
     );
   };
 
@@ -282,7 +291,8 @@ function ShareTab({
   return (
     <div className="p-4">
       <p className="text-sm text-sub mb-3">
-        Create a share link for <strong className="text-text">{boardName}</strong>. Editor links allow full collaboration; viewer links are read-only.
+        Create a share link for <strong className="text-text">{boardName}</strong>. Editor links
+        allow full collaboration; viewer links are read-only.
       </p>
       <div className="grid grid-cols-2 gap-3 mb-3">
         <label className="text-xs text-sub flex flex-col gap-1">
@@ -329,21 +339,36 @@ function ShareTab({
         </div>
       )}
 
-      <div className="text-xs uppercase font-mono text-sub mb-2">Active links ({tokens.length})</div>
+      <div className="text-xs uppercase font-mono text-sub mb-2">
+        Active links ({tokens.length})
+      </div>
       {tokens.length === 0 ? (
         <div className="text-xs text-sub italic">No active links.</div>
       ) : (
         <ul className="space-y-1.5">
           {tokens.map((t) => {
-            const remaining = Math.max(0, Math.floor((t.expiresAt - Date.now()) / 86400000));
+            // BUG-RD3-share-modal-1: round UP so a token with 23.5h
+            // left displays as "1d", not "0d". The prior `floor`
+            // produced "0d left" the instant a TTL=1 link was created
+            // at 23:30 local even though the link was actually valid
+            // for another 23.5h. Cap at 0 only when truly expired.
+            const remainingMs = t.expiresAt - Date.now();
+            const remaining = remainingMs <= 0 ? 0 : Math.ceil(remainingMs / 86400000);
             return (
-              <li key={t.token} className="flex items-center gap-2 text-xs bg-surface-deep border border-border rounded px-2 py-1.5">
+              <li
+                key={t.token}
+                className="flex items-center gap-2 text-xs bg-surface-deep border border-border rounded px-2 py-1.5"
+              >
                 <span className="font-mono text-text">{t.token}</span>
-                <span className={`text-[10px] uppercase font-bold ${
-                  t.role === "editor" ? "text-amber-300" :
-                  t.role === "commenter" ? "text-emerald-300" :
-                  "text-cyan-300"
-                }`}>
+                <span
+                  className={`text-[10px] uppercase font-bold ${
+                    t.role === "editor"
+                      ? "text-amber-300"
+                      : t.role === "commenter"
+                        ? "text-emerald-300"
+                        : "text-cyan-300"
+                  }`}
+                >
                   {t.role}
                 </span>
                 <span className="text-sub flex-1">
@@ -355,7 +380,11 @@ function ShareTab({
                   aria-label="Copy share link"
                   className="text-sub hover:text-accent"
                 >
-                  {copiedToken === t.token ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedToken === t.token ? (
+                    <Check className="w-3.5 h-3.5" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
                 </button>
                 <button
                   type="button"
@@ -417,8 +446,9 @@ function SaveTemplateTab({
   return (
     <div className="p-4">
       <p className="text-sm text-sub mb-3">
-        Snapshot <strong className="text-text">{boardName}</strong> (
-        {objs.length} object{objs.length === 1 ? "" : "s"}) into the workspace template library. Future boards can apply it via Templates → Custom.
+        Snapshot <strong className="text-text">{boardName}</strong> ({objs.length} object
+        {objs.length === 1 ? "" : "s"}) into the workspace template library. Future boards can apply
+        it via Templates → Custom.
       </p>
       <label className="text-xs text-sub flex flex-col gap-1 mb-2">
         Name
@@ -481,20 +511,19 @@ function SaveTemplateTab({
 function escapeForChannel(text: string, target: "slack" | "teams"): string {
   if (!text) return text;
   if (target === "slack") {
-    return text
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/\|/g, "│")
-      // Strip @ at the start of any word so @channel/@here/@user never
-      // resolves to a real mention from copy-pasted content.
-      .replace(/(^|\s)@/g, "$1");
+    return (
+      text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\|/g, "│")
+        // Strip @ at the start of any word so @channel/@here/@user never
+        // resolves to a real mention from copy-pasted content.
+        .replace(/(^|\s)@/g, "$1")
+    );
   }
   // teams
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /** Post-to-Slack/Teams tab: produces a formatted markdown message the
@@ -535,9 +564,7 @@ function PostMessageTab({
   // create a viewer/commenter link before posting publicly.
   const bestToken = useMemo<ShareToken | null>(() => {
     return (
-      tokens.find((t) => t.role === "viewer") ??
-      tokens.find((t) => t.role === "commenter") ??
-      null
+      tokens.find((t) => t.role === "viewer") ?? tokens.find((t) => t.role === "commenter") ?? null
     );
   }, [tokens]);
   // True when the user has tokens but they're ALL editor-tier. Drives a
@@ -545,7 +572,7 @@ function PostMessageTab({
   // empty-state, because the user thinks they're ready to post.
   const editorOnlyWarning = useMemo(
     () => bestToken === null && tokens.some((t) => t.role === "editor"),
-    [bestToken, tokens],
+    [bestToken, tokens]
   );
 
   const shareUrl = useMemo(() => {
@@ -581,7 +608,9 @@ function PostMessageTab({
   const onCopyMessage = () => {
     if (!canCopy) return;
     if (typeof navigator === "undefined" || !navigator.clipboard) {
-      setCopyError("Clipboard unavailable in this browser — select the preview text above and copy manually.");
+      setCopyError(
+        "Clipboard unavailable in this browser — select the preview text above and copy manually."
+      );
       return;
     }
     setCopyError(null);
@@ -596,15 +625,18 @@ function PostMessageTab({
       },
       (err: unknown) => {
         console.warn("clipboard write failed:", err);
-        setCopyError("Couldn't copy automatically — select the preview text above and copy manually.");
-      },
+        setCopyError(
+          "Couldn't copy automatically — select the preview text above and copy manually."
+        );
+      }
     );
   };
 
   return (
     <div className="p-4">
       <p className="text-sm text-sub mb-3">
-        Paste this message into your team channel. We don&apos;t post directly — your team&apos;s webhook lives in your Slack/Teams admin, not the canvas.
+        Paste this message into your team channel. We don&apos;t post directly — your team&apos;s
+        webhook lives in your Slack/Teams admin, not the canvas.
       </p>
       {editorOnlyWarning ? (
         <div
@@ -614,20 +646,21 @@ function PostMessageTab({
           <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <div>
             <strong>Only editor links exist — create a viewer link before posting publicly.</strong>{" "}
-            An editor link grants write access; anyone with the URL could edit
-            or delete board content. Switch to the Share tab and create a viewer
-            or commenter link.
+            An editor link grants write access; anyone with the URL could edit or delete board
+            content. Switch to the Share tab and create a viewer or commenter link.
           </div>
         </div>
-      ) : !canCopy && (
-        <div className="flex items-start gap-2 mb-3 p-2.5 border border-amber-500/40 bg-amber-500/10 rounded text-xs text-amber-200">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-          <div>
-            <strong>No share link active.</strong> Create a viewer link in the
-            Share tab first — pasting a bare board URL into a public channel
-            will require login and exposes ownership.
+      ) : (
+        !canCopy && (
+          <div className="flex items-start gap-2 mb-3 p-2.5 border border-amber-500/40 bg-amber-500/10 rounded text-xs text-amber-200">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <div>
+              <strong>No share link active.</strong> Create a viewer link in the Share tab first —
+              pasting a bare board URL into a public channel will require login and exposes
+              ownership.
+            </div>
           </div>
-        </div>
+        )
       )}
       <div className="grid grid-cols-2 gap-3 mb-3">
         <label className="text-xs text-sub flex flex-col gap-1">
@@ -669,7 +702,9 @@ function PostMessageTab({
         className="w-full bg-accent text-bg font-medium px-3 py-2 rounded text-sm hover:bg-accent/80 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
       >
         {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-        {copied ? "Copied — paste into your channel" : `Copy ${target === "slack" ? "Slack" : "Teams"} message`}
+        {copied
+          ? "Copied — paste into your channel"
+          : `Copy ${target === "slack" ? "Slack" : "Teams"} message`}
       </button>
       {copyError && (
         <div

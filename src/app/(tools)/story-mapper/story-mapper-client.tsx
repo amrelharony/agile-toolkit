@@ -182,172 +182,162 @@ const useStoryMapStore = create<StoryMapState>()(
       const initialSteps = buildDefaultSteps();
       const initialSlices = buildDefaultSlices(initialSteps);
       return {
-      steps: initialSteps,
-      slices: initialSlices,
+        steps: initialSteps,
+        slices: initialSlices,
 
-      addStep: () =>
-        set((s) => {
-          const newStep: Step = { id: makeId(), name: "New Step" };
-          return {
-            steps: [...s.steps, newStep],
-            slices: s.slices.map((sl) => ({
-              ...sl,
-              cards: { ...sl.cards, [newStep.id]: [] },
-            })),
-          };
-        }),
+        addStep: () =>
+          set((s) => {
+            const newStep: Step = { id: makeId(), name: "New Step" };
+            return {
+              steps: [...s.steps, newStep],
+              slices: s.slices.map((sl) => ({
+                ...sl,
+                cards: { ...sl.cards, [newStep.id]: [] },
+              })),
+            };
+          }),
 
-      removeStep: (stepId) =>
-        set((s) => {
-          if (s.steps.length <= 1) return s;
-          return {
-            steps: s.steps.filter((st) => st.id !== stepId),
+        removeStep: (stepId) =>
+          set((s) => {
+            if (s.steps.length <= 1) return s;
+            return {
+              steps: s.steps.filter((st) => st.id !== stepId),
+              slices: s.slices.map((sl) => {
+                const cards = { ...sl.cards };
+                delete cards[stepId];
+                return { ...sl, cards };
+              }),
+            };
+          }),
+
+        renameStep: (stepId, name) =>
+          set((s) => ({
+            steps: s.steps.map((st) => (st.id === stepId ? { ...st, name } : st)),
+          })),
+
+        addSlice: () =>
+          set((s) => {
+            const emptyCards: StepCards = {};
+            for (const st of s.steps) emptyCards[st.id] = [];
+            return {
+              slices: [...s.slices, { id: makeId(), name: "New Slice", cards: emptyCards }],
+            };
+          }),
+
+        removeSlice: (sliceId) =>
+          set((s) => {
+            if (s.slices.length <= 1) return s;
+            return { slices: s.slices.filter((sl) => sl.id !== sliceId) };
+          }),
+
+        renameSlice: (sliceId, name) =>
+          set((s) => ({
+            slices: s.slices.map((sl) => (sl.id === sliceId ? { ...sl, name } : sl)),
+          })),
+
+        addCard: (sliceId, stepId) =>
+          set((s) => ({
             slices: s.slices.map((sl) => {
-              const cards = { ...sl.cards };
-              delete cards[stepId];
-              return { ...sl, cards };
-            }),
-          };
-        }),
-
-      renameStep: (stepId, name) =>
-        set((s) => ({
-          steps: s.steps.map((st) => (st.id === stepId ? { ...st, name } : st)),
-        })),
-
-      addSlice: () =>
-        set((s) => {
-          const emptyCards: StepCards = {};
-          for (const st of s.steps) emptyCards[st.id] = [];
-          return {
-            slices: [
-              ...s.slices,
-              { id: makeId(), name: "New Slice", cards: emptyCards },
-            ],
-          };
-        }),
-
-      removeSlice: (sliceId) =>
-        set((s) => {
-          if (s.slices.length <= 1) return s;
-          return { slices: s.slices.filter((sl) => sl.id !== sliceId) };
-        }),
-
-      renameSlice: (sliceId, name) =>
-        set((s) => ({
-          slices: s.slices.map((sl) =>
-            sl.id === sliceId ? { ...sl, name } : sl
-          ),
-        })),
-
-      addCard: (sliceId, stepId) =>
-        set((s) => ({
-          slices: s.slices.map((sl) => {
-            if (sl.id !== sliceId) return sl;
-            const existing = sl.cards[stepId] ?? [];
-            const newCard: StoryCard = {
-              id: makeId(),
-              title: "New Story",
-              description: "",
-              color: CARD_COLORS[0].value,
-            };
-            return {
-              ...sl,
-              cards: { ...sl.cards, [stepId]: [...existing, newCard] },
-            };
-          }),
-        })),
-
-      updateCard: (sliceId, stepId, card) =>
-        set((s) => ({
-          slices: s.slices.map((sl) => {
-            if (sl.id !== sliceId) return sl;
-            return {
-              ...sl,
-              cards: {
-                ...sl.cards,
-                [stepId]: (sl.cards[stepId] ?? []).map((c) =>
-                  c.id === card.id ? card : c
-                ),
-              },
-            };
-          }),
-        })),
-
-      removeCard: (sliceId, stepId, cardId) =>
-        set((s) => ({
-          slices: s.slices.map((sl) => {
-            if (sl.id !== sliceId) return sl;
-            return {
-              ...sl,
-              cards: {
-                ...sl.cards,
-                [stepId]: (sl.cards[stepId] ?? []).filter(
-                  (c) => c.id !== cardId
-                ),
-              },
-            };
-          }),
-        })),
-
-      moveCard: (fromSliceId, fromStepId, toSliceId, toStepId, cardId, toIndex) =>
-        set((s) => {
-          // For same-cell reordering we have to decrement toIndex by one
-          // when the source position precedes the target — otherwise the
-          // splice after removal lands one slot past the intended spot.
-          let adjustedToIndex = toIndex;
-          if (
-            fromSliceId === toSliceId &&
-            fromStepId === toStepId &&
-            adjustedToIndex !== undefined
-          ) {
-            const sourceSlice = s.slices.find((sl) => sl.id === fromSliceId);
-            const sourceCards = sourceSlice?.cards[fromStepId] ?? [];
-            const fromIdx = sourceCards.findIndex((c) => c.id === cardId);
-            if (fromIdx !== -1 && fromIdx < adjustedToIndex) {
-              adjustedToIndex -= 1;
-            }
-          }
-
-          let movedCard: StoryCard | null = null;
-          const slices = s.slices.map((sl) => {
-            if (sl.id !== fromSliceId) return sl;
-            const fromCards = sl.cards[fromStepId] ?? [];
-            const idx = fromCards.findIndex((c) => c.id === cardId);
-            if (idx === -1) return sl;
-            movedCard = fromCards[idx];
-            return {
-              ...sl,
-              cards: {
-                ...sl.cards,
-                [fromStepId]: fromCards.filter((c) => c.id !== cardId),
-              },
-            };
-          });
-
-          if (!movedCard) return s;
-
-          const card = movedCard as StoryCard;
-          return {
-            slices: slices.map((sl) => {
-              if (sl.id !== toSliceId) return sl;
-              const toCards = [...(sl.cards[toStepId] ?? [])];
-              const insertAt =
-                adjustedToIndex !== undefined ? adjustedToIndex : toCards.length;
-              toCards.splice(insertAt, 0, card);
+              if (sl.id !== sliceId) return sl;
+              const existing = sl.cards[stepId] ?? [];
+              const newCard: StoryCard = {
+                id: makeId(),
+                title: "New Story",
+                description: "",
+                color: CARD_COLORS[0].value,
+              };
               return {
                 ...sl,
-                cards: { ...sl.cards, [toStepId]: toCards },
+                cards: { ...sl.cards, [stepId]: [...existing, newCard] },
               };
             }),
-          };
-        }),
+          })),
 
-      reset: () => {
-        const steps = buildDefaultSteps();
-        const slices = buildDefaultSlices(steps);
-        set({ steps, slices });
-      },
+        updateCard: (sliceId, stepId, card) =>
+          set((s) => ({
+            slices: s.slices.map((sl) => {
+              if (sl.id !== sliceId) return sl;
+              return {
+                ...sl,
+                cards: {
+                  ...sl.cards,
+                  [stepId]: (sl.cards[stepId] ?? []).map((c) => (c.id === card.id ? card : c)),
+                },
+              };
+            }),
+          })),
+
+        removeCard: (sliceId, stepId, cardId) =>
+          set((s) => ({
+            slices: s.slices.map((sl) => {
+              if (sl.id !== sliceId) return sl;
+              return {
+                ...sl,
+                cards: {
+                  ...sl.cards,
+                  [stepId]: (sl.cards[stepId] ?? []).filter((c) => c.id !== cardId),
+                },
+              };
+            }),
+          })),
+
+        moveCard: (fromSliceId, fromStepId, toSliceId, toStepId, cardId, toIndex) =>
+          set((s) => {
+            // For same-cell reordering we have to decrement toIndex by one
+            // when the source position precedes the target — otherwise the
+            // splice after removal lands one slot past the intended spot.
+            let adjustedToIndex = toIndex;
+            if (
+              fromSliceId === toSliceId &&
+              fromStepId === toStepId &&
+              adjustedToIndex !== undefined
+            ) {
+              const sourceSlice = s.slices.find((sl) => sl.id === fromSliceId);
+              const sourceCards = sourceSlice?.cards[fromStepId] ?? [];
+              const fromIdx = sourceCards.findIndex((c) => c.id === cardId);
+              if (fromIdx !== -1 && fromIdx < adjustedToIndex) {
+                adjustedToIndex -= 1;
+              }
+            }
+
+            let movedCard: StoryCard | null = null;
+            const slices = s.slices.map((sl) => {
+              if (sl.id !== fromSliceId) return sl;
+              const fromCards = sl.cards[fromStepId] ?? [];
+              const idx = fromCards.findIndex((c) => c.id === cardId);
+              if (idx === -1) return sl;
+              movedCard = fromCards[idx];
+              return {
+                ...sl,
+                cards: {
+                  ...sl.cards,
+                  [fromStepId]: fromCards.filter((c) => c.id !== cardId),
+                },
+              };
+            });
+
+            if (!movedCard) return s;
+
+            const card = movedCard as StoryCard;
+            return {
+              slices: slices.map((sl) => {
+                if (sl.id !== toSliceId) return sl;
+                const toCards = [...(sl.cards[toStepId] ?? [])];
+                const insertAt = adjustedToIndex !== undefined ? adjustedToIndex : toCards.length;
+                toCards.splice(insertAt, 0, card);
+                return {
+                  ...sl,
+                  cards: { ...sl.cards, [toStepId]: toCards },
+                };
+              }),
+            };
+          }),
+
+        reset: () => {
+          const steps = buildDefaultSteps();
+          const slices = buildDefaultSlices(steps);
+          set({ steps, slices });
+        },
       };
     },
     { name: "agile-toolkit:story-mapper", storage: safeJSONStorage("story-mapper") }
@@ -373,7 +363,11 @@ function CardEditDialog({
   stepId: string;
   trigger: React.ReactNode;
 }) {
-  const { updateCard } = useStoryMapStore();
+  // BUG-RD3-story-mapper-1: scope the hook to a single action so the
+  // dialog doesn't re-render every time ANY card, step, or slice
+  // anywhere in the map changes — that re-render was blurring open
+  // EditableName inputs mid-edit when a sibling card got dragged.
+  const updateCard = useStoryMapStore((s) => s.updateCard);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(card.title);
   const [description, setDescription] = useState(card.description);
@@ -404,15 +398,11 @@ function CardEditDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="bg-surface border-border max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-text font-display">
-            Edit Story Card
-          </DialogTitle>
+          <DialogTitle className="text-text font-display">Edit Story Card</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-2">
           <div className="space-y-1.5">
-            <label className="text-xs text-sub font-medium uppercase tracking-wider">
-              Title
-            </label>
+            <label className="text-xs text-sub font-medium uppercase tracking-wider">Title</label>
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -434,9 +424,7 @@ function CardEditDialog({
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs text-sub font-medium uppercase tracking-wider">
-              Color
-            </label>
+            <label className="text-xs text-sub font-medium uppercase tracking-wider">Color</label>
             <div className="flex gap-2">
               {CARD_COLORS.map((c) => (
                 <button
@@ -512,17 +500,13 @@ function DraggableCard({
   sliceId: string;
   stepId: string;
 }) {
-  const { removeCard } = useStoryMapStore();
+  // BUG-RD3-story-mapper-1: scope selector — see CardEditDialog above.
+  const removeCard = useStoryMapStore((s) => s.removeCard);
   const dragId = encodeDragId(sliceId, stepId, card.id);
 
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: dragId });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: dragId,
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -555,14 +539,10 @@ function DraggableCard({
             className="mt-1 flex-shrink-0 w-2 h-2 rounded-full"
             style={{ backgroundColor: card.color }}
           />
-          <span className="font-medium text-text leading-snug line-clamp-2">
-            {card.title}
-          </span>
+          <span className="font-medium text-text leading-snug line-clamp-2">{card.title}</span>
         </div>
         {card.description && (
-          <p className="mt-1 text-xs text-sub line-clamp-2 pl-3.5">
-            {card.description}
-          </p>
+          <p className="mt-1 text-xs text-sub line-clamp-2 pl-3.5">{card.description}</p>
         )}
       </div>
 
@@ -611,9 +591,7 @@ function StaticCard({ card }: { card: StoryCard }) {
           className="mt-1 flex-shrink-0 w-2 h-2 rounded-full"
           style={{ backgroundColor: card.color }}
         />
-        <span className="font-medium text-text leading-snug">
-          {card.title}
-        </span>
+        <span className="font-medium text-text leading-snug">{card.title}</span>
       </div>
     </div>
   );
@@ -633,11 +611,12 @@ function CellDropZone({
   stepId: string;
   cards: StoryCard[];
 }) {
-  const { addCard } = useStoryMapStore();
+  // BUG-RD3-story-mapper-1: scope selector — see CardEditDialog above.
+  const addCard = useStoryMapStore((s) => s.addCard);
   // Memoize: SortableContext reinitializes on identity change of items.
   const sortableIds = useMemo(
     () => cards.map((c) => encodeDragId(sliceId, stepId, c.id)),
-    [cards, sliceId, stepId],
+    [cards, sliceId, stepId]
   );
   // Register the cell itself as droppable so a card can be dragged INTO an
   // empty step (or to the bottom of a non-empty step). Without this, only
@@ -655,12 +634,7 @@ function CellDropZone({
         }`}
       >
         {cards.map((card) => (
-          <DraggableCard
-            key={card.id}
-            card={card}
-            sliceId={sliceId}
-            stepId={stepId}
-          />
+          <DraggableCard key={card.id} card={card} sliceId={sliceId} stepId={stepId} />
         ))}
       </div>
       <button
@@ -728,7 +702,7 @@ export function StoryMapperClient() {
   // arrows to move, Space to drop).
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
   /* -- Find the card being dragged for the overlay ---- */
@@ -767,14 +741,7 @@ export function StoryMapperClient() {
       toIndex = idx >= 0 ? idx : undefined;
     }
 
-    moveCard(
-      from.sliceId,
-      from.stepId,
-      to.sliceId,
-      to.stepId,
-      from.cardId,
-      toIndex
-    );
+    moveCard(from.sliceId, from.stepId, to.sliceId, to.stepId, from.cardId, toIndex);
   };
 
   /* -- Export data ---- */
@@ -813,10 +780,13 @@ export function StoryMapperClient() {
       })
     )
   );
-  const promptConfig = useMemo(() => ({
-    toolName: "User Story Map",
-    prompts: generateStoryMapperPrompts({ steps, slices }, workspace),
-  }), [steps, slices, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "User Story Map",
+      prompts: generateStoryMapperPrompts({ steps, slices }, workspace),
+    }),
+    [steps, slices, workspace]
+  );
 
   const clipboardText = useMemo(() => {
     const lines: string[] = ["User Story Map", ""];
@@ -861,12 +831,7 @@ export function StoryMapperClient() {
               <span>
                 {steps.length} steps · {slices.length} slices ·{" "}
                 {slices.reduce(
-                  (acc, sl) =>
-                    acc +
-                    steps.reduce(
-                      (a, st) => a + (sl.cards[st.id]?.length ?? 0),
-                      0
-                    ),
+                  (acc, sl) => acc + steps.reduce((a, st) => a + (sl.cards[st.id]?.length ?? 0), 0),
                   0
                 )}{" "}
                 stories
@@ -879,11 +844,7 @@ export function StoryMapperClient() {
                 clipboardText={clipboardText}
                 jsonData={jsonData}
               />
-              <Button
-                variant="danger-ghost"
-                size="sm"
-                onClick={reset}
-              >
+              <Button variant="danger-ghost" size="sm" onClick={reset}>
                 Reset
               </Button>
             </div>
@@ -1004,9 +965,7 @@ export function StoryMapperClient() {
         </div>
 
         {/* Drag overlay */}
-        <DragOverlay>
-          {activeCard ? <StaticCard card={activeCard} /> : null}
-        </DragOverlay>
+        <DragOverlay>{activeCard ? <StaticCard card={activeCard} /> : null}</DragOverlay>
       </DndContext>
     </ToolPageWrapper>
   );

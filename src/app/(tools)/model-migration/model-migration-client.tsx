@@ -12,13 +12,18 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { ExportButton } from "@/components/shared/export-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BlurInput } from "@/components/shared/blur-fields";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { generateModelMigrationPrompts } from "@/lib/ai-prompts/model-migration";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { MODEL_MIGRATION_ACTIONS } from "@/lib/history/event-actions";
 
-interface Step { id: string; text: string; done: boolean; }
+interface Step {
+  id: string;
+  text: string;
+  done: boolean;
+}
 interface State {
   fromModel: string;
   toModel: string;
@@ -54,17 +59,29 @@ function defaultSteps(): Step[] {
   return DEFAULT_STEPS.map((t, i) => ({ id: `default-step-${i}`, text: t, done: false }));
 }
 
-const useStore = create<State>()(persist((set) => ({
-  fromModel: "", toModel: "", evalDeltaPct: "", costDeltaPct: "",
-  steps: defaultSteps(),
-  setFromModel: (v) => set({ fromModel: v }),
-  setToModel: (v) => set({ toModel: v }),
-  setEvalDelta: (v) => set({ evalDeltaPct: v }),
-  setCostDelta: (v) => set({ costDeltaPct: v }),
-  addStep: (text) => set((s) => ({ steps: [...s.steps, { id: crypto.randomUUID(), text, done: false }] })),
-  toggleStep: (id) => set((s) => ({ steps: s.steps.map((st) => st.id === id ? { ...st, done: !st.done } : st) })),
-  removeStep: (id) => set((s) => ({ steps: s.steps.filter((st) => st.id !== id) })),
-}), { name: "agile-toolkit:model-migration", storage: safeJSONStorage("model-migration") }));
+const useStore = create<State>()(
+  persist(
+    (set) => ({
+      fromModel: "",
+      toModel: "",
+      evalDeltaPct: "",
+      costDeltaPct: "",
+      steps: defaultSteps(),
+      setFromModel: (v) => set({ fromModel: v }),
+      setToModel: (v) => set({ toModel: v }),
+      setEvalDelta: (v) => set({ evalDeltaPct: v }),
+      setCostDelta: (v) => set({ costDeltaPct: v }),
+      addStep: (text) =>
+        set((s) => ({ steps: [...s.steps, { id: crypto.randomUUID(), text, done: false }] })),
+      toggleStep: (id) =>
+        set((s) => ({
+          steps: s.steps.map((st) => (st.id === id ? { ...st, done: !st.done } : st)),
+        })),
+      removeStep: (id) => set((s) => ({ steps: s.steps.filter((st) => st.id !== id) })),
+    }),
+    { name: "agile-toolkit:model-migration", storage: safeJSONStorage("model-migration") }
+  )
+);
 
 export function ModelMigrationClient() {
   // Use granular selectors so every keystroke in another input doesn't tear
@@ -89,22 +106,41 @@ export function ModelMigrationClient() {
   const done = steps.filter((s) => s.done).length;
   const pct = steps.length === 0 ? 0 : Math.round((done / steps.length) * 100);
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    models: s.models, llmEvals: s.llmEvals,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        models: s.models,
+        llmEvals: s.llmEvals,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Model Upgrade Migration Tracker",
-    prompts: generateModelMigrationPrompts({
-      fromModel, toModel,
-      evalDeltaPct, costDeltaPct,
-      steps,
-    }, workspace),
-  }), [fromModel, toModel, evalDeltaPct, costDeltaPct, steps, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Model Upgrade Migration Tracker",
+      prompts: generateModelMigrationPrompts(
+        {
+          fromModel,
+          toModel,
+          evalDeltaPct,
+          costDeltaPct,
+          steps,
+        },
+        workspace
+      ),
+    }),
+    [fromModel, toModel, evalDeltaPct, costDeltaPct, steps, workspace]
+  );
 
   const csvData = {
     headers: ["Step", "Done"],
@@ -120,15 +156,28 @@ export function ModelMigrationClient() {
       <div ref={exportRef} className="space-y-4">
         <SectionCard title="Migration overview" icon={Repeat}>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <Input placeholder="From model" value={fromModel} onChange={(e) => setFromModel(e.target.value)} />
-            <Input placeholder="To model" value={toModel} onChange={(e) => setToModel(e.target.value)} />
-            <Input placeholder="Eval delta % (e.g. +2.1)" value={evalDeltaPct} onChange={(e) => setEvalDelta(e.target.value)} />
-            <Input placeholder="Cost delta % (e.g. -18)" value={costDeltaPct} onChange={(e) => setCostDelta(e.target.value)} />
+            {/* BUG-RD3-model-migration-1: blur-commit so typing in any of
+                these four fields doesn't write the entire migration
+                state to localStorage per keystroke. */}
+            <BlurInput placeholder="From model" value={fromModel} onCommit={setFromModel} />
+            <BlurInput placeholder="To model" value={toModel} onCommit={setToModel} />
+            <BlurInput
+              placeholder="Eval delta % (e.g. +2.1)"
+              value={evalDeltaPct}
+              onCommit={setEvalDelta}
+            />
+            <BlurInput
+              placeholder="Cost delta % (e.g. -18)"
+              value={costDeltaPct}
+              onCommit={setCostDelta}
+            />
           </div>
           <div className="mt-3 w-full bg-surface-deep h-2 rounded overflow-hidden">
             <div className="h-2 bg-emerald-400" style={{ width: `${pct}%` }} />
           </div>
-          <div className="mt-2 text-xs text-sub">{done}/{steps.length} steps complete ({pct}%)</div>
+          <div className="mt-2 text-xs text-sub">
+            {done}/{steps.length} steps complete ({pct}%)
+          </div>
         </SectionCard>
 
         <SectionCard
@@ -136,29 +185,73 @@ export function ModelMigrationClient() {
           actions={
             <>
               <AiPromptGenerator config={promptConfig} />
-              <ExportButton filename="model-migration" csvData={csvData} jsonData={steps} targetRef={exportRef} />
+              <ExportButton
+                filename="model-migration"
+                csvData={csvData}
+                jsonData={steps}
+                targetRef={exportRef}
+              />
             </>
           }
         >
           <ul className="space-y-1">
             {steps.map((s) => (
-              <li key={s.id} className="flex items-center justify-between gap-2 p-1.5 rounded hover:bg-surface-deep">
+              <li
+                key={s.id}
+                className="flex items-center justify-between gap-2 p-1.5 rounded hover:bg-surface-deep"
+              >
                 <button
-                  onClick={() => { toggleStep(s.id); log(MODEL_MIGRATION_ACTIONS.STEP_TOGGLED, { id: s.id }); }}
+                  onClick={() => {
+                    toggleStep(s.id);
+                    log(MODEL_MIGRATION_ACTIONS.STEP_TOGGLED, { id: s.id });
+                  }}
                   className="flex items-center gap-2 flex-1 text-left"
                 >
-                  {s.done ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Circle className="w-4 h-4 text-sub" />}
-                  <span className={`text-sm ${s.done ? "text-sub line-through" : "text-text"}`}>{s.text}</span>
+                  {s.done ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  ) : (
+                    <Circle className="w-4 h-4 text-sub" />
+                  )}
+                  <span className={`text-sm ${s.done ? "text-sub line-through" : "text-text"}`}>
+                    {s.text}
+                  </span>
                 </button>
-                <button onClick={() => removeStep(s.id)} aria-label="Remove step" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                <button
+                  onClick={() => removeStep(s.id)}
+                  aria-label="Remove step"
+                  className="text-sub hover:text-red-400"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </li>
             ))}
           </ul>
           <div className="flex gap-2 mt-3">
-            <Input placeholder="Add step…" value={newStep} onChange={(e) => setNewStep(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && newStep.trim()) { addStepFn(newStep.trim()); log(MODEL_MIGRATION_ACTIONS.STEP_ADDED, { text: newStep.trim() }); setNewStep(""); } }}
+            <Input
+              placeholder="Add step…"
+              value={newStep}
+              onChange={(e) => setNewStep(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newStep.trim()) {
+                  addStepFn(newStep.trim());
+                  log(MODEL_MIGRATION_ACTIONS.STEP_ADDED, { text: newStep.trim() });
+                  setNewStep("");
+                }
+              }}
             />
-            <Button onClick={() => { if (newStep.trim()) { addStepFn(newStep.trim()); log(MODEL_MIGRATION_ACTIONS.STEP_ADDED, { text: newStep.trim() }); setNewStep(""); } }} className="gap-1"><Plus className="w-4 h-4" />Add</Button>
+            <Button
+              onClick={() => {
+                if (newStep.trim()) {
+                  addStepFn(newStep.trim());
+                  log(MODEL_MIGRATION_ACTIONS.STEP_ADDED, { text: newStep.trim() });
+                  setNewStep("");
+                }
+              }}
+              className="gap-1"
+            >
+              <Plus className="w-4 h-4" />
+              Add
+            </Button>
           </div>
         </SectionCard>
       </div>

@@ -139,15 +139,11 @@ function calcStats(votes: string[]): {
   spread: number | null;
 } {
   const nums = votes.filter(isNumeric).map(Number);
-  if (nums.length === 0)
-    return { average: null, median: null, mode: null, spread: null };
+  if (nums.length === 0) return { average: null, median: null, mode: null, spread: null };
   const sorted = [...nums].sort((a, b) => a - b);
   const average = nums.reduce((a, b) => a + b, 0) / nums.length;
   const mid = Math.floor(sorted.length / 2);
-  const median =
-    sorted.length % 2 === 0
-      ? (sorted[mid - 1] + sorted[mid]) / 2
-      : sorted[mid];
+  const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
   const spread = sorted[sorted.length - 1] - sorted[0];
 
   // Mode: pick the highest-count value. Tie-break deterministically by
@@ -268,13 +264,15 @@ function Avatar({ name, size = 36 }: { name: string; size?: number }) {
   const color = avatarColor(name);
   return (
     <div
-      style={{ width: size, height: size, backgroundColor: color + "33", borderColor: color + "66" }}
+      style={{
+        width: size,
+        height: size,
+        backgroundColor: color + "33",
+        borderColor: color + "66",
+      }}
       className="rounded-full border-2 flex items-center justify-center shrink-0"
     >
-      <span
-        style={{ color, fontSize: size * 0.36 }}
-        className="font-bold leading-none"
-      >
+      <span style={{ color, fontSize: size * 0.36 }} className="font-bold leading-none">
         {getInitials(name)}
       </span>
     </div>
@@ -326,8 +324,8 @@ function LobbyScreen({
       <div className="flex items-center gap-2 rounded-lg border border-accent/20 bg-accent/5 px-4 py-3 text-sm text-accent/80">
         <WifiOff className="h-4 w-4 shrink-0" />
         <span>
-          <strong>Local demo mode</strong> — all state in memory. Multiplayer
-          coming soon — share the link when available.
+          <strong>Local demo mode</strong> — all state in memory. Multiplayer coming soon — share
+          the link when available.
         </span>
       </div>
 
@@ -475,10 +473,7 @@ function SessionScreen({
     const description = newDescription.trim() || undefined;
     onUpdateSession((s) => ({
       ...s,
-      stories: [
-        ...s.stories,
-        { id: crypto.randomUUID(), title, description, finalEstimate: null },
-      ],
+      stories: [...s.stories, { id: crypto.randomUUID(), title, description, finalEstimate: null }],
     }));
     setNewStory("");
     setNewDescription("");
@@ -521,9 +516,7 @@ function SessionScreen({
       onUpdateSession((s) => ({
         ...s,
         participants: s.participants.map((p) =>
-          p.name === s.host
-            ? { ...p, vote: p.vote === value ? null : value }
-            : p
+          p.name === s.host ? { ...p, vote: p.vote === value ? null : value } : p
         ),
       }));
       log(PLANNING_POKER_ACTIONS.VOTE_CAST, { value });
@@ -533,17 +526,35 @@ function SessionScreen({
 
   const revealVotes = () => {
     sonify("planning-poker", "reveal");
-    onUpdateSession((s) => ({ ...s, revealed: true }));
-    const story = session.stories[session.currentStoryIdx];
-    const cast = session.participants
-      .map((p) => p.vote)
-      .filter((v): v is string => v !== null);
-    log(PLANNING_POKER_ACTIONS.VOTES_REVEALED, {
-      storyId: story?.id ?? null,
-      title: story?.title ?? null,
-      voteCount: cast.length,
-      values: cast,
+    // BUG-RD3-planning-poker-1: read the freshest session inside the
+    // updater so the audit log records the actual revealed snapshot.
+    // Previously we captured `session.participants` / `session.stories`
+    // from the closure and a vote cast in the same tick as the reveal
+    // click was missing from the log even though it was visible on
+    // screen post-reveal.
+    let logPayload: {
+      storyId: string | null;
+      title: string | null;
+      voteCount: number;
+      values: string[];
+    } = {
+      storyId: null,
+      title: null,
+      voteCount: 0,
+      values: [],
+    };
+    onUpdateSession((s) => {
+      const story = s.stories[s.currentStoryIdx];
+      const cast = s.participants.map((p) => p.vote).filter((v): v is string => v !== null);
+      logPayload = {
+        storyId: story?.id ?? null,
+        title: story?.title ?? null,
+        voteCount: cast.length,
+        values: cast,
+      };
+      return { ...s, revealed: true };
     });
+    log(PLANNING_POKER_ACTIONS.VOTES_REVEALED, logPayload);
   };
 
   const resetVotes = () => {
@@ -575,8 +586,7 @@ function SessionScreen({
         revealed: false,
         participants: s.participants.map((p) => ({ ...p, vote: null })),
         stories,
-        currentStoryIdx:
-          nextUnestimated !== -1 ? nextUnestimated : s.currentStoryIdx,
+        currentStoryIdx: nextUnestimated !== -1 ? nextUnestimated : s.currentStoryIdx,
       };
     });
     if (story) {
@@ -626,20 +636,31 @@ function SessionScreen({
     const scaleName = SCALE_LABELS[session.scaleType] ?? "Custom";
     return {
       toolName: "Planning Poker",
-      prompts: generatePlanningPokerPrompts({
-        stories: session.stories.map((s, idx) => ({
-          title: s.title,
-          description: s.description,
-          // Only the current active story has live votes; past stories only have finalEstimate
-          votes: idx === session.currentStoryIdx && session.revealed
-            ? session.participants.map((p) => p.vote).filter((v): v is string => v !== null)
-            : [],
-          finalEstimate: s.finalEstimate,
-        })),
-        scaleName,
-      }, workspace),
+      prompts: generatePlanningPokerPrompts(
+        {
+          stories: session.stories.map((s, idx) => ({
+            title: s.title,
+            description: s.description,
+            // Only the current active story has live votes; past stories only have finalEstimate
+            votes:
+              idx === session.currentStoryIdx && session.revealed
+                ? session.participants.map((p) => p.vote).filter((v): v is string => v !== null)
+                : [],
+            finalEstimate: s.finalEstimate,
+          })),
+          scaleName,
+        },
+        workspace
+      ),
     };
-  }, [session.stories, session.participants, session.scaleType, session.currentStoryIdx, session.revealed, workspace]);
+  }, [
+    session.stories,
+    session.participants,
+    session.scaleType,
+    session.currentStoryIdx,
+    session.revealed,
+    workspace,
+  ]);
 
   // Card rotation for fan effect
   const cardCount = session.scale.length;
@@ -655,14 +676,10 @@ function SessionScreen({
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/40 bg-surface px-5 py-3">
         <div className="flex items-center gap-3">
           <div className="flex flex-col">
-            <span className="text-sm font-semibold text-text">
-              {session.sessionName}
-            </span>
+            <span className="text-sm font-semibold text-text">{session.sessionName}</span>
             <span className="text-xs text-sub">
               Room:{" "}
-              <span className="font-data text-accent tracking-widest">
-                {session.roomCode}
-              </span>
+              <span className="font-data text-accent tracking-widest">{session.roomCode}</span>
             </span>
           </div>
           <Badge className="bg-accent/10 text-accent border-accent/30 text-xs">
@@ -760,9 +777,7 @@ function SessionScreen({
                     <div className="flex items-center gap-2 text-sm text-accent-green">
                       <Check className="h-4 w-4" />
                       Final estimate:{" "}
-                      <span className="font-data font-bold">
-                        {currentStory.finalEstimate}
-                      </span>
+                      <span className="font-data font-bold">{currentStory.finalEstimate}</span>
                     </div>
                   )}
                 </div>
@@ -781,20 +796,13 @@ function SessionScreen({
               icon={Users}
               iconClassName="text-sub"
               titleSize="sm"
-              titleSuffix={
-                !session.revealed
-                  ? "— face down until revealed"
-                  : undefined
-              }
+              titleSuffix={!session.revealed ? "— face down until revealed" : undefined}
               className="border-border/40 bg-surface"
               contentClassName="pb-5"
             >
               <div className="flex flex-wrap gap-4">
                 {session.participants.map((p) => (
-                  <div
-                    key={p.id}
-                    className="flex flex-col items-center gap-2"
-                  >
+                  <div key={p.id} className="flex flex-col items-center gap-2">
                     <PlayingCard
                       value={p.vote ?? ""}
                       faceDown={!session.revealed || p.vote === null}
@@ -802,9 +810,7 @@ function SessionScreen({
                     />
                     <div className="flex items-center gap-1.5">
                       <Avatar name={p.name} size={20} />
-                      <span className="text-xs text-sub max-w-[80px] truncate">
-                        {p.name}
-                      </span>
+                      <span className="text-xs text-sub max-w-[80px] truncate">{p.name}</span>
                       {p.vote !== null && !session.revealed && (
                         <Check className="h-3 w-3 text-accent-green" />
                       )}
@@ -853,9 +859,7 @@ function SessionScreen({
                         <div className="flex flex-col items-center gap-1">
                           <span className="text-xs text-sub">Average</span>
                           <span className="font-data text-xl font-bold text-text">
-                            {stats.average % 1 === 0
-                              ? stats.average
-                              : stats.average.toFixed(1)}
+                            {stats.average % 1 === 0 ? stats.average : stats.average.toFixed(1)}
                           </span>
                         </div>
                       )}
@@ -887,9 +891,7 @@ function SessionScreen({
 
                     {/* Accept estimate buttons */}
                     <div className="flex flex-wrap gap-2">
-                      <span className="text-xs text-sub self-center">
-                        Accept estimate:
-                      </span>
+                      <span className="text-xs text-sub self-center">Accept estimate:</span>
                       {Array.from(new Set(votes)).map((v) => (
                         <Button
                           key={v}
@@ -933,8 +935,7 @@ function SessionScreen({
               </div>
               {hostVote !== null && (
                 <p className="text-center text-sm text-accent mt-2">
-                  You voted{" "}
-                  <span className="font-data font-bold">{hostVote}</span>
+                  You voted <span className="font-data font-bold">{hostVote}</span>
                 </p>
               )}
             </SectionCard>
@@ -990,9 +991,7 @@ function SessionScreen({
 
             {/* Story list */}
             {session.stories.length === 0 ? (
-              <p className="text-xs text-sub/60 text-center py-2">
-                No stories yet. Add one above.
-              </p>
+              <p className="text-xs text-sub/60 text-center py-2">No stories yet. Add one above.</p>
             ) : (
               <div className="flex flex-col gap-1 max-h-60 overflow-y-auto pr-1">
                 {session.stories.map((story, idx) => (
@@ -1042,24 +1041,17 @@ function SessionScreen({
             contentClassName="flex flex-col gap-2 pb-4"
           >
             {session.participants.map((p) => (
-              <div
-                key={p.id}
-                className="flex items-center gap-3 rounded-lg px-2 py-1.5"
-              >
+              <div key={p.id} className="flex items-center gap-3 rounded-lg px-2 py-1.5">
                 <Avatar name={p.name} size={28} />
                 <span className="flex-1 text-sm text-text truncate">
                   {p.name}
                   {p.name === session.host && (
-                    <span className="ml-1.5 text-xs text-sub/50">
-                      (host)
-                    </span>
+                    <span className="ml-1.5 text-xs text-sub/50">(host)</span>
                   )}
                 </span>
                 {p.vote !== null ? (
                   session.revealed ? (
-                    <span className="font-data text-sm font-bold text-accent">
-                      {p.vote}
-                    </span>
+                    <span className="font-data text-sm font-bold text-accent">{p.vote}</span>
                   ) : (
                     <Check className="h-4 w-4 text-accent-green shrink-0" />
                   )
@@ -1109,9 +1101,7 @@ export function PlanningPokerClient() {
       // reverse-engineer the chosen preset from the resolved string array.
       scaleType,
       host: displayName,
-      participants: [
-        { id: crypto.randomUUID(), name: displayName, vote: null },
-      ],
+      participants: [{ id: crypto.randomUUID(), name: displayName, vote: null }],
       stories: [],
       currentStoryIdx: 0,
       revealed: false,
@@ -1149,9 +1139,7 @@ export function PlanningPokerClient() {
           >
             <SessionScreen
               session={session}
-              onUpdateSession={(updater) =>
-                setSession((s) => (s ? updater(s) : s))
-              }
+              onUpdateSession={(updater) => setSession((s) => (s ? updater(s) : s))}
               onLeave={handleLeave}
             />
           </motion.div>
