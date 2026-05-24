@@ -9,7 +9,7 @@ import { WorkspaceSyncButton } from "@/components/shared/workspace-sync-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -245,9 +245,9 @@ export function DecisionLogClient() {
                 <div className="grid grid-cols-1 md:grid-cols-[1fr_180px_140px] gap-3">
                   <div>
                     <Label className="text-xs text-sub">Title</Label>
-                    <Input
+                    <BlurInput
                       value={editing.title}
-                      onChange={(e) => updateDecision(editing.id, { title: e.target.value })}
+                      onCommit={(v) => updateDecision(editing.id, { title: v })}
                       placeholder="ADR-0001: Use Postgres for event log"
                       className="bg-bg border-border"
                     />
@@ -288,41 +288,41 @@ export function DecisionLogClient() {
                 </div>
                 <div>
                   <Label className="text-xs text-sub">Context</Label>
-                  <Textarea
+                  <BlurTextarea
                     rows={3}
                     placeholder="What problem are we solving? What constraints apply?"
                     value={editing.context ?? ""}
-                    onChange={(e) => updateDecision(editing.id, { context: e.target.value })}
+                    onCommit={(v) => updateDecision(editing.id, { context: v })}
                     className="bg-bg border-border"
                   />
                 </div>
                 <div>
                   <Label className="text-xs text-sub">Decision</Label>
-                  <Textarea
+                  <BlurTextarea
                     rows={3}
                     placeholder="We will do X."
                     value={editing.decision}
-                    onChange={(e) => updateDecision(editing.id, { decision: e.target.value })}
+                    onCommit={(v) => updateDecision(editing.id, { decision: v })}
                     className="bg-bg border-border"
                   />
                 </div>
                 <div>
                   <Label className="text-xs text-sub">Consequences</Label>
-                  <Textarea
+                  <BlurTextarea
                     rows={3}
                     placeholder="Trade-offs, follow-ups, what becomes easier/harder."
                     value={editing.consequences ?? ""}
-                    onChange={(e) => updateDecision(editing.id, { consequences: e.target.value })}
+                    onCommit={(v) => updateDecision(editing.id, { consequences: v })}
                     className="bg-bg border-border"
                   />
                 </div>
                 <div>
                   <Label className="text-xs text-sub">Alternatives considered (one per line)</Label>
-                  <Textarea
+                  <BlurTextarea
                     rows={3}
                     placeholder={"Option A — rejected because...\nOption B — rejected because..."}
                     value={(editing.alternatives ?? []).join("\n")}
-                    onChange={(e) =>
+                    onCommit={(v) =>
                       // Keep the raw split — including empty trailing lines —
                       // so the user can press Enter at the end of the field
                       // without their cursor jumping back. The previous
@@ -330,7 +330,7 @@ export function DecisionLogClient() {
                       // made it impossible to add a blank line between bullets
                       // mid-typing.
                       updateDecision(editing.id, {
-                        alternatives: e.target.value.split("\n"),
+                        alternatives: v.split("\n"),
                       })
                     }
                     className="bg-bg border-border"

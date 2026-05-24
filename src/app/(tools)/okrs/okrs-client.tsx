@@ -12,7 +12,7 @@ import { SmartInput } from "@/components/shared/smart-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Flag, Plus, Trash2, Target } from "lucide-react";
@@ -328,24 +328,24 @@ export function OkrsClient() {
                   <Target className="w-5 h-5 text-accent mt-0.5 shrink-0" />
                   <div className="flex-1 space-y-2">
                     <div className="grid grid-cols-1 md:grid-cols-[1fr_140px] gap-2">
-                      <Input
+                      <BlurInput
                         value={o.objective}
-                        onChange={(e) => update(o.id, { objective: e.target.value })}
+                        onCommit={(v) => update(o.id, { objective: v })}
                         placeholder="Achieve X by end of quarter"
                         className="bg-bg border-border text-text"
                       />
-                      <Input
+                      <BlurInput
                         value={o.quarter}
-                        onChange={(e) => update(o.id, { quarter: e.target.value })}
+                        onCommit={(v) => update(o.id, { quarter: v })}
                         placeholder="2026 Q2"
                         className="bg-bg border-border text-text font-data"
                       />
                     </div>
-                    <Textarea
+                    <BlurTextarea
                       value={o.description ?? ""}
-                      onChange={(e) =>
+                      onCommit={(v) =>
                         update(o.id, {
-                          description: e.target.value.trim() ? e.target.value : undefined,
+                          description: v.trim() ? v : undefined,
                         })
                       }
                       placeholder="Description (optional)..."
@@ -418,9 +418,9 @@ export function OkrsClient() {
                       className="space-y-2 rounded-md border border-border bg-bg p-2"
                     >
                       <div className="grid grid-cols-[1fr_80px_80px_80px_32px] gap-2 items-center">
-                        <Input
+                        <BlurInput
                           value={kr.title}
-                          onChange={(e) => updateKr(o.id, kr.id, { title: e.target.value })}
+                          onCommit={(v) => updateKr(o.id, kr.id, { title: v })}
                           placeholder="KR: Increase DAU from 1k to 10k"
                           className="bg-surface border-border"
                         />
@@ -471,11 +471,11 @@ export function OkrsClient() {
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </div>
-                      <Textarea
+                      <BlurTextarea
                         value={kr.description ?? ""}
-                        onChange={(e) =>
+                        onCommit={(v) =>
                           updateKr(o.id, kr.id, {
-                            description: e.target.value.trim() ? e.target.value : undefined,
+                            description: v.trim() ? v : undefined,
                           })
                         }
                         placeholder="Description (optional)..."

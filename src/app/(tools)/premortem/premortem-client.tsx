@@ -8,7 +8,7 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import { Plus, Trash2, ScrollText, ChevronUp, ChevronDown } from "lucide-react";
 import { generatePremortemPrompts } from "@/lib/ai-prompts/premortem";
 import { useShallow } from "zustand/react/shallow";
@@ -117,7 +117,10 @@ export function PremortemClient() {
     log(PREMORTEM_ACTIONS.CAUSE_ADDED, { causeId: cause.id });
   };
   const update = (id: string, patch: Partial<Cause>) => {
-    setState((s) => ({ ...s, causes: s.causes.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+    setState((s) => ({
+      ...s,
+      causes: s.causes.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+    }));
   };
   // Separate from `update` so we can call it from onBlur on the
   // preventiveAction Textarea — emitting PREVENTION_ADDED on every keystroke
@@ -157,10 +160,16 @@ export function PremortemClient() {
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
-        teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-        impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-        decisions: s.decisions, techDebt: s.techDebt,
-        maturityLevel: s.maturityLevel, teamName: s.teamName,
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
       })
     )
   );
@@ -168,7 +177,10 @@ export function PremortemClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Premortem Facilitator",
-      prompts: generatePremortemPrompts({ scenario: state.scenario, causes: state.causes }, workspace),
+      prompts: generatePremortemPrompts(
+        { scenario: state.scenario, causes: state.causes },
+        workspace
+      ),
     }),
     [state, workspace]
   );
@@ -185,11 +197,27 @@ export function PremortemClient() {
         <ExportButton
           filename="premortem"
           csvData={{
-            headers: ["Cause", "Description", "Likelihood", "Impact", "Score", "Preventive Action", "Owner"],
+            headers: [
+              "Cause",
+              "Description",
+              "Likelihood",
+              "Impact",
+              "Score",
+              "Preventive Action",
+              "Owner",
+            ],
             // Use display order (state.causes), not the ranked-by-score order.
             // The user can manually reorder causes via the up/down buttons,
             // and re-sorting on export would silently destroy that intent.
-            rows: state.causes.map((c) => [c.text, c.description ?? "", c.likelihood, c.impact, c.likelihood * c.impact, c.preventiveAction ?? "", c.owner ?? ""]),
+            rows: state.causes.map((c) => [
+              c.text,
+              c.description ?? "",
+              c.likelihood,
+              c.impact,
+              c.likelihood * c.impact,
+              c.preventiveAction ?? "",
+              c.owner ?? "",
+            ]),
           }}
           jsonData={state}
         />
@@ -205,10 +233,10 @@ export function PremortemClient() {
             <ScrollText className="w-4 h-4 text-accent" />
             Imagined Failure Scenario
           </div>
-          <Textarea
+          <BlurTextarea
             rows={3}
             value={state.scenario}
-            onChange={(e) => setState((s) => ({ ...s, scenario: e.target.value }))}
+            onCommit={(v) => setState((s) => ({ ...s, scenario: v }))}
             placeholder={`It's 6 months from now. The project shipped but is widely considered a failure. Describe what that looks like in concrete terms.`}
             className="bg-bg border-border"
           />
@@ -223,17 +251,27 @@ export function PremortemClient() {
               <CardContent className="p-3 space-y-2">
                 <div className="grid grid-cols-1 md:grid-cols-[auto_1fr_80px_80px_80px_auto] gap-2 items-center">
                   <div className="flex flex-col">
-                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-sub" onClick={() => move(c.id, -1)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 w-5 p-0 text-sub"
+                      onClick={() => move(c.id, -1)}
+                    >
                       <ChevronUp className="w-3 h-3" />
                     </Button>
                     <span className="text-[10px] text-sub font-data text-center">{idx + 1}</span>
-                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-sub" onClick={() => move(c.id, 1)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 w-5 p-0 text-sub"
+                      onClick={() => move(c.id, 1)}
+                    >
                       <ChevronDown className="w-3 h-3" />
                     </Button>
                   </div>
-                  <Input
+                  <BlurInput
                     value={c.text}
-                    onChange={(e) => update(c.id, { text: e.target.value })}
+                    onCommit={(v) => update(c.id, { text: v })}
                     placeholder="Cause of failure..."
                     className="bg-bg border-border"
                   />
@@ -258,31 +296,38 @@ export function PremortemClient() {
                   <span className="px-2 py-1 rounded-md font-data text-sm text-center text-accent border border-accent/40 bg-accent/10">
                     {score}
                   </span>
-                  <Button variant="ghost" size="sm" onClick={() => remove(c.id)} className="text-sub hover:text-danger">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => remove(c.id)}
+                    className="text-sub hover:text-danger"
+                  >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>
                 {/* Description — elaboration on the cause itself, distinct
                     from preventive action below. */}
-                <Textarea
+                <BlurTextarea
                   rows={2}
                   value={c.description ?? ""}
-                  onChange={(e) => update(c.id, { description: e.target.value })}
+                  onCommit={(v) => update(c.id, { description: v })}
                   placeholder="Description (optional) — context, signals, dependencies..."
                   className="bg-bg border-border text-sm"
                 />
                 <div className="grid grid-cols-1 md:grid-cols-[1fr_200px] gap-2">
-                  <Textarea
+                  <BlurTextarea
                     rows={1}
                     value={c.preventiveAction ?? ""}
-                    onChange={(e) => update(c.id, { preventiveAction: e.target.value })}
-                    onBlur={(e) => commitPrevention(c.id, e.target.value)}
+                    onCommit={(v) => {
+                      update(c.id, { preventiveAction: v });
+                      commitPrevention(c.id, v);
+                    }}
                     placeholder="Preventive action..."
                     className="bg-bg border-border text-sm"
                   />
-                  <Input
+                  <BlurInput
                     value={c.owner ?? ""}
-                    onChange={(e) => update(c.id, { owner: e.target.value })}
+                    onCommit={(v) => update(c.id, { owner: v })}
                     placeholder="Owner"
                     className="bg-bg border-border text-sm"
                   />

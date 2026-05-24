@@ -8,7 +8,7 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import { Waves, Plus, Trash2 } from "lucide-react";
 import { iqrOutliers } from "@/lib/analytics/anomaly";
 import { generateValueStreamPrompts } from "@/lib/ai-prompts/value-stream";
@@ -85,9 +85,7 @@ export function ValueStreamClient() {
     // Pick the first unused integer suffix so deleting "Stage 2" then adding
     // a new one won't produce a duplicate "Stage 4" (or a third "Stage 4").
     const used = new Set(
-      stages
-        .map((s) => parseInt(String(s.name).replace(/\D/g, ""), 10))
-        .filter(Number.isFinite)
+      stages.map((s) => parseInt(String(s.name).replace(/\D/g, ""), 10)).filter(Number.isFinite)
     );
     let n = 1;
     while (used.has(n)) n++;
@@ -101,7 +99,8 @@ export function ValueStreamClient() {
     setStages((s) => [...s, newStage]);
     log(VALUE_STREAM_ACTIONS.STAGE_ADDED, { stageId: newStage.id, name: newStage.name });
   };
-  const update = (id: string, patch: Partial<Stage>) => setStages((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  const update = (id: string, patch: Partial<Stage>) =>
+    setStages((s) => s.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   const remove = (id: string) => {
     const stage = stages.find((x) => x.id === id);
     setStages((s) => s.filter((x) => x.id !== id));
@@ -113,14 +112,14 @@ export function ValueStreamClient() {
     const totalLead = stages.reduce((a, b) => a + Math.max(0, b.leadTime), 0);
     // Cap at 100% — process > lead is logically impossible but corrupted
     // input would otherwise display nonsense like "183% efficient".
-    const flowEfficiency =
-      totalLead > 0 ? Math.min(100, (totalProcess / totalLead) * 100) : 0;
-    const rolledCA = stages.length > 0
-      ? stages.reduce(
-          (acc, s) => acc * (Math.min(100, Math.max(0, s.completeAccurate)) / 100),
-          1
-        ) * 100
-      : 0;
+    const flowEfficiency = totalLead > 0 ? Math.min(100, (totalProcess / totalLead) * 100) : 0;
+    const rolledCA =
+      stages.length > 0
+        ? stages.reduce(
+            (acc, s) => acc * (Math.min(100, Math.max(0, s.completeAccurate)) / 100),
+            1
+          ) * 100
+        : 0;
     return { totalProcess, totalLead, flowEfficiency, rolledCA };
   }, [stages]);
 
@@ -200,17 +199,14 @@ export function ValueStreamClient() {
       {recentStoryMoves.length > 0 && (
         <div className="mb-3">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/5 text-accent px-2.5 py-1 text-[11px]">
-            {recentStoryMoves.length} stor{recentStoryMoves.length === 1 ? "y" : "ies"} changed status in last 7 days
+            {recentStoryMoves.length} stor{recentStoryMoves.length === 1 ? "y" : "ies"} changed
+            status in last 7 days
           </span>
         </div>
       )}
 
       <KpiGrid cols={4} gap="lg">
-        <StatCard
-          variant="compact"
-          label="Lead Time"
-          value={`${totals.totalLead.toFixed(1)}d`}
-        />
+        <StatCard variant="compact" label="Lead Time" value={`${totals.totalLead.toFixed(1)}d`} />
         <StatCard
           variant="compact"
           label="Process Time"
@@ -247,22 +243,24 @@ export function ValueStreamClient() {
               <CardContent className="p-3 space-y-2">
                 <div className="flex items-center justify-between">
                   <Waves className="w-4 h-4 text-accent" />
-                  <Button variant="ghost" size="sm" onClick={() => remove(s.id)} className="h-6 text-sub hover:text-danger">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => remove(s.id)}
+                    className="h-6 text-sub hover:text-danger"
+                  >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>
-                <Input
+                <BlurInput
                   value={s.name}
-                  onChange={(e) => update(s.id, { name: e.target.value })}
+                  onCommit={(v) => update(s.id, { name: v })}
                   className="bg-bg border-border text-sm h-8"
                 />
                 {/* Optional description for this stage; empty trims to undefined. */}
-                <Textarea
+                <BlurTextarea
                   value={s.description ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    update(s.id, { description: v.trim() ? v : undefined });
-                  }}
+                  onCommit={(v) => update(s.id, { description: v.trim() ? v : undefined })}
                   placeholder="Description (optional)..."
                   rows={2}
                   className="bg-bg border-border resize-none text-xs"
@@ -304,9 +302,7 @@ export function ValueStreamClient() {
                       lead time — that's logically impossible (process is a
                       subset of lead) and usually indicates bad input. */}
                   {s.processTime > s.leadTime && (
-                    <span className="ml-2 text-[#ffaa00]">
-                      ⚠ process &gt; lead
-                    </span>
+                    <span className="ml-2 text-[#ffaa00]">⚠ process &gt; lead</span>
                   )}
                 </div>
               </CardContent>

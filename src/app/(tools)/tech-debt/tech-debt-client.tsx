@@ -9,6 +9,7 @@ import { WorkspaceSyncButton } from "@/components/shared/workspace-sync-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { BlurInput } from "@/components/shared/blur-fields";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -42,11 +43,7 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { SmartInput } from "@/components/shared/smart-input";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
-import {
-  durationsFromTimeRanges,
-  kaplanMeier,
-  medianSurvivalTime,
-} from "@/lib/analytics/survival";
+import { durationsFromTimeRanges, kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 
 function emptyItem(): TechDebtItem {
@@ -160,10 +157,7 @@ function DescriptionEditor({
   const lastCommittedRef = useRef(value);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    if (
-      typeof document !== "undefined" &&
-      document.activeElement === inputRef.current
-    ) {
+    if (typeof document !== "undefined" && document.activeElement === inputRef.current) {
       return;
     }
     if (value === lastCommittedRef.current) return;
@@ -270,7 +264,10 @@ export function TechDebtClient() {
     return n;
   };
 
-  const ranked = useMemo(() => items.slice().sort((a, b) => priorityScore(b) - priorityScore(a)), [items]);
+  const ranked = useMemo(
+    () => items.slice().sort((a, b) => priorityScore(b) - priorityScore(a)),
+    [items]
+  );
   const totalInterestPerSprint = useMemo(
     () => items.filter((i) => !i.resolvedAt).reduce((a, b) => a + (b.interestRate ?? 0), 0),
     [items]
@@ -306,14 +303,14 @@ export function TechDebtClient() {
   const survivalObservations = useMemo(
     () =>
       durationsFromTimeRanges(
-        items.map((i) => ({ raisedAt: i.raisedAt, resolvedAt: i.resolvedAt })),
+        items.map((i) => ({ raisedAt: i.raisedAt, resolvedAt: i.resolvedAt }))
       ),
-    [items],
+    [items]
   );
 
   const resolvedDurations = useMemo(
     () => survivalObservations.filter((o) => o.event).map((o) => o.duration),
-    [survivalObservations],
+    [survivalObservations]
   );
 
   const survivalCurve = useMemo(() => {
@@ -321,10 +318,7 @@ export function TechDebtClient() {
     return kaplanMeier(survivalObservations);
   }, [survivalObservations, resolvedDurations.length]);
 
-  const medianResolutionDays = useMemo(
-    () => medianSurvivalTime(survivalCurve),
-    [survivalCurve],
-  );
+  const medianResolutionDays = useMemo(() => medianSurvivalTime(survivalCurve), [survivalCurve]);
 
   const medianCI = useMemo(() => {
     if (resolvedDurations.length < 3) return null;
@@ -333,7 +327,7 @@ export function TechDebtClient() {
 
   const survivalChartData = useMemo(
     () => survivalCurve.map((p) => ({ t: p.t, survival: Math.round(p.survival * 1000) / 1000 })),
-    [survivalCurve],
+    [survivalCurve]
   );
 
   const promptConfig = useMemo(
@@ -357,8 +351,26 @@ export function TechDebtClient() {
         <ExportButton
           filename="tech-debt"
           csvData={{
-            headers: ["Title", "Description", "Area", "Impact", "Effort", "Interest/Sprint", "Age (d)", "Score"],
-            rows: ranked.map((i) => [i.title, i.description ?? "", i.area ?? "", i.impact, i.effort, i.interestRate ?? 0, ageDays(i), priorityScore(i).toFixed(1)]),
+            headers: [
+              "Title",
+              "Description",
+              "Area",
+              "Impact",
+              "Effort",
+              "Interest/Sprint",
+              "Age (d)",
+              "Score",
+            ],
+            rows: ranked.map((i) => [
+              i.title,
+              i.description ?? "",
+              i.area ?? "",
+              i.impact,
+              i.effort,
+              i.interestRate ?? 0,
+              ageDays(i),
+              priorityScore(i).toFixed(1),
+            ]),
           }}
           jsonData={items}
         />
@@ -396,7 +408,11 @@ export function TechDebtClient() {
           <div className="text-sm font-semibold text-text mb-3">Impact × Effort Heatmap</div>
           <div className="grid grid-cols-6 gap-1 text-[10px]">
             <div />
-            {[1, 2, 3, 4, 5].map((i) => <div key={`h${i}`} className="text-center text-sub font-data">E{i}</div>)}
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={`h${i}`} className="text-center text-sub font-data">
+                E{i}
+              </div>
+            ))}
             {[5, 4, 3, 2, 1].map((imp) => (
               <div key={`row${imp}`} style={{ display: "contents" }}>
                 <div className="text-sub font-data text-right pr-1">I{imp}</div>
@@ -404,8 +420,15 @@ export function TechDebtClient() {
                   const count = hotspotMatrix[imp - 1][eff - 1];
                   const intensity = Math.min(1, count / 5);
                   return (
-                    <div key={`${imp}-${eff}`} className="h-8 rounded flex items-center justify-center font-data text-xs border"
-                      style={{ background: `rgba(0,240,255,${intensity * 0.5})`, borderColor: `rgba(0,240,255,${intensity * 0.6})`, color: count ? "#00f0ff" : "#555" }}>
+                    <div
+                      key={`${imp}-${eff}`}
+                      className="h-8 rounded flex items-center justify-center font-data text-xs border"
+                      style={{
+                        background: `rgba(0,240,255,${intensity * 0.5})`,
+                        borderColor: `rgba(0,240,255,${intensity * 0.6})`,
+                        color: count ? "#00f0ff" : "#555",
+                      }}
+                    >
                       {count || ""}
                     </div>
                   );
@@ -413,7 +436,9 @@ export function TechDebtClient() {
               </div>
             ))}
           </div>
-          <div className="text-xs text-sub mt-2">Top-left (high impact, low effort) = best paydown targets.</div>
+          <div className="text-xs text-sub mt-2">
+            Top-left (high impact, low effort) = best paydown targets.
+          </div>
         </CardContent>
       </Card>
 
@@ -434,13 +459,22 @@ export function TechDebtClient() {
         >
           <div className="h-40 -mx-2">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={survivalChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+              <LineChart
+                data={survivalChartData}
+                margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
+              >
                 <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
                 <XAxis
                   dataKey="t"
                   tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
                   axisLine={{ stroke: chartTheme.gridColor }}
-                  label={{ value: "days", fill: chartTheme.axisColor, fontSize: 10, position: "insideBottom", offset: -2 }}
+                  label={{
+                    value: "days",
+                    fill: chartTheme.axisColor,
+                    fontSize: 10,
+                    position: "insideBottom",
+                    offset: -2,
+                  }}
                 />
                 <YAxis
                   domain={[0, 1]}
@@ -466,8 +500,8 @@ export function TechDebtClient() {
           </div>
           <p className="text-[11px] text-sub mt-2">
             Kaplan-Meier estimate over {resolvedDurations.length} resolved item
-            {resolvedDurations.length === 1 ? "" : "s"}. Y-axis: probability the
-            debt is still open after N days.
+            {resolvedDurations.length === 1 ? "" : "s"}. Y-axis: probability the debt is still open
+            after N days.
           </p>
         </SectionCard>
       )}
@@ -477,22 +511,65 @@ export function TechDebtClient() {
           <Card key={i.id} className="bg-surface border-border">
             <CardContent className="p-3 space-y-2">
               <div className="grid grid-cols-1 md:grid-cols-[1fr_120px_80px_80px_80px_60px_auto] gap-2 items-center">
-                <Input value={i.title} onChange={(e) => update(i.id, { title: e.target.value })} placeholder="Debt item" className="bg-bg border-border" />
-                <Input value={i.area ?? ""} onChange={(e) => update(i.id, { area: e.target.value })} placeholder="Area" className="bg-bg border-border" />
-                <Select value={String(i.impact)} onValueChange={(v) => update(i.id, { impact: Number(v) as TechDebtItem["impact"] })}>
-                  <SelectTrigger className="bg-bg border-border font-data"><SelectValue /></SelectTrigger>
-                  <SelectContent>{[1,2,3,4,5].map(n => <SelectItem key={n} value={String(n)}>Impact {n}</SelectItem>)}</SelectContent>
+                <BlurInput
+                  value={i.title}
+                  onCommit={(v) => update(i.id, { title: v })}
+                  placeholder="Debt item"
+                  className="bg-bg border-border"
+                />
+                <BlurInput
+                  value={i.area ?? ""}
+                  onCommit={(v) => update(i.id, { area: v })}
+                  placeholder="Area"
+                  className="bg-bg border-border"
+                />
+                <Select
+                  value={String(i.impact)}
+                  onValueChange={(v) =>
+                    update(i.id, { impact: Number(v) as TechDebtItem["impact"] })
+                  }
+                >
+                  <SelectTrigger className="bg-bg border-border font-data">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        Impact {n}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
-                <Select value={String(i.effort)} onValueChange={(v) => update(i.id, { effort: Number(v) as TechDebtItem["effort"] })}>
-                  <SelectTrigger className="bg-bg border-border font-data"><SelectValue /></SelectTrigger>
-                  <SelectContent>{[1,2,3,4,5].map(n => <SelectItem key={n} value={String(n)}>Effort {n}</SelectItem>)}</SelectContent>
+                <Select
+                  value={String(i.effort)}
+                  onValueChange={(v) =>
+                    update(i.id, { effort: Number(v) as TechDebtItem["effort"] })
+                  }
+                >
+                  <SelectTrigger className="bg-bg border-border font-data">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <SelectItem key={n} value={String(n)}>
+                        Effort {n}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
                 <InterestRateInput
                   value={i.interestRate}
                   commit={(next) => update(i.id, { interestRate: next })}
                 />
-                <div className="font-data text-sm text-accent text-center">{priorityScore(i).toFixed(0)}</div>
-                <Button variant="ghost" size="sm" onClick={() => remove(i.id)} className="text-sub hover:text-danger">
+                <div className="font-data text-sm text-accent text-center">
+                  {priorityScore(i).toFixed(0)}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => remove(i.id)}
+                  className="text-sub hover:text-danger"
+                >
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
               </div>
