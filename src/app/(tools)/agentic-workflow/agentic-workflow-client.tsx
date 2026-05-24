@@ -12,7 +12,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { AgentNode, AgentWorkflow, Workspace } from "@/lib/stores/workspace-types";
@@ -32,7 +36,11 @@ const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), {
 });
 
 const KIND_COLORS: Record<AgentNode["kind"], string> = {
-  agent: "#00f0ff", tool: "#9d4edd", human: "#00ff88", fallback: "#ff6b6b", branch: "#ffaa00",
+  agent: "#00f0ff",
+  tool: "#9d4edd",
+  human: "#00ff88",
+  fallback: "#ff6b6b",
+  branch: "#ffaa00",
 };
 const KINDS: AgentNode["kind"][] = ["agent", "tool", "human", "fallback", "branch"];
 
@@ -60,12 +68,22 @@ export function AgenticWorkflowClient() {
 
   function addWorkflow() {
     if (!wfName.trim()) return;
-    const wf: AgentWorkflow = { id: crypto.randomUUID(), name: wfName.trim(), description: wfDesc.trim() || undefined };
+    const wf: AgentWorkflow = {
+      id: crypto.randomUUID(),
+      name: wfName.trim(),
+      description: wfDesc.trim() || undefined,
+    };
     upsertWf(wf);
     log(AGENTIC_WORKFLOW_ACTIONS.WORKFLOW_ADDED, { name: wf.name });
-    emitSignal({ kind: "agentWorkflow.created", at: new Date().toISOString(), toolId: "agentic-workflow", payload: wf });
+    emitSignal({
+      kind: "agentWorkflow.created",
+      at: new Date().toISOString(),
+      toolId: "agentic-workflow",
+      payload: wf,
+    });
     setActiveWfId(wf.id);
-    setWfName(""); setWfDesc("");
+    setWfName("");
+    setWfDesc("");
   }
 
   function addNode() {
@@ -79,11 +97,20 @@ export function AgenticWorkflowClient() {
     };
     upsertNode(n);
     log(AGENTIC_WORKFLOW_ACTIONS.NODE_ADDED, { label: n.label, kind: n.kind });
-    setNodeLabel(""); setNodeDesc("");
+    // BUG-RD3-agentic-workflow-1: also reset nodeKind to "agent" so a
+    // one-off "tool" selection doesn't silently sticky-apply to every
+    // subsequent node the user types — they had to notice the wrong
+    // chip later and edit.
+    setNodeLabel("");
+    setNodeDesc("");
+    setNodeKind("agent");
   }
 
   const activeWf = workflows.find((w) => w.id === activeWfId);
-  const wfNodes = useMemo(() => nodes.filter((n) => n.workflowId === activeWfId), [nodes, activeWfId]);
+  const wfNodes = useMemo(
+    () => nodes.filter((n) => n.workflowId === activeWfId),
+    [nodes, activeWfId]
+  );
 
   // Auto-select first workflow after hydration if none selected (race: initial
   // useState ran before persist rehydrated, so workflows[0] was undefined).
@@ -91,18 +118,32 @@ export function AgenticWorkflowClient() {
     if (!activeWfId && workflows.length > 0) setActiveWfId(workflows[0]!.id);
   }, [workflows, activeWfId]);
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    agentWorkflows: s.agentWorkflows, agentNodes: s.agentNodes,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        agentWorkflows: s.agentWorkflows,
+        agentNodes: s.agentNodes,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Agentic Workflow Designer",
-    prompts: generateAgenticWorkflowPrompts({ workflow: activeWf, nodes: wfNodes }, workspace),
-  }), [activeWf, wfNodes, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Agentic Workflow Designer",
+      prompts: generateAgenticWorkflowPrompts({ workflow: activeWf, nodes: wfNodes }, workspace),
+    }),
+    [activeWf, wfNodes, workspace]
+  );
 
   const csvData = {
     headers: ["Workflow", "Step", "Kind", "Description"],
@@ -118,9 +159,20 @@ export function AgenticWorkflowClient() {
       <div ref={exportRef} className="space-y-4">
         <SectionCard title="Workflows" icon={Workflow}>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <Input placeholder="Workflow name" value={wfName} onChange={(e) => setWfName(e.target.value)} />
-            <Input placeholder="Description (optional)" value={wfDesc} onChange={(e) => setWfDesc(e.target.value)} />
-            <Button onClick={addWorkflow} className="gap-1"><Plus className="w-4 h-4" />Create</Button>
+            <Input
+              placeholder="Workflow name"
+              value={wfName}
+              onChange={(e) => setWfName(e.target.value)}
+            />
+            <Input
+              placeholder="Description (optional)"
+              value={wfDesc}
+              onChange={(e) => setWfDesc(e.target.value)}
+            />
+            <Button onClick={addWorkflow} className="gap-1">
+              <Plus className="w-4 h-4" />
+              Create
+            </Button>
           </div>
           {workflows.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
@@ -136,10 +188,16 @@ export function AgenticWorkflowClient() {
                     {wf.name}
                   </button>
                   <button
-                    onClick={() => { removeWf(wf.id); log(AGENTIC_WORKFLOW_ACTIONS.WORKFLOW_REMOVED, { id: wf.id }); if (wf.id === activeWfId) setActiveWfId(""); }}
+                    onClick={() => {
+                      removeWf(wf.id);
+                      log(AGENTIC_WORKFLOW_ACTIONS.WORKFLOW_REMOVED, { id: wf.id });
+                      if (wf.id === activeWfId) setActiveWfId("");
+                    }}
                     className="pr-2 py-1 text-sub hover:text-red-400"
                     aria-label={`Remove workflow ${wf.name}`}
-                  ><Trash2 className="w-3 h-3 inline" /></button>
+                  >
+                    <Trash2 className="w-3 h-3 inline" />
+                  </button>
                 </div>
               ))}
             </div>
@@ -153,19 +211,45 @@ export function AgenticWorkflowClient() {
             actions={
               <>
                 <AiPromptGenerator config={promptConfig} />
-                <ExportButton filename={`workflow-${activeWf.name}`} csvData={csvData} jsonData={{ workflow: activeWf, nodes: wfNodes }} targetRef={exportRef} />
+                <ExportButton
+                  filename={`workflow-${activeWf.name}`}
+                  csvData={csvData}
+                  jsonData={{ workflow: activeWf, nodes: wfNodes }}
+                  targetRef={exportRef}
+                />
               </>
             }
           >
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <Input placeholder="Step label" value={nodeLabel} onChange={(e) => setNodeLabel(e.target.value)} />
+              <Input
+                placeholder="Step label"
+                value={nodeLabel}
+                onChange={(e) => setNodeLabel(e.target.value)}
+              />
               <Select value={nodeKind} onValueChange={(v) => setNodeKind(v as AgentNode["kind"])}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{KINDS.map((k) => <SelectItem key={k} value={k}>{k}</SelectItem>)}</SelectContent>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {KINDS.map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {k}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
-              <Button onClick={addNode} className="gap-1"><Plus className="w-4 h-4" />Add step</Button>
+              <Button onClick={addNode} className="gap-1">
+                <Plus className="w-4 h-4" />
+                Add step
+              </Button>
             </div>
-            <Textarea placeholder="Description (optional)" value={nodeDesc} onChange={(e) => setNodeDesc(e.target.value)} className="mt-2" rows={2} />
+            <Textarea
+              placeholder="Description (optional)"
+              value={nodeDesc}
+              onChange={(e) => setNodeDesc(e.target.value)}
+              className="mt-2"
+              rows={2}
+            />
             <ol className="mt-3 space-y-1.5">
               {wfNodes.map((n, i) => {
                 const isTesting = testingNodeId === n.id;
@@ -178,10 +262,20 @@ export function AgenticWorkflowClient() {
                   <li key={n.id} className="border border-border bg-surface-deep rounded">
                     <div className="flex items-center gap-2 p-2">
                       <span className="text-xs text-sub font-mono w-6">#{i + 1}</span>
-                      <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: KIND_COLORS[n.kind] + "20", color: KIND_COLORS[n.kind] }}>{n.kind}</span>
+                      <span
+                        className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded"
+                        style={{
+                          backgroundColor: KIND_COLORS[n.kind] + "20",
+                          color: KIND_COLORS[n.kind],
+                        }}
+                      >
+                        {n.kind}
+                      </span>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm text-text truncate">{n.label}</div>
-                        {n.description && <div className="text-xs text-sub truncate">{n.description}</div>}
+                        {n.description && (
+                          <div className="text-xs text-sub truncate">{n.description}</div>
+                        )}
                       </div>
                       {/* Test step button — agent-kind only. Other node kinds
                           aren't executable as LLM prompts (tool steps call
@@ -196,25 +290,36 @@ export function AgenticWorkflowClient() {
                             !llm.isReady
                               ? "Configure an AI provider in settings to test this step"
                               : isTesting
-                              ? "Hide test panel"
-                              : "Run this step's prompt against your BYOK provider"
+                                ? "Hide test panel"
+                                : "Run this step's prompt against your BYOK provider"
                           }
                           aria-label={isTesting ? "Hide test panel" : "Test step"}
                           aria-expanded={isTesting}
                         >
-                          {isTesting ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                          {isTesting ? (
+                            <ChevronDown className="w-3 h-3" />
+                          ) : (
+                            <ChevronRight className="w-3 h-3" />
+                          )}
                           <Beaker className="w-3 h-3" />
                           Test
                         </button>
                       )}
-                      <button onClick={() => { removeNode(n.id); log(AGENTIC_WORKFLOW_ACTIONS.NODE_REMOVED, { id: n.id }); if (testingNodeId === n.id) setTestingNodeId(null); }} aria-label="Remove step" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                      <button
+                        onClick={() => {
+                          removeNode(n.id);
+                          log(AGENTIC_WORKFLOW_ACTIONS.NODE_REMOVED, { id: n.id });
+                          if (testingNodeId === n.id) setTestingNodeId(null);
+                        }}
+                        aria-label="Remove step"
+                        className="text-sub hover:text-red-400"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                     {isAgent && isTesting && llm.isReady && (
                       <div className="px-2 pb-2">
-                        <AiRunPanel
-                          prompt={stepPrompt}
-                          toolName={`Agentic step: ${n.label}`}
-                        />
+                        <AiRunPanel prompt={stepPrompt} toolName={`Agentic step: ${n.label}`} />
                       </div>
                     )}
                   </li>

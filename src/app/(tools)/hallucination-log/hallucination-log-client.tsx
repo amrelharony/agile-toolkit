@@ -412,7 +412,20 @@ export function HallucinationLogClient() {
           >
             <ul className="space-y-2">
               {[...list]
-                .sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime())
+                // BUG-RD3-hallucination-log-1: NaN-safe sort. A corrupted
+                // `loggedAt` parses to NaN, and `NaN - NaN = NaN`, which
+                // produces a non-transitive comparator → V8 falls back to
+                // an unstable order for affected rows (and the "most
+                // recent first" expectation is broken). Sentinel-treat
+                // unparseable timestamps as -Infinity so they sink to the
+                // bottom predictably.
+                .sort((a, b) => {
+                  const ta = new Date(b.loggedAt).getTime();
+                  const tb = new Date(a.loggedAt).getTime();
+                  const safeA = Number.isFinite(ta) ? ta : -Infinity;
+                  const safeB = Number.isFinite(tb) ? tb : -Infinity;
+                  return safeA - safeB;
+                })
                 .map((x) => (
                   <li
                     key={x.id}

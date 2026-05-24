@@ -101,8 +101,13 @@ export function PromptRegistryClient() {
     };
     upsert(item);
     log(PROMPT_REGISTRY_ACTIONS.PROMPT_DRAFTED, { name: item.name, version: item.version });
+    // BUG-RD3-prompt-registry-2: don't reset the version field to
+    // "1.0.0" after every save. The typical workflow is iterative
+    // bumping (1.0.0 → 1.0.1 → 1.0.2), and clobbering the field back
+    // to "1.0.0" forced the user to retype the version every time or
+    // accidentally re-draft the same version. Keep `version` visible
+    // so the user can bump from where they were.
     setName("");
-    setVersion("1.0.0");
     setBody("");
     setChangeNote("");
     setAuthor("");

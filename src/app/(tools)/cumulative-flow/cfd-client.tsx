@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, Layers, BarChart2, Settings2, AlertTriangle, Activity } from "lucide-react";
@@ -856,14 +857,9 @@ export function CFDClient() {
                       </Badge>
                     )}
                   </div>
-                  <Textarea
+                  <BlurTextarea
                     value={col.description ?? ""}
-                    onChange={(e) =>
-                      setColumnDescription(
-                        col.id,
-                        e.target.value.trim() ? e.target.value : undefined
-                      )
-                    }
+                    onCommit={(v) => setColumnDescription(col.id, v.trim() ? v : undefined)}
                     placeholder="Column purpose / definition (optional)..."
                     rows={2}
                     className="bg-surface border-border resize-none text-xs text-text"
@@ -987,13 +983,12 @@ export function CFDClient() {
                         ))}
                         {/* Compact single-line note input — dense table row. */}
                         <td className="py-2 px-3">
-                          <Input
-                            type="text"
+                          <BlurInput
                             placeholder="Optional note..."
                             value={entry.description ?? ""}
-                            onChange={(e) =>
+                            onCommit={(v) =>
                               updateEntry(entry.id, {
-                                description: e.target.value.trim() ? e.target.value : undefined,
+                                description: v.trim() ? v : undefined,
                               })
                             }
                             className="h-8 min-w-[140px] bg-surface-deep border-border text-text text-xs focus:border-accent/50"

@@ -27,7 +27,7 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
-import { Input } from "@/components/ui/input";
+import { BlurInput } from "@/components/shared/blur-fields";
 import { HeartPulse } from "lucide-react";
 
 /* -------------------------------------------------------------------------- */
@@ -53,12 +53,12 @@ type Trend = "up" | "same" | "down";
 const DIMENSION_COLORS: Record<Dimension, string> = {
   "Delivering Value": "#00f0ff",
   "Easy to Release": "#00ff88",
-  "Fun": "#ffaa00",
+  Fun: "#ffaa00",
   "Health of Codebase": "#ff00aa",
-  "Learning": "#8b5cf6",
-  "Mission": "#f97316",
-  "Speed": "#06b6d4",
-  "Teamwork": "#84cc16",
+  Learning: "#8b5cf6",
+  Mission: "#f97316",
+  Speed: "#06b6d4",
+  Teamwork: "#84cc16",
 };
 
 const SCORE_MAP: Record<TrafficLight, number> = { green: 2, yellow: 1, red: 0 };
@@ -119,8 +119,7 @@ const useHealthCheckStore = create<HealthCheckStore>()(
       current: DEFAULT_CURRENT,
       history: [],
 
-      setSprintName: (name) =>
-        set((s) => ({ current: { ...s.current, sprintName: name } })),
+      setSprintName: (name) => set((s) => ({ current: { ...s.current, sprintName: name } })),
 
       setLight: (dim, light) =>
         set((s) => ({
@@ -158,8 +157,7 @@ const useHealthCheckStore = create<HealthCheckStore>()(
         }));
       },
 
-      reset: () =>
-        set({ current: { ...DEFAULT_CURRENT, scores: defaultScores() }, history: [] }),
+      reset: () => set({ current: { ...DEFAULT_CURRENT, scores: defaultScores() }, history: [] }),
     }),
     { name: "agile-toolkit:health-check", storage: safeJSONStorage("health-check") }
   )
@@ -178,17 +176,8 @@ const TOOLTIP_STYLE = {
 
 function TrafficDot({ light }: { light: TrafficLight }) {
   const bg =
-    light === "green"
-      ? "bg-[#22c55e]"
-      : light === "yellow"
-      ? "bg-[#eab308]"
-      : "bg-[#ef4444]";
-  return (
-    <span
-      className={`inline-block w-4 h-4 rounded-full ${bg} shadow-sm`}
-      title={light}
-    />
-  );
+    light === "green" ? "bg-[#22c55e]" : light === "yellow" ? "bg-[#eab308]" : "bg-[#ef4444]";
+  return <span className={`inline-block w-4 h-4 rounded-full ${bg} shadow-sm`} title={light} />;
 }
 
 function TrafficButton({
@@ -200,17 +189,15 @@ function TrafficButton({
   light: TrafficLight;
   onClick: () => void;
 }) {
-  const emoji =
-    light === "green" ? "🟢" : light === "yellow" ? "🟡" : "🔴";
+  const emoji = light === "green" ? "🟢" : light === "yellow" ? "🟡" : "🔴";
   const label = light.charAt(0).toUpperCase() + light.slice(1);
-  const ring =
-    active
-      ? light === "green"
-        ? "ring-2 ring-[#22c55e]"
-        : light === "yellow"
+  const ring = active
+    ? light === "green"
+      ? "ring-2 ring-[#22c55e]"
+      : light === "yellow"
         ? "ring-2 ring-[#eab308]"
         : "ring-2 ring-[#ef4444]"
-      : "";
+    : "";
   return (
     <button
       onClick={onClick}
@@ -239,11 +226,7 @@ function TrendButton({
   const arrow = trend === "up" ? "↑" : trend === "same" ? "→" : "↓";
   const label = trend === "up" ? "Up" : trend === "same" ? "Same" : "Down";
   const color =
-    trend === "up"
-      ? "text-[#22c55e]"
-      : trend === "same"
-      ? "text-sub"
-      : "text-[#ef4444]";
+    trend === "up" ? "text-[#22c55e]" : trend === "same" ? "text-sub" : "text-[#ef4444]";
   return (
     <button
       onClick={onClick}
@@ -310,10 +293,13 @@ export function HealthCheckClient() {
       })
     )
   );
-  const promptConfig = useMemo(() => ({
-    toolName: "Team Health Check",
-    prompts: generateHealthCheckPrompts({ current, history }, workspace),
-  }), [current, history, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Team Health Check",
+      prompts: generateHealthCheckPrompts({ current, history }, workspace),
+    }),
+    [current, history, workspace]
+  );
 
   /* -- CSV export ---------------------------------------------------------- */
   const csvData = useMemo(() => {
@@ -354,8 +340,7 @@ export function HealthCheckClient() {
 
   /* -- Overall health for current check ------------------------------------ */
   const currentGreen = useMemo(
-    () =>
-      DIMENSIONS.filter((d) => current.scores[d]?.light === "green").length,
+    () => DIMENSIONS.filter((d) => current.scores[d]?.light === "green").length,
     [current.scores]
   );
   const currentHealth = Math.round((currentGreen / DIMENSIONS.length) * 100);
@@ -371,7 +356,6 @@ export function HealthCheckClient() {
       category="Team Health & Maturity"
     >
       <div className="space-y-6">
-
         {/* ---- Current Check ---- */}
         <SectionCard
           title="Current Check"
@@ -387,18 +371,14 @@ export function HealthCheckClient() {
                     currentHealth >= 75
                       ? "text-[#22c55e]"
                       : currentHealth >= 50
-                      ? "text-[#eab308]"
-                      : "text-[#ef4444]"
+                        ? "text-[#eab308]"
+                        : "text-[#ef4444]"
                   }`}
                 >
                   {currentHealth}%
                 </span>
               </div>
-              <Button
-                size="sm"
-                variant="toolkit"
-                onClick={saveCheck}
-              >
+              <Button size="sm" variant="toolkit" onClick={saveCheck}>
                 Save Check
               </Button>
             </>
@@ -407,12 +387,10 @@ export function HealthCheckClient() {
         >
           {/* Sprint name */}
           <div className="flex items-center gap-3">
-            <label className="text-sm text-sub w-24 shrink-0">
-              Sprint name
-            </label>
-            <Input
+            <label className="text-sm text-sub w-24 shrink-0">Sprint name</label>
+            <BlurInput
               value={current.sprintName}
-              onChange={(e) => setSprintName(e.target.value)}
+              onCommit={setSprintName}
               placeholder="e.g. Sprint 42"
               className="max-w-xs input-toolkit"
             />
@@ -482,10 +460,7 @@ export function HealthCheckClient() {
             actions={
               <>
                 <AiPromptGenerator config={promptConfig} />
-                <ExportButton
-                  filename="squad-health-check"
-                  csvData={csvData}
-                />
+                <ExportButton filename="squad-health-check" csvData={csvData} />
               </>
             }
           >
@@ -493,10 +468,7 @@ export function HealthCheckClient() {
               2 = Green &nbsp;·&nbsp; 1 = Yellow &nbsp;·&nbsp; 0 = Red
             </p>
             <ResponsiveContainer width="100%" height={360}>
-              <LineChart
-                data={chartData}
-                margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
-              >
+              <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                 <CartesianGrid
                   strokeDasharray="3 3"
                   stroke="rgba(255,255,255,0.06)"
@@ -511,18 +483,14 @@ export function HealthCheckClient() {
                 <YAxis
                   domain={[0, 2]}
                   ticks={[0, 1, 2]}
-                  tickFormatter={(v) =>
-                    v === 2 ? "Green" : v === 1 ? "Yellow" : "Red"
-                  }
+                  tickFormatter={(v) => (v === 2 ? "Green" : v === 1 ? "Yellow" : "Red")}
                   tick={{ fill: "#94a3b8", fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
                   width={56}
                 />
                 <Tooltip contentStyle={TOOLTIP_STYLE} />
-                <Legend
-                  wrapperStyle={{ paddingTop: "16px", color: "#94a3b8", fontSize: 11 }}
-                />
+                <Legend wrapperStyle={{ paddingTop: "16px", color: "#94a3b8", fontSize: 11 }} />
                 {DIMENSIONS.map((dim) => (
                   <Line
                     key={dim}
@@ -545,82 +513,76 @@ export function HealthCheckClient() {
             titleSize="lg"
             headerClassName="pb-4"
             actions={
-              <Button
-                variant="danger-ghost"
-                size="sm"
-                onClick={reset}
-              >
+              <Button variant="danger-ghost" size="sm" onClick={reset}>
                 Clear All
               </Button>
             }
           >
             <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3 pr-4 whitespace-nowrap">
-                        Sprint
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3 pr-4 whitespace-nowrap">
+                      Sprint
+                    </th>
+                    <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3 pr-4 whitespace-nowrap">
+                      Date
+                    </th>
+                    {DIMENSIONS.map((d) => (
+                      <th
+                        key={d}
+                        className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-3 px-2 whitespace-nowrap"
+                        title={d}
+                      >
+                        {d
+                          .split(" ")
+                          .map((w) => w[0])
+                          .join("")}
                       </th>
-                      <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3 pr-4 whitespace-nowrap">
-                        Date
-                      </th>
-                      {DIMENSIONS.map((d) => (
-                        <th
-                          key={d}
-                          className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-3 px-2 whitespace-nowrap"
-                          title={d}
-                        >
-                          {d.split(" ").map((w) => w[0]).join("")}
-                        </th>
-                      ))}
-                      <th className="text-right text-xs text-sub font-medium uppercase tracking-wider pb-3 pl-4 whitespace-nowrap">
-                        Health
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reversedHistory.map((h) => {
-                      const greens = DIMENSIONS.filter(
-                        (d) => h.scores?.[d]?.light === "green"
-                      ).length;
-                      const health = Math.round((greens / DIMENSIONS.length) * 100);
-                      return (
-                        <tr
-                          key={h.id}
-                          className="border-b border-border last:border-0 hover:bg-card"
-                        >
-                          <td className="py-3 pr-4 text-text font-medium whitespace-nowrap">
-                            {h.sprintName}
+                    ))}
+                    <th className="text-right text-xs text-sub font-medium uppercase tracking-wider pb-3 pl-4 whitespace-nowrap">
+                      Health
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reversedHistory.map((h) => {
+                    const greens = DIMENSIONS.filter(
+                      (d) => h.scores?.[d]?.light === "green"
+                    ).length;
+                    const health = Math.round((greens / DIMENSIONS.length) * 100);
+                    return (
+                      <tr key={h.id} className="border-b border-border last:border-0 hover:bg-card">
+                        <td className="py-3 pr-4 text-text font-medium whitespace-nowrap">
+                          {h.sprintName}
+                        </td>
+                        <td className="py-3 pr-4 text-sub whitespace-nowrap">{h.date}</td>
+                        {DIMENSIONS.map((d) => (
+                          <td key={d} className="py-3 px-2 text-center">
+                            <div className="flex justify-center">
+                              <TrafficDot light={h.scores?.[d]?.light ?? "green"} />
+                            </div>
                           </td>
-                          <td className="py-3 pr-4 text-sub whitespace-nowrap">
-                            {h.date}
-                          </td>
-                          {DIMENSIONS.map((d) => (
-                            <td key={d} className="py-3 px-2 text-center">
-                              <div className="flex justify-center">
-                                <TrafficDot light={h.scores?.[d]?.light ?? "green"} />
-                              </div>
-                            </td>
-                          ))}
-                          <td className="py-3 pl-4 text-right">
-                            <span
-                              className={`font-data font-semibold ${
-                                health >= 75
-                                  ? "text-[#22c55e]"
-                                  : health >= 50
+                        ))}
+                        <td className="py-3 pl-4 text-right">
+                          <span
+                            className={`font-data font-semibold ${
+                              health >= 75
+                                ? "text-[#22c55e]"
+                                : health >= 50
                                   ? "text-[#eab308]"
                                   : "text-[#ef4444]"
-                              }`}
-                            >
-                              {health}%
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                            }`}
+                          >
+                            {health}%
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </SectionCard>
         ) : (
           <Card className="bg-surface border-border">

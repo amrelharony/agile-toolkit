@@ -14,6 +14,7 @@ import { RACI_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { BlurInput } from "@/components/shared/blur-fields";
 import { Textarea } from "@/components/ui/textarea";
 import { SectionCard } from "@/components/shared/section-card";
 import {
@@ -23,13 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Grid3X3,
-  Plus,
-  Trash2,
-  AlertTriangle,
-  CheckCircle2,
-} from "lucide-react";
+import { Grid3X3, Plus, Trash2, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
@@ -102,10 +97,7 @@ const DEFAULT_ACTIVITIES: RACIActivity[] = [
   { id: "default:act-standup", name: "Daily Standup" },
 ];
 
-function buildDefaultMatrix(
-  activities: RACIActivity[],
-  roles: RACIRole[]
-): MatrixData {
+function buildDefaultMatrix(activities: RACIActivity[], roles: RACIRole[]): MatrixData {
   const m: MatrixData = {};
   for (const a of activities) {
     m[a.id] = {};
@@ -170,9 +162,7 @@ const useRACIStore = create<RACIStore>()(
       updateRoleDescription: (id, description) =>
         set((s) => ({
           roles: s.roles.map((r) =>
-            r.id === id
-              ? { ...r, description: description.trim() || undefined }
-              : r
+            r.id === id ? { ...r, description: description.trim() || undefined } : r
           ),
         })),
 
@@ -212,17 +202,13 @@ const useRACIStore = create<RACIStore>()(
 
       updateActivityName: (id, name) =>
         set((s) => ({
-          activities: s.activities.map((a) =>
-            a.id === id ? { ...a, name } : a
-          ),
+          activities: s.activities.map((a) => (a.id === id ? { ...a, name } : a)),
         })),
 
       updateActivityDescription: (id, description) =>
         set((s) => ({
           activities: s.activities.map((a) =>
-            a.id === id
-              ? { ...a, description: description.trim() || undefined }
-              : a
+            a.id === id ? { ...a, description: description.trim() || undefined } : a
           ),
         })),
 
@@ -317,17 +303,14 @@ function validateMatrix(
 /*  RACI Cell                                                                 */
 /* -------------------------------------------------------------------------- */
 
-function RACICell({
-  value,
-  onChange,
-}: {
-  value: RACIValue;
-  onChange: (v: RACIValue) => void;
-}) {
+function RACICell({ value, onChange }: { value: RACIValue; onChange: (v: RACIValue) => void }) {
   const color = value ? RACI_COLORS[value] : undefined;
 
   return (
-    <Select value={value || "empty"} onValueChange={(v) => onChange(v === "empty" ? "" : (v as RACIValue))}>
+    <Select
+      value={value || "empty"}
+      onValueChange={(v) => onChange(v === "empty" ? "" : (v as RACIValue))}
+    >
       <SelectTrigger
         className="h-10 w-full border-border bg-surface text-center justify-center focus:ring-accent/20"
         style={
@@ -341,10 +324,7 @@ function RACICell({
       >
         <SelectValue>
           {value ? (
-            <span
-              className="text-lg font-bold font-data"
-              style={{ color }}
-            >
+            <span className="text-lg font-bold font-data" style={{ color }}>
               {value}
             </span>
           ) : (
@@ -361,9 +341,7 @@ function RACICell({
             <span style={{ color: RACI_COLORS[letter] }} className="font-bold">
               {letter}
             </span>
-            <span className="ml-2 text-sub text-xs">
-              {RACI_LABELS[letter]}
-            </span>
+            <span className="ml-2 text-sub text-xs">{RACI_LABELS[letter]}</span>
           </SelectItem>
         ))}
       </SelectContent>
@@ -433,10 +411,7 @@ export function RACIClient() {
     [activities, roles, matrix]
   );
 
-  const issueActivityIds = useMemo(
-    () => new Set(issues.map((i) => i.activityId)),
-    [issues]
-  );
+  const issueActivityIds = useMemo(() => new Set(issues.map((i) => i.activityId)), [issues]);
 
   /* -- Export data --------------------------------------------------------- */
 
@@ -458,15 +433,11 @@ export function RACIClient() {
     const pad = (s: string, w: number) => s.padEnd(w);
     const sep = colWidths.map((w) => "-".repeat(w)).join(" | ");
     const headerLine = header.map((h, i) => pad(h, colWidths[i])).join(" | ");
-    const bodyLines = rows.map((r) =>
-      r.map((c, i) => pad(c, colWidths[i])).join(" | ")
-    );
+    const bodyLines = rows.map((r) => r.map((c, i) => pad(c, colWidths[i])).join(" | "));
 
     // Reference blocks listing every role/activity with its description so the
     // matrix labels alone don't strip context when pasted.
-    const roleLines = roles.map(
-      (r) => `  - ${r.name}${r.description ? `: ${r.description}` : ""}`
-    );
+    const roleLines = roles.map((r) => `  - ${r.name}${r.description ? `: ${r.description}` : ""}`);
     const activityLines = activities.map(
       (a) => `  - ${a.name}${a.description ? `: ${a.description}` : ""}`
     );
@@ -499,13 +470,25 @@ export function RACIClient() {
       if (roles.length > 0) {
         sidecarRows.push(["Role", "Description", ...Array(Math.max(0, roleColCount - 1)).fill("")]);
         for (const r of roles) {
-          sidecarRows.push([r.name, r.description ?? "", ...Array(Math.max(0, roleColCount - 1)).fill("")]);
+          sidecarRows.push([
+            r.name,
+            r.description ?? "",
+            ...Array(Math.max(0, roleColCount - 1)).fill(""),
+          ]);
         }
       }
       if (activities.length > 0) {
-        sidecarRows.push(["Activity", "Description", ...Array(Math.max(0, roleColCount - 1)).fill("")]);
+        sidecarRows.push([
+          "Activity",
+          "Description",
+          ...Array(Math.max(0, roleColCount - 1)).fill(""),
+        ]);
         for (const a of activities) {
-          sidecarRows.push([a.name, a.description ?? "", ...Array(Math.max(0, roleColCount - 1)).fill("")]);
+          sidecarRows.push([
+            a.name,
+            a.description ?? "",
+            ...Array(Math.max(0, roleColCount - 1)).fill(""),
+          ]);
         }
       }
     }
@@ -522,9 +505,7 @@ export function RACIClient() {
       activities: activities.map((a) => ({
         name: a.name,
         description: a.description ?? "",
-        assignments: Object.fromEntries(
-          roles.map((r) => [r.name, matrix[a.id]?.[r.id] || ""])
-        ),
+        assignments: Object.fromEntries(roles.map((r) => [r.name, matrix[a.id]?.[r.id] || ""])),
       })),
     }),
     [roles, activities, matrix]
@@ -533,18 +514,27 @@ export function RACIClient() {
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
-        teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-        impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-        decisions: s.decisions, techDebt: s.techDebt,
-        maturityLevel: s.maturityLevel, teamName: s.teamName,
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
       })
     )
   );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "RACI Matrix",
-    prompts: generateRACIPrompts({ roles, activities, matrix }, workspace),
-  }), [roles, activities, matrix, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "RACI Matrix",
+      prompts: generateRACIPrompts({ roles, activities, matrix }, workspace),
+    }),
+    [roles, activities, matrix, workspace]
+  );
 
   /* -- Render ------------------------------------------------------------- */
 
@@ -570,9 +560,7 @@ export function RACIClient() {
               >
                 {letter}
               </span>
-              <span className="text-sm text-sub">
-                {RACI_LABELS[letter]}
-              </span>
+              <span className="text-sm text-sub">{RACI_LABELS[letter]}</span>
             </div>
           ))}
         </div>
@@ -592,16 +580,12 @@ export function RACIClient() {
                   <div className="flex items-center gap-2 text-red-400">
                     <AlertTriangle className="w-4 h-4 flex-shrink-0" />
                     <span className="text-sm font-medium">
-                      {issues.length} validation{" "}
-                      {issues.length === 1 ? "issue" : "issues"}
+                      {issues.length} validation {issues.length === 1 ? "issue" : "issues"}
                     </span>
                   </div>
                   <ul className="space-y-1 pl-6">
                     {issues.map((issue, i) => (
-                      <li
-                        key={i}
-                        className="text-xs text-red-300/80 list-disc"
-                      >
+                      <li key={i} className="text-xs text-red-300/80 list-disc">
                         {issue.message}
                       </li>
                     ))}
@@ -635,290 +619,253 @@ export function RACIClient() {
                 jsonData={jsonData}
                 targetRef={exportRef}
               />
-              <Button
-                variant="danger-ghost"
-                size="sm"
-                onClick={reset}
-              >
+              <Button variant="danger-ghost" size="sm" onClick={reset}>
                 Reset
               </Button>
             </>
           }
         >
           {/* ── Mobile card view (< md / 768px) ───────────────────────── */}
-            {/* The table needs ≥ 500 px to be readable; on phones we stack
+          {/* The table needs ≥ 500 px to be readable; on phones we stack
                 each activity into a card with role-by-role rows. Same data,
                 same callbacks — only the visual layout changes. */}
-            <div className="md:hidden space-y-3">
-              {activities.map((activity) => {
-                const hasIssue = issueActivityIds.has(activity.id);
-                return (
-                  <div
-                    key={activity.id}
-                    className={`rounded-lg border bg-surface-deep p-3 space-y-2 ${
-                      hasIssue ? "border-red-500/50" : "border-border"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <EditableName
-                        value={activity.name}
-                        onChange={(name) =>
-                          updateActivityName(activity.id, name)
-                        }
-                        className="flex-1 font-medium text-text"
-                      />
-                      {activities.length > 1 && (
+          <div className="md:hidden space-y-3">
+            {activities.map((activity) => {
+              const hasIssue = issueActivityIds.has(activity.id);
+              return (
+                <div
+                  key={activity.id}
+                  className={`rounded-lg border bg-surface-deep p-3 space-y-2 ${
+                    hasIssue ? "border-red-500/50" : "border-border"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <EditableName
+                      value={activity.name}
+                      onChange={(name) => updateActivityName(activity.id, name)}
+                      className="flex-1 font-medium text-text"
+                    />
+                    {activities.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeActivity(activity.id)}
+                        className="btn-danger-ghost min-touch -m-2 p-2 rounded flex-shrink-0"
+                        aria-label={`Remove activity ${activity.name}`}
+                      >
+                        <Trash2 className="w-4 h-4" aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                  {/* Optional description for this activity. Empty trims to
+                        undefined in the store updater. */}
+                  <Textarea
+                    value={activity.description ?? ""}
+                    onChange={(e) => updateActivityDescription(activity.id, e.target.value)}
+                    placeholder="Description (optional)..."
+                    rows={2}
+                    className="bg-surface border-border resize-none text-xs"
+                    aria-label={`Description for activity ${activity.name}`}
+                  />
+                  <div className="grid grid-cols-1 xs:grid-cols-2 gap-2">
+                    {roles.map((role) => (
+                      <div
+                        key={role.id}
+                        className="flex items-center gap-2 rounded-md bg-[var(--bg2)] px-2 py-1.5 border border-border"
+                      >
+                        <span className="text-xs text-sub font-medium truncate flex-1">
+                          {role.name}
+                        </span>
+                        <RACICell
+                          value={matrix[activity.id]?.[role.id] || ""}
+                          onChange={(v) => setCellValue(activity.id, role.id, v)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button variant="outline" size="sm" onClick={addActivity} className="gap-1.5 flex-1">
+                <Plus className="w-4 h-4" aria-hidden="true" />
+                Add activity
+              </Button>
+              <Button variant="outline" size="sm" onClick={addRole} className="gap-1.5 flex-1">
+                <Plus className="w-4 h-4" aria-hidden="true" />
+                Add role
+              </Button>
+            </div>
+            {roles.length > 1 && (
+              <details className="text-xs text-sub mt-2">
+                <summary className="cursor-pointer hover:text-text min-touch py-2 inline-block">
+                  Manage roles ({roles.length})
+                </summary>
+                <ul className="mt-2 space-y-2 pl-1">
+                  {roles.map((role) => (
+                    <li
+                      key={role.id}
+                      className="rounded-md border border-border bg-[var(--bg2)] px-2 py-1.5 space-y-1"
+                    >
+                      <div className="flex items-center gap-2">
+                        <EditableName
+                          value={role.name}
+                          onChange={(name) => updateRoleName(role.id, name)}
+                          className="flex-1 font-medium text-text"
+                        />
                         <button
                           type="button"
-                          onClick={() => removeActivity(activity.id)}
+                          onClick={() => removeRole(role.id)}
                           className="btn-danger-ghost min-touch -m-2 p-2 rounded flex-shrink-0"
-                          aria-label={`Remove activity ${activity.name}`}
+                          aria-label={`Remove role ${role.name}`}
                         >
-                          <Trash2 className="w-4 h-4" aria-hidden="true" />
+                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                         </button>
-                      )}
-                    </div>
-                    {/* Optional description for this activity. Empty trims to
-                        undefined in the store updater. */}
-                    <Textarea
-                      value={activity.description ?? ""}
-                      onChange={(e) =>
-                        updateActivityDescription(activity.id, e.target.value)
-                      }
-                      placeholder="Description (optional)..."
-                      rows={2}
-                      className="bg-surface border-border resize-none text-xs"
-                      aria-label={`Description for activity ${activity.name}`}
-                    />
-                    <div className="grid grid-cols-1 xs:grid-cols-2 gap-2">
-                      {roles.map((role) => (
-                        <div
-                          key={role.id}
-                          className="flex items-center gap-2 rounded-md bg-[var(--bg2)] px-2 py-1.5 border border-border"
-                        >
-                          <span className="text-xs text-sub font-medium truncate flex-1">
-                            {role.name}
-                          </span>
-                          <RACICell
-                            value={matrix[activity.id]?.[role.id] || ""}
-                            onChange={(v) =>
-                              setCellValue(activity.id, role.id, v)
-                            }
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-              <div className="flex flex-wrap gap-2 pt-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={addActivity}
-                  className="gap-1.5 flex-1"
-                >
-                  <Plus className="w-4 h-4" aria-hidden="true" />
-                  Add activity
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={addRole}
-                  className="gap-1.5 flex-1"
-                >
-                  <Plus className="w-4 h-4" aria-hidden="true" />
-                  Add role
-                </Button>
-              </div>
-              {roles.length > 1 && (
-                <details className="text-xs text-sub mt-2">
-                  <summary className="cursor-pointer hover:text-text min-touch py-2 inline-block">
-                    Manage roles ({roles.length})
-                  </summary>
-                  <ul className="mt-2 space-y-2 pl-1">
-                    {roles.map((role) => (
-                      <li
-                        key={role.id}
-                        className="rounded-md border border-border bg-[var(--bg2)] px-2 py-1.5 space-y-1"
-                      >
-                        <div className="flex items-center gap-2">
-                          <EditableName
-                            value={role.name}
-                            onChange={(name) => updateRoleName(role.id, name)}
-                            className="flex-1 font-medium text-text"
-                          />
+                      </div>
+                      {/* Compact single-line description input — keeps the
+                            roles list dense; empty trims to undefined. */}
+                      <Input
+                        value={role.description ?? ""}
+                        onChange={(e) => updateRoleDescription(role.id, e.target.value)}
+                        placeholder="Description (optional)..."
+                        className="h-7 text-xs bg-surface border-border"
+                        aria-label={`Description for role ${role.name}`}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
+
+          {/* ── Desktop matrix view (md+) ─────────────────────────────── */}
+          <div className="hidden md:block table-wrap-responsive">
+            <table className="w-full border-collapse min-w-[500px]">
+              <thead>
+                <tr>
+                  {/* Top-left corner */}
+                  <th className="bg-surface-deep border border-border p-2 text-left text-xs text-sub font-medium uppercase tracking-wider min-w-[160px]">
+                    Activity / Role
+                  </th>
+                  {roles.map((role) => (
+                    <th
+                      key={role.id}
+                      className="bg-surface-deep border border-border p-2 min-w-[120px]"
+                      title={role.description || undefined}
+                    >
+                      <div className="flex items-center gap-1">
+                        <EditableName
+                          value={role.name}
+                          onChange={(name) => updateRoleName(role.id, name)}
+                          className="flex-1 font-bold text-text"
+                        />
+                        {roles.length > 1 && (
                           <button
                             type="button"
                             onClick={() => removeRole(role.id)}
-                            className="btn-danger-ghost min-touch -m-2 p-2 rounded flex-shrink-0"
-                            aria-label={`Remove role ${role.name}`}
+                            className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
+                            title="Remove role"
                           >
-                            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                        </div>
-                        {/* Compact single-line description input — keeps the
-                            roles list dense; empty trims to undefined. */}
-                        <Input
-                          value={role.description ?? ""}
-                          onChange={(e) =>
-                            updateRoleDescription(role.id, e.target.value)
-                          }
-                          placeholder="Description (optional)..."
-                          className="h-7 text-xs bg-surface border-border"
-                          aria-label={`Description for role ${role.name}`}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-            </div>
-
-            {/* ── Desktop matrix view (md+) ─────────────────────────────── */}
-            <div className="hidden md:block table-wrap-responsive">
-              <table className="w-full border-collapse min-w-[500px]">
-                <thead>
-                  <tr>
-                    {/* Top-left corner */}
-                    <th className="bg-surface-deep border border-border p-2 text-left text-xs text-sub font-medium uppercase tracking-wider min-w-[160px]">
-                      Activity / Role
+                        )}
+                      </div>
+                      {/* Compact one-line description input directly under the
+                            role name. Stays optional; trims to undefined in store. */}
+                      <BlurInput
+                        value={role.description ?? ""}
+                        onCommit={(v) => updateRoleDescription(role.id, v)}
+                        placeholder="Description (optional)..."
+                        className="mt-1 h-6 text-[11px] bg-surface border-border"
+                        aria-label={`Description for role ${role.name}`}
+                      />
                     </th>
-                    {roles.map((role) => (
-                      <th
-                        key={role.id}
-                        className="bg-surface-deep border border-border p-2 min-w-[120px]"
-                        title={role.description || undefined}
+                  ))}
+                  <th className="bg-surface-deep border border-border p-2 w-10">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={addRole}
+                      className="min-touch-coarse h-7 w-7 text-accent hover:bg-accent/10"
+                      title="Add role"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {activities.map((activity) => {
+                  const hasIssue = issueActivityIds.has(activity.id);
+                  return (
+                    <tr key={activity.id}>
+                      <td
+                        className={`border p-2 bg-surface-deep ${
+                          hasIssue ? "border-red-500/50" : "border-border"
+                        }`}
+                        title={activity.description || undefined}
                       >
                         <div className="flex items-center gap-1">
                           <EditableName
-                            value={role.name}
-                            onChange={(name) => updateRoleName(role.id, name)}
-                            className="flex-1 font-bold text-text"
+                            value={activity.name}
+                            onChange={(name) => updateActivityName(activity.id, name)}
+                            className="flex-1 font-medium text-text"
                           />
-                          {roles.length > 1 && (
+                          {activities.length > 1 && (
                             <button
                               type="button"
-                              onClick={() => removeRole(role.id)}
+                              onClick={() => removeActivity(activity.id)}
                               className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
-                              title="Remove role"
+                              title="Remove activity"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>
-                        {/* Compact one-line description input directly under the
-                            role name. Stays optional; trims to undefined in store. */}
-                        <Input
-                          value={role.description ?? ""}
-                          onChange={(e) =>
-                            updateRoleDescription(role.id, e.target.value)
-                          }
+                        {/* Compact one-line description for this activity.
+                              Empty trims to undefined in the store updater. */}
+                        <BlurInput
+                          value={activity.description ?? ""}
+                          onCommit={(v) => updateActivityDescription(activity.id, v)}
                           placeholder="Description (optional)..."
                           className="mt-1 h-6 text-[11px] bg-surface border-border"
-                          aria-label={`Description for role ${role.name}`}
+                          aria-label={`Description for activity ${activity.name}`}
                         />
-                      </th>
-                    ))}
-                    <th className="bg-surface-deep border border-border p-2 w-10">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={addRole}
-                        className="min-touch-coarse h-7 w-7 text-accent hover:bg-accent/10"
-                        title="Add role"
-                      >
-                        <Plus className="w-4 h-4" />
-                      </Button>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activities.map((activity) => {
-                    const hasIssue = issueActivityIds.has(activity.id);
-                    return (
-                      <tr key={activity.id}>
+                      </td>
+                      {roles.map((role) => (
                         <td
-                          className={`border p-2 bg-surface-deep ${
-                            hasIssue
-                              ? "border-red-500/50"
-                              : "border-border"
+                          key={role.id}
+                          className={`border p-1.5 ${
+                            hasIssue ? "border-red-500/50" : "border-border"
                           }`}
-                          title={activity.description || undefined}
                         >
-                          <div className="flex items-center gap-1">
-                            <EditableName
-                              value={activity.name}
-                              onChange={(name) =>
-                                updateActivityName(activity.id, name)
-                              }
-                              className="flex-1 font-medium text-text"
-                            />
-                            {activities.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => removeActivity(activity.id)}
-                                className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
-                                title="Remove activity"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                          {/* Compact one-line description for this activity.
-                              Empty trims to undefined in the store updater. */}
-                          <Input
-                            value={activity.description ?? ""}
-                            onChange={(e) =>
-                              updateActivityDescription(activity.id, e.target.value)
-                            }
-                            placeholder="Description (optional)..."
-                            className="mt-1 h-6 text-[11px] bg-surface border-border"
-                            aria-label={`Description for activity ${activity.name}`}
+                          <RACICell
+                            value={matrix[activity.id]?.[role.id] || ""}
+                            onChange={(v) => setCellValue(activity.id, role.id, v)}
                           />
                         </td>
-                        {roles.map((role) => (
-                          <td
-                            key={role.id}
-                            className={`border p-1.5 ${
-                              hasIssue
-                                ? "border-red-500/50"
-                                : "border-border"
-                            }`}
-                          >
-                            <RACICell
-                              value={matrix[activity.id]?.[role.id] || ""}
-                              onChange={(v) =>
-                                setCellValue(activity.id, role.id, v)
-                              }
-                            />
-                          </td>
-                        ))}
-                        <td className="border border-border p-1.5" />
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td
-                      className="border border-border p-2"
-                      colSpan={roles.length + 2}
+                      ))}
+                      <td className="border border-border p-1.5" />
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td className="border border-border p-2" colSpan={roles.length + 2}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={addActivity}
+                      className="gap-1.5 text-accent hover:bg-accent/10"
                     >
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={addActivity}
-                        className="gap-1.5 text-accent hover:bg-accent/10"
-                      >
-                        <Plus className="w-4 h-4" />
-                        Add Activity
-                      </Button>
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+                      <Plus className="w-4 h-4" />
+                      Add Activity
+                    </Button>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </SectionCard>
       </div>
     </ToolPageWrapper>
