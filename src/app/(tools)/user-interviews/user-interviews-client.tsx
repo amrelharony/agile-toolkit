@@ -8,7 +8,6 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Quote, Plus, Trash2, Hash } from "lucide-react";
 import { generateUserInterviewsPrompts } from "@/lib/ai-prompts/user-interviews";
@@ -329,10 +328,10 @@ export function UserInterviewsClient() {
                   </div>
                   {active.quotes.map((q) => (
                     <div key={q.id} className="rounded-md border border-border bg-bg p-2 space-y-2">
-                      <Textarea
+                      <BlurTextarea
                         rows={2}
                         value={q.text}
-                        onChange={(e) => updateQuote(active.id, q.id, { text: e.target.value })}
+                        onCommit={(v) => updateQuote(active.id, q.id, { text: v })}
                         placeholder='"..."'
                         className="bg-surface border-border text-sm"
                       />

@@ -373,9 +373,9 @@ export function PiPlanningClient() {
                 <td className="align-top">
                   <Card className="bg-surface border-border">
                     <CardContent className="p-2 space-y-1">
-                      <Input
+                      <BlurInput
                         value={team.name}
-                        onChange={(e) => updateTeam(team.id, { name: e.target.value })}
+                        onCommit={(v) => updateTeam(team.id, { name: v })}
                         className="bg-bg border-border text-sm h-8"
                       />
                       {team.description && (
