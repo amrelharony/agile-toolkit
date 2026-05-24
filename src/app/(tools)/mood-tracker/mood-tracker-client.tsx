@@ -152,6 +152,19 @@ export function MoodTrackerClient() {
       return [...e, { id: nanoid(8), memberId, date: today, score, note }];
     });
     logEvent(MOOD_ACTIONS.MOOD_LOGGED, { memberId, score, date: today, note });
+    // BUG-T5-mood-tracker-2: clear the local note draft after the
+    // log lands so a subsequent blur() of the textarea doesn't fire
+    // commitNote with the same draft and overwrite the entry (or in
+    // pathological double-invoke paths, race the just-merged note
+    // field). Match-by-(memberId,date) inside the updater already
+    // prevents duplicates; the draft clear closes the remaining
+    // window where commitNote and log queue at the same task.
+    setNoteDrafts((d) => {
+      if (d[memberId] === undefined) return d;
+      const next = { ...d };
+      delete next[memberId];
+      return next;
+    });
   };
 
   const updateNote = (memberId: string, note: string) => {

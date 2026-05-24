@@ -137,10 +137,7 @@ function todayISO(): string {
 }
 
 export function DesignSprintClient() {
-  const [state, setState] = usePersisted<State>(
-    "agile-toolkit:design-sprint",
-    DEFAULT_STATE
-  );
+  const [state, setState] = usePersisted<State>("agile-toolkit:design-sprint", DEFAULT_STATE);
   const [newSprintName, setNewSprintName] = useState("");
   const [newSprintDate, setNewSprintDate] = useState(todayISO());
   const [newSprintDesc, setNewSprintDesc] = useState("");
@@ -177,9 +174,7 @@ export function DesignSprintClient() {
     // Validate the start date — type="date" accepts an empty string when the
     // user clears the field, and a hand-crafted shared link could push an
     // out-of-format string straight into the persisted store.
-    const startDate = /^\d{4}-\d{2}-\d{2}$/.test(newSprintDate)
-      ? newSprintDate
-      : todayISO();
+    const startDate = /^\d{4}-\d{2}-\d{2}$/.test(newSprintDate) ? newSprintDate : todayISO();
     const sprint: Sprint = {
       id: newId(),
       name,
@@ -202,9 +197,7 @@ export function DesignSprintClient() {
   const completeSprint = () => {
     if (!state.sprint) return;
     const completedAt = new Date().toISOString();
-    setState((s) =>
-      s.sprint ? { sprint: { ...s.sprint, completedAt } } : s
-    );
+    setState((s) => (s.sprint ? { sprint: { ...s.sprint, completedAt } } : s));
     log(DESIGN_SPRINT_ACTIONS.SPRINT_COMPLETED, {
       sprintId: state.sprint.id,
       name: state.sprint.name,
@@ -222,9 +215,7 @@ export function DesignSprintClient() {
   };
 
   const setCurrentDay = (d: DayNumber) => {
-    setState((s) =>
-      s.sprint ? { sprint: { ...s.sprint, currentDay: d } } : s
-    );
+    setState((s) => (s.sprint ? { sprint: { ...s.sprint, currentDay: d } } : s));
   };
 
   const toggleTask = (dayNum: DayNumber, taskId: string) => {
@@ -256,7 +247,7 @@ export function DesignSprintClient() {
                     finalDone = !t.done;
                     return { ...t, done: finalDone };
                   }),
-                },
+                }
           ),
         },
       };
@@ -286,9 +277,7 @@ export function DesignSprintClient() {
                   ? d
                   : {
                       ...d,
-                      tasks: d.tasks.map((t) =>
-                        t.id !== taskId ? t : { ...t, owner }
-                      ),
+                      tasks: d.tasks.map((t) => (t.id !== taskId ? t : { ...t, owner })),
                     }
               ),
             },
@@ -316,9 +305,7 @@ export function DesignSprintClient() {
             sprint: {
               ...s.sprint,
               days: s.sprint.days.map((d) =>
-                d.day !== dayNum
-                  ? d
-                  : { ...d, tasks: [...d.tasks, { id, text, done: false }] }
+                d.day !== dayNum ? d : { ...d, tasks: [...d.tasks, { id, text, done: false }] }
               ),
             },
           }
@@ -334,9 +321,7 @@ export function DesignSprintClient() {
             sprint: {
               ...s.sprint,
               days: s.sprint.days.map((d) =>
-                d.day !== dayNum
-                  ? d
-                  : { ...d, tasks: d.tasks.filter((t) => t.id !== taskId) }
+                d.day !== dayNum ? d : { ...d, tasks: d.tasks.filter((t) => t.id !== taskId) }
               ),
             },
           }
@@ -356,9 +341,7 @@ export function DesignSprintClient() {
             sprint: {
               ...s.sprint,
               days: s.sprint.days.map((d) =>
-                d.day !== dayNum
-                  ? d
-                  : { ...d, artifacts: [...d.artifacts, a] }
+                d.day !== dayNum ? d : { ...d, artifacts: [...d.artifacts, a] }
               ),
             },
           }
@@ -395,26 +378,19 @@ export function DesignSprintClient() {
   const commitDecider = () => {
     const decider = deciderDraft.trim() || undefined;
     if (!state.sprint || decider === state.sprint.decider) return;
-    setState((s) =>
-      s.sprint ? { sprint: { ...s.sprint, decider } } : s
-    );
+    setState((s) => (s.sprint ? { sprint: { ...s.sprint, decider } } : s));
   };
   const commitFacilitator = () => {
     const facilitator = facilitatorDraft.trim() || undefined;
     if (!state.sprint || facilitator === state.sprint.facilitator) return;
-    setState((s) =>
-      s.sprint ? { sprint: { ...s.sprint, facilitator } } : s
-    );
+    setState((s) => (s.sprint ? { sprint: { ...s.sprint, facilitator } } : s));
   };
 
   const stats = useMemo(() => {
     if (!state.sprint) {
       return { total: 0, done: 0, pct: 0, daysLeft: 0 };
     }
-    const total = state.sprint.days.reduce(
-      (acc, d) => acc + d.tasks.length,
-      0
-    );
+    const total = state.sprint.days.reduce((acc, d) => acc + d.tasks.length, 0);
     const done = state.sprint.days.reduce(
       (acc, d) => acc + d.tasks.filter((t) => t.done).length,
       0
@@ -513,14 +489,7 @@ export function DesignSprintClient() {
         <ExportButton
           filename={`design-sprint-${state.sprint.name.replace(/\W+/g, "-")}`}
           csvData={{
-            headers: [
-              "Sprint Description",
-              "Day",
-              "Phase",
-              "Task",
-              "Done",
-              "Owner",
-            ],
+            headers: ["Sprint Description", "Day", "Phase", "Task", "Done", "Owner"],
             rows: state.sprint.days.flatMap((d) =>
               d.tasks.map((t) => [
                 (state.sprint?.description ?? "").replace(/\r?\n/g, " "),
@@ -580,20 +549,13 @@ export function DesignSprintClient() {
       <Card className="bg-surface border-border mb-6">
         <CardContent className="p-4 space-y-3">
           <div className="flex flex-wrap items-baseline gap-2">
-            <div className="text-base font-semibold text-text">
-              {state.sprint.name}
-            </div>
-            <Badge
-              variant="outline"
-              className="text-[10px] bg-bg border-border text-sub"
-            >
+            <div className="text-base font-semibold text-text">{state.sprint.name}</div>
+            <Badge variant="outline" className="text-[10px] bg-bg border-border text-sub">
               Started {state.sprint.startDate}
             </Badge>
           </div>
           {state.sprint.description && (
-            <div className="text-xs text-sub whitespace-pre-wrap">
-              {state.sprint.description}
-            </div>
+            <div className="text-xs text-sub whitespace-pre-wrap">{state.sprint.description}</div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             <Input
@@ -623,9 +585,7 @@ export function DesignSprintClient() {
           const taskPct =
             d.tasks.length === 0
               ? 0
-              : Math.round(
-                  (d.tasks.filter((t) => t.done).length / d.tasks.length) * 100
-                );
+              : Math.round((d.tasks.filter((t) => t.done).length / d.tasks.length) * 100);
           return (
             <button
               key={d.day}
@@ -637,9 +597,7 @@ export function DesignSprintClient() {
                   : "border-border bg-surface hover:border-accent/30"
               }`}
             >
-              <div className="text-[10px] uppercase tracking-wider text-sub">
-                Day {d.day}
-              </div>
+              <div className="text-[10px] uppercase tracking-wider text-sub">Day {d.day}</div>
               <div className="text-sm font-semibold text-text">{d.dayName}</div>
               <div className="text-xs text-sub font-data">{taskPct}% done</div>
             </button>
@@ -649,8 +607,8 @@ export function DesignSprintClient() {
 
       {state.sprint.completedAt && (
         <CalloutAlert tone="success" className="mb-4">
-          <strong>Sprint completed</strong> on{" "}
-          {new Date(state.sprint.completedAt).toLocaleString()}.
+          <strong>Sprint completed</strong> on {new Date(state.sprint.completedAt).toLocaleString()}
+          .
         </CalloutAlert>
       )}
 
@@ -669,9 +627,7 @@ export function DesignSprintClient() {
 
               {/* Task list */}
               <div className="space-y-2">
-                <div className="text-xs uppercase tracking-wider text-sub font-semibold">
-                  Tasks
-                </div>
+                <div className="text-xs uppercase tracking-wider text-sub font-semibold">Tasks</div>
                 {day.tasks.length === 0 ? (
                   <div className="text-xs text-sub italic">No tasks yet.</div>
                 ) : (
@@ -702,11 +658,7 @@ export function DesignSprintClient() {
                       <Select
                         value={t.owner ?? "__OWNER_NONE__"}
                         onValueChange={(v) =>
-                          setTaskOwner(
-                            day.day,
-                            t.id,
-                            v === "__OWNER_NONE__" ? "" : v
-                          )
+                          setTaskOwner(day.day, t.id, v === "__OWNER_NONE__" ? "" : v)
                         }
                       >
                         <SelectTrigger
@@ -717,13 +669,33 @@ export function DesignSprintClient() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="__OWNER_NONE__">No owner</SelectItem>
-                          {[state.sprint!.decider, state.sprint!.facilitator]
-                            .filter((n): n is string => Boolean(n))
-                            .map((n) => (
-                              <SelectItem key={n} value={n}>
-                                {n}
+                          {/* BUG-T2-daci-2: dedupe so decider == facilitator
+                              doesn't render two SelectItems with the same key
+                              (Radix silently drops the dup; React also warns). */}
+                          {Array.from(
+                            new Set(
+                              [state.sprint!.decider, state.sprint!.facilitator].filter(
+                                (n): n is string => Boolean(n)
+                              )
+                            )
+                          ).map((n) => (
+                            <SelectItem key={n} value={n}>
+                              {n}
+                            </SelectItem>
+                          ))}
+                          {/* BUG-T2-design-sprint-2: surface orphaned
+                              owners — task owner stored as a name that
+                              no longer matches decider/facilitator
+                              after rename. Render the orphan name as
+                              a selectable item with a "(orphaned)"
+                              tag so the user can see + reassign. */}
+                          {t.owner &&
+                            t.owner !== state.sprint!.decider &&
+                            t.owner !== state.sprint!.facilitator && (
+                              <SelectItem key={`__orphan__${t.owner}`} value={t.owner}>
+                                {t.owner} (no longer on team)
                               </SelectItem>
-                            ))}
+                            )}
                         </SelectContent>
                       </Select>
                       <Button
@@ -742,9 +714,7 @@ export function DesignSprintClient() {
                 <div className="flex gap-2 pt-1">
                   <Input
                     value={newTaskText[day.day]}
-                    onChange={(e) =>
-                      setNewTaskText((p) => ({ ...p, [day.day]: e.target.value }))
-                    }
+                    onChange={(e) => setNewTaskText((p) => ({ ...p, [day.day]: e.target.value }))}
                     onKeyDown={(e) => e.key === "Enter" && addTask(day.day)}
                     placeholder="Add task..."
                     className="bg-bg border-border text-sm"
@@ -766,16 +736,11 @@ export function DesignSprintClient() {
                   Artifacts
                 </div>
                 {day.artifacts.length === 0 ? (
-                  <div className="text-xs text-sub italic">
-                    No artifacts logged yet.
-                  </div>
+                  <div className="text-xs text-sub italic">No artifacts logged yet.</div>
                 ) : (
                   <ul className="space-y-1">
                     {day.artifacts.map((a, i) => (
-                      <li
-                        key={`${day.day}-art-${i}`}
-                        className="flex items-center gap-2 text-xs"
-                      >
+                      <li key={`${day.day}-art-${i}`} className="flex items-center gap-2 text-xs">
                         <span className="flex-1 text-text break-all">{a}</span>
                         <Button
                           type="button"
@@ -829,10 +794,7 @@ export function DesignSprintClient() {
               <span className="opacity-50">·</span>
               Facilitator: <span className="text-text">{state.sprint.facilitator ?? "—"}</span>
             </div>
-            <Button
-              onClick={completeSprint}
-              className="gap-2 bg-accent text-bg hover:bg-accent/90"
-            >
+            <Button onClick={completeSprint} className="gap-2 bg-accent text-bg hover:bg-accent/90">
               <Trophy className="w-4 h-4" />
               Complete sprint
             </Button>

@@ -103,8 +103,8 @@ export function useCanvasUndoStack(activeBoardId: string | null) {
     // Stash current state for redo BEFORE applying the previous.
     const cur = deepCloneSlice(
       (useWorkspaceStore.getState().whiteboardObjects ?? []).filter(
-        (o) => o.boardId === activeBoardId,
-      ),
+        (o) => o.boardId === activeBoardId
+      )
     );
     redoStack.current.push(cur);
     applyBoardSlice(activeBoardId, previous);
@@ -115,8 +115,8 @@ export function useCanvasUndoStack(activeBoardId: string | null) {
     const next = redoStack.current.pop()!;
     const cur = deepCloneSlice(
       (useWorkspaceStore.getState().whiteboardObjects ?? []).filter(
-        (o) => o.boardId === activeBoardId,
-      ),
+        (o) => o.boardId === activeBoardId
+      )
     );
     undoStack.current.push(cur);
     applyBoardSlice(activeBoardId, next);
@@ -131,33 +131,29 @@ export function useCanvasUndoStack(activeBoardId: string | null) {
 /**
  * Replace the active board's slice of whiteboardObjects with the given
  * snapshot. Other boards' objects stay untouched.
+ *
+ * BUG-T1-canvas-5: use the atomic `replaceBoardWhiteboardObjects`
+ * action so the restore is ONE setState (one subscriber wave, one
+ * realtime broadcast) instead of the prior remove-then-upsert pair
+ * that flickered on peers and split the React render into two passes.
  */
 function applyBoardSlice(boardId: string, slice: WhiteboardObject[]) {
   const store = useWorkspaceStore.getState();
   const all = store.whiteboardObjects ?? [];
-  const otherBoards = all.filter((o) => o.boardId !== boardId);
-  // Deep-clone the snapshot before applying. The stack might hand us the
-  // exact same array reference more than once (push→undo→redo→undo), so
-  // upserting raw stack objects would let any subsequent edit on the
-  // workspace store retroactively mutate the cached snapshot.
-  const cloned = typeof structuredClone === "function"
-    ? structuredClone(slice)
-    : (JSON.parse(JSON.stringify(slice)) as WhiteboardObject[]);
-  const snapshotIds = new Set(cloned.map((o) => o.id));
-  // Remove any objects on this board that aren't in the snapshot.
+  // Deep-clone the snapshot before applying. The stack might hand us
+  // the exact same array reference more than once
+  // (push→undo→redo→undo), so storing raw stack objects would let any
+  // subsequent edit on the workspace store retroactively mutate the
+  // cached snapshot.
+  const cloned =
+    typeof structuredClone === "function"
+      ? structuredClone(slice)
+      : (JSON.parse(JSON.stringify(slice)) as WhiteboardObject[]);
+  // Version-bump anchored to live-max so concurrent peer broadcasts
+  // can't override the restore under LWW.
   const currentOnBoard = all.filter((o) => o.boardId === boardId);
   const currentById = new Map<string, WhiteboardObject>();
   for (const o of currentOnBoard) currentById.set(o.id, o);
-  const toRemove = currentOnBoard.map((o) => o.id).filter((id) => !snapshotIds.has(id));
-  if (toRemove.length > 0) store.removeWhiteboardObjects(toRemove);
-  // Upsert the snapshot, version-bumped against the MAX of:
-  //   - the snapshot's own stored version (so successive undos keep
-  //     monotonically incrementing)
-  //   - the current local object's version (so peers' high versions
-  //     received via realtime drift-recovery don't override our undo
-  //     under LWW the moment we restore)
-  // This anchors the restore to the live local max, which already
-  // incorporates any peer broadcasts processed before the undo.
   const now = new Date().toISOString();
   const bumped = cloned.map((o) => {
     const live = currentById.get(o.id);
@@ -165,8 +161,5 @@ function applyBoardSlice(boardId: string, slice: WhiteboardObject[]) {
     const baseVersion = Math.max(o.version, liveVersion);
     return { ...o, version: baseVersion + 1, updatedAt: now };
   });
-  if (bumped.length > 0) store.upsertWhiteboardObjects(bumped);
-  // otherBoards reference is held just to silence the unused lint; the
-  // store's filter-by-id semantics already preserve them.
-  void otherBoards;
+  store.replaceBoardWhiteboardObjects(boardId, bumped);
 }

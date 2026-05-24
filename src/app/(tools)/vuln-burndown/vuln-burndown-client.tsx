@@ -224,6 +224,17 @@ export function VulnBurndownClient() {
     [state.vulns]
   );
 
+  // BUG-T9-vuln-burndown-3: separately count vulns that were ACCEPTED
+  // (risk-acknowledged, no fix) but are now ≥2× past their SLA target.
+  // Surfacing this prevents accepted vulns from aging silently forever
+  // when the original acceptance assumed a much shorter exposure
+  // window than what actually transpired.
+  const acceptedStale = useMemo(
+    () =>
+      state.vulns.filter((v) => v.status === "accepted" && ageDays(v) > v.slaTargetDays * 2).length,
+    [state.vulns]
+  );
+
   const avgResolveDays = useMemo<number | null>(() => {
     const resolved = state.vulns.filter((v) => v.status === "resolved" && v.resolvedAt);
     if (resolved.length === 0) return null;
@@ -412,6 +423,18 @@ export function VulnBurndownClient() {
           value={criticalHigh}
           tone={criticalHigh > 0 ? "warning" : "default"}
         />
+        {/* BUG-T9-vuln-burndown-3: surface accepted-past-SLA so a
+            risk acceptance doesn't quietly age past the original
+            assumption (2× the SLA target days). */}
+        {acceptedStale > 0 && (
+          <StatCard
+            variant="compact"
+            icon={AlertTriangle}
+            label="Accepted, past 2× SLA"
+            value={acceptedStale}
+            tone="warning"
+          />
+        )}
       </KpiGrid>
 
       <SectionCard title="Log a vulnerability" icon={Bug} className="mb-6 bg-surface border-border">

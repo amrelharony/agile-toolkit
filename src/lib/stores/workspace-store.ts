@@ -122,6 +122,14 @@ interface WorkspaceActions {
   removeWhiteboard: (id: string) => void;
   upsertWhiteboardObject: (x: WhiteboardObject) => void;
   upsertWhiteboardObjects: (xs: WhiteboardObject[]) => void;
+  /**
+   * BUG-T1-canvas-5: atomic per-board replace — drops objects on the
+   * named board that aren't in `next` AND upserts `next` in a SINGLE
+   * setState call. The prior pattern (removeWhiteboardObjects then
+   * upsertWhiteboardObjects) broadcast two realtime events with a
+   * flicker between, and split-rendered for every store subscriber.
+   */
+  replaceBoardWhiteboardObjects: (boardId: string, next: WhiteboardObject[]) => void;
   removeWhiteboardObject: (id: string) => void;
   removeWhiteboardObjects: (ids: string[]) => void;
   upsertWhiteboardCommentThread: (x: WhiteboardCommentThread) => void;
@@ -745,6 +753,15 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           const map = new Map(list.map((o) => [o.id, o]));
           for (const x of xs) map.set(x.id, x);
           return { whiteboardObjects: Array.from(map.values()) };
+        }),
+      // BUG-T1-canvas-5: atomic board-level replace. Keeps objects
+      // belonging to OTHER boards untouched; replaces this board's
+      // slice with `next`. Single setState → single subscriber wave,
+      // single realtime broadcast — no inter-write flicker on peers.
+      replaceBoardWhiteboardObjects: (boardId, next) =>
+        set((s) => {
+          const others = (s.whiteboardObjects ?? []).filter((o) => o.boardId !== boardId);
+          return { whiteboardObjects: [...others, ...next] };
         }),
       removeWhiteboardObject: (id) =>
         set((s) => {

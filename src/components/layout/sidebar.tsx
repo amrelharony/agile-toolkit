@@ -6,11 +6,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { categories, getToolsByCategory, type ToolCategory } from "@/lib/constants/tools";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronLeft, History, Activity } from "lucide-react";
 import { useSwipeToClose } from "@/hooks/use-swipe-to-close";
@@ -135,16 +131,34 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  // Lock body scroll while the mobile drawer is open.
+  // BUG-C2: counter-based body-scroll lock. The prior pattern
+  // snapshotted `document.body.style.overflow` on open and restored
+  // it on close — but Radix dialogs/sheets ALSO mutate body.overflow
+  // for their own scroll-lock. A sidebar→dialog→close-sidebar sequence
+  // would have the sidebar's cleanup restore the pre-sidebar "", then
+  // the dialog's later restore writes the wrong cached value. Use a
+  // shared counter on window so every scroll-lock owner adds/removes
+  // a refcount, and the live lock state is `count > 0`.
   useEffect(() => {
     if (typeof document === "undefined") return;
-    if (mobileOpen) {
-      const prev = document.body.style.overflow;
+    if (!mobileOpen) return;
+    type W = Window & {
+      __scrollLockCount?: number;
+      __scrollLockPrev?: string;
+    };
+    const w = window as W;
+    if ((w.__scrollLockCount ?? 0) === 0) {
+      w.__scrollLockPrev = document.body.style.overflow;
       document.body.style.overflow = "hidden";
-      return () => {
-        document.body.style.overflow = prev;
-      };
     }
+    w.__scrollLockCount = (w.__scrollLockCount ?? 0) + 1;
+    return () => {
+      w.__scrollLockCount = Math.max(0, (w.__scrollLockCount ?? 1) - 1);
+      if (w.__scrollLockCount === 0) {
+        document.body.style.overflow = w.__scrollLockPrev ?? "";
+        delete w.__scrollLockPrev;
+      }
+    };
   }, [mobileOpen]);
 
   // Escape key closes the mobile drawer.
@@ -156,6 +170,73 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [mobileOpen, onClose]);
+
+  // BUG-C3: mobile drawer focus management. On open, capture the
+  // trigger (whatever was focused before — the hamburger button) and
+  // move focus into the drawer. While the drawer is open, trap Tab
+  // inside it. On close, restore focus to the original trigger.
+  // Without this, keyboard / SR users tab past the drawer into the
+  // backdrop DOM, and closing leaves focus on `<body>` (WCAG 2.4.3
+  // failure).
+  useEffect(() => {
+    if (!mobileOpen) return;
+    if (typeof document === "undefined") return;
+    const aside = asideRef.current;
+    if (!aside) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    // Defer one frame so the drawer is painted before we move focus,
+    // matching the focus-trap hook's convention.
+    const raf = requestAnimationFrame(() => {
+      const focusable = aside.querySelectorAll<HTMLElement>(
+        'a[href],button:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex="-1"])'
+      );
+      const first = focusable[0];
+      if (first) first.focus();
+      else {
+        aside.setAttribute("tabindex", "-1");
+        aside.focus();
+      }
+    });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const focusable = Array.from(
+        aside.querySelectorAll<HTMLElement>(
+          'a[href],button:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((el) => el.offsetParent !== null);
+      if (focusable.length === 0) {
+        e.preventDefault();
+        aside.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (active === first || !aside.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (active === last || !aside.contains(active)) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener("keydown", onKey, true);
+      if (
+        previouslyFocused &&
+        document.contains(previouslyFocused) &&
+        typeof previouslyFocused.focus === "function"
+      ) {
+        previouslyFocused.focus();
+      }
+    };
+  }, [mobileOpen]);
 
   return (
     <>
@@ -272,9 +353,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                     )}
                     aria-hidden="true"
                   />
-                  {expanded && (
-                    <span className="truncate font-medium">{label}</span>
-                  )}
+                  {expanded && <span className="truncate font-medium">{label}</span>}
                   {isActive && (
                     <div
                       className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-accent shadow-[0_0_8px_var(--glow)]"
@@ -393,9 +472,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                         />
                         {expanded && (
                           <>
-                            <span className="truncate relative z-[1] font-medium">
-                              {tool.name}
-                            </span>
+                            <span className="truncate relative z-[1] font-medium">{tool.name}</span>
                             {tool.badge && (
                               <Badge
                                 variant="outline"

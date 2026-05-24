@@ -2,11 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Volume2, VolumeX, Sparkles } from "lucide-react";
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-} from "@/components/ui/popover";
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { useSonificationStore } from "@/lib/stores/sonification-store";
@@ -62,6 +58,20 @@ export function SonificationToggle() {
     setOpen((v) => !v);
   };
 
+  // BUG-C6: keyboard reach for the settings popover. Right-click is
+  // mouse-only; without this handler keyboard users can never open
+  // the volume/mode/test-sound popover. Bind to Shift+Enter so the
+  // primary Enter still toggles audio on/off and the secondary
+  // action stays discoverable from the tooltip ("Audio on — right-
+  // click or Shift+Enter for settings").
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.key === "Enter" || e.key === " ") && e.shiftKey) {
+      e.preventDefault();
+      kick();
+      setOpen((v) => !v);
+    }
+  };
+
   const handleTestSound = () => {
     kick();
     emit("ui", "toast-success");
@@ -70,10 +80,10 @@ export function SonificationToggle() {
   const tooltip = !mounted
     ? undefined
     : enabled
-    ? respectReducedMotion && reducedMotion
-      ? "Audio silenced (reduced motion)"
-      : "Audio on — right-click for settings"
-    : "Audio off — click to enable";
+      ? respectReducedMotion && reducedMotion
+        ? "Audio silenced (reduced motion)"
+        : "Audio on — right-click or Shift+Enter for settings"
+      : "Audio off — click to enable";
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -82,6 +92,7 @@ export function SonificationToggle() {
           type="button"
           onClick={handleClick}
           onContextMenu={handleContextMenu}
+          onKeyDown={handleKeyDown}
           data-no-sound="true"
           title={tooltip}
           className={cn(
@@ -98,36 +109,39 @@ export function SonificationToggle() {
           {!mounted ? (
             <div className="w-4 h-4" />
           ) : enabled ? (
-            <Volume2 className={cn("w-4 h-4", reducedMotion && respectReducedMotion && "opacity-40")} />
+            <Volume2
+              className={cn("w-4 h-4", reducedMotion && respectReducedMotion && "opacity-40")}
+            />
           ) : (
             <VolumeX className="w-4 h-4" />
           )}
         </button>
       </PopoverAnchor>
-      <PopoverContent
-        align="end"
-        className="w-72 bg-surface border-border p-4 space-y-4"
-      >
+      <PopoverContent align="end" className="w-72 bg-surface border-border p-4 space-y-4">
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-accent" />
           <span className="text-sm font-semibold text-text">Sonification</span>
         </div>
 
         <div className="flex items-center justify-between gap-3">
-          <label htmlFor="sonification-enabled" className="text-xs text-sub">Enabled</label>
-          <Switch id="sonification-enabled" checked={enabled} onCheckedChange={(v) => {
-            kick();
-            useSonificationStore.getState().setEnabled(v);
-            if (v) setTimeout(() => emit("ui", "confirm"), 30);
-          }} />
+          <label htmlFor="sonification-enabled" className="text-xs text-sub">
+            Enabled
+          </label>
+          <Switch
+            id="sonification-enabled"
+            checked={enabled}
+            onCheckedChange={(v) => {
+              kick();
+              useSonificationStore.getState().setEnabled(v);
+              if (v) setTimeout(() => emit("ui", "confirm"), 30);
+            }}
+          />
         </div>
 
         <div>
           <div className="flex items-center justify-between text-xs text-sub mb-2">
             <span>Volume</span>
-            <span className="font-data text-text">
-              {Math.round(masterVolume * 100)}%
-            </span>
+            <span className="font-data text-text">{Math.round(masterVolume * 100)}%</span>
           </div>
           <Slider
             value={[Math.round(masterVolume * 100)]}
@@ -168,15 +182,10 @@ export function SonificationToggle() {
           <div className="min-w-0">
             <div className="text-xs text-text">Respect reduced motion</div>
             <div className="text-[10px] text-sub">
-              {reducedMotion
-                ? "System requests reduced motion"
-                : "System allows animations"}
+              {reducedMotion ? "System requests reduced motion" : "System allows animations"}
             </div>
           </div>
-          <Switch
-            checked={respectReducedMotion}
-            onCheckedChange={setRespectReducedMotion}
-          />
+          <Switch checked={respectReducedMotion} onCheckedChange={setRespectReducedMotion} />
         </div>
 
         <button

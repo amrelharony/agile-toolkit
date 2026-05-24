@@ -114,13 +114,17 @@ const useStandupStore = create<StandupStore>()(
               entries: [...s.entries, { ...entry, id: crypto.randomUUID(), timestamp: Date.now() }],
             };
           }
-          // Preserve the original id so blocker resolution / history references
-          // stay valid; refresh the timestamp to mark the latest update.
+          // BUG-T8-standup-3: PRESERVE the original `timestamp` (the
+          // moment the blocker was raised). The prior pattern refreshed
+          // it on every edit, which flipped the Blockers tab's age
+          // color back to green and silently reset blocker-age
+          // analytics. If we want an updated-at marker, add a separate
+          // `updatedAt` field rather than reusing the raise timestamp.
           const next = s.entries.slice();
           next[idx] = {
             ...entry,
             id: s.entries[idx].id,
-            timestamp: Date.now(),
+            timestamp: s.entries[idx].timestamp,
           };
           return { entries: next };
         }),
