@@ -285,7 +285,7 @@ export function ImportModal({ boardId, onClose }: Props) {
       onClick={onClose}
     >
       <div
-        className="relative bg-surface border border-border rounded-xl p-6 max-w-2xl w-[92vw]"
+        className="relative bg-surface border border-border rounded-xl p-6 max-w-2xl w-[92vw] max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <button
