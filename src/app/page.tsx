@@ -19,7 +19,8 @@ export default function Home() {
     return categories
       .map((category) => {
         let list = getToolsByCategory(category);
-        if (activeFilter === "smart") list = list.filter((t) => (t.analyticsFeatures?.length ?? 0) > 0);
+        if (activeFilter === "smart")
+          list = list.filter((t) => (t.analyticsFeatures?.length ?? 0) > 0);
         if (activeFilter === "live") list = list.filter((t) => t.isRealtime);
         return { category, tools: list };
       })
@@ -189,6 +190,7 @@ export default function Home() {
               return (
                 <ToolCard
                   key={tool.id}
+                  toolId={tool.id}
                   href={tool.path}
                   icon={<Icon className="w-5 h-5" aria-hidden="true" />}
                   title={tool.name}

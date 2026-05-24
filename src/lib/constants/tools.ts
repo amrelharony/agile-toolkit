@@ -170,8 +170,8 @@ export interface PredictionSpec {
 /** Causal-annotation hints declared on the tool — drive chart overlays. */
 export interface CausalAnnotationSpec {
   /** Where to source data from — paired with the cross-correlation engine. */
-  source: string;       // e.g., "impediments.raised"
-  target: string;       // e.g., "velocity.changed"
+  source: string; // e.g., "impediments.raised"
+  target: string; // e.g., "velocity.changed"
   /** Optional max lag in days for the cross-correlation lookup. */
   maxLagDays?: number;
 }
@@ -264,7 +264,8 @@ export const tools: ToolDefinition[] = [
     id: "capacity-planner",
     code: "A2",
     name: "Sprint Capacity Planner",
-    description: "Calculate actual sprint capacity from team availability, holidays, and ceremony overhead",
+    description:
+      "Calculate actual sprint capacity from team availability, holidays, and ceremony overhead",
     category: "Sprint Planning & Estimation",
     path: "/capacity-planner",
     icon: Calculator,
@@ -278,7 +279,10 @@ export const tools: ToolDefinition[] = [
       { field: "pointsCommitted", description: "Bayesian forecast across completed sprints" },
     ],
     crossToolSubscriptions: [
-      { kinds: ["sprint.completed", "velocity.changed"], reason: "commitment recommendation refreshes on velocity changes" },
+      {
+        kinds: ["sprint.completed", "velocity.changed"],
+        reason: "commitment recommendation refreshes on velocity changes",
+      },
     ],
   },
   {
@@ -354,11 +358,12 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["monte-carlo", "forecast"],
     analyticsTier: 1,
-    predictedDefaults: [
-      { field: "sprintsToRelease", description: "Total scope ÷ avg velocity" },
-    ],
+    predictedDefaults: [{ field: "sprintsToRelease", description: "Total scope ÷ avg velocity" }],
     crossToolSubscriptions: [
-      { kinds: ["sprint.completed", "story.statusChanged"], reason: "release projection refreshes on velocity + scope changes" },
+      {
+        kinds: ["sprint.completed", "story.statusChanged"],
+        reason: "release projection refreshes on velocity + scope changes",
+      },
     ],
   },
 
@@ -367,7 +372,8 @@ export const tools: ToolDefinition[] = [
     id: "burndown",
     code: "B1",
     name: "Burndown Generator",
-    description: "Interactive burndown chart with ideal line, actual line, and scope change markers",
+    description:
+      "Interactive burndown chart with ideal line, actual line, and scope change markers",
     category: "Metrics & Dashboards",
     path: "/burndown",
     icon: BarChart3,
@@ -381,14 +387,18 @@ export const tools: ToolDefinition[] = [
       { field: "idealSlope", description: "Mean burn-rate from prior completed sprints" },
     ],
     crossToolSubscriptions: [
-      { kinds: ["sprint.completed", "sprint.started"], reason: "config refresh on sprint lifecycle" },
+      {
+        kinds: ["sprint.completed", "sprint.started"],
+        reason: "config refresh on sprint lifecycle",
+      },
     ],
   },
   {
     id: "burnup",
     code: "B2",
     name: "Burnup Generator",
-    description: "Burnup chart showing total scope vs. completed work with scope creep visualization",
+    description:
+      "Burnup chart showing total scope vs. completed work with scope creep visualization",
     category: "Metrics & Dashboards",
     path: "/burnup",
     icon: BarChart2,
@@ -399,7 +409,10 @@ export const tools: ToolDefinition[] = [
     analyticsFeatures: ["forecast", "anomaly"],
     analyticsTier: 1,
     crossToolSubscriptions: [
-      { kinds: ["sprint.completed", "sprint.started"], reason: "config refresh on sprint lifecycle" },
+      {
+        kinds: ["sprint.completed", "sprint.started"],
+        reason: "config refresh on sprint lifecycle",
+      },
     ],
   },
   {
@@ -420,7 +433,10 @@ export const tools: ToolDefinition[] = [
       { field: "nextSprintPlan", description: "Bayesian forecast over completed sprints" },
     ],
     crossToolSubscriptions: [
-      { kinds: ["impediment.raised", "impediment.resolved"], reason: "blockers correlate with velocity" },
+      {
+        kinds: ["impediment.raised", "impediment.resolved"],
+        reason: "blockers correlate with velocity",
+      },
     ],
   },
   {
@@ -455,9 +471,7 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["anomaly"],
     analyticsTier: 1,
-    predictedDefaults: [
-      { field: "sleTargetDays", description: "P85 of historical cycle times" },
-    ],
+    predictedDefaults: [{ field: "sleTargetDays", description: "P85 of historical cycle times" }],
     crossToolSubscriptions: [
       { kinds: ["story.statusChanged"], reason: "refresh on story status flow" },
     ],
@@ -549,7 +563,10 @@ export const tools: ToolDefinition[] = [
     analyticsFeatures: ["survival"],
     analyticsTier: 2,
     crossToolSubscriptions: [
-      { kinds: ["impediment.raised", "impediment.resolved"], reason: "blocker activity during standup window" },
+      {
+        kinds: ["impediment.raised", "impediment.resolved"],
+        reason: "blocker activity during standup window",
+      },
     ],
   },
   {
@@ -573,7 +590,8 @@ export const tools: ToolDefinition[] = [
     id: "ceremony-timer",
     code: "C4",
     name: "Ceremony Timer",
-    description: "Smart timeboxing with presets, visual countdown, sound alerts, and rotation timing",
+    description:
+      "Smart timeboxing with presets, visual countdown, sound alerts, and rotation timing",
     category: "Ceremonies",
     path: "/ceremony-timer",
     icon: Timer,
@@ -706,7 +724,8 @@ export const tools: ToolDefinition[] = [
     id: "pi-planning",
     code: "A8",
     name: "PI Planning Board",
-    description: "SAFe Program Increment board with teams × iterations, dependencies, and capacity forecasting",
+    description:
+      "SAFe Program Increment board with teams × iterations, dependencies, and capacity forecasting",
     category: "Portfolio & Scaling",
     path: "/pi-planning",
     icon: CalendarRange,
@@ -735,7 +754,10 @@ export const tools: ToolDefinition[] = [
     analyticsFeatures: ["forecast"],
     analyticsTier: 2,
     crossToolSubscriptions: [
-      { kinds: ["sprint.completed", "okr.kr.updated"], reason: "epic progress depends on sprint outcomes + OKR shifts" },
+      {
+        kinds: ["sprint.completed", "okr.kr.updated"],
+        reason: "epic progress depends on sprint outcomes + OKR shifts",
+      },
     ],
   },
   {
@@ -834,7 +856,8 @@ export const tools: ToolDefinition[] = [
     id: "premortem",
     code: "C8",
     name: "Premortem Facilitator",
-    description: "\"Imagine this project failed\" workshop — rank causes, convert to preventive actions",
+    description:
+      '"Imagine this project failed" workshop — rank causes, convert to preventive actions',
     category: "Risk & Governance",
     path: "/premortem",
     icon: ScrollText,
@@ -912,9 +935,7 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["forecast", "anomaly"],
     analyticsTier: 1,
-    predictedDefaults: [
-      { field: "wipLimit", description: "120% of current in-progress count" },
-    ],
+    predictedDefaults: [{ field: "wipLimit", description: "120% of current in-progress count" }],
     crossToolSubscriptions: [
       { kinds: ["story.statusChanged"], reason: "rebalance WIP recommendations on story flow" },
     ],
@@ -934,7 +955,10 @@ export const tools: ToolDefinition[] = [
     analyticsFeatures: ["anti-pattern"],
     analyticsTier: 2,
     crossToolSubscriptions: [
-      { kinds: ["impediment.raised", "story.statusChanged"], reason: "dependencies surface when blockers + story flow change" },
+      {
+        kinds: ["impediment.raised", "story.statusChanged"],
+        reason: "dependencies surface when blockers + story flow change",
+      },
     ],
   },
   {
@@ -952,7 +976,10 @@ export const tools: ToolDefinition[] = [
     analyticsFeatures: ["anomaly"],
     analyticsTier: 2,
     crossToolSubscriptions: [
-      { kinds: ["story.statusChanged"], reason: "lead-time and flow-efficiency reflect story flow" },
+      {
+        kinds: ["story.statusChanged"],
+        reason: "lead-time and flow-efficiency reflect story flow",
+      },
     ],
   },
 
@@ -971,8 +998,15 @@ export const tools: ToolDefinition[] = [
     usesWorkspace: true,
     analyticsFeatures: ["forecast"],
     analyticsTier: 1,
-    predictedDefaults: [{ field: "krTargetExtrapolation", description: "Mean target across prior KRs" }],
-    crossToolSubscriptions: [{ kinds: ["okr.kr.updated", "risk.opened"], reason: "OKR confidence shifts on KR updates and new risks" }],
+    predictedDefaults: [
+      { field: "krTargetExtrapolation", description: "Mean target across prior KRs" },
+    ],
+    crossToolSubscriptions: [
+      {
+        kinds: ["okr.kr.updated", "risk.opened"],
+        reason: "OKR confidence shifts on KR updates and new risks",
+      },
+    ],
   },
   {
     id: "nps-csat",
@@ -988,7 +1022,10 @@ export const tools: ToolDefinition[] = [
     analyticsFeatures: ["anomaly"],
     analyticsTier: 2,
     crossToolSubscriptions: [
-      { kinds: ["techDebt.added", "incident.opened"], reason: "NPS/CSAT swings link to product friction" },
+      {
+        kinds: ["techDebt.added", "incident.opened"],
+        reason: "NPS/CSAT swings link to product friction",
+      },
     ],
   },
   {
@@ -1006,7 +1043,10 @@ export const tools: ToolDefinition[] = [
     analyticsFeatures: ["anti-pattern"],
     analyticsTier: 2,
     crossToolSubscriptions: [
-      { kinds: ["impediment.raised", "sprint.completed"], reason: "mood tracks blockers + sprint outcomes" },
+      {
+        kinds: ["impediment.raised", "sprint.completed"],
+        reason: "mood tracks blockers + sprint outcomes",
+      },
     ],
   },
 
@@ -1015,7 +1055,8 @@ export const tools: ToolDefinition[] = [
     id: "dora-scorecard",
     code: "J1",
     name: "DORA Scorecard",
-    description: "Manual-input dashboard for the 4 DORA keys with quarterly trend and Elite/High/Medium/Low banding",
+    description:
+      "Manual-input dashboard for the 4 DORA keys with quarterly trend and Elite/High/Medium/Low banding",
     category: "Engineering Excellence",
     path: "/dora-scorecard",
     icon: Activity,
@@ -1026,14 +1067,22 @@ export const tools: ToolDefinition[] = [
     analyticsFeatures: ["forecast", "anomaly"],
     audience: "engineering-leader",
     analyticsTier: 1,
-    predictedDefaults: [{ field: "deploysPerWeekTarget", description: "DORA High/Elite threshold" }],
-    crossToolSubscriptions: [{ kinds: ["deploy.recorded", "incident.opened"], reason: "DORA metrics react to deploys + incidents" }],
+    predictedDefaults: [
+      { field: "deploysPerWeekTarget", description: "DORA High/Elite threshold" },
+    ],
+    crossToolSubscriptions: [
+      {
+        kinds: ["deploy.recorded", "incident.opened"],
+        reason: "DORA metrics react to deploys + incidents",
+      },
+    ],
   },
   {
     id: "space-pulse",
     code: "J2",
     name: "SPACE Pulse",
-    description: "Quarterly self-rated SPACE survey across satisfaction, performance, activity, communication, efficiency",
+    description:
+      "Quarterly self-rated SPACE survey across satisfaction, performance, activity, communication, efficiency",
     category: "Engineering Excellence",
     path: "/space-pulse",
     icon: Compass,
@@ -1049,7 +1098,8 @@ export const tools: ToolDefinition[] = [
     id: "devex-survey",
     code: "J3",
     name: "DevEx Survey",
-    description: "Lightweight developer-experience survey covering flow state, feedback loops, and cognitive load",
+    description:
+      "Lightweight developer-experience survey covering flow state, feedback loops, and cognitive load",
     category: "Engineering Excellence",
     path: "/devex-survey",
     icon: Smile,
@@ -1065,7 +1115,8 @@ export const tools: ToolDefinition[] = [
     id: "slo-builder",
     code: "J4",
     name: "SLO & Error Budget Builder",
-    description: "Define SLI/SLO targets and calculate error-budget burn rate over a rolling window",
+    description:
+      "Define SLI/SLO targets and calculate error-budget burn rate over a rolling window",
     category: "Engineering Excellence",
     path: "/slo-builder",
     icon: Target,
@@ -1077,7 +1128,9 @@ export const tools: ToolDefinition[] = [
     audience: "engineering-leader",
     analyticsTier: 1,
     predictedDefaults: [{ field: "errorBudgetMinutes", description: "99.9% over 30 days" }],
-    crossToolSubscriptions: [{ kinds: ["incident.opened", "incident.resolved"], reason: "SLO burn driven by incidents" }],
+    crossToolSubscriptions: [
+      { kinds: ["incident.opened", "incident.resolved"], reason: "SLO burn driven by incidents" },
+    ],
   },
   {
     id: "platform-maturity",
@@ -1100,7 +1153,8 @@ export const tools: ToolDefinition[] = [
     id: "incident-commander",
     code: "K1",
     name: "Incident Commander",
-    description: "Live-incident scaffolding with severity matrix, comms templates, role assignments, and timeline log",
+    description:
+      "Live-incident scaffolding with severity matrix, comms templates, role assignments, and timeline log",
     category: "Incidents & Reliability",
     path: "/incident-commander",
     icon: Siren,
@@ -1119,7 +1173,8 @@ export const tools: ToolDefinition[] = [
     id: "post-mortem",
     code: "K2",
     name: "Blameless Post-Mortem",
-    description: "Structured post-mortem with timeline, contributing factors, and action items — distinct from sprint retro",
+    description:
+      "Structured post-mortem with timeline, contributing factors, and action items — distinct from sprint retro",
     category: "Incidents & Reliability",
     path: "/post-mortem",
     icon: ScrollText,
@@ -1149,9 +1204,7 @@ export const tools: ToolDefinition[] = [
     analyticsFeatures: ["anti-pattern"],
     audience: "engineering-leader",
     analyticsTier: 2,
-    predictedDefaults: [
-      { field: "expectedPagesPerWeek", description: "Default oncall load" },
-    ],
+    predictedDefaults: [{ field: "expectedPagesPerWeek", description: "Default oncall load" }],
     crossToolSubscriptions: [
       { kinds: ["incident.opened"], reason: "paging volume tied to incident frequency" },
     ],
@@ -1160,7 +1213,8 @@ export const tools: ToolDefinition[] = [
     id: "release-readiness",
     code: "K4",
     name: "Release Readiness Checklist",
-    description: "Pre-release gates across a11y, perf, observability, and rollback with per-release pass rate",
+    description:
+      "Pre-release gates across a11y, perf, observability, and rollback with per-release pass rate",
     category: "Incidents & Reliability",
     path: "/release-readiness",
     icon: Rocket,
@@ -1179,7 +1233,8 @@ export const tools: ToolDefinition[] = [
     id: "runbook-scorer",
     code: "K5",
     name: "Runbook Maturity Scorer",
-    description: "Score each runbook on freshness, completeness, and tested-status with a team-wide hygiene index",
+    description:
+      "Score each runbook on freshness, completeness, and tested-status with a team-wide hygiene index",
     category: "Incidents & Reliability",
     path: "/runbook-scorer",
     icon: BookOpen,
@@ -1274,7 +1329,8 @@ export const tools: ToolDefinition[] = [
     id: "test-pyramid",
     code: "M1",
     name: "Test Pyramid Analyzer",
-    description: "Visualize unit/integration/e2e test split, flag inverted shapes, and surface cost-of-quality ratio",
+    description:
+      "Visualize unit/integration/e2e test split, flag inverted shapes, and surface cost-of-quality ratio",
     category: "Quality Engineering",
     path: "/test-pyramid",
     icon: Triangle,
@@ -1289,7 +1345,8 @@ export const tools: ToolDefinition[] = [
     id: "flaky-tests",
     code: "M2",
     name: "Flaky Test Scoreboard",
-    description: "Manual log of flaky tests with quarantine status, failure rate, and owner — drives triage rituals",
+    description:
+      "Manual log of flaky tests with quarantine status, failure rate, and owner — drives triage rituals",
     category: "Quality Engineering",
     path: "/flaky-tests",
     icon: AlertOctagon,
@@ -1327,7 +1384,8 @@ export const tools: ToolDefinition[] = [
     id: "quality-cost",
     code: "M4",
     name: "Cost of Quality Calculator",
-    description: "Trade-off calculator across prevention, detection, and failure costs — a teaching tool",
+    description:
+      "Trade-off calculator across prevention, detection, and failure costs — a teaching tool",
     category: "Quality Engineering",
     path: "/quality-cost",
     icon: BarChart,
@@ -1343,7 +1401,8 @@ export const tools: ToolDefinition[] = [
     id: "working-agreement",
     code: "N1",
     name: "Working Agreement Builder",
-    description: "Team charter wizard for norms, communication, and decision rules with adoption check-ins",
+    description:
+      "Team charter wizard for norms, communication, and decision rules with adoption check-ins",
     category: "Workshops & Facilitation",
     path: "/working-agreement",
     icon: Handshake,
@@ -1358,7 +1417,8 @@ export const tools: ToolDefinition[] = [
     id: "liberating-structures",
     code: "N2",
     name: "Liberating Structures Picker",
-    description: "Filterable catalog of 33 LS micro-structures with timing and group-size matchmaker",
+    description:
+      "Filterable catalog of 33 LS micro-structures with timing and group-size matchmaker",
     category: "Workshops & Facilitation",
     path: "/liberating-structures",
     icon: Sparkles,
@@ -1420,7 +1480,7 @@ export const tools: ToolDefinition[] = [
     id: "jtbd-mapper",
     code: "A13",
     name: "Job Story Mapper",
-    description: "\"When ___ I want ___ so I can ___\" job-story builder linked to opportunities",
+    description: '"When ___ I want ___ so I can ___" job-story builder linked to opportunities',
     category: "Sprint Planning & Estimation",
     path: "/jtbd-mapper",
     icon: User,
@@ -1484,7 +1544,8 @@ export const tools: ToolDefinition[] = [
     id: "tech-radar",
     code: "D14",
     name: "Tech Radar",
-    description: "Thoughtworks-style adopt/trial/assess/hold quadrants for languages, frameworks, and tools",
+    description:
+      "Thoughtworks-style adopt/trial/assess/hold quadrants for languages, frameworks, and tools",
     category: "Team Health & Maturity",
     path: "/tech-radar",
     icon: Compass,
@@ -1546,7 +1607,8 @@ export const tools: ToolDefinition[] = [
     id: "adkar",
     code: "I5",
     name: "ADKAR Change Tracker",
-    description: "Awareness/Desire/Knowledge/Ability/Reinforcement progression per change initiative",
+    description:
+      "Awareness/Desire/Knowledge/Ability/Reinforcement progression per change initiative",
     category: "Outcomes & Pulse",
     path: "/adkar",
     icon: ArrowRight,
@@ -1584,7 +1646,8 @@ export const tools: ToolDefinition[] = [
     id: "llm-eval-tracker",
     code: "AI1",
     name: "LLM Eval Tracker",
-    description: "Time-series of eval scores across releases (accuracy, faithfulness, relevance) per prompt + dataset",
+    description:
+      "Time-series of eval scores across releases (accuracy, faithfulness, relevance) per prompt + dataset",
     category: "AI / LLM Product Management",
     path: "/llm-eval-tracker",
     icon: Brain,
@@ -1596,13 +1659,16 @@ export const tools: ToolDefinition[] = [
     audience: "engineering-leader",
     analyticsTier: 1,
     predictedDefaults: [{ field: "passThreshold", description: "Mean of last 5 eval pass rates" }],
-    crossToolSubscriptions: [{ kinds: ["model.upgraded"], reason: "eval scores re-baseline on model upgrade" }],
+    crossToolSubscriptions: [
+      { kinds: ["model.upgraded"], reason: "eval scores re-baseline on model upgrade" },
+    ],
   },
   {
     id: "prompt-registry",
     code: "AI2",
     name: "Prompt Registry",
-    description: "Git-style versioning of prompts with branch/commit/approve and per-version eval-delta tracking",
+    description:
+      "Git-style versioning of prompts with branch/commit/approve and per-version eval-delta tracking",
     category: "AI / LLM Product Management",
     path: "/prompt-registry",
     icon: GitMerge,
@@ -1613,13 +1679,16 @@ export const tools: ToolDefinition[] = [
     analyticsFeatures: ["anomaly"],
     audience: "engineering-leader",
     analyticsTier: 2,
-    crossToolSubscriptions: [{ kinds: ["llmEval.recorded"], reason: "tag versions with eval scores when they land" }],
+    crossToolSubscriptions: [
+      { kinds: ["llmEval.recorded"], reason: "tag versions with eval scores when they land" },
+    ],
   },
   {
     id: "ai-feature-spec",
     code: "AI3",
     name: "AI Feature Spec",
-    description: "PRD variant for AI features: model choice, eval criteria, fallback, latency budget, hallucination tolerance",
+    description:
+      "PRD variant for AI features: model choice, eval criteria, fallback, latency budget, hallucination tolerance",
     category: "AI / LLM Product Management",
     path: "/ai-feature-spec",
     icon: FileText,
@@ -1634,7 +1703,8 @@ export const tools: ToolDefinition[] = [
     id: "hallucination-log",
     code: "AI4",
     name: "Hallucination Log",
-    description: "Incident register: input, expected, actual, severity, root-cause (RAG/prompt/model), fix applied",
+    description:
+      "Incident register: input, expected, actual, severity, root-cause (RAG/prompt/model), fix applied",
     category: "AI / LLM Product Management",
     path: "/hallucination-log",
     icon: AlertOctagonIcon,
@@ -1645,13 +1715,19 @@ export const tools: ToolDefinition[] = [
     analyticsFeatures: ["survival", "anomaly", "anti-pattern"],
     audience: "engineering-leader",
     analyticsTier: 1,
-    crossToolSubscriptions: [{ kinds: ["llmEval.regressionDetected", "model.upgraded"], reason: "regressions and upgrades correlate with new hallucinations" }],
+    crossToolSubscriptions: [
+      {
+        kinds: ["llmEval.regressionDetected", "model.upgraded"],
+        reason: "regressions and upgrades correlate with new hallucinations",
+      },
+    ],
   },
   {
     id: "token-cost-tracker",
     code: "AI5",
     name: "Token-Cost Tracker",
-    description: "Per-feature token-spend rollup with cost forecast, budget alerts, and model-mix optimisation",
+    description:
+      "Per-feature token-spend rollup with cost forecast, budget alerts, and model-mix optimisation",
     category: "AI / LLM Product Management",
     path: "/token-cost-tracker",
     icon: CircleDollarSign,
@@ -1668,7 +1744,8 @@ export const tools: ToolDefinition[] = [
     id: "model-comparison",
     code: "AI6",
     name: "Model Comparison Matrix",
-    description: "Per-model cost/1k tokens, latency p50/p95, context window, eval score, vendor lock-in, status",
+    description:
+      "Per-model cost/1k tokens, latency p50/p95, context window, eval score, vendor lock-in, status",
     category: "AI / LLM Product Management",
     path: "/model-comparison",
     icon: Cpu,
@@ -1683,7 +1760,8 @@ export const tools: ToolDefinition[] = [
     id: "ai-safety-checklist",
     code: "AI7",
     name: "AI Safety Review Checklist",
-    description: "Pre-launch checklist: data privacy, jailbreak tests, content-policy mapping, NIST RMF alignment",
+    description:
+      "Pre-launch checklist: data privacy, jailbreak tests, content-policy mapping, NIST RMF alignment",
     category: "AI / LLM Product Management",
     path: "/ai-safety-checklist",
     icon: ShieldHalf,
@@ -1698,7 +1776,8 @@ export const tools: ToolDefinition[] = [
     id: "model-migration",
     code: "AI8",
     name: "Model Upgrade Migration Tracker",
-    description: "Checklist + parity-test log when moving GPT-N → N+1 or Claude N → N+1 (eval delta, cost delta, behaviour diff)",
+    description:
+      "Checklist + parity-test log when moving GPT-N → N+1 or Claude N → N+1 (eval delta, cost delta, behaviour diff)",
     category: "AI / LLM Product Management",
     path: "/model-migration",
     icon: Repeat,
@@ -1709,13 +1788,16 @@ export const tools: ToolDefinition[] = [
     analyticsFeatures: ["anti-pattern"],
     audience: "engineering-leader",
     analyticsTier: 2,
-    crossToolSubscriptions: [{ kinds: ["llmEval.recorded"], reason: "migration parity scored against eval baseline" }],
+    crossToolSubscriptions: [
+      { kinds: ["llmEval.recorded"], reason: "migration parity scored against eval baseline" },
+    ],
   },
   {
     id: "agentic-workflow",
     code: "AI9",
     name: "Agentic Workflow Designer",
-    description: "Visual node list of agent steps, tools, fallbacks, and human-in-the-loop checkpoints",
+    description:
+      "Visual node list of agent steps, tools, fallbacks, and human-in-the-loop checkpoints",
     category: "AI / LLM Product Management",
     path: "/agentic-workflow",
     icon: Workflow,
@@ -1730,7 +1812,8 @@ export const tools: ToolDefinition[] = [
     id: "ai-red-team",
     code: "AI10",
     name: "AI Red-Team Session Log",
-    description: "Adversarial-prompt session record: attack vector, success rate, mitigation, retest date",
+    description:
+      "Adversarial-prompt session record: attack vector, success rate, mitigation, retest date",
     category: "AI / LLM Product Management",
     path: "/ai-red-team",
     icon: ScanSearch,
@@ -1746,7 +1829,8 @@ export const tools: ToolDefinition[] = [
     id: "hitl-quality",
     code: "AI11",
     name: "Human-in-the-Loop Quality Tracker",
-    description: "Aggregate of reviewer ratings, agreement rate, disagreement-resolution log, acceptance rate over time",
+    description:
+      "Aggregate of reviewer ratings, agreement rate, disagreement-resolution log, acceptance rate over time",
     category: "AI / LLM Product Management",
     path: "/hitl-quality",
     icon: Users,
@@ -1777,7 +1861,8 @@ export const tools: ToolDefinition[] = [
     id: "vector-store-inventory",
     code: "AI13",
     name: "Vector Store Inventory",
-    description: "Catalog of embedding collections: model, dim, doc count, refresh cadence, owner, downstream consumers",
+    description:
+      "Catalog of embedding collections: model, dim, doc count, refresh cadence, owner, downstream consumers",
     category: "AI / LLM Product Management",
     path: "/vector-store-inventory",
     icon: Database,
@@ -1792,7 +1877,8 @@ export const tools: ToolDefinition[] = [
     id: "model-card",
     code: "AI14",
     name: "Model Card Builder",
-    description: "Templated model documentation: intended use, training data, evaluation, biases/limitations, license",
+    description:
+      "Templated model documentation: intended use, training data, evaluation, biases/limitations, license",
     category: "AI / LLM Product Management",
     path: "/model-card",
     icon: IdCard,
@@ -1811,7 +1897,8 @@ export const tools: ToolDefinition[] = [
     id: "rice-scoring",
     code: "PR1",
     name: "RICE Scoring Calculator",
-    description: "Score initiatives by Reach × Impact × Confidence ÷ Effort to rank a backlog economically",
+    description:
+      "Score initiatives by Reach × Impact × Confidence ÷ Effort to rank a backlog economically",
     category: "Prioritization Frameworks",
     path: "/rice-scoring",
     icon: Calculator,
@@ -1827,7 +1914,8 @@ export const tools: ToolDefinition[] = [
     id: "ice-score",
     code: "PR2",
     name: "ICE Score Card",
-    description: "Lightweight Impact × Confidence × Ease score for fast prioritisation of growth experiments",
+    description:
+      "Lightweight Impact × Confidence × Ease score for fast prioritisation of growth experiments",
     category: "Prioritization Frameworks",
     path: "/ice-score",
     icon: Hash,
@@ -1842,7 +1930,8 @@ export const tools: ToolDefinition[] = [
     id: "moscow",
     code: "PR3",
     name: "MoSCoW Matrix",
-    description: "Bucket scope into Must / Should / Could / Won't to align cross-functional teams on what's in vs out",
+    description:
+      "Bucket scope into Must / Should / Could / Won't to align cross-functional teams on what's in vs out",
     category: "Prioritization Frameworks",
     path: "/moscow",
     icon: ListChecks,
@@ -1857,7 +1946,8 @@ export const tools: ToolDefinition[] = [
     id: "kano-model",
     code: "PR4",
     name: "Kano Model Builder",
-    description: "Classify features as Must-Be / Performance / Attractive / Indifferent / Reverse via customer survey",
+    description:
+      "Classify features as Must-Be / Performance / Attractive / Indifferent / Reverse via customer survey",
     category: "Prioritization Frameworks",
     path: "/kano-model",
     icon: Heart,
@@ -1873,7 +1963,8 @@ export const tools: ToolDefinition[] = [
     id: "wsjf",
     code: "PR5",
     name: "WSJF Calculator",
-    description: "SAFe's Weighted Shortest Job First: (Business Value + Time Criticality + RR/OE) ÷ Job Size",
+    description:
+      "SAFe's Weighted Shortest Job First: (Business Value + Time Criticality + RR/OE) ÷ Job Size",
     category: "Prioritization Frameworks",
     path: "/wsjf",
     icon: PiSquare,
@@ -1889,7 +1980,8 @@ export const tools: ToolDefinition[] = [
     id: "cost-of-delay",
     code: "PR6",
     name: "Cost-of-Delay Tracker",
-    description: "Quantify per-week revenue/value loss of delaying each initiative; pairs with WSJF",
+    description:
+      "Quantify per-week revenue/value loss of delaying each initiative; pairs with WSJF",
     category: "Prioritization Frameworks",
     path: "/cost-of-delay",
     icon: Clock,
@@ -1920,7 +2012,8 @@ export const tools: ToolDefinition[] = [
     id: "buy-a-feature",
     code: "PR8",
     name: "Buy-a-Feature Game",
-    description: "Innovation game where stakeholders spend fake currency to 'buy' features — surfaces tradeoffs",
+    description:
+      "Innovation game where stakeholders spend fake currency to 'buy' features — surfaces tradeoffs",
     category: "Prioritization Frameworks",
     path: "/buy-a-feature",
     icon: CircleDollarSign,
@@ -1965,7 +2058,8 @@ export const tools: ToolDefinition[] = [
     id: "walking-skeleton",
     code: "PR11",
     name: "Walking Skeleton Builder",
-    description: "Define the smallest end-to-end implementation that proves the architecture works (Cockburn)",
+    description:
+      "Define the smallest end-to-end implementation that proves the architecture works (Cockburn)",
     category: "Prioritization Frameworks",
     path: "/walking-skeleton",
     icon: Boxes,
@@ -1984,7 +2078,8 @@ export const tools: ToolDefinition[] = [
     id: "daci",
     code: "DC1",
     name: "DACI Decision Doc",
-    description: "Assigns Driver / Approver / Contributors / Informed roles to each decision (Atlassian/Intuit)",
+    description:
+      "Assigns Driver / Approver / Contributors / Informed roles to each decision (Atlassian/Intuit)",
     category: "Decision Frameworks",
     path: "/daci",
     icon: Crown,
@@ -1999,7 +2094,8 @@ export const tools: ToolDefinition[] = [
     id: "rapid-decision",
     code: "DC2",
     name: "RAPID Decision Matrix",
-    description: "Bain's Recommend / Agree / Perform / Input / Decide model for governance-heavy decisions",
+    description:
+      "Bain's Recommend / Agree / Perform / Input / Decide model for governance-heavy decisions",
     category: "Decision Frameworks",
     path: "/rapid-decision",
     icon: Users,
@@ -2014,7 +2110,8 @@ export const tools: ToolDefinition[] = [
     id: "weighted-decision",
     code: "DC3",
     name: "Weighted Decision Matrix",
-    description: "Score options against weighted criteria (Pugh/MCDA) — converts gut-feel into traceable numbers",
+    description:
+      "Score options against weighted criteria (Pugh/MCDA) — converts gut-feel into traceable numbers",
     category: "Decision Frameworks",
     path: "/weighted-decision",
     icon: PercentCircle,
@@ -2030,7 +2127,8 @@ export const tools: ToolDefinition[] = [
     id: "six-hats",
     code: "DC4",
     name: "Six Thinking Hats",
-    description: "De Bono's six perspectives (facts/emotions/risks/benefits/creativity/process) for balanced thinking",
+    description:
+      "De Bono's six perspectives (facts/emotions/risks/benefits/creativity/process) for balanced thinking",
     category: "Decision Frameworks",
     path: "/six-hats",
     icon: Sparkles,
@@ -2061,7 +2159,8 @@ export const tools: ToolDefinition[] = [
     id: "cynefin",
     code: "DC6",
     name: "Cynefin Decision Picker",
-    description: "Snowden's framework that places problems into Clear / Complicated / Complex / Chaotic / Confused",
+    description:
+      "Snowden's framework that places problems into Clear / Complicated / Complex / Chaotic / Confused",
     category: "Decision Frameworks",
     path: "/cynefin",
     icon: Compass,
@@ -2076,7 +2175,8 @@ export const tools: ToolDefinition[] = [
     id: "stacey-matrix",
     code: "DC7",
     name: "Stacey Matrix",
-    description: "Plot work on Certainty (how) vs Agreement (what) → Simple / Complicated / Complex / Chaotic",
+    description:
+      "Plot work on Certainty (how) vs Agreement (what) → Simple / Complicated / Complex / Chaotic",
     category: "Decision Frameworks",
     path: "/stacey-matrix",
     icon: Atom,
@@ -2091,7 +2191,8 @@ export const tools: ToolDefinition[] = [
     id: "polarity-map",
     code: "DC8",
     name: "Polarity Map",
-    description: "Barry Johnson's tool for managing chronic tensions (e.g. centralisation vs autonomy) instead of solving them",
+    description:
+      "Barry Johnson's tool for managing chronic tensions (e.g. centralisation vs autonomy) instead of solving them",
     category: "Decision Frameworks",
     path: "/polarity-map",
     icon: CircuitBoard,
@@ -2110,7 +2211,8 @@ export const tools: ToolDefinition[] = [
     id: "canvas",
     code: "WB1",
     name: "Canvas",
-    description: "Infinite collaborative whiteboard — stickies, shapes, free-hand drawing, smart connectors, multi-board, real-time multiplayer, AI clustering, and cross-tool import.",
+    description:
+      "Infinite collaborative whiteboard — stickies, shapes, free-hand drawing, smart connectors, multi-board, real-time multiplayer, AI clustering, and cross-tool import.",
     category: "Visual Collaboration",
     path: "/canvas",
     icon: PenLine,
@@ -2128,13 +2230,20 @@ export const tools: ToolDefinition[] = [
       // unknown kinds are silent no-ops, so the prior list was an empty
       // promise. Real retro-tool signals can be added back here when
       // the retro tool starts emitting them.
-      { kinds: ["story.statusChanged", "risk.opened", "okr.kr.updated", "decision.recorded"], reason: "imported cross-tool entities can update the board live" },
+      {
+        kinds: ["story.statusChanged", "risk.opened", "okr.kr.updated", "decision.recorded"],
+        reason: "imported cross-tool entities can update the board live",
+      },
     ],
   },
 ];
 
 export function getToolByPath(path: string): ToolDefinition | undefined {
   return tools.find((t) => t.path === path);
+}
+
+export function getToolById(id: string): ToolDefinition | undefined {
+  return tools.find((t) => t.id === id);
 }
 
 export function getToolsByCategory(category: ToolCategory): ToolDefinition[] {

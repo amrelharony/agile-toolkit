@@ -5,12 +5,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { usePersisted } from "@/lib/utils/use-persisted";
-import { categories, getToolsByCategory, type ToolCategory } from "@/lib/constants/tools";
+import {
+  categories,
+  getToolById,
+  getToolsByCategory,
+  type ToolCategory,
+  type ToolDefinition,
+} from "@/lib/constants/tools";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronLeft, History, Activity } from "lucide-react";
+import { ChevronDown, ChevronLeft, History, Activity, Star, Clock } from "lucide-react";
 import { useSwipeToClose } from "@/hooks/use-swipe-to-close";
 import { emit as sonify } from "@/lib/sonification/emit";
+import { useToolPrefs } from "@/lib/tools/tool-prefs";
 
 /**
  * Compact display label for each category header in the sidebar. The full
@@ -49,6 +56,82 @@ interface SidebarProps {
   mobileOpen?: boolean;
   /** Invoked when user triggers a close action. */
   onClose?: () => void;
+}
+
+/**
+ * Single tool row in the sidebar — used by category sections AND the
+ * Favorites / Recent sections. Extracted so the link styling, active
+ * state, shimmer, and badge logic stay in one place.
+ */
+function SidebarToolLink({
+  tool,
+  isActive,
+  expanded,
+  onNavClick,
+}: {
+  tool: ToolDefinition;
+  isActive: boolean;
+  expanded: boolean;
+  onNavClick: () => void;
+}) {
+  const Icon = tool.icon;
+  return (
+    <Link
+      href={tool.path}
+      onClick={onNavClick}
+      data-no-sound="true"
+      title={!expanded ? tool.name : undefined}
+      className={cn(
+        "group flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-default ease-spring relative overflow-hidden min-h-[40px]",
+        !expanded && "md:justify-center md:px-0 md:gap-0",
+        isActive
+          ? "bg-accent/10 text-accent shadow-[0_0_10px_var(--glow)_inset]"
+          : "text-sub hover:text-text hover:bg-accent/5"
+      )}
+      aria-current={isActive ? "page" : undefined}
+    >
+      {!isActive && (
+        <div
+          className="
+            absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100
+            bg-gradient-to-r from-transparent via-glow to-transparent
+            -translate-x-full group-hover:animate-shimmer
+          "
+        />
+      )}
+      <Icon
+        className={cn(
+          "w-4 h-4 flex-shrink-0 relative z-[1] transition-transform duration-default ease-spring",
+          isActive ? "text-accent" : "text-sub group-hover:text-text group-hover:scale-110"
+        )}
+        aria-hidden="true"
+      />
+      {expanded && (
+        <>
+          <span className="truncate relative z-[1] font-medium">{tool.name}</span>
+          {tool.badge && (
+            <Badge
+              variant="outline"
+              className={cn(
+                "ml-auto text-[10px] px-1 py-0 relative z-[1]",
+                tool.badge === "new"
+                  ? "border-accent-green text-accent-green"
+                  : "border-accent-amber text-accent-amber"
+              )}
+            >
+              {tool.badge}
+            </Badge>
+          )}
+        </>
+      )}
+      {isActive && (
+        <div
+          className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-accent shadow-[0_0_8px_var(--glow)]"
+          aria-hidden="true"
+        />
+      )}
+    </Link>
+  );
 }
 
 export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
@@ -95,6 +178,18 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
     {}
   );
   const asideRef = useRef<HTMLElement>(null);
+
+  // Favorites + Recent — sourced from the same cloud-synced blob the
+  // ToolCard star toggle writes to. Sentinel keys '__favorites__' and
+  // '__recent__' reuse the openCategories persistence map so they remember
+  // their open/closed state alongside category sections.
+  const { favorites, recent } = useToolPrefs();
+  const favoriteTools = favorites
+    .map((id) => getToolById(id))
+    .filter((t): t is ToolDefinition => Boolean(t));
+  const recentTools = recent
+    .map((r) => getToolById(r.id))
+    .filter((t): t is ToolDefinition => Boolean(t));
 
   const handleClose = useCallback(() => onClose?.(), [onClose]);
 
@@ -367,6 +462,86 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
               );
             })}
           </div>
+          {/* Favorites + Recent — only render when non-empty so an unsigned-in
+              first-visit doesn't show two empty rails. Each is a Collapsible
+              that piggybacks on the same openCategories map for persistence
+              via the '__favorites__' / '__recent__' sentinel keys. In rail
+              mode (md+, collapsed) the trigger hides and the tools always
+              show as icons, matching the category sections. */}
+          {(favoriteTools.length > 0 || recentTools.length > 0) && (
+            <div className="space-y-0.5 mb-3 pb-3 border-b border-border">
+              {favoriteTools.length > 0 && (
+                <Collapsible
+                  open={!expanded || !!openCategories["__favorites__"]}
+                  onOpenChange={() => toggleCategory("__favorites__")}
+                  data-no-sound="true"
+                >
+                  {expanded && (
+                    <CollapsibleTrigger
+                      data-no-sound="true"
+                      className="flex items-center w-full px-3 py-2 text-xs font-semibold uppercase tracking-wider text-sub hover:text-text transition-colors rounded-lg gap-2"
+                    >
+                      <Star className="w-3 h-3 text-accent-amber" aria-hidden="true" />
+                      <span className="truncate">Favorites</span>
+                      <ChevronDown
+                        className={cn(
+                          "ml-auto w-3 h-3 transition-transform duration-default",
+                          openCategories["__favorites__"] ? "rotate-180" : "rotate-0"
+                        )}
+                        aria-hidden="true"
+                      />
+                    </CollapsibleTrigger>
+                  )}
+                  <CollapsibleContent className="space-y-0.5">
+                    {favoriteTools.map((tool) => (
+                      <SidebarToolLink
+                        key={tool.id}
+                        tool={tool}
+                        isActive={pathname === tool.path}
+                        expanded={expanded}
+                        onNavClick={handleNavClick}
+                      />
+                    ))}
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+              {recentTools.length > 0 && (
+                <Collapsible
+                  open={!expanded || !!openCategories["__recent__"]}
+                  onOpenChange={() => toggleCategory("__recent__")}
+                  data-no-sound="true"
+                >
+                  {expanded && (
+                    <CollapsibleTrigger
+                      data-no-sound="true"
+                      className="flex items-center w-full px-3 py-2 text-xs font-semibold uppercase tracking-wider text-sub hover:text-text transition-colors rounded-lg gap-2"
+                    >
+                      <Clock className="w-3 h-3 text-accent" aria-hidden="true" />
+                      <span className="truncate">Recent</span>
+                      <ChevronDown
+                        className={cn(
+                          "ml-auto w-3 h-3 transition-transform duration-default",
+                          openCategories["__recent__"] ? "rotate-180" : "rotate-0"
+                        )}
+                        aria-hidden="true"
+                      />
+                    </CollapsibleTrigger>
+                  )}
+                  <CollapsibleContent className="space-y-0.5">
+                    {recentTools.map((tool) => (
+                      <SidebarToolLink
+                        key={tool.id}
+                        tool={tool}
+                        isActive={pathname === tool.path}
+                        expanded={expanded}
+                        onNavClick={handleNavClick}
+                      />
+                    ))}
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+            </div>
+          )}
           {categories.map((category) => {
             const categoryTools = getToolsByCategory(category);
             // Skip categories with no tools — the registry lists 37 categories
@@ -430,76 +605,15 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                   </CollapsibleTrigger>
                 )}
                 <CollapsibleContent className="space-y-0.5">
-                  {categoryTools.map((tool) => {
-                    const isActive = pathname === tool.path;
-                    const Icon = tool.icon;
-
-                    return (
-                      <Link
-                        key={tool.id}
-                        href={tool.path}
-                        onClick={handleNavClick}
-                        data-no-sound="true"
-                        // Rail mode centres the icon in the 64px-wide rail
-                        // (no label or badge renders since `expanded` is
-                        // false). A title attribute carries the tool name
-                        // for hover tooltips so the user knows what the
-                        // icon represents without expanding the sidebar.
-                        title={!expanded ? tool.name : undefined}
-                        className={cn(
-                          "group flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-default ease-spring relative overflow-hidden min-h-[40px]",
-                          !expanded && "md:justify-center md:px-0 md:gap-0",
-                          isActive
-                            ? "bg-accent/10 text-accent shadow-[0_0_10px_var(--glow)_inset]"
-                            : "text-sub hover:text-text hover:bg-accent/5"
-                        )}
-                        aria-current={isActive ? "page" : undefined}
-                      >
-                        {!isActive && (
-                          <div
-                            className="
-                              absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100
-                              bg-gradient-to-r from-transparent via-glow to-transparent
-                              -translate-x-full group-hover:animate-shimmer
-                            "
-                          />
-                        )}
-                        <Icon
-                          className={cn(
-                            "w-4 h-4 flex-shrink-0 relative z-[1] transition-transform duration-default ease-spring",
-                            isActive
-                              ? "text-accent"
-                              : "text-sub group-hover:text-text group-hover:scale-110"
-                          )}
-                          aria-hidden="true"
-                        />
-                        {expanded && (
-                          <>
-                            <span className="truncate relative z-[1] font-medium">{tool.name}</span>
-                            {tool.badge && (
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "ml-auto text-[10px] px-1 py-0 relative z-[1]",
-                                  tool.badge === "new"
-                                    ? "border-accent-green text-accent-green"
-                                    : "border-accent-amber text-accent-amber"
-                                )}
-                              >
-                                {tool.badge}
-                              </Badge>
-                            )}
-                          </>
-                        )}
-                        {isActive && (
-                          <div
-                            className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-accent shadow-[0_0_8px_var(--glow)]"
-                            aria-hidden="true"
-                          />
-                        )}
-                      </Link>
-                    );
-                  })}
+                  {categoryTools.map((tool) => (
+                    <SidebarToolLink
+                      key={tool.id}
+                      tool={tool}
+                      isActive={pathname === tool.path}
+                      expanded={expanded}
+                      onNavClick={handleNavClick}
+                    />
+                  ))}
                 </CollapsibleContent>
               </Collapsible>
             );

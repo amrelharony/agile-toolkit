@@ -2,7 +2,9 @@
 
 import { type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Star } from "lucide-react";
+import { useToolPrefs } from "@/lib/tools/tool-prefs";
+import { cn } from "@/lib/utils";
 
 interface ToolCardProps {
   href: string;
@@ -11,6 +13,8 @@ interface ToolCardProps {
   description: string;
   tags?: string[];
   accentColor?: string;
+  /** When provided, a star toggle renders in the top-right corner. */
+  toolId?: string;
 }
 
 export function ToolCard({
@@ -20,7 +24,18 @@ export function ToolCard({
   description,
   tags,
   accentColor,
+  toolId,
 }: ToolCardProps) {
+  const { isFavorite, toggleFavorite } = useToolPrefs();
+  const favorited = toolId ? isFavorite(toolId) : false;
+
+  const handleStarClick = (e: React.MouseEvent) => {
+    if (!toolId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    toggleFavorite(toolId);
+  };
+
   return (
     <Link
       href={href}
@@ -38,11 +53,7 @@ export function ToolCard({
         hover:-translate-y-[3px]
         will-change-transform
       "
-      style={
-        accentColor
-          ? ({ "--tool-accent": accentColor } as React.CSSProperties)
-          : undefined
-      }
+      style={accentColor ? ({ "--tool-accent": accentColor } as React.CSSProperties) : undefined}
     >
       {/* Inset top light */}
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[rgba(255,255,255,0.06)] to-transparent" />
@@ -77,14 +88,37 @@ export function ToolCard({
         >
           {icon}
         </div>
-        <ArrowRight
-          className="
-            w-4 h-4 text-sub opacity-40
-            group-hover:opacity-100 group-hover:text-accent
-            group-hover:translate-x-0.5
-            transition-all duration-default ease-spring
-          "
-        />
+        <div className="flex items-center gap-2">
+          {toolId && (
+            <button
+              type="button"
+              onClick={handleStarClick}
+              aria-label={favorited ? `Unstar ${title}` : `Star ${title}`}
+              aria-pressed={favorited}
+              data-no-sound="true"
+              className={cn(
+                "w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-default",
+                favorited
+                  ? "text-accent-amber"
+                  : "text-sub opacity-40 hover:opacity-100 hover:text-accent-amber"
+              )}
+            >
+              <Star
+                className="w-4 h-4"
+                fill={favorited ? "currentColor" : "none"}
+                aria-hidden="true"
+              />
+            </button>
+          )}
+          <ArrowRight
+            className="
+              w-4 h-4 text-sub opacity-40
+              group-hover:opacity-100 group-hover:text-accent
+              group-hover:translate-x-0.5
+              transition-all duration-default ease-spring
+            "
+          />
+        </div>
       </div>
 
       <div className="relative z-[1]">

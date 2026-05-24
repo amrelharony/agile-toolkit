@@ -41,6 +41,7 @@ import { TimeTravelShortcuts } from "@/components/history/time-travel-shortcuts"
 import { ErrorBoundary } from "./error-boundary";
 import { Suspense } from "react";
 import { TrophyCase } from "@/components/gamification/trophy-case";
+import { RecentToolTracker } from "@/lib/tools/tool-prefs";
 
 // Routes that bypass the full app chrome (sidebar/header/providers).
 // Middleware allows them through unauthenticated, so they must render
@@ -95,60 +96,58 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <ErrorBoundary name="AppShell">
-    <SonificationProvider>
-      <HapticsProvider>
-      <EmotionProvider>
-      <WeatherProvider>
-      <GamificationProvider>
-      <AuthProvider>
-      <CloudSyncProvider>
-      <HistorySyncProvider>
-        <TimeTravelShortcuts />
-        {/* Skip-to-content link for screen readers + keyboard users */}
-        <a
-          href="#main-content"
-          className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-3 focus:py-2 focus:bg-accent focus:text-bg focus:rounded-md"
-        >
-          Skip to content
-        </a>
+      <SonificationProvider>
+        <HapticsProvider>
+          <EmotionProvider>
+            <WeatherProvider>
+              <GamificationProvider>
+                <AuthProvider>
+                  <CloudSyncProvider>
+                    <HistorySyncProvider>
+                      <TimeTravelShortcuts />
+                      <RecentToolTracker />
+                      {/* Skip-to-content link for screen readers + keyboard users */}
+                      <a
+                        href="#main-content"
+                        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-3 focus:py-2 focus:bg-accent focus:text-bg focus:rounded-md"
+                      >
+                        Skip to content
+                      </a>
 
-        <div className="flex min-h-screen">
-          <Sidebar
-            mobileOpen={sidebarOpen}
-            onClose={() => setSidebarOpen(false)}
-          />
-          <div className="flex-1 flex flex-col min-w-0">
-            <Header
-              onOpenSearch={() => setSearchOpen(true)}
-              onOpenSidebar={() => setSidebarOpen(true)}
-              onOpenTrophyCase={() => setTrophyOpen(true)}
-            />
-            <main
-              id="main-content"
-              className="flex-1 pb-[calc(2rem+env(safe-area-inset-bottom))] md:pb-8 pl-safe pr-safe md:pl-0 md:pr-0"
-            >
-              {children}
-            </main>
-          </div>
-          <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
-        </div>
-        <TrophyCase open={trophyOpen} onOpenChange={setTrophyOpen} />
-        <Suspense fallback={null}>
-          <HolidayEngine />
-        </Suspense>
-        {/* BYOK settings dialog — open/close state lives in llm-ui-store,
+                      <div className="flex min-h-screen">
+                        <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+                        <div className="flex-1 flex flex-col min-w-0">
+                          <Header
+                            onOpenSearch={() => setSearchOpen(true)}
+                            onOpenSidebar={() => setSidebarOpen(true)}
+                            onOpenTrophyCase={() => setTrophyOpen(true)}
+                          />
+                          <main
+                            id="main-content"
+                            className="flex-1 pb-[calc(2rem+env(safe-area-inset-bottom))] md:pb-8 pl-safe pr-safe md:pl-0 md:pr-0"
+                          >
+                            {children}
+                          </main>
+                        </div>
+                        <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
+                      </div>
+                      <TrophyCase open={trophyOpen} onOpenChange={setTrophyOpen} />
+                      <Suspense fallback={null}>
+                        <HolidayEngine />
+                      </Suspense>
+                      {/* BYOK settings dialog — open/close state lives in llm-ui-store,
             so this single mount serves both header-chip and UserMenu
             entry points. Dynamic-imported so non-AI users never load it. */}
-        <LlmSettingsDialog />
-        <AgentSheet />
-      </HistorySyncProvider>
-      </CloudSyncProvider>
-      </AuthProvider>
-      </GamificationProvider>
-      </WeatherProvider>
-      </EmotionProvider>
-      </HapticsProvider>
-    </SonificationProvider>
+                      <LlmSettingsDialog />
+                      <AgentSheet />
+                    </HistorySyncProvider>
+                  </CloudSyncProvider>
+                </AuthProvider>
+              </GamificationProvider>
+            </WeatherProvider>
+          </EmotionProvider>
+        </HapticsProvider>
+      </SonificationProvider>
     </ErrorBoundary>
   );
 }
