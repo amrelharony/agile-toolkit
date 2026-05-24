@@ -32,6 +32,7 @@ import { CYCLE_TIME_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { BlurInput } from "@/components/shared/blur-fields";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -959,21 +960,18 @@ export function CycleTimeClient() {
                             tabular row tidy. Description is optional; empty
                             string is normalized to undefined on commit. */}
                         <div className="space-y-1">
-                          <Input
+                          <BlurInput
                             placeholder="Feature or story name"
                             value={item.name}
-                            onChange={(e) => updateItem(item.id, { name: e.target.value })}
+                            onCommit={(v) => updateItem(item.id, { name: v })}
                             className="h-8 input-toolkit"
                           />
-                          <Input
+                          <BlurInput
                             placeholder="Description (optional)..."
                             value={item.description ?? ""}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              updateItem(item.id, {
-                                description: v.trim() ? v : undefined,
-                              });
-                            }}
+                            onCommit={(v) =>
+                              updateItem(item.id, { description: v.trim() ? v : undefined })
+                            }
                             className="h-7 input-toolkit text-xs"
                             aria-label="Item description"
                           />
