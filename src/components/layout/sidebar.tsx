@@ -362,8 +362,14 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
         }}
         onPointerLeave={() => setHoverExpanded(false)}
         className={cn(
-          // Shared layout
-          "flex flex-col glass-elevated border-r border-border transition-all duration-slow ease-spring overflow-hidden overscroll-contain-strict",
+          // Shared layout. `glass-elevated` sets `background: var(--card)`
+          // which is rgba(12,16,24,0.65) — 65 % opaque. That's fine on
+          // desktop where the sidebar is inline (nothing visible behind),
+          // but on mobile it's a drawer that slides OVER the page, and any
+          // bold page content (like a tool's H1) bleeds through. The
+          // `max-md:!bg-bg2` override forces a solid background below the
+          // md breakpoint, leaving the desktop glass effect intact.
+          "flex flex-col glass-elevated max-md:!bg-bg2 border-r border-border transition-all duration-slow ease-spring overflow-hidden overscroll-contain-strict",
           // Mobile portrait: off-canvas fixed drawer; 80 vw with a 18 rem
           // (288 px) cap so the user can still see the underlying page
           // edge and tap to dismiss.
