@@ -570,11 +570,18 @@ function SessionScreen({
 
   const saveEstimate = (value: string) => {
     const story = session.stories[session.currentStoryIdx];
-    // Two-call updaters race: the second call read `session.stories`
-    // (pre-finalEstimate) and could land on the just-estimated story instead
-    // of the next unestimated one. Fold both updates into one updater so the
-    // findIndex sees the freshly stamped finalEstimate.
+    // BUG-RD3-planning-poker-2: bail early if the active story has
+    // already been estimated. Without this guard, double-clicking
+    // (or rapid double-firing from focused-button Enter+pointerup)
+    // re-entered the updater after the first click had already
+    // advanced `currentStoryIdx`, so the SECOND click silently
+    // committed the same value onto the NEXT story.
+    let skipped = false;
     onUpdateSession((s) => {
+      if (s.stories[s.currentStoryIdx]?.finalEstimate !== null) {
+        skipped = true;
+        return s;
+      }
       const stories = s.stories.map((st, i) =>
         i === s.currentStoryIdx ? { ...st, finalEstimate: value } : st
       );
@@ -589,7 +596,7 @@ function SessionScreen({
         currentStoryIdx: nextUnestimated !== -1 ? nextUnestimated : s.currentStoryIdx,
       };
     });
-    if (story) {
+    if (!skipped && story) {
       log(PLANNING_POKER_ACTIONS.ESTIMATE_COMMITTED, {
         storyId: story.id,
         title: story.title,

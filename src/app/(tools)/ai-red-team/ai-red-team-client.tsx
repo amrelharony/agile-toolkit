@@ -12,7 +12,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { RedTeamFinding, Workspace } from "@/lib/stores/workspace-types";
@@ -33,7 +37,10 @@ const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), {
 
 const SEVERITIES: RedTeamFinding["severity"][] = ["low", "medium", "high", "critical"];
 const COLORS: Record<RedTeamFinding["severity"], string> = {
-  low: "#00ff88", medium: "#ffaa00", high: "#ff6b6b", critical: "#ff00aa",
+  low: "#00ff88",
+  medium: "#ffaa00",
+  high: "#ff6b6b",
+  critical: "#ff00aa",
 };
 
 export function AIRedTeamClient() {
@@ -63,9 +70,20 @@ export function AIRedTeamClient() {
       loggedAt: new Date().toISOString(),
     };
     upsert(item);
-    log(AI_RED_TEAM_ACTIONS.FINDING_LOGGED, { vector: item.attackVector, successful: item.successful });
-    emitSignal({ kind: "redTeam.findingOpened", at: item.loggedAt, toolId: "ai-red-team", payload: item });
-    setVector(""); setPrompt(""); setSuccessful(false); setSeverity("medium");
+    log(AI_RED_TEAM_ACTIONS.FINDING_LOGGED, {
+      vector: item.attackVector,
+      successful: item.successful,
+    });
+    emitSignal({
+      kind: "redTeam.findingOpened",
+      at: item.loggedAt,
+      toolId: "ai-red-team",
+      payload: item,
+    });
+    setVector("");
+    setPrompt("");
+    setSuccessful(false);
+    setSeverity("medium");
   }
 
   function resolve(id: string) {
@@ -92,26 +110,55 @@ export function AIRedTeamClient() {
 
   const open = list.filter((x) => !x.resolvedAt);
   // Guard divide-by-zero — empty list would otherwise render "NaN%"
-  const succRate = list.length === 0
-    ? 0
-    : Math.round((list.filter((x) => x.successful).length / list.length) * 100);
+  // BUG-RD3-ai-red-team-1: clarify the metric. Including resolved
+  // findings in the denominator AND numerator means "Success rate"
+  // reads as a HISTORICAL success rate (over all attempts ever), which
+  // is the more useful framing: it never drops below the historical
+  // max even after every successful attack is mitigated, signalling
+  // "this attack class worked once — keep monitoring". Update the
+  // label so the KPI reads as that rather than implying current state.
+  const succRate =
+    list.length === 0
+      ? 0
+      : Math.round((list.filter((x) => x.successful).length / list.length) * 100);
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    redTeamFindings: s.redTeamFindings,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        redTeamFindings: s.redTeamFindings,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "AI Red-Team Session Log",
-    prompts: generateAIRedTeamPrompts({ items: list }, workspace),
-  }), [list, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "AI Red-Team Session Log",
+      prompts: generateAIRedTeamPrompts({ items: list }, workspace),
+    }),
+    [list, workspace]
+  );
 
   const csvData = {
     headers: ["Date", "Vector", "Severity", "Successful", "Prompt", "Mitigation", "Resolved"],
-    rows: list.map((x) => [x.loggedAt.slice(0, 10), x.attackVector, x.severity, x.successful ? "yes" : "no", x.promptUsed ?? "", x.mitigation ?? "", x.resolvedAt ?? ""]),
+    rows: list.map((x) => [
+      x.loggedAt.slice(0, 10),
+      x.attackVector,
+      x.severity,
+      x.successful ? "yes" : "no",
+      x.promptUsed ?? "",
+      x.mitigation ?? "",
+      x.resolvedAt ?? "",
+    ]),
   };
 
   return (
@@ -124,25 +171,61 @@ export function AIRedTeamClient() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <KPI label="Total findings" value={String(list.length)} />
           <KPI label="Open" value={String(open.length)} tone={open.length > 0 ? "danger" : "ok"} />
-          <KPI label="Success rate" value={`${succRate}%`} tone={succRate > 30 ? "danger" : "default"} />
-          <KPI label="Critical open" value={String(open.filter((x) => x.severity === "critical").length)} tone="danger" />
+          <KPI
+            label="Historical attack success"
+            value={`${succRate}%`}
+            tone={succRate > 30 ? "danger" : "default"}
+          />
+          <KPI
+            label="Critical open"
+            value={String(open.filter((x) => x.severity === "critical").length)}
+            tone="danger"
+          />
         </div>
 
         <SectionCard title="Log finding" icon={Plus}>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <Input placeholder="Attack vector (e.g. prompt injection)" value={vector} onChange={(e) => setVector(e.target.value)} />
-            <Select value={severity} onValueChange={(v) => setSeverity(v as RedTeamFinding["severity"])}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{SEVERITIES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+            <Input
+              placeholder="Attack vector (e.g. prompt injection)"
+              value={vector}
+              onChange={(e) => setVector(e.target.value)}
+            />
+            <Select
+              value={severity}
+              onValueChange={(v) => setSeverity(v as RedTeamFinding["severity"])}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SEVERITIES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
             <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={successful} onChange={(e) => setSuccessful(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={successful}
+                onChange={(e) => setSuccessful(e.target.checked)}
+              />
               <span>Attack succeeded</span>
             </label>
           </div>
-          <Textarea placeholder="Prompt used (optional)" value={prompt} onChange={(e) => setPrompt(e.target.value)} className="mt-2 font-mono text-xs" rows={3} />
+          <Textarea
+            placeholder="Prompt used (optional)"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            className="mt-2 font-mono text-xs"
+            rows={3}
+          />
           <div className="mt-3 flex items-center gap-2 flex-wrap">
-            <Button onClick={add} className="gap-1"><Plus className="w-4 h-4" />Log finding</Button>
+            <Button onClick={add} className="gap-1">
+              <Plus className="w-4 h-4" />
+              Log finding
+            </Button>
             {/* Test attack: pipes the typed prompt into AiRunPanel against
                 the active BYOK provider. The user reads the response, ticks
                 or unticks "Attack succeeded" above, then logs. Disabled
@@ -157,10 +240,10 @@ export function AIRedTeamClient() {
                 !llm.isReady
                   ? "Configure an AI provider in settings to live-test attacks"
                   : prompt.trim().length === 0
-                  ? "Type a prompt to test"
-                  : probeOpen
-                  ? "Hide test panel"
-                  : "Run the prompt against your BYOK provider — read the response and decide whether the attack succeeded"
+                    ? "Type a prompt to test"
+                    : probeOpen
+                      ? "Hide test panel"
+                      : "Run the prompt against your BYOK provider — read the response and decide whether the attack succeeded"
               }
               aria-expanded={probeOpen}
               className="gap-1"
@@ -193,27 +276,66 @@ export function AIRedTeamClient() {
             actions={
               <>
                 <AiPromptGenerator config={promptConfig} />
-                <ExportButton filename="ai-red-team" csvData={csvData} jsonData={list} targetRef={exportRef} />
+                <ExportButton
+                  filename="ai-red-team"
+                  csvData={csvData}
+                  jsonData={list}
+                  targetRef={exportRef}
+                />
               </>
             }
           >
             <ul className="space-y-2">
-              {[...list].sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime()).map((x) => (
-                <li key={x.id} className={`border rounded p-3 text-sm ${x.resolvedAt ? "bg-emerald-500/5 border-emerald-500/30" : "bg-surface-deep border-border"}`}>
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="flex items-center gap-2 min-w-0">
-                      <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: COLORS[x.severity] + "20", color: COLORS[x.severity] }}>{x.severity}</span>
-                      {x.successful && <span className="text-xs text-red-400 font-bold">SUCCEEDED</span>}
-                      <span className="text-text truncate">{x.attackVector}</span>
-                    </span>
-                    <span className="flex items-center gap-2 shrink-0">
-                      {!x.resolvedAt && <button onClick={() => resolve(x.id)} aria-label="Mark resolved" title="Mark resolved" className="text-emerald-400 hover:text-emerald-300"><CheckCircle2 className="w-4 h-4" /></button>}
-                      <button onClick={() => remove(x.id)} aria-label="Remove finding" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
-                    </span>
-                  </div>
-                  {x.promptUsed && <pre className="text-xs text-sub bg-surface rounded p-2 overflow-x-auto whitespace-pre-wrap mt-1">{x.promptUsed.slice(0, 300)}</pre>}
-                </li>
-              ))}
+              {[...list]
+                .sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime())
+                .map((x) => (
+                  <li
+                    key={x.id}
+                    className={`border rounded p-3 text-sm ${x.resolvedAt ? "bg-emerald-500/5 border-emerald-500/30" : "bg-surface-deep border-border"}`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded"
+                          style={{
+                            backgroundColor: COLORS[x.severity] + "20",
+                            color: COLORS[x.severity],
+                          }}
+                        >
+                          {x.severity}
+                        </span>
+                        {x.successful && (
+                          <span className="text-xs text-red-400 font-bold">SUCCEEDED</span>
+                        )}
+                        <span className="text-text truncate">{x.attackVector}</span>
+                      </span>
+                      <span className="flex items-center gap-2 shrink-0">
+                        {!x.resolvedAt && (
+                          <button
+                            onClick={() => resolve(x.id)}
+                            aria-label="Mark resolved"
+                            title="Mark resolved"
+                            className="text-emerald-400 hover:text-emerald-300"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => remove(x.id)}
+                          aria-label="Remove finding"
+                          className="text-sub hover:text-red-400"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </span>
+                    </div>
+                    {x.promptUsed && (
+                      <pre className="text-xs text-sub bg-surface rounded p-2 overflow-x-auto whitespace-pre-wrap mt-1">
+                        {x.promptUsed.slice(0, 300)}
+                      </pre>
+                    )}
+                  </li>
+                ))}
             </ul>
           </SectionCard>
         )}
@@ -222,8 +344,17 @@ export function AIRedTeamClient() {
   );
 }
 
-function KPI({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "ok" | "danger" }) {
-  const colorClass = tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+function KPI({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "ok" | "danger";
+}) {
+  const colorClass =
+    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

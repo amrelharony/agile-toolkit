@@ -18,14 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Compass,
-  Plus,
-  Trash2,
-  Activity,
-  ShieldAlert,
-  Clock,
-} from "lucide-react";
+import { Compass, Plus, Trash2, Activity, ShieldAlert, Clock } from "lucide-react";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { TECH_RADAR_ACTIONS } from "@/lib/history/event-actions";
@@ -200,31 +193,46 @@ export function TechRadarClient() {
   };
 
   const moveBlip = (id: string, nextRing: Ring) => {
-    const blip = blips.find((b) => b.id === id);
-    if (!blip || blip.ring === nextRing) return;
-    setBlips((s) =>
-      s.map((b) =>
-        b.id === id
-          ? { ...b, ring: nextRing, movedAt: new Date().toISOString() }
-          : b
-      )
-    );
+    // BUG-RD3-tech-radar-1: capture name/from from the freshest state
+    // INSIDE the updater. Two rapid ring-changes (pointer + keyboard)
+    // used to log the closure's pre-tick `from` for both, corrupting
+    // the audit trail.
+    let logPayload: { name?: string; from?: Ring } = {};
+    let skip = false;
+    setBlips((s) => {
+      const before = s.find((b) => b.id === id);
+      if (!before || before.ring === nextRing) {
+        skip = true;
+        return s;
+      }
+      logPayload = { name: before.name, from: before.ring };
+      return s.map((b) =>
+        b.id === id ? { ...b, ring: nextRing, movedAt: new Date().toISOString() } : b
+      );
+    });
+    if (skip) return;
     log(TECH_RADAR_ACTIONS.BLIP_MOVED, {
       blipId: id,
-      name: blip.name,
-      from: blip.ring,
+      name: logPayload.name,
+      from: logPayload.from,
       to: nextRing,
     });
   };
 
   const removeBlip = (id: string) => {
-    const blip = blips.find((b) => b.id === id);
-    setBlips((s) => s.filter((b) => b.id !== id));
+    // Same pattern as moveBlip — capture freshest fields inside the
+    // updater so a rapid move+remove sequence logs the actual
+    // pre-removal values, not the closure's snapshot.
+    let snapshot: Blip | undefined;
+    setBlips((s) => {
+      snapshot = s.find((b) => b.id === id);
+      return s.filter((b) => b.id !== id);
+    });
     log(TECH_RADAR_ACTIONS.BLIP_REMOVED, {
       blipId: id,
-      name: blip?.name,
-      ring: blip?.ring,
-      quadrant: blip?.quadrant,
+      name: snapshot?.name,
+      ring: snapshot?.ring,
+      quadrant: snapshot?.quadrant,
     });
   };
 
@@ -238,7 +246,11 @@ export function TechRadarClient() {
     // R5: also require `d >= 0` — a future `movedAt` (typo or imported
     // bad data) returned a negative daysSince which `<= 30` accepted,
     // inflating the "recently moved" count.
-    () => blips.filter((b) => { const d = daysSince(b.movedAt); return d >= 0 && d <= 30; }).length,
+    () =>
+      blips.filter((b) => {
+        const d = daysSince(b.movedAt);
+        return d >= 0 && d <= 30;
+      }).length,
     [blips]
   );
 
@@ -265,10 +277,7 @@ export function TechRadarClient() {
   );
 
   // Pre-project all blips for the SVG.
-  const projected = useMemo(
-    () => blips.map((b) => ({ blip: b, ...projectBlip(b) })),
-    [blips]
-  );
+  const projected = useMemo(() => blips.map((b) => ({ blip: b, ...projectBlip(b) })), [blips]);
 
   return (
     <ToolPageWrapper
@@ -314,9 +323,7 @@ export function TechRadarClient() {
       </KpiGrid>
 
       <div className="rounded-lg border border-border bg-surface p-4 mb-4">
-        <div className="text-xs uppercase tracking-wider text-sub mb-3">
-          Add blip
-        </div>
+        <div className="text-xs uppercase tracking-wider text-sub mb-3">Add blip</div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
           <Input
             value={name}
@@ -326,10 +333,7 @@ export function TechRadarClient() {
             aria-label="Blip name"
           />
           <Select value={ring} onValueChange={(v) => setRing(v as Ring)}>
-            <SelectTrigger
-              className="bg-bg border-border text-sm"
-              aria-label="Ring"
-            >
+            <SelectTrigger className="bg-bg border-border text-sm" aria-label="Ring">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -340,14 +344,8 @@ export function TechRadarClient() {
               ))}
             </SelectContent>
           </Select>
-          <Select
-            value={quadrant}
-            onValueChange={(v) => setQuadrant(v as Quadrant)}
-          >
-            <SelectTrigger
-              className="bg-bg border-border text-sm"
-              aria-label="Quadrant"
-            >
+          <Select value={quadrant} onValueChange={(v) => setQuadrant(v as Quadrant)}>
+            <SelectTrigger className="bg-bg border-border text-sm" aria-label="Quadrant">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -384,186 +382,160 @@ export function TechRadarClient() {
           No blips yet. Add the first technology, language, or technique above.
         </EmptyState>
       ) : (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-        {/* Radar SVG */}
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <div className="text-xs uppercase tracking-wider text-sub mb-2">
-            Radar
-          </div>
-          <div className="flex justify-center">
-            <svg
-              viewBox={`0 0 ${RADAR_SIZE} ${RADAR_SIZE}`}
-              className="w-full max-w-[300px] h-auto"
-              role="img"
-              aria-label="Technology radar chart"
-            >
-              {/* Wedges for visual structure (faint quadrant separation). */}
-              {QUADRANTS.map((_, qi) =>
-                RINGS.map((_, ri) => (
-                  <path
-                    key={`${qi}-${ri}`}
-                    d={quadrantWedge(qi, ri)}
-                    fill={ri % 2 === 0 ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.04)"}
-                    stroke="rgba(255,255,255,0.08)"
-                    strokeWidth={1}
-                  />
-                ))
-              )}
-              {/* Cross-hairs for quadrant divisions */}
-              <line
-                x1={RADAR_CENTER}
-                y1={RADAR_CENTER - RADAR_RADIUS}
-                x2={RADAR_CENTER}
-                y2={RADAR_CENTER + RADAR_RADIUS}
-                stroke="rgba(255,255,255,0.18)"
-              />
-              <line
-                x1={RADAR_CENTER - RADAR_RADIUS}
-                y1={RADAR_CENTER}
-                x2={RADAR_CENTER + RADAR_RADIUS}
-                y2={RADAR_CENTER}
-                stroke="rgba(255,255,255,0.18)"
-              />
-              {/* Ring labels (only on the right edge of each ring, top-right
-                  quadrant, so they don't overlap blips). */}
-              {RINGS.map((r, i) => {
-                const ringMidR =
-                  ((i + 0.5) / 4) * RADAR_RADIUS;
-                return (
-                  <text
-                    key={r.id}
-                    x={RADAR_CENTER + ringMidR}
-                    y={RADAR_CENTER - 4}
-                    fontSize={9}
-                    fill="rgba(255,255,255,0.45)"
-                    textAnchor="middle"
-                    className="font-data"
-                  >
-                    {r.label}
-                  </text>
-                );
-              })}
-              {/* Blip dots */}
-              {projected.map(({ blip, x, y }) => {
-                const color =
-                  RINGS.find((r) => r.id === blip.ring)?.color ?? "#00f0ff";
-                return (
-                  <g key={blip.id}>
-                    <circle
-                      cx={x}
-                      cy={y}
-                      r={5}
-                      fill={color}
-                      stroke="#0a0a0f"
-                      strokeWidth={1}
-                    >
-                      <title>
-                        {blip.name} — {blip.ring}
-                      </title>
-                    </circle>
-                  </g>
-                );
-              })}
-            </svg>
-          </div>
-          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-3 text-[11px]">
-            {RINGS.map((r) => (
-              <span key={r.id} className="flex items-center gap-1 text-sub">
-                <span
-                  className="inline-block w-2.5 h-2.5 rounded-full"
-                  style={{ background: r.color }}
-                />
-                {r.label}
-              </span>
-            ))}
-          </div>
-          <div className="grid grid-cols-2 gap-1 mt-3 text-[10px] text-sub">
-            {QUADRANTS.map((q) => (
-              <div key={q.id} className="border border-border rounded px-1.5 py-0.5">
-                {q.label}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Blip list grouped by ring */}
-        <div className="space-y-3">
-          {RINGS.map((r) => (
-            <div
-              key={r.id}
-              className="rounded-lg border border-border bg-surface p-3"
-            >
-              <div
-                className="text-xs uppercase tracking-wider mb-2 font-data"
-                style={{ color: r.color }}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+          {/* Radar SVG */}
+          <div className="rounded-lg border border-border bg-surface p-4">
+            <div className="text-xs uppercase tracking-wider text-sub mb-2">Radar</div>
+            <div className="flex justify-center">
+              <svg
+                viewBox={`0 0 ${RADAR_SIZE} ${RADAR_SIZE}`}
+                className="w-full max-w-[300px] h-auto"
+                role="img"
+                aria-label="Technology radar chart"
               >
-                {r.label} ({blipsByRing[r.id].length})
-              </div>
-              {blipsByRing[r.id].length === 0 ? (
-                <p className="text-xs text-sub">No blips in this ring.</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {blipsByRing[r.id].map((b) => (
-                    <div
-                      key={b.id}
-                      className="rounded-md border border-border bg-bg p-2 text-xs"
+                {/* Wedges for visual structure (faint quadrant separation). */}
+                {QUADRANTS.map((_, qi) =>
+                  RINGS.map((_, ri) => (
+                    <path
+                      key={`${qi}-${ri}`}
+                      d={quadrantWedge(qi, ri)}
+                      fill={ri % 2 === 0 ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.04)"}
+                      stroke="rgba(255,255,255,0.08)"
+                      strokeWidth={1}
+                    />
+                  ))
+                )}
+                {/* Cross-hairs for quadrant divisions */}
+                <line
+                  x1={RADAR_CENTER}
+                  y1={RADAR_CENTER - RADAR_RADIUS}
+                  x2={RADAR_CENTER}
+                  y2={RADAR_CENTER + RADAR_RADIUS}
+                  stroke="rgba(255,255,255,0.18)"
+                />
+                <line
+                  x1={RADAR_CENTER - RADAR_RADIUS}
+                  y1={RADAR_CENTER}
+                  x2={RADAR_CENTER + RADAR_RADIUS}
+                  y2={RADAR_CENTER}
+                  stroke="rgba(255,255,255,0.18)"
+                />
+                {/* Ring labels (only on the right edge of each ring, top-right
+                  quadrant, so they don't overlap blips). */}
+                {RINGS.map((r, i) => {
+                  const ringMidR = ((i + 0.5) / 4) * RADAR_RADIUS;
+                  return (
+                    <text
+                      key={r.id}
+                      x={RADAR_CENTER + ringMidR}
+                      y={RADAR_CENTER - 4}
+                      fontSize={9}
+                      fill="rgba(255,255,255,0.45)"
+                      textAnchor="middle"
+                      className="font-data"
                     >
-                      <div className="flex items-start gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="text-text font-medium break-words">
-                            {b.name}
-                          </div>
-                          <div className="text-sub">
-                            {QUADRANTS.find((q) => q.id === b.quadrant)?.label}
-                          </div>
-                          {b.description && (
-                            <div className="text-sub whitespace-pre-wrap mt-1 break-words">
-                              {b.description}
+                      {r.label}
+                    </text>
+                  );
+                })}
+                {/* Blip dots */}
+                {projected.map(({ blip, x, y }) => {
+                  const color = RINGS.find((r) => r.id === blip.ring)?.color ?? "#00f0ff";
+                  return (
+                    <g key={blip.id}>
+                      <circle cx={x} cy={y} r={5} fill={color} stroke="#0a0a0f" strokeWidth={1}>
+                        <title>
+                          {blip.name} — {blip.ring}
+                        </title>
+                      </circle>
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+            <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-3 text-[11px]">
+              {RINGS.map((r) => (
+                <span key={r.id} className="flex items-center gap-1 text-sub">
+                  <span
+                    className="inline-block w-2.5 h-2.5 rounded-full"
+                    style={{ background: r.color }}
+                  />
+                  {r.label}
+                </span>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-1 mt-3 text-[10px] text-sub">
+              {QUADRANTS.map((q) => (
+                <div key={q.id} className="border border-border rounded px-1.5 py-0.5">
+                  {q.label}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Blip list grouped by ring */}
+          <div className="space-y-3">
+            {RINGS.map((r) => (
+              <div key={r.id} className="rounded-lg border border-border bg-surface p-3">
+                <div
+                  className="text-xs uppercase tracking-wider mb-2 font-data"
+                  style={{ color: r.color }}
+                >
+                  {r.label} ({blipsByRing[r.id].length})
+                </div>
+                {blipsByRing[r.id].length === 0 ? (
+                  <p className="text-xs text-sub">No blips in this ring.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {blipsByRing[r.id].map((b) => (
+                      <div key={b.id} className="rounded-md border border-border bg-bg p-2 text-xs">
+                        <div className="flex items-start gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-text font-medium break-words">{b.name}</div>
+                            <div className="text-sub">
+                              {QUADRANTS.find((q) => q.id === b.quadrant)?.label}
                             </div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Select
-                            value={b.ring}
-                            onValueChange={(v) => moveBlip(b.id, v as Ring)}
-                          >
-                            <SelectTrigger
-                              className="h-7 text-xs bg-surface border-border w-20"
-                              aria-label={`Move ${b.name} to ring`}
+                            {b.description && (
+                              <div className="text-sub whitespace-pre-wrap mt-1 break-words">
+                                {b.description}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Select value={b.ring} onValueChange={(v) => moveBlip(b.id, v as Ring)}>
+                              <SelectTrigger
+                                className="h-7 text-xs bg-surface border-border w-20"
+                                aria-label={`Move ${b.name} to ring`}
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {RINGS.map((rr) => (
+                                  <SelectItem key={rr.id} value={rr.id} className="text-xs">
+                                    {rr.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeBlip(b.id)}
+                              className="h-7 w-7 p-0 text-sub hover:text-danger"
+                              aria-label={`Remove ${b.name}`}
                             >
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {RINGS.map((rr) => (
-                                <SelectItem
-                                  key={rr.id}
-                                  value={rr.id}
-                                  className="text-xs"
-                                >
-                                  {rr.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeBlip(b.id)}
-                            className="h-7 w-7 p-0 text-sub hover:text-danger"
-                            aria-label={`Remove ${b.name}`}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
       )}
     </ToolPageWrapper>
   );
