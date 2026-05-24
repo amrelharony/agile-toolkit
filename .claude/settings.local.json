@@ -31,7 +31,10 @@
       "WebSearch",
       "WebFetch(domain:miro.com)",
       "WebFetch(domain:help.miro.com)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(python3)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(npx vitest *)"
     ]
   }
 }
