@@ -6,8 +6,7 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import { Plus, Trash2, Workflow } from "lucide-react";
 import { generateOpportunityTreePrompts } from "@/lib/ai-prompts/opportunity-tree";
 import { useShallow } from "zustand/react/shallow";
@@ -66,7 +65,8 @@ export function OpportunityTreeClient() {
       parentId: parent.id,
     });
   };
-  const update = (id: string, patch: Partial<TreeNode>) => setNodes((s) => s.map((n) => (n.id === id ? { ...n, ...patch } : n)));
+  const update = (id: string, patch: Partial<TreeNode>) =>
+    setNodes((s) => s.map((n) => (n.id === id ? { ...n, ...patch } : n)));
   const remove = (id: string) => {
     const node = nodes.find((n) => n.id === id);
     log(OPPORTUNITY_TREE_ACTIONS.NODE_REMOVED, { nodeId: id, kind: node?.kind });
@@ -107,10 +107,16 @@ export function OpportunityTreeClient() {
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
-        teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-        impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-        decisions: s.decisions, techDebt: s.techDebt,
-        maturityLevel: s.maturityLevel, teamName: s.teamName,
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
       })
     )
   );
@@ -135,64 +141,74 @@ export function OpportunityTreeClient() {
     // Default to outcome's cyan rather than rendering broken inline CSS.
     const kindColor = KIND_COLORS[node.kind] ?? KIND_COLORS.outcome;
     return (
-    <div key={node.id} className="space-y-2">
-      <div
-        className="rounded-lg border bg-bg p-3"
-        style={{ borderColor: `${kindColor}66`, borderLeftWidth: 3, borderLeftColor: kindColor }}
-      >
-        <div className="flex items-start gap-2">
-          <span
-            className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded font-data"
-            style={{ background: `${kindColor}22`, color: kindColor }}
-          >
-            {node.kind}
-          </span>
-          <div className="flex-1 space-y-2">
-            <Textarea
-              rows={2}
-              value={node.text}
-              onChange={(e) => update(node.id, { text: e.target.value })}
-              placeholder={`${node.kind}...`}
-              className="bg-surface border-border text-sm"
-            />
-            {/* Description input applies to any node kind — distinct from
+      <div key={node.id} className="space-y-2">
+        <div
+          className="rounded-lg border bg-bg p-3"
+          style={{ borderColor: `${kindColor}66`, borderLeftWidth: 3, borderLeftColor: kindColor }}
+        >
+          <div className="flex items-start gap-2">
+            <span
+              className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded font-data"
+              style={{ background: `${kindColor}22`, color: kindColor }}
+            >
+              {node.kind}
+            </span>
+            <div className="flex-1 space-y-2">
+              <BlurTextarea
+                rows={2}
+                value={node.text}
+                onCommit={(v) => update(node.id, { text: v })}
+                placeholder={`${node.kind}...`}
+                className="bg-surface border-border text-sm"
+              />
+              {/* Description input applies to any node kind — distinct from
                 evidence (opportunity/experiment only). The visible input
                 doubles as the display, mirroring how the main `text` field
                 works above. */}
-            <Input
-              value={node.description ?? ""}
-              onChange={(e) => update(node.id, { description: e.target.value })}
-              placeholder="Description (optional)..."
-              className="bg-surface border-border text-xs"
-            />
-            {(node.kind === "opportunity" || node.kind === "experiment") && (
-              <Input
-                value={node.evidence ?? ""}
-                onChange={(e) => update(node.id, { evidence: e.target.value })}
-                placeholder="Evidence / data..."
+              <BlurInput
+                value={node.description ?? ""}
+                onCommit={(v) => update(node.id, { description: v })}
+                placeholder="Description (optional)..."
                 className="bg-surface border-border text-xs"
               />
-            )}
-          </div>
-          <div className="flex flex-col gap-1">
-            {CHILD_KIND[node.kind] && (
-              <Button variant="ghost" size="sm" onClick={() => addChild(node)} className="h-7 text-sub hover:text-accent gap-1">
-                <Plus className="w-3.5 h-3.5" />
-                <span className="text-xs">{CHILD_KIND[node.kind]}</span>
+              {(node.kind === "opportunity" || node.kind === "experiment") && (
+                <BlurInput
+                  value={node.evidence ?? ""}
+                  onCommit={(v) => update(node.id, { evidence: v })}
+                  placeholder="Evidence / data..."
+                  className="bg-surface border-border text-xs"
+                />
+              )}
+            </div>
+            <div className="flex flex-col gap-1">
+              {CHILD_KIND[node.kind] && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => addChild(node)}
+                  className="h-7 text-sub hover:text-accent gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span className="text-xs">{CHILD_KIND[node.kind]}</span>
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => remove(node.id)}
+                className="h-7 text-sub hover:text-danger"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
               </Button>
-            )}
-            <Button variant="ghost" size="sm" onClick={() => remove(node.id)} className="h-7 text-sub hover:text-danger">
-              <Trash2 className="w-3.5 h-3.5" />
-            </Button>
+            </div>
           </div>
         </div>
+        {childrenOf(node.id).length > 0 && (
+          <div className="pl-6 space-y-2 border-l border-border ml-2">
+            {childrenOf(node.id).map((child) => renderNode(child, depth + 1))}
+          </div>
+        )}
       </div>
-      {childrenOf(node.id).length > 0 && (
-        <div className="pl-6 space-y-2 border-l border-border ml-2">
-          {childrenOf(node.id).map((child) => renderNode(child, depth + 1))}
-        </div>
-      )}
-    </div>
     );
   };
 
@@ -216,7 +232,7 @@ export function OpportunityTreeClient() {
             // they tie the export to internal IDs that change on import.
             rows: nodes.map((n) => {
               const parentText = n.parentId
-                ? nodes.find((p) => p.id === n.parentId)?.text ?? ""
+                ? (nodes.find((p) => p.id === n.parentId)?.text ?? "")
                 : "";
               return [n.kind, n.text, n.description ?? "", parentText, n.evidence ?? ""];
             }),

@@ -12,7 +12,7 @@ import { EditableName } from "@/components/shared/editable-name";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SKILLS_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { BlurInput } from "@/components/shared/blur-fields";
 import { SectionCard } from "@/components/shared/section-card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -126,10 +126,7 @@ const DEFAULT_SKILLS: Skill[] = [
   { id: "s4", name: "CI/CD" },
 ];
 
-function buildDefaultGrid(
-  skills: Skill[],
-  members: TeamMember[]
-): GridData {
+function buildDefaultGrid(skills: Skill[], members: TeamMember[]): GridData {
   const grid: GridData = {};
   for (const s of skills) {
     grid[s.id] = {};
@@ -193,9 +190,7 @@ const useSkillsStore = create<SkillsMatrixStore>()(
       updateMemberDescription: (id, description) =>
         set((s) => ({
           members: s.members.map((m) =>
-            m.id === id
-              ? { ...m, description: description.trim() || undefined }
-              : m
+            m.id === id ? { ...m, description: description.trim() || undefined } : m
           ),
         })),
 
@@ -238,9 +233,7 @@ const useSkillsStore = create<SkillsMatrixStore>()(
       updateSkillDescription: (id, description) =>
         set((s) => ({
           skills: s.skills.map((sk) =>
-            sk.id === id
-              ? { ...sk, description: description.trim() || undefined }
-              : sk
+            sk.id === id ? { ...sk, description: description.trim() || undefined } : sk
           ),
         })),
 
@@ -315,9 +308,7 @@ function ProfCell({
           {meta.shortLabel}
         </span>
       ) : (
-        <span className={`text-xs font-bold ${meta.text}`}>
-          {meta.shortLabel}
-        </span>
+        <span className={`text-xs font-bold ${meta.text}`}>{meta.shortLabel}</span>
       )}
     </button>
   );
@@ -327,11 +318,7 @@ function ProfCell({
 /*  Analysis helpers                                                          */
 /* -------------------------------------------------------------------------- */
 
-function analyzeSkills(
-  skills: Skill[],
-  members: TeamMember[],
-  grid: GridData
-) {
+function analyzeSkills(skills: Skill[], members: TeamMember[], grid: GridData) {
   return skills.map((skill) => {
     const row = grid[skill.id] ?? {};
     const proficient = members.filter((m) => (row[m.id] ?? 0) >= 2).length;
@@ -366,9 +353,7 @@ export function SkillsMatrixClient() {
   // Debounce cycleCell logging — users typically click 3-4 times to find the
   // right rating. Logging each click would flood the audit log. We schedule
   // a "settled" log 600ms after the last cycleCell call per (memberId, skillId).
-  const cycleCellTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
-    new Map()
-  );
+  const cycleCellTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   useEffect(() => {
     const timers = cycleCellTimersRef.current;
     return () => {
@@ -408,8 +393,7 @@ export function SkillsMatrixClient() {
       // The prior log payload swapped these labels, corrupting every
       // rating-change audit entry. Grid lookup was correct because the
       // store is keyed grid[skillId][memberId].
-      const settled =
-        useSkillsStore.getState().grid[args[0]]?.[args[1]] ?? null;
+      const settled = useSkillsStore.getState().grid[args[0]]?.[args[1]] ?? null;
       log(SKILLS_ACTIONS.RATING_CHANGED, {
         memberId: args[1],
         skillId: args[0],
@@ -427,19 +411,10 @@ export function SkillsMatrixClient() {
 
   /* -- Analysis ----------------------------------------------------------- */
 
-  const analysis = useMemo(
-    () => analyzeSkills(skills, members, grid),
-    [skills, members, grid]
-  );
+  const analysis = useMemo(() => analyzeSkills(skills, members, grid), [skills, members, grid]);
 
-  const spofCount = useMemo(
-    () => analysis.filter((a) => a.isSPOF).length,
-    [analysis]
-  );
-  const busFactorCount = useMemo(
-    () => analysis.filter((a) => a.isBusFactor).length,
-    [analysis]
-  );
+  const spofCount = useMemo(() => analysis.filter((a) => a.isSPOF).length, [analysis]);
+  const busFactorCount = useMemo(() => analysis.filter((a) => a.isBusFactor).length, [analysis]);
 
   const overallCoverage = useMemo(() => {
     if (skills.length === 0 || members.length === 0) return 0;
@@ -507,18 +482,27 @@ export function SkillsMatrixClient() {
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
-        teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-        impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-        decisions: s.decisions, techDebt: s.techDebt,
-        maturityLevel: s.maturityLevel, teamName: s.teamName,
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
       })
     )
   );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Skills Matrix",
-    prompts: generateSkillsMatrixPrompts({ members, skills, grid }, workspace),
-  }), [members, skills, grid, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Skills Matrix",
+      prompts: generateSkillsMatrixPrompts({ members, skills, grid }, workspace),
+    }),
+    [members, skills, grid, workspace]
+  );
 
   /* -- Render -------------------------------------------------------------- */
 
@@ -535,9 +519,7 @@ export function SkillsMatrixClient() {
           <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent/5 border border-accent/20">
             <Users className="w-4 h-4 text-accent" />
             <span className="text-sm text-sub">Coverage</span>
-            <span className="font-data font-bold text-accent">
-              {overallCoverage}%
-            </span>
+            <span className="font-data font-bold text-accent">{overallCoverage}%</span>
           </div>
           {busFactorCount > 0 && (
             <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/5 border border-amber-500/30">
@@ -563,12 +545,7 @@ export function SkillsMatrixClient() {
               csvData={csvData}
               targetRef={exportRef}
             />
-            <Button
-              variant="danger-ghost"
-              size="sm"
-              onClick={reset}
-              className="gap-1.5"
-            >
+            <Button variant="danger-ghost" size="sm" onClick={reset} className="gap-1.5">
               <RotateCcw className="w-4 h-4" />
               Reset
             </Button>
@@ -576,173 +553,159 @@ export function SkillsMatrixClient() {
         </div>
 
         {/* ---- Matrix ----------------------------------------------------- */}
-        <SectionCard
-          title="Skills Grid"
-          icon={Users}
-          titleSize="lg"
-          headerClassName="pb-4"
-        >
+        <SectionCard title="Skills Grid" icon={Users} titleSize="lg" headerClassName="pb-4">
           <div ref={exportRef} className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr>
-                    {/* corner cell */}
-                    <th className="bg-surface-deep border border-border p-2 text-left text-xs text-sub font-medium uppercase tracking-wider min-w-[160px]">
-                      Skill / Member
-                    </th>
-                    {members.map((member) => (
-                      <th
-                        key={member.id}
-                        className="bg-surface-deep border border-border p-2 min-w-[110px]"
-                        title={member.description || undefined}
-                      >
-                        <div className="flex items-center justify-between gap-1">
-                          <EditableName
-                            value={member.name}
-                            onChange={(n) => updateMemberName(member.id, n)}
-                            className="flex-1 font-bold text-text text-xs"
-                          />
-                          {members.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => removeMember(member.id)}
-                              className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
-                              title="Remove member"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-                        {/* Compact one-line description input — keeps the
-                            matrix header dense; empty trims to undefined. */}
-                        <Input
-                          value={member.description ?? ""}
-                          onChange={(e) =>
-                            updateMemberDescription(member.id, e.target.value)
-                          }
-                          placeholder="Description (optional)..."
-                          className="mt-1 h-6 text-[11px] bg-surface border-border font-normal"
-                          aria-label={`Description for member ${member.name}`}
-                        />
-                      </th>
-                    ))}
-                    <th className="bg-surface-deep border border-border p-2 w-10">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={addMember}
-                        className="min-touch-coarse h-7 w-7 text-accent hover:bg-accent/10"
-                        title="Add member"
-                      >
-                        <Plus className="w-4 h-4" />
-                      </Button>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {analysis.map(
-                    ({ skill, isSPOF, isBusFactor }) => (
-                      <tr key={skill.id}>
-                        <td
-                          className={`border p-2 bg-surface-deep ${
-                            isSPOF
-                              ? "border-red-500/50"
-                              : isBusFactor
-                              ? "border-amber-500/40"
-                              : "border-border"
-                          }`}
-                          title={skill.description || undefined}
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <EditableName
-                              value={skill.name}
-                              onChange={(n) => updateSkillName(skill.id, n)}
-                              className="flex-1 font-medium text-text text-sm"
-                            />
-                            {isSPOF && (
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] border-red-500/50 text-red-400 bg-red-500/10 px-1 py-0 h-4 flex-shrink-0"
-                                title="Knowledge gap: no one has Intermediate+ proficiency"
-                              >
-                                GAP
-                              </Badge>
-                            )}
-                            {isBusFactor && (
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] border-amber-500/50 text-amber-400 bg-amber-500/10 px-1 py-0 h-4 flex-shrink-0"
-                                title="Bus factor risk: only 1 person at Advanced+ level"
-                              >
-                                BUS 1
-                              </Badge>
-                            )}
-                            {skills.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => removeSkill(skill.id)}
-                                className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
-                                title="Remove skill"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
-                          {/* Compact one-line description input keeps the
-                              skill row tidy; empty trims to undefined. */}
-                          <Input
-                            value={skill.description ?? ""}
-                            onChange={(e) =>
-                              updateSkillDescription(skill.id, e.target.value)
-                            }
-                            placeholder="Description (optional)..."
-                            className="mt-1 h-6 text-[11px] bg-surface border-border"
-                            aria-label={`Description for skill ${skill.name}`}
-                          />
-                        </td>
-                        {members.map((member) => (
-                          <td
-                            key={member.id}
-                            className={`border p-1.5 ${
-                              isSPOF
-                                ? "border-red-500/30"
-                                : isBusFactor
-                                ? "border-amber-500/20"
-                                : "border-border"
-                            }`}
-                          >
-                            <ProfCell
-                              level={grid[skill.id]?.[member.id] ?? 0}
-                              onClick={() => cycleCell(skill.id, member.id)}
-                              title={`${skill.name} / ${member.name}`}
-                            />
-                          </td>
-                        ))}
-                        <td className="border border-border p-1.5" />
-                      </tr>
-                    )
-                  )}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td
-                      className="border border-border p-2"
-                      colSpan={members.length + 2}
+            <table className="w-full border-collapse">
+              <thead>
+                <tr>
+                  {/* corner cell */}
+                  <th className="bg-surface-deep border border-border p-2 text-left text-xs text-sub font-medium uppercase tracking-wider min-w-[160px]">
+                    Skill / Member
+                  </th>
+                  {members.map((member) => (
+                    <th
+                      key={member.id}
+                      className="bg-surface-deep border border-border p-2 min-w-[110px]"
+                      title={member.description || undefined}
                     >
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={addSkill}
-                        className="gap-1.5 text-accent hover:bg-accent/10"
-                      >
-                        <Plus className="w-4 h-4" />
-                        Add Skill
-                      </Button>
+                      <div className="flex items-center justify-between gap-1">
+                        <EditableName
+                          value={member.name}
+                          onChange={(n) => updateMemberName(member.id, n)}
+                          className="flex-1 font-bold text-text text-xs"
+                        />
+                        {members.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeMember(member.id)}
+                            className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
+                            title="Remove member"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                      {/* Compact one-line description input — keeps the
+                            matrix header dense; empty trims to undefined. */}
+                      <BlurInput
+                        value={member.description ?? ""}
+                        onCommit={(v) => updateMemberDescription(member.id, v)}
+                        placeholder="Description (optional)..."
+                        className="mt-1 h-6 text-[11px] bg-surface border-border font-normal"
+                        aria-label={`Description for member ${member.name}`}
+                      />
+                    </th>
+                  ))}
+                  <th className="bg-surface-deep border border-border p-2 w-10">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={addMember}
+                      className="min-touch-coarse h-7 w-7 text-accent hover:bg-accent/10"
+                      title="Add member"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {analysis.map(({ skill, isSPOF, isBusFactor }) => (
+                  <tr key={skill.id}>
+                    <td
+                      className={`border p-2 bg-surface-deep ${
+                        isSPOF
+                          ? "border-red-500/50"
+                          : isBusFactor
+                            ? "border-amber-500/40"
+                            : "border-border"
+                      }`}
+                      title={skill.description || undefined}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <EditableName
+                          value={skill.name}
+                          onChange={(n) => updateSkillName(skill.id, n)}
+                          className="flex-1 font-medium text-text text-sm"
+                        />
+                        {isSPOF && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] border-red-500/50 text-red-400 bg-red-500/10 px-1 py-0 h-4 flex-shrink-0"
+                            title="Knowledge gap: no one has Intermediate+ proficiency"
+                          >
+                            GAP
+                          </Badge>
+                        )}
+                        {isBusFactor && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] border-amber-500/50 text-amber-400 bg-amber-500/10 px-1 py-0 h-4 flex-shrink-0"
+                            title="Bus factor risk: only 1 person at Advanced+ level"
+                          >
+                            BUS 1
+                          </Badge>
+                        )}
+                        {skills.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeSkill(skill.id)}
+                            className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
+                            title="Remove skill"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                      {/* Compact one-line description input keeps the
+                              skill row tidy; empty trims to undefined. */}
+                      <BlurInput
+                        value={skill.description ?? ""}
+                        onCommit={(v) => updateSkillDescription(skill.id, v)}
+                        placeholder="Description (optional)..."
+                        className="mt-1 h-6 text-[11px] bg-surface border-border"
+                        aria-label={`Description for skill ${skill.name}`}
+                      />
                     </td>
+                    {members.map((member) => (
+                      <td
+                        key={member.id}
+                        className={`border p-1.5 ${
+                          isSPOF
+                            ? "border-red-500/30"
+                            : isBusFactor
+                              ? "border-amber-500/20"
+                              : "border-border"
+                        }`}
+                      >
+                        <ProfCell
+                          level={grid[skill.id]?.[member.id] ?? 0}
+                          onClick={() => cycleCell(skill.id, member.id)}
+                          title={`${skill.name} / ${member.name}`}
+                        />
+                      </td>
+                    ))}
+                    <td className="border border-border p-1.5" />
                   </tr>
-                </tfoot>
-              </table>
-            </div>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td className="border border-border p-2" colSpan={members.length + 2}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={addSkill}
+                      className="gap-1.5 text-accent hover:bg-accent/10"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add Skill
+                    </Button>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </SectionCard>
 
         {/* ---- Legend + Risk summary -------------------------------------- */}
@@ -754,33 +717,29 @@ export function SkillsMatrixClient() {
             titleSize="sm"
             contentClassName="space-y-2"
           >
-              {PROF_META.map((meta, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <div
-                    className={`w-8 h-6 rounded border flex items-center justify-center flex-shrink-0 ${meta.bg} ${meta.border}`}
-                  >
-                    {i === 0 ? (
-                      <span className="text-xs text-sub/50">·</span>
-                    ) : i === 4 ? (
-                      <Star className={`w-3 h-3 fill-current ${meta.text}`} />
-                    ) : (
-                      <span className={`text-xs font-bold ${meta.text}`}>
-                        {meta.shortLabel}
-                      </span>
-                    )}
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium text-text">
-                      {i} — {meta.label}
-                    </span>
-                    {i === 0 && (
-                      <span className="text-xs text-sub ml-2">
-                        (click a cell to start)
-                      </span>
-                    )}
-                  </div>
+            {PROF_META.map((meta, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div
+                  className={`w-8 h-6 rounded border flex items-center justify-center flex-shrink-0 ${meta.bg} ${meta.border}`}
+                >
+                  {i === 0 ? (
+                    <span className="text-xs text-sub/50">·</span>
+                  ) : i === 4 ? (
+                    <Star className={`w-3 h-3 fill-current ${meta.text}`} />
+                  ) : (
+                    <span className={`text-xs font-bold ${meta.text}`}>{meta.shortLabel}</span>
+                  )}
                 </div>
-              ))}
+                <div>
+                  <span className="text-sm font-medium text-text">
+                    {i} — {meta.label}
+                  </span>
+                  {i === 0 && (
+                    <span className="text-xs text-sub ml-2">(click a cell to start)</span>
+                  )}
+                </div>
+              </div>
+            ))}
           </SectionCard>
 
           {/* Risk summary */}
@@ -790,51 +749,46 @@ export function SkillsMatrixClient() {
             titleSize="sm"
             contentClassName="space-y-3"
           >
-              {analysis.filter((a) => a.isSPOF || a.isBusFactor).length ===
-              0 ? (
-                <p className="text-sm text-sub">
-                  No risks detected. All skills have adequate coverage.
-                </p>
-              ) : (
-                <>
-                  {analysis
-                    .filter((a) => a.isSPOF)
-                    .map(({ skill }) => (
-                      <div
-                        key={skill.id}
-                        className="flex items-start gap-2 p-2 rounded-lg bg-red-500/5 border border-red-500/20"
-                      >
-                        <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium text-red-300">
-                            {skill.name}
-                          </p>
-                          <p className="text-xs text-sub">
-                            Knowledge gap — nobody has Intermediate+ proficiency.
-                          </p>
-                        </div>
+            {analysis.filter((a) => a.isSPOF || a.isBusFactor).length === 0 ? (
+              <p className="text-sm text-sub">
+                No risks detected. All skills have adequate coverage.
+              </p>
+            ) : (
+              <>
+                {analysis
+                  .filter((a) => a.isSPOF)
+                  .map(({ skill }) => (
+                    <div
+                      key={skill.id}
+                      className="flex items-start gap-2 p-2 rounded-lg bg-red-500/5 border border-red-500/20"
+                    >
+                      <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium text-red-300">{skill.name}</p>
+                        <p className="text-xs text-sub">
+                          Knowledge gap — nobody has Intermediate+ proficiency.
+                        </p>
                       </div>
-                    ))}
-                  {analysis
-                    .filter((a) => a.isBusFactor)
-                    .map(({ skill }) => (
-                      <div
-                        key={skill.id}
-                        className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/5 border border-amber-500/20"
-                      >
-                        <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium text-amber-300">
-                            {skill.name}
-                          </p>
-                          <p className="text-xs text-sub">
-                            Bus factor 1 — only one person at Advanced or Expert level.
-                          </p>
-                        </div>
+                    </div>
+                  ))}
+                {analysis
+                  .filter((a) => a.isBusFactor)
+                  .map(({ skill }) => (
+                    <div
+                      key={skill.id}
+                      className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/5 border border-amber-500/20"
+                    >
+                      <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium text-amber-300">{skill.name}</p>
+                        <p className="text-xs text-sub">
+                          Bus factor 1 — only one person at Advanced or Expert level.
+                        </p>
                       </div>
-                    ))}
-                </>
-              )}
+                    </div>
+                  ))}
+              </>
+            )}
           </SectionCard>
         </div>
       </div>

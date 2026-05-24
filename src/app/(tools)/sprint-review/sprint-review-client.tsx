@@ -17,8 +17,8 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -361,18 +361,18 @@ function DemoScriptTab() {
       >
         <div className="space-y-1.5">
           <Label className="text-sub text-xs">Sprint Name</Label>
-          <Input
+          <BlurInput
             value={sprintName}
-            onChange={(e) => setSprintName(e.target.value)}
+            onCommit={setSprintName}
             placeholder="e.g. Sprint Alpha"
             className="input-toolkit"
           />
         </div>
         <div className="space-y-1.5">
           <Label className="text-sub text-xs">Sprint Number</Label>
-          <Input
+          <BlurInput
             value={sprintNumber}
-            onChange={(e) => setSprintNumber(e.target.value)}
+            onCommit={setSprintNumber}
             placeholder="e.g. 12"
             className="input-toolkit"
           />
@@ -414,9 +414,9 @@ function DemoScriptTab() {
             <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
               <div className="space-y-1.5">
                 <SectionLabel>Feature Name</SectionLabel>
-                <Input
+                <BlurInput
                   value={f.name}
-                  onChange={(e) => updateFeature(f.id, { name: e.target.value })}
+                  onCommit={(v) => updateFeature(f.id, { name: v })}
                   placeholder="e.g. User Login Flow"
                   className="input-toolkit"
                 />
@@ -433,22 +433,18 @@ function DemoScriptTab() {
             </div>
             <div className="space-y-1.5">
               <SectionLabel>Brief Description</SectionLabel>
-              <Input
+              <BlurInput
                 value={f.description}
-                onChange={(e) => updateFeature(f.id, { description: e.target.value })}
+                onCommit={(v) => updateFeature(f.id, { description: v })}
                 placeholder="What was built?"
                 className="input-toolkit"
               />
             </div>
             <div className="space-y-1.5">
               <SectionLabel>Acceptance Criteria</SectionLabel>
-              <Textarea
+              <BlurTextarea
                 value={f.acceptanceCriteria}
-                onChange={(e) =>
-                  updateFeature(f.id, {
-                    acceptanceCriteria: e.target.value,
-                  })
-                }
+                onCommit={(v) => updateFeature(f.id, { acceptanceCriteria: v })}
                 placeholder="Given... When... Then..."
                 rows={2}
                 className="bg-surface-deep border-border text-text resize-none focus:border-accent/50"
@@ -541,9 +537,9 @@ function FeedbackTab() {
             <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
               <div className="space-y-1.5">
                 <SectionLabel>Stakeholder</SectionLabel>
-                <Input
+                <BlurInput
                   value={item.stakeholder}
-                  onChange={(e) => updateFeedback(item.id, { stakeholder: e.target.value })}
+                  onCommit={(v) => updateFeedback(item.id, { stakeholder: v })}
                   placeholder="Name / Role"
                   className="input-toolkit"
                 />
@@ -579,9 +575,9 @@ function FeedbackTab() {
             </div>
             <div className="space-y-1.5">
               <SectionLabel>Feedback</SectionLabel>
-              <Textarea
+              <BlurTextarea
                 value={item.feedback}
-                onChange={(e) => updateFeedback(item.id, { feedback: e.target.value })}
+                onCommit={(v) => updateFeedback(item.id, { feedback: v })}
                 placeholder="What did they say?"
                 rows={2}
                 className="bg-surface-deep border-border text-text resize-none focus:border-accent/50"
@@ -711,9 +707,9 @@ function ShowcaseChecklistTab() {
                   </svg>
                 )}
               </button>
-              <Input
+              <BlurInput
                 value={item.label}
-                onChange={(e) => updateChecklistLabel(item.id, e.target.value)}
+                onCommit={(v) => updateChecklistLabel(item.id, v)}
                 className={`flex-1 border-none bg-transparent p-0 h-auto text-sm focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 ${
                   item.checked ? "line-through text-sub" : "text-text"
                 }`}
