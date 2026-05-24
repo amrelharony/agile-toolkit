@@ -17,13 +17,19 @@
  * project URL works without rebuild. Tighten to the specific project
  * subdomain in production if you want defense-in-depth.
  */
+// BUG-A9: dropped 'unsafe-eval' in PRODUCTION builds — Next's hydration
+// boot does not require eval() there. In DEV the React Refresh runtime
+// (HMR) DOES use eval(), and without the allowance every client component
+// fails to hydrate silently: buttons render but their onClick handlers
+// never bind. Add the dev-only allowance back so `npm run dev` works.
+const isDev = process.env.NODE_ENV !== "production";
+
 const cspDirectives = [
   "default-src 'self'",
-  // BUG-A9: dropped 'unsafe-eval'. Next.js hydration boot does not require
-  // eval() in production builds. 'unsafe-inline' remains because Next still
-  // emits an inline boot script for the route manifest; switch to nonces or
-  // 'strict-dynamic' if you can tolerate the extra plumbing.
-  "script-src 'self' 'unsafe-inline'",
+  // 'unsafe-inline' stays in both modes because Next still emits an inline
+  // boot script for the route manifest; switch to nonces or 'strict-dynamic'
+  // if you can tolerate the extra plumbing.
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   "img-src 'self' data: blob: https://*.googleusercontent.com https://avatars.githubusercontent.com",
