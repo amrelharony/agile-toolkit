@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useAgentStore } from "@/lib/agent/store";
+import { abortInFlight } from "@/lib/agent/client";
 import {
   Sheet,
   SheetContent,
@@ -20,6 +21,19 @@ export function AgentSheet() {
   const closeSheet = useAgentStore((s) => s.closeSheet);
   const toggleSheet = useAgentStore((s) => s.toggleSheet);
 
+  // BUG-G4: abort any in-flight stream when the sheet unmounts (route
+  // change) or when the sheet closes. Without this, closed-sheet streams
+  // keep billing tokens, the loop keeps appending to a not-visible
+  // assistant message, and the UI can get stuck with `streaming=true`.
+  useEffect(() => {
+    if (!open) {
+      abortInFlight();
+    }
+  }, [open]);
+  useEffect(() => {
+    return () => abortInFlight();
+  }, []);
+
   // Cmd/Ctrl+J toggles the agent — the de facto AI-chat shortcut
   // (matches ChatGPT, Claude.ai). The previous double-K-on-Cmd+K
   // approach broke once the search palette captured focus: the second
@@ -27,7 +41,12 @@ export function AgentSheet() {
   // agent never opened. Cmd+J avoids the collision entirely.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === "j" || e.key === "J")) {
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        (e.key === "j" || e.key === "J")
+      ) {
         e.preventDefault();
         toggleSheet();
       }

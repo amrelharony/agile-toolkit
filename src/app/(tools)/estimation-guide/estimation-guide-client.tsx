@@ -111,15 +111,26 @@ export function EstimationGuideClient() {
           examples: Record<string, string>;
         }> = {};
         if (typeof d.selectedScale === "string") patch.selectedScale = d.selectedScale;
-        if (d.descriptions && typeof d.descriptions === "object" && !Array.isArray(d.descriptions)) {
-          patch.descriptions = { ...defaultDescriptions, ...(d.descriptions as Record<string, string>) };
+        if (
+          d.descriptions &&
+          typeof d.descriptions === "object" &&
+          !Array.isArray(d.descriptions)
+        ) {
+          patch.descriptions = {
+            ...defaultDescriptions,
+            ...(d.descriptions as Record<string, string>),
+          };
         }
         if (d.examples && typeof d.examples === "object" && !Array.isArray(d.examples)) {
           patch.examples = d.examples as Record<string, string>;
         } else {
           patch.examples = {};
         }
-        if (patch.selectedScale) {
+        // BUG-T3-estimation-guide-1: apply the patch if ANY field is
+        // present, not only when selectedScale is set. Sharing just
+        // descriptions/examples (a perfectly valid use case — "calibrate
+        // my Fibonacci notes") previously silently dropped on load.
+        if (patch.selectedScale || patch.descriptions || patch.examples) {
           useEstimationGuideStore.setState(patch);
         }
         // Clean up URL without reload
@@ -144,23 +155,17 @@ export function EstimationGuideClient() {
     [log]
   );
 
-  const handleDescriptionChange = useCallback(
-    (key: string, value: string) => {
-      useEstimationGuideStore.setState((state) => ({
-        descriptions: { ...state.descriptions, [key]: value },
-      }));
-    },
-    []
-  );
+  const handleDescriptionChange = useCallback((key: string, value: string) => {
+    useEstimationGuideStore.setState((state) => ({
+      descriptions: { ...state.descriptions, [key]: value },
+    }));
+  }, []);
 
-  const handleExampleChange = useCallback(
-    (key: string, value: string) => {
-      useEstimationGuideStore.setState((state) => ({
-        examples: { ...state.examples, [key]: value },
-      }));
-    },
-    []
-  );
+  const handleExampleChange = useCallback((key: string, value: string) => {
+    useEstimationGuideStore.setState((state) => ({
+      examples: { ...state.examples, [key]: value },
+    }));
+  }, []);
 
   const handleReset = useCallback(() => {
     useEstimationGuideStore.setState({
@@ -239,14 +244,20 @@ export function EstimationGuideClient() {
       })
     )
   );
-  const promptConfig = useMemo(() => ({
-    toolName: "Estimation Guide",
-    prompts: generateEstimationGuidePrompts({
-      selectedScale: store.selectedScale,
-      descriptions: store.descriptions,
-      examples: store.examples,
-    }, workspace),
-  }), [store.selectedScale, store.descriptions, store.examples, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Estimation Guide",
+      prompts: generateEstimationGuidePrompts(
+        {
+          selectedScale: store.selectedScale,
+          descriptions: store.descriptions,
+          examples: store.examples,
+        },
+        workspace
+      ),
+    }),
+    [store.selectedScale, store.descriptions, store.examples, workspace]
+  );
 
   // Guard against scales[] being empty so render-time access to
   // `activeScale.values` is safe.
@@ -332,9 +343,7 @@ export function EstimationGuideClient() {
                   </label>
                   <Textarea
                     value={store.descriptions[key] ?? ""}
-                    onChange={(e) =>
-                      handleDescriptionChange(key, e.target.value)
-                    }
+                    onChange={(e) => handleDescriptionChange(key, e.target.value)}
                     placeholder="Describe what this estimate means..."
                     rows={3}
                     className="resize-none border-border bg-bg text-text placeholder:text-sub text-sm focus-visible:ring-accent-cyan/50"

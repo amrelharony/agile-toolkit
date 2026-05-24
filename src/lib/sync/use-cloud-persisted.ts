@@ -57,10 +57,23 @@ function notifySubs(key: string, next: unknown): void {
 // push-back (would create an echo loop).
 const NO_REMOTE = Symbol("no-remote-apply");
 
-export function useCloudPersisted<T>(
-  key: string,
-  initial: T
-): [T, Dispatch<SetStateAction<T>>] {
+/**
+ * Clear ALL per-key adapter state when a user signs out, so a subsequent
+ * sign-in (potentially a different user on the same browser) doesn't see
+ * the previous user's snapshots and accidentally upload them to the new
+ * user's row. (BUG-S6)
+ *
+ * Called from the sync provider on auth state change. The hooks
+ * themselves re-hydrate from localStorage on their next mount cycle.
+ */
+export function resetCloudPersistedRegistry(): void {
+  subscribers.clear();
+  snapshots.clear();
+  adapterDirty.clear();
+  registered.clear();
+}
+
+export function useCloudPersisted<T>(key: string, initial: T): [T, Dispatch<SetStateAction<T>>] {
   const [state, setState] = useState<T>(initial);
   const [hydratedKey, setHydratedKey] = useState<string | null>(null);
   const initialRef = useRef(initial);

@@ -1,7 +1,8 @@
 "use client";
+import { safeJSONStorage } from "./safe-storage";
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import type { Mood } from "@/lib/emotion/types";
 
 export interface EmotionState {
@@ -45,15 +46,8 @@ export const useEmotionStore = create<EmotionState>()(
     }),
     {
       name: "agile-toolkit:emotion",
-      storage: createJSONStorage(() => {
-        if (typeof window !== "undefined") return localStorage;
-        return {
-          getItem: () => null,
-          setItem: () => {},
-          removeItem: () => {},
-        };
-      }),
+      storage: safeJSONStorage("emotion"),
       skipHydration: true,
-    },
-  ),
+    }
+  )
 );

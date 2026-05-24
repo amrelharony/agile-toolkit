@@ -80,10 +80,7 @@ type SortField = "failureRate" | "name" | "status" | "firstSeenAt";
 /* ── Main client ────────────────────────────────────────────────────────── */
 
 export function FlakyTestsClient() {
-  const [state, setState] = usePersisted<FlakyState>(
-    "agile-toolkit:flaky-tests",
-    DEFAULT_STATE
-  );
+  const [state, setState] = usePersisted<FlakyState>("agile-toolkit:flaky-tests", DEFAULT_STATE);
   const { log } = useHistoryLogger("flaky-tests");
   const chartRef = useRef<HTMLDivElement>(null);
 
@@ -143,8 +140,7 @@ export function FlakyTestsClient() {
               // fixedAt is the date the test was LAST fixed; preserved across
               // reopens for audit. We stamp it on the first transition into
               // "fixed" and never clear it when transitioning out.
-              fixedAt:
-                status === "fixed" ? t.fixedAt ?? todayLocalISO() : t.fixedAt,
+              fixedAt: status === "fixed" ? (t.fixedAt ?? todayLocalISO()) : t.fixedAt,
             }
           : t
       ),
@@ -180,11 +176,7 @@ export function FlakyTestsClient() {
       if (t.status !== "fixed" || !t.fixedAt) return false;
       const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(t.fixedAt);
       if (!m) return false;
-      const fixedAt = new Date(
-        Number(m[1]),
-        Number(m[2]) - 1,
-        Number(m[3])
-      ).getTime();
+      const fixedAt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
       return fixedAt >= start;
     }).length;
   }, [state.tests]);
@@ -192,9 +184,7 @@ export function FlakyTestsClient() {
   const avgFailureRate = useMemo(() => {
     const considered = state.tests.filter((t) => t.status !== "fixed");
     if (considered.length === 0) return 0;
-    return (
-      considered.reduce((acc, t) => acc + t.failureRate, 0) / considered.length
-    );
+    return considered.reduce((acc, t) => acc + t.failureRate, 0) / considered.length;
   }, [state.tests]);
 
   const sortedTests = useMemo(() => {
@@ -245,7 +235,11 @@ export function FlakyTestsClient() {
     if (ratesPct.length < 3) {
       return { value: 20, confidence: "none" };
     }
-    const median = ratesPct[Math.floor(ratesPct.length * 0.5)];
+    // BUG-T3-flaky-tests-2: true median on even-length series — average
+    // the two middle values rather than picking the upper-middle.
+    const n = ratesPct.length;
+    const median =
+      n % 2 === 1 ? ratesPct[(n - 1) / 2] : (ratesPct[n / 2 - 1] + ratesPct[n / 2]) / 2;
     return {
       value: Number(median.toFixed(1)),
       confidence: "medium" as const,
@@ -273,9 +267,25 @@ export function FlakyTestsClient() {
       const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       buckets.set(iso, (buckets.get(iso) ?? 0) + 1);
     }
-    return Array.from(buckets.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([week, count]) => ({ week, count }));
+    if (buckets.size === 0) return [];
+    // BUG-T3-flaky-tests-1: dense-fill missing weeks with zeros. XmR
+    // control limits and Mann-Kendall trend assume evenly-spaced samples;
+    // sparse buckets (no entry for weeks with no flakies) bias both
+    // tests, producing misleading "out of control" / "trending up"
+    // signals.
+    const sortedKeys = Array.from(buckets.keys()).sort();
+    const firstKey = sortedKeys[0];
+    const lastKey = sortedKeys[sortedKeys.length - 1];
+    const startDate = new Date(`${firstKey}T00:00:00Z`);
+    const endDate = new Date(`${lastKey}T00:00:00Z`);
+    const filled: Array<{ week: string; count: number }> = [];
+    let cur = new Date(startDate);
+    while (cur.getTime() <= endDate.getTime()) {
+      const iso = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, "0")}-${String(cur.getUTCDate()).padStart(2, "0")}`;
+      filled.push({ week: iso, count: buckets.get(iso) ?? 0 });
+      cur = new Date(cur.getTime() + 7 * 24 * 60 * 60 * 1000);
+    }
+    return filled;
   }, [state.tests]);
 
   // XmR control limits on the weekly flaky-count series. Returns null when
@@ -283,7 +293,10 @@ export function FlakyTestsClient() {
   const weeklyControl = useMemo(() => {
     if (weeklyCounts.length < 4) return null;
     // Flaky-test counts cannot be negative; clamp LCL at 0.
-    return xmrLimits(weeklyCounts.map((w) => w.count), true);
+    return xmrLimits(
+      weeklyCounts.map((w) => w.count),
+      true
+    );
   }, [weeklyCounts]);
 
   // Mann-Kendall trend test on the weekly flaky count.
@@ -482,11 +495,7 @@ export function FlakyTestsClient() {
           className="mb-6"
         >
           <BarChart data={topTen} margin={{ top: 10, right: 16, left: 0, bottom: 60 }}>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke={chartTheme.gridColor}
-              vertical={false}
-            />
+            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
             <XAxis
               dataKey="name"
               tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
@@ -506,10 +515,7 @@ export function FlakyTestsClient() {
             <Tooltip contentStyle={chartTheme.tooltipStyle} />
             <Bar dataKey="failureRatePct" name="Failure rate" radius={[4, 4, 0, 0]}>
               {topTen.map((d, i) => (
-                <Cell
-                  key={`cell-${i}`}
-                  fill={d.flagged ? "#ef4444" : "#00f0ff"}
-                />
+                <Cell key={`cell-${i}`} fill={d.flagged ? "#ef4444" : "#00f0ff"} />
               ))}
             </Bar>
           </BarChart>
@@ -541,15 +547,8 @@ export function FlakyTestsClient() {
             ) : undefined
           }
         >
-          <LineChart
-            data={weeklyCounts}
-            margin={{ top: 8, right: 12, left: -12, bottom: 0 }}
-          >
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke={chartTheme.gridColor}
-              vertical={false}
-            />
+          <LineChart data={weeklyCounts} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
             <XAxis
               dataKey="week"
               tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
@@ -584,7 +583,12 @@ export function FlakyTestsClient() {
               stroke={chartTheme.colors.green}
               strokeDasharray="2 4"
               strokeOpacity={0.55}
-              label={{ value: "LCL", fill: chartTheme.colors.green, fontSize: 10, position: "right" }}
+              label={{
+                value: "LCL",
+                fill: chartTheme.colors.green,
+                fontSize: 10,
+                position: "right",
+              }}
               ifOverflow="extendDomain"
             />
             <Line
@@ -608,10 +612,7 @@ export function FlakyTestsClient() {
           <div className="flex items-center gap-1.5 text-xs text-sub">
             <ArrowUpDown className="w-3 h-3" />
             <span>Sort:</span>
-            <Select
-              value={sortField}
-              onValueChange={(v) => toggleSort(v as SortField)}
-            >
+            <Select value={sortField} onValueChange={(v) => toggleSort(v as SortField)}>
               <SelectTrigger className="h-7 w-32 bg-bg border-border text-xs">
                 <SelectValue />
               </SelectTrigger>
@@ -654,13 +655,8 @@ export function FlakyTestsClient() {
                           {t.suite}
                         </Badge>
                       )}
-                      {t.owner && (
-                        <span className="text-xs text-sub">{t.owner}</span>
-                      )}
-                      <Select
-                        value={t.status}
-                        onValueChange={(v) => setStatus(t.id, v as Status)}
-                      >
+                      {t.owner && <span className="text-xs text-sub">{t.owner}</span>}
+                      <Select value={t.status} onValueChange={(v) => setStatus(t.id, v as Status)}>
                         <SelectTrigger
                           className="h-8 w-32 bg-surface border-border text-xs capitalize"
                           aria-label={`Status for ${t.name}`}
@@ -696,12 +692,7 @@ export function FlakyTestsClient() {
                           aria-label={`Failure rate ${pct}%`}
                         />
                       </div>
-                      <span
-                        className={
-                          "text-xs font-data " +
-                          (high ? "text-danger" : "text-sub")
-                        }
-                      >
+                      <span className={"text-xs font-data " + (high ? "text-danger" : "text-sub")}>
                         {pct}%
                       </span>
                     </div>

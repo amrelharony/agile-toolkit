@@ -3,7 +3,15 @@
 import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useShallow } from "zustand/react/shallow";
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from "recharts";
 import { Users, Plus, Trash2, Beaker, Sparkles } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
@@ -71,7 +79,14 @@ export function HitlQualityClient() {
     };
     upsert(item);
     log(HITL_ACTIONS.REVIEW_LOGGED, { rating: safeRating, agreed });
+    // BUG-T3-hitl-quality-2: reset every draft field, not just reason.
+    // Carrying stale feature/reviewer/rating/agreed into the next log
+    // silently attaches them to the wrong row.
     setReason("");
+    setFeature("");
+    setReviewer("");
+    setRating(3);
+    setAgreed(true);
   }
 
   function remove(id: string) {
@@ -84,14 +99,14 @@ export function HitlQualityClient() {
   // skew the mean indefinitely. Same for trend math below.
   const validList = useMemo(
     () => list.filter((x) => Number.isFinite(x.rating) && typeof x.loggedAt === "string"),
-    [list],
+    [list]
   );
-  const meanRating = validList.length === 0
-    ? 0
-    : validList.reduce((s, x) => s + x.rating, 0) / validList.length;
-  const agreementRate = validList.length === 0
-    ? 0
-    : Math.round((validList.filter((x) => x.agreedWithModel).length / validList.length) * 100);
+  const meanRating =
+    validList.length === 0 ? 0 : validList.reduce((s, x) => s + x.rating, 0) / validList.length;
+  const agreementRate =
+    validList.length === 0
+      ? 0
+      : Math.round((validList.filter((x) => x.agreedWithModel).length / validList.length) * 100);
 
   // Per-day rolling
   const trendData = useMemo(() => {
@@ -110,28 +125,48 @@ export function HitlQualityClient() {
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [validList]);
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    hitlReviews: s.hitlReviews,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        hitlReviews: s.hitlReviews,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "HITL Quality Tracker",
-    // R5: pass validList — the prompt should only see well-formed entries.
-    // Mixing in malformed entries previously surfaced inconsistent stats
-    // between prompt and on-screen KPIs.
-    prompts: generateHitlPrompts({ items: validList }, workspace),
-  }), [validList, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "HITL Quality Tracker",
+      // R5: pass validList — the prompt should only see well-formed entries.
+      // Mixing in malformed entries previously surfaced inconsistent stats
+      // between prompt and on-screen KPIs.
+      prompts: generateHitlPrompts({ items: validList }, workspace),
+    }),
+    [validList, workspace]
+  );
 
   const csvData = {
     headers: ["Date", "Feature", "Reviewer", "Rating", "Agreed", "Reason"],
     // R5: was `list.map(...)` calling `.slice` on a possibly non-string
     // `loggedAt` (corrupt persisted entry) → CSV export crashed. Use
     // validList AND coerce defensively.
-    rows: validList.map((x) => [String(x.loggedAt ?? "").slice(0, 10), x.feature ?? "", x.reviewer ?? "", x.rating, x.agreedWithModel ? "yes" : "no", x.reason ?? ""]),
+    rows: validList.map((x) => [
+      String(x.loggedAt ?? "").slice(0, 10),
+      x.feature ?? "",
+      x.reviewer ?? "",
+      x.rating,
+      x.agreedWithModel ? "yes" : "no",
+      x.reason ?? "",
+    ]),
   };
 
   return (
@@ -142,9 +177,22 @@ export function HitlQualityClient() {
     >
       <div ref={exportRef} className="space-y-4">
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <KPI label="Reviews" value={String(list.length)} />
+          {/* BUG-T3-hitl-quality-1: report valid-vs-total so the KPI
+              matches the data the mean/agreement are computed against. */}
+          <KPI
+            label="Reviews"
+            value={
+              validList.length === list.length
+                ? String(list.length)
+                : `${validList.length} / ${list.length}`
+            }
+          />
           <KPI label="Mean rating" value={meanRating.toFixed(2)} />
-          <KPI label="Agreement rate" value={`${agreementRate}%`} tone={agreementRate > 80 ? "ok" : "default"} />
+          <KPI
+            label="Agreement rate"
+            value={`${agreementRate}%`}
+            tone={agreementRate > 80 ? "ok" : "default"}
+          />
         </div>
 
         {/* BYOK generate-first-pass — reviewer pastes the prompt-under-test,
@@ -153,9 +201,9 @@ export function HitlQualityClient() {
             ephemeral; only the review row is persisted. */}
         <SectionCard title="Generate first pass (BYOK)" icon={Beaker}>
           <p className="text-xs text-sub mb-3">
-            Run a candidate prompt through your active BYOK provider so the
-            reviewer can see the model output before logging a rating below.
-            The output isn&apos;t saved — only the review you log is.
+            Run a candidate prompt through your active BYOK provider so the reviewer can see the
+            model output before logging a rating below. The output isn&apos;t saved — only the
+            review you log is.
           </p>
           {!llm.isReady ? (
             <div className="flex flex-col items-start gap-2 p-3 border border-dashed border-border rounded text-sub text-sm">
@@ -181,10 +229,7 @@ export function HitlQualityClient() {
                   inside would otherwise sit disabled with empty input. */}
               {livePrompt.trim().length > 0 && (
                 <div className="mt-3">
-                  <AiRunPanel
-                    prompt={livePrompt}
-                    toolName="HITL first-pass"
-                  />
+                  <AiRunPanel prompt={livePrompt} toolName="HITL first-pass" />
                 </div>
               )}
             </>
@@ -193,23 +238,48 @@ export function HitlQualityClient() {
 
         <SectionCard title="Log review" icon={Plus}>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            <Input placeholder="Feature" value={feature} onChange={(e) => setFeature(e.target.value)} />
-            <Input placeholder="Reviewer" value={reviewer} onChange={(e) => setReviewer(e.target.value)} />
+            <Input
+              placeholder="Feature"
+              value={feature}
+              onChange={(e) => setFeature(e.target.value)}
+            />
+            <Input
+              placeholder="Reviewer"
+              value={reviewer}
+              onChange={(e) => setReviewer(e.target.value)}
+            />
             <select
               aria-label="Reviewer rating, 1 to 5"
               className="rounded-md border border-border bg-surface px-3 py-2 text-sm"
               value={rating}
               onChange={(e) => setRating(parseInt(e.target.value, 10) as HitlReview["rating"])}
             >
-              {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>Rating {n}/5</option>)}
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={n}>
+                  Rating {n}/5
+                </option>
+              ))}
             </select>
             <label className="flex items-center gap-2 text-sm sm:col-span-3">
-              <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+              />
               <span>Reviewer agreed with the model output</span>
             </label>
           </div>
-          <Textarea placeholder="Reason / notes (optional)" value={reason} onChange={(e) => setReason(e.target.value)} className="mt-2" rows={2} />
-          <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Log</Button>
+          <Textarea
+            placeholder="Reason / notes (optional)"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            className="mt-2"
+            rows={2}
+          />
+          <Button onClick={add} className="mt-3 gap-1">
+            <Plus className="w-4 h-4" />
+            Log
+          </Button>
         </SectionCard>
 
         {trendData.length > 1 && (
@@ -220,7 +290,13 @@ export function HitlQualityClient() {
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                   <XAxis dataKey="date" stroke="#888" fontSize={11} />
                   <YAxis domain={[1, 5]} stroke="#888" fontSize={11} />
-                  <Tooltip contentStyle={{ backgroundColor: "#0f1117", border: "1px solid #2a2f3a", fontSize: 12 }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#0f1117",
+                      border: "1px solid #2a2f3a",
+                      fontSize: 12,
+                    }}
+                  />
                   <Line dataKey="mean" stroke="#00f0ff" strokeWidth={2} dot={{ r: 3 }} />
                 </LineChart>
               </ResponsiveContainer>
@@ -235,7 +311,12 @@ export function HitlQualityClient() {
             actions={
               <>
                 <AiPromptGenerator config={promptConfig} />
-                <ExportButton filename="hitl-reviews" csvData={csvData} jsonData={list} targetRef={exportRef} />
+                <ExportButton
+                  filename="hitl-reviews"
+                  csvData={csvData}
+                  jsonData={list}
+                  targetRef={exportRef}
+                />
               </>
             }
           >
@@ -245,16 +326,39 @@ export function HitlQualityClient() {
                   or hand-edited localStorage) crashed `x.loggedAt.slice(0,10)`
                   here, killing the entire page. `validList` is already
                   type-narrowed at the top of the component. */}
-              {[...validList].sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime()).slice(0, 50).map((x) => (
-                <li key={x.id} className="flex items-center gap-2 border border-border bg-surface-deep rounded p-2 text-sm">
-                  <span className="font-mono text-xs text-sub">{x.loggedAt.slice(0, 10)}</span>
-                  <span className="font-bold w-6 text-center" style={{ color: x.rating >= 4 ? "#00ff88" : x.rating <= 2 ? "#ff6b6b" : "#ffaa00" }}>{x.rating}</span>
-                  {x.feature && <span className="text-text">{x.feature}</span>}
-                  {x.reviewer && <span className="text-xs text-sub">— {x.reviewer}</span>}
-                  <span className={`text-xs ml-auto ${x.agreedWithModel ? "text-emerald-400" : "text-red-400"}`}>{x.agreedWithModel ? "agreed" : "disagreed"}</span>
-                  <button onClick={() => remove(x.id)} aria-label="Remove review" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
-                </li>
-              ))}
+              {[...validList]
+                .sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime())
+                .slice(0, 50)
+                .map((x) => (
+                  <li
+                    key={x.id}
+                    className="flex items-center gap-2 border border-border bg-surface-deep rounded p-2 text-sm"
+                  >
+                    <span className="font-mono text-xs text-sub">{x.loggedAt.slice(0, 10)}</span>
+                    <span
+                      className="font-bold w-6 text-center"
+                      style={{
+                        color: x.rating >= 4 ? "#00ff88" : x.rating <= 2 ? "#ff6b6b" : "#ffaa00",
+                      }}
+                    >
+                      {x.rating}
+                    </span>
+                    {x.feature && <span className="text-text">{x.feature}</span>}
+                    {x.reviewer && <span className="text-xs text-sub">— {x.reviewer}</span>}
+                    <span
+                      className={`text-xs ml-auto ${x.agreedWithModel ? "text-emerald-400" : "text-red-400"}`}
+                    >
+                      {x.agreedWithModel ? "agreed" : "disagreed"}
+                    </span>
+                    <button
+                      onClick={() => remove(x.id)}
+                      aria-label="Remove review"
+                      className="text-sub hover:text-red-400"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </li>
+                ))}
             </ul>
           </SectionCard>
         )}
@@ -263,8 +367,17 @@ export function HitlQualityClient() {
   );
 }
 
-function KPI({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "ok" | "danger" }) {
-  const colorClass = tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+function KPI({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "ok" | "danger";
+}) {
+  const colorClass =
+    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

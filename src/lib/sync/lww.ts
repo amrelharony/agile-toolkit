@@ -46,3 +46,12 @@ export function getClientId(): string {
   cachedClientId = `c_${nanoid(12)}`;
   return cachedClientId;
 }
+
+/**
+ * Reset the cached client id. Called from the sync engine on sign-out
+ * so a subsequent sign-in (potentially a different user on the same
+ * tab) starts with a fresh id. (BUG-S5)
+ */
+export function resetClientId(): void {
+  cachedClientId = null;
+}

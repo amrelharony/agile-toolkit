@@ -46,6 +46,19 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
   const next = safeNext(searchParams.get("next"));
 
+  // BUG-A8: reject cross-site fetches that aren't a top-level document
+  // navigation. The legitimate flow is Google → 30x → our origin as a
+  // document navigation, so Sec-Fetch-Dest === "document". An attacker who
+  // tricks the victim's browser into fetching this URL via fetch()/img/etc
+  // would carry Sec-Fetch-Site === "cross-site" with a non-document dest.
+  // Browsers that don't send these headers fall through (we can't reject
+  // cleanly).
+  const fetchSite = request.headers.get("sec-fetch-site");
+  const fetchDest = request.headers.get("sec-fetch-dest");
+  if (fetchSite === "cross-site" && fetchDest && fetchDest !== "document") {
+    return new Response("Forbidden", { status: 403 });
+  }
+
   if (!code) {
     return NextResponse.redirect(`${origin}${next}?auth_error=missing_code`);
   }

@@ -46,7 +46,11 @@ export const useAgentStore = create<AgentState & AgentActions>()((set) => ({
   error: null,
 
   openSheet: () => set({ open: true }),
-  closeSheet: () => set({ open: false, pendingToolUse: null }),
+  // BUG-G1: also reset autoApprove on close. The docstring promised
+  // "until the sheet is closed" but the prior implementation kept the
+  // flag set across close/reopen, silently widening write-approval
+  // beyond what the user opted into.
+  closeSheet: () => set({ open: false, pendingToolUse: null, autoApprove: false }),
   toggleSheet: () => set((s) => ({ open: !s.open })),
   setAutoApprove: (v) => set({ autoApprove: v }),
 
@@ -97,6 +101,8 @@ export const useAgentStore = create<AgentState & AgentActions>()((set) => ({
       messages: [],
       streaming: false,
       pendingToolUse: null,
+      // BUG-G1: reset autoApprove on full reset too.
+      autoApprove: false,
       error: null,
     }),
 }));

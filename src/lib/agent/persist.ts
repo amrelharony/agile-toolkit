@@ -33,7 +33,10 @@ export async function listConversations(): Promise<ConversationMeta[]> {
   }));
 }
 
-export async function createConversation(opts: { title: string; toolId?: string | null }): Promise<ConversationMeta | null> {
+export async function createConversation(opts: {
+  title: string;
+  toolId?: string | null;
+}): Promise<ConversationMeta | null> {
   const supabase = getAuthBrowserClient();
   if (!supabase) return null;
   const { data, error } = await supabase
@@ -85,13 +88,45 @@ export async function loadMessages(conversationId: string): Promise<ChatMessage[
   }));
 }
 
-export async function appendMessages(conversationId: string, messages: ChatMessage[]): Promise<void> {
+/** Schema constraint on agent_messages.content: octet_length <= 262144.
+ *  We truncate inside text content blocks before insert and append a
+ *  sentinel so callers can detect the truncation. (BUG-G14) */
+const CONTENT_OCTET_LIMIT = 250_000; // a hair below the DB cap
+
+function truncateContentForStorage(content: ChatMessage["content"]): ChatMessage["content"] {
+  const raw = JSON.stringify(content);
+  // octet_length on a UTF-8 string. JS string length is code units; convert
+  // via TextEncoder for an accurate byte count.
+  const bytes = new TextEncoder().encode(raw).length;
+  if (bytes <= CONTENT_OCTET_LIMIT) return content;
+  // Walk top-level blocks; truncate text/tool_result text payloads until
+  // we fit. Aggressive but safe: better than a hard DB rejection.
+  const clone: ChatMessage["content"] = JSON.parse(raw);
+  const sentinel = " …[truncated]";
+  for (const block of clone) {
+    if (block.type === "text") {
+      block.text = block.text.slice(0, 8000) + sentinel;
+    } else if (block.type === "tool_result") {
+      if (typeof block.content === "string") {
+        block.content = block.content.slice(0, 8000) + sentinel;
+      } else {
+        for (const tb of block.content) tb.text = tb.text.slice(0, 4000) + sentinel;
+      }
+    }
+  }
+  return clone;
+}
+
+export async function appendMessages(
+  conversationId: string,
+  messages: ChatMessage[]
+): Promise<void> {
   const supabase = getAuthBrowserClient();
   if (!supabase || messages.length === 0) return;
   const rows = messages.map((m) => ({
     conversation_id: conversationId,
     role: m.role,
-    content: m.content,
+    content: truncateContentForStorage(m.content),
   }));
   const { error } = await supabase.from("agent_messages").insert(rows);
   if (error) {

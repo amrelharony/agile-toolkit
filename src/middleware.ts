@@ -58,7 +58,8 @@ export async function middleware(request: NextRequest) {
   // and the reassignment dropped every cookie except the last one. Net
   // effect: rotated session cookies silently failed to persist; users
   // got 401'd mid-session.
-  const cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }> = [];
+  const cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }> =
+    [];
 
   const supabase = createServerClient(url, anon, {
     auth: { flowType: "pkce" },
@@ -137,6 +138,15 @@ function safeRelativeUrl(raw: string): boolean {
   if (CONTROL_CHARS.test(raw)) return false;
   if (!raw.startsWith("/")) return false;
   if (raw.startsWith("//") || raw.startsWith("/\\")) return false;
+  // Belt-and-braces: parse against a dummy origin and require it survive.
+  // Catches URL-encoded scheme/host bypasses like "/%2F%2Fevil.com" that
+  // pass the textual checks above. (BUG-A5)
+  try {
+    const u = new URL(raw, "http://dummy.local");
+    if (u.origin !== "http://dummy.local") return false;
+  } catch {
+    return false;
+  }
   return true;
 }
 
@@ -151,6 +161,10 @@ export const config = {
   // function — the matcher is the fast path, the function body is the
   // safety net.
   matcher: [
-    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|robots\\.txt|sitemap\\.xml|manifest\\.webmanifest|.*\\.[a-zA-Z0-9]+$).*)",
+    // The final alternative anchors the extension rule to the BASENAME
+    // (last path segment) so that `/api/foo.json` or `/dashboard.csv`
+    // still hit middleware. The prior `.*\.[a-zA-Z0-9]+$` rule matched
+    // the whole pathname and silently exempted any dotted route. (BUG-A1)
+    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|robots\\.txt|sitemap\\.xml|manifest\\.webmanifest|[^/]+\\.[a-zA-Z0-9]+$).*)",
   ],
 };

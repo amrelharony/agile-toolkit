@@ -50,11 +50,7 @@ import { FEATURE_FLAG_ACTIONS } from "@/lib/history/event-actions";
 import { generateFeatureFlagPrompts } from "@/lib/ai-prompts/feature-flag-tracker";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { cn } from "@/lib/utils";
-import {
-  durationsFromTimeRanges,
-  kaplanMeier,
-  medianSurvivalTime,
-} from "@/lib/analytics/survival";
+import { durationsFromTimeRanges, kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 import { mannKendall } from "@/lib/analytics/trend-test";
 
@@ -120,10 +116,7 @@ function isStale(f: Flag): boolean {
 }
 
 export function FeatureFlagTrackerClient() {
-  const [flags, setFlags] = usePersisted<Flag[]>(
-    "agile-toolkit:feature-flag-tracker",
-    []
-  );
+  const [flags, setFlags] = usePersisted<Flag[]>("agile-toolkit:feature-flag-tracker", []);
   const { log } = useHistoryLogger("feature-flag-tracker");
 
   const [name, setName] = useState("");
@@ -177,9 +170,7 @@ export function FeatureFlagTrackerClient() {
   };
 
   const setStatus = (id: string, status: FlagStatus) => {
-    setFlags((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, status } : f))
-    );
+    setFlags((prev) => prev.map((f) => (f.id === id ? { ...f, status } : f)));
     log(FEATURE_FLAG_ACTIONS.FLAG_UPDATED, {
       flagId: id,
       fields: ["status"],
@@ -189,9 +180,7 @@ export function FeatureFlagTrackerClient() {
   const retireFlag = (id: string) => {
     setFlags((prev) =>
       prev.map((f) =>
-        f.id === id
-          ? { ...f, status: "deprecated", retiredAt: todayLocalISO() }
-          : f
+        f.id === id ? { ...f, status: "deprecated", retiredAt: todayLocalISO() } : f
       )
     );
     log(FEATURE_FLAG_ACTIONS.FLAG_RETIRED, { flagId: id });
@@ -263,9 +252,8 @@ export function FeatureFlagTrackerClient() {
     const obs = durationsFromTimeRanges(
       flags.map((f) => ({
         raisedAt: f.createdAt,
-        resolvedAt:
-          f.retiredAt ?? (f.status === "deprecated" ? today : undefined),
-      })),
+        resolvedAt: f.retiredAt ?? (f.status === "deprecated" ? today : undefined),
+      }))
     );
     return kaplanMeier(obs);
     // R5: dep was `[flags, retiredAges.length]` which missed CONTENT
@@ -276,10 +264,7 @@ export function FeatureFlagTrackerClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flags]);
 
-  const medianFlagAge = useMemo(
-    () => medianSurvivalTime(survivalCurve),
-    [survivalCurve],
-  );
+  const medianFlagAge = useMemo(() => medianSurvivalTime(survivalCurve), [survivalCurve]);
 
   const medianFlagAgeCI = useMemo(() => {
     if (retiredAges.length < 3) return null;
@@ -288,7 +273,7 @@ export function FeatureFlagTrackerClient() {
 
   const survivalChartData = useMemo(
     () => survivalCurve.map((p) => ({ t: p.t, survival: Math.round(p.survival * 1000) / 1000 })),
-    [survivalCurve],
+    [survivalCurve]
   );
 
   // Mann-Kendall on weekly flag-creation count for the trend chip.
@@ -422,9 +407,9 @@ export function FeatureFlagTrackerClient() {
 
       {stats.stale > 0 && (
         <CalloutAlert tone="warning" className="mb-4">
-          <strong>{stats.stale}</strong> flag{stats.stale === 1 ? "" : "s"}{" "}
-          older than {STALE_DAYS} days {stats.stale === 1 ? "is" : "are"} still
-          active. Schedule a retirement sweep before they ossify.
+          <strong>{stats.stale}</strong> flag{stats.stale === 1 ? "" : "s"} older than {STALE_DAYS}{" "}
+          days {stats.stale === 1 ? "is" : "are"} still active. Schedule a retirement sweep before
+          they ossify.
         </CalloutAlert>
       )}
 
@@ -438,9 +423,7 @@ export function FeatureFlagTrackerClient() {
                   : "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
               }`}
             >
-              <TrendingUp
-                className={`w-3 h-3 ${flagTrend.trend === "down" ? "rotate-180" : ""}`}
-              />
+              <TrendingUp className={`w-3 h-3 ${flagTrend.trend === "down" ? "rotate-180" : ""}`} />
               Weekly flag creation trending {flagTrend.trend} significantly
               <span className="opacity-60">· p={flagTrend.pValue.toFixed(3)}</span>
             </span>
@@ -511,9 +494,8 @@ export function FeatureFlagTrackerClient() {
           </div>
           <p className="text-[11px] text-sub mt-2">
             Kaplan-Meier estimate over {retiredAges.length} retired flag
-            {retiredAges.length === 1 ? "" : "s"} (active flags are
-            right-censored). Y-axis: probability the flag is still active after
-            N days.
+            {retiredAges.length === 1 ? "" : "s"} (active flags are right-censored). Y-axis:
+            probability the flag is still active after N days.
           </p>
         </SectionCard>
       )}
@@ -544,10 +526,7 @@ export function FeatureFlagTrackerClient() {
             </div>
             <div>
               <Label className="text-xs text-sub">Environment</Label>
-              <Select
-                value={environment}
-                onValueChange={(v) => setEnvironment(v as FlagEnv)}
-              >
+              <Select value={environment} onValueChange={(v) => setEnvironment(v as FlagEnv)}>
                 <SelectTrigger className="bg-bg border-border">
                   <SelectValue />
                 </SelectTrigger>
@@ -562,26 +541,18 @@ export function FeatureFlagTrackerClient() {
             </div>
             <div>
               <Label className="text-xs text-sub">Purpose</Label>
-              <Select
-                value={purpose}
-                onValueChange={(v) => setPurpose(v as FlagPurpose)}
-              >
+              <Select value={purpose} onValueChange={(v) => setPurpose(v as FlagPurpose)}>
                 <SelectTrigger className="bg-bg border-border">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(
-                    [
-                      "rollout",
-                      "experiment",
-                      "kill_switch",
-                      "permission",
-                    ] as FlagPurpose[]
-                  ).map((p) => (
-                    <SelectItem key={p} value={p}>
-                      {PURPOSE_LABEL[p]}
-                    </SelectItem>
-                  ))}
+                  {(["rollout", "experiment", "kill_switch", "permission"] as FlagPurpose[]).map(
+                    (p) => (
+                      <SelectItem key={p} value={p}>
+                        {PURPOSE_LABEL[p]}
+                      </SelectItem>
+                    )
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -608,8 +579,8 @@ export function FeatureFlagTrackerClient() {
 
       {flags.length === 0 ? (
         <EmptyState icon={ToggleLeft}>
-          No flags tracked yet. Add the ones currently in your codebase to start
-          spotting stragglers.
+          No flags tracked yet. Add the ones currently in your codebase to start spotting
+          stragglers.
         </EmptyState>
       ) : (
         <>
@@ -628,16 +599,14 @@ export function FeatureFlagTrackerClient() {
                       stale
                         ? "bg-amber-500/5 border-amber-500/40"
                         : f.retiredAt
-                        ? "bg-bg/50 border-border"
-                        : "bg-surface border-border"
+                          ? "bg-bg/50 border-border"
+                          : "bg-surface border-border"
                     )}
                   >
                     <CardContent className="p-3">
                       <div className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_140px_120px_140px_auto] gap-2 items-start">
                         <div className="min-w-0">
-                          <div className="font-data text-sm text-text break-all">
-                            {f.name}
-                          </div>
+                          <div className="font-data text-sm text-text break-all">{f.name}</div>
                           {f.description && (
                             <div className="text-[11px] text-sub mt-0.5 whitespace-pre-wrap">
                               {f.description}
@@ -653,9 +622,7 @@ export function FeatureFlagTrackerClient() {
                           ) : (
                             ENV_LABEL[f.environment]
                           )}
-                          <div className="text-[11px] mt-0.5">
-                            {PURPOSE_LABEL[f.purpose]}
-                          </div>
+                          <div className="text-[11px] mt-0.5">{PURPOSE_LABEL[f.purpose]}</div>
                         </div>
                         <Select
                           value={f.status}
@@ -668,9 +635,7 @@ export function FeatureFlagTrackerClient() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {(
-                              ["active", "on", "off", "deprecated"] as FlagStatus[]
-                            ).map((s) => (
+                            {(["active", "on", "off", "deprecated"] as FlagStatus[]).map((s) => (
                               <SelectItem key={s} value={s} className="text-xs">
                                 {STATUS_LABEL[s]}
                               </SelectItem>
@@ -680,23 +645,24 @@ export function FeatureFlagTrackerClient() {
                         <div
                           className={cn(
                             "text-xs font-data px-2 py-1 rounded text-center",
-                            stale
-                              ? "bg-danger/15 text-danger"
-                              : age > 30
-                              ? "bg-amber-500/10 text-amber-300"
-                              : "bg-bg text-sub"
+                            !Number.isFinite(age)
+                              ? "bg-bg text-sub"
+                              : stale
+                                ? "bg-danger/15 text-danger"
+                                : age > 30
+                                  ? "bg-amber-500/10 text-amber-300"
+                                  : "bg-bg text-sub"
                           )}
                         >
-                          {age}d
+                          {/* BUG-T3-feature-flag-tracker-2: don't render
+                              "NaNd" for flags with an unparseable
+                              createdAt — show an em-dash instead. */}
+                          {Number.isFinite(age) ? `${age}d` : "—"}
                           {f.retiredAt && (
-                            <div className="text-[10px] text-sub mt-0.5">
-                              retired {f.retiredAt}
-                            </div>
+                            <div className="text-[10px] text-sub mt-0.5">retired {f.retiredAt}</div>
                           )}
                         </div>
-                        <div className="text-xs text-sub">
-                          since {f.createdAt}
-                        </div>
+                        <div className="text-xs text-sub">since {f.createdAt}</div>
                         <div className="flex items-center gap-1 justify-end">
                           {!f.retiredAt && (
                             <Button
@@ -728,19 +694,11 @@ export function FeatureFlagTrackerClient() {
 
           <Card className="bg-surface border-border">
             <CardContent className="p-4">
-              <div className="text-sm font-semibold text-text mb-3">
-                Flags by age (active only)
-              </div>
+              <div className="text-sm font-semibold text-text mb-3">Flags by age (active only)</div>
               <div className="h-56 -mx-2">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={ageBuckets}
-                    margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
-                  >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke={chartTheme.gridColor}
-                    />
+                  <BarChart data={ageBuckets} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} />
                     <XAxis
                       dataKey="bucket"
                       tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
@@ -755,11 +713,7 @@ export function FeatureFlagTrackerClient() {
                       contentStyle={chartTheme.tooltipStyle}
                       formatter={(v) => [String(v), "Flags"]}
                     />
-                    <Bar
-                      dataKey="count"
-                      fill={chartTheme.colors.cyan}
-                      radius={[4, 4, 0, 0]}
-                    />
+                    <Bar dataKey="count" fill={chartTheme.colors.cyan} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

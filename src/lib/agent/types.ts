@@ -35,11 +35,15 @@ export interface ConversationMeta {
   lastMessageAt: string;
 }
 
-/** Pending tool_use awaiting user approval. */
+/** Pending tool_use awaiting user approval. BUG-G9: the resolver lives
+ *  on the pending object itself, not on globalThis, so concurrent
+ *  confirmation requests can't orphan each other. */
 export interface PendingToolUse {
   toolUseId: string;
   actionId: string; // e.g. "workspace_sprint_create" (Claude name)
   resolvedActionId: string; // e.g. "workspace.sprint.create" (registry id)
   input: Record<string, unknown>;
   summary: string;
+  /** Called by the confirm dialog. Approves or denies the tool execution. */
+  resolve: (approved: boolean) => void;
 }

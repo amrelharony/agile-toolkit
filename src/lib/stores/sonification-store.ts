@@ -1,7 +1,8 @@
 "use client";
+import { safeJSONStorage } from "./safe-storage";
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import type { SonificationMode, SonificationPrefs } from "../sonification/types";
 
 interface Actions {
@@ -35,9 +36,7 @@ export const useSonificationStore = create<SonificationPrefs & Actions>()(
         // would persist `null` (via JSON.stringify) and surface as a muted
         // audio engine on next load with no obvious cause.
         set({
-          masterVolume: Number.isFinite(v)
-            ? Math.max(0, Math.min(1, v))
-            : initial.masterVolume,
+          masterVolume: Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : initial.masterVolume,
         }),
       setMode: (m) => set({ mode: m }),
       setRespectReducedMotion: (v) => set({ respectReducedMotion: v }),
@@ -55,14 +54,7 @@ export const useSonificationStore = create<SonificationPrefs & Actions>()(
         respectReducedMotion: s.respectReducedMotion,
         // lastAutoplayError intentionally omitted
       }),
-      storage: createJSONStorage(() => {
-        if (typeof window !== "undefined") return localStorage;
-        return {
-          getItem: () => null,
-          setItem: () => {},
-          removeItem: () => {},
-        };
-      }),
+      storage: safeJSONStorage("sonification"),
       skipHydration: true,
     }
   )

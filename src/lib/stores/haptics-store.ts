@@ -1,7 +1,8 @@
 "use client";
+import { safeJSONStorage } from "./safe-storage";
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import type { HapticsMode, PerCategoryOverrides } from "@/lib/haptics/types";
 
 export interface HapticsState {
@@ -65,15 +66,8 @@ export const useHapticsStore = create<HapticsState>()(
     }),
     {
       name: "agile-toolkit:haptics",
-      storage: createJSONStorage(() => {
-        if (typeof window !== "undefined") return localStorage;
-        return {
-          getItem: () => null,
-          setItem: () => {},
-          removeItem: () => {},
-        };
-      }),
+      storage: safeJSONStorage("haptics"),
       skipHydration: true,
-    },
-  ),
+    }
+  )
 );

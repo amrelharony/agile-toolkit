@@ -18,9 +18,24 @@ import "@/lib/actions/register-all";
  */
 const RATE_LIMIT_PER_MIN = 120;
 const REFILL_INTERVAL_MS = 60_000;
+const MAX_BUCKET_ENTRIES = 1000;
 const bucket = new Map<string, { tokens: number; updated: number }>();
+
+/** Drop bucket entries older than 5 × the refill window when the map
+ *  exceeds MAX_BUCKET_ENTRIES. Defensive against unbounded memory growth
+ *  on a long-lived instance — every distinct PAT that ever called sticks
+ *  around otherwise. */
+function pruneBucket(now: number): void {
+  if (bucket.size <= MAX_BUCKET_ENTRIES) return;
+  const cutoff = now - 5 * REFILL_INTERVAL_MS;
+  bucket.forEach((v, k) => {
+    if (v.updated < cutoff) bucket.delete(k);
+  });
+}
+
 function consumeToken(tokenId: string): boolean {
   const now = Date.now();
+  pruneBucket(now);
   const entry = bucket.get(tokenId);
   if (!entry) {
     bucket.set(tokenId, { tokens: RATE_LIMIT_PER_MIN - 1, updated: now });
@@ -118,14 +133,30 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Single request or batch — MCP servers should handle both.
-  const requests: JsonRpcRequest[] = Array.isArray(body)
-    ? (body as JsonRpcRequest[])
-    : [body as JsonRpcRequest];
+  // Single request or batch — MCP servers should handle both. Reject
+  // anything that isn't an object or an array of objects with -32600
+  // Invalid Request rather than silently 204-ing.
+  const isObj = (v: unknown): v is Record<string, unknown> =>
+    typeof v === "object" && v !== null && !Array.isArray(v);
+  if (Array.isArray(body)) {
+    if (body.length === 0 || !body.every(isObj)) {
+      return Response.json(
+        { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } },
+        { status: 400 }
+      );
+    }
+  } else if (!isObj(body)) {
+    return Response.json(
+      { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } },
+      { status: 400 }
+    );
+  }
 
-  const responses = await Promise.all(
-    requests.map((r) => handleJsonRpc(r, auth.userId))
-  );
+  const requests: JsonRpcRequest[] = Array.isArray(body)
+    ? (body as unknown as JsonRpcRequest[])
+    : [body as unknown as JsonRpcRequest];
+
+  const responses = await Promise.all(requests.map((r) => handleJsonRpc(r, auth.userId)));
   const filtered = responses.filter((r): r is NonNullable<typeof r> => r !== null);
 
   // Notifications-only batch returns 204 No Content per JSON-RPC spec.

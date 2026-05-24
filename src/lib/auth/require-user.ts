@@ -75,6 +75,31 @@ export async function requireAuthorizedUser(): Promise<{
     throw jsonError(403, "not_authorized", "This account is not on the allowlist.");
   }
 
+  // BUG-A7: assert the identity is a Google identity with a verified email.
+  // The allowlist is paranoid-by-default — adding any second OAuth provider
+  // later must not silently widen who can sign in just because their email
+  // collides with an allowlist entry. Today (Google-only) this is redundant;
+  // tomorrow it's load-bearing.
+  const provider = (data.user.app_metadata as { provider?: unknown } | null)?.provider;
+  if (provider !== undefined && provider !== "google") {
+    throw jsonError(403, "wrong_provider", "Only Google identities are accepted.");
+  }
+  // If the OAuth provider supplied identity records, require the matched one
+  // to be email-verified. Falls back permissively if identities aren't
+  // populated (some Supabase configs omit the array).
+  const identities = (data.user.identities ?? []) as Array<{
+    provider: string;
+    identity_data?: { email_verified?: boolean; email?: string };
+  }>;
+  if (identities.length > 0) {
+    const matched = identities.find(
+      (i) => i.identity_data?.email?.toLowerCase() === data.user.email?.toLowerCase()
+    );
+    if (matched && matched.identity_data?.email_verified === false) {
+      throw jsonError(403, "email_unverified", "Email not verified.");
+    }
+  }
+
   return { user: data.user, supabase };
 }
 

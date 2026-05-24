@@ -46,7 +46,9 @@ function FullInsightsPanel() {
       <div className="flex items-center gap-2 mb-3">
         <Activity className="w-4 h-4 text-accent" />
         <h2 className="text-sm font-semibold text-text">Active Signals</h2>
-        <span className="text-xs text-sub">&mdash; cross-tool intelligence from your workspace</span>
+        <span className="text-xs text-sub">
+          &mdash; cross-tool intelligence from your workspace
+        </span>
       </div>
       <InsightsEngine limit={6} compact />
     </div>
@@ -126,7 +128,8 @@ function extractVelocityKPIs(): {
   series: number[];
 } {
   const data = readStore<{ sprints: VelocitySprint[] }>("agile-toolkit:velocity");
-  if (!data?.sprints?.length) return { avgVelocity: null, predictability: null, trend: "same", series: [] };
+  if (!data?.sprints?.length)
+    return { avgVelocity: null, predictability: null, trend: "same", series: [] };
 
   const sprints = data.sprints;
   const completed = sprints.map((s) => s.completed);
@@ -191,9 +194,7 @@ function extractHealthCheckKPIs(): {
   // to 0 instead of letting `scoreMap[undefined]` propagate as NaN through
   // the sum — that produced `pct = NaN` and broke the entire dashboard card.
   const lookup = (s: { light: unknown }): number =>
-    typeof s.light === "string" && s.light in scoreMap
-      ? scoreMap[s.light as HealthLight]
-      : 0;
+    typeof s.light === "string" && s.light in scoreMap ? scoreMap[s.light as HealthLight] : 0;
   const scores = Object.values(data.current.scores);
   if (scores.length === 0) return { healthPct: null, trend: "same", series: [] };
 
@@ -535,16 +536,44 @@ export function HealthDashboardClient() {
   useEffect(() => {
     setHydrated(true);
   }, []);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const velocityData = useMemo(() => extractVelocityKPIs(), [hydrated, refreshKey, events]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const healthCheckData = useMemo(() => extractHealthCheckKPIs(), [hydrated, refreshKey, events]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const impedimentData = useMemo(() => extractImpedimentKPIs(), [hydrated, refreshKey, events]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const standupData = useMemo(() => extractStandupKPIs(), [hydrated, refreshKey, events]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const cycleTimeData = useMemo(() => extractCycleTimeKPIs(), [hydrated, refreshKey, events]);
+  // BUG-T3-health-dashboard-1: gate the extractor body, not just deps.
+  // SSR returns null defaults (no window); first client render must do
+  // the same so the markup matches and React doesn't warn about a
+  // hydration mismatch. Flip to real values once `hydrated` is set.
+  const velocityData = useMemo(
+    () =>
+      hydrated
+        ? extractVelocityKPIs()
+        : { avgVelocity: null, predictability: null, trend: "same" as TrendDir, series: [] },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hydrated, refreshKey, events]
+  );
+  const healthCheckData = useMemo(
+    () =>
+      hydrated
+        ? extractHealthCheckKPIs()
+        : { healthPct: null, trend: "same" as TrendDir, series: [] as number[] },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hydrated, refreshKey, events]
+  );
+  const impedimentData = useMemo(
+    () =>
+      hydrated
+        ? extractImpedimentKPIs()
+        : { openCount: null, criticalCount: null, avgResolutionDays: null },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hydrated, refreshKey, events]
+  );
+  const standupData = useMemo(
+    () => (hydrated ? extractStandupKPIs() : { openBlockers: null, participationRate: null }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hydrated, refreshKey, events]
+  );
+  const cycleTimeData = useMemo(
+    () => (hydrated ? extractCycleTimeKPIs() : { p85: null }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hydrated, refreshKey, events]
+  );
 
   /* -- Causal annotations from cross-tool event streams --------------------- */
   // Each correlation is a best-effort: when the source streams are too sparse
@@ -560,7 +589,7 @@ export function HealthDashboardClient() {
     const velImp = correlateEventStreams(
       { toolId: "impediments", action: "impediment_raised" },
       { toolId: "velocity", action: "sprint_added" },
-      3,
+      3
     );
     if (velImp.withinLagCount >= 3 && velImp.pairs >= 6) {
       const conf =
@@ -578,11 +607,15 @@ export function HealthDashboardClient() {
     const debtMood = correlateEventStreams(
       { toolId: "tech-debt", action: "item_added" },
       { toolId: "mood-tracker", action: "mood_logged" },
-      14,
+      14
     );
     if (debtMood.withinLagCount >= 3 && debtMood.pairs >= 6) {
       const conf =
-        debtMood.withinLagCount >= 8 ? "strong" : debtMood.withinLagCount >= 5 ? "moderate" : "weak";
+        debtMood.withinLagCount >= 8
+          ? "strong"
+          : debtMood.withinLagCount >= 5
+            ? "moderate"
+            : "weak";
       out.push({
         x: 1,
         label: "Tech-debt spike correlates with team mood / NPS dip",
@@ -599,11 +632,15 @@ export function HealthDashboardClient() {
     const goalRisk = correlateEventStreams(
       { toolId: "sprint-goal", action: "goal_saved" },
       { toolId: "risk-register", action: "risk_added" },
-      14,
+      14
     );
     if (goalRisk.withinLagCount >= 3 && goalRisk.pairs >= 6) {
       const conf =
-        goalRisk.withinLagCount >= 8 ? "strong" : goalRisk.withinLagCount >= 5 ? "moderate" : "weak";
+        goalRisk.withinLagCount >= 8
+          ? "strong"
+          : goalRisk.withinLagCount >= 5
+            ? "moderate"
+            : "weak";
       out.push({
         x: 2,
         label: "Open risks rose after sprint-goal events",
@@ -756,21 +793,29 @@ export function HealthDashboardClient() {
       : null;
 
   const overallStatus: TrafficStatus =
-    overallScore === null ? "red" : overallScore >= 75 ? "green" : overallScore >= 50 ? "amber" : "red";
+    overallScore === null
+      ? "red"
+      : overallScore >= 75
+        ? "green"
+        : overallScore >= 50
+          ? "amber"
+          : "red";
 
   const promptConfig = useMemo(
     () => ({
       toolName: "Health Dashboard",
       prompts: generateHealthDashboardPrompts({
-        kpis: kpis.filter((k) => k.value !== null).map((k) => ({
-          name: k.name,
-          value: k.value ?? 0,
-          unit: k.unit,
-          status: k.status,
-          trend: k.trend,
-          sourceName: k.sourceName,
-          description: k.description,
-        })),
+        kpis: kpis
+          .filter((k) => k.value !== null)
+          .map((k) => ({
+            name: k.name,
+            value: k.value ?? 0,
+            unit: k.unit,
+            status: k.status,
+            trend: k.trend,
+            sourceName: k.sourceName,
+            description: k.description,
+          })),
       }),
     }),
     // Refresh both when the user explicitly clicks Refresh AND when any
@@ -804,9 +849,7 @@ export function HealthDashboardClient() {
     ];
 
     if (velocityData.predictability !== null) {
-      lines.push(
-        `Velocity predictability is ${velocityData.predictability}% (target: 80%).`
-      );
+      lines.push(`Velocity predictability is ${velocityData.predictability}% (target: 80%).`);
     } else {
       lines.push("Velocity data is not yet available.");
     }
@@ -836,7 +879,9 @@ export function HealthDashboardClient() {
     }
 
     if (cycleTimeData.p85 !== null) {
-      lines.push(`Cycle time P85 is ${cycleTimeData.p85} day${cycleTimeData.p85 !== 1 ? "s" : ""}.`);
+      lines.push(
+        `Cycle time P85 is ${cycleTimeData.p85} day${cycleTimeData.p85 !== 1 ? "s" : ""}.`
+      );
     } else {
       lines.push("Cycle time data is not yet available.");
     }
@@ -848,7 +893,15 @@ export function HealthDashboardClient() {
       healthPct: healthCheckData.healthPct,
       openImpediments: impedimentData.openCount,
     });
-  }, [velocityData, healthCheckData, impedimentData, standupData, cycleTimeData, overallStatus, log]);
+  }, [
+    velocityData,
+    healthCheckData,
+    impedimentData,
+    standupData,
+    cycleTimeData,
+    overallStatus,
+    log,
+  ]);
 
   /* -- Copy to clipboard --------------------------------------------------- */
   const handleCopy = useCallback(() => {
@@ -881,8 +934,8 @@ export function HealthDashboardClient() {
           titleSuffix={`(${annotations.length})`}
         >
           <p className="text-xs text-sub mb-1">
-            Correlations the dashboard detected across your workspace event history.
-            Click an item to expand, then drill into the source tool.
+            Correlations the dashboard detected across your workspace event history. Click an item
+            to expand, then drill into the source tool.
           </p>
           <CausalAnnotationList annotations={annotations} />
         </SectionCard>
@@ -893,7 +946,8 @@ export function HealthDashboardClient() {
         <div className="flex items-center gap-2">
           <LayoutDashboard className="w-5 h-5 text-accent" />
           <span className="text-sm text-sub">
-            {dataSources.filter((d) => d.hasData).length} of {dataSources.length} data sources connected
+            {dataSources.filter((d) => d.hasData).length} of {dataSources.length} data sources
+            connected
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -933,15 +987,10 @@ export function HealthDashboardClient() {
               <CardHeader className="pb-2 pt-4 px-4">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-2">
-                    <div
-                      className="p-1.5 rounded-lg"
-                      style={{ background: `${kpi.iconColor}1a` }}
-                    >
+                    <div className="p-1.5 rounded-lg" style={{ background: `${kpi.iconColor}1a` }}>
                       <Icon className="w-4 h-4" style={{ color: kpi.iconColor }} />
                     </div>
-                    <CardTitle className="text-sm font-medium text-text/80">
-                      {kpi.name}
-                    </CardTitle>
+                    <CardTitle className="text-sm font-medium text-text/80">{kpi.name}</CardTitle>
                   </div>
                   {hasData && (
                     <Badge
@@ -1008,19 +1057,14 @@ export function HealthDashboardClient() {
       </div>
 
       {/* Traffic Light Summary */}
-      <SectionCard
-        title="Traffic Light Summary"
-        className="border-border bg-surface-deep mb-8"
-      >
+      <SectionCard title="Traffic Light Summary" className="border-border bg-surface-deep mb-8">
         <div className="flex flex-wrap gap-6 mb-6">
           {kpis.map((kpi) => (
             <div key={kpi.id} className="flex flex-col items-center gap-2 min-w-[80px]">
               {kpi.value !== null ? (
                 <TrafficCircle status={kpi.status} size={40} />
               ) : (
-                <div
-                  className="w-10 h-10 rounded-full border-2 border-dashed border-border"
-                />
+                <div className="w-10 h-10 rounded-full border-2 border-dashed border-border" />
               )}
               <span className="text-[10px] text-sub text-center leading-tight max-w-[80px]">
                 {kpi.name}
@@ -1040,8 +1084,10 @@ export function HealthDashboardClient() {
           <div>
             <p className="text-xs text-sub uppercase tracking-wider mb-1">Overall Health Score</p>
             <p className="text-xs text-sub/70">
-              Weighted average of {connectedKpis.length} connected KPI{connectedKpis.length !== 1 ? "s" : ""}
-              {connectedKpis.length < kpis.length && ` (${kpis.length - connectedKpis.length} awaiting data)`}
+              Weighted average of {connectedKpis.length} connected KPI
+              {connectedKpis.length !== 1 ? "s" : ""}
+              {connectedKpis.length < kpis.length &&
+                ` (${kpis.length - connectedKpis.length} awaiting data)`}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -1056,7 +1102,11 @@ export function HealthDashboardClient() {
                     {overallScore}%
                   </p>
                   <p className="text-sm mt-1" style={{ color: STATUS_COLOR[overallStatus] }}>
-                    {overallStatus === "green" ? "GOOD" : overallStatus === "amber" ? "MODERATE" : "AT RISK"}
+                    {overallStatus === "green"
+                      ? "GOOD"
+                      : overallStatus === "amber"
+                        ? "MODERATE"
+                        : "AT RISK"}
                   </p>
                 </div>
               </>
@@ -1094,12 +1144,7 @@ export function HealthDashboardClient() {
                 )}
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="toolkit"
-              onClick={handleGenerateSummary}
-              className="text-xs"
-            >
+            <Button size="sm" variant="toolkit" onClick={handleGenerateSummary} className="text-xs">
               Generate Summary
             </Button>
           </>
@@ -1111,7 +1156,8 @@ export function HealthDashboardClient() {
           </pre>
         ) : (
           <p className="text-sm text-sub/70 italic">
-            Click &ldquo;Generate Summary&rdquo; to produce a formatted sprint health report from your connected data sources.
+            Click &ldquo;Generate Summary&rdquo; to produce a formatted sprint health report from
+            your connected data sources.
           </p>
         )}
       </SectionCard>

@@ -178,8 +178,12 @@ function safeJsonReviver(key: string, value: unknown): unknown {
  *  enum value (would be heavy and brittle), but require an `id` and reject
  *  obvious junk like `[null, "abc", 5]`. */
 function isRecordWithId(v: unknown): v is { id: string } {
-  return typeof v === "object" && v !== null && !Array.isArray(v) &&
-    typeof (v as { id?: unknown }).id === "string";
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    !Array.isArray(v) &&
+    typeof (v as { id?: unknown }).id === "string"
+  );
 }
 
 function sanitizeArray<T extends { id: string }>(raw: unknown): T[] | undefined {
@@ -200,7 +204,7 @@ function sanitizeArray<T extends { id: string }>(raw: unknown): T[] | undefined 
 function cascadeSourceRefRemoval(
   whiteboardObjects: WhiteboardObject[] | undefined,
   tool: string,
-  entityId: string,
+  entityId: string
 ): WhiteboardObject[] | undefined {
   if (!whiteboardObjects || whiteboardObjects.length === 0) return whiteboardObjects;
   const isLink = (o: WhiteboardObject) =>
@@ -208,7 +212,7 @@ function cascadeSourceRefRemoval(
   if (!whiteboardObjects.some(isLink)) return whiteboardObjects;
   const now = new Date().toISOString();
   return whiteboardObjects.map((o) =>
-    isLink(o) ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now } : o,
+    isLink(o) ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now } : o
   );
 }
 
@@ -217,473 +221,560 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
     (set, get) => ({
       ...emptyWorkspace,
       setTeamName: (name) => set({ teamName: name }),
-      upsertTeamMember: (m) => set({ teamMembers: replaceById(get().teamMembers, m) }),
-      removeTeamMember: (id) => set((s) => {
-        // Stories whose `owner` pointed at this member, OKRs whose
-        // `owner` did, and canvas cards whose `assignee` referenced
-        // this member id should all clear the reference. The data
-        // model uses `owner` / `assignee` fields as opaque strings —
-        // they might be display names OR ids — so we only strip when
-        // the field exactly matches the deleted member's id.
-        const storiesAffected = s.stories.some((st) => st.owner === id);
-        const okrsAffected = (s.okrs ?? []).some((o) => o.owner === id);
-        const cardsAffected = (s.whiteboardObjects ?? []).some(
-          (o) => o.type === "card" && o.assignee === id,
-        );
-        const next: Partial<Workspace> = {
-          teamMembers: s.teamMembers.filter((x) => x.id !== id),
-        };
-        if (storiesAffected) {
-          next.stories = s.stories.map((st) =>
-            st.owner === id ? { ...st, owner: undefined } : st,
+      upsertTeamMember: (m) => set((_st) => ({ teamMembers: replaceById(_st.teamMembers, m) })),
+      removeTeamMember: (id) =>
+        set((s) => {
+          // Stories whose `owner` pointed at this member, OKRs whose
+          // `owner` did, and canvas cards whose `assignee` referenced
+          // this member id should all clear the reference. The data
+          // model uses `owner` / `assignee` fields as opaque strings —
+          // they might be display names OR ids — so we only strip when
+          // the field exactly matches the deleted member's id.
+          const storiesAffected = s.stories.some((st) => st.owner === id);
+          const okrsAffected = (s.okrs ?? []).some((o) => o.owner === id);
+          const cardsAffected = (s.whiteboardObjects ?? []).some(
+            (o) => o.type === "card" && o.assignee === id
           );
-        }
-        if (okrsAffected) {
-          next.okrs = s.okrs.map((o) =>
-            o.owner === id ? { ...o, owner: undefined } : o,
+          const next: Partial<Workspace> = {
+            teamMembers: s.teamMembers.filter((x) => x.id !== id),
+          };
+          if (storiesAffected) {
+            next.stories = s.stories.map((st) =>
+              st.owner === id ? { ...st, owner: undefined } : st
+            );
+          }
+          if (okrsAffected) {
+            next.okrs = s.okrs.map((o) => (o.owner === id ? { ...o, owner: undefined } : o));
+          }
+          if (cardsAffected) {
+            const now = new Date().toISOString();
+            next.whiteboardObjects = (s.whiteboardObjects ?? []).map((o) =>
+              o.type === "card" && o.assignee === id
+                ? { ...o, assignee: undefined, version: o.version + 1, updatedAt: now }
+                : o
+            );
+          }
+          return next;
+        }),
+      upsertSprint: (s) => set((_st) => ({ sprints: replaceById(_st.sprints, s) })),
+      removeSprint: (id) =>
+        set((s) => {
+          // Stories that pointed at this sprint are now stranded — clear
+          // their sprintId so they fall back into the backlog rather than
+          // referencing a dead id. Without this a removed-then-recreated
+          // sprint would silently inherit the prior sprint's stories.
+          const storyAffected = s.stories.some((st) => st.sprintId === id);
+          const isWbLink = (o: WhiteboardObject) =>
+            o.sourceRef?.tool === "sprint" && o.sourceRef.entityId === id;
+          const wbAffected = (s.whiteboardObjects ?? []).some(isWbLink);
+          const next: Partial<Workspace> = {
+            sprints: s.sprints.filter((x) => x.id !== id),
+          };
+          if (storyAffected) {
+            next.stories = s.stories.map((st) =>
+              st.sprintId === id ? { ...st, sprintId: undefined } : st
+            );
+          }
+          if (wbAffected) {
+            next.whiteboardObjects = (s.whiteboardObjects ?? []).map((o) =>
+              isWbLink(o)
+                ? {
+                    ...o,
+                    sourceRef: undefined,
+                    version: o.version + 1,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : o
+            );
+          }
+          return next;
+        }),
+      upsertStory: (s) => set((_st) => ({ stories: replaceById(_st.stories, s) })),
+      removeStory: (id) =>
+        set((s) => {
+          // Phase 26 cascade: any canvas object pinned to this Story via
+          // sourceRef now points at nothing. Strip the sourceRef so the
+          // object becomes a standalone snapshot; without this, future
+          // sync attempts against the dead id would silently fail and
+          // the link badge ("↳ backlog") would be misleading.
+          //
+          // Two tool labels are in the wild: cards added via the canvas
+          // wizard use `tool: "backlog"`, while `importFromStories` in
+          // cross-tool-import.ts emits `tool: "story"`. Match both, and
+          // include ALL object kinds (sticky/card) — `importFromStories`
+          // produces stickies, not just cards.
+          //
+          // Pre-check so the common case (zero refs) doesn't allocate
+          // a fresh whiteboardObjects array via .map().
+          const isStoryLink = (o: WhiteboardObject) =>
+            (o.sourceRef?.tool === "backlog" || o.sourceRef?.tool === "story") &&
+            o.sourceRef.entityId === id;
+          // R5: WhiteboardVoting can pin to a story via `storyId` (Phase 27);
+          // clear that too so the voting widget doesn't keep a dead link
+          // that would cause confusing UI ("anchored to a story that no
+          // longer exists").
+          const isVotingLink = (o: WhiteboardObject) => o.type === "voting" && o.storyId === id;
+          const affected = (s.whiteboardObjects ?? []).some(
+            (o) => isStoryLink(o) || isVotingLink(o)
           );
-        }
-        if (cardsAffected) {
+          if (!affected) return { stories: s.stories.filter((x) => x.id !== id) };
           const now = new Date().toISOString();
-          next.whiteboardObjects = (s.whiteboardObjects ?? []).map((o) =>
-            o.type === "card" && o.assignee === id
-              ? { ...o, assignee: undefined, version: o.version + 1, updatedAt: now }
-              : o,
-          );
-        }
-        return next;
-      }),
-      upsertSprint: (s) => set({ sprints: replaceById(get().sprints, s) }),
-      removeSprint: (id) => set((s) => {
-        // Stories that pointed at this sprint are now stranded — clear
-        // their sprintId so they fall back into the backlog rather than
-        // referencing a dead id. Without this a removed-then-recreated
-        // sprint would silently inherit the prior sprint's stories.
-        const storyAffected = s.stories.some((st) => st.sprintId === id);
-        const isWbLink = (o: WhiteboardObject) =>
-          o.sourceRef?.tool === "sprint" && o.sourceRef.entityId === id;
-        const wbAffected = (s.whiteboardObjects ?? []).some(isWbLink);
-        const next: Partial<Workspace> = {
-          sprints: s.sprints.filter((x) => x.id !== id),
-        };
-        if (storyAffected) {
-          next.stories = s.stories.map((st) =>
-            st.sprintId === id ? { ...st, sprintId: undefined } : st,
-          );
-        }
-        if (wbAffected) {
-          next.whiteboardObjects = (s.whiteboardObjects ?? []).map((o) =>
-            isWbLink(o)
-              ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
-              : o,
-          );
-        }
-        return next;
-      }),
-      upsertStory: (s) => set({ stories: replaceById(get().stories, s) }),
-      removeStory: (id) => set((s) => {
-        // Phase 26 cascade: any canvas object pinned to this Story via
-        // sourceRef now points at nothing. Strip the sourceRef so the
-        // object becomes a standalone snapshot; without this, future
-        // sync attempts against the dead id would silently fail and
-        // the link badge ("↳ backlog") would be misleading.
-        //
-        // Two tool labels are in the wild: cards added via the canvas
-        // wizard use `tool: "backlog"`, while `importFromStories` in
-        // cross-tool-import.ts emits `tool: "story"`. Match both, and
-        // include ALL object kinds (sticky/card) — `importFromStories`
-        // produces stickies, not just cards.
-        //
-        // Pre-check so the common case (zero refs) doesn't allocate
-        // a fresh whiteboardObjects array via .map().
-        const isStoryLink = (o: WhiteboardObject) =>
-          (o.sourceRef?.tool === "backlog" || o.sourceRef?.tool === "story") &&
-          o.sourceRef.entityId === id;
-        // R5: WhiteboardVoting can pin to a story via `storyId` (Phase 27);
-        // clear that too so the voting widget doesn't keep a dead link
-        // that would cause confusing UI ("anchored to a story that no
-        // longer exists").
-        const isVotingLink = (o: WhiteboardObject) =>
-          o.type === "voting" && o.storyId === id;
-        const affected = (s.whiteboardObjects ?? []).some(
-          (o) => isStoryLink(o) || isVotingLink(o),
-        );
-        if (!affected) return { stories: s.stories.filter((x) => x.id !== id) };
-        const now = new Date().toISOString();
-        return {
-          stories: s.stories.filter((x) => x.id !== id),
-          whiteboardObjects: (s.whiteboardObjects ?? []).map((o) => {
-            if (isStoryLink(o)) {
-              return { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now };
-            }
-            if (isVotingLink(o)) {
-              return { ...o, storyId: undefined, version: o.version + 1, updatedAt: now };
-            }
-            return o;
-          }),
-        };
-      }),
-      upsertImpediment: (i) => set({ impediments: replaceById(get().impediments, i) }),
-      removeImpediment: (id) => set((s) => {
-        // Same cascade for any canvas object pinned to this Impediment
-        // via sourceRef. Importers don't currently produce these, but
-        // future workflows + the AI-actions "Extract action items"
-        // prompt suggest landing items into impediments — leave the
-        // cascade defensive so a future emit-site doesn't orphan.
-        const isLink = (o: WhiteboardObject) =>
-          o.sourceRef?.tool === "impediment" && o.sourceRef.entityId === id;
-        const affected = (s.whiteboardObjects ?? []).some(isLink);
-        if (!affected) return { impediments: s.impediments.filter((x) => x.id !== id) };
-        return {
-          impediments: s.impediments.filter((x) => x.id !== id),
-          whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
-            isLink(o)
-              ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
-              : o,
-          ),
-        };
-      }),
-      upsertRisk: (r) => set({ risks: replaceById(get().risks, r) }),
-      removeRisk: (id) => set((s) => {
-        // Same Phase 26 cascade for risks imported as cards or stickies.
-        // `importFromRisks` emits stickies (not cards), so don't gate
-        // on `o.type === "card"` here — match any object that carries
-        // the matching sourceRef.
-        const isRiskLink = (o: WhiteboardObject) =>
-          o.sourceRef?.tool === "risk" && o.sourceRef.entityId === id;
-        const affected = (s.whiteboardObjects ?? []).some(isRiskLink);
-        if (!affected) return { risks: s.risks.filter((x) => x.id !== id) };
-        return {
-          risks: s.risks.filter((x) => x.id !== id),
-          whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
-            isRiskLink(o)
-              ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
-              : o,
-          ),
-        };
-      }),
+          return {
+            stories: s.stories.filter((x) => x.id !== id),
+            whiteboardObjects: (s.whiteboardObjects ?? []).map((o) => {
+              if (isStoryLink(o)) {
+                return { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now };
+              }
+              if (isVotingLink(o)) {
+                return { ...o, storyId: undefined, version: o.version + 1, updatedAt: now };
+              }
+              return o;
+            }),
+          };
+        }),
+      upsertImpediment: (i) => set((_st) => ({ impediments: replaceById(_st.impediments, i) })),
+      removeImpediment: (id) =>
+        set((s) => {
+          // Same cascade for any canvas object pinned to this Impediment
+          // via sourceRef. Importers don't currently produce these, but
+          // future workflows + the AI-actions "Extract action items"
+          // prompt suggest landing items into impediments — leave the
+          // cascade defensive so a future emit-site doesn't orphan.
+          const isLink = (o: WhiteboardObject) =>
+            o.sourceRef?.tool === "impediment" && o.sourceRef.entityId === id;
+          const affected = (s.whiteboardObjects ?? []).some(isLink);
+          if (!affected) return { impediments: s.impediments.filter((x) => x.id !== id) };
+          return {
+            impediments: s.impediments.filter((x) => x.id !== id),
+            whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+              isLink(o)
+                ? {
+                    ...o,
+                    sourceRef: undefined,
+                    version: o.version + 1,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : o
+            ),
+          };
+        }),
+      upsertRisk: (r) => set((_st) => ({ risks: replaceById(_st.risks, r) })),
+      removeRisk: (id) =>
+        set((s) => {
+          // Same Phase 26 cascade for risks imported as cards or stickies.
+          // `importFromRisks` emits stickies (not cards), so don't gate
+          // on `o.type === "card"` here — match any object that carries
+          // the matching sourceRef.
+          const isRiskLink = (o: WhiteboardObject) =>
+            o.sourceRef?.tool === "risk" && o.sourceRef.entityId === id;
+          const affected = (s.whiteboardObjects ?? []).some(isRiskLink);
+          if (!affected) return { risks: s.risks.filter((x) => x.id !== id) };
+          return {
+            risks: s.risks.filter((x) => x.id !== id),
+            whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+              isRiskLink(o)
+                ? {
+                    ...o,
+                    sourceRef: undefined,
+                    version: o.version + 1,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : o
+            ),
+          };
+        }),
       // R10: KR-aware upsert. When an OKR is updated with a SHRUNK
       // keyResults array (user removed a KR via okrs-client.tsx
       // `removeKr` which calls upsertOkr with the trimmed list),
       // cascade-clear any canvas sticky/card pinned to the removed
       // KR ids. Previously upsertOkr was a plain replaceById and
       // canvas stickies pointed at dead KR ids forever.
-      upsertOkr: (o) => set((s) => {
-        const prev = s.okrs.find((x) => x.id === o.id);
-        const next: Partial<Workspace> = {
-          okrs: replaceById(s.okrs, o),
-        };
-        if (prev) {
-          const nextKrIds = new Set(o.keyResults.map((k) => k.id));
-          const droppedKrIds = prev.keyResults
-            .map((k) => k.id)
-            .filter((id) => !nextKrIds.has(id));
-          if (droppedKrIds.length > 0) {
-            const dropped = new Set(droppedKrIds);
-            const isOrphan = (w: WhiteboardObject) =>
-              w.sourceRef?.tool === "okr" && dropped.has(w.sourceRef.entityId);
-            const affected = (s.whiteboardObjects ?? []).some(isOrphan);
-            if (affected) {
-              const now = new Date().toISOString();
-              next.whiteboardObjects = (s.whiteboardObjects ?? []).map((w) =>
-                isOrphan(w)
-                  ? { ...w, sourceRef: undefined, version: w.version + 1, updatedAt: now }
-                  : w,
-              );
+      upsertOkr: (o) =>
+        set((s) => {
+          const prev = s.okrs.find((x) => x.id === o.id);
+          const next: Partial<Workspace> = {
+            okrs: replaceById(s.okrs, o),
+          };
+          if (prev) {
+            const nextKrIds = new Set(o.keyResults.map((k) => k.id));
+            const droppedKrIds = prev.keyResults
+              .map((k) => k.id)
+              .filter((id) => !nextKrIds.has(id));
+            if (droppedKrIds.length > 0) {
+              const dropped = new Set(droppedKrIds);
+              const isOrphan = (w: WhiteboardObject) =>
+                w.sourceRef?.tool === "okr" && dropped.has(w.sourceRef.entityId);
+              const affected = (s.whiteboardObjects ?? []).some(isOrphan);
+              if (affected) {
+                const now = new Date().toISOString();
+                next.whiteboardObjects = (s.whiteboardObjects ?? []).map((w) =>
+                  isOrphan(w)
+                    ? { ...w, sourceRef: undefined, version: w.version + 1, updatedAt: now }
+                    : w
+                );
+              }
             }
           }
-        }
-        return next;
-      }),
-      removeOkr: (id) => set((s) => {
-        // OKR import lays down a sticky per Objective (entityId = o.id)
-        // AND a sticky per Key Result (entityId = kr.id). On removeOkr
-        // we must clear BOTH — otherwise KR-level stickies orphan to a
-        // dead parent OKR. Build a set of dead entity ids spanning the
-        // OKR + all its KRs.
-        const okr = s.okrs.find((x) => x.id === id);
-        const deadEntityIds = new Set<string>([id]);
-        for (const kr of okr?.keyResults ?? []) deadEntityIds.add(kr.id);
-        const isOkrLink = (o: WhiteboardObject) =>
-          o.sourceRef?.tool === "okr" && deadEntityIds.has(o.sourceRef.entityId);
-        const affected = (s.whiteboardObjects ?? []).some(isOkrLink);
-        if (!affected) return { okrs: s.okrs.filter((x) => x.id !== id) };
-        return {
-          okrs: s.okrs.filter((x) => x.id !== id),
-          whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
-            isOkrLink(o)
-              ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
-              : o,
-          ),
-        };
-      }),
-      upsertDecision: (d) => set({ decisions: replaceById(get().decisions, d) }),
-      removeDecision: (id) => set((s) => {
-        // R5: previously gated on `o.type === "card"`, but cross-tool
-        // importers may emit stickies too (mirroring removeRisk above).
-        // Drop the type filter so both shapes get cleaned up.
-        const isLink = (o: WhiteboardObject) =>
-          o.sourceRef?.tool === "decision" && o.sourceRef.entityId === id;
-        const affected = (s.whiteboardObjects ?? []).some(isLink);
-        if (!affected) return { decisions: s.decisions.filter((x) => x.id !== id) };
-        return {
-          decisions: s.decisions.filter((x) => x.id !== id),
-          whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
-            isLink(o)
-              ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
-              : o,
-          ),
-        };
-      }),
-      upsertTechDebt: (t) => set({ techDebt: replaceById(get().techDebt, t) }),
-      removeTechDebt: (id) => set((s) => {
-        // Defensive cascade — same pattern as the other entity removes.
-        // Canvas importers don't yet emit tech-debt sourceRefs, but a
-        // future "import all tech debt as stickies" path shouldn't have
-        // to remember to add a cascade here.
-        const isLink = (o: WhiteboardObject) =>
-          o.sourceRef?.tool === "techDebt" && o.sourceRef.entityId === id;
-        const affected = (s.whiteboardObjects ?? []).some(isLink);
-        if (!affected) return { techDebt: s.techDebt.filter((x) => x.id !== id) };
-        return {
-          techDebt: s.techDebt.filter((x) => x.id !== id),
-          whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
-            isLink(o)
-              ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: new Date().toISOString() }
-              : o,
-          ),
-        };
-      }),
+          return next;
+        }),
+      removeOkr: (id) =>
+        set((s) => {
+          // OKR import lays down a sticky per Objective (entityId = o.id)
+          // AND a sticky per Key Result (entityId = kr.id). On removeOkr
+          // we must clear BOTH — otherwise KR-level stickies orphan to a
+          // dead parent OKR. Build a set of dead entity ids spanning the
+          // OKR + all its KRs.
+          const okr = s.okrs.find((x) => x.id === id);
+          const deadEntityIds = new Set<string>([id]);
+          for (const kr of okr?.keyResults ?? []) deadEntityIds.add(kr.id);
+          const isOkrLink = (o: WhiteboardObject) =>
+            o.sourceRef?.tool === "okr" && deadEntityIds.has(o.sourceRef.entityId);
+          const affected = (s.whiteboardObjects ?? []).some(isOkrLink);
+          if (!affected) return { okrs: s.okrs.filter((x) => x.id !== id) };
+          return {
+            okrs: s.okrs.filter((x) => x.id !== id),
+            whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+              isOkrLink(o)
+                ? {
+                    ...o,
+                    sourceRef: undefined,
+                    version: o.version + 1,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : o
+            ),
+          };
+        }),
+      upsertDecision: (d) => set((_st) => ({ decisions: replaceById(_st.decisions, d) })),
+      removeDecision: (id) =>
+        set((s) => {
+          // R5: previously gated on `o.type === "card"`, but cross-tool
+          // importers may emit stickies too (mirroring removeRisk above).
+          // Drop the type filter so both shapes get cleaned up.
+          const isLink = (o: WhiteboardObject) =>
+            o.sourceRef?.tool === "decision" && o.sourceRef.entityId === id;
+          const affected = (s.whiteboardObjects ?? []).some(isLink);
+          if (!affected) return { decisions: s.decisions.filter((x) => x.id !== id) };
+          return {
+            decisions: s.decisions.filter((x) => x.id !== id),
+            whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+              isLink(o)
+                ? {
+                    ...o,
+                    sourceRef: undefined,
+                    version: o.version + 1,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : o
+            ),
+          };
+        }),
+      upsertTechDebt: (t) => set((_st) => ({ techDebt: replaceById(_st.techDebt, t) })),
+      removeTechDebt: (id) =>
+        set((s) => {
+          // Defensive cascade — same pattern as the other entity removes.
+          // Canvas importers don't yet emit tech-debt sourceRefs, but a
+          // future "import all tech debt as stickies" path shouldn't have
+          // to remember to add a cascade here.
+          const isLink = (o: WhiteboardObject) =>
+            o.sourceRef?.tool === "techDebt" && o.sourceRef.entityId === id;
+          const affected = (s.whiteboardObjects ?? []).some(isLink);
+          if (!affected) return { techDebt: s.techDebt.filter((x) => x.id !== id) };
+          return {
+            techDebt: s.techDebt.filter((x) => x.id !== id),
+            whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+              isLink(o)
+                ? {
+                    ...o,
+                    sourceRef: undefined,
+                    version: o.version + 1,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : o
+            ),
+          };
+        }),
       setMaturityLevel: (level) => set({ maturityLevel: level }),
       bulkUpsertStories: (items) =>
-        set({ stories: batchUpsertById(get().stories, items) }),
+        // BUG-W46: functional updater — non-functional read-then-set
+        // races concurrent sync-engine writes and silently drops the
+        // loser.
+        set((_st) => ({ stories: batchUpsertById(_st.stories, items) })),
       // Phase 19 — AI/LLM PM
-      upsertLLMEval: (x) => set({ llmEvals: replaceById(get().llmEvals ?? [], x) }),
+      upsertLLMEval: (x) => set((_st) => ({ llmEvals: replaceById(_st.llmEvals ?? [], x) })),
       // R11-fix: canvas sourceRef cascade. Audit A6 H6 flagged 16
       // Phase 19+ removes that left orphaned canvas cards still
       // claiming a link to the deleted entity. The cascadeSourceRefRemoval
       // helper centralises the bookkeeping.
-      removeLLMEval: (id) => set((s) => ({
-        llmEvals: (s.llmEvals ?? []).filter((y) => y.id !== id),
-        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "llmEval", id),
-      })),
-      upsertPrompt: (x) => set({ prompts: replaceById(get().prompts ?? [], x) }),
-      removePrompt: (id) => set((s) => ({
-        prompts: (s.prompts ?? []).filter((y) => y.id !== id),
-        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "prompt", id),
-      })),
-      upsertHallucination: (x) => set({ hallucinations: replaceById(get().hallucinations ?? [], x) }),
-      removeHallucination: (id) => set((s) => ({
-        hallucinations: (s.hallucinations ?? []).filter((y) => y.id !== id),
-        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "hallucination", id),
-      })),
-      upsertTokenSpend: (x) => set({ tokenSpend: replaceById(get().tokenSpend ?? [], x) }),
+      removeLLMEval: (id) =>
+        set((s) => ({
+          llmEvals: (s.llmEvals ?? []).filter((y) => y.id !== id),
+          whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "llmEval", id),
+        })),
+      upsertPrompt: (x) => set((_st) => ({ prompts: replaceById(_st.prompts ?? [], x) })),
+      removePrompt: (id) =>
+        set((s) => ({
+          prompts: (s.prompts ?? []).filter((y) => y.id !== id),
+          whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "prompt", id),
+        })),
+      upsertHallucination: (x) =>
+        set((_st) => ({ hallucinations: replaceById(_st.hallucinations ?? [], x) })),
+      removeHallucination: (id) =>
+        set((s) => ({
+          hallucinations: (s.hallucinations ?? []).filter((y) => y.id !== id),
+          whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "hallucination", id),
+        })),
+      upsertTokenSpend: (x) => set((_st) => ({ tokenSpend: replaceById(_st.tokenSpend ?? [], x) })),
       // R5: extend the cascade pattern from removeTechDebt — canvas stickies
       // imported from this tool would otherwise dangle.
-      removeTokenSpend: (id) => set((s) => {
-        const isLink = (o: WhiteboardObject) =>
-          o.sourceRef?.tool === "tokenSpend" && o.sourceRef.entityId === id;
-        const affected = (s.whiteboardObjects ?? []).some(isLink);
-        if (!affected) return { tokenSpend: (s.tokenSpend ?? []).filter((y) => y.id !== id) };
-        const now = new Date().toISOString();
-        return {
-          tokenSpend: (s.tokenSpend ?? []).filter((y) => y.id !== id),
-          whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
-            isLink(o) ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now } : o,
-          ),
-        };
-      }),
-      upsertModel: (x) => set({ models: replaceById(get().models ?? [], x) }),
-      removeModel: (id) => set((s) => ({
-        models: (s.models ?? []).filter((y) => y.id !== id),
-        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "model", id),
-      })),
-      upsertRedTeamFinding: (x) => set({ redTeamFindings: replaceById(get().redTeamFindings ?? [], x) }),
-      removeRedTeamFinding: (id) => set((s) => ({
-        redTeamFindings: (s.redTeamFindings ?? []).filter((y) => y.id !== id),
-        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "redTeam", id),
-      })),
-      upsertAgentWorkflow: (x) => set({ agentWorkflows: replaceById(get().agentWorkflows ?? [], x) }),
+      removeTokenSpend: (id) =>
+        set((s) => {
+          const isLink = (o: WhiteboardObject) =>
+            o.sourceRef?.tool === "tokenSpend" && o.sourceRef.entityId === id;
+          const affected = (s.whiteboardObjects ?? []).some(isLink);
+          if (!affected) return { tokenSpend: (s.tokenSpend ?? []).filter((y) => y.id !== id) };
+          const now = new Date().toISOString();
+          return {
+            tokenSpend: (s.tokenSpend ?? []).filter((y) => y.id !== id),
+            whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+              isLink(o) ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now } : o
+            ),
+          };
+        }),
+      upsertModel: (x) => set((_st) => ({ models: replaceById(_st.models ?? [], x) })),
+      removeModel: (id) =>
+        set((s) => ({
+          models: (s.models ?? []).filter((y) => y.id !== id),
+          whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "model", id),
+        })),
+      upsertRedTeamFinding: (x) =>
+        set((_st) => ({ redTeamFindings: replaceById(_st.redTeamFindings ?? [], x) })),
+      removeRedTeamFinding: (id) =>
+        set((s) => ({
+          redTeamFindings: (s.redTeamFindings ?? []).filter((y) => y.id !== id),
+          whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "redTeam", id),
+        })),
+      upsertAgentWorkflow: (x) =>
+        set((_st) => ({ agentWorkflows: replaceById(_st.agentWorkflows ?? [], x) })),
       // R5: use functional updater so both reads share one snapshot.
       // The previous dual `get()` could tear under interleaved actions.
-      removeAgentWorkflow: (id) => set((s) => ({
-        agentWorkflows: (s.agentWorkflows ?? []).filter((y) => y.id !== id),
-        agentNodes: (s.agentNodes ?? []).filter((n) => n.workflowId !== id),
-      })),
-      upsertAgentNode: (x) => set({ agentNodes: replaceById(get().agentNodes ?? [], x) }),
+      removeAgentWorkflow: (id) =>
+        set((s) => ({
+          agentWorkflows: (s.agentWorkflows ?? []).filter((y) => y.id !== id),
+          agentNodes: (s.agentNodes ?? []).filter((n) => n.workflowId !== id),
+        })),
+      upsertAgentNode: (x) => set((_st) => ({ agentNodes: replaceById(_st.agentNodes ?? [], x) })),
       // R5: also strip the deleted node from other nodes' `next: string[]`
       // arrays so the workflow graph doesn't keep dangling references.
-      removeAgentNode: (id) => set((s) => ({
-        agentNodes: (s.agentNodes ?? [])
-          .filter((y) => y.id !== id)
-          .map((n) => (n.next?.includes(id) ? { ...n, next: n.next.filter((x) => x !== id) } : n)),
-      })),
-      upsertHitlReview: (x) => set({ hitlReviews: replaceById(get().hitlReviews ?? [], x) }),
-      removeHitlReview: (id) => set((s) => ({
-        hitlReviews: (s.hitlReviews ?? []).filter((y) => y.id !== id),
-        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "hitlReview", id),
-      })),
-      upsertRlhfPair: (x) => set({ rlhfPairs: replaceById(get().rlhfPairs ?? [], x) }),
-      removeRlhfPair: (id) => set((s) => ({
-        rlhfPairs: (s.rlhfPairs ?? []).filter((y) => y.id !== id),
-        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "rlhfPair", id),
-      })),
-      upsertVectorCollection: (x) => set({ vectorCollections: replaceById(get().vectorCollections ?? [], x) }),
+      removeAgentNode: (id) =>
+        set((s) => ({
+          agentNodes: (s.agentNodes ?? [])
+            .filter((y) => y.id !== id)
+            .map((n) =>
+              n.next?.includes(id) ? { ...n, next: n.next.filter((x) => x !== id) } : n
+            ),
+        })),
+      upsertHitlReview: (x) =>
+        set((_st) => ({ hitlReviews: replaceById(_st.hitlReviews ?? [], x) })),
+      removeHitlReview: (id) =>
+        set((s) => ({
+          hitlReviews: (s.hitlReviews ?? []).filter((y) => y.id !== id),
+          whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "hitlReview", id),
+        })),
+      upsertRlhfPair: (x) => set((_st) => ({ rlhfPairs: replaceById(_st.rlhfPairs ?? [], x) })),
+      removeRlhfPair: (id) =>
+        set((s) => ({
+          rlhfPairs: (s.rlhfPairs ?? []).filter((y) => y.id !== id),
+          whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "rlhfPair", id),
+        })),
+      upsertVectorCollection: (x) =>
+        set((_st) => ({ vectorCollections: replaceById(_st.vectorCollections ?? [], x) })),
       // R5: canvas sticky cascade.
-      removeVectorCollection: (id) => set((s) => {
-        const isLink = (o: WhiteboardObject) =>
-          o.sourceRef?.tool === "vectorCollections" && o.sourceRef.entityId === id;
-        const affected = (s.whiteboardObjects ?? []).some(isLink);
-        if (!affected) return { vectorCollections: (s.vectorCollections ?? []).filter((y) => y.id !== id) };
-        const now = new Date().toISOString();
-        return {
-          vectorCollections: (s.vectorCollections ?? []).filter((y) => y.id !== id),
-          whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
-            isLink(o) ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now } : o,
-          ),
-        };
-      }),
-      upsertModelCard: (x) => set({ modelCards: replaceById(get().modelCards ?? [], x) }),
-      removeModelCard: (id) => set((s) => ({
-        modelCards: (s.modelCards ?? []).filter((y) => y.id !== id),
-        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "modelCard", id),
-      })),
+      removeVectorCollection: (id) =>
+        set((s) => {
+          const isLink = (o: WhiteboardObject) =>
+            o.sourceRef?.tool === "vectorCollections" && o.sourceRef.entityId === id;
+          const affected = (s.whiteboardObjects ?? []).some(isLink);
+          if (!affected)
+            return { vectorCollections: (s.vectorCollections ?? []).filter((y) => y.id !== id) };
+          const now = new Date().toISOString();
+          return {
+            vectorCollections: (s.vectorCollections ?? []).filter((y) => y.id !== id),
+            whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+              isLink(o) ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now } : o
+            ),
+          };
+        }),
+      upsertModelCard: (x) => set((_st) => ({ modelCards: replaceById(_st.modelCards ?? [], x) })),
+      removeModelCard: (id) =>
+        set((s) => ({
+          modelCards: (s.modelCards ?? []).filter((y) => y.id !== id),
+          whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "modelCard", id),
+        })),
       // Phase 20 — Prioritization
-      upsertPrioritization: (x) => set({ prioritizations: replaceById(get().prioritizations ?? [], x) }),
+      upsertPrioritization: (x) =>
+        set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
       // R5: canvas sticky cascade.
-      removePrioritization: (id) => set((s) => {
-        const isLink = (o: WhiteboardObject) =>
-          o.sourceRef?.tool === "prioritizations" && o.sourceRef.entityId === id;
-        const affected = (s.whiteboardObjects ?? []).some(isLink);
-        if (!affected) return { prioritizations: (s.prioritizations ?? []).filter((y) => y.id !== id) };
-        const now = new Date().toISOString();
-        return {
-          prioritizations: (s.prioritizations ?? []).filter((y) => y.id !== id),
-          whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
-            isLink(o) ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now } : o,
-          ),
-        };
-      }),
+      removePrioritization: (id) =>
+        set((s) => {
+          const isLink = (o: WhiteboardObject) =>
+            o.sourceRef?.tool === "prioritizations" && o.sourceRef.entityId === id;
+          const affected = (s.whiteboardObjects ?? []).some(isLink);
+          if (!affected)
+            return { prioritizations: (s.prioritizations ?? []).filter((y) => y.id !== id) };
+          const now = new Date().toISOString();
+          return {
+            prioritizations: (s.prioritizations ?? []).filter((y) => y.id !== id),
+            whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+              isLink(o) ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now } : o
+            ),
+          };
+        }),
       // Phase 21 — Decision Frameworks
-      upsertDACIDecision: (x) => set({ daciDecisions: replaceById(get().daciDecisions ?? [], x) }),
-      removeDACIDecision: (id) => set((s) => ({
-        daciDecisions: (s.daciDecisions ?? []).filter((y) => y.id !== id),
-        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "daci", id),
-      })),
-      upsertRAPIDDecision: (x) => set({ rapidDecisions: replaceById(get().rapidDecisions ?? [], x) }),
-      removeRAPIDDecision: (id) => set((s) => ({
-        rapidDecisions: (s.rapidDecisions ?? []).filter((y) => y.id !== id),
-        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "rapid", id),
-      })),
-      upsertWeightedOption: (x) => set({ weightedOptions: replaceById(get().weightedOptions ?? [], x) }),
-      removeWeightedOption: (id) => set((s) => ({
-        weightedOptions: (s.weightedOptions ?? []).filter((y) => y.id !== id),
-        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "weightedOption", id),
-      })),
-      upsertWeightedCriterion: (x) => set({ weightedCriteria: replaceById(get().weightedCriteria ?? [], x) }),
+      upsertDACIDecision: (x) =>
+        set((_st) => ({ daciDecisions: replaceById(_st.daciDecisions ?? [], x) })),
+      removeDACIDecision: (id) =>
+        set((s) => ({
+          daciDecisions: (s.daciDecisions ?? []).filter((y) => y.id !== id),
+          whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "daci", id),
+        })),
+      upsertRAPIDDecision: (x) =>
+        set((_st) => ({ rapidDecisions: replaceById(_st.rapidDecisions ?? [], x) })),
+      removeRAPIDDecision: (id) =>
+        set((s) => ({
+          rapidDecisions: (s.rapidDecisions ?? []).filter((y) => y.id !== id),
+          whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "rapid", id),
+        })),
+      upsertWeightedOption: (x) =>
+        set((_st) => ({ weightedOptions: replaceById(_st.weightedOptions ?? [], x) })),
+      removeWeightedOption: (id) =>
+        set((s) => ({
+          weightedOptions: (s.weightedOptions ?? []).filter((y) => y.id !== id),
+          whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "weightedOption", id),
+        })),
+      upsertWeightedCriterion: (x) =>
+        set((_st) => ({ weightedCriteria: replaceById(_st.weightedCriteria ?? [], x) })),
       // R5: also strip the stale criterion key from every WeightedOption's
       // `scores` map. Previously the option kept the score for a deleted
       // criterion, biasing future weightedScore re-computations.
-      removeWeightedCriterion: (id) => set((s) => ({
-        weightedCriteria: (s.weightedCriteria ?? []).filter((y) => y.id !== id),
-        weightedOptions: (s.weightedOptions ?? []).map((o) => {
-          if (!o.scores || !(id in o.scores)) return o;
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { [id]: _drop, ...rest } = o.scores;
-          return { ...o, scores: rest };
-        }),
-      })),
-      upsertSixHatsThought: (x) => set({ sixHatsThoughts: replaceById(get().sixHatsThoughts ?? [], x) }),
-      removeSixHatsThought: (id) => set((s) => ({
-        sixHatsThoughts: (s.sixHatsThoughts ?? []).filter((y) => y.id !== id),
-        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "sixHats", id),
-      })),
-      upsertOODACycle: (x) => set({ oodaCycles: replaceById(get().oodaCycles ?? [], x) }),
-      removeOODACycle: (id) => set((s) => ({
-        oodaCycles: (s.oodaCycles ?? []).filter((y) => y.id !== id),
-        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "ooda", id),
-      })),
-      upsertCynefinItem: (x) => set({ cynefinItems: replaceById(get().cynefinItems ?? [], x) }),
-      removeCynefinItem: (id) => set((s) => ({
-        cynefinItems: (s.cynefinItems ?? []).filter((y) => y.id !== id),
-        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "cynefin", id),
-      })),
-      upsertStaceyItem: (x) => set({ staceyItems: replaceById(get().staceyItems ?? [], x) }),
+      removeWeightedCriterion: (id) =>
+        set((s) => ({
+          weightedCriteria: (s.weightedCriteria ?? []).filter((y) => y.id !== id),
+          weightedOptions: (s.weightedOptions ?? []).map((o) => {
+            if (!o.scores || !(id in o.scores)) return o;
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { [id]: _drop, ...rest } = o.scores;
+            return { ...o, scores: rest };
+          }),
+        })),
+      upsertSixHatsThought: (x) =>
+        set((_st) => ({ sixHatsThoughts: replaceById(_st.sixHatsThoughts ?? [], x) })),
+      removeSixHatsThought: (id) =>
+        set((s) => ({
+          sixHatsThoughts: (s.sixHatsThoughts ?? []).filter((y) => y.id !== id),
+          whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "sixHats", id),
+        })),
+      upsertOODACycle: (x) => set((_st) => ({ oodaCycles: replaceById(_st.oodaCycles ?? [], x) })),
+      removeOODACycle: (id) =>
+        set((s) => ({
+          oodaCycles: (s.oodaCycles ?? []).filter((y) => y.id !== id),
+          whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "ooda", id),
+        })),
+      upsertCynefinItem: (x) =>
+        set((_st) => ({ cynefinItems: replaceById(_st.cynefinItems ?? [], x) })),
+      removeCynefinItem: (id) =>
+        set((s) => ({
+          cynefinItems: (s.cynefinItems ?? []).filter((y) => y.id !== id),
+          whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "cynefin", id),
+        })),
+      upsertStaceyItem: (x) =>
+        set((_st) => ({ staceyItems: replaceById(_st.staceyItems ?? [], x) })),
       // R5: canvas sticky cascade.
-      removeStaceyItem: (id) => set((s) => {
-        const isLink = (o: WhiteboardObject) =>
-          o.sourceRef?.tool === "staceyItems" && o.sourceRef.entityId === id;
-        const affected = (s.whiteboardObjects ?? []).some(isLink);
-        if (!affected) return { staceyItems: (s.staceyItems ?? []).filter((y) => y.id !== id) };
-        const now = new Date().toISOString();
-        return {
-          staceyItems: (s.staceyItems ?? []).filter((y) => y.id !== id),
-          whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
-            isLink(o) ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now } : o,
-          ),
-        };
-      }),
-      upsertPolarity: (x) => set({ polarities: replaceById(get().polarities ?? [], x) }),
+      removeStaceyItem: (id) =>
+        set((s) => {
+          const isLink = (o: WhiteboardObject) =>
+            o.sourceRef?.tool === "staceyItems" && o.sourceRef.entityId === id;
+          const affected = (s.whiteboardObjects ?? []).some(isLink);
+          if (!affected) return { staceyItems: (s.staceyItems ?? []).filter((y) => y.id !== id) };
+          const now = new Date().toISOString();
+          return {
+            staceyItems: (s.staceyItems ?? []).filter((y) => y.id !== id),
+            whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+              isLink(o) ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now } : o
+            ),
+          };
+        }),
+      upsertPolarity: (x) => set((_st) => ({ polarities: replaceById(_st.polarities ?? [], x) })),
       // R5: functional updater so the polarity + its poles share one snapshot.
       // R11-fix: also cascade canvas sourceRef cleanup.
-      removePolarity: (id) => set((s) => ({
-        polarities: (s.polarities ?? []).filter((y) => y.id !== id),
-        polarityPoles: (s.polarityPoles ?? []).filter((p) => p.polarityId !== id),
-        whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "polarity", id),
-      })),
-      upsertPolarityPole: (x) => set({ polarityPoles: replaceById(get().polarityPoles ?? [], x) }),
-      removePolarityPole: (id) => set({ polarityPoles: (get().polarityPoles ?? []).filter((y) => y.id !== id) }),
+      removePolarity: (id) =>
+        set((s) => ({
+          polarities: (s.polarities ?? []).filter((y) => y.id !== id),
+          polarityPoles: (s.polarityPoles ?? []).filter((p) => p.polarityId !== id),
+          whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "polarity", id),
+        })),
+      upsertPolarityPole: (x) =>
+        set((_st) => ({ polarityPoles: replaceById(_st.polarityPoles ?? [], x) })),
+      removePolarityPole: (id) =>
+        set({ polarityPoles: (get().polarityPoles ?? []).filter((y) => y.id !== id) }),
       // Phase 22 — Canvas. Deleting a board cascades to all its objects,
       // comments, and groups so we never leak orphan rows.
-      upsertWhiteboard: (x) => set({ whiteboards: replaceById(get().whiteboards ?? [], x) }),
+      upsertWhiteboard: (x) =>
+        set((_st) => ({ whiteboards: replaceById(_st.whiteboards ?? [], x) })),
       // R5: functional updater so all four cascades share one snapshot —
       // the prior FOUR `get()` calls could race with concurrent activity.
       // ALSO cascade `whiteboardActivityLog` (previously leaked forever
       // after board delete — entries accumulated invisibly in storage).
-      removeWhiteboard: (id) => set((s) => ({
-        whiteboards: (s.whiteboards ?? []).filter((y) => y.id !== id),
-        whiteboardObjects: (s.whiteboardObjects ?? []).filter((o) => o.boardId !== id),
-        whiteboardCommentThreads: (s.whiteboardCommentThreads ?? []).filter((c) => c.boardId !== id),
-        whiteboardGroups: (s.whiteboardGroups ?? []).filter((g) => g.boardId !== id),
-        whiteboardActivityLog: (s.whiteboardActivityLog ?? []).filter((e) => e.boardId !== id),
-      })),
-      upsertWhiteboardObject: (x) => set({ whiteboardObjects: replaceById(get().whiteboardObjects ?? [], x) }),
+      removeWhiteboard: (id) =>
+        set((s) => ({
+          whiteboards: (s.whiteboards ?? []).filter((y) => y.id !== id),
+          whiteboardObjects: (s.whiteboardObjects ?? []).filter((o) => o.boardId !== id),
+          whiteboardCommentThreads: (s.whiteboardCommentThreads ?? []).filter(
+            (c) => c.boardId !== id
+          ),
+          whiteboardGroups: (s.whiteboardGroups ?? []).filter((g) => g.boardId !== id),
+          whiteboardActivityLog: (s.whiteboardActivityLog ?? []).filter((e) => e.boardId !== id),
+        })),
+      upsertWhiteboardObject: (x) =>
+        set((_st) => ({ whiteboardObjects: replaceById(_st.whiteboardObjects ?? [], x) })),
       // Bulk upsert — used by templates, paste, cross-tool import, and the
       // diff-sync receiver. Single set() to avoid N re-renders for N objects.
-      upsertWhiteboardObjects: (xs) => set((s) => {
-        const list = s.whiteboardObjects ?? [];
-        const map = new Map(list.map((o) => [o.id, o]));
-        for (const x of xs) map.set(x.id, x);
-        return { whiteboardObjects: Array.from(map.values()) };
-      }),
-      removeWhiteboardObject: (id) => set((s) => {
-        // Cascade in one pass: drop the object AND any connector pinned to
-        // it, AND clear `frameId` on any object that was contained in this
-        // frame (so the contained objects don't keep a dangling reference
-        // that would resurface if the id were ever reused).
-        const objects = s.whiteboardObjects ?? [];
-        const nextObjects: WhiteboardObject[] = [];
-        for (const y of objects) {
-          if (y.id === id) continue; // drop the target itself
-          if (y.type === "connector" && (y.fromId === id || y.toId === id)) continue; // drop dangling connectors
-          if (y.frameId === id) {
-            nextObjects.push({ ...y, frameId: undefined });
-            continue;
+      upsertWhiteboardObjects: (xs) =>
+        set((s) => {
+          const list = s.whiteboardObjects ?? [];
+          const map = new Map(list.map((o) => [o.id, o]));
+          for (const x of xs) map.set(x.id, x);
+          return { whiteboardObjects: Array.from(map.values()) };
+        }),
+      removeWhiteboardObject: (id) =>
+        set((s) => {
+          // Cascade in one pass: drop the object AND any connector pinned to
+          // it, AND clear `frameId` on any object that was contained in this
+          // frame (so the contained objects don't keep a dangling reference
+          // that would resurface if the id were ever reused).
+          const objects = s.whiteboardObjects ?? [];
+          const nextObjects: WhiteboardObject[] = [];
+          for (const y of objects) {
+            if (y.id === id) continue; // drop the target itself
+            if (y.type === "connector" && (y.fromId === id || y.toId === id)) continue; // drop dangling connectors
+            if (y.frameId === id) {
+              nextObjects.push({ ...y, frameId: undefined });
+              continue;
+            }
+            nextObjects.push(y);
           }
-          nextObjects.push(y);
-        }
-        return {
-          whiteboardObjects: nextObjects,
-          // Also drop comment threads pinned to the deleted object —
-          // orphaned threads would otherwise pile up invisibly
-          // (CommentPins filters by objectId so the UI doesn't render
-          // them, but the store keeps growing indefinitely and they'd
-          // resurface if the object id were ever reused).
-          whiteboardCommentThreads: (s.whiteboardCommentThreads ?? []).filter(
-            (t) => t.objectId !== id,
-          ),
-        };
-      }),
+          return {
+            whiteboardObjects: nextObjects,
+            // Also drop comment threads pinned to the deleted object —
+            // orphaned threads would otherwise pile up invisibly
+            // (CommentPins filters by objectId so the UI doesn't render
+            // them, but the store keeps growing indefinitely and they'd
+            // resurface if the object id were ever reused).
+            whiteboardCommentThreads: (s.whiteboardCommentThreads ?? []).filter(
+              (t) => t.objectId !== id
+            ),
+          };
+        }),
       removeWhiteboardObjects: (ids) => {
         const removeSet = new Set(ids);
         set((s) => {
@@ -715,7 +806,12 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
             // LWW peers don't revive the frame reference from a stale
             // broadcast and silently re-orphan the object.
             if (y.frameId && removeSet.has(y.frameId)) {
-              nextObjects.push({ ...y, frameId: undefined, version: y.version + 1, updatedAt: now });
+              nextObjects.push({
+                ...y,
+                frameId: undefined,
+                version: y.version + 1,
+                updatedAt: now,
+              });
               continue;
             }
             nextObjects.push(y);
@@ -725,61 +821,76 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
             // Keep threads where (a) the thread isn't pinned to an object,
             // or (b) the pinned object is not being removed.
             whiteboardCommentThreads: (s.whiteboardCommentThreads ?? []).filter(
-              (t) => !t.objectId || !removeSet.has(t.objectId),
+              (t) => !t.objectId || !removeSet.has(t.objectId)
             ),
           };
         });
       },
-      upsertWhiteboardCommentThread: (x) => set({ whiteboardCommentThreads: replaceById(get().whiteboardCommentThreads ?? [], x) }),
-      removeWhiteboardCommentThread: (id) => set({ whiteboardCommentThreads: (get().whiteboardCommentThreads ?? []).filter((y) => y.id !== id) }),
-      upsertWhiteboardGroup: (x) => set({ whiteboardGroups: replaceById(get().whiteboardGroups ?? [], x) }),
+      upsertWhiteboardCommentThread: (x) =>
+        set((_st) => ({
+          whiteboardCommentThreads: replaceById(_st.whiteboardCommentThreads ?? [], x),
+        })),
+      removeWhiteboardCommentThread: (id) =>
+        set({
+          whiteboardCommentThreads: (get().whiteboardCommentThreads ?? []).filter(
+            (y) => y.id !== id
+          ),
+        }),
+      upsertWhiteboardGroup: (x) =>
+        set((_st) => ({ whiteboardGroups: replaceById(_st.whiteboardGroups ?? [], x) })),
       // R5: functional updater so both reads share one snapshot. Also bump
       // version+updatedAt on any object whose `groupId` we clear so a
       // stale peer broadcast doesn't revive the dead group reference.
-      removeWhiteboardGroup: (id) => set((s) => {
-        const now = new Date().toISOString();
-        return {
-          whiteboardGroups: (s.whiteboardGroups ?? []).filter((y) => y.id !== id),
-          whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
-            o.groupId === id
-              ? { ...o, groupId: undefined, version: o.version + 1, updatedAt: now }
-              : o,
+      removeWhiteboardGroup: (id) =>
+        set((s) => {
+          const now = new Date().toISOString();
+          return {
+            whiteboardGroups: (s.whiteboardGroups ?? []).filter((y) => y.id !== id),
+            whiteboardObjects: (s.whiteboardObjects ?? []).map((o) =>
+              o.groupId === id
+                ? { ...o, groupId: undefined, version: o.version + 1, updatedAt: now }
+                : o
+            ),
+          };
+        }),
+      upsertWhiteboardSavedTemplate: (x) =>
+        set({
+          whiteboardSavedTemplates: replaceById(get().whiteboardSavedTemplates ?? [], x),
+        }),
+      removeWhiteboardSavedTemplate: (id) =>
+        set({
+          whiteboardSavedTemplates: (get().whiteboardSavedTemplates ?? []).filter(
+            (y) => y.id !== id
           ),
-        };
-      }),
-      upsertWhiteboardSavedTemplate: (x) => set({
-        whiteboardSavedTemplates: replaceById(get().whiteboardSavedTemplates ?? [], x),
-      }),
-      removeWhiteboardSavedTemplate: (id) => set({
-        whiteboardSavedTemplates: (get().whiteboardSavedTemplates ?? []).filter((y) => y.id !== id),
-      }),
-      appendWhiteboardActivity: (ev) => set((s) => {
-        // Reject malformed events to avoid polluting the rolling log with
-        // garbage (e.g. from a buggy AI prompt feeding the log). Each
-        // string field has a length cap matched by the import validator,
-        // so we don't drift between the two surfaces.
-        if (!ev || typeof ev !== "object") return s;
-        if (typeof ev.id !== "string" || ev.id.length > 100) return s;
-        if (typeof ev.boardId !== "string" || ev.boardId.length > 100) return s;
-        if (typeof ev.at !== "number" || !Number.isFinite(ev.at)) return s;
-        if (typeof ev.author !== "string" || ev.author.length > 200) return s;
-        if (typeof ev.kind !== "string" || ev.kind.length > 64) return s;
-        if (typeof ev.summary !== "string" || ev.summary.length > 1000) return s;
-        // Rolling 200-event ring per board, with global cap at 1000
-        // events total to bound localStorage growth.
-        const log = (s.whiteboardActivityLog ?? []).slice();
-        log.push(ev);
-        // Drop oldest for this board past 200; then global cap.
-        const byBoard = new Map<string, number>();
-        for (let i = log.length - 1; i >= 0; i--) {
-          const e = log[i];
-          const c = (byBoard.get(e.boardId) ?? 0) + 1;
-          byBoard.set(e.boardId, c);
-          if (c > 200) log.splice(i, 1);
-        }
-        const next = log.slice(-1000);
-        return { whiteboardActivityLog: next };
-      }),
+        }),
+      appendWhiteboardActivity: (ev) =>
+        set((s) => {
+          // Reject malformed events to avoid polluting the rolling log with
+          // garbage (e.g. from a buggy AI prompt feeding the log). Each
+          // string field has a length cap matched by the import validator,
+          // so we don't drift between the two surfaces.
+          if (!ev || typeof ev !== "object") return s;
+          if (typeof ev.id !== "string" || ev.id.length > 100) return s;
+          if (typeof ev.boardId !== "string" || ev.boardId.length > 100) return s;
+          if (typeof ev.at !== "number" || !Number.isFinite(ev.at)) return s;
+          if (typeof ev.author !== "string" || ev.author.length > 200) return s;
+          if (typeof ev.kind !== "string" || ev.kind.length > 64) return s;
+          if (typeof ev.summary !== "string" || ev.summary.length > 1000) return s;
+          // Rolling 200-event ring per board, with global cap at 1000
+          // events total to bound localStorage growth.
+          const log = (s.whiteboardActivityLog ?? []).slice();
+          log.push(ev);
+          // Drop oldest for this board past 200; then global cap.
+          const byBoard = new Map<string, number>();
+          for (let i = log.length - 1; i >= 0; i--) {
+            const e = log[i];
+            const c = (byBoard.get(e.boardId) ?? 0) + 1;
+            byBoard.set(e.boardId, c);
+            if (c > 200) log.splice(i, 1);
+          }
+          const next = log.slice(-1000);
+          return { whiteboardActivityLog: next };
+        }),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -997,7 +1108,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
               // eslint-disable-next-line no-console
               console.warn(
                 "[workspace-store] localStorage.getItem blocked — starting with empty workspace.",
-                err,
+                err
               );
               return null;
             }
@@ -1009,7 +1120,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
               // eslint-disable-next-line no-console
               console.warn(
                 "[workspace-store] localStorage quota exceeded — workspace held in memory only. Export to JSON to back it up.",
-                err,
+                err
               );
             }
           },
@@ -1107,6 +1218,12 @@ if (typeof window !== "undefined") {
       registerEntityCollection({
         kind: `workspace:${kind}`,
         getEntities: () => {
+          // BUG-W23: gate reads on hasHydrated. If a push is scheduled
+          // before rehydrate resolves, the sync layer would upload the
+          // EMPTY default workspace to Supabase, overwriting the user's
+          // authoritative server data. Returning `[]` here keeps the
+          // sync engine's push diff a no-op until hydration completes.
+          if (!registry.persist.hasHydrated()) return [];
           const v = (registry.getState() as unknown as Record<string, unknown>)[slice as string];
           return (Array.isArray(v) ? v : []) as ReadonlyArray<{ id: string }>;
         },
@@ -1114,6 +1231,10 @@ if (typeof window !== "undefined") {
           registry.setState({ [slice]: next } as unknown as Partial<Workspace>),
         subscribe: (onChange) =>
           registry.subscribe((curr, prev) => {
+            // BUG-W23 (cont.): also suppress change notifications during
+            // hydration. Otherwise the initial setState from rehydrate
+            // would look like a user write and trigger a push.
+            if (!registry.persist.hasHydrated()) return;
             const c = (curr as unknown as Record<string, unknown>)[slice as string];
             const p = (prev as unknown as Record<string, unknown>)[slice as string];
             if (c !== p) onChange();
@@ -1252,9 +1373,7 @@ export function selectActiveSprint(w: Workspace): Sprint | undefined {
   const active = w.sprints.filter((s) => s.status === "active");
   if (active.length === 0) return undefined;
   if (active.length === 1) return active[0];
-  return active.slice().sort(
-    (a, b) => parseDateSafe(b.startDate) - parseDateSafe(a.startDate)
-  )[0];
+  return active.slice().sort((a, b) => parseDateSafe(b.startDate) - parseDateSafe(a.startDate))[0];
 }
 
 function parseDateSafe(iso: string | undefined): number {

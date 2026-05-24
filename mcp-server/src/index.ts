@@ -23,7 +23,10 @@
  */
 
 const PAT = process.env.AGILE_TOOLKIT_PAT;
-const URL_BASE = (process.env.AGILE_TOOLKIT_URL ?? "https://agile.amrelharony.com").replace(/\/+$/, "");
+const URL_BASE = (process.env.AGILE_TOOLKIT_URL ?? "https://agile.amrelharony.com").replace(
+  /\/+$/,
+  ""
+);
 
 if (!PAT) {
   process.stderr.write(
@@ -33,6 +36,8 @@ if (!PAT) {
 }
 
 const ENDPOINT = `${URL_BASE}/api/mcp`;
+const FETCH_TIMEOUT_MS = 30_000;
+const MAX_BUFFER_BYTES = 1_048_576; // 1 MiB — generous for any sane JSON-RPC line
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -49,6 +54,8 @@ interface JsonRpcResponse {
 }
 
 async function forward(request: JsonRpcRequest): Promise<JsonRpcResponse | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     const response = await fetch(ENDPOINT, {
       method: "POST",
@@ -57,6 +64,7 @@ async function forward(request: JsonRpcRequest): Promise<JsonRpcResponse | null>
         authorization: `Bearer ${PAT}`,
       },
       body: JSON.stringify(request),
+      signal: controller.signal,
     });
 
     // 204 = notification ack; nothing to forward back to stdout.
@@ -77,7 +85,12 @@ async function forward(request: JsonRpcRequest): Promise<JsonRpcResponse | null>
     return (await response.json()) as JsonRpcResponse;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (controller.signal.aborted) {
+      return rpcError(request.id ?? null, -32000, `Request timed out after ${FETCH_TIMEOUT_MS}ms`);
+    }
     return rpcError(request.id ?? null, -32000, `Network error: ${msg}`);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -94,6 +107,16 @@ let buffer = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk: string) => {
   buffer += chunk;
+  // Cap the buffer to prevent unbounded growth if upstream sends a single
+  // huge line without newlines. Anything past the cap is dropped and we
+  // emit a stderr warning.
+  if (buffer.length > MAX_BUFFER_BYTES) {
+    process.stderr.write(
+      `[agile-toolkit-mcp] dropped ${buffer.length} bytes (no newline within ${MAX_BUFFER_BYTES})\n`
+    );
+    buffer = "";
+    return;
+  }
   let idx: number;
   while ((idx = buffer.indexOf("\n")) !== -1) {
     const line = buffer.slice(0, idx).trim();
@@ -106,9 +129,18 @@ process.stdin.on("data", (chunk: string) => {
       process.stderr.write(`[agile-toolkit-mcp] dropped malformed line\n`);
       continue;
     }
-    void forward(request).then((resp) => {
-      if (resp) write(resp);
-    });
+    void forward(request)
+      .then((resp) => {
+        if (resp) write(resp);
+      })
+      .catch((err) => {
+        // Defensive: forward() should always resolve to a JsonRpcResponse
+        // via its internal try/catch, but a bug there would otherwise
+        // surface as an unhandled rejection.
+        process.stderr.write(
+          `[agile-toolkit-mcp] forward rejected: ${err instanceof Error ? err.message : String(err)}\n`
+        );
+      });
   }
 });
 

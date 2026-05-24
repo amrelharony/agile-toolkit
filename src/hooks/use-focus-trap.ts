@@ -32,7 +32,7 @@ import { useEffect, useRef } from "react";
  */
 export function useFocusTrap(
   containerRef: React.RefObject<HTMLElement>,
-  opts: { active: boolean; initialFocusRef?: React.RefObject<HTMLElement> } = { active: true },
+  opts: { active: boolean; initialFocusRef?: React.RefObject<HTMLElement> } = { active: true }
 ): void {
   const { active, initialFocusRef } = opts;
   // Hold the previously-focused element across renders — restoring on
@@ -45,8 +45,18 @@ export function useFocusTrap(
     const container = containerRef.current;
     if (!container) return;
 
-    // Capture the current focus so we can restore it on unmount.
-    previousActiveRef.current = (document.activeElement as HTMLElement | null) ?? null;
+    // BUG-W1: capture the previously-focused element exactly ONCE per
+    // open cycle. The prior implementation overwrote `previousActiveRef`
+    // on every effect re-run, which (under React 18 StrictMode or any
+    // re-effect mid-dialog) snapshotted an element INSIDE the dialog —
+    // unmount then "restored" focus to that now-removed element and
+    // focus landed on <body>.
+    if (previousActiveRef.current === null) {
+      previousActiveRef.current = (document.activeElement as HTMLElement | null) ?? null;
+    }
+    // Track whether we set body[tabindex=-1] this cycle so we can clean
+    // up on unmount. (BUG-W2)
+    let setBodyTabindex = false;
 
     // Move focus into the dialog. Prefer the explicit ref; fall back
     // to the first tabbable child; last resort is the container itself.
@@ -124,10 +134,29 @@ export function useFocusTrap(
         // out of the natural Tab order but allows programmatic focus.
         if (!document.body.hasAttribute("tabindex")) {
           document.body.setAttribute("tabindex", "-1");
+          setBodyTabindex = true;
         }
       }
       fallback.focus?.();
+      // BUG-W2: clean up the body tabindex we added so it doesn't
+      // pollute the focus graph for the rest of the session.
+      if (setBodyTabindex) {
+        // Defer removal so the focus call above lands first; otherwise
+        // some browsers refuse to focus an element we just stripped the
+        // tabindex from.
+        queueMicrotask(() => {
+          if (document.body.getAttribute("tabindex") === "-1") {
+            document.body.removeAttribute("tabindex");
+          }
+        });
+      }
+      // Reset the captured-previous-active ref so the NEXT open cycle
+      // captures a fresh trigger (BUG-W1 cont.).
+      previousActiveRef.current = null;
     };
+    // initialFocusRef intentionally not in deps — the ref object should be
+    // stable; if a caller passes a new ref while `active` stays true, the
+    // change is honoured on the next `active` flip.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 }
@@ -153,7 +182,32 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
     // visibility:hidden that the browser would skip anyway.
     if (el.getAttribute("aria-hidden") === "true") return false;
     if (el.closest("[aria-hidden='true']")) return false;
-    if (el.offsetParent === null && getComputedStyle(el).position !== "fixed") return false;
+    // BUG-W42: `offsetParent === null` is also true when ANY ancestor
+    // is `position:fixed`, not just when the element itself is hidden.
+    // Prefer Element.checkVisibility() (modern browsers) and fall back
+    // to the old heuristic with an ancestor walk.
+    type ElWithCV = HTMLElement & {
+      checkVisibility?: (opts?: { visibilityProperty?: boolean }) => boolean;
+    };
+    const elCv = el as ElWithCV;
+    if (typeof elCv.checkVisibility === "function") {
+      if (!elCv.checkVisibility({ visibilityProperty: true })) return false;
+      return true;
+    }
+    if (el.offsetParent === null) {
+      // Walk up to find whether any ancestor is fixed-positioned. If so,
+      // treat as visible (the offsetParent quirk is misleading).
+      let n: HTMLElement | null = el;
+      let hasFixedAncestor = false;
+      while (n && n !== container) {
+        if (getComputedStyle(n).position === "fixed") {
+          hasFixedAncestor = true;
+          break;
+        }
+        n = n.parentElement;
+      }
+      if (!hasFixedAncestor && getComputedStyle(el).position !== "fixed") return false;
+    }
     return true;
   });
 }

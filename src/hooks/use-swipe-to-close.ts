@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 
 interface Options {
   /** Direction the swipe should travel to trigger close. */
@@ -18,11 +18,22 @@ interface Options {
  * Lightweight swipe-to-close for drawers and sheets.  Attaches pointer listeners
  * to the target element; resolves to `onClose()` when the gesture crosses the
  * distance or velocity threshold in the configured direction.
+ *
+ * BUG-W33: stash onClose in a ref so the effect doesn't tear down listeners
+ * on every parent render (mid-gesture re-register broke the swipe).
+ * BUG-W34: capture pointerId to filter subsequent events from other fingers
+ * during multi-touch.
  */
 export function useSwipeToClose(
   ref: RefObject<HTMLElement | null>,
-  { direction = "left", threshold = 60, velocityThreshold = 0.3, enabled = true, onClose }: Options,
+  { direction = "left", threshold = 60, velocityThreshold = 0.3, enabled = true, onClose }: Options
 ) {
+  // Keep the latest onClose in a ref so the effect doesn't re-register
+  // listeners on every render (the closure inside the effect captures
+  // `onCloseRef.current` at fire time).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!enabled) return;
     const el = ref.current;
@@ -32,9 +43,14 @@ export function useSwipeToClose(
     let startY = 0;
     let startT = 0;
     let tracking = false;
+    let activePointerId: number | null = null;
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.pointerType === "mouse") return; // drawers already have backdrop on desktop
+      // BUG-W34: ignore second-finger downs while a gesture is already
+      // in flight. The first pointer owns the gesture.
+      if (tracking) return;
+      activePointerId = e.pointerId;
       startX = e.clientX;
       startY = e.clientY;
       startT = e.timeStamp;
@@ -43,6 +59,7 @@ export function useSwipeToClose(
 
     const onPointerMove = (e: PointerEvent) => {
       if (!tracking) return;
+      if (e.pointerId !== activePointerId) return;
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
       // Cancel vertical scrolls so we don't hijack the drawer's own scroll
@@ -55,7 +72,9 @@ export function useSwipeToClose(
 
     const onPointerUp = (e: PointerEvent) => {
       if (!tracking) return;
+      if (e.pointerId !== activePointerId) return;
       tracking = false;
+      activePointerId = null;
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
       const dt = Math.max(1, e.timeStamp - startT);
@@ -76,7 +95,7 @@ export function useSwipeToClose(
         velocity = dy / dt;
       }
 
-      if (travel > threshold || velocity > velocityThreshold) onClose();
+      if (travel > threshold || velocity > velocityThreshold) onCloseRef.current();
     };
 
     el.addEventListener("pointerdown", onPointerDown, { passive: true });
@@ -89,5 +108,7 @@ export function useSwipeToClose(
       el.removeEventListener("pointerup", onPointerUp);
       el.removeEventListener("pointercancel", onPointerUp);
     };
-  }, [ref, direction, threshold, velocityThreshold, enabled, onClose]);
+    // onClose intentionally excluded — captured via ref, see BUG-W33.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ref, direction, threshold, velocityThreshold, enabled]);
 }

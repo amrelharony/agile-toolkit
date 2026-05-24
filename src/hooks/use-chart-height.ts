@@ -38,7 +38,25 @@ export function useChartHeight({
   vwCap = 0.7,
   mobileMin = 160,
 }: Options = {}): number {
-  const [height, setHeight] = useState(max);
+  // BUG-W30: compute the initial height lazily on the client so the
+  // FIRST client render reflects the real viewport — without this,
+  // mobile users get a 420 px chart for one frame, then snap down to
+  // ~224 px. The lazy initializer runs once per component mount.
+  const [height, setHeight] = useState<number>(() => {
+    if (typeof window === "undefined") return max;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const isMobile = vw < 640;
+    let h = Math.round(vh * vhFactor);
+    if (isMobile) {
+      h = Math.min(h, Math.round(vw * vwCap));
+      h = Math.max(mobileMin, h);
+      h = Math.min(h, max);
+    } else {
+      h = Math.max(min, Math.min(max, h));
+    }
+    return h;
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") return;

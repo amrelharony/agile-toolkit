@@ -54,9 +54,19 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
   private pendingDeletes = new Set<string>();
   /** Per-id last-known-server timestamp for LWW on realtime receipt. */
   private remoteUpdatedAt = new Map<string, string>();
+  /** Snapshot of which ids existed locally at the time of the last
+   *  markDirty. Captured eagerly so a pull that races a local delete
+   *  doesn't lose the deletion intent. (BUG-S7) */
+  private lastSeenLiveIds = new Set<string>();
 
   private dirty = false;
   private suppressLocalChange = false;
+  /** Mutex: true while a push() is awaiting its RPC. Overlapping pushes
+   *  cause silent data loss via lastPushed regression. (BUG-S1) */
+  private pushInFlight = false;
+  /** Set when a markDirty arrives during an in-flight push. Triggers a
+   *  re-schedule after the push settles. */
+  private pendingFlushAfter = false;
 
   constructor(private readonly opts: EntityAdapterOptions<T>) {
     this.id = `entity:${opts.kind}`;
@@ -80,6 +90,17 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
   markDirty(): void {
     if (this.suppressLocalChange) return;
     this.dirty = true;
+    // BUG-S7: capture deletion intent eagerly. Compare the previous
+    // live-id set with the current one — anything that disappeared has
+    // its tombstone scheduled NOW, even if a pull later races and
+    // re-adds the entity to the merged view. The push diff at fire
+    // time previously computed deletes as `lastPushed - liveIds`, which
+    // a pull would silently undo.
+    const liveNow = new Set(this.getEntities().map((e) => e.id));
+    this.lastSeenLiveIds.forEach((prev) => {
+      if (!liveNow.has(prev)) this.pendingDeletes.add(prev);
+    });
+    this.lastSeenLiveIds = liveNow;
     syncEngine.scheduleFlush(this.id);
   }
 
@@ -88,24 +109,28 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
   }
 
   async pull(supabase: SupabaseClient, userId: string): Promise<void> {
-    // Paginate via PostgREST .range() — Supabase caps a single query at
-    // 1000 rows by default, and even after raising the cap a hard limit
-    // silently truncates collections that grow past it (e.g. a whiteboard
-    // with 12k objects would lose the tail without warning). Stream pages
-    // of 1000 until the server returns fewer than requested.
+    // BUG-S2: keyset pagination, not OFFSET. With OFFSET, a peer device
+    // INSERT'ing an entity that sorts BEFORE the current page boundary
+    // shifts every subsequent row down by one — we then skip the formerly-
+    // last row of the prior page and silently miss an entity. Keyset
+    // (where entity_id > last_seen_id) is stable under concurrent inserts.
     const PAGE = 1000;
     const rows: RemoteRow[] = [];
-    for (let offset = 0; ; offset += PAGE) {
-      const { data, error } = await supabase
+    let lastSeenId: string | null = null;
+    for (;;) {
+      let q = supabase
         .from("user_entities")
         .select("entity_id, payload, updated_at, deleted, client_id")
         .eq("user_id", userId)
         .eq("kind", this.kind)
         .order("entity_id", { ascending: true })
-        .range(offset, offset + PAGE - 1);
+        .limit(PAGE);
+      if (lastSeenId !== null) q = q.gt("entity_id", lastSeenId);
+      const { data, error } = await q;
       if (error) throw error;
       if (!data || data.length === 0) break;
       rows.push(...(data as RemoteRow[]));
+      lastSeenId = (data[data.length - 1] as RemoteRow).entity_id;
       if (data.length < PAGE) break;
     }
     // Build a merged view: take the live local entities (so unflushed
@@ -118,13 +143,21 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
         // Honour remote deletion only if our local copy isn't newer
         // (we tracked local writes via lastPushed.updatedAt).
         const lastPushed = this.lastPushed.get(row.entity_id);
-        if (!lastPushed || !lastPushed.updatedAt || compareIso(lastPushed.updatedAt, row.updated_at) <= 0) {
+        if (
+          !lastPushed ||
+          !lastPushed.updatedAt ||
+          compareIso(lastPushed.updatedAt, row.updated_at) <= 0
+        ) {
           merged.delete(row.entity_id);
         }
         continue;
       }
       const lastPushed = this.lastPushed.get(row.entity_id);
-      if (lastPushed && lastPushed.updatedAt && compareIso(lastPushed.updatedAt, row.updated_at) >= 0) {
+      if (
+        lastPushed &&
+        lastPushed.updatedAt &&
+        compareIso(lastPushed.updatedAt, row.updated_at) >= 0
+      ) {
         // Local is at least as fresh; keep local copy.
         continue;
       }
@@ -160,13 +193,26 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
 
   async push(supabase: SupabaseClient, userId: string): Promise<void> {
     if (!this.dirty && this.pendingDeletes.size === 0) return;
+    // BUG-S1: serialise pushes. Overlapping pushes race in the database
+    // (server stamps `updated_at` at COMMIT time, so the stale push that
+    // commits later wins); the response handler then writes the STALE
+    // payload into lastPushed at the newer timestamp → diverges from
+    // local truth and from other devices.
+    if (this.pushInFlight) {
+      this.pendingFlushAfter = true;
+      return;
+    }
+    this.pushInFlight = true;
     const live = this.getEntities();
     const clientId = syncEngine.getClientId();
     const now = new Date().toISOString();
+    // Capture the live entity map BEFORE the await so the post-response
+    // lastPushed update reflects what we actually sent, not whatever
+    // the live state happens to be after a concurrent mutation.
+    const liveSnapshot = new Map(live.map((e) => [e.id, e]));
 
-    // Detect deletions: anything in lastPushed that's no longer live.
-    // Done lazily here rather than in markDirty so a 60Hz canvas drag
-    // doesn't burn CPU on per-frame O(n) set construction.
+    // Belt-and-braces deletion detection (also done in markDirty for
+    // pulls): anything in lastPushed that's no longer live.
     const liveIds = new Set(live.map((e) => e.id));
     this.lastPushed.forEach((_, id) => {
       if (!liveIds.has(id)) this.pendingDeletes.add(id);
@@ -197,45 +243,66 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
       });
     }
 
-    if (upserts.length > 0) {
-      const { data, error } = await supabase
-        .from("user_entities")
-        .upsert(upserts, { onConflict: "user_id,kind,entity_id" })
-        .select("entity_id, updated_at");
-      if (error) throw error;
-      for (const row of data as Array<{ entity_id: string; updated_at: string }>) {
-        const e = live.find((x) => x.id === row.entity_id);
-        if (e) {
-          this.lastPushed.set(row.entity_id, { json: JSON.stringify(e), updatedAt: row.updated_at });
-          this.remoteUpdatedAt.set(row.entity_id, row.updated_at);
+    try {
+      if (upserts.length > 0) {
+        const { data, error } = await supabase
+          .from("user_entities")
+          .upsert(upserts, { onConflict: "user_id,kind,entity_id" })
+          .select("entity_id, updated_at");
+        if (error) throw error;
+        for (const row of data as Array<{ entity_id: string; updated_at: string }>) {
+          // BUG-S1 (cont.): use the pre-await snapshot, not the live state.
+          // Using live.find() here would store WHATEVER the entity looked
+          // like at response time — a concurrent mutation lands in
+          // lastPushed.json under the new server timestamp, then a later
+          // pull thinks local IS already on the server.
+          const e = liveSnapshot.get(row.entity_id);
+          if (e) {
+            this.lastPushed.set(row.entity_id, {
+              json: JSON.stringify(e),
+              updatedAt: row.updated_at,
+            });
+            this.remoteUpdatedAt.set(row.entity_id, row.updated_at);
+          }
         }
       }
-    }
 
-    // ──────── deletes: soft-delete tombstones ────────
-    if (this.pendingDeletes.size > 0) {
-      const tombstones = Array.from(this.pendingDeletes).map((entityId) => ({
-        user_id: userId,
-        kind: this.kind,
-        entity_id: entityId,
-        payload: {},
-        client_id: clientId,
-        deleted: true,
-        updated_at: now,
-      }));
-      const { data, error } = await supabase
-        .from("user_entities")
-        .upsert(tombstones, { onConflict: "user_id,kind,entity_id" })
-        .select("entity_id, updated_at");
-      if (error) throw error;
-      for (const row of data as Array<{ entity_id: string; updated_at: string }>) {
-        this.lastPushed.delete(row.entity_id);
-        this.remoteUpdatedAt.set(row.entity_id, row.updated_at);
+      // ──────── deletes: soft-delete tombstones ────────
+      if (this.pendingDeletes.size > 0) {
+        const tombstones = Array.from(this.pendingDeletes).map((entityId) => ({
+          user_id: userId,
+          kind: this.kind,
+          entity_id: entityId,
+          payload: {},
+          client_id: clientId,
+          deleted: true,
+          updated_at: now,
+        }));
+        const { data, error } = await supabase
+          .from("user_entities")
+          .upsert(tombstones, { onConflict: "user_id,kind,entity_id" })
+          .select("entity_id, updated_at");
+        if (error) throw error;
+        for (const row of data as Array<{ entity_id: string; updated_at: string }>) {
+          this.lastPushed.delete(row.entity_id);
+          this.remoteUpdatedAt.set(row.entity_id, row.updated_at);
+        }
+        this.pendingDeletes.clear();
       }
-      this.pendingDeletes.clear();
-    }
 
-    this.dirty = false;
+      this.dirty = false;
+      // Refresh the live-id snapshot so the next markDirty diffs against
+      // the post-push view.
+      this.lastSeenLiveIds = new Set(this.getEntities().map((e) => e.id));
+    } finally {
+      this.pushInFlight = false;
+      // BUG-S1 (cont.): if a markDirty arrived while we were awaiting
+      // the RPC, schedule a follow-up flush so its work doesn't sit.
+      if (this.pendingFlushAfter) {
+        this.pendingFlushAfter = false;
+        syncEngine.scheduleFlush(this.id);
+      }
+    }
   }
 
   onRemote(row: Record<string, unknown>, eventType: "INSERT" | "UPDATE" | "DELETE"): void {

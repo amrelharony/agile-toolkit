@@ -149,7 +149,12 @@ function EpicRowEditor({
             logUpdate(epic.id, ["progress"]);
           }}
         />
-        <Button variant="ghost" size="sm" onClick={() => remove(epic.id)} className="h-7 text-sub hover:text-danger">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => remove(epic.id)}
+          className="h-7 text-sub hover:text-danger"
+        >
           <Trash2 className="w-3.5 h-3.5" />
         </Button>
       </div>
@@ -231,10 +236,32 @@ export function EpicRoadmapClient() {
   };
 
   const columns = useMemo(() => quartersBetween(from, to), [from, to]);
+  // BUG-T3-epic-roadmap-1: detect span truncation so we can surface a
+  // notice. The user requested `to - from + 1` quarters but we capped
+  // at MAX_QUARTERS_SPAN; epics beyond the cap render with incorrect
+  // bar positions otherwise.
+  const requestedSpan = useMemo(() => {
+    const a = quarterIndex(from);
+    const b = quarterIndex(to);
+    if (a === 0 || b === 0 || b < a) return 0;
+    return b - a + 1;
+  }, [from, to]);
+  const truncatedSpan = requestedSpan > MAX_QUARTERS_SPAN;
 
-  const progressSeries = useMemo(() => epics.map((e, idx) => ({ x: idx, y: e.progress })), [epics]);
+  // BUG-T3-epic-roadmap-3: x-coord is now `e.startQuarter` index, not
+  // insertion order, so the projection is at least time-anchored instead
+  // of being a meaningless regression against the order epics were added.
+  const progressSeries = useMemo(
+    () =>
+      epics
+        .map((e) => ({ x: quarterIndex(e.startQuarter), y: e.progress }))
+        .filter((p) => p.x > 0)
+        .sort((a, b) => a.x - b.x),
+    [epics]
+  );
   const projectedNext = useMemo(
-    () => (progressSeries.length >= 2 ? forecastLinear(progressSeries, [progressSeries.length]) : []),
+    () =>
+      progressSeries.length >= 2 ? forecastLinear(progressSeries, [progressSeries.length]) : [],
     [progressSeries]
   );
 
@@ -286,7 +313,14 @@ export function EpicRoadmapClient() {
           filename="epic-roadmap"
           csvData={{
             headers: ["Epic", "Description", "Start Q", "End Q", "Progress", "Owner"],
-            rows: epics.map((e) => [e.title, e.description ?? "", e.startQuarter, e.endQuarter, `${e.progress}%`, e.owner ?? ""]),
+            rows: epics.map((e) => [
+              e.title,
+              e.description ?? "",
+              e.startQuarter,
+              e.endQuarter,
+              `${e.progress}%`,
+              e.owner ?? "",
+            ]),
           }}
           jsonData={epics}
         />
@@ -298,7 +332,9 @@ export function EpicRoadmapClient() {
 
       {(recentSprintAdds.length > 0 || recentOkrUpdates.length > 0) && (
         <CalloutAlert tone="info" className="mb-3">
-          {recentSprintAdds.length} sprint{recentSprintAdds.length === 1 ? "" : "s"} added, {recentOkrUpdates.length} OKR update{recentOkrUpdates.length === 1 ? "" : "s"} in last 14 days &mdash; review epic timelines.
+          {recentSprintAdds.length} sprint{recentSprintAdds.length === 1 ? "" : "s"} added,{" "}
+          {recentOkrUpdates.length} OKR update{recentOkrUpdates.length === 1 ? "" : "s"} in last 14
+          days &mdash; review epic timelines.
         </CalloutAlert>
       )}
 
@@ -306,16 +342,26 @@ export function EpicRoadmapClient() {
         <CardContent className="p-3 flex flex-wrap items-end gap-2">
           <div>
             <div className="text-xs text-sub">View from</div>
-            <Input value={from} onChange={(e) => setFrom(e.target.value)} className="bg-bg border-border font-data w-32" />
+            <Input
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className="bg-bg border-border font-data w-32"
+            />
           </div>
           <div>
             <div className="text-xs text-sub">to</div>
-            <Input value={to} onChange={(e) => setTo(e.target.value)} className="bg-bg border-border font-data w-32" />
+            <Input
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="bg-bg border-border font-data w-32"
+            />
           </div>
           {projectedNext[0] !== undefined && (
             <div className="ml-auto text-xs text-sub">
               Projected progress of next epic:{" "}
-              <span className="text-accent font-data">{Math.max(0, Math.round(projectedNext[0].yHat))}%</span>
+              <span className="text-accent font-data">
+                {Math.max(0, Math.round(projectedNext[0].yHat))}%
+              </span>
             </div>
           )}
         </CardContent>
@@ -325,6 +371,12 @@ export function EpicRoadmapClient() {
         <EmptyState>Set a valid quarter range (e.g. 2026 Q1 → 2026 Q4).</EmptyState>
       ) : (
         <Card className="bg-surface border-border">
+          {truncatedSpan && (
+            <div className="px-4 pt-3 text-xs text-amber-300">
+              Showing the first {MAX_QUARTERS_SPAN} quarters of {requestedSpan} requested. Narrow
+              your “to” quarter to see every epic.
+            </div>
+          )}
           <CardContent className="p-4 overflow-x-auto">
             <div
               className="grid gap-1 min-w-[600px]"
@@ -332,7 +384,10 @@ export function EpicRoadmapClient() {
             >
               <div />
               {columns.map((c) => (
-                <div key={c} className="text-center text-xs font-data text-sub uppercase tracking-wider">
+                <div
+                  key={c}
+                  className="text-center text-xs font-data text-sub uppercase tracking-wider"
+                >
                   {c}
                 </div>
               ))}

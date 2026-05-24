@@ -11,12 +11,7 @@ import {
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { getAuthBrowserClient, isAuthAvailable } from "./supabase-browser";
-import type {
-  AuthContextValue,
-  AuthState,
-  Profile,
-  ScrumRole,
-} from "./types";
+import type { AuthContextValue, AuthState, Profile, ScrumRole } from "./types";
 import { RolePickerDialog } from "@/components/auth/role-picker-dialog";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -41,6 +36,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Hold the latest user ref so async profile loads stay correlated.
   const userIdRef = useRef<string | null>(null);
+  // Monotonic request id — increments on every applySession call. A loadProfile
+  // response is only applied if its capture matches the latest seqRef value
+  // (catches out-of-order replays for the SAME user). (BUG-A4)
+  const seqRef = useRef(0);
 
   type ProfileLoadResult =
     | { kind: "ok"; profile: Profile }
@@ -64,11 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const delays = [300, 700, 1500];
         for (const delay of delays) {
           await new Promise((r) => setTimeout(r, delay));
-          const retry = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", user.id)
-            .single();
+          const retry = await supabase.from("profiles").select("*").eq("id", user.id).single();
           if (!retry.error) return { kind: "ok", profile: retry.data as Profile };
           if (retry.error.code !== "PGRST116") {
             return { kind: "error", message: retry.error.message };
@@ -88,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (session: Session | null) => {
       if (!session?.user) {
         userIdRef.current = null;
+        seqRef.current += 1;
         setState({
           status: "anonymous",
           user: null,
@@ -103,9 +99,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // browser `isEmailAuthorized` would always fail closed and sign
       // out every signed-in user. Trust the server gates above.
       userIdRef.current = session.user.id;
+      const seqCapture = ++seqRef.current;
       const result = await loadProfile(session.user);
-      // Drop response if user changed (e.g. quick sign-in/out).
+      // Drop response if user changed OR if a newer applySession for the
+      // SAME user has already completed (out-of-order replay). (BUG-A4)
       if (userIdRef.current !== session.user.id) return;
+      if (seqCapture !== seqRef.current) return;
       if (result.kind === "ok") {
         setState({
           status: "authenticated",
@@ -201,7 +200,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setState((s) => ({ ...s, error: msg }));
+      // BUG-A6: transition to terminal "error" status so the UI doesn't
+      // present a half-signed-out menu. The user can recover via the
+      // sign-in link the menu falls back to on error/anonymous.
+      setState((s) => ({ ...s, status: "error", error: msg }));
     } finally {
       setRolePickerOpen(false);
     }

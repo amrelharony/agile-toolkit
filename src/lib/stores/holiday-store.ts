@@ -1,7 +1,8 @@
 "use client";
+import { safeJSONStorage } from "./safe-storage";
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import type { HolidayId } from "@/lib/holiday/types";
 
 interface HolidayState {
@@ -57,14 +58,7 @@ export const useHolidayStore = create<HolidayState>()(
     }),
     {
       name: "agile-toolkit:holiday",
-      storage: createJSONStorage(() => {
-        if (typeof window !== "undefined") return localStorage;
-        return {
-          getItem: () => null,
-          setItem: () => {},
-          removeItem: () => {},
-        };
-      }),
+      storage: safeJSONStorage("holiday"),
       skipHydration: true,
       // Prune stale entries every time we rehydrate from disk — cheap, runs
       // once per app load, keeps storage bounded across years of usage.
@@ -73,6 +67,6 @@ export const useHolidayStore = create<HolidayState>()(
           state.dismissedWindows = pruneStale(state.dismissedWindows);
         }
       },
-    },
-  ),
+    }
+  )
 );

@@ -13,7 +13,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Hallucination, Workspace } from "@/lib/stores/workspace-types";
@@ -34,7 +38,13 @@ const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), {
 });
 
 const SEVERITIES: Hallucination["severity"][] = ["low", "medium", "high", "critical"];
-const CAUSES: NonNullable<Hallucination["rootCause"]>[] = ["rag-miss", "prompt", "model", "context-window", "other"];
+const CAUSES: NonNullable<Hallucination["rootCause"]>[] = [
+  "rag-miss",
+  "prompt",
+  "model",
+  "context-window",
+  "other",
+];
 const SEVERITY_COLORS: Record<Hallucination["severity"], string> = {
   low: "#00ff88",
   medium: "#ffaa00",
@@ -65,18 +75,15 @@ export function HallucinationLogClient() {
   // Stable identity so AiRunPanel doesn't see a fresh function each render.
   // The handler reads no props directly from closures (it only writes to
   // setActual + emits a toast), so stability is essentially free.
-  const handleReproduceResult = useCallback(
-    (result: { text: string }) => {
-      const trimmed = result.text.trim();
-      if (!trimmed) {
-        toast.error("Provider returned an empty response");
-        return;
-      }
-      setActual(trimmed.slice(0, 8000));
-      toast.success("Auto-filled Actual response");
-    },
-    []
-  );
+  const handleReproduceResult = useCallback((result: { text: string }) => {
+    const trimmed = result.text.trim();
+    if (!trimmed) {
+      toast.error("Provider returned an empty response");
+      return;
+    }
+    setActual(trimmed.slice(0, 8000));
+    toast.success("Auto-filled Actual response");
+  }, []);
 
   function add() {
     if (!input.trim() || !actual.trim()) return;
@@ -97,8 +104,17 @@ export function HallucinationLogClient() {
     };
     upsert(item);
     log(HALLUCINATION_ACTIONS.HALLUCINATION_LOGGED, { id: item.id, severity });
-    emitSignal({ kind: "hallucination.logged", at: item.loggedAt, toolId: "hallucination-log", payload: item });
-    setInput(""); setActual(""); setExpected(""); setFeature(""); setRootCause("");
+    emitSignal({
+      kind: "hallucination.logged",
+      at: item.loggedAt,
+      toolId: "hallucination-log",
+      payload: item,
+    });
+    setInput("");
+    setActual("");
+    setExpected("");
+    setFeature("");
+    setRootCause("");
   }
 
   function resolve(id: string) {
@@ -107,7 +123,12 @@ export function HallucinationLogClient() {
     const next: Hallucination = { ...item, resolvedAt: new Date().toISOString() };
     upsert(next);
     log(HALLUCINATION_ACTIONS.HALLUCINATION_RESOLVED, { id });
-    emitSignal({ kind: "hallucination.resolved", at: next.resolvedAt!, toolId: "hallucination-log", payload: next });
+    emitSignal({
+      kind: "hallucination.resolved",
+      at: next.resolvedAt!,
+      toolId: "hallucination-log",
+      payload: next,
+    });
   }
 
   function remove(id: string) {
@@ -119,7 +140,12 @@ export function HallucinationLogClient() {
   const resolved = list.length - open.length;
 
   const severityCounts = useMemo(() => {
-    const counts: Record<Hallucination["severity"], number> = { low: 0, medium: 0, high: 0, critical: 0 };
+    const counts: Record<Hallucination["severity"], number> = {
+      low: 0,
+      medium: 0,
+      high: 0,
+      critical: 0,
+    };
     for (const x of open) counts[x.severity]++;
     return SEVERITIES.map((s) => ({ severity: s, count: counts[s] }));
   }, [open]);
@@ -133,24 +159,54 @@ export function HallucinationLogClient() {
     return Object.entries(counts).map(([cause, count]) => ({ cause, count }));
   }, [list]);
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    hallucinations: s.hallucinations, llmEvals: s.llmEvals, models: s.models,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        hallucinations: s.hallucinations,
+        llmEvals: s.llmEvals,
+        models: s.models,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Hallucination Log",
-    prompts: generateHallucinationLogPrompts({ items: list }, workspace),
-  }), [list, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Hallucination Log",
+      prompts: generateHallucinationLogPrompts({ items: list }, workspace),
+    }),
+    [list, workspace]
+  );
 
   const csvData = {
-    headers: ["Date", "Feature", "Severity", "Root Cause", "Input", "Actual", "Expected", "Resolved"],
+    headers: [
+      "Date",
+      "Feature",
+      "Severity",
+      "Root Cause",
+      "Input",
+      "Actual",
+      "Expected",
+      "Resolved",
+    ],
     rows: list.map((x) => [
-      x.loggedAt.slice(0, 10), x.feature ?? "", x.severity, x.rootCause ?? "",
-      x.input, x.actual, x.expected ?? "", x.resolvedAt ?? "",
+      x.loggedAt.slice(0, 10),
+      x.feature ?? "",
+      x.severity,
+      x.rootCause ?? "",
+      x.input,
+      x.actual,
+      x.expected ?? "",
+      x.resolvedAt ?? "",
     ]),
   };
 
@@ -165,27 +221,61 @@ export function HallucinationLogClient() {
           <KPI label="Total" value={String(list.length)} />
           <KPI label="Open" value={String(open.length)} tone={open.length > 0 ? "danger" : "ok"} />
           <KPI label="Resolved" value={String(resolved)} tone="ok" />
-          <KPI label="Critical open" value={String(open.filter((x) => x.severity === "critical").length)} tone="danger" />
+          <KPI
+            label="Critical open"
+            value={String(open.filter((x) => x.severity === "critical").length)}
+            tone="danger"
+          />
         </div>
 
         <SectionCard title="Log new hallucination" icon={Plus}>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <Input placeholder="Feature (optional)" value={feature} onChange={(e) => setFeature(e.target.value)} />
-            <Select value={severity} onValueChange={(v) => setSeverity(v as Hallucination["severity"])}>
-              <SelectTrigger><SelectValue placeholder="Severity" /></SelectTrigger>
+            <Input
+              placeholder="Feature (optional)"
+              value={feature}
+              onChange={(e) => setFeature(e.target.value)}
+            />
+            <Select
+              value={severity}
+              onValueChange={(v) => setSeverity(v as Hallucination["severity"])}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Severity" />
+              </SelectTrigger>
               <SelectContent>
-                {SEVERITIES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                {SEVERITIES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            <Select value={rootCause || "unknown"} onValueChange={(v) => setRootCause(v === "unknown" ? "" : v as NonNullable<Hallucination["rootCause"]>)}>
-              <SelectTrigger><SelectValue placeholder="Root cause" /></SelectTrigger>
+            <Select
+              value={rootCause || "unknown"}
+              onValueChange={(v) =>
+                setRootCause(v === "unknown" ? "" : (v as NonNullable<Hallucination["rootCause"]>))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Root cause" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="unknown">Unknown</SelectItem>
-                {CAUSES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                {CAUSES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
-          <Textarea placeholder="Input (what was sent to the model)" value={input} onChange={(e) => setInput(e.target.value)} className="mt-2" rows={2} />
+          <Textarea
+            placeholder="Input (what was sent to the model)"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            className="mt-2"
+            rows={2}
+          />
           {/* Reproduce strip — sits between Input and Actual so the user
               can run the input through their BYOK provider and have the
               streamed output autofill the Actual field below. */}
@@ -200,10 +290,10 @@ export function HallucinationLogClient() {
                 !llm.isReady
                   ? "Configure an AI provider in settings to reproduce hallucinations"
                   : input.trim().length === 0
-                  ? "Type the Input above first"
-                  : reproduceOpen
-                  ? "Hide reproduce panel"
-                  : "Run the input through your BYOK provider and auto-fill Actual"
+                    ? "Type the Input above first"
+                    : reproduceOpen
+                      ? "Hide reproduce panel"
+                      : "Run the input through your BYOK provider and auto-fill Actual"
               }
               aria-expanded={reproduceOpen}
               className="gap-1"
@@ -233,9 +323,32 @@ export function HallucinationLogClient() {
               onResult={handleReproduceResult}
             />
           )}
-          <Textarea placeholder="Actual response (the bad output)" value={actual} onChange={(e) => setActual(e.target.value)} className="mt-2" rows={2} />
-          <Textarea placeholder="Expected (optional — what should have happened)" value={expected} onChange={(e) => setExpected(e.target.value)} className="mt-2" rows={2} />
-          <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Log incident</Button>
+          <Textarea
+            placeholder="Actual response (the bad output)"
+            value={actual}
+            onChange={(e) => setActual(e.target.value)}
+            className="mt-2"
+            rows={2}
+          />
+          <Textarea
+            placeholder="Expected (optional — what should have happened)"
+            value={expected}
+            onChange={(e) => setExpected(e.target.value)}
+            className="mt-2"
+            rows={2}
+          />
+          {/* BUG-T3-hallucination-log-2: privacy disclosure. The Input
+              and Actual fields end up in localStorage and (when signed in)
+              in Supabase user_state. Customer prompts pasted here become
+              durable PII unless the user knows that. */}
+          <p className="text-[11px] text-sub mt-2 italic">
+            Logged locally on this device (and synced to your account if signed in). Don&rsquo;t
+            paste customer-identifiable prompts or responses — redact PII first.
+          </p>
+          <Button onClick={add} className="mt-3 gap-1">
+            <Plus className="w-4 h-4" />
+            Log incident
+          </Button>
         </SectionCard>
 
         {open.length > 0 && (
@@ -247,7 +360,13 @@ export function HallucinationLogClient() {
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                     <XAxis dataKey="severity" stroke="#888" fontSize={11} />
                     <YAxis stroke="#888" fontSize={11} />
-                    <Tooltip contentStyle={{ backgroundColor: "#0f1117", border: "1px solid #2a2f3a", fontSize: 12 }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#0f1117",
+                        border: "1px solid #2a2f3a",
+                        fontSize: 12,
+                      }}
+                    />
                     <Bar dataKey="count" fill="#ff6b6b" />
                   </BarChart>
                 </ResponsiveContainer>
@@ -260,7 +379,13 @@ export function HallucinationLogClient() {
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                     <XAxis dataKey="cause" stroke="#888" fontSize={11} />
                     <YAxis stroke="#888" fontSize={11} />
-                    <Tooltip contentStyle={{ backgroundColor: "#0f1117", border: "1px solid #2a2f3a", fontSize: 12 }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#0f1117",
+                        border: "1px solid #2a2f3a",
+                        fontSize: 12,
+                      }}
+                    />
                     <Bar dataKey="count" fill="#9d4edd" />
                   </BarChart>
                 </ResponsiveContainer>
@@ -276,7 +401,12 @@ export function HallucinationLogClient() {
             actions={
               <>
                 <AiPromptGenerator config={promptConfig} />
-                <ExportButton filename="hallucination-log" csvData={csvData} jsonData={list} targetRef={exportRef} />
+                <ExportButton
+                  filename="hallucination-log"
+                  csvData={csvData}
+                  jsonData={list}
+                  targetRef={exportRef}
+                />
               </>
             }
           >
@@ -305,22 +435,40 @@ export function HallucinationLogClient() {
                           {x.severity}
                         </span>
                         {x.rootCause && <span className="text-xs text-sub">{x.rootCause}</span>}
-                        {x.feature && <span className="text-xs text-text truncate">{x.feature}</span>}
+                        {x.feature && (
+                          <span className="text-xs text-text truncate">{x.feature}</span>
+                        )}
                       </span>
                       <span className="flex items-center gap-2 shrink-0">
                         {!x.resolvedAt && (
-                          <button onClick={() => resolve(x.id)} className="text-emerald-400 hover:text-emerald-300" aria-label="Mark resolved">
+                          <button
+                            onClick={() => resolve(x.id)}
+                            className="text-emerald-400 hover:text-emerald-300"
+                            aria-label="Mark resolved"
+                          >
                             <CheckCircle2 className="w-4 h-4" />
                           </button>
                         )}
-                        <button onClick={() => remove(x.id)} className="text-sub hover:text-red-400" aria-label="Remove">
+                        <button
+                          onClick={() => remove(x.id)}
+                          className="text-sub hover:text-red-400"
+                          aria-label="Remove"
+                        >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </span>
                     </div>
-                    <p className="text-xs text-sub"><span className="text-text">In:</span> {x.input.slice(0, 200)}</p>
-                    <p className="text-xs text-sub mt-1"><span className="text-text">Out:</span> {x.actual.slice(0, 200)}</p>
-                    {x.expected && <p className="text-xs text-emerald-300 mt-1">Expected: {x.expected.slice(0, 200)}</p>}
+                    <p className="text-xs text-sub">
+                      <span className="text-text">In:</span> {x.input.slice(0, 200)}
+                    </p>
+                    <p className="text-xs text-sub mt-1">
+                      <span className="text-text">Out:</span> {x.actual.slice(0, 200)}
+                    </p>
+                    {x.expected && (
+                      <p className="text-xs text-emerald-300 mt-1">
+                        Expected: {x.expected.slice(0, 200)}
+                      </p>
+                    )}
                   </li>
                 ))}
             </ul>
@@ -331,8 +479,17 @@ export function HallucinationLogClient() {
   );
 }
 
-function KPI({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "ok" | "danger" }) {
-  const colorClass = tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+function KPI({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "ok" | "danger";
+}) {
+  const colorClass =
+    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

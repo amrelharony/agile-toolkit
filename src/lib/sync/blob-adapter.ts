@@ -45,6 +45,10 @@ class BlobSyncAdapter implements SyncAdapter {
   private lastPushedUpdatedAt: string | null = null;
   private lastPushedPayloadJson: string | null = null;
   private suppressLocalChange = false;
+  /** Mutex against overlapping pushes. See entity-adapter for the
+   *  failure-mode write-up. (BUG-S1) */
+  private pushInFlight = false;
+  private pendingFlushAfter = false;
 
   constructor(opts: BlobAdapterOptions) {
     this.id = `blob:${opts.storeKey}`;
@@ -79,7 +83,10 @@ class BlobSyncAdapter implements SyncAdapter {
     // Skip apply if our locally-tracked update timestamp is newer than the
     // remote one (the local edit hasn't been pushed yet and would be
     // overwritten by a stale pull).
-    if (this.lastPushedUpdatedAt && compareIso(this.lastPushedUpdatedAt, data.updated_at as string) >= 0) {
+    if (
+      this.lastPushedUpdatedAt &&
+      compareIso(this.lastPushedUpdatedAt, data.updated_at as string) >= 0
+    ) {
       return;
     }
     this.applyRemote(data.payload, data.updated_at as string);
@@ -87,33 +94,49 @@ class BlobSyncAdapter implements SyncAdapter {
 
   async push(supabase: SupabaseClient, userId: string): Promise<void> {
     if (!this.dirty) return;
-    const payload = this.getSnapshot();
-    const payloadJson = JSON.stringify(payload);
-    // Skip the network round-trip if nothing actually changed since the
-    // last push (the dirty flag is a hint, not a guarantee).
-    if (this.lastPushedPayloadJson === payloadJson) {
-      this.dirty = false;
+    // BUG-S1: serialise pushes.
+    if (this.pushInFlight) {
+      this.pendingFlushAfter = true;
       return;
     }
-    const clientId = syncEngine.getClientId();
-    const { data, error } = await supabase
-      .from("user_state")
-      .upsert(
-        {
-          user_id: userId,
-          store_key: this.storeKey,
-          payload,
-          client_id: clientId,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id,store_key" }
-      )
-      .select("updated_at")
-      .single();
-    if (error) throw error;
-    this.lastPushedUpdatedAt = data.updated_at as string;
-    this.lastPushedPayloadJson = payloadJson;
-    this.dirty = false;
+    this.pushInFlight = true;
+    try {
+      const payload = this.getSnapshot();
+      const payloadJson = JSON.stringify(payload);
+      // Skip the network round-trip if nothing actually changed since the
+      // last push (the dirty flag is a hint, not a guarantee).
+      if (this.lastPushedPayloadJson === payloadJson) {
+        this.dirty = false;
+        return;
+      }
+      const clientId = syncEngine.getClientId();
+      const { data, error } = await supabase
+        .from("user_state")
+        .upsert(
+          {
+            user_id: userId,
+            store_key: this.storeKey,
+            payload,
+            client_id: clientId,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id,store_key" }
+        )
+        .select("updated_at")
+        .single();
+      if (error) throw error;
+      this.lastPushedUpdatedAt = data.updated_at as string;
+      // Record the JSON we ACTUALLY sent (captured before await), not
+      // whatever the snapshot looks like at response time.
+      this.lastPushedPayloadJson = payloadJson;
+      this.dirty = false;
+    } finally {
+      this.pushInFlight = false;
+      if (this.pendingFlushAfter) {
+        this.pendingFlushAfter = false;
+        syncEngine.scheduleFlush(this.id);
+      }
+    }
   }
 
   onRemote(row: Record<string, unknown>, eventType: "INSERT" | "UPDATE" | "DELETE"): void {

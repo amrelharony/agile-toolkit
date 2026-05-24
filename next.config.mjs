@@ -19,7 +19,11 @@
  */
 const cspDirectives = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  // BUG-A9: dropped 'unsafe-eval'. Next.js hydration boot does not require
+  // eval() in production builds. 'unsafe-inline' remains because Next still
+  // emits an inline boot script for the route manifest; switch to nonces or
+  // 'strict-dynamic' if you can tolerate the extra plumbing.
+  "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   "img-src 'self' data: blob: https://*.googleusercontent.com https://avatars.githubusercontent.com",

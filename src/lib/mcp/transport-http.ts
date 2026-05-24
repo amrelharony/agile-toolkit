@@ -75,7 +75,10 @@ export async function handleJsonRpc(
     }
 
     if (method === "tools/call") {
-      const params = (request.params ?? {}) as { name?: string; arguments?: Record<string, unknown> };
+      const params = (request.params ?? {}) as {
+        name?: string;
+        arguments?: Record<string, unknown>;
+      };
       if (typeof params.name !== "string") {
         return jsonRpcError(id, -32602, "Missing tool name");
       }
@@ -84,23 +87,53 @@ export async function handleJsonRpc(
       if (!action) {
         return jsonRpcError(id, -32601, `Unknown tool: ${name}`);
       }
-      const parsed = (action.paramsSchema as { safeParse: (v: unknown) => { success: boolean; data?: unknown; error?: { message: string } } }).safeParse(params.arguments ?? {});
+      const safeParse = (
+        action.paramsSchema as {
+          safeParse?: (v: unknown) => {
+            success: boolean;
+            data?: unknown;
+            error?: { message: string };
+          };
+        }
+      ).safeParse;
+      if (typeof safeParse !== "function") {
+        // Defensive: an action was registered with a non-Zod schema.
+        return jsonRpcError(id, -32603, `Tool ${name} has an invalid schema.`);
+      }
+      const parsed = safeParse.call(action.paramsSchema, params.arguments ?? {});
       if (!parsed.success) {
-        return jsonRpcError(id, -32602, `Invalid arguments: ${parsed.error?.message ?? "schema violation"}`);
+        return jsonRpcError(
+          id,
+          -32602,
+          `Invalid arguments: ${parsed.error?.message ?? "schema violation"}`
+        );
       }
       const ctx = makeContext(userId, "mcp");
-      const result = await action.handler(parsed.data, ctx);
+      // Wrap handler call so semantic failures surface as isError:true in
+      // the content block rather than -32603 internal errors. MCP clients
+      // distinguish these.
+      let payload: unknown;
+      let isError = false;
+      try {
+        payload = await action.handler(parsed.data, ctx);
+      } catch (err) {
+        isError = true;
+        payload = { error: err instanceof Error ? err.message : String(err) };
+      }
+      let text: string;
+      try {
+        text = typeof payload === "string" ? payload : JSON.stringify(payload);
+      } catch {
+        // Circular reference or non-serialisable result.
+        text = `[unserialisable result from ${name}]`;
+        isError = true;
+      }
       return {
         jsonrpc: "2.0",
         id,
         result: {
-          content: [
-            {
-              type: "text",
-              text: typeof result === "string" ? result : JSON.stringify(result),
-            },
-          ],
-          isError: false,
+          content: [{ type: "text", text }],
+          isError,
         },
       };
     }

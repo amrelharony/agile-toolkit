@@ -11,13 +11,21 @@
 
 let cached: { value: string | undefined; emails: Set<string> } | null = null;
 
+function normalize(s: string): string {
+  // NFC + strip BOM + trim + lowercase. The BOM-strip handles env files
+  // saved as UTF-8-with-BOM on Windows; NFC handles "alíce" vs "alíce"
+  // (composed vs decomposed) which compare unequal under === otherwise.
+  // (Test coverage gaps noted in BUG-A test review.)
+  return s.replace(/^﻿/, "").normalize("NFC").trim().toLowerCase();
+}
+
 function loadEmails(): Set<string> {
   const raw = process.env.AUTHORIZED_EMAILS;
   if (cached && cached.value === raw) return cached.emails;
   const emails = new Set<string>();
   if (raw) {
     for (const part of raw.split(",")) {
-      const e = part.trim().toLowerCase();
+      const e = normalize(part);
       if (e) emails.add(e);
     }
   }
@@ -29,7 +37,7 @@ export function isEmailAuthorized(email: string | null | undefined): boolean {
   if (!email) return false;
   const emails = loadEmails();
   if (emails.size === 0) return false; // fail closed when unconfigured
-  return emails.has(email.trim().toLowerCase());
+  return emails.has(normalize(email));
 }
 
 /**

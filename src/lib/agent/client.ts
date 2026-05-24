@@ -6,12 +6,7 @@ import { useAgentStore } from "./store";
 import { buildSystemPrompt } from "./system-prompt";
 import { executeToolUse } from "./execute-tool";
 import { appendMessages } from "./persist";
-import type {
-  ChatMessage,
-  ContentBlock,
-  ToolResultBlock,
-  ToolUseBlock,
-} from "./types";
+import type { ChatMessage, ContentBlock, ToolResultBlock, ToolUseBlock } from "./types";
 
 /**
  * Agent client — drives the tool-use loop against GLM (z.ai) via the
@@ -29,9 +24,17 @@ import type {
  *   "content_filter" → "end_turn"
  */
 
-const ZAI_ENDPOINT = "https://api.z.ai/api/paas/v4/chat/completions";
+// BUG-G3: align with the LLM Settings dialog and the openai-compatible
+// glmAdapter, both of which target open.bigmodel.cn. The prior z.ai
+// endpoint required separate keys that users got no warning about; the
+// settings dialog's "Test" button would succeed and the agent would
+// then 401 on the same key. Both endpoints are CSP-allowed.
+const GLM_ENDPOINT = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
 const DEFAULT_MODEL = "glm-4.5-flash";
 const MAX_TOOL_USE_ROUNDS = 10;
+/** Guard against schema-violation wedges: if the same action returns
+ *  is_error twice in a row with the same arg-shape, stop retrying. */
+const MAX_SAME_ERROR_REPEATS = 2;
 
 interface StreamOptions {
   userId: string;
@@ -43,11 +46,34 @@ interface StreamOptions {
   signal?: AbortSignal;
 }
 
-export async function sendUserMessage(
-  text: string,
-  opts: StreamOptions
-): Promise<void> {
+/** Module-scoped abort controller for the current in-flight send. Cleared
+ *  on completion. UI callers (sheet close, route change, unmount) call
+ *  `abortInFlight()` to terminate the stream. (BUG-G4) */
+let currentController: AbortController | null = null;
+export function abortInFlight(): void {
+  currentController?.abort();
+  currentController = null;
+  // Clear pending confirmation so a stale card doesn't survive the abort.
+  // (BUG-G18)
+  useAgentStore.getState().setPendingToolUse(null);
+}
+
+export async function sendUserMessage(text: string, opts: StreamOptions): Promise<void> {
   const store = useAgentStore.getState();
+
+  // If a previous send is still running for any reason (shouldn't happen
+  // because the UI gates the input), abort it first.
+  if (currentController) {
+    currentController.abort();
+  }
+  const controller = new AbortController();
+  currentController = controller;
+  // Chain caller-supplied signal so external abort still works.
+  if (opts.signal) {
+    if (opts.signal.aborted) controller.abort();
+    else opts.signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
+  const optsWithSignal: StreamOptions = { ...opts, signal: controller.signal };
 
   const userMsg: ChatMessage = {
     id: msgId(),
@@ -62,12 +88,19 @@ export async function sendUserMessage(
   if (opts.conversationId) void appendMessages(opts.conversationId, [userMsg]);
 
   try {
-    await runToolUseLoop(opts);
+    await runToolUseLoop(optsWithSignal);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    store.setError(msg);
+    // BUG-G18: clear pending confirmation when the loop errors so the
+    // UI doesn't leave a wedged card pointing at a settled promise.
+    useAgentStore.getState().setPendingToolUse(null);
+    // Don't surface the abort as a user-visible error.
+    if (!(err instanceof Error && err.name === "AbortError")) {
+      store.setError(msg);
+    }
   } finally {
     useAgentStore.getState().setStreaming(false);
+    if (currentController === controller) currentController = null;
   }
 }
 
@@ -75,6 +108,10 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
   const { mode, serverModel } = await detectMode();
   const tools = registry.toOpenAiTools();
   const system = buildSystemPrompt({ toolId: opts.toolId ?? null });
+  // BUG-G11: wedge guard. Track (actionId → consecutive-error-count) so a
+  // model that keeps retrying the same broken tool_use call doesn't burn
+  // every round in the budget.
+  const errorRepeats = new Map<string, number>();
 
   for (let round = 0; round < MAX_TOOL_USE_ROUNDS; round++) {
     const messages = wireMessages(useAgentStore.getState().messages, system);
@@ -89,7 +126,18 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
 
     const stopReason = await openOneTurn(mode, body, opts.signal);
 
-    if (stopReason !== "tool_use") return;
+    if (stopReason !== "tool_use") {
+      // BUG-G6: persist the assistant message after the turn settles.
+      // Without this, reload yields invalid wire format (orphan tool_result
+      // blocks referencing tool_call_ids that don't exist in any preceding
+      // assistant message).
+      maybePersistLastAssistant(opts.conversationId);
+      return;
+    }
+
+    // BUG-G6: persist the assistant message so its tool_call_ids are
+    // recoverable on reload, before we append the tool-role response.
+    maybePersistLastAssistant(opts.conversationId);
 
     // Collect the tool_use blocks the streaming parser captured.
     const lastAssistant = useAgentStore
@@ -98,9 +146,7 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
       .reverse()
       .find((m) => m.role === "assistant");
     if (!lastAssistant) return;
-    const toolUses = lastAssistant.content.filter(
-      (c): c is ToolUseBlock => c.type === "tool_use"
-    );
+    const toolUses = lastAssistant.content.filter((c): c is ToolUseBlock => c.type === "tool_use");
     if (toolUses.length === 0) return;
 
     // Execute each tool_use in order, accumulating results as a single
@@ -114,6 +160,13 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
         autoApprove: useAgentStore.getState().autoApprove,
       });
       results.push(result);
+      // Track schema-failure repetition.
+      if (result.is_error) {
+        const n = (errorRepeats.get(tu.name) ?? 0) + 1;
+        errorRepeats.set(tu.name, n);
+      } else {
+        errorRepeats.delete(tu.name);
+      }
     }
     const toolMsg: ChatMessage = {
       id: msgId(),
@@ -123,6 +176,20 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
     };
     useAgentStore.getState().appendMessage(toolMsg);
     if (opts.conversationId) void appendMessages(opts.conversationId, [toolMsg]);
+
+    // BUG-G11: bail if any action has wedged on repeated errors.
+    let wedged = false;
+    errorRepeats.forEach((n) => {
+      if (n >= MAX_SAME_ERROR_REPEATS) wedged = true;
+    });
+    if (wedged) {
+      useAgentStore
+        .getState()
+        .setError(
+          "An action kept failing the same way; stopping the tool-use loop to avoid burning tokens. Refine your request and try again."
+        );
+      return;
+    }
   }
 
   // Round budget exhausted — one final no-tools turn so the model can
@@ -191,27 +258,46 @@ async function openOneTurn(
    *  content stream, not multiple addressable blocks like Anthropic). */
   const wip: WipState = { textParts: [], toolCalls: new Map() };
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    // Normalise CRLF → LF: some HTTP proxies rewrite the SSE separator.
-    buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-    let nl: number;
-    while ((nl = buf.indexOf("\n\n")) !== -1) {
-      const chunk = buf.slice(0, nl);
-      buf = buf.slice(nl + 2);
-      const sr = handleSseChunk(chunk, wip);
+  // BUG-G8: release the body's reader lock in finally so the stream
+  // doesn't sit half-locked until GC after we return.
+  try {
+    while (true) {
+      // Honour aborts mid-stream — break out and cancel the reader.
+      if (signal?.aborted) {
+        try {
+          await reader.cancel();
+        } catch {
+          /* ignore */
+        }
+        break;
+      }
+      const { value, done } = await reader.read();
+      if (done) break;
+      // Normalise CRLF → LF: some HTTP proxies rewrite the SSE separator.
+      buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      let nl: number;
+      while ((nl = buf.indexOf("\n\n")) !== -1) {
+        const chunk = buf.slice(0, nl);
+        buf = buf.slice(nl + 2);
+        const sr = handleSseChunk(chunk, wip);
+        if (sr) stopReason = sr;
+        flushAssistant(wip);
+      }
+    }
+    // Tail flush in case the server closed without a trailing \n\n.
+    if (buf.trim().length > 0) {
+      const sr = handleSseChunk(buf, wip);
       if (sr) stopReason = sr;
-      flushAssistant(wip);
+    }
+    flushAssistant(wip);
+    return stopReason;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      /* already released */
     }
   }
-  // Tail flush in case the server closed without a trailing \n\n.
-  if (buf.trim().length > 0) {
-    const sr = handleSseChunk(buf, wip);
-    if (sr) stopReason = sr;
-  }
-  flushAssistant(wip);
-  return stopReason;
 }
 
 interface WipToolCall {
@@ -233,13 +319,18 @@ interface WipState {
  * stop_reason if this chunk carried one, otherwise null.
  */
 function handleSseChunk(raw: string, wip: WipState): string | null {
-  // Each chunk is N lines; we only care about `data:` lines.
-  let dataLine = "";
+  // Each chunk is N lines; we only care about `data:` lines. Per the SSE
+  // spec, multiple consecutive `data:` lines within one event are joined
+  // with "\n" before parsing — the prior implementation overwrote and
+  // silently dropped all but the last. (BUG-G5)
+  const dataLines: string[] = [];
   for (const line of raw.split("\n")) {
     if (line.startsWith("data:")) {
-      dataLine = line.slice(5).trim();
+      dataLines.push(line.slice(5).trimStart());
     }
   }
+  if (dataLines.length === 0) return null;
+  const dataLine = dataLines.join("\n").trimEnd();
   if (!dataLine) return null;
   if (dataLine === "[DONE]") return null;
 
@@ -349,10 +440,14 @@ async function openStream(
   const cfg = getActiveConfig();
   if (!cfg || cfg.provider !== "glm") {
     throw new Error(
-      "No GLM key available. Configure one in AI Settings (BYOK → GLM) or set ZAI_API_KEY on the server."
+      "No GLM key available. Configure one in AI Settings (BYOK → GLM) or set GLM_API_KEY on the server."
     );
   }
-  return fetch(ZAI_ENDPOINT, {
+  // BUG-G3: this endpoint matches the LLM Settings dialog's glmAdapter
+  // (open.bigmodel.cn). The settings dialog's "Test" button validates
+  // against this same endpoint, so a key the user tested successfully
+  // there will also work here.
+  return fetch(GLM_ENDPOINT, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -416,13 +511,8 @@ function pickModel(mode: AgentMode, serverModel: string | null): string {
  * The system prompt becomes the first message (OpenAI doesn't have a
  * separate `system` field like Anthropic).
  */
-function wireMessages(
-  messages: ChatMessage[],
-  system: string
-): Array<Record<string, unknown>> {
-  const out: Array<Record<string, unknown>> = [
-    { role: "system", content: system },
-  ];
+function wireMessages(messages: ChatMessage[], system: string): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [{ role: "system", content: system }];
 
   for (const m of messages) {
     if (m.role === "user") {
@@ -444,6 +534,14 @@ function wireMessages(
       for (const c of m.content) {
         if (c.type === "text") textParts.push(c.text);
         else if (c.type === "tool_use") {
+          // BUG-G7: drop tool_use blocks whose `input` is `{_partial:"…"}`
+          // (length-truncated mid-stream). Re-serialising the partial JSON
+          // string as `arguments` causes the next turn to send an orphan
+          // tool_call that the API rejects with 400.
+          const input = (c.input ?? {}) as Record<string, unknown>;
+          if ("_partial" in input && Object.keys(input).length === 1) {
+            continue;
+          }
           toolCalls.push({
             id: c.id,
             type: "function",
@@ -452,7 +550,7 @@ function wireMessages(
               // OpenAI-format underscores. The streaming parser already
               // emits OpenAI-format names; this is a no-op safeguard.
               name: claudeNameFromId(c.name),
-              arguments: JSON.stringify(c.input ?? {}),
+              arguments: JSON.stringify(input),
             },
           });
         }
@@ -468,9 +566,7 @@ function wireMessages(
     for (const c of m.content) {
       if (c.type !== "tool_result") continue;
       const content =
-        typeof c.content === "string"
-          ? c.content
-          : c.content.map((b) => b.text).join("");
+        typeof c.content === "string" ? c.content : c.content.map((b) => b.text).join("");
       out.push({
         role: "tool",
         tool_call_id: c.tool_use_id,
@@ -487,20 +583,42 @@ function makeConfirmHandler(block: ToolUseBlock): (summary: string) => Promise<b
     const store = useAgentStore.getState();
     return await new Promise<boolean>((resolve) => {
       const dotted = registry.resolve(block.name)?.id ?? block.name;
+      // BUG-G9: stash the resolver on the pending object itself.
+      // Previous implementation stored it on globalThis, so a second
+      // concurrent confirmation overwrote the first and the first
+      // promise hung forever, wedging the loop.
+      let resolved = false;
+      const settle = (approved: boolean) => {
+        if (resolved) return;
+        resolved = true;
+        store.setPendingToolUse(null);
+        resolve(approved);
+      };
       store.setPendingToolUse({
         toolUseId: block.id,
         actionId: block.name,
         resolvedActionId: dotted,
         input: block.input,
         summary,
+        resolve: settle,
       });
-      (globalThis as Record<string, unknown>).__agentResolveConfirm__ = (ok: boolean) => {
-        store.setPendingToolUse(null);
-        delete (globalThis as Record<string, unknown>).__agentResolveConfirm__;
-        resolve(ok);
-      };
     });
   };
+}
+
+/** Persist the most-recent assistant message to Supabase if a
+ *  conversation is active. Called between turns so the tool_call_id
+ *  references in subsequent tool-role messages are recoverable on
+ *  reload. (BUG-G6) */
+function maybePersistLastAssistant(conversationId: string | null | undefined): void {
+  if (!conversationId) return;
+  const msgs = useAgentStore.getState().messages;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i].role === "assistant") {
+      void appendMessages(conversationId, [msgs[i]]);
+      return;
+    }
+  }
 }
 
 function msgId(): string {

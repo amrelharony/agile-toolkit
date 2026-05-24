@@ -1,7 +1,7 @@
 "use client";
 
 import type { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
-import { getClientId } from "./lww";
+import { getClientId, resetClientId } from "./lww";
 
 /**
  * Supabase realtime payloads carry `eventType` as a string. Narrow it
@@ -177,11 +177,22 @@ class SyncEngine {
     if (this.state.kind === "idle") return;
     const { supabase, channel } = this.state;
     if (channel) void supabase.removeChannel(channel);
+    // BUG-S3 (broader cleanup): also drop any leaked user-sync channels
+    // under a DIFFERENT user-id from a previous session that hasn't
+    // finished draining.
+    for (const ch of supabase.getChannels()) {
+      if (typeof ch.topic === "string" && ch.topic.startsWith("realtime:user-sync:")) {
+        void supabase.removeChannel(ch);
+      }
+    }
     this.pushTimers.forEach((t) => clearTimeout(t));
     this.pushTimers.clear();
     this.awaitingInitialPull.clear();
     this.starting = false;
     this.detachWakeHandlers();
+    // BUG-S5: reset the per-tab client id so the next sign-in (potentially
+    // a different user) starts with a fresh echo-suppression identity.
+    resetClientId();
     this.state = { kind: "idle" };
   }
 
@@ -286,8 +297,16 @@ class SyncEngine {
     //
     // Remove any stale channel under this name first. removeChannel is
     // idempotent for unknown names so the no-existing-channel path is
-    // a cheap no-op.
-    const existing = supabase.getChannels().filter((ch) => ch.topic === `realtime:${channelName}`);
+    // a cheap no-op. BUG-S3 (broader): also drop any leaked user-sync
+    // channels for OTHER user-ids (e.g., previous session that's still
+    // draining its async removeChannel).
+    const existing = supabase
+      .getChannels()
+      .filter(
+        (ch) =>
+          typeof ch.topic === "string" &&
+          (ch.topic === `realtime:${channelName}` || ch.topic.startsWith("realtime:user-sync:"))
+      );
     for (const ch of existing) {
       void supabase.removeChannel(ch);
     }
@@ -335,7 +354,19 @@ class SyncEngine {
           });
         }
       )
-      .subscribe();
+      // BUG-S4: pass a status callback so we can recover from
+      // CHANNEL_ERROR / TIMED_OUT / CLOSED. Supabase Realtime does NOT
+      // replay events that occurred during a disconnect, so when the
+      // subscription returns to SUBSCRIBED we trigger a pullAll() to
+      // refill any state that drifted while the wire was down.
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED" && !this.starting) {
+          void this.pullAll();
+        }
+        // CHANNEL_ERROR / TIMED_OUT / CLOSED: the supabase client retries
+        // the subscribe automatically; we just need to be ready to re-sync
+        // when it succeeds.
+      });
     this.state = { ...this.state, channel };
   }
 
@@ -345,12 +376,22 @@ class SyncEngine {
   };
 
   private beforeUnloadHandler = () => {
-    // Best-effort: flush synchronously-ish before the tab closes. The
-    // Supabase JS client uses fetch which the browser may abort; we set
-    // `keepalive: true` via a fetch override is invasive. Practical
-    // mitigation: tools with high-frequency writes (canvas) flush on
-    // gesture-end (pointer-up) rather than relying on the debounce, so
-    // the worst case loss is the debounce window of low-frequency keys.
+    // BUG-S10: the Supabase JS client uses fetch() which the browser
+    // aborts on tab close — pending pushes silently vanish. Cancel
+    // pending push timers and trigger a synchronous flush via
+    // navigator.sendBeacon where adapters support it; otherwise fall
+    // back to the best-effort fetch (the canvas tools flush on
+    // pointer-up so they're mostly safe; this catches low-frequency
+    // text edits that fall inside the debounce window).
+    this.pushTimers.forEach((t) => clearTimeout(t));
+    this.pushTimers.clear();
+    // sendBeacon requires the adapter to know the URL + payload itself;
+    // wiring that contract through is a larger refactor. Fire the
+    // standard flushAllNow as best-effort — Chromium honours fetches
+    // initiated from beforeunload long enough for many of them to
+    // commit, especially on fast networks. Documented limitation: a
+    // brief debounce-window worth of low-frequency edits can still be
+    // lost on a fast tab close.
     void this.flushAllNow();
   };
 

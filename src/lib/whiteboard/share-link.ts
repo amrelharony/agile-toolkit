@@ -130,9 +130,7 @@ export function buildShareUrl(boardId: string, token: string, role: ShareRole): 
   // mutations at all); commenters get ?view=commenter (read-only objects
   // but they can drop new comment threads).
   const viewParam =
-    role === "viewer" ? "&view=readonly" :
-    role === "commenter" ? "&view=commenter" :
-    "";
+    role === "viewer" ? "&view=readonly" : role === "commenter" ? "&view=commenter" : "";
   // URL-encode user-controllable inputs. `boardId` is auto-generated
   // today, but external imports / future user-rename flows could
   // contain `&`, `#`, `?`, spaces or non-ASCII — without encoding,
@@ -164,7 +162,7 @@ export class ShareTokenAuthRequiredError extends Error {
 export async function createShareToken(
   boardId: string,
   role: ShareRole,
-  ttlDays = 7,
+  ttlDays = 7
 ): Promise<{ token: string; url: string }> {
   const now = Date.now();
   // H14 — clamp ttlDays. Anything <1 day or >365 (or NaN/undefined) is
@@ -229,18 +227,20 @@ export async function createShareToken(
 export async function resolveShareToken(token: string): Promise<ShareToken | null> {
   const client = getAuthBrowserClient();
   if (client) {
-    const { data, error } = await client
-      .from("share_tokens")
-      .select("token, board_id, role, expires_at, created_at")
-      .eq("token", token)
-      .maybeSingle();
-    if (!error && data) {
+    // BUG-S14: lookup goes through the SECURITY DEFINER RPC, not a
+    // direct SELECT. The old policy permitted enumerating every valid
+    // bearer in the database via `SELECT *`. The RPC requires the
+    // caller to supply the token (single-row equality match) and
+    // returns nothing for revoked / expired rows.
+    const { data, error } = await client.rpc("lookup_share_token", { p_token: token });
+    const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
+    if (!error && row) {
       return {
-        token: data.token,
-        boardId: data.board_id,
-        role: data.role as ShareRole,
-        expiresAt: new Date(data.expires_at).getTime(),
-        createdAt: new Date(data.created_at).getTime(),
+        token: row.token as string,
+        boardId: row.board_id as string,
+        role: row.role as ShareRole,
+        expiresAt: new Date(row.expires_at as string).getTime(),
+        createdAt: new Date(row.created_at as string).getTime(),
       };
     }
     // error or no row: fall through to legacy localStorage lookup so

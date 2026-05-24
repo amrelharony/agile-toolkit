@@ -1,7 +1,8 @@
 "use client";
+import { safeJSONStorage } from "./safe-storage";
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
 import type { VDna, XpEvent, ChallengeProgress } from "@/lib/gamification/types";
 
@@ -120,14 +121,7 @@ export const useVDnaStore = create<VDna & VDnaActions>()(
     }),
     {
       name: "agile-toolkit:vdna",
-      storage: createJSONStorage(() => {
-        if (typeof window !== "undefined") return localStorage;
-        return {
-          getItem: () => null,
-          setItem: () => {},
-          removeItem: () => {},
-        };
-      }),
+      storage: safeJSONStorage("vdna"),
       skipHydration: true,
       onRehydrateStorage: () => (state) => {
         // Seed the visitor id once at rehydrate time if it's missing or

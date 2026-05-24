@@ -3,11 +3,20 @@
 import { useEffect, useState } from "react";
 
 /**
- * SSR-safe media-query hook. Returns false on the server and on first client
- * render, then the real value after mount.  Subscribes to changes.
+ * SSR-safe media-query hook. Returns false on the server; on the client,
+ * uses a lazy initializer so the FIRST render already reflects the real
+ * match — without this, components like `useIsMobile()` flash the
+ * desktop variant for one frame on every mobile load. (BUG-W31)
  */
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(false);
+  const [matches, setMatches] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.matchMedia(query).matches;
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -36,5 +45,4 @@ export function useMediaQuery(query: string): boolean {
 
 export const useIsMobile = () => useMediaQuery("(max-width: 767px)");
 export const useIsTouch = () => useMediaQuery("(hover: none)");
-export const usePrefersReducedMotion = () =>
-  useMediaQuery("(prefers-reduced-motion: reduce)");
+export const usePrefersReducedMotion = () => useMediaQuery("(prefers-reduced-motion: reduce)");

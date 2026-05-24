@@ -77,22 +77,44 @@ function nullStorage(): StateStorage {
   };
 }
 
-function chooseStorage(modeHint: "session" | "device" | null = null): Storage | null {
-  if (typeof window === "undefined") return null;
-  if (modeHint === "session") return sessionStorage;
-  if (modeHint === "device") return localStorage;
-  // Inferred mode: check the persisted blob to find out which storage
-  // currently holds the canonical value.
-  if (sessionStorage.getItem(STORE_KEY)) return sessionStorage;
-  if (localStorage.getItem(STORE_KEY)) return localStorage;
-  return sessionStorage; // default
-}
-
 const adaptiveStorage: StateStorage = {
   getItem: (name: string) => {
     if (typeof window === "undefined") return null;
-    // Honour whichever storage has it; sessionStorage wins on tie.
-    return sessionStorage.getItem(name) ?? localStorage.getItem(name);
+    // BUG-W15: prefer the blob whose internal `storageMode` matches its
+    // location. The previous "sessionStorage first" rule meant a stale
+    // session-mode blob (e.g. leftover from a previous tab) would shadow
+    // the newer localStorage value the user explicitly migrated to.
+    const fromSession = (() => {
+      try {
+        return sessionStorage.getItem(name);
+      } catch {
+        return null;
+      }
+    })();
+    const fromLocal = (() => {
+      try {
+        return localStorage.getItem(name);
+      } catch {
+        return null;
+      }
+    })();
+    const modeOf = (raw: string | null): "session" | "device" | "unknown" => {
+      if (!raw) return "unknown";
+      try {
+        const m = (JSON.parse(raw) as { state?: { storageMode?: string } })?.state?.storageMode;
+        return m === "device" ? "device" : m === "session" ? "session" : "unknown";
+      } catch {
+        return "unknown";
+      }
+    };
+    const sMode = modeOf(fromSession);
+    const lMode = modeOf(fromLocal);
+    // If session blob is genuinely session-mode, prefer it.
+    if (fromSession && sMode === "session") return fromSession;
+    // If local blob is genuinely device-mode, prefer it.
+    if (fromLocal && lMode === "device") return fromLocal;
+    // Mixed/unknown — fall back to first available.
+    return fromSession ?? fromLocal;
   },
   setItem: (name: string, value: string) => {
     if (typeof window === "undefined") return;
@@ -130,20 +152,43 @@ export const useLlmStore = create<LlmState & LlmActions>()(
       setStorageMode: (mode) => {
         const prev = get().storageMode;
         if (prev === mode) return;
-        // Set the new mode FIRST; the persist middleware then writes to the
-        // new storage on the next tick (adaptiveStorage routes based on the
-        // value being written).
-        set({ storageMode: mode });
-        // Belt-and-braces: also clean up the stale copy in the old storage
-        // immediately so a quick refresh doesn't see two competing blobs.
-        const oldStorage = chooseStorage(prev);
-        if (oldStorage) {
+        // BUG-W15: synchronous migration. The old flow was: setState
+        // (state with new mode), THEN removeItem from old, THEN persist
+        // middleware async-writes to new. Between steps 2 and 3 both
+        // storages were empty — a fast tab-close in that window lost the
+        // user's keys entirely. New order:
+        //   1. Read the current persisted blob from the OLD storage.
+        //   2. Patch the storageMode inside it.
+        //   3. Write the patched blob to the NEW storage.
+        //   4. Remove from OLD storage.
+        //   5. setState so future writes route to NEW storage.
+        // Each step is synchronous; no empty-both window.
+        if (typeof window !== "undefined") {
+          const oldStorage = prev === "device" ? localStorage : sessionStorage;
+          const newStorage = mode === "device" ? localStorage : sessionStorage;
           try {
-            oldStorage.removeItem(STORE_KEY);
+            const raw = oldStorage.getItem(STORE_KEY);
+            if (raw) {
+              let patched = raw;
+              try {
+                const parsed = JSON.parse(raw) as { state?: Record<string, unknown> };
+                if (parsed?.state) {
+                  parsed.state.storageMode = mode;
+                  patched = JSON.stringify(parsed);
+                }
+              } catch {
+                /* keep raw if not parseable */
+              }
+              newStorage.setItem(STORE_KEY, patched);
+              oldStorage.removeItem(STORE_KEY);
+            }
           } catch {
-            /* ignore */
+            /* quota / private mode — proceed; the persist write below
+               will still attempt to populate the new storage. */
           }
         }
+        // Update the in-memory state so the next persist cycle aligns.
+        set({ storageMode: mode });
       },
 
       setProvider: (id, apiKey, model) => {
@@ -167,7 +212,7 @@ export const useLlmStore = create<LlmState & LlmActions>()(
             // else is configured (deterministic by insertion order) or null.
             activeProvider:
               s.activeProvider === id
-                ? (Object.keys(nextProviders)[0] as ProviderId | undefined) ?? null
+                ? ((Object.keys(nextProviders)[0] as ProviderId | undefined) ?? null)
                 : s.activeProvider,
           };
         });

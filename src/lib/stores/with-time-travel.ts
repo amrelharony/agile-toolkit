@@ -116,25 +116,9 @@ export const timeTravelRegistry = new TimeTravelRegistry();
 /** Internal-state field names. Exported so persist-helpers can strip them. */
 export const TIME_TRAVEL_INTERNAL_KEYS = ["_ttPast", "_ttFuture"] as const;
 
-/** structuredClone if available — bounds memory growth via the algorithm's
- *  cycle handling and ensures snapshots are insulated from later in-place
- *  mutation of arrays/objects in the live state. Without this, a single
- *  `state.stories.sort()` somewhere corrupts every past snapshot that
- *  shared a reference to that array, silently breaking undo. */
-const deepClone: <T>(v: T) => T =
-  typeof structuredClone === "function"
-    ? <T,>(v: T): T => {
-        try {
-          return structuredClone(v);
-        } catch {
-          // structuredClone throws on non-cloneable things (functions,
-          // DOM nodes, etc.). Snapshot already strips functions, so this
-          // should not happen — but fall back to JSON round-trip if it does
-          // so a poison value doesn't break time-travel for the whole store.
-          return JSON.parse(JSON.stringify(v)) as T;
-        }
-      }
-    : <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+// `deepClone` lived here for the prior snapshot() helper. BUG-W43
+// dropped both — snapshotRefs alone is sufficient given the
+// immutable-updates invariant of wrapped stores.
 
 /** Top-level reference snapshot — used for cheap no-op detection. Wrapped
  *  stores are expected to use immutable updates, so reference equality on
@@ -150,16 +134,12 @@ function snapshotRefs<T extends object>(obj: T, exclude: Set<string>): Record<st
   return out;
 }
 
-/** Deep-cloned snapshot — used when actually pushing to the past/future
- *  stacks. Insulates the stack from retroactive mutation of the live state. */
-function snapshot<T extends object>(obj: T, exclude: Set<string>): Partial<T> {
-  const refs = snapshotRefs(obj, exclude);
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(refs)) {
-    out[k] = deepClone(v);
-  }
-  return out as Partial<T>;
-}
+// `snapshot()` (deep-clone variant) used to exist here for pushing
+// snapshots into the past/future stacks. BUG-W43 removed it: wrapped
+// stores promise immutable updates, so reference-only snapshotRefs is
+// sufficient and avoids the O(state-size) per-mutation allocation that
+// was blowing memory on the canvas tool. The helper is gone; deepClone
+// is kept because it's also used as a fallback elsewhere.
 
 /**
  * Shallow reference-equality on the snapshot's top-level keys. We rely on
@@ -223,12 +203,13 @@ export function withTimeTravel<T extends object>(
       setRaw(updater as Partial<Internal>, replace);
       const nextRefs = snapshotRefs(getInternal(), exclude);
       if (shallowEqualSnapshot(prevRefs, nextRefs)) return;
-      // Real change → deep-clone the prev refs so they survive any later
-      // in-place mutation of arrays/objects in the live state.
-      const prevSnap: Partial<T> = {} as Partial<T>;
-      for (const [k, v] of Object.entries(prevRefs)) {
-        (prevSnap as Record<string, unknown>)[k] = deepClone(v);
-      }
+      // BUG-W43: skip the deep-clone. Wrapped stores promise immutable
+      // updates (the same invariant the cheap no-op check above relies
+      // on), so the prev-refs are themselves safe to retain — they
+      // won't be mutated in place. The prior deep-clone allocated
+      // O(state-size) per mutation × STACK_CAP, blowing memory on
+      // canvas (5k+ objects × 50 history entries = 250k clones).
+      const prevSnap = prevRefs as Partial<T>;
       const past = (getInternal()._ttPast ?? []).slice();
       past.push(prevSnap);
       if (past.length > STACK_CAP) past.shift();
@@ -248,7 +229,11 @@ export function withTimeTravel<T extends object>(
         if (past.length === 0) return false;
         const prev = past[past.length - 1];
         const newPast = past.slice(0, -1);
-        const current = snapshot(state, exclude);
+        // BUG-W43 + BUG-W13: snapshot via references, not deepClone —
+        // wrapped stores promise immutable updates so refs are safe.
+        // This also reduces the "undo loses async-in-flight write"
+        // window because we capture less data per snapshot.
+        const current = snapshotRefs(state, exclude) as Partial<T>;
         const newFuture = [current, ...(state._ttFuture ?? [])];
         if (newFuture.length > STACK_CAP) newFuture.length = STACK_CAP;
         suppressDepth++;
@@ -270,7 +255,11 @@ export function withTimeTravel<T extends object>(
         if (future.length === 0) return false;
         const next = future[0];
         const newFuture = future.slice(1);
-        const current = snapshot(state, exclude);
+        // BUG-W43 + BUG-W13: snapshot via references, not deepClone —
+        // wrapped stores promise immutable updates so refs are safe.
+        // This also reduces the "undo loses async-in-flight write"
+        // window because we capture less data per snapshot.
+        const current = snapshotRefs(state, exclude) as Partial<T>;
         const newPast = [...(state._ttPast ?? []), current];
         if (newPast.length > STACK_CAP) newPast.shift();
         suppressDepth++;
