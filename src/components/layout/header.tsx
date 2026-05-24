@@ -53,8 +53,7 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
     const valid: Theme = saved === "light" || saved === "hc" || saved === "dark" ? saved : "dark";
     setTheme(valid);
     setIsMac(
-      navigator.platform.toUpperCase().includes("MAC") ||
-        navigator.userAgent.includes("Mac")
+      navigator.platform.toUpperCase().includes("MAC") || navigator.userAgent.includes("Mac")
     );
     setMounted(true);
   }, []);
@@ -141,37 +140,41 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
         <WeatherWidget />
       </div>
 
-      {/* Breadcrumb. On the smallest screens we cap at 50 vw so the action
-          cluster on the right always has room. */}
-      <div className="flex items-center gap-3 min-w-0 flex-1">
+      {/* Breadcrumb. `overflow-hidden` on the wrapper clips any internal
+          overflow defensively — without it, when the search pill +
+          XpBar + right cluster squeeze the breadcrumb below its content
+          size at md viewports, the inner flex-nowrap items spill out and
+          collide with the search pill. `min-w-0` on the list lets the
+          inner flex chain shrink so the tool-name truncate can engage. */}
+      <div className="flex items-center gap-3 min-w-0 flex-1 overflow-hidden">
         <Breadcrumb>
-          <BreadcrumbList className="flex-nowrap">
-            <BreadcrumbItem className="hidden sm:list-item">
+          <BreadcrumbList className="flex-nowrap min-w-0">
+            {/* "Home" + separator only at lg+. On sm–md the tool name
+                stands alone — Home is reachable via the sidebar / logo
+                anyway, and at md the search pill takes 280 px which left
+                no room for the full chain. */}
+            <BreadcrumbItem className="hidden lg:list-item">
               <BreadcrumbLink href="/" className="text-sub hover:text-text">
                 Home
               </BreadcrumbLink>
             </BreadcrumbItem>
             {tool && (
               <>
-                <BreadcrumbSeparator className="text-sub hidden sm:block" />
+                <BreadcrumbSeparator className="text-sub hidden lg:block" />
                 <BreadcrumbItem className="hidden lg:list-item">
-                  <span className="text-sub text-sm truncate max-w-[14rem]">
-                    {tool.category}
-                  </span>
+                  <span className="text-sub text-sm truncate max-w-[14rem]">{tool.category}</span>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator className="text-sub hidden lg:block" />
-                <BreadcrumbItem>
-                  <BreadcrumbPage className="text-text font-medium truncate max-w-[50vw] sm:max-w-[20rem]">
+                <BreadcrumbItem className="min-w-0">
+                  <BreadcrumbPage className="text-text font-medium truncate max-w-[50vw] sm:max-w-[16rem] lg:max-w-[20rem]">
                     {tool.name}
                   </BreadcrumbPage>
                 </BreadcrumbItem>
               </>
             )}
             {!tool && (
-              <BreadcrumbItem className="sm:hidden">
-                <BreadcrumbPage className="text-text font-medium">
-                  Home
-                </BreadcrumbPage>
+              <BreadcrumbItem className="lg:hidden">
+                <BreadcrumbPage className="text-text font-medium">Home</BreadcrumbPage>
               </BreadcrumbItem>
             )}
           </BreadcrumbList>
