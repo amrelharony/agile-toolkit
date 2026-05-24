@@ -76,7 +76,10 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
   // the persisted state.
   const [hoverExpanded, setHoverExpanded] = useState(false);
   // The visual "expanded?" state — pinned-open OR hovering-over-collapsed.
-  const expanded = !collapsed || hoverExpanded;
+  // On mobile, the drawer is always full-width (80vw) when open, so the
+  // persisted `collapsed` preference must be ignored — otherwise the wide
+  // drawer renders rail-mode contents (icons only, no labels/triggers).
+  const expanded = mobileOpen || !collapsed || hoverExpanded;
   // Default to ALL categories collapsed. The sidebar is the user's primary
   // navigation surface; with 18 visible categories every one open at once
   // forces a long scroll just to find Burndown or Retro. Categories the
