@@ -609,7 +609,14 @@ export function BurndownClient() {
                           accept();
                         }
                       }}
+                      // State-only mid-type so the audit log doesn't fire
+                      // CONFIG_UPDATED for every keystroke ("1", "12", "123"
+                      // each become an event). Commit on blur via the logged
+                      // path so the final value still records cleanly.
                       onChange={(e) =>
+                        updateConfigRaw({ totalPoints: Math.max(1, Number(e.target.value)) })
+                      }
+                      onBlur={(e) =>
                         updateConfig({ totalPoints: Math.max(1, Number(e.target.value)) })
                       }
                       className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
@@ -627,8 +634,17 @@ export function BurndownClient() {
                 min={1}
                 max={60}
                 value={config.sprintDays}
+                // Same quiet-on-change / logged-on-blur split as
+                // totalPoints above.
                 onChange={(e) =>
-                  updateConfig({ sprintDays: Math.max(1, Math.min(60, Number(e.target.value))) })
+                  updateConfigRaw({
+                    sprintDays: Math.max(1, Math.min(60, Number(e.target.value))),
+                  })
+                }
+                onBlur={(e) =>
+                  updateConfig({
+                    sprintDays: Math.max(1, Math.min(60, Number(e.target.value))),
+                  })
                 }
                 className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
               />
