@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
 import {
   LineChart,
@@ -74,6 +74,61 @@ const COLUMNS: { id: ColumnId; label: string }[] = [
   { id: "done", label: "Done" },
 ];
 
+/**
+ * Per-column WIP-limit input with a local string draft so each
+ * keystroke doesn't write the entire kanban state to localStorage.
+ *
+ * BUG-RD3-kanban-2: `setWip(col, n)` previously fired per keystroke
+ * against `usePersisted`, so each character typed in any column's
+ * WIP input triggered a `JSON.stringify(state)` write of the full
+ * kanban (cards + limits). On a 200-card board the input loop
+ * stalled; clearing the field briefly parked the limit at 0 (since
+ * the inner clamp coerced NaN → 0) flashing every column under-WIP
+ * in between digits. Drafts here, commit on blur / Enter.
+ */
+function WipLimitInput({
+  colId,
+  colLabel,
+  value,
+  onCommit,
+}: {
+  colId: ColumnId;
+  colLabel: string;
+  value: number;
+  onCommit: (n: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    if (draft === "") {
+      setDraft(String(value));
+      return;
+    }
+    const n = Number(draft);
+    if (Number.isFinite(n) && n >= 0 && n !== value) {
+      onCommit(n);
+    } else if (!Number.isFinite(n)) {
+      setDraft(String(value));
+    }
+  };
+  return (
+    <Input
+      type="number"
+      min={0}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      placeholder="WIP"
+      className="h-8 sm:h-7 text-xs bg-bg border-border font-data"
+      aria-label={`WIP limit for ${colLabel}`}
+      data-col-id={colId}
+    />
+  );
+}
+
 const COS_COLORS: Record<ClassOfService, string> = {
   standard: "#00f0ff",
   expedite: "#ef4444",
@@ -136,45 +191,59 @@ export function KanbanClient() {
 
   const moveCard = (id: string, col: ColumnId) => {
     sonify("kanban", col === "done" ? "card-done" : "card-move");
-    const card = state.cards.find((c) => c.id === id);
-    setState((s) => ({
-      ...s,
-      cards: s.cards.map((c) => {
-        if (c.id !== id) return c;
-        const now = new Date().toISOString();
-        const patch: Partial<KCard> = { column: col };
-        if (col === "in_progress" && !c.startedAt) patch.startedAt = now;
-        if (col === "done" && !c.completedAt) patch.completedAt = now;
-        // BUG-T4-kanban-1: clear stale completion timestamp when a card
-        // moves out of Done. Without this, cycle-time + throughput KPI +
-        // XmR control chart + Mann-Kendall trend all consume corrupted
-        // data: a card moved Done→In Progress still reports `completedAt`,
-        // so `cycleTimeDays` returns a value and `throughputLast7` counts
-        // it.
-        if (col !== "done" && c.completedAt) patch.completedAt = undefined;
-        // Similarly: moving back to backlog/ready means the card was
-        // never started — clear startedAt so re-work cycle is captured.
-        if ((col === "backlog" || col === "ready") && c.startedAt) {
-          patch.startedAt = undefined;
-        }
-        return { ...c, ...patch };
-      }),
-    }));
+    // BUG-RD3-kanban-1: capture `from`/`title` INSIDE the functional
+    // updater, not from the closure `state`. Two rapid moves within a
+    // tick (e.g. drag a card across two columns) used to log the
+    // PRE-tick `from` for both events, corrupting the audit log.
+    let logPayload: { title?: string; from?: ColumnId } = {};
+    setState((s) => {
+      const before = s.cards.find((c) => c.id === id);
+      logPayload = { title: before?.title, from: before?.column };
+      return {
+        ...s,
+        cards: s.cards.map((c) => {
+          if (c.id !== id) return c;
+          const now = new Date().toISOString();
+          const patch: Partial<KCard> = { column: col };
+          if (col === "in_progress" && !c.startedAt) patch.startedAt = now;
+          if (col === "done" && !c.completedAt) patch.completedAt = now;
+          // BUG-T4-kanban-1: clear stale completion timestamp when a card
+          // moves out of Done. Without this, cycle-time + throughput KPI +
+          // XmR control chart + Mann-Kendall trend all consume corrupted
+          // data: a card moved Done→In Progress still reports `completedAt`,
+          // so `cycleTimeDays` returns a value and `throughputLast7` counts
+          // it.
+          if (col !== "done" && c.completedAt) patch.completedAt = undefined;
+          // Similarly: moving back to backlog/ready means the card was
+          // never started — clear startedAt so re-work cycle is captured.
+          if ((col === "backlog" || col === "ready") && c.startedAt) {
+            patch.startedAt = undefined;
+          }
+          return { ...c, ...patch };
+        }),
+      };
+    });
     log(KANBAN_ACTIONS.CARD_MOVED, {
       cardId: id,
-      title: card?.title,
-      from: card?.column,
+      title: logPayload.title,
+      from: logPayload.from,
       to: col,
     });
   };
 
   const removeCard = (id: string) => {
-    const card = state.cards.find((c) => c.id === id);
-    setState((s) => ({ ...s, cards: s.cards.filter((c) => c.id !== id) }));
+    // BUG-RD3-kanban-1 (same pattern as moveCard): capture title /
+    // description from the freshest state inside the updater.
+    let logPayload: { title?: string; description?: string } = {};
+    setState((s) => {
+      const before = s.cards.find((c) => c.id === id);
+      logPayload = { title: before?.title, description: before?.description };
+      return { ...s, cards: s.cards.filter((c) => c.id !== id) };
+    });
     log(KANBAN_ACTIONS.CARD_REMOVED, {
       cardId: id,
-      title: card?.title,
-      description: card?.description,
+      title: logPayload.title,
+      description: logPayload.description,
     });
   };
   const setWip = (col: ColumnId, n: number) =>
@@ -605,6 +674,9 @@ export function KanbanClient() {
                     // SmartInput on the most-used column. Predictor returns
                     // 120% of current in-progress count when there's signal;
                     // Tab-to-accept when the field is blank.
+                    // BUG-RD3-kanban-2: same draft-on-blur pattern as the
+                    // other WIP columns — typing here used to write the
+                    // whole kanban state to localStorage per keystroke.
                     <SmartInput<number>
                       predicted={wipPrediction}
                       onAccept={(v) => {
@@ -619,25 +691,22 @@ export function KanbanClient() {
                             value={wipFor("in_progress")}
                             placeholder={ghost ?? "WIP"}
                             onKeyDown={(e) => {
-                              // Use the raw edit buffer (which is "" when
-                              // the field is blank) — wipFor() falls back to
-                              // String(limit) when the buffer is null, so
-                              // it's always a stringified number and the
-                              // empty-check would never fire.
                               if (e.key === "Tab" && wipEditBuffer === "") {
                                 e.preventDefault();
                                 accept();
                               }
+                              if (e.key === "Enter") e.currentTarget.blur();
                             }}
-                            onChange={(e) => {
-                              const raw = e.target.value;
-                              setWipEditBuffer(raw);
-                              // Empty string parks at 0 in store but keeps the
-                              // ghost visible via wipEditBuffer.
-                              const n = raw === "" ? 0 : Number(raw);
-                              if (Number.isFinite(n)) setWip("in_progress", n);
+                            onChange={(e) => setWipEditBuffer(e.target.value)}
+                            onBlur={() => {
+                              const raw = wipEditBuffer;
+                              setWipEditBuffer(null);
+                              if (raw === null || raw === "") return;
+                              const n = Number(raw);
+                              if (Number.isFinite(n) && n >= 0 && n !== limit) {
+                                setWip("in_progress", n);
+                              }
                             }}
-                            onBlur={() => setWipEditBuffer(null)}
                             className="h-8 sm:h-7 text-xs bg-bg border-border font-data"
                             aria-label={`WIP limit for ${col.label}`}
                           />
@@ -646,24 +715,11 @@ export function KanbanClient() {
                       )}
                     />
                   ) : (
-                    <Input
-                      type="number"
-                      min={0}
+                    <WipLimitInput
+                      colId={col.id}
+                      colLabel={col.label}
                       value={limit}
-                      // R11-fix: NaN-guard. Pasting "abc" or clearing
-                      // the field silently parked the limit at 0 with
-                      // no user feedback (setWip clamps to 0 on NaN).
-                      // Now: ignore invalid input so the prior limit
-                      // is preserved until the user types a valid number.
-                      onChange={(e) => {
-                        const raw = e.target.value;
-                        if (raw === "") return; // user clearing; keep prior limit
-                        const n = Number(raw);
-                        if (Number.isFinite(n) && n >= 0) setWip(col.id, n);
-                      }}
-                      placeholder="WIP"
-                      className="h-8 sm:h-7 text-xs bg-bg border-border font-data"
-                      aria-label={`WIP limit for ${col.label}`}
+                      onCommit={(n) => setWip(col.id, n)}
                     />
                   ))}
               </div>

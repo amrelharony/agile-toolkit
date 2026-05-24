@@ -77,7 +77,10 @@ export function TableObject({
     // row, and past the last cell of the last row stops there.
     if (row < 0) row = 0;
     if (col < 0) col = numCols - 1;
-    if (col >= numCols) { col = 0; row += 1; }
+    if (col >= numCols) {
+      col = 0;
+      row += 1;
+    }
     if (row >= rows.length) {
       setEditing(null);
       return;
@@ -104,13 +107,22 @@ export function TableObject({
     const nextRows = rows.map((r) => [...r, ""]);
     // Distribute the new column an equal share, scaling existing
     // columns proportionally to make room.
+    // BUG-RD3-table-object-1: stored fractions can drift from summing
+    // exactly to 1 (the resize handle writes `.toFixed(3)` percentages
+    // through the render path on each move). The prior arithmetic
+    // `1 - existing.reduce(...) * scale` produced a negative new-col
+    // fraction when sum > 1, or > 1/(N+1) when sum < 1 — NaN/invalid
+    // colgroup widths on the next render. Normalise the stored
+    // fractions to sum to 1 before splitting.
     let nextFractions: number[] | undefined;
     if (object.columnFractions && object.columnFractions.length === numCols) {
+      const sum = object.columnFractions.reduce((a, b) => a + b, 0);
+      const normalised =
+        sum > 0
+          ? object.columnFractions.map((f) => f / sum)
+          : Array.from({ length: numCols }, () => 1 / Math.max(1, numCols));
       const scale = numCols / (numCols + 1);
-      nextFractions = [
-        ...object.columnFractions.map((f) => f * scale),
-        1 - object.columnFractions.reduce((a, b) => a + b, 0) * scale,
-      ];
+      nextFractions = [...normalised.map((f) => f * scale), 1 / (numCols + 1)];
     }
     onMutate(object.id, {
       rows: nextRows,
@@ -185,6 +197,26 @@ export function TableObject({
     }
     resizeRef.current = null;
   };
+
+  // BUG-RD3-table-object-2: document-level pointerup / pointercancel
+  // fallback. The handle's own pointerup fires reliably WHEN capture
+  // works, but if the release happens after the user clicks an
+  // external window (browser dropping capture silently in some
+  // engines) the resize state stays armed — the next stray pointer
+  // event over the canvas re-enters the move handler with stale
+  // `startFractions` / `startX`, producing a phantom jump on the
+  // unrelated column. Listen on document so we always clear the ref.
+  useEffect(() => {
+    const onDocUp = () => {
+      if (resizeRef.current) resizeRef.current = null;
+    };
+    document.addEventListener("pointerup", onDocUp);
+    document.addEventListener("pointercancel", onDocUp);
+    return () => {
+      document.removeEventListener("pointerup", onDocUp);
+      document.removeEventListener("pointercancel", onDocUp);
+    };
+  }, []);
 
   // ── Render ──────────────────────────────────────────────────────
   return (
@@ -275,7 +307,9 @@ export function TableObject({
                       else if (dir === "prev") moveEditingTo(rowIdx, colIdx - 1);
                       else if (dir === "down") moveEditingTo(rowIdx + 1, colIdx);
                     }}
-                    showResizeHandle={!showHeader && colIdx < numCols - 1 && !readOnly && !object.locked}
+                    showResizeHandle={
+                      !showHeader && colIdx < numCols - 1 && !readOnly && !object.locked
+                    }
                     onResizePointerDown={(e) => onResizePointerDown(colIdx, e)}
                     onResizePointerMove={onResizePointerMove}
                     onResizePointerUp={onResizePointerUp}
@@ -356,9 +390,25 @@ function TableEditAffordances({
         }}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        <button type="button" title="Add row" aria-label="Add row" onClick={onAddRow} style={btnStyle}>+</button>
+        <button
+          type="button"
+          title="Add row"
+          aria-label="Add row"
+          onClick={onAddRow}
+          style={btnStyle}
+        >
+          +
+        </button>
         {canRemoveRow && (
-          <button type="button" title="Remove last row" aria-label="Remove last row" onClick={onRemoveRow} style={btnStyle}>−</button>
+          <button
+            type="button"
+            title="Remove last row"
+            aria-label="Remove last row"
+            onClick={onRemoveRow}
+            style={btnStyle}
+          >
+            −
+          </button>
         )}
       </div>
       {/* Right-edge column controls */}
@@ -375,9 +425,25 @@ function TableEditAffordances({
         }}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        <button type="button" title="Add column" aria-label="Add column" onClick={onAddCol} style={btnStyle}>+</button>
+        <button
+          type="button"
+          title="Add column"
+          aria-label="Add column"
+          onClick={onAddCol}
+          style={btnStyle}
+        >
+          +
+        </button>
         {canRemoveCol && (
-          <button type="button" title="Remove last column" aria-label="Remove last column" onClick={onRemoveCol} style={btnStyle}>−</button>
+          <button
+            type="button"
+            title="Remove last column"
+            aria-label="Remove last column"
+            onClick={onRemoveCol}
+            style={btnStyle}
+          >
+            −
+          </button>
         )}
       </div>
     </>
@@ -401,22 +467,25 @@ interface CellProps {
 }
 
 function TableHeaderCell(props: CellProps) {
-  return (
-    <CellBase as="th" headerStyle {...props} />
-  );
+  return <CellBase as="th" headerStyle {...props} />;
 }
 
 function TableDataCell(props: CellProps) {
-  return (
-    <CellBase as="td" {...props} />
-  );
+  return <CellBase as="td" {...props} />;
 }
 
 function CellBase({
   as,
-  text, isEditing, readOnly,
-  onStartEdit, onCommit, onMove,
-  showResizeHandle, onResizePointerDown, onResizePointerMove, onResizePointerUp,
+  text,
+  isEditing,
+  readOnly,
+  onStartEdit,
+  onCommit,
+  onMove,
+  showResizeHandle,
+  onResizePointerDown,
+  onResizePointerMove,
+  onResizePointerUp,
   borderColor,
   headerStyle = false,
 }: CellProps & { as: "th" | "td"; headerStyle?: boolean }) {
@@ -495,7 +564,9 @@ function CellEditor({
     <input
       ref={ref}
       defaultValue={initial}
-      onChange={(e) => { valueRef.current = e.target.value; }}
+      onChange={(e) => {
+        valueRef.current = e.target.value;
+      }}
       onBlur={() => onCommit(valueRef.current)}
       onKeyDown={(e) => {
         e.stopPropagation();
