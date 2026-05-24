@@ -47,7 +47,7 @@ export function MindMapNode({
 }) {
   const isRoot = !object.parentNodeId;
   const accent = object.color ?? "#00f0ff";
-  const border = selected ? "#00f0ff" : (isRoot ? accent : "rgba(148, 163, 184, 0.6)");
+  const border = selected ? "#00f0ff" : isRoot ? accent : "rgba(148, 163, 184, 0.6)";
   const bg = isRoot ? "rgba(0, 240, 255, 0.12)" : "rgba(15, 23, 42, 0.95)";
 
   return (
@@ -82,7 +82,7 @@ export function MindMapNode({
         alignItems: "center",
         justifyContent: "center",
         textAlign: "center",
-        cursor: editing ? "text" : (object.locked ? "default" : "move"),
+        cursor: editing ? "text" : object.locked ? "default" : "move",
         zIndex: object.z,
         opacity: object.locked ? 0.85 : 1,
         userSelect: editing ? "text" : "none",
@@ -181,7 +181,9 @@ function NodeEditor({
         if (native && native.isComposing) return;
         valueRef.current = e.target.value;
       }}
-      onCompositionEnd={(e) => { valueRef.current = (e.target as HTMLTextAreaElement).value; }}
+      onCompositionEnd={(e) => {
+        valueRef.current = (e.target as HTMLTextAreaElement).value;
+      }}
       onBlur={() => {
         if (structuralFiredRef.current) return;
         onCommit(valueRef.current);
@@ -191,25 +193,38 @@ function NodeEditor({
         // Mind-map structural keys take priority over the plain
         // commit path when a handler is supplied (i.e. we're inside
         // a mind-map node, not a generic sticky/text edit).
+        // BUG-RD3-mind-map-node-1: wrap the structural call in try/
+        // catch and reset `structuralFiredRef` if it throws. The ref
+        // is set BEFORE the call so a synchronous blur during the
+        // action doesn't double-commit, but if the parent throws
+        // (e.g. state not ready) the action never persisted yet the
+        // ref blocks every future onBlur — typing in this editor
+        // would silently be dropped until unmount.
         if (onStructuralAction) {
+          const tryStructural = (kind: "child" | "promote" | "sibling") => {
+            structuralFiredRef.current = true;
+            try {
+              onStructuralAction(kind, valueRef.current);
+            } catch (err) {
+              structuralFiredRef.current = false;
+              throw err;
+            }
+          };
           if (e.key === "Tab" && !e.shiftKey) {
             e.preventDefault();
-            structuralFiredRef.current = true;
-            onStructuralAction("child", valueRef.current);
+            tryStructural("child");
             e.stopPropagation();
             return;
           }
           if (e.key === "Tab" && e.shiftKey) {
             e.preventDefault();
-            structuralFiredRef.current = true;
-            onStructuralAction("promote", valueRef.current);
+            tryStructural("promote");
             e.stopPropagation();
             return;
           }
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            structuralFiredRef.current = true;
-            onStructuralAction("sibling", valueRef.current);
+            tryStructural("sibling");
             e.stopPropagation();
             return;
           }

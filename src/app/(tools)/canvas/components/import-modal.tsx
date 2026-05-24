@@ -4,7 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { X, FileInput } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { importFromRisks, importFromStories, importFromOkrs } from "@/lib/whiteboard/cross-tool-import";
+import {
+  importFromRisks,
+  importFromStories,
+  importFromOkrs,
+} from "@/lib/whiteboard/cross-tool-import";
 import { parseJiraCsv, issuesToCards } from "@/lib/whiteboard/jira-import";
 import { parseDiagramCsv, diagramToObjects } from "@/lib/whiteboard/smart-diagrams";
 import { parseCsv, rowsToTable } from "@/lib/whiteboard/csv-to-table";
@@ -37,9 +41,7 @@ export function ImportModal({ boardId, onClose }: Props) {
       const target = e.target as HTMLElement | null;
       if (
         target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
       ) {
         return;
       }
@@ -59,6 +61,23 @@ export function ImportModal({ boardId, onClose }: Props) {
   const allObjects = useWorkspaceStore((s) => s.whiteboardObjects);
   const { log } = useHistoryLogger("canvas");
 
+  /**
+   * BUG-RD3-import-modal-1: read the FRESHEST z-baseline at click
+   * time, not the closure-captured `allObjects` from render time.
+   * Between render and the user clicking Import, a realtime peer
+   * (or sibling import) could have added objects; the prior code
+   * would land the new content UNDER that newer content. Always
+   * pull `whiteboardObjects` from the live store inside the handler.
+   */
+  const freshZBaseline = (): number => {
+    const live = useWorkspaceStore.getState().whiteboardObjects ?? [];
+    let zBase = 0;
+    for (const o of live) {
+      if (o.boardId === boardId && o.z > zBase) zBase = o.z;
+    }
+    return zBase;
+  };
+
   // R10-deferred: filter to THIS board's objects so the importers'
   // (tool, entityId) → existing-id reuse map only finds matches on
   // the current board (not stickies for the same Story on a sibling
@@ -67,7 +86,7 @@ export function ImportModal({ boardId, onClose }: Props) {
   // second set.
   const boardObjects = useMemo(
     () => (allObjects ?? []).filter((o) => o.boardId === boardId),
-    [allObjects, boardId],
+    [allObjects, boardId]
   );
   const sources = useMemo(
     () => [
@@ -75,7 +94,8 @@ export function ImportModal({ boardId, onClose }: Props) {
         id: "stories" as const,
         label: "Stories → Swimlane",
         count: stories.length,
-        description: "Drop all backlog stories onto a 5-stage swimlane (backlog · todo · in progress · review · done).",
+        description:
+          "Drop all backlog stories onto a 5-stage swimlane (backlog · todo · in progress · review · done).",
         run: () => importFromStories(boardId, stories, boardObjects),
       },
       {
@@ -89,11 +109,12 @@ export function ImportModal({ boardId, onClose }: Props) {
         id: "okrs" as const,
         label: "OKRs → Tree",
         count: okrs.length,
-        description: "Lay out each Objective with its Key Results as a downward tree, connected by orthogonal arrows.",
+        description:
+          "Lay out each Objective with its Key Results as a downward tree, connected by orthogonal arrows.",
         run: () => importFromOkrs(boardId, okrs, boardObjects),
       },
     ],
-    [boardId, stories, risks, okrs, boardObjects],
+    [boardId, stories, risks, okrs, boardObjects]
   );
 
   // Jira CSV paste import (Phase 30). The user pastes the export from
@@ -105,7 +126,10 @@ export function ImportModal({ boardId, onClose }: Props) {
   const [jiraPreview, setJiraPreview] = useState<number | null>(null);
   const onJiraCsvChange = (text: string) => {
     setJiraCsv(text);
-    if (text.trim().length === 0) { setJiraPreview(null); return; }
+    if (text.trim().length === 0) {
+      setJiraPreview(null);
+      return;
+    }
     try {
       const { issues } = parseJiraCsv(text);
       setJiraPreview(issues.length);
@@ -117,10 +141,15 @@ export function ImportModal({ boardId, onClose }: Props) {
   // tree / org-chart (name,parent) and flowchart (from,to). Reuses our
   // treeLayout / forceLayout primitives. No external CSV parser dep.
   const [diagramCsv, setDiagramCsv] = useState("");
-  const [diagramParsed, setDiagramParsed] = useState<ReturnType<typeof parseDiagramCsv> | null>(null);
+  const [diagramParsed, setDiagramParsed] = useState<ReturnType<typeof parseDiagramCsv> | null>(
+    null
+  );
   const onDiagramCsvChange = (text: string) => {
     setDiagramCsv(text);
-    if (text.trim().length === 0) { setDiagramParsed(null); return; }
+    if (text.trim().length === 0) {
+      setDiagramParsed(null);
+      return;
+    }
     try {
       setDiagramParsed(parseDiagramCsv(text));
     } catch {
@@ -133,7 +162,10 @@ export function ImportModal({ boardId, onClose }: Props) {
   const [tableRows, setTableRows] = useState<string[][] | null>(null);
   const onTableCsvChange = (text: string) => {
     setTableCsv(text);
-    if (text.trim().length === 0) { setTableRows(null); return; }
+    if (text.trim().length === 0) {
+      setTableRows(null);
+      return;
+    }
     try {
       const parsed = parseCsv(text);
       setTableRows(parsed.length > 0 ? parsed : null);
@@ -143,16 +175,18 @@ export function ImportModal({ boardId, onClose }: Props) {
   };
   const applyTable = () => {
     if (!tableRows || tableRows.length === 0) return;
-    let zBase = 0;
-    for (const o of (allObjects ?? [])) {
-      if (o.boardId === boardId && o.z > zBase) zBase = o.z;
-    }
+    const zBase = freshZBaseline();
     // Land at world origin + 200px offset so the new table doesn't
     // overlap whatever else is at the centre.
-    const table = rowsToTable(tableRows, boardId, { x: 200, y: 200 }, {
-      headerRow: true,
-      z: zBase + 1,
-    });
+    const table = rowsToTable(
+      tableRows,
+      boardId,
+      { x: 200, y: 200 },
+      {
+        headerRow: true,
+        z: zBase + 1,
+      }
+    );
     if (!table) return;
     upsertMany([table]);
     log(CANVAS_ACTIONS.IMPORT_PERFORMED, {
@@ -175,10 +209,7 @@ export function ImportModal({ boardId, onClose }: Props) {
     // user can pan/zoom or use Fit-to-content right after.
     const seeded = diagramToObjects(boardId, diagramParsed, { x: 200, y: 200 });
     if (seeded.length === 0) return;
-    let zBase = 0;
-    for (const o of (allObjects ?? [])) {
-      if (o.boardId === boardId && o.z > zBase) zBase = o.z;
-    }
+    const zBase = freshZBaseline();
     const offset: WhiteboardObject[] = seeded.map((o) => ({ ...o, z: o.z + zBase }));
     upsertMany(offset);
     log(CANVAS_ACTIONS.IMPORT_PERFORMED, {
@@ -190,7 +221,12 @@ export function ImportModal({ boardId, onClose }: Props) {
       kind: "whiteboard.crossToolImport",
       at: new Date().toISOString(),
       toolId: "canvas",
-      payload: { source: "smart-diagram", shape: diagramParsed.shape, boardId, count: offset.length },
+      payload: {
+        source: "smart-diagram",
+        shape: diagramParsed.shape,
+        boardId,
+        count: offset.length,
+      },
     });
     onClose();
   };
@@ -201,10 +237,7 @@ export function ImportModal({ boardId, onClose }: Props) {
     const { issues } = parseJiraCsv(text);
     if (issues.length === 0) return;
     const seeded = issuesToCards(boardId, issues, boardObjects);
-    let zBase = 0;
-    for (const o of (allObjects ?? [])) {
-      if (o.boardId === boardId && o.z > zBase) zBase = o.z;
-    }
+    const zBase = freshZBaseline();
     const offset: WhiteboardObject[] = seeded.map((o) => ({ ...o, z: o.z + zBase }));
     upsertMany(offset);
     log(CANVAS_ACTIONS.IMPORT_PERFORMED, { source: "jira", count: offset.length });
@@ -225,10 +258,7 @@ export function ImportModal({ boardId, onClose }: Props) {
     // Z-baseline so imports land visually on top of existing content.
     // Filter to objects on THIS board only — z-values from other boards
     // would over-inflate the baseline.
-    let zBase = 0;
-    for (const o of (allObjects ?? [])) {
-      if (o.boardId === boardId && o.z > zBase) zBase = o.z;
-    }
+    const zBase = freshZBaseline();
     const offset: WhiteboardObject[] = seeded.map((o) => ({ ...o, z: o.z + zBase }));
     upsertMany(offset);
     log(CANVAS_ACTIONS.IMPORT_PERFORMED, { source: kind, count: offset.length });
@@ -271,7 +301,8 @@ export function ImportModal({ boardId, onClose }: Props) {
           Import from workspace
         </h2>
         <p className="text-sm text-sub mb-5">
-          Pull existing toolkit data onto this board. Imports append — they don&apos;t clear the board.
+          Pull existing toolkit data onto this board. Imports append — they don&apos;t clear the
+          board.
         </p>
         <div className="space-y-2">
           {sources.map((src) => (
@@ -302,16 +333,19 @@ export function ImportModal({ boardId, onClose }: Props) {
           <div className="flex items-center justify-between mb-2">
             <span className="font-semibold text-sm text-text">Jira → Kanban</span>
             <span className="text-xs font-mono text-sub">
-              {jiraPreview !== null ? `${jiraPreview} issue${jiraPreview === 1 ? "" : "s"} detected` : "paste CSV"}
+              {jiraPreview !== null
+                ? `${jiraPreview} issue${jiraPreview === 1 ? "" : "s"} detected`
+                : "paste CSV"}
             </span>
           </div>
           <div className="text-xs text-sub mb-2">
-            Paste the output of Jira&apos;s Issues navigator → Export CSV. Each issue becomes a card on a kanban frame (To Do / In Progress / Done).
+            Paste the output of Jira&apos;s Issues navigator → Export CSV. Each issue becomes a card
+            on a kanban frame (To Do / In Progress / Done).
           </div>
           <textarea
             value={jiraCsv}
             onChange={(e) => onJiraCsvChange(e.target.value)}
-            placeholder='Issue key,Summary,Status,Assignee,Story Points,...'
+            placeholder="Issue key,Summary,Status,Assignee,Story Points,..."
             className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-[11px] font-mono text-text resize-none focus:outline-none focus:border-accent"
           />
           <button
@@ -341,12 +375,14 @@ export function ImportModal({ boardId, onClose }: Props) {
             </span>
           </div>
           <div className="text-xs text-sub mb-2">
-            Paste a 2-column CSV. Tree shapes (<code className="text-text">name,parent</code> or <code className="text-text">name,reports_to</code>) auto-arrange as an org-chart. Flow shapes (<code className="text-text">from,to</code>) untangle via force-layout.
+            Paste a 2-column CSV. Tree shapes (<code className="text-text">name,parent</code> or{" "}
+            <code className="text-text">name,reports_to</code>) auto-arrange as an org-chart. Flow
+            shapes (<code className="text-text">from,to</code>) untangle via force-layout.
           </div>
           <textarea
             value={diagramCsv}
             onChange={(e) => onDiagramCsvChange(e.target.value)}
-            placeholder={'name,parent\nCEO,\nVP Eng,CEO\nVP Sales,CEO\nDev Lead,VP Eng'}
+            placeholder={"name,parent\nCEO,\nVP Eng,CEO\nVP Sales,CEO\nDev Lead,VP Eng"}
             className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-[11px] font-mono text-text resize-none focus:outline-none focus:border-accent"
           />
           {diagramParsed?.error && (
@@ -358,7 +394,8 @@ export function ImportModal({ boardId, onClose }: Props) {
             disabled={!diagramParsed || diagramParsed.rows.length === 0}
             className="mt-2 px-3 py-1.5 rounded bg-accent/15 text-accent border border-accent/30 hover:bg-accent/25 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Import {diagramParsed?.rows.length ?? 0} row{diagramParsed?.rows.length === 1 ? "" : "s"} as {diagramParsed?.shape ?? "diagram"}
+            Import {diagramParsed?.rows.length ?? 0} row
+            {diagramParsed?.rows.length === 1 ? "" : "s"} as {diagramParsed?.shape ?? "diagram"}
           </button>
         </div>
 
@@ -376,12 +413,15 @@ export function ImportModal({ boardId, onClose }: Props) {
             </span>
           </div>
           <div className="text-xs text-sub mb-2">
-            Row 0 is treated as the header. Quoted cells (<code className="text-text">{"\"embedded, comma\""}</code>) and CRLF endings are handled.
+            Row 0 is treated as the header. Quoted cells (
+            <code className="text-text">{'"embedded, comma"'}</code>) and CRLF endings are handled.
           </div>
           <textarea
             value={tableCsv}
             onChange={(e) => onTableCsvChange(e.target.value)}
-            placeholder={'Name,Role,Status\nAlex,PM,Active\nSara,Eng,Active\n"Jordan, Lee",QA,On leave'}
+            placeholder={
+              'Name,Role,Status\nAlex,PM,Active\nSara,Eng,Active\n"Jordan, Lee",QA,On leave'
+            }
             className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-[11px] font-mono text-text resize-none focus:outline-none focus:border-accent"
           />
           <button
