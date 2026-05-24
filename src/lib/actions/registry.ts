@@ -24,8 +24,22 @@ class ToolActionRegistry {
       // If you intentionally need to replace, call `unregister` first.
       return;
     }
+    const claudeName = claudeNameFromId(action.id);
+    // BUG-AR1: detect Claude-name (dot→underscore munged) collisions
+    // BEFORE writing the reverse map. Two distinct ids like
+    // `tool.foo_bar` and `tool_foo.bar` munge to the same Claude name
+    // (`tool_foo_bar`) and the old code silently overwrote the first
+    // entry — the agent would dispatch one id's name to the other id's
+    // handler. Throw at register time so the collision is caught by a
+    // failing build / `register-all` import, not in production.
+    const existingForName = this.claudeNameToId.get(claudeName);
+    if (existingForName && existingForName !== action.id) {
+      throw new Error(
+        `Action name collision: "${claudeName}" already maps to "${existingForName}" — cannot register "${action.id}". Rename one of them.`
+      );
+    }
     this.actions.set(action.id, action as AnyToolAction);
-    this.claudeNameToId.set(claudeNameFromId(action.id), action.id);
+    this.claudeNameToId.set(claudeName, action.id);
   }
 
   unregister(id: string): void {
@@ -175,11 +189,23 @@ export function idFromClaudeName(name: string): string {
  */
 export function zodToJsonSchema(schema: ZodType<unknown>): Record<string, unknown> {
   try {
-    const json = z.toJSONSchema(schema as z.ZodType, { target: "draft-2020-12" }) as Record<string, unknown>;
+    const json = z.toJSONSchema(schema as z.ZodType, { target: "draft-2020-12" }) as Record<
+      string,
+      unknown
+    >;
     // Anthropic / MCP don't want the `$schema` declaration — strip it.
     delete json["$schema"];
     return json;
-  } catch {
+  } catch (err) {
+    // Surface conversion failures: without this the tool registers with an
+    // empty schema (`{}`) which the API treats as "accepts anything",
+    // turning every validation failure downstream into the misleading
+    // "schema violation" — no clue the root cause was the conversion.
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[registry/zodToJsonSchema] conversion failed, falling back to permissive {}:",
+      err instanceof Error ? err.message : String(err)
+    );
     return {};
   }
 }

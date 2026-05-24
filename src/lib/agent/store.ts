@@ -35,7 +35,7 @@ interface AgentActions {
   reset(): void;
 }
 
-export const useAgentStore = create<AgentState & AgentActions>()((set) => ({
+export const useAgentStore = create<AgentState & AgentActions>()((set, get) => ({
   open: false,
   activeConversationId: null,
   activeMeta: null,
@@ -50,18 +50,31 @@ export const useAgentStore = create<AgentState & AgentActions>()((set) => ({
   // "until the sheet is closed" but the prior implementation kept the
   // flag set across close/reopen, silently widening write-approval
   // beyond what the user opted into.
-  closeSheet: () => set({ open: false, pendingToolUse: null, autoApprove: false }),
+  closeSheet: () => {
+    // If the sheet closes while a tool is awaiting approval, settle the
+    // hung promise with `false` rather than orphaning it. The agent loop
+    // is awaiting that resolve; without this it would wedge. Capture
+    // BEFORE the set so we don't fight the set's pending=null write.
+    const pending = get().pendingToolUse;
+    set({ open: false, pendingToolUse: null, autoApprove: false });
+    pending?.resolve(false);
+  },
   toggleSheet: () => set((s) => ({ open: !s.open })),
   setAutoApprove: (v) => set({ autoApprove: v }),
 
-  setActiveConversation: (meta, messages) =>
+  setActiveConversation: (meta, messages) => {
+    // Same as closeSheet — a pending confirmation for the OLD conversation
+    // can't carry over to a new one, so settle it as "deny" before swap.
+    const pending = get().pendingToolUse;
     set({
       activeConversationId: meta?.id ?? null,
       activeMeta: meta,
       messages,
       pendingToolUse: null,
       error: null,
-    }),
+    });
+    pending?.resolve(false);
+  },
 
   appendMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
 
@@ -91,10 +104,18 @@ export const useAgentStore = create<AgentState & AgentActions>()((set) => ({
     }),
 
   setStreaming: (v) => set({ streaming: v }),
-  setPendingToolUse: (p) => set({ pendingToolUse: p }),
+  // If a new pending replaces a still-unsettled old one (shouldn't happen
+  // in normal flow, but defensive), reject the old promise so the loop
+  // sees the deny and unwinds cleanly.
+  setPendingToolUse: (p) => {
+    const old = get().pendingToolUse;
+    set({ pendingToolUse: p });
+    if (old && old !== p) old.resolve(false);
+  },
   setError: (e) => set({ error: e }),
 
-  reset: () =>
+  reset: () => {
+    const pending = get().pendingToolUse;
     set({
       activeConversationId: null,
       activeMeta: null,
@@ -104,5 +125,7 @@ export const useAgentStore = create<AgentState & AgentActions>()((set) => ({
       // BUG-G1: reset autoApprove on full reset too.
       autoApprove: false,
       error: null,
-    }),
+    });
+    pending?.resolve(false);
+  },
 }));

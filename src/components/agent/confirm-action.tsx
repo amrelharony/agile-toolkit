@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Check, X } from "lucide-react";
 import { useAgentStore } from "@/lib/agent/store";
@@ -17,6 +18,23 @@ import { useAgentStore } from "@/lib/agent/store";
 export function ConfirmAction() {
   const pending = useAgentStore((s) => s.pendingToolUse);
   const setAutoApprove = useAgentStore((s) => s.setAutoApprove);
+
+  // Escape = deny. The store also auto-denies on closeSheet /
+  // setActiveConversation / reset, but those don't fire when the user
+  // simply hits Esc while the confirm is showing — the agent loop
+  // would otherwise hang awaiting the resolver.
+  useEffect(() => {
+    if (!pending) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        pending.resolve(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pending]);
+
   if (!pending) return null;
 
   return (

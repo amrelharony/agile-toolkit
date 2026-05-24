@@ -896,10 +896,16 @@ function SessionScreen({
                       )}
                     </div>
 
-                    {/* Accept estimate buttons */}
+                    {/* Accept estimate buttons.
+                        BUG-T5-planning-poker-1: filter to numeric votes before
+                        deduping. Otherwise sentinel votes ("?", "∞", "coffee")
+                        appear as accept-estimate buttons; clicking "?" persists
+                        the sentinel as `story.finalEstimate`, which then renders
+                        a nonsensical "Final estimate: ?" downstream and breaks
+                        any consumer that treats finalEstimate as numeric. */}
                     <div className="flex flex-wrap gap-2">
                       <span className="text-xs text-sub self-center">Accept estimate:</span>
-                      {Array.from(new Set(votes)).map((v) => (
+                      {Array.from(new Set(votes.filter(isNumeric))).map((v) => (
                         <Button
                           key={v}
                           size="sm"

@@ -393,13 +393,29 @@ export function OncallRosterClient() {
     if (ts.length === 0) return { counts: [], weekLabels: [] };
     const counts = new Array(WEEKS).fill(0) as number[];
     const labels: string[] = [];
+    // BUG-T5-oncall-roster-5: build labels AND bucket boundaries via
+    // setDate(), not via `weekStart.getTime() + w * 7 * 86_400_000`. A
+    // DST transition inside the 26-week window puts the calendar a
+    // single hour off, which is enough to shift labels onto the wrong
+    // day (when a transition happens near midnight) and to mis-bucket
+    // pages whose timestamps land in the hour the clocks jumped.
+    const bucketStarts: number[] = [];
     for (let w = 0; w < WEEKS; w++) {
-      const start = new Date(weekStart.getTime() + w * 7 * 86_400_000);
+      const start = new Date(weekStart);
+      start.setDate(weekStart.getDate() + w * 7);
+      bucketStarts.push(start.getTime());
       labels.push(`${start.getMonth() + 1}/${String(start.getDate()).padStart(2, "0")}`);
     }
     for (const t of ts) {
-      const w = Math.floor((t - weekStart.getTime()) / (7 * 86_400_000));
-      if (w >= 0 && w < WEEKS) counts[w] += 1;
+      // Linear scan is fine for 26 buckets; binary-search wins nothing.
+      let bucket = -1;
+      for (let w = WEEKS - 1; w >= 0; w--) {
+        if (t >= bucketStarts[w]) {
+          bucket = w;
+          break;
+        }
+      }
+      if (bucket >= 0 && bucket < WEEKS) counts[bucket] += 1;
     }
     return { counts, weekLabels: labels };
   }, [state.pages, now]);

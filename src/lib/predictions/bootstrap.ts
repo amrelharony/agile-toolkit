@@ -1,7 +1,10 @@
 "use client";
 
 import { mean, quantile } from "../analytics/anomaly";
-import { forecastBayesianHolt, bayesianForecastConfidence } from "../analytics/forecasting-bayesian";
+import {
+  forecastBayesianHolt,
+  bayesianForecastConfidence,
+} from "../analytics/forecasting-bayesian";
 import { bootstrapQuantile } from "../analytics/bootstrap";
 import { registerPredictor } from "./registry";
 
@@ -20,11 +23,18 @@ export function bootstrapPredictions(): void {
 
   // ── velocity / capacity-planner ──────────────────────────────────────
   registerPredictor<number>("velocity", "nextSprintPlan", (ctx) => {
-    const completed = ctx.workspace.sprints.filter((s) => s.status === "completed" && Number.isFinite(s.pointsCompleted));
+    const completed = ctx.workspace.sprints.filter(
+      (s) => s.status === "completed" && Number.isFinite(s.pointsCompleted)
+    );
     const series = completed.map((s) => s.pointsCompleted ?? 0);
     if (series.length === 0) return { value: 0, confidence: "none" };
     const fc = forecastBayesianHolt(series, 1, { priorWeight: 2 });
-    if (fc.length === 0) return { value: Math.round(mean(series)), confidence: "low", source: "mean of completed sprints" };
+    if (fc.length === 0)
+      return {
+        value: Math.round(mean(series)),
+        confidence: "low",
+        source: "mean of completed sprints",
+      };
     const point = Math.round(fc[0].yHat);
     return {
       value: point,
@@ -36,7 +46,9 @@ export function bootstrapPredictions(): void {
   });
 
   registerPredictor<number>("capacity-planner", "pointsCommitted", (ctx) => {
-    const completed = ctx.workspace.sprints.filter((s) => s.status === "completed" && Number.isFinite(s.pointsCompleted));
+    const completed = ctx.workspace.sprints.filter(
+      (s) => s.status === "completed" && Number.isFinite(s.pointsCompleted)
+    );
     const series = completed.map((s) => s.pointsCompleted ?? 0);
     if (series.length === 0) return { value: 0, confidence: "none" };
     const fc = forecastBayesianHolt(series, 1, { priorWeight: 2 });
@@ -53,14 +65,21 @@ export function bootstrapPredictions(): void {
     const completed = ctx.workspace.sprints.filter((s) => s.status === "completed");
     if (completed.length < 2) return { value: 1, confidence: "none" };
     // Approximate ideal slope = average daily burn during prior completed sprints.
-    const burns = completed.map((s) => {
-      const days = Math.max(1, daysBetween(s.startDate, s.endDate));
-      return (s.pointsPlanned ?? 0) / days;
-    });
+    // Skip sprints whose dates fail to parse — `daysBetween` returns NaN there
+    // and the previous `Math.max(1, NaN)` propagated NaN through to the predictor
+    // value, matching the same filter applied to impediments/risks below.
+    const burns = completed
+      .map((s) => {
+        const days = daysBetween(s.startDate, s.endDate);
+        if (!Number.isFinite(days) || days <= 0) return NaN;
+        return (s.pointsPlanned ?? 0) / days;
+      })
+      .filter((b) => Number.isFinite(b));
+    if (burns.length < 2) return { value: 1, confidence: "none" };
     return {
       value: Math.round(mean(burns) * 10) / 10,
-      confidence: completed.length >= 4 ? "medium" : "low",
-      source: `Mean burn-rate across ${completed.length} prior sprints`,
+      confidence: burns.length >= 4 ? "medium" : "low",
+      source: `Mean burn-rate across ${burns.length} prior sprints`,
     };
   });
 
@@ -149,11 +168,15 @@ export function bootstrapPredictions(): void {
 
   // ── release-planner ──────────────────────────────────────────────────
   registerPredictor<number>("release-planner", "sprintsToRelease", (ctx) => {
-    const completed = ctx.workspace.sprints.filter((s) => s.status === "completed" && Number.isFinite(s.pointsCompleted));
+    const completed = ctx.workspace.sprints.filter(
+      (s) => s.status === "completed" && Number.isFinite(s.pointsCompleted)
+    );
     if (completed.length === 0) return { value: 4, confidence: "none" };
     const v = mean(completed.map((s) => s.pointsCompleted ?? 0));
     if (v <= 0) return { value: 4, confidence: "low", source: "fallback" };
-    const totalScope = ctx.workspace.stories.filter((s) => s.status !== "done").reduce((a, s) => a + (s.points ?? 0), 0);
+    const totalScope = ctx.workspace.stories
+      .filter((s) => s.status !== "done")
+      .reduce((a, s) => a + (s.points ?? 0), 0);
     return {
       value: Math.max(1, Math.ceil(totalScope / v)),
       confidence: completed.length >= 4 ? "medium" : "low",
@@ -175,7 +198,9 @@ export function bootstrapPredictions(): void {
 
   // ── sprint-goal ──────────────────────────────────────────────────────
   registerPredictor<number>("sprint-goal", "successThresholdPct", (ctx) => {
-    const completed = ctx.workspace.sprints.filter((s) => s.status === "completed" && Number.isFinite(s.pointsCompleted) && s.pointsPlanned > 0);
+    const completed = ctx.workspace.sprints.filter(
+      (s) => s.status === "completed" && Number.isFinite(s.pointsCompleted) && s.pointsPlanned > 0
+    );
     if (completed.length < 3) return { value: 80, confidence: "none" };
     const ratios = completed.map((s) => Math.min(1.5, (s.pointsCompleted ?? 0) / s.pointsPlanned));
     return {

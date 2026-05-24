@@ -73,23 +73,31 @@ export function CausalMarker({ annotation }: CausalLineProps) {
  * when the list is empty.
  */
 export function CausalAnnotationList({ annotations }: { annotations: CausalAnnotationData[] }) {
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  // Track the expanded item by a stable composite of x + label rather than
+  // by array index. If a parent re-orders or filters annotations while one
+  // is open, an index would point at a different annotation; the composite
+  // either matches the original entry or no entry (which collapses cleanly).
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
   if (annotations.length === 0) return null;
+  const keyOf = (a: CausalAnnotationData) => `${a.x}|${a.label}`;
   return (
     <div className="mt-3 flex flex-col gap-2">
-      <div className="text-[11px] font-mono uppercase tracking-wider text-sub">Cross-tool signals</div>
-      {annotations.map((a, i) => {
+      <div className="text-[11px] font-mono uppercase tracking-wider text-sub">
+        Cross-tool signals
+      </div>
+      {annotations.map((a) => {
         const color = CONFIDENCE_COLOR[a.confidence];
-        const open = expandedIdx === i;
+        const k = keyOf(a);
+        const open = expandedKey === k;
         return (
           <div
-            key={i}
+            key={k}
             className="border border-border bg-surface rounded-lg p-3 text-xs"
             style={{ borderLeftColor: color, borderLeftWidth: 3 }}
           >
             <button
               type="button"
-              onClick={() => setExpandedIdx(open ? null : i)}
+              onClick={() => setExpandedKey(open ? null : k)}
               className="flex items-start justify-between gap-3 w-full text-left"
               aria-expanded={open}
             >

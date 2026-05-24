@@ -125,4 +125,32 @@ describe("ToolActionRegistry", () => {
     expect(claudeNameFromId("a.b.c")).toBe("a_b_c");
     expect(claudeNameFromId("no_dots")).toBe("no_dots");
   });
+
+  it("rejects Claude-name (dot→underscore) collisions at register time", () => {
+    // Both ids munge to the SAME Claude name `tool_foo_bar` — registering
+    // the second one must throw rather than silently overwrite the
+    // reverse-map entry.
+    registry.register({
+      id: "__test.collide_a.foo_bar",
+      toolId: "__test.collide_a",
+      name: "foo_bar",
+      category: "read",
+      description: "first",
+      paramsSchema: z.object({}),
+      handler: async () => ({}),
+    });
+    expect(() => {
+      registry.register({
+        id: "__test.collide_a_foo.bar",
+        toolId: "__test.collide_a_foo",
+        name: "bar",
+        category: "read",
+        description: "second",
+        paramsSchema: z.object({}),
+        handler: async () => ({}),
+      });
+    }).toThrow(/collision/i);
+    // Clean up the registered side of the collision.
+    registry.unregister("__test.collide_a.foo_bar");
+  });
 });

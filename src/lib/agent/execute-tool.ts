@@ -22,6 +22,12 @@ interface ExecuteOptions {
  * Anthropic names munge dots to underscores (`workspace_sprint_create`),
  * so both lookups together cover both transports.
  */
+// Hard cap on the size of a tool-use input. Real action params are
+// always under a few KB; anything larger is a misbehaving / malicious
+// model trying to exhaust memory or stall Zod validation. Same shape
+// as the MCP body cap (1 MiB).
+const MAX_INPUT_BYTES = 1_048_576;
+
 export async function executeToolUse(
   block: ToolUseBlock,
   opts: ExecuteOptions
@@ -36,8 +42,35 @@ export async function executeToolUse(
     };
   }
 
+  // Reject oversized inputs BEFORE schema validation — Zod walking a
+  // 10 MB nested object is slow enough to look like a hang.
+  try {
+    const approx = JSON.stringify(block.input ?? {});
+    if (approx.length > MAX_INPUT_BYTES) {
+      return {
+        type: "tool_result",
+        tool_use_id: block.id,
+        content: `Input too large (${approx.length} bytes > ${MAX_INPUT_BYTES}).`,
+        is_error: true,
+      };
+    }
+  } catch {
+    // JSON.stringify can throw on circular refs in `input` itself
+    // (would arrive only via in-process injection, never from the wire).
+    return {
+      type: "tool_result",
+      tool_use_id: block.id,
+      content: "Input is not JSON-serialisable.",
+      is_error: true,
+    };
+  }
+
   // Validate input — the model occasionally drifts from the schema.
-  const parsed = (action.paramsSchema as { safeParse: (v: unknown) => { success: boolean; data?: unknown; error?: { message: string } } }).safeParse(block.input);
+  const parsed = (
+    action.paramsSchema as {
+      safeParse: (v: unknown) => { success: boolean; data?: unknown; error?: { message: string } };
+    }
+  ).safeParse(block.input);
   if (!parsed.success) {
     return {
       type: "tool_result",
@@ -48,7 +81,7 @@ export async function executeToolUse(
   }
 
   // Confirmation gate for write / intent.
-  const needsConfirm = action.requiresConfirmation ?? (action.category !== "read");
+  const needsConfirm = action.requiresConfirmation ?? action.category !== "read";
   if (needsConfirm && !opts.autoApprove) {
     const summary = describeAction(action.id, parsed.data as Record<string, unknown>);
     const ok = await opts.confirm(summary);
@@ -64,7 +97,19 @@ export async function executeToolUse(
 
   try {
     const ctx = makeContext(opts.userId, "agent");
-    const result = await action.handler(parsed.data, ctx);
+    // Race the handler against a 30 s timeout. Without this a handler
+    // that hangs on a network call or accidentally loops would wedge the
+    // whole agent turn — the streaming loop is `await`ing this result.
+    const HANDLER_TIMEOUT_MS = 30_000;
+    const result = await Promise.race([
+      action.handler(parsed.data, ctx),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`Handler timeout after ${HANDLER_TIMEOUT_MS}ms`)),
+          HANDLER_TIMEOUT_MS
+        )
+      ),
+    ]);
     return {
       type: "tool_result",
       tool_use_id: block.id,

@@ -136,6 +136,8 @@ export async function POST(req: NextRequest) {
     forward.thinking = b.thinking;
   }
 
+  // Propagate the client abort signal: if the browser tab closes mid-stream
+  // we want to stop billing GLM for tokens the client will never read.
   const upstream = await fetch(GLM_ENDPOINT, {
     method: "POST",
     headers: {
@@ -143,6 +145,7 @@ export async function POST(req: NextRequest) {
       authorization: `Bearer ${key}`,
     },
     body: JSON.stringify(forward),
+    signal: req.signal,
   });
 
   if (!upstream.ok || !upstream.body) {

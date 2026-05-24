@@ -3,11 +3,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { nanoid } from "nanoid";
-import type {
-  HistoryEvent,
-  HistoryStoreShape,
-  SyncStatus,
-} from "./types";
+import type { HistoryEvent, HistoryStoreShape, SyncStatus } from "./types";
 
 const STORE_KEY = "agile-toolkit:history";
 const EVENTS_CAP = 2000;
@@ -59,7 +55,7 @@ const storage = createJSONStorage(() => {
         // eslint-disable-next-line no-console
         console.warn(
           "[history-store] localStorage.getItem blocked — starting with empty history.",
-          err,
+          err
         );
         return null;
       }
@@ -86,7 +82,10 @@ const storage = createJSONStorage(() => {
         // History is best-effort: cloud retains the full record for
         // signed-in users, so failing silently locally is acceptable.
         // eslint-disable-next-line no-console
-        console.warn("[history-store] localStorage.setItem failed; history held in memory only.", err);
+        console.warn(
+          "[history-store] localStorage.setItem failed; history held in memory only.",
+          err
+        );
       }
     },
     removeItem: (key: string) => {
@@ -135,9 +134,23 @@ export const useHistoryStore = create<HistoryStore>()(
           const seen = new Set(s.events.map((e) => e.clientEventId));
           const fresh = events.filter((e) => !seen.has(e.clientEventId));
           if (fresh.length === 0) return s;
-          const merged = [...s.events, ...fresh].sort((a, b) =>
-            a.occurredAt.localeCompare(b.occurredAt)
-          );
+          // BUG-HX1: a pure `occurredAt` sort breaks across devices with
+          // skewed clocks — a device 30s slow stamps "earlier" events
+          // that ought to interleave AFTER faster-device events. Prefer
+          // the server-stamped `syncedAt` when both sides carry it
+          // (cloud-pulled events always do). Tie-break on clientEventId
+          // (a nanoid) for full determinism instead of leaving sort
+          // stability to the engine.
+          const merged = [...s.events, ...fresh].sort((a, b) => {
+            if (a.syncedAt && b.syncedAt) {
+              const cmp = a.syncedAt.localeCompare(b.syncedAt);
+              if (cmp !== 0) return cmp;
+            } else {
+              const cmp = a.occurredAt.localeCompare(b.occurredAt);
+              if (cmp !== 0) return cmp;
+            }
+            return a.clientEventId.localeCompare(b.clientEventId);
+          });
           if (merged.length > EVENTS_CAP) {
             merged.splice(0, merged.length - EVENTS_CAP);
           }
@@ -154,8 +167,7 @@ export const useHistoryStore = create<HistoryStore>()(
           };
         }),
 
-      setSyncStatus: (status, error = null) =>
-        set({ syncStatus: status, syncError: error }),
+      setSyncStatus: (status, error = null) => set({ syncStatus: status, syncError: error }),
 
       setLastSyncAt: (when) => set({ lastSyncAt: when }),
 

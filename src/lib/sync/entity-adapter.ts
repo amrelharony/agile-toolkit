@@ -179,6 +179,16 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
       }
       merged.set(row.entity_id, row.payload as T);
     }
+    // BUG-S8: pull does not consult pendingDeletes. Tab A marks X for
+    // deletion (markDirty captured X in pendingDeletes); before push
+    // throttle fires, a pull arrives carrying the still-live row for X.
+    // Without this filter the merged view re-adds X and the user's
+    // deletion intent vanishes when the next subscriber render runs.
+    if (this.pendingDeletes.size > 0) {
+      this.pendingDeletes.forEach((id) => {
+        merged.delete(id);
+      });
+    }
     this.applyRemote(Array.from(merged.values()));
     // After a successful pull, rebuild lastPushed against the merged view
     // so the next push diff is accurate.

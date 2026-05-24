@@ -158,11 +158,26 @@ export async function POST(req: NextRequest) {
   // Invalid Request rather than silently 204-ing.
   const isObj = (v: unknown): v is Record<string, unknown> =>
     typeof v === "object" && v !== null && !Array.isArray(v);
+  // Cap batch size: each handler may fan out to a Supabase query, so a
+  // 10k-element batch (well within the 1 MiB body cap) spawns 10k parallel
+  // queries via Promise.all below — enough to OOM a small serverless
+  // instance even though the rate limiter only deducted one token.
+  const MAX_BATCH = 100;
   if (Array.isArray(body)) {
     if (body.length === 0 || !body.every(isObj)) {
       return Response.json(
         { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } },
         { status: 400 }
+      );
+    }
+    if (body.length > MAX_BATCH) {
+      return Response.json(
+        {
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32600, message: `Batch too large (max ${MAX_BATCH})` },
+        },
+        { status: 413 }
       );
     }
   } else if (!isObj(body)) {
