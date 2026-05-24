@@ -27,7 +27,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
 import { ChartCard } from "@/components/shared/chart-card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -189,18 +189,14 @@ const usePrioritizerStore = create<PrioritizerStore>()(
     (set) => ({
       items: defaultItems,
 
-      addItem: () =>
-        set((s) => ({ items: [...s.items, createDefaultItem()] })),
+      addItem: () => set((s) => ({ items: [...s.items, createDefaultItem()] })),
 
       updateItem: (id, updates) =>
         set((s) => ({
-          items: s.items.map((item) =>
-            item.id === id ? { ...item, ...updates } : item
-          ),
+          items: s.items.map((item) => (item.id === id ? { ...item, ...updates } : item)),
         })),
 
-      removeItem: (id) =>
-        set((s) => ({ items: s.items.filter((item) => item.id !== id) })),
+      removeItem: (id) => set((s) => ({ items: s.items.filter((item) => item.id !== id) })),
 
       reset: () => set({ items: defaultItems }),
     }),
@@ -224,8 +220,7 @@ function wsjfScore(item: BacklogItem): number {
 
 function riceScore(item: BacklogItem): number {
   return parseFloat(
-    ((item.reach * item.impact * (item.confidence / 100)) /
-      Math.max(0.1, item.effort)).toFixed(1)
+    ((item.reach * item.impact * (item.confidence / 100)) / Math.max(0.1, item.effort)).toFixed(1)
   );
 }
 
@@ -354,12 +349,7 @@ function ItemsTable({
       title="Backlog Items"
       icon={ArrowUpDown}
       actions={
-        <Button
-          size="sm"
-          variant="toolkit"
-          onClick={addItem}
-          className="gap-1.5 h-8 text-xs"
-        >
+        <Button size="sm" variant="toolkit" onClick={addItem} className="gap-1.5 h-8 text-xs">
           <Plus className="w-3.5 h-3.5" />
           Add Item
         </Button>
@@ -410,17 +400,15 @@ function ItemsTable({
               <tr key={item.id} className="border-b border-border group">
                 <td className="py-2 pr-3 align-top">
                   <div className="flex flex-col gap-1.5 min-w-[140px]">
-                    <Input
+                    <BlurInput
                       value={item.name}
-                      onChange={(e) => updateItem(item.id, { name: e.target.value })}
+                      onCommit={(v) => updateItem(item.id, { name: v })}
                       className={inputCls}
                     />
-                    <Textarea
+                    <BlurTextarea
                       value={item.description ?? ""}
-                      onChange={(e) =>
-                        updateItem(item.id, {
-                          description: e.target.value.trim() ? e.target.value : undefined,
-                        })
+                      onCommit={(v) =>
+                        updateItem(item.id, { description: v.trim() ? v : undefined })
                       }
                       placeholder="Description (optional)..."
                       rows={2}
@@ -432,9 +420,7 @@ function ItemsTable({
                 <td className="py-2 px-2">
                   <Select
                     value={item.moscow}
-                    onValueChange={(v) =>
-                      updateItem(item.id, { moscow: v as MoSCoWCategory })
-                    }
+                    onValueChange={(v) => updateItem(item.id, { moscow: v as MoSCoWCategory })}
                   >
                     <SelectTrigger className={inputCls + " min-w-[110px]"}>
                       <SelectValue />
@@ -454,9 +440,7 @@ function ItemsTable({
                     value={item.businessValue}
                     min={1}
                     max={10}
-                    onCommit={(n) =>
-                      updateItem(item.id, { businessValue: n, value: n })
-                    }
+                    onCommit={(n) => updateItem(item.id, { businessValue: n, value: n })}
                     className={inputCls + " w-16 text-center"}
                   />
                 </td>
@@ -513,9 +497,7 @@ function ItemsTable({
                 <td className="py-2 px-2">
                   <Select
                     value={String(item.impact)}
-                    onValueChange={(v) =>
-                      updateItem(item.id, { impact: Number(v) as ImpactValue })
-                    }
+                    onValueChange={(v) => updateItem(item.id, { impact: Number(v) as ImpactValue })}
                   >
                     <SelectTrigger className={inputCls + " w-20"}>
                       <SelectValue />
@@ -566,7 +548,8 @@ function ItemsTable({
         </table>
       </div>
       <p className="mt-3 text-xs text-sub">
-        Value (1-10) is used for WSJF Business Value and the matrix Y-axis. Effort (1-10) is the matrix X-axis. RICE Effort is in person-months.
+        Value (1-10) is used for WSJF Business Value and the matrix Y-axis. Effort (1-10) is the
+        matrix X-axis. RICE Effort is in person-months.
       </p>
     </SectionCard>
   );
@@ -634,10 +617,7 @@ function MoSCoWTab({ items }: { items: BacklogItem[] }) {
 
 function WSJFTab({ items }: { items: BacklogItem[] }) {
   const sorted = useMemo(
-    () =>
-      [...items]
-        .map((i) => ({ ...i, score: wsjfScore(i) }))
-        .sort((a, b) => b.score - a.score),
+    () => [...items].map((i) => ({ ...i, score: wsjfScore(i) })).sort((a, b) => b.score - a.score),
     [items]
   );
 
@@ -678,10 +658,7 @@ function WSJFTab({ items }: { items: BacklogItem[] }) {
           </thead>
           <tbody>
             {sorted.map((item, idx) => (
-              <tr
-                key={item.id}
-                className="border-b border-border hover:bg-card-hover"
-              >
+              <tr key={item.id} className="border-b border-border hover:bg-card-hover">
                 <td className="py-3 pr-3 align-top">
                   <span className="font-data text-sub text-xs">#{idx + 1}</span>
                 </td>
@@ -693,24 +670,16 @@ function WSJFTab({ items }: { items: BacklogItem[] }) {
                     </div>
                   )}
                 </td>
-                <td className="py-3 px-2 text-center font-data text-sub">
-                  {item.businessValue}
-                </td>
-                <td className="py-3 px-2 text-center font-data text-sub">
-                  {item.timeCriticality}
-                </td>
-                <td className="py-3 px-2 text-center font-data text-sub">
-                  {item.riskReduction}
-                </td>
+                <td className="py-3 px-2 text-center font-data text-sub">{item.businessValue}</td>
+                <td className="py-3 px-2 text-center font-data text-sub">{item.timeCriticality}</td>
+                <td className="py-3 px-2 text-center font-data text-sub">{item.riskReduction}</td>
                 <td className="py-3 px-2 text-center">
                   <ScoreBadge
                     value={item.businessValue + item.timeCriticality + item.riskReduction}
                     color="#ffaa00"
                   />
                 </td>
-                <td className="py-3 px-2 text-center font-data text-sub">
-                  {item.jobSize}
-                </td>
+                <td className="py-3 px-2 text-center font-data text-sub">{item.jobSize}</td>
                 <td className="py-3 px-2 text-center">
                   <ScoreBadge value={item.score} color="#00f0ff" />
                 </td>
@@ -729,10 +698,7 @@ function WSJFTab({ items }: { items: BacklogItem[] }) {
 
 function RICETab({ items }: { items: BacklogItem[] }) {
   const sorted = useMemo(
-    () =>
-      [...items]
-        .map((i) => ({ ...i, score: riceScore(i) }))
-        .sort((a, b) => b.score - a.score),
+    () => [...items].map((i) => ({ ...i, score: riceScore(i) })).sort((a, b) => b.score - a.score),
     [items]
   );
 
@@ -770,10 +736,7 @@ function RICETab({ items }: { items: BacklogItem[] }) {
           </thead>
           <tbody>
             {sorted.map((item, idx) => (
-              <tr
-                key={item.id}
-                className="border-b border-border hover:bg-card-hover"
-              >
+              <tr key={item.id} className="border-b border-border hover:bg-card-hover">
                 <td className="py-3 pr-3 align-top">
                   <span className="font-data text-sub text-xs">#{idx + 1}</span>
                 </td>
@@ -785,18 +748,10 @@ function RICETab({ items }: { items: BacklogItem[] }) {
                     </div>
                   )}
                 </td>
-                <td className="py-3 px-2 text-center font-data text-sub">
-                  {item.reach}
-                </td>
-                <td className="py-3 px-2 text-center font-data text-sub">
-                  {item.impact}x
-                </td>
-                <td className="py-3 px-2 text-center font-data text-sub">
-                  {item.confidence}%
-                </td>
-                <td className="py-3 px-2 text-center font-data text-sub">
-                  {item.effort} pm
-                </td>
+                <td className="py-3 px-2 text-center font-data text-sub">{item.reach}</td>
+                <td className="py-3 px-2 text-center font-data text-sub">{item.impact}x</td>
+                <td className="py-3 px-2 text-center font-data text-sub">{item.confidence}%</td>
+                <td className="py-3 px-2 text-center font-data text-sub">{item.effort} pm</td>
                 <td className="py-3 px-2 text-center">
                   <ScoreBadge value={item.score} color="#00f0ff" />
                 </td>
@@ -911,15 +866,12 @@ function MatrixTab({ items }: { items: BacklogItem[] }) {
                 isHighValue && isLowEffort
                   ? "#00ff88"
                   : isHighValue
-                  ? "#00f0ff"
-                  : isLowEffort
-                  ? "#ffaa00"
-                  : "#ef4444";
+                    ? "#00f0ff"
+                    : isLowEffort
+                      ? "#ffaa00"
+                      : "#ef4444";
               return (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-3 text-sm"
-                >
+                <div key={item.id} className="flex items-center gap-3 text-sm">
                   <span
                     className="w-2 h-2 rounded-full flex-shrink-0"
                     style={{ background: color }}
@@ -936,10 +888,7 @@ function MatrixTab({ items }: { items: BacklogItem[] }) {
       }
     >
       <ScatterChart margin={{ top: 20, right: 30, bottom: 20, left: 10 }}>
-        <CartesianGrid
-          strokeDasharray="3 3"
-          stroke={chartTheme.gridColor}
-        />
+        <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} />
         <XAxis
           type="number"
           dataKey="matrixEffort"
@@ -979,12 +928,7 @@ function MatrixTab({ items }: { items: BacklogItem[] }) {
         <ReferenceLine x={5} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
         <ReferenceLine y={5} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
 
-        <Scatter
-          data={data}
-          fill="#00f0ff"
-          fillOpacity={0.85}
-          r={6}
-        />
+        <Scatter data={data} fill="#00f0ff" fillOpacity={0.85} r={6} />
       </ScatterChart>
     </ChartCard>
   );
@@ -1052,10 +996,13 @@ export function PrioritizerClient() {
       })
     )
   );
-  const promptConfig = useMemo(() => ({
-    toolName: "Backlog Prioritizer",
-    prompts: generatePrioritizerPrompts({ items }, workspace),
-  }), [items, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Backlog Prioritizer",
+      prompts: generatePrioritizerPrompts({ items }, workspace),
+    }),
+    [items, workspace]
+  );
 
   const csvData = useMemo(
     () => ({
@@ -1109,19 +1056,11 @@ export function PrioritizerClient() {
       <div className="space-y-6">
         {/* Actions row */}
         <div className="flex items-center justify-between">
-          <Button
-            variant="danger-ghost"
-            size="sm"
-            onClick={reset}
-          >
+          <Button variant="danger-ghost" size="sm" onClick={reset}>
             Reset to defaults
           </Button>
           <AiPromptGenerator config={promptConfig} />
-          <ExportButton
-            filename="backlog-prioritizer"
-            csvData={csvData}
-            jsonData={items}
-          />
+          <ExportButton filename="backlog-prioritizer" csvData={csvData} jsonData={items} />
         </div>
 
         {/* Items table */}

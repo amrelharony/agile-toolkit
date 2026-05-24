@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { SectionCard } from "@/components/shared/section-card";
 import { ChartCard } from "@/components/shared/chart-card";
 import { Input } from "@/components/ui/input";
+import { BlurInput } from "@/components/shared/blur-fields";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, GitCompare } from "lucide-react";
 import { parseHexOrBlack } from "@/lib/utils";
@@ -133,10 +134,7 @@ const useSprintCompareStore = create<SprintCompareStore>()(
         set((s) => {
           if (s.sprints.length >= MAX_SPRINTS) return s;
           return {
-            sprints: [
-              ...s.sprints,
-              createSprint(`Sprint ${s.sprints.length + 1}`),
-            ],
+            sprints: [...s.sprints, createSprint(`Sprint ${s.sprints.length + 1}`)],
           };
         }),
 
@@ -147,17 +145,13 @@ const useSprintCompareStore = create<SprintCompareStore>()(
 
       updateSprint: (id, updates) =>
         set((s) => ({
-          sprints: s.sprints.map((sp) =>
-            sp.id === id ? { ...sp, ...updates } : sp
-          ),
+          sprints: s.sprints.map((sp) => (sp.id === id ? { ...sp, ...updates } : sp)),
         })),
 
       updateScore: (id, dimension, value) =>
         set((s) => ({
           sprints: s.sprints.map((sp) =>
-            sp.id === id
-              ? { ...sp, scores: { ...sp.scores, [dimension]: value } }
-              : sp
+            sp.id === id ? { ...sp, scores: { ...sp.scores, [dimension]: value } } : sp
           ),
         })),
 
@@ -220,13 +214,7 @@ function NumCell({
 /*  Score cell with color intensity                                           */
 /* -------------------------------------------------------------------------- */
 
-function ScoreCell({
-  value,
-  color,
-}: {
-  value: number;
-  color: string;
-}) {
+function ScoreCell({ value, color }: { value: number; color: string }) {
   const intensity = value / 10;
   const { r, g, b } = parseHexOrBlack(color);
   return (
@@ -318,10 +306,15 @@ export function SprintCompareClient() {
     [sprints]
   );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Sprint Comparison",
-    prompts: generateSprintComparePrompts({ sprints: sprints.map((s) => ({ name: s.name, scores: s.scores })) }),
-  }), [sprints]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Sprint Comparison",
+      prompts: generateSprintComparePrompts({
+        sprints: sprints.map((s) => ({ name: s.name, scores: s.scores })),
+      }),
+    }),
+    [sprints]
+  );
 
   // ── Cross-tool signal: most-recent sprint added to velocity tool ──────
   // Surfaces a chip prompting the user to pin the new sprint here.
@@ -349,7 +342,6 @@ export function SprintCompareClient() {
       category="Metrics & Dashboards"
     >
       <div ref={exportRef} className="space-y-6">
-
         {/* ---- Radar Chart ---- */}
         <ChartCard
           title="Sprint Radar"
@@ -368,10 +360,7 @@ export function SprintCompareClient() {
         >
           <RadarChart data={radarData} margin={{ top: 10, right: 30, left: 30, bottom: 10 }}>
             <PolarGrid stroke="rgba(255,255,255,0.1)" />
-            <PolarAngleAxis
-              dataKey="dimension"
-              tick={{ fill: "#94a3b8", fontSize: 12 }}
-            />
+            <PolarAngleAxis dataKey="dimension" tick={{ fill: "#94a3b8", fontSize: 12 }} />
             <PolarRadiusAxis
               domain={[0, 10]}
               tick={{ fill: "#94a3b8", fontSize: 10 }}
@@ -390,9 +379,7 @@ export function SprintCompareClient() {
                 strokeWidth={2}
               />
             ))}
-            <Legend
-              wrapperStyle={{ paddingTop: "12px", color: "#94a3b8", fontSize: 12 }}
-            />
+            <Legend wrapperStyle={{ paddingTop: "12px", color: "#94a3b8", fontSize: 12 }} />
           </RadarChart>
         </ChartCard>
 
@@ -413,11 +400,7 @@ export function SprintCompareClient() {
                   New sprint available to pin
                 </Badge>
               )}
-              <Button
-                variant="danger-ghost"
-                size="sm"
-                onClick={reset}
-              >
+              <Button variant="danger-ghost" size="sm" onClick={reset}>
                 Reset
               </Button>
               <Button
@@ -433,55 +416,53 @@ export function SprintCompareClient() {
             </>
           }
         >
-            {sprints.map((sp, idx) => {
-              const color = CHART_COLORS[idx % CHART_COLORS.length];
-              return (
-                <div key={sp.id} className="space-y-3">
-                  {/* Sprint header */}
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="w-3 h-3 rounded-full flex-shrink-0"
-                      style={{ background: color }}
-                    />
-                    <Input
-                      value={sp.name}
-                      onChange={(e) => updateSprint(sp.id, { name: e.target.value })}
-                      className="input-toolkit focus:ring-accent/20 max-w-xs"
-                    />
-                    <Button
-                      variant="danger-ghost"
-                      size="icon"
-                      disabled={sprints.length <= 1}
-                      onClick={() => removeSprint(sp.id)}
-                      className="min-touch-coarse h-8 w-8 disabled:opacity-30 ml-auto"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-
-                  {/* Dimension scores */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                    {DIMENSIONS.map((dim) => (
-                      <div key={dim} className="space-y-1.5">
-                        <Label className="text-sub text-xs leading-tight block">
-                          {dim}
-                        </Label>
-                        <NumCell
-                          value={sp.scores[dim]}
-                          min={1}
-                          max={10}
-                          onCommit={(n) => updateScore(sp.id, dim, n)}
-                          className="bg-surface-deep border-border text-text font-data focus:ring-0"
-                          style={{
-                            borderColor: `${color}40`,
-                          }}
-                        />
-                      </div>
-                    ))}
-                  </div>
+          {sprints.map((sp, idx) => {
+            const color = CHART_COLORS[idx % CHART_COLORS.length];
+            return (
+              <div key={sp.id} className="space-y-3">
+                {/* Sprint header */}
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ background: color }}
+                  />
+                  <BlurInput
+                    value={sp.name}
+                    onCommit={(v) => updateSprint(sp.id, { name: v })}
+                    className="input-toolkit focus:ring-accent/20 max-w-xs"
+                  />
+                  <Button
+                    variant="danger-ghost"
+                    size="icon"
+                    disabled={sprints.length <= 1}
+                    onClick={() => removeSprint(sp.id)}
+                    className="min-touch-coarse h-8 w-8 disabled:opacity-30 ml-auto"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 </div>
-              );
-            })}
+
+                {/* Dimension scores */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                  {DIMENSIONS.map((dim) => (
+                    <div key={dim} className="space-y-1.5">
+                      <Label className="text-sub text-xs leading-tight block">{dim}</Label>
+                      <NumCell
+                        value={sp.scores[dim]}
+                        min={1}
+                        max={10}
+                        onCommit={(n) => updateScore(sp.id, dim, n)}
+                        className="bg-surface-deep border-border text-text font-data focus:ring-0"
+                        style={{
+                          borderColor: `${color}40`,
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </SectionCard>
 
         {/* ---- Comparison Table ---- */}
@@ -491,67 +472,63 @@ export function SprintCompareClient() {
           headerClassName="pb-4"
           contentClassName="overflow-x-auto"
         >
-            <table className="w-full text-sm">
-              <thead>
-                <tr>
-                  <th className="text-left px-4 py-2 text-sub font-medium text-xs uppercase tracking-wider border-b border-border">
-                    Dimension
+          <table className="w-full text-sm">
+            <thead>
+              <tr>
+                <th className="text-left px-4 py-2 text-sub font-medium text-xs uppercase tracking-wider border-b border-border">
+                  Dimension
+                </th>
+                {sprints.map((sp, i) => (
+                  <th
+                    key={sp.id}
+                    className="px-4 py-2 text-center text-xs font-medium uppercase tracking-wider border-b border-border"
+                    style={{ color: CHART_COLORS[i % CHART_COLORS.length] }}
+                  >
+                    {sp.name}
                   </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {DIMENSIONS.map((dim) => (
+                <tr key={dim} className="hover:bg-card-hover">
+                  <td className="px-4 py-2 text-sub text-sm border-b border-border">{dim}</td>
                   {sprints.map((sp, i) => (
-                    <th
+                    <ScoreCell
                       key={sp.id}
-                      className="px-4 py-2 text-center text-xs font-medium uppercase tracking-wider border-b border-border"
-                      style={{ color: CHART_COLORS[i % CHART_COLORS.length] }}
-                    >
-                      {sp.name}
-                    </th>
+                      value={sp.scores[dim]}
+                      color={CHART_COLORS[i % CHART_COLORS.length]}
+                    />
                   ))}
                 </tr>
-              </thead>
-              <tbody>
-                {DIMENSIONS.map((dim) => (
-                  <tr key={dim} className="hover:bg-card-hover">
-                    <td className="px-4 py-2 text-sub text-sm border-b border-border">
-                      {dim}
+              ))}
+              {/* Average row */}
+              <tr className="bg-card-hover">
+                <td className="px-4 py-2 text-text font-semibold text-sm">Average</td>
+                {sprints.map((sp, i) => {
+                  // Filter out missing/undefined scores rather than treating
+                  // them as 0 — protects against schema drift where a new
+                  // dimension was added but old persisted entries lack it.
+                  const present = DIMENSIONS.map((d) => sp.scores[d]).filter((v): v is number =>
+                    Number.isFinite(v)
+                  );
+                  const avg =
+                    present.length > 0
+                      ? present.reduce((sum, v) => sum + v, 0) / present.length
+                      : 0;
+                  return (
+                    <td
+                      key={sp.id}
+                      className="px-4 py-2 text-center text-sm font-data font-bold"
+                      style={{ color: CHART_COLORS[i % CHART_COLORS.length] }}
+                    >
+                      {present.length > 0 ? avg.toFixed(1) : "—"}
                     </td>
-                    {sprints.map((sp, i) => (
-                      <ScoreCell
-                        key={sp.id}
-                        value={sp.scores[dim]}
-                        color={CHART_COLORS[i % CHART_COLORS.length]}
-                      />
-                    ))}
-                  </tr>
-                ))}
-                {/* Average row */}
-                <tr className="bg-card-hover">
-                  <td className="px-4 py-2 text-text font-semibold text-sm">
-                    Average
-                  </td>
-                  {sprints.map((sp, i) => {
-                    // Filter out missing/undefined scores rather than treating
-                    // them as 0 — protects against schema drift where a new
-                    // dimension was added but old persisted entries lack it.
-                    const present = DIMENSIONS.map((d) => sp.scores[d]).filter(
-                      (v): v is number => Number.isFinite(v)
-                    );
-                    const avg =
-                      present.length > 0
-                        ? present.reduce((sum, v) => sum + v, 0) / present.length
-                        : 0;
-                    return (
-                      <td
-                        key={sp.id}
-                        className="px-4 py-2 text-center text-sm font-data font-bold"
-                        style={{ color: CHART_COLORS[i % CHART_COLORS.length] }}
-                      >
-                        {present.length > 0 ? avg.toFixed(1) : "—"}
-                      </td>
-                    );
-                  })}
-                </tr>
-              </tbody>
-            </table>
+                  );
+                })}
+              </tr>
+            </tbody>
+          </table>
         </SectionCard>
       </div>
     </ToolPageWrapper>
