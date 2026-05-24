@@ -279,6 +279,17 @@ export function EpicRoadmapClient() {
   // either has changed in the last 14 days, prompt the user to revisit the
   // roadmap and update progress / dates.
   const events = useHistoryStore((s) => s.events);
+  // BUG-RD3-epic-roadmap-1: `selectEvents({ sinceDays: 14 })` calls
+  // Date.now() internally. With deps=[events] only, a tab left open
+  // past midnight kept reporting events as "recent" relative to the
+  // last events-change timestamp. Add a per-hour ticker so the memo
+  // re-evaluates the cutoff at least hourly (sufficient granularity
+  // for "last 14 days").
+  const [hourTick, setHourTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setHourTick((n) => n + 1), 60 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
   const recentSprintAdds = useMemo(
     () =>
       selectEvents({
@@ -287,7 +298,8 @@ export function EpicRoadmapClient() {
         sinceDays: 14,
         limit: 50,
       }),
-    [events]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [events, hourTick]
   );
   const recentOkrUpdates = useMemo(
     () =>
@@ -297,7 +309,8 @@ export function EpicRoadmapClient() {
         sinceDays: 14,
         limit: 50,
       }),
-    [events]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [events, hourTick]
   );
 
   return (

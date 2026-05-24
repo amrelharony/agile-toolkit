@@ -352,7 +352,13 @@ export function ThreatModelClient() {
   const bySeverity = useMemo(() => {
     const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     for (const t of state.threats) {
-      if (t.status === "mitigated") continue;
+      // BUG-RD3-threat-model-1: skip BOTH mitigated AND accepted so the
+      // "Critical (4-5)" headline KPI uses the same denominator-eligibility
+      // as `mitigationRate` and the `totalOpen` card the user reads next
+      // to it. The prior code included accepted threats, so a SEV-5
+      // marked "accepted" counted as Critical but not Open — a
+      // confusing inconsistency between two cards in the same KPI row.
+      if (t.status === "mitigated" || t.status === "accepted") continue;
       // BUG-T9-threat-model-1: clamp severity into 1..5 before bucketing.
       // Hand-edited / corrupted persisted rows can have severity 0, 6,
       // "high", etc. The badge code clamps for display but the aggregate

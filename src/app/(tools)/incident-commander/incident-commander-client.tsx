@@ -567,9 +567,16 @@ export function IncidentCommanderClient() {
             </ResponsiveContainer>
           </div>
           <p className="text-[11px] text-sub mt-2">
-            Kaplan-Meier estimate over {mttrMinutesResolved.length} resolved incident
-            {mttrMinutesResolved.length === 1 ? "" : "s"} (active incidents are right-censored).
-            Y-axis: probability the incident is still open after N minutes.
+            {/* BUG-RD3-incident-commander-1: drop the misleading
+                "right-censored" claim. The code now only feeds RESOLVED
+                incidents into the K-M estimator (each marked
+                `event: true`), so this is mathematically the empirical
+                CDF of resolution times, not a censored survival curve.
+                The earlier caption made it sound like active incidents
+                were also informing the curve. */}
+            Empirical resolution-time distribution over {mttrMinutesResolved.length} resolved
+            incident{mttrMinutesResolved.length === 1 ? "" : "s"}. Active incidents are not
+            included. Y-axis: probability the incident takes longer than N minutes to resolve.
           </p>
         </SectionCard>
       )}

@@ -145,9 +145,16 @@ const useCFDStore = create<CFDStore>()(
           // series sharing the same dataKey collapse to one, silently
           // hiding the renamed column's data. The add-form rejects
           // duplicate names; rename used to allow them.
+          // BUG-RD3-cfd-1: case-INSENSITIVE collide check so the rename
+          // path matches the add path (which uses .toLowerCase()
+          // equality). Without this, "To Do" → "TO DO" was accepted
+          // and produced two visually-identical column headers with
+          // distinct Recharts dataKeys — confusing the user but not
+          // technically colliding.
           const trimmed = name.trim();
           if (trimmed.length === 0) return s;
-          const collides = s.columns.some((c) => c.id !== id && c.name === trimmed);
+          const want = trimmed.toLowerCase();
+          const collides = s.columns.some((c) => c.id !== id && c.name.toLowerCase() === want);
           if (collides) return s;
           return {
             columns: s.columns.map((c) => (c.id === id ? { ...c, name: trimmed } : c)),
@@ -174,8 +181,7 @@ const useCFDStore = create<CFDStore>()(
           return { entries: [...s.entries, today] };
         }),
 
-      removeEntry: (id) =>
-        set((s) => ({ entries: s.entries.filter((e) => e.id !== id) })),
+      removeEntry: (id) => set((s) => ({ entries: s.entries.filter((e) => e.id !== id) })),
 
       updateEntry: (id, updates) =>
         set((s) => ({
@@ -185,16 +191,13 @@ const useCFDStore = create<CFDStore>()(
       updateEntryCount: (entryId, statusId, count) =>
         set((s) => ({
           entries: s.entries.map((e) =>
-            e.id === entryId
-              ? { ...e, counts: { ...e.counts, [statusId]: Math.max(0, count) } }
-              : e
+            e.id === entryId ? { ...e, counts: { ...e.counts, [statusId]: Math.max(0, count) } } : e
           ),
         })),
 
       setWipLimit: (limit) => set({ wipLimit: limit }),
 
-      reset: () =>
-        set({ columns: DEFAULT_COLUMNS, entries: [], wipLimit: null }),
+      reset: () => set({ columns: DEFAULT_COLUMNS, entries: [], wipLimit: null }),
     }),
     { name: "agile-toolkit:cumulative-flow", storage: safeJSONStorage("cumulative-flow") }
   )
@@ -204,7 +207,11 @@ const useCFDStore = create<CFDStore>()(
 /*  Tooltip                                                                   */
 /* -------------------------------------------------------------------------- */
 
-function CFDTooltip({ active, payload, label }: {
+function CFDTooltip({
+  active,
+  payload,
+  label,
+}: {
   active?: boolean;
   payload?: Array<{ name: string; value: number; color: string }>;
   label?: string;
@@ -258,11 +265,7 @@ function StatCard({
         <div className="flex items-baseline gap-1.5 flex-wrap">
           <span
             className={`text-2xl font-data font-bold ${
-              warning
-                ? "text-amber-400"
-                : accent
-                ? "text-accent"
-                : "text-text"
+              warning ? "text-amber-400" : accent ? "text-accent" : "text-text"
             }`}
           >
             {value}
@@ -380,7 +383,8 @@ export function CFDClient() {
     // as N/A (return null sentinel so the UI can render "—").
     const wipCols = columns.length >= 3 ? columns.slice(1, columns.length - 1) : [];
     const wipItems = wipCols.reduce((s, c) => s + (latest.counts[c.id] ?? 0), 0);
-    const wipPct = columns.length < 3 ? null : (totalItems > 0 ? Math.round((wipItems / totalItems) * 100) : 0);
+    const wipPct =
+      columns.length < 3 ? null : totalItems > 0 ? Math.round((wipItems / totalItems) * 100) : 0;
 
     const lastCol = columns[columns.length - 1];
     const doneItems = lastCol ? (latest.counts[lastCol.id] ?? 0) : 0;
@@ -481,18 +485,19 @@ export function CFDClient() {
       entries: sortedEntries.map((e) => ({
         date: e.date,
         description: e.description,
-        counts: Object.fromEntries(
-          columns.map((c) => [c.name, e.counts[c.id] ?? 0])
-        ),
+        counts: Object.fromEntries(columns.map((c) => [c.name, e.counts[c.id] ?? 0])),
       })),
     }),
     [columns, sortedEntries]
   );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Cumulative Flow Diagram",
-    prompts: generateCFDPrompts({ columns, entries, wipLimit }),
-  }), [columns, entries, wipLimit]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Cumulative Flow Diagram",
+      prompts: generateCFDPrompts({ columns, entries, wipLimit }),
+    }),
+    [columns, entries, wipLimit]
+  );
 
   /* -- Add column handler -------------------------------------------------- */
   const handleAddColumn = () => {
@@ -547,7 +552,11 @@ export function CFDClient() {
             }
           />
           <StatCard label="Done Items" value={stats.doneItems} accent />
-          <StatCard label="Cycle Efficiency" value={`${stats.cycleEff}%`} accent={stats.cycleEff >= 50} />
+          <StatCard
+            label="Cycle Efficiency"
+            value={`${stats.cycleEff}%`}
+            accent={stats.cycleEff >= 50}
+          />
         </div>
 
         {/* ---- Chart ---- */}
@@ -566,11 +575,7 @@ export function CFDClient() {
                   jsonData={jsonData}
                   targetRef={exportRef}
                 />
-                <Button
-                  variant="danger-ghost"
-                  size="sm"
-                  onClick={reset}
-                >
+                <Button variant="danger-ghost" size="sm" onClick={reset}>
                   Reset
                 </Button>
               </div>
@@ -599,9 +604,7 @@ export function CFDClient() {
                     allowDecimals={false}
                   />
                   <Tooltip content={<CFDTooltip />} />
-                  <Legend
-                    wrapperStyle={{ fontSize: 12, color: "#94a3b8", paddingTop: 12 }}
-                  />
+                  <Legend wrapperStyle={{ fontSize: 12, color: "#94a3b8", paddingTop: 12 }} />
                   {wipLimit !== null && (
                     <ReferenceLine
                       y={wipLimit}
@@ -660,10 +663,7 @@ export function CFDClient() {
             <CardContent>
               <div className="-mx-2" style={{ height: 240 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
-                    data={wipSeries}
-                    margin={{ top: 10, right: 16, left: 0, bottom: 0 }}
-                  >
+                  <LineChart data={wipSeries} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                     <XAxis
                       dataKey="date"
@@ -794,7 +794,10 @@ export function CFDClient() {
                 <Button
                   size="sm"
                   variant="danger-ghost"
-                  onClick={() => { setWipLimit(null); setWipInput(""); }}
+                  onClick={() => {
+                    setWipLimit(null);
+                    setWipInput("");
+                  }}
                 >
                   Clear
                 </Button>
@@ -914,12 +917,7 @@ export function CFDClient() {
                 <BarChart2 className="w-4 h-4 text-accent" />
                 Data Entries
               </CardTitle>
-              <Button
-                size="sm"
-                variant="toolkit"
-                onClick={addEntry}
-                className="gap-1.5"
-              >
+              <Button size="sm" variant="toolkit" onClick={addEntry} className="gap-1.5">
                 <Plus className="w-4 h-4" />
                 Add Date
               </Button>
@@ -995,9 +993,7 @@ export function CFDClient() {
                             value={entry.description ?? ""}
                             onChange={(e) =>
                               updateEntry(entry.id, {
-                                description: e.target.value.trim()
-                                  ? e.target.value
-                                  : undefined,
+                                description: e.target.value.trim() ? e.target.value : undefined,
                               })
                             }
                             className="h-8 min-w-[140px] bg-surface-deep border-border text-text text-xs focus:border-accent/50"

@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "@/lib/utils/toast";
 import { Plus, Trash2, Rocket, Clock, AlertTriangle, Wrench } from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
@@ -158,14 +159,30 @@ export function DoraScorecardClient() {
     const lead = parsePositive(draft.leadTimeHours);
     const cfr = parsePercent(draft.changeFailRatePct);
     const mttr = parsePositive(draft.mttrHours);
-    if (deploy === null || lead === null || cfr === null || mttr === null) return;
+    if (deploy === null || lead === null || cfr === null || mttr === null) {
+      toast.error("All metric fields must be valid non-negative numbers.");
+      return;
+    }
     const quarterTrimmed = draft.quarter.trim();
-    if (!quarterTrimmed) return;
+    if (!quarterTrimmed) {
+      toast.error("Quarter is required.");
+      return;
+    }
     // R5: enforce YYYY-Q[1-4] so localeCompare sorts chronologically.
     // Free-text like "Q1 2026" or "2026-Q10" sorted wrong + duplicates
     // broke the chart x-axis (Recharts treats dup keys as one point).
-    if (!/^\d{4}-Q[1-4]$/.test(quarterTrimmed)) return;
-    if (state.samples.some((s) => s.quarter === quarterTrimmed)) return;
+    // BUG-RD3-dora-scorecard-1: surface the rejection. The prior
+    // silent `return` made the Add button do nothing visible, and
+    // users had no idea their typed "Q1 2026" / "2026-Q10" was being
+    // rejected by the format check.
+    if (!/^\d{4}-Q[1-4]$/.test(quarterTrimmed)) {
+      toast.error(`Quarter must be YYYY-Q[1-4] (e.g. 2026-Q2). Got "${quarterTrimmed}".`);
+      return;
+    }
+    if (state.samples.some((s) => s.quarter === quarterTrimmed)) {
+      toast.error(`A sample for ${quarterTrimmed} already exists. Remove it first to re-add.`);
+      return;
+    }
     const sample: DoraSample = {
       id: crypto.randomUUID(),
       quarter: quarterTrimmed,

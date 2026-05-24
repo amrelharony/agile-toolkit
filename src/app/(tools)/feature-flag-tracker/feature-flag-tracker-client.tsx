@@ -310,6 +310,14 @@ export function FeatureFlagTrackerClient() {
 
   const flagTrend = useMemo(() => {
     if (weeklyFlagCount.length < 5) return null;
+    // BUG-RD3-feature-flag-tracker-1: Mann-Kendall on a series that is
+    // almost entirely zeros (e.g. 25 weeks of 0 + 1 week with a flag)
+    // is degenerate — the rank statistic is dominated by ties and the
+    // resulting "trend" reading is just noise. Require at least 3
+    // non-zero weeks before computing the trend so we don't surface a
+    // misleading chip on extremely sparse data.
+    const nonZeroWeeks = weeklyFlagCount.filter((c) => c > 0).length;
+    if (nonZeroWeeks < 3) return null;
     return mannKendall(weeklyFlagCount);
   }, [weeklyFlagCount]);
 

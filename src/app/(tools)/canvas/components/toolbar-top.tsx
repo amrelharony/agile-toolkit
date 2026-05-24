@@ -25,7 +25,13 @@ export function ToolbarTop() {
   const setSnapToObjects = useCanvasStore((s) => s.setSnapToObjects);
   const snapToGridEnabled = useCanvasStore((s) => s.snapToGrid);
   const setSnapToGridEnabled = useCanvasStore((s) => s.setSnapToGrid);
+  // BUG-RD3-toolbar-top-1: hold a controlled draft so a cross-tab /
+  // realtime rename landing while the user is mid-edit doesn't silently
+  // desync the input's displayed text from board.name. We seed the
+  // draft from board.name only on the rising edge of `editing` (entry
+  // into rename mode) and never overwrite it mid-edit.
   const [editing, setEditing] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
   // R5: inline two-step confirm replaces the blocking `confirm()` call
   // (which froze the JS thread, stalling any in-flight realtime
   // broadcast for the duration of the modal). When `confirmingDelete`
@@ -152,7 +158,9 @@ export function ToolbarTop() {
         >
           {boards.length === 0 && <option value="">No boards yet</option>}
           {boards.map((b) => (
-            <option key={b.id} value={b.id}>{b.name}</option>
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
           ))}
         </select>
         {board && (
@@ -160,10 +168,17 @@ export function ToolbarTop() {
             {editing ? (
               <input
                 autoFocus
-                defaultValue={board.name}
-                onBlur={(e) => { rename(e.target.value); setEditing(false); }}
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onBlur={() => {
+                  rename(nameDraft);
+                  setEditing(false);
+                }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") { rename((e.target as HTMLInputElement).value); setEditing(false); }
+                  if (e.key === "Enter") {
+                    rename(nameDraft);
+                    setEditing(false);
+                  }
                   if (e.key === "Escape") setEditing(false);
                 }}
                 className="bg-surface-deep border border-border rounded px-2 py-0.5 text-sm text-text"
@@ -171,7 +186,10 @@ export function ToolbarTop() {
             ) : (
               <button
                 type="button"
-                onClick={() => setEditing(true)}
+                onClick={() => {
+                  setNameDraft(board.name);
+                  setEditing(true);
+                }}
                 className="text-[11px] text-sub hover:text-accent transition-colors uppercase tracking-wider"
                 title="Rename board"
                 aria-label={`Rename board ${board.name}`}
@@ -182,10 +200,14 @@ export function ToolbarTop() {
             <button
               type="button"
               onClick={deleteCurrent}
-              aria-label={confirmingDelete ? "Click again to confirm delete" : "Delete current board"}
+              aria-label={
+                confirmingDelete ? "Click again to confirm delete" : "Delete current board"
+              }
               className={cn(
                 "transition-colors w-7 h-7 rounded flex items-center justify-center",
-                confirmingDelete ? "text-red-400 hover:text-red-300 bg-red-500/10" : "text-sub hover:text-red-400 hover:bg-text/[0.04]",
+                confirmingDelete
+                  ? "text-red-400 hover:text-red-300 bg-red-500/10"
+                  : "text-sub hover:text-red-400 hover:bg-text/[0.04]"
               )}
               title={confirmingDelete ? "Click again to confirm" : `Delete "${board?.name ?? ""}"`}
             >
@@ -221,7 +243,9 @@ export function ToolbarTop() {
           title="Snap to grid (Cmd/Ctrl toggles during drag)"
           className={cn(
             "w-7 h-7 rounded flex items-center justify-center transition-colors",
-            snapToGridEnabled ? "bg-accent/20 text-accent" : "text-sub hover:text-text hover:bg-text/[0.04]",
+            snapToGridEnabled
+              ? "bg-accent/20 text-accent"
+              : "text-sub hover:text-text hover:bg-text/[0.04]"
           )}
         >
           <Grid3X3 className="w-3.5 h-3.5" />
@@ -233,7 +257,9 @@ export function ToolbarTop() {
           title="Snap to objects (alignment guides)"
           className={cn(
             "w-7 h-7 rounded flex items-center justify-center transition-colors",
-            snapToObjects ? "bg-accent/20 text-accent" : "text-sub hover:text-text hover:bg-text/[0.04]",
+            snapToObjects
+              ? "bg-accent/20 text-accent"
+              : "text-sub hover:text-text hover:bg-text/[0.04]"
           )}
         >
           <Magnet className="w-3.5 h-3.5" />
@@ -245,7 +271,9 @@ export function ToolbarTop() {
           title="Toggle minimap"
           className={cn(
             "w-7 h-7 rounded flex items-center justify-center transition-colors",
-            showMiniMap ? "bg-accent/20 text-accent" : "text-sub hover:text-text hover:bg-text/[0.04]",
+            showMiniMap
+              ? "bg-accent/20 text-accent"
+              : "text-sub hover:text-text hover:bg-text/[0.04]"
           )}
         >
           <Map className="w-3.5 h-3.5" />
@@ -266,7 +294,9 @@ export function ToolbarTop() {
           title="Toggle AI insights panel"
           className={cn(
             "w-7 h-7 rounded flex items-center justify-center transition-colors",
-            showAIPanel ? "bg-accent/20 text-accent" : "text-sub hover:text-text hover:bg-text/[0.04]",
+            showAIPanel
+              ? "bg-accent/20 text-accent"
+              : "text-sub hover:text-text hover:bg-text/[0.04]"
           )}
         >
           <Sparkles className="w-3.5 h-3.5" />
