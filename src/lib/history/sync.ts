@@ -21,6 +21,7 @@ interface HistoryEventRow {
   tool_run_id: string;
   occurred_at: string;
   created_at?: string;
+  squad_profile_id?: string | null;
 }
 
 function toRow(e: HistoryEvent, userId: string): HistoryEventRow {
@@ -36,6 +37,7 @@ function toRow(e: HistoryEvent, userId: string): HistoryEventRow {
     client_event_id: e.clientEventId,
     tool_run_id: e.toolRunId,
     occurred_at: e.occurredAt,
+    squad_profile_id: e.squadProfileId ?? null,
   };
 }
 
@@ -46,6 +48,7 @@ function fromRow(row: HistoryEventRow): HistoryEvent {
     clientId: row.client_id,
     toolRunId: row.tool_run_id,
     userId: row.user_id,
+    squadProfileId: row.squad_profile_id ?? null,
     toolId: row.tool_id,
     action: row.action,
     payload: row.payload as Record<string, unknown>,
@@ -68,10 +71,7 @@ function fromRow(row: HistoryEventRow): HistoryEvent {
  * Returns the client_event_ids that were successfully written (or already
  * existed). On error, throws — the caller should mark sync status.
  */
-export async function pushEvents(
-  events: HistoryEvent[],
-  userId: string
-): Promise<string[]> {
+export async function pushEvents(events: HistoryEvent[], userId: string): Promise<string[]> {
   if (events.length === 0) return [];
   const supabase = getAuthBrowserClient();
   if (!supabase) throw new Error("auth_disabled");
@@ -121,10 +121,7 @@ export async function pushEvents(
 /**
  * Pull history events newer than `since` (or all events if undefined).
  */
-export async function pullEvents(
-  userId: string,
-  since: string | null
-): Promise<HistoryEvent[]> {
+export async function pullEvents(userId: string, since: string | null): Promise<HistoryEvent[]> {
   const supabase = getAuthBrowserClient();
   if (!supabase) throw new Error("auth_disabled");
 
@@ -147,10 +144,7 @@ export async function pullEvents(
 export async function deleteAllEvents(userId: string): Promise<void> {
   const supabase = getAuthBrowserClient();
   if (!supabase) throw new Error("auth_disabled");
-  const { error } = await supabase
-    .from("history_events")
-    .delete()
-    .eq("user_id", userId);
+  const { error } = await supabase.from("history_events").delete().eq("user_id", userId);
   if (error) throw error;
 }
 

@@ -18,6 +18,13 @@ export interface HistoryEvent<P = Record<string, unknown>> {
   toolRunId: string;
   /** Null for anonymous users; populated after sign-in / on cloud rows. */
   userId: string | null;
+  /**
+   * Set when the event was authored by a squad guest rather than the
+   * workspace owner. `userId` still references the owner (the workspace
+   * the event happened in), so the owner sees it through normal RLS.
+   * Null/undefined for owner-authored events.
+   */
+  squadProfileId?: string | null;
   /** Tool that emitted the event. */
   toolId: ToolId;
   /** Action name from per-tool catalog (e.g. "card_added", "sprint_committed"). */
