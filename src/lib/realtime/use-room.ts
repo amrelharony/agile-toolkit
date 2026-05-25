@@ -5,6 +5,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabaseClient, isRealtimeAvailable } from "./supabase-client";
 import { nanoid } from "nanoid";
 import { emitRtEvent } from "@/lib/sonification/emit";
+import { usePresenceIdentityOverride } from "./presence-identity";
 
 export interface PresenceMember {
   id: string;
@@ -25,7 +26,16 @@ export interface UseRoomResult<T> {
   subscribeToEvent: (event: string, handler: (payload: unknown) => void) => () => void;
 }
 
-const COLORS = ["#00f0ff", "#a855f7", "#f472b6", "#facc15", "#34d399", "#fb923c", "#60a5fa", "#f87171"];
+const COLORS = [
+  "#00f0ff",
+  "#a855f7",
+  "#f472b6",
+  "#facc15",
+  "#34d399",
+  "#fb923c",
+  "#60a5fa",
+  "#f87171",
+];
 const COLOR_SET = new Set(COLORS);
 const FALLBACK_COLOR = COLORS[0];
 
@@ -90,6 +100,15 @@ interface UseRoomOptions<T> {
    * to spam `setStateInternal` re-renders via the default channel.
    */
   validateState?: (raw: unknown) => raw is T;
+  /**
+   * Explicit identity for this participant. When provided, useRoom skips
+   * the localStorage-backed `getOrCreateUser()` path and uses the supplied
+   * id + name directly. Used by guest pages to pin presence to a squad
+   * profile without overwriting the shared `agile-toolkit:user` slot —
+   * doing so would contaminate any other tab on the same browser (e.g.
+   * the owner signed in elsewhere) for the duration of the session.
+   */
+  identity?: { id: string; name: string };
 }
 
 export function useRoom<T>(
@@ -112,43 +131,88 @@ export function useRoom<T>(
   const [isConnected, setIsConnected] = useState(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const eventHandlersRef = useRef<Map<string, Set<(p: unknown) => void>>>(new Map());
+  // Per-channel record of which event names already have a `channel.on()`
+  // listener wired. Tracked separately from `eventHandlersRef` because
+  // multiple consumers can call `subscribeToEvent(event, ...)` for the
+  // same event — we only want ONE channel binding per event, fanned out
+  // to every handler in the Set. Cleared on channel teardown so the
+  // next channel re-binds fresh.
+  const boundEventsRef = useRef<Set<string>>(new Set());
   const userRef = useRef<{ id: string; name: string } | null>(null);
-  // Lazy-init user on first access to avoid calling localStorage during SSR render
-  // and to avoid repeated calls on every render.
-  if (userRef.current === null) userRef.current = getOrCreateUser();
+  // Identity precedence: explicit option > tree-scoped context > localStorage.
+  // Guest pages mount <PresenceIdentityProvider> so they don't have to
+  // overwrite the shared `agile-toolkit:user` slot (which would
+  // contaminate any other tab on the same browser).
+  const contextIdentity = usePresenceIdentityOverride();
+  if (options.identity) {
+    userRef.current = options.identity;
+  } else if (contextIdentity) {
+    userRef.current = contextIdentity;
+  } else if (userRef.current === null) {
+    userRef.current = getOrCreateUser();
+  }
   const user = userRef.current;
   const isLocalOnly = !roomId || !isRealtimeAvailable();
 
-  const setState = useCallback(
-    (updater: T | ((prev: T) => T)) => {
-      setStateInternal((prev) => {
-        const next = typeof updater === "function" ? (updater as (p: T) => T)(prev) : updater;
-        if (channelRef.current && userRef.current) {
-          void channelRef.current.send({
-            type: "broadcast",
-            event: "state-sync",
-            payload: { state: next, by: userRef.current.id, at: new Date().toISOString() },
-          });
-        }
-        return next;
-      });
-    },
-    []
-  );
+  const setState = useCallback((updater: T | ((prev: T) => T)) => {
+    setStateInternal((prev) => {
+      const next = typeof updater === "function" ? (updater as (p: T) => T)(prev) : updater;
+      if (channelRef.current && userRef.current) {
+        void channelRef.current.send({
+          type: "broadcast",
+          event: "state-sync",
+          payload: { state: next, by: userRef.current.id, at: new Date().toISOString() },
+        });
+      }
+      return next;
+    });
+  }, []);
 
   const broadcast = useCallback((event: string, payload: unknown) => {
     if (!channelRef.current) return;
     void channelRef.current.send({ type: "broadcast", event, payload });
   }, []);
 
-  const subscribeToEvent = useCallback((event: string, handler: (p: unknown) => void) => {
-    const handlers = eventHandlersRef.current.get(event) ?? new Set();
-    handlers.add(handler);
-    eventHandlersRef.current.set(event, handlers);
-    return () => {
-      handlers.delete(handler);
-    };
+  // Bind one Supabase broadcast listener per event name and dispatch to
+  // every consumer in the handler Set. Idempotent — calling twice for
+  // the same event is a no-op (boundEventsRef tracks what's bound).
+  const bindEventToChannel = useCallback((channel: RealtimeChannel, event: string) => {
+    if (boundEventsRef.current.has(event)) return;
+    boundEventsRef.current.add(event);
+    channel.on("broadcast", { event }, (payload) => {
+      const set = eventHandlersRef.current.get(event);
+      if (!set || set.size === 0) return;
+      const raw = (payload as { payload?: unknown } | undefined)?.payload;
+      // Snapshot the Set BEFORE iteration — a handler that calls its
+      // own off() during dispatch would otherwise mutate the live Set.
+      for (const h of Array.from(set)) {
+        try {
+          h(raw);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn(`[use-room] handler for ${event} threw`, err);
+        }
+      }
+    });
   }, []);
+
+  const subscribeToEvent = useCallback(
+    (event: string, handler: (p: unknown) => void) => {
+      const handlers = eventHandlersRef.current.get(event) ?? new Set();
+      handlers.add(handler);
+      eventHandlersRef.current.set(event, handlers);
+      // Bind to the live channel if one exists. If subscribeToEvent is
+      // called BEFORE the channel mounts, the effect below catches it
+      // by iterating `eventHandlersRef.current.keys()` at setup time.
+      if (channelRef.current) {
+        bindEventToChannel(channelRef.current, event);
+      }
+      return () => {
+        handlers.delete(handler);
+      };
+    },
+    [bindEventToChannel]
+  );
 
   useEffect(() => {
     if (isLocalOnly || !roomId) {
@@ -215,15 +279,20 @@ export function useRoom<T>(
         setMembers(allMembers);
       });
 
-    // Custom event fan-out: any broadcast event dispatches to registered handlers
-    // We register per-event as users call subscribeToEvent, but also proxy-register
-    // a catch-all here for events the hook doesn't know about. Supabase doesn't
-    // support a true wildcard, so we just route via the handlers map from known events.
-    // (No wildcard listener needed — handlers added via subscribeToEvent must match
-    // an event registered before subscribe.)
-
+    // Custom event fan-out. Supabase has no wildcard for `broadcast`, so
+    // we bind one `channel.on("broadcast", { event }, …)` per event name
+    // that any consumer has already registered (via subscribeToEvent
+    // before the channel mounted). Subsequent calls to subscribeToEvent
+    // after the channel is live also bind on the fly — see the
+    // `if (channelRef.current)` branch in subscribeToEvent.
     channelRef.current = channel;
     const handlers = eventHandlersRef.current;
+    // Capture into a local that the cleanup closure can use safely —
+    // satisfies react-hooks/exhaustive-deps' ref-mutation check.
+    const boundEvents = boundEventsRef.current;
+    handlers.forEach((_set, event) => {
+      bindEventToChannel(channel, event);
+    });
 
     channel.subscribe((status) => {
       if (status === "SUBSCRIBED") {
@@ -251,9 +320,17 @@ export function useRoom<T>(
       void Promise.resolve(channel.untrack())
         .then(() => channel.unsubscribe())
         .catch(() => {});
-      try { void getSupabaseClient()?.removeChannel(channel); } catch { /* client torn down */ }
+      try {
+        void getSupabaseClient()?.removeChannel(channel);
+      } catch {
+        /* client torn down */
+      }
       channelRef.current = null;
-      handlers.clear();
+      // Forget which events we'd bound to the now-dead channel; the
+      // next channel will re-bind from `eventHandlersRef.current.keys()`.
+      // Intentionally DO NOT clear `eventHandlersRef` — consumer handlers
+      // are still registered and need to be re-attached to the new channel.
+      boundEvents.clear();
       setIsConnected(false);
       setMembers([]);
     };
