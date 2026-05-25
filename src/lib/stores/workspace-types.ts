@@ -121,7 +121,7 @@ export interface LLMEval {
 export interface PromptVersion {
   id: string;
   name: string;
-  version: string;       // semantic-ish e.g. "1.4.0"
+  version: string; // semantic-ish e.g. "1.4.0"
   body: string;
   status: "draft" | "review" | "production" | "deprecated";
   evalScore?: number;
@@ -249,7 +249,18 @@ export interface ModelCard {
 export interface PrioritizationItem {
   id: string;
   /** Which framework this row belongs to so multiple tools share storage */
-  framework: "rice" | "ice" | "moscow" | "kano" | "wsjf" | "cost-of-delay" | "value-effort" | "buy-feature" | "hundred-dollar" | "eisenhower" | "walking-skeleton";
+  framework:
+    | "rice"
+    | "ice"
+    | "moscow"
+    | "kano"
+    | "wsjf"
+    | "cost-of-delay"
+    | "value-effort"
+    | "buy-feature"
+    | "hundred-dollar"
+    | "eisenhower"
+    | "walking-skeleton";
   title: string;
   description?: string;
   /** Generic numeric score derived by the framework */
@@ -476,8 +487,16 @@ export interface WhiteboardText extends WhiteboardObjectBase {
 
 export interface WhiteboardFreehand extends WhiteboardObjectBase {
   type: "freehand";
-  /** Flat [x0,y0,x1,y1,...] in WORLD coords. */
+  /** Flat [x0,y0,x1,y1,...] in WORLD coords — ALWAYS stride-2 so older
+   * clients on the realtime channel keep rendering correctly. */
   points: number[];
+  /** Optional per-sample pressure in [0, 1]. `pressures.length` equals
+   * `points.length / 2`. Present only for strokes drawn by a stylus
+   * that reported real pressure; absent or undefined falls back to the
+   * legacy polyline render path. Stored as a separate array so old
+   * clients (pre-stylus build) ignore it cleanly and render the
+   * polyline as before. */
+  pressures?: number[];
   stroke: string;
   strokeWidth: number;
   smoothness?: number;

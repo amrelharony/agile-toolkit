@@ -166,6 +166,17 @@ export function useCanvasPointerMachine(params: {
   spaceHeldRef: RefObject<boolean>;
   topZRef: RefObject<number>;
   dragGuidesRef: RefObject<readonly AlignmentGuide[]>;
+  // Stylus / palm-rejection: pointerIds of pens currently in contact.
+  // Tracked at window level by `useInputClass` so capture transitions
+  // (table cells, embeds) don't desync the set.
+  anyPenActiveRef: MutableRefObject<Set<number>>;
+  // Optional low-latency wet-ink preview. The machine calls into the
+  // canvas-2D layer directly so the active stroke bypasses React.
+  wetInkApiRef: MutableRefObject<{
+    begin(stroke: { color: string; width: number }): void;
+    push(worldX: number, worldY: number, pressure: number): void;
+    reset(): void;
+  } | null>;
   // Camera / coords
   throttledSetCamera: (cam: Camera) => void;
   clientToWorld: (clientX: number, clientY: number) => { x: number; y: number };
@@ -220,6 +231,8 @@ export function useCanvasPointerMachine(params: {
     spaceHeldRef,
     topZRef,
     dragGuidesRef,
+    anyPenActiveRef,
+    wetInkApiRef,
     throttledSetCamera,
     clientToWorld,
     publish,
@@ -268,6 +281,14 @@ export function useCanvasPointerMachine(params: {
       createStartRef.current = null;
       dragSnapIndexRef.current = null;
       lastPointerRef.current = null;
+      // Clear the wet-ink preview too — without this, a mid-stroke board
+      // switch leaves the previous stroke painted on the new board.
+      // Intentionally read the LATEST ref value at cleanup time; the
+      // wet-ink instance lives for the whole canvas lifetime so the
+      // ref is stable by then. (Disable the "ref captured at mount"
+      // lint — that's exactly what we DON'T want here.)
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      wetInkApiRef.current?.reset();
     };
   }, [
     boardId,
@@ -279,6 +300,7 @@ export function useCanvasPointerMachine(params: {
     setPendingConnectorFromId,
     setDragGuides,
     setEditingObjectId,
+    wetInkApiRef,
   ]);
 
   // Cancel in-flight interactions when the tab is hidden. Without this,
@@ -336,6 +358,17 @@ export function useCanvasPointerMachine(params: {
   // ─── Pointer down on empty canvas ────────────────────────────────────
   const onCanvasPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      // Palm rejection: if a pen is in contact (tracked at window level
+      // by useInputClass), single-finger touch is almost always the
+      // user's hand resting on the screen. Drop it before any
+      // tool-specific branch fires — including in read-only / commenter
+      // mode, where a stray palm could otherwise drop an unwanted
+      // comment thread. Two-finger / pinch gestures are picked up by
+      // @use-gesture/react on the viewport and aren't routed through
+      // this handler, so navigation still works with palm down.
+      if (anyPenActiveRef.current.size > 0 && e.pointerType === "touch") {
+        return;
+      }
       // Read-only mode — allow pan via middle-mouse but no other
       // pointer-down side-effects (no marquee, no draw, etc.). In
       // commenter mode we additionally allow dropping a new comment
@@ -450,6 +483,14 @@ export function useCanvasPointerMachine(params: {
         const id = wbId("wb");
         const now = new Date().toISOString();
         const topZ = claimNextZ(topZRef);
+        // Only record per-sample pressure when the user is actually
+        // drawing with a stylus. Mouse and finger strokes keep the
+        // pre-stylus polyline render path (no `pressures` field) so
+        // desktop visual output stays pixel-identical to before. This
+        // also keeps the realtime wire format stride-2 for non-stylus
+        // strokes, so pre-stylus clients render those correctly.
+        const isStylus = e.pointerType === "pen";
+        const pressure = e.pressure > 0 ? e.pressure : 0.5;
         setDrawing({
           id,
           boardId,
@@ -459,6 +500,7 @@ export function useCanvasPointerMachine(params: {
           w: 0,
           h: 0,
           points: [world.x, world.y],
+          ...(isStylus ? { pressures: [pressure] } : {}),
           stroke: "#e5e7eb",
           strokeWidth: 3,
           version: 1,
@@ -466,6 +508,12 @@ export function useCanvasPointerMachine(params: {
           createdAt: now,
           updatedAt: now,
         });
+        if (isStylus) {
+          // Prime the low-latency wet-ink layer so the first segment
+          // lands on the canvas as soon as the next pointermove fires.
+          wetInkApiRef.current?.begin({ color: "#e5e7eb", width: 3 });
+          wetInkApiRef.current?.push(world.x, world.y, pressure);
+        }
         viewportRef.current?.setPointerCapture(e.pointerId);
         return;
       }
@@ -585,6 +633,8 @@ export function useCanvasPointerMachine(params: {
       viewportRectRef,
       spaceHeldRef,
       topZRef,
+      anyPenActiveRef,
+      wetInkApiRef,
     ]
   );
 
@@ -662,14 +712,26 @@ export function useCanvasPointerMachine(params: {
           setDrawing({ ...drawing, w: dx, h: dy });
         } else if (drawing.type === "freehand") {
           const pts = drawing.points;
+          const hasPressures = Array.isArray(drawing.pressures);
+          // Last x,y always live in the final stride-2 pair of `points`.
+          // Coalesce sub-pixel jitter (1 world-px dead-zone) to keep the
+          // points array bounded.
           const lastX = pts[pts.length - 2];
           const lastY = pts[pts.length - 1];
           if (Math.hypot(world.x - lastX, world.y - lastY) >= 1) {
+            const pressure = e.pressure > 0 ? e.pressure : 0.5;
+            // Feed the wet-ink layer first so the segment paints on the
+            // canvas immediately, before React rerenders the SVG path.
+            if (hasPressures) {
+              wetInkApiRef.current?.push(world.x, world.y, pressure);
+            }
             const nextPts = pts.concat([world.x, world.y]);
+            const nextPressures = hasPressures ? drawing.pressures!.concat([pressure]) : undefined;
             const bbox = boundingBoxOfFlatPoints(nextPts);
             setDrawing({
               ...drawing,
               points: nextPts,
+              ...(nextPressures ? { pressures: nextPressures } : {}),
               x: bbox.x,
               y: bbox.y,
               w: bbox.w,
@@ -949,6 +1011,7 @@ export function useCanvasPointerMachine(params: {
       publish,
       setPreviewCursor,
       dragGuidesRef,
+      wetInkApiRef,
     ]
   );
 
@@ -1264,6 +1327,9 @@ export function useCanvasPointerMachine(params: {
           log(CANVAS_ACTIONS.OBJECT_ADDED, { id: drawing.id, type: drawing.type });
           setSelection([drawing.id]);
         }
+        // Clear the wet-ink preview now that the committed SVG path is
+        // mounted (or that the stroke was trivial and discarded).
+        if (drawing.type === "freehand") wetInkApiRef.current?.reset();
         createStartRef.current = null;
         setDrawing(null);
         setTool("select");
@@ -1299,6 +1365,7 @@ export function useCanvasPointerMachine(params: {
       readOnly,
       viewportRef,
       dragGuidesRef,
+      wetInkApiRef,
     ]
   );
 

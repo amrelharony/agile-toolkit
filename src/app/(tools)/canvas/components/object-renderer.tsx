@@ -2,16 +2,26 @@
 
 import React, { memo, useEffect, useRef, useState } from "react";
 import { Lock, StickyNote } from "lucide-react";
-import type { WhiteboardObject, WhiteboardTimer, WhiteboardVoting, WhiteboardCard } from "@/lib/stores/workspace-types";
+import type {
+  WhiteboardObject,
+  WhiteboardTimer,
+  WhiteboardVoting,
+  WhiteboardCard,
+} from "@/lib/stores/workspace-types";
 import { TimerObject } from "./objects/timer-object";
 import { VotingObject } from "./objects/voting-object";
 import { CardObject } from "./objects/card-object";
 import { TableObject } from "./objects/table-object";
-import type { WhiteboardTable, WhiteboardMindMapNode, WhiteboardDiagramShape } from "@/lib/stores/workspace-types";
+import type {
+  WhiteboardTable,
+  WhiteboardMindMapNode,
+  WhiteboardDiagramShape,
+} from "@/lib/stores/workspace-types";
 import { MindMapNode } from "./objects/mind-map-node";
 import { DiagramShape } from "./objects/diagram-shape";
 import { TiptapInlineEditor } from "./tiptap-inline-editor";
 import { sanitizeRichHtml, isRichHtmlEmpty } from "@/lib/utils/safe-html";
+import { flatPointsToPath } from "@/lib/whiteboard/freehand";
 
 /**
  * Detect whether a stored `content` string is rich HTML or plain
@@ -80,7 +90,11 @@ interface ObjectRendererProps {
   selfId?: string;
   /** Mind-map structural action from inside the node editor. Only
    * wired for `mindMapNode` objects; other types ignore. */
-  onMindMapStructural?: (id: string, action: "child" | "sibling" | "promote", committedText: string) => void;
+  onMindMapStructural?: (
+    id: string,
+    action: "child" | "sibling" | "promote",
+    committedText: string
+  ) => void;
   /** Set of mind-map node ids that have at least one child. Used to
    * decide whether the collapse/expand toggle renders. Precomputed
    * upstream so ObjectRenderer doesn't walk the whole object list
@@ -143,7 +157,9 @@ function InlineEditor({
         if (native && native.isComposing) return;
         valueRef.current = e.target.value;
       }}
-      onCompositionEnd={(e) => { valueRef.current = (e.target as HTMLTextAreaElement).value; }}
+      onCompositionEnd={(e) => {
+        valueRef.current = (e.target as HTMLTextAreaElement).value;
+      }}
       onBlur={() => onCommit(valueRef.current)}
       onKeyDown={(e) => {
         // R8: skip Enter-commits during IME composition — Enter is
@@ -251,12 +267,7 @@ function iframeSandboxFor(host: string): string {
   // (signed-in editing / playback resume). All entries must be exact
   // hostnames — substring matching would let a "figma.com.evil.tld"
   // attacker masquerade as Figma.
-  const elevated = new Set([
-    "figma.com",
-    "www.figma.com",
-    "loom.com",
-    "www.loom.com",
-  ]);
+  const elevated = new Set(["figma.com", "www.figma.com", "loom.com", "www.loom.com"]);
   return elevated.has(host)
     ? `${base} allow-same-origin allow-popups allow-popups-to-escape-sandbox`
     : base;
@@ -366,7 +377,18 @@ function LockBadge({ z }: { z: number }) {
  * so future tweaks land cleanly. Memoised so a 100-object board doesn't
  * re-render every object on every camera tick.
  */
-function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDoubleClick, onCommitEdit, onMutate, selfId, onMindMapStructural, mindMapHasChildrenSet }: ObjectRendererProps) {
+function ObjectRendererImpl({
+  object: o,
+  selected,
+  editing,
+  onPointerDown,
+  onDoubleClick,
+  onCommitEdit,
+  onMutate,
+  selfId,
+  onMindMapStructural,
+  mindMapHasChildrenSet,
+}: ObjectRendererProps) {
   const handle = (e: React.PointerEvent) => onPointerDown?.(e, o.id);
   const dblClick = () => onDoubleClick?.(o.id);
   const commitEdit = (text: string) => onCommitEdit?.(o.id, text);
@@ -392,8 +414,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
       // customised it via the property panel — only the auto-default
       // case is scaled.
       const stickyFontSize =
-        o.fontSize ??
-        Math.max(16, Math.min(64, Math.floor(Math.min(o.w, o.h) / 7)));
+        o.fontSize ?? Math.max(16, Math.min(64, Math.floor(Math.min(o.w, o.h) / 7)));
       return (
         <div
           data-canvas-object-kind="sticky"
@@ -421,7 +442,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
             fontFamily: o.fontFamily ?? "ui-sans-serif, system-ui, sans-serif",
             whiteSpace: "pre-wrap",
             wordWrap: "break-word",
-            cursor: editing ? "text" : (o.locked ? "default" : "move"),
+            cursor: editing ? "text" : o.locked ? "default" : "move",
             userSelect: editing ? "text" : "none",
             boxShadow: selected ? selectionStyle?.boxShadow : "0 1px 3px rgba(0,0,0,0.3)",
             zIndex: o.z,
@@ -515,7 +536,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
             transform: `translate3d(${o.x}px, ${o.y}px, 0)${o.rotation ? ` rotate(${o.rotation}deg)` : ""}`,
             width: o.w,
             height: o.h,
-            cursor: editing ? "text" : (o.locked ? "default" : "move"),
+            cursor: editing ? "text" : o.locked ? "default" : "move",
             opacity: o.locked ? 0.85 : 1,
             ...selectionStyle,
             zIndex: o.z,
@@ -537,10 +558,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
               shape text noticeably smaller than sticky text on
               identically-sized objects — inconsistent across types. */}
           {(() => {
-            const shapeFontSize = Math.max(
-              16,
-              Math.min(64, Math.floor(Math.min(o.w, o.h) / 7)),
-            );
+            const shapeFontSize = Math.max(16, Math.min(64, Math.floor(Math.min(o.w, o.h) / 7)));
             return editing ? (
               <InlineEditor
                 initialText={o.content ?? ""}
@@ -596,7 +614,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
             fontSize: o.fontSize,
             fontWeight: o.fontWeight ?? 400,
             textAlign: o.align ?? "left",
-            cursor: editing ? "text" : (o.locked ? "default" : "move"),
+            cursor: editing ? "text" : o.locked ? "default" : "move",
             opacity: o.locked ? 0.85 : 1,
             userSelect: editing ? "text" : "none",
             fontFamily: o.fontFamily ?? "ui-sans-serif, system-ui, sans-serif",
@@ -643,7 +661,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
             background: o.fill ?? "transparent",
             zIndex: o.z,
             pointerEvents: "auto",
-            cursor: editing ? "text" : (o.locked ? "default" : "move"),
+            cursor: editing ? "text" : o.locked ? "default" : "move",
             opacity: o.locked ? 0.85 : 1,
             ...selectionStyle,
           }}
@@ -694,7 +712,9 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
           {selected && !editing && onMutate && (
             <FramePresenterNotesAffordance
               notes={o.presenterNotes ?? ""}
-              onCommit={(text) => onMutate(o.id, { presenterNotes: text } as Partial<WhiteboardObject>)}
+              onCommit={(text) =>
+                onMutate(o.id, { presenterNotes: text } as Partial<WhiteboardObject>)
+              }
             />
           )}
         </div>
@@ -741,7 +761,11 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
             />
             {o.type === "arrow" && (
               <polygon
-                points={arrowheadPoints({ x: ex, y: ey }, { x: o.w, y: o.h }, Math.max(8, o.strokeWidth * 3))}
+                points={arrowheadPoints(
+                  { x: ex, y: ey },
+                  { x: o.w, y: o.h },
+                  Math.max(8, o.strokeWidth * 3)
+                )}
                 fill={o.stroke}
               />
             )}
@@ -754,12 +778,46 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
     case "freehand": {
       // We draw freehand objects as their own SVG path inside a div that
       // covers the object's bbox in world coords. Points are world-coords;
-      // shift them into the local svg coord system.
+      // shift them into the local svg coord system. Strokes without a
+      // `pressures` array (legacy / mouse / non-pressure touch) render
+      // as a polyline; strokes WITH `pressures` (stylus) go through
+      // perfect-freehand so the contour tapers with pen pressure.
       const { points } = o;
       if (points.length < 4) return null;
-      const path = points
-        .map((v, i) => (i % 2 === 0 ? `${i === 0 ? "M" : "L"}${v - o.x}` : ` ${v - o.y}`))
-        .join("");
+      const pressures = o.pressures;
+      const hasPressures = Array.isArray(pressures) && pressures.length === points.length / 2;
+
+      let svgInner: React.ReactNode;
+      if (hasPressures) {
+        // Interleave the parallel pressures with x,y pairs to feed
+        // perfect-freehand's stride-3 expectation, translating into the
+        // object's local coord system in the same pass.
+        const local: number[] = [];
+        for (let i = 0, p = 0; i + 1 < points.length; i += 2, p += 1) {
+          local.push(points[i] - o.x, points[i + 1] - o.y, pressures![p]);
+        }
+        // perfect-freehand's `size` is the width at default pressure 0.5
+        // (with default thinning 0.5). So `size = strokeWidth` produces a
+        // committed path whose mid-pressure visual width matches the
+        // existing strokeWidth polyline — no jump on pointer-up.
+        const d = flatPointsToPath(local, { size: o.strokeWidth }, true);
+        svgInner = <path d={d} fill={o.stroke} stroke="none" />;
+      } else {
+        const d = points
+          .map((v, i) => (i % 2 === 0 ? `${i === 0 ? "M" : "L"}${v - o.x}` : ` ${v - o.y}`))
+          .join("");
+        svgInner = (
+          <path
+            d={d}
+            fill="none"
+            stroke={o.stroke}
+            strokeWidth={o.strokeWidth}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        );
+      }
+
       return (
         <div
           onPointerDown={handle}
@@ -778,14 +836,7 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
           }}
         >
           <svg width="100%" height="100%" overflow="visible">
-            <path
-              d={path}
-              fill="none"
-              stroke={o.stroke}
-              strokeWidth={o.strokeWidth}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
+            {svgInner}
           </svg>
           {o.locked && <LockBadge z={o.z} />}
         </div>
@@ -841,7 +892,11 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
       // so we read the host off the result for accurate routing.
       let iframeHost = "";
       if (iframeSrc) {
-        try { iframeHost = new URL(iframeSrc).hostname; } catch { iframeHost = ""; }
+        try {
+          iframeHost = new URL(iframeSrc).hostname;
+        } catch {
+          iframeHost = "";
+        }
       }
       const sandboxAttr = iframeSandboxFor(iframeHost);
       return (
@@ -908,7 +963,17 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
               )}
             </>
           ) : (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", padding: 8, textAlign: "center" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "100%",
+                height: "100%",
+                padding: 8,
+                textAlign: "center",
+              }}
+            >
               {o.kind}: {(o.src ?? "").slice(0, 60) || "(no source)"}
             </div>
           )}
@@ -1019,10 +1084,15 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
         >
           <div
             style={{
-              position: "absolute", top: -22, left: 6,
-              fontSize: 12, color: "#60a5fa",
+              position: "absolute",
+              top: -22,
+              left: 6,
+              fontSize: 12,
+              color: "#60a5fa",
               fontFamily: "ui-sans-serif, system-ui, sans-serif",
-              background: "#0b0f17", padding: "1px 6px", borderRadius: 3,
+              background: "#0b0f17",
+              padding: "1px 6px",
+              borderRadius: 3,
             }}
           >
             ▣ {o.label}
@@ -1072,7 +1142,11 @@ function ObjectRendererImpl({ object: o, selected, editing, onPointerDown, onDou
   }
 }
 
-function arrowheadPoints(tip: { x: number; y: number }, dir: { x: number; y: number }, size: number): string {
+function arrowheadPoints(
+  tip: { x: number; y: number },
+  dir: { x: number; y: number },
+  size: number
+): string {
   const len = Math.hypot(dir.x, dir.y) || 1;
   const ux = dir.x / len;
   const uy = dir.y / len;
@@ -1106,7 +1180,9 @@ function FramePresenterNotesAffordance({
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(notes);
   // Re-sync draft when notes change from upstream (peer edit, undo).
-  useEffect(() => { setDraft(notes); }, [notes]);
+  useEffect(() => {
+    setDraft(notes);
+  }, [notes]);
   const hasNotes = notes.trim().length > 0;
   return (
     <>
@@ -1162,7 +1238,16 @@ function FramePresenterNotesAffordance({
             boxShadow: "0 6px 20px rgba(0,0,0,0.5)",
           }}
         >
-          <div style={{ fontSize: 9, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4, fontFamily: "ui-monospace, monospace" }}>
+          <div
+            style={{
+              fontSize: 9,
+              color: "#94a3b8",
+              textTransform: "uppercase",
+              letterSpacing: 1,
+              marginBottom: 4,
+              fontFamily: "ui-monospace, monospace",
+            }}
+          >
             Speaker notes
           </div>
           <textarea
@@ -1199,7 +1284,14 @@ function FramePresenterNotesAffordance({
               lineHeight: 1.4,
             }}
           />
-          <div style={{ fontSize: 9, color: "#475569", marginTop: 4, fontFamily: "ui-monospace, monospace" }}>
+          <div
+            style={{
+              fontSize: 9,
+              color: "#475569",
+              marginTop: 4,
+              fontFamily: "ui-monospace, monospace",
+            }}
+          >
             Esc / click-out to save · shown in presentation mode
           </div>
         </div>

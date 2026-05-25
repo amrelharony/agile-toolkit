@@ -20,6 +20,7 @@ import type {
 } from "@/lib/stores/workspace-types";
 import { boundingBoxOfFlatPoints, boundingBoxOfPoints } from "@/lib/geometry/bbox";
 import { routeConnector, arrowheadPoints } from "@/lib/geometry/path-routing";
+import { flatPointsToPath } from "@/lib/whiteboard/freehand";
 
 /**
  * Escape a user-controlled string for safe interpolation into HTML markup
@@ -32,12 +33,18 @@ import { routeConnector, arrowheadPoints } from "@/lib/geometry/path-routing";
 function escapeHtml(s: string): string {
   return s.replace(/[<>&"']/g, (c) => {
     switch (c) {
-      case "<": return "&lt;";
-      case ">": return "&gt;";
-      case "&": return "&amp;";
-      case "\"": return "&quot;";
-      case "'": return "&#39;";
-      default: return c;
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case "&":
+        return "&amp;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return c;
     }
   });
 }
@@ -147,7 +154,10 @@ export async function exportPdf(node: HTMLElement, filename = "canvas.pdf"): Pro
 </head><body><img src="${pngDataUrl}" alt="Canvas"/></body></html>`);
   win.document.close();
   // Give the image time to decode before triggering print.
-  setTimeout(() => { win.focus(); win.print(); }, 400);
+  setTimeout(() => {
+    win.focus();
+    win.print();
+  }, 400);
 }
 
 /**
@@ -163,7 +173,7 @@ export async function exportPdf(node: HTMLElement, filename = "canvas.pdf"): Pro
 export function exportPptx(
   board: import("@/lib/stores/workspace-types").Whiteboard,
   objects: readonly import("@/lib/stores/workspace-types").WhiteboardObject[],
-  filename = "canvas.html",
+  filename = "canvas.html"
 ): void {
   // Reuse the SVG export to get the same XSS-safe attribute escaping
   // and full type coverage. The browser saves SVG as base64 inside the
@@ -226,7 +236,7 @@ export function exportPptx(
  * return a data URL instead of triggering a download. */
 function svgDataUrlOf(
   board: import("@/lib/stores/workspace-types").Whiteboard,
-  objects: readonly import("@/lib/stores/workspace-types").WhiteboardObject[],
+  objects: readonly import("@/lib/stores/workspace-types").WhiteboardObject[]
 ): string {
   const allPoints: { x: number; y: number }[] = [];
   for (const o of objects) {
@@ -263,12 +273,21 @@ ${elems.join("\n")}
  * mojibake when the file is double-clicked open in Excel on Windows.
  */
 export function exportCsv(
-  objects: readonly { type: string; id: string; x: number; y: number; tags?: string[]; frameId?: string }[] & readonly import("@/lib/stores/workspace-types").WhiteboardObject[],
-  filename = "canvas.csv",
+  objects: readonly {
+    type: string;
+    id: string;
+    x: number;
+    y: number;
+    tags?: string[];
+    frameId?: string;
+  }[] &
+    readonly import("@/lib/stores/workspace-types").WhiteboardObject[],
+  filename = "canvas.csv"
 ): void {
   const frameLabels = new Map<string, string>();
   for (const o of objects) {
-    if (o.type === "frame" && "label" in o) frameLabels.set(o.id, (o as { label: string }).label || "");
+    if (o.type === "frame" && "label" in o)
+      frameLabels.set(o.id, (o as { label: string }).label || "");
   }
   // Excel / LibreOffice / Sheets interpret a cell as a formula when its
   // first character is `=`, `+`, `-`, `@`, TAB, or CR. A board exported by
@@ -293,16 +312,18 @@ export function exportCsv(
   for (const o of objects) {
     const text = objectText(o) ?? "";
     if (text.length === 0 && o.type !== "card") continue;
-    const frame = o.frameId ? frameLabels.get(o.frameId) ?? "" : "";
-    rows.push([
-      escapeCsv(o.id),
-      o.type,
-      escapeCsv(frame),
-      escapeCsv(text.replace(/\n/g, " ").trim()),
-      escapeCsv((o.tags ?? []).join(",")),
-      Math.round(o.x),
-      Math.round(o.y),
-    ].join(","));
+    const frame = o.frameId ? (frameLabels.get(o.frameId) ?? "") : "";
+    rows.push(
+      [
+        escapeCsv(o.id),
+        o.type,
+        escapeCsv(frame),
+        escapeCsv(text.replace(/\n/g, " ").trim()),
+        escapeCsv((o.tags ?? []).join(",")),
+        Math.round(o.x),
+        Math.round(o.y),
+      ].join(",")
+    );
   }
   // U+FEFF BOM — Excel's CSV importer reads this as the UTF-8 sniff
   // marker and treats the rest of the file as UTF-8 instead of cp1252.
@@ -318,7 +339,7 @@ export function exportJson(
   board: Whiteboard,
   objects: readonly WhiteboardObject[],
   comments: readonly WhiteboardCommentThread[],
-  filename = "canvas.json",
+  filename = "canvas.json"
 ): void {
   const payload = {
     schema: "agile-toolkit/canvas/v1",
@@ -333,7 +354,7 @@ export function exportJson(
 export function exportSvg(
   board: Whiteboard,
   objects: readonly WhiteboardObject[],
-  filename = "canvas.svg",
+  filename = "canvas.svg"
 ): void {
   // Compute bbox of everything so we can size the SVG to fit.
   const allPoints: { x: number; y: number }[] = [];
@@ -371,7 +392,7 @@ function svgForObject(
   o: WhiteboardObject,
   offX: number,
   offY: number,
-  byId: Map<string, WhiteboardObject>,
+  byId: Map<string, WhiteboardObject>
 ): string {
   const x = o.x + offX;
   const y = o.y + offY;
@@ -429,7 +450,7 @@ function svgForObject(
         { x: to.x + offX, y: to.y + offY, w: to.w, h: to.h },
         o.routing,
         o.fromAnchor,
-        o.toAnchor,
+        o.toAnchor
       );
       const dash = o.dashed ? `stroke-dasharray="6 4"` : "";
       const stroke = escapeAttr(o.stroke);
@@ -448,13 +469,28 @@ function svgForObject(
     case "text":
       return `<text x="${x}" y="${y + o.fontSize}" font-size="${o.fontSize}" fill="${escapeAttr(o.color)}" font-weight="${o.fontWeight ?? 400}" text-anchor="${o.align === "center" ? "middle" : o.align === "right" ? "end" : "start"}">${escapeXml(o.content)}</text>`;
     case "freehand": {
-      // Translate the freehand points by the offset.
+      // Translate the freehand points by the offset. `points` is always
+      // stride-2; the optional parallel `pressures` array, when present
+      // and length-matched, drives a perfect-freehand fill export. Old
+      // boards without `pressures` keep the simple polyline export.
       const flat: number[] = [];
-      for (let i = 0; i < o.points.length; i += 2) {
+      for (let i = 0; i + 1 < o.points.length; i += 2) {
         flat.push(o.points[i] + offX, o.points[i + 1] + offY);
       }
-      // Use a simple polyline for the SVG export — perfect-freehand's
-      // pressure-aware contour is overkill on a static export.
+      const hasPressures = Array.isArray(o.pressures) && o.pressures.length === o.points.length / 2;
+      if (hasPressures) {
+        // Interleave pressures into stride-3 for perfect-freehand. Same
+        // `size = strokeWidth` mapping as the live renderer so exports
+        // look identical to what the user saw.
+        const tri: number[] = [];
+        for (let i = 0, p = 0; i + 1 < flat.length; i += 2, p += 1) {
+          tri.push(flat[i], flat[i + 1], o.pressures![p]);
+        }
+        const d = flatPointsToPath(tri, { size: o.strokeWidth }, true);
+        const bb = boundingBoxOfFlatPoints(flat);
+        void bb;
+        return `<path d="${d}" fill="${escapeAttr(o.stroke)}" />`;
+      }
       const pts = [];
       for (let i = 0; i < flat.length; i += 2) pts.push(`${flat[i]},${flat[i + 1]}`);
       const bb = boundingBoxOfFlatPoints(flat); // ensure import is used
@@ -478,9 +514,10 @@ function svgForObject(
     case "timer": {
       // Static snapshot of the timer's current remaining seconds. The
       // exported SVG won't tick — exports are point-in-time.
-      const remaining = o.running && o.startedAt
-        ? Math.max(0, o.durationSec - (Date.now() - o.startedAt) / 1000)
-        : o.remainingSec ?? o.durationSec;
+      const remaining =
+        o.running && o.startedAt
+          ? Math.max(0, o.durationSec - (Date.now() - o.startedAt) / 1000)
+          : (o.remainingSec ?? o.durationSec);
       const m = Math.floor(remaining / 60);
       const s = Math.floor(remaining % 60);
       const label = `${m}:${s.toString().padStart(2, "0")}`;
@@ -567,7 +604,11 @@ function safeStyleColor(color: string | null | undefined, fallback: string): str
   if (typeof color !== "string") return fallback;
   const trimmed = color.trim();
   if (trimmed.length === 0 || trimmed.length > 64) return fallback;
-  if (!/^(?:#[0-9a-fA-F]{3,8}|rgba?\([0-9.,%\s]+\)|hsla?\([0-9.,%\s]+\)|[a-zA-Z]{1,32})$/.test(trimmed)) {
+  if (
+    !/^(?:#[0-9a-fA-F]{3,8}|rgba?\([0-9.,%\s]+\)|hsla?\([0-9.,%\s]+\)|[a-zA-Z]{1,32})$/.test(
+      trimmed
+    )
+  ) {
     return fallback;
   }
   return trimmed;

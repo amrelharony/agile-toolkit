@@ -6,6 +6,10 @@ import type { Camera, Rect } from "@/lib/geometry/bbox";
 import type { ResizeHandle } from "../use-canvas-store";
 
 const HANDLE_SIZE = 8;
+// Touch-friendly hit area: the visual square stays 8 px (no UI regression
+// on desktop) but the invisible touch surface expands to TOUCH_HIT_SIZE
+// so a finger or stylus tip can land it without precision aiming.
+const TOUCH_HIT_SIZE = 22;
 const ROTATION_HANDLE_OFFSET = 24; // px above the top edge in screen space
 
 interface SelectionHandlesProps {
@@ -25,20 +29,37 @@ interface SelectionHandlesProps {
   /** Called with a delta angle in degrees when the user presses ←/→
    * with the rotation handle focused. Allows keyboard-only rotation. */
   onRotateByDelta?: (deltaDeg: number) => void;
+  /** True on touch/stylus devices — expands the invisible hit area without
+   * changing the visual handle size. */
+  isCoarse?: boolean;
 }
 
-const HANDLES: { id: ResizeHandle; cursor: string; pos: (b: Rect) => { x: number; y: number } }[] = [
-  { id: "nw", cursor: "nwse-resize", pos: (b) => ({ x: b.x,             y: b.y }) },
-  { id: "n",  cursor: "ns-resize",   pos: (b) => ({ x: b.x + b.w / 2,   y: b.y }) },
-  { id: "ne", cursor: "nesw-resize", pos: (b) => ({ x: b.x + b.w,       y: b.y }) },
-  { id: "e",  cursor: "ew-resize",   pos: (b) => ({ x: b.x + b.w,       y: b.y + b.h / 2 }) },
-  { id: "se", cursor: "nwse-resize", pos: (b) => ({ x: b.x + b.w,       y: b.y + b.h }) },
-  { id: "s",  cursor: "ns-resize",   pos: (b) => ({ x: b.x + b.w / 2,   y: b.y + b.h }) },
-  { id: "sw", cursor: "nesw-resize", pos: (b) => ({ x: b.x,             y: b.y + b.h }) },
-  { id: "w",  cursor: "ew-resize",   pos: (b) => ({ x: b.x,             y: b.y + b.h / 2 }) },
-];
+const HANDLES: { id: ResizeHandle; cursor: string; pos: (b: Rect) => { x: number; y: number } }[] =
+  [
+    { id: "nw", cursor: "nwse-resize", pos: (b) => ({ x: b.x, y: b.y }) },
+    { id: "n", cursor: "ns-resize", pos: (b) => ({ x: b.x + b.w / 2, y: b.y }) },
+    { id: "ne", cursor: "nesw-resize", pos: (b) => ({ x: b.x + b.w, y: b.y }) },
+    { id: "e", cursor: "ew-resize", pos: (b) => ({ x: b.x + b.w, y: b.y + b.h / 2 }) },
+    { id: "se", cursor: "nwse-resize", pos: (b) => ({ x: b.x + b.w, y: b.y + b.h }) },
+    { id: "s", cursor: "ns-resize", pos: (b) => ({ x: b.x + b.w / 2, y: b.y + b.h }) },
+    { id: "sw", cursor: "nesw-resize", pos: (b) => ({ x: b.x, y: b.y + b.h }) },
+    { id: "w", cursor: "ew-resize", pos: (b) => ({ x: b.x, y: b.y + b.h / 2 }) },
+  ];
 
-function SelectionHandlesImpl({ bbox, camera, showResizeHandles, onHandlePointerDown, onRotateStart, currentRotationDeg, onRotateByDelta }: SelectionHandlesProps) {
+function SelectionHandlesImpl({
+  bbox,
+  camera,
+  showResizeHandles,
+  onHandlePointerDown,
+  onRotateStart,
+  currentRotationDeg,
+  onRotateByDelta,
+  isCoarse,
+}: SelectionHandlesProps) {
+  // On touch devices we keep the 8 px visual but render a transparent
+  // padded box around it so a finger can land the handle without
+  // pixel-perfect aim. Hit-area scaling delta (one-sided extra pad).
+  const hitPad = isCoarse ? Math.max(0, (TOUCH_HIT_SIZE - HANDLE_SIZE) / 2) : 0;
   // Outline rendered in screen space so border thickness is 1px at every zoom.
   const x = (bbox.x - camera.x) * camera.zoom;
   const y = (bbox.y - camera.y) * camera.zoom;
@@ -64,6 +85,10 @@ function SelectionHandlesImpl({ bbox, camera, showResizeHandles, onHandlePointer
       {showResizeHandles &&
         HANDLES.map(({ id, cursor, pos }) => {
           const p = pos({ x, y, w, h });
+          // Wrapper carries the pointer event + the inflated hit area on
+          // touch devices; the visible square is a centered child that
+          // keeps the 8 px look. On desktop the wrapper IS the visual.
+          const outerSize = HANDLE_SIZE + hitPad * 2;
           return (
             <div
               key={id}
@@ -83,18 +108,35 @@ function SelectionHandlesImpl({ bbox, camera, showResizeHandles, onHandlePointer
               aria-hidden="true"
               style={{
                 position: "absolute",
-                left: p.x - HANDLE_SIZE / 2,
-                top: p.y - HANDLE_SIZE / 2,
-                width: HANDLE_SIZE,
-                height: HANDLE_SIZE,
-                background: "#0b0f17",
-                border: "1.5px solid #00f0ff",
+                left: p.x - outerSize / 2,
+                top: p.y - outerSize / 2,
+                width: outerSize,
+                height: outerSize,
+                background: hitPad === 0 ? "#0b0f17" : "transparent",
+                border: hitPad === 0 ? "1.5px solid #00f0ff" : "none",
                 borderRadius: 2,
                 cursor,
                 zIndex: 10000,
                 touchAction: "none",
+                display: hitPad === 0 ? "block" : "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
-            />
+            >
+              {hitPad > 0 && (
+                <div
+                  aria-hidden="true"
+                  style={{
+                    width: HANDLE_SIZE,
+                    height: HANDLE_SIZE,
+                    background: "#0b0f17",
+                    border: "1.5px solid #00f0ff",
+                    borderRadius: 2,
+                    pointerEvents: "none",
+                  }}
+                />
+              )}
+            </div>
           );
         })}
 
@@ -133,12 +175,15 @@ function SelectionHandlesImpl({ bbox, camera, showResizeHandles, onHandlePointer
           aria-valuetext={`${Math.round(currentRotationDeg ?? 0)} degrees`}
           style={{
             position: "absolute",
-            left: x + w / 2 - HANDLE_SIZE / 2 - 2,
-            top: y - ROTATION_HANDLE_OFFSET - HANDLE_SIZE / 2 - 2,
-            width: HANDLE_SIZE + 4,
-            height: HANDLE_SIZE + 4,
-            background: "#0b0f17",
-            border: "1.5px solid #00f0ff",
+            // Visual rotation handle stays the same physical size; on touch
+            // we inflate left/top/width/height with `hitPad * 2` extra to
+            // grow the hit area transparently around it.
+            left: x + w / 2 - (HANDLE_SIZE + 4) / 2 - hitPad,
+            top: y - ROTATION_HANDLE_OFFSET - (HANDLE_SIZE + 4) / 2 - hitPad,
+            width: HANDLE_SIZE + 4 + hitPad * 2,
+            height: HANDLE_SIZE + 4 + hitPad * 2,
+            background: hitPad === 0 ? "#0b0f17" : "transparent",
+            border: hitPad === 0 ? "1.5px solid #00f0ff" : "none",
             borderRadius: "50%",
             cursor: "grab",
             zIndex: 10000,
@@ -154,7 +199,26 @@ function SelectionHandlesImpl({ bbox, camera, showResizeHandles, onHandlePointer
             // browser's default focus ring is now allowed through.
           }}
         >
-          <RotateCw style={{ width: 7, height: 7 }} aria-hidden="true" />
+          {hitPad > 0 ? (
+            <div
+              aria-hidden="true"
+              style={{
+                width: HANDLE_SIZE + 4,
+                height: HANDLE_SIZE + 4,
+                background: "#0b0f17",
+                border: "1.5px solid #00f0ff",
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                pointerEvents: "none",
+              }}
+            >
+              <RotateCw style={{ width: 7, height: 7 }} aria-hidden="true" />
+            </div>
+          ) : (
+            <RotateCw style={{ width: 7, height: 7 }} aria-hidden="true" />
+          )}
         </div>
       )}
       {/* Tether line from rotation handle to top edge — pure visual cue. */}
@@ -198,6 +262,7 @@ export const SelectionHandles = memo(SelectionHandlesImpl, (prev, next) => {
     prev.onHandlePointerDown === next.onHandlePointerDown &&
     prev.onRotateStart === next.onRotateStart &&
     prev.onRotateByDelta === next.onRotateByDelta &&
-    prev.currentRotationDeg === next.currentRotationDeg
+    prev.currentRotationDeg === next.currentRotationDeg &&
+    prev.isCoarse === next.isCoarse
   );
 });
