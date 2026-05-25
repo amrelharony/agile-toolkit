@@ -46,7 +46,7 @@ import { RecentToolTracker } from "@/lib/tools/tool-prefs";
 // Routes that bypass the full app chrome (sidebar/header/providers).
 // Middleware allows them through unauthenticated, so they must render
 // without depending on auth state, workspace store rehydration, etc.
-const BARE_ROUTE_PREFIXES = ["/auth", "/not-authorized"];
+const BARE_ROUTE_PREFIXES = ["/auth", "/not-authorized", "/guest"];
 
 function isBareRoute(pathname: string | null): boolean {
   if (!pathname) return false;

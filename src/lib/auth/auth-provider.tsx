@@ -277,3 +277,16 @@ export function useAuth(): AuthContextValue {
   }
   return ctx;
 }
+
+/**
+ * Same as `useAuth` but returns null instead of throwing when no
+ * AuthProvider is mounted. Used by primitives that must work in
+ * BOTH owner-side trees (AuthProvider present) and guest-side trees
+ * (no AuthProvider — the (guest) layout renders bare).
+ *
+ * Callers should treat null as "auth subsystem unavailable; behave
+ * as anonymous/solo".
+ */
+export function useAuthOptional(): AuthContextValue | null {
+  return useContext(AuthContext);
+}

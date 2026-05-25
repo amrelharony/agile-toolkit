@@ -35,7 +35,10 @@ export async function middleware(request: NextRequest) {
     pathname === "/api/health" ||
     pathname === "/api/mcp" ||
     pathname.startsWith("/api/mcp/") ||
-    pathname === "/api/agent/stream"
+    pathname === "/api/agent/stream" ||
+    pathname === "/guest" ||
+    pathname.startsWith("/guest/") ||
+    pathname.startsWith("/api/guest/")
   ) {
     return NextResponse.next();
   }
