@@ -68,6 +68,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}${next}?auth_error=auth_disabled`);
   }
 
+  // PKCE state verification: Supabase's `exchangeCodeForSession` requires
+  // the `sb-pkce-verifier` cookie set when `signInWithOAuth` ran in this
+  // browser. The exchange call fails if the verifier is missing or doesn't
+  // match the code's challenge, which transitively prevents the
+  // login-CSRF / session-fixation attacks the `state` param classically
+  // guards against. We therefore do NOT separately check
+  // `searchParams.get("state")` — adding a second nonce here would only
+  // help if Supabase ever weakened PKCE binding, in which case the right
+  // fix is upstream. Documented assumption per audit 2025-05-25-10.
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
     // Don't reflect verbose Supabase error messages into the URL — they

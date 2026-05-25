@@ -364,7 +364,7 @@ export function IceBreakerClient() {
       }
     }, 80);
     spinIntervalRef.current = interval;
-  }, [filtered, log]);
+  }, [filtered, log, selected?.id]);
 
   return (
     <ToolPageWrapper

@@ -29,6 +29,8 @@ export async function middleware(request: NextRequest) {
   // enforce a Supabase session on those routes — external agents
   // (Claude Desktop, Claude Code) never carry one. Those routes' POST
   // handlers gate on `requireAuthorizedUser` or `verifyBearer` directly.
+  const isGuestPath =
+    pathname === "/guest" || pathname.startsWith("/guest/") || pathname.startsWith("/api/guest/");
   if (
     pathname.startsWith("/auth/") ||
     pathname === "/not-authorized" ||
@@ -36,11 +38,32 @@ export async function middleware(request: NextRequest) {
     pathname === "/api/mcp" ||
     pathname.startsWith("/api/mcp/") ||
     pathname === "/api/agent/stream" ||
-    pathname === "/guest" ||
-    pathname.startsWith("/guest/") ||
-    pathname.startsWith("/api/guest/")
+    isGuestPath
   ) {
-    return NextResponse.next();
+    const resp = NextResponse.next();
+    // Dual-cookie disambiguation: when an authenticated owner navigates
+    // into the /guest/* tree carrying both an `sb-*` Supabase session
+    // AND a leftover `agile-toolkit:guest` cookie (e.g. they tested the
+    // guest flow on their own browser earlier), strip the guest cookie
+    // on the way through. Otherwise `useCollaborativeSession` reads
+    // guest-first and downgrades the owner into a guest identity,
+    // attributing their edits to a squad_profile_id instead of user_id.
+    if (
+      isGuestPath &&
+      hasOwnerSessionCookie(request) &&
+      request.cookies.has("agile-toolkit:guest")
+    ) {
+      resp.cookies.set({
+        name: "agile-toolkit:guest",
+        value: "",
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 0,
+      });
+    }
+    return resp;
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -132,6 +155,18 @@ function redirectTo(
     }
   }
   return NextResponse.redirect(url);
+}
+
+// Cheap shape-check for "an owner Supabase session cookie is present."
+// We don't try to verify it (that needs the full Supabase client and a
+// round-trip), just notice that one of the `sb-*-auth-token` cookies
+// exists. Used only to disambiguate the dual-cookie case on /guest/*
+// — verification on the owner-side path remains in the main flow.
+function hasOwnerSessionCookie(request: NextRequest): boolean {
+  for (const c of request.cookies.getAll()) {
+    if (c.name.startsWith("sb-") && c.name.endsWith("-auth-token")) return true;
+  }
+  return false;
 }
 
 // eslint-disable-next-line no-control-regex

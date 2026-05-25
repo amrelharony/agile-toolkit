@@ -19,10 +19,14 @@ import type { NextRequest } from "next/server";
 import { getGuestSession } from "@/lib/auth/guest-session";
 import { resolveGuestInvite } from "@/lib/squads/invites";
 import { getSquadAdminClient, touchProfileLastSeen } from "@/lib/squads/server";
+import { GuestPayloadError, sanitizeGuestPayload } from "@/lib/history/sanitize";
+import { consumeGuestRateToken } from "../_rate-limit";
 
 const TOOL_ID_RE = /^[a-z0-9_-]{1,64}$/;
 const ACTION_RE = /^[a-z0-9_]{1,64}$/;
 const SHORT_ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
+const MAX_BODY_BYTES = 65_536; // 64 KiB — a single history event never approaches this.
+const OCCURRED_AT_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 // Role × action allowlist. Editors can emit anything; commenters are
 // limited to comment-related actions so a hostile commenter cannot
@@ -50,6 +54,24 @@ export async function POST(req: NextRequest) {
   const admin = getSquadAdminClient();
   if (!admin) {
     return Response.json({ error: "service_unavailable" }, { status: 503 });
+  }
+
+  if (!consumeGuestRateToken(session.profileId)) {
+    return Response.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "retry-after": "60" } }
+    );
+  }
+
+  // Bound the incoming body BEFORE `req.json()` materialises it; without
+  // this, a guest can stream multi-MB JSON at the function and force the
+  // parser to buffer it before any validation runs.
+  const lenHeader = req.headers.get("content-length");
+  if (lenHeader) {
+    const len = Number(lenHeader);
+    if (Number.isFinite(len) && len > MAX_BODY_BYTES) {
+      return Response.json({ error: "body_too_large" }, { status: 413 });
+    }
   }
 
   let body: unknown;
@@ -107,6 +129,12 @@ export async function POST(req: NextRequest) {
   if (occurredAtMs > Date.now() + 5 * 60 * 1000) {
     return Response.json({ error: "occurred_at_future" }, { status: 400 });
   }
+  // Also reject far-past timestamps: the activity feed orders by
+  // occurred_at, so a hostile guest could otherwise wedge events at
+  // the bottom of the timeline or fabricate a misleading audit trail.
+  if (occurredAtMs < Date.now() - OCCURRED_AT_MAX_AGE_MS) {
+    return Response.json({ error: "occurred_at_too_old" }, { status: 400 });
+  }
 
   // Authorize. Two paths:
   //   * entity-scoped (entityId supplied) — must have a matching invite
@@ -130,12 +158,16 @@ export async function POST(req: NextRequest) {
     ownerId = invite.ownerId;
     role = invite.role;
   } else {
-    // Squad-level lookup: pick the most-privileged active invite.
+    // Squad-level lookup: pick the most-privileged active invite. The
+    // tool_id filter is critical — without it, an editor-on-canvas guest
+    // could write `vote_cast` rows under tool_id=planning-poker via
+    // their canvas invite (cross-tool authorization leak).
     const nowIso = new Date().toISOString();
     const { data: invites } = await admin
       .from("session_invites")
       .select("owner_id, role, profile_id, expires_at")
       .eq("squad_id", session.squadId)
+      .eq("tool_id", toolId)
       .is("revoked_at", null)
       .or(`profile_id.is.null,profile_id.eq.${session.profileId}`)
       .order("created_at", { ascending: false })
@@ -159,22 +191,19 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "role_not_allowed_for_action" }, { status: 403 });
   }
 
-  // Cap payload size + validate object-ness. Postgres JSONB accepts
-  // scalars, but the owner-side history readers expect a record shape;
-  // a scalar payload would TypeError on first property access.
+  // Server-side sanitize + shape-validate. Client-side sanitizePayload
+  // is best-effort defence; guests cross a trust boundary so we re-run
+  // here (depth/keys/size caps + secret-key redaction).
   const rawPayload = b.payload ?? {};
-  if (typeof rawPayload !== "object" || rawPayload === null || Array.isArray(rawPayload)) {
-    return Response.json({ error: "payload_must_be_object" }, { status: 400 });
-  }
-  const payload = rawPayload as Record<string, unknown>;
-  let payloadJson: string;
+  let payload: Record<string, unknown>;
   try {
-    payloadJson = JSON.stringify(payload);
-  } catch {
+    payload = sanitizeGuestPayload(rawPayload);
+  } catch (err) {
+    if (err instanceof GuestPayloadError) {
+      const status = err.code === "payload_too_large" ? 413 : 400;
+      return Response.json({ error: err.code }, { status });
+    }
     return Response.json({ error: "invalid_payload" }, { status: 400 });
-  }
-  if (payloadJson.length > 32_000) {
-    return Response.json({ error: "payload_too_large" }, { status: 413 });
   }
 
   // Two-phase write to avoid the 23505-as-success swallow on a
@@ -208,14 +237,32 @@ export async function POST(req: NextRequest) {
   });
   if (error) {
     if (error.code === "23505") {
-      // (owner_id, client_event_id) unique index hit but it's a
-      // DIFFERENT squad_profile_id (otherwise the SELECT above would
-      // have caught it). A real collision — tell the caller to retry
-      // with a fresh clientEventId rather than silently dropping.
+      // (owner_id, client_event_id) unique index hit. The pre-SELECT
+      // already covered the same-author idempotent retry case, but a
+      // race between two concurrent same-author retries lands here too
+      // (both pre-SELECTs miss, one INSERT wins, the other 23505s). Re-
+      // check scoped to this guest: if the row now exists under our
+      // profile_id, treat as duplicate; only cross-author rows are a
+      // hard conflict.
+      const { data: postRace } = await admin
+        .from("history_events")
+        .select("client_event_id")
+        .eq("user_id", ownerId)
+        .eq("client_event_id", clientEventId)
+        .eq("squad_profile_id", session.profileId)
+        .maybeSingle();
+      if (postRace) {
+        return Response.json({ ok: true, duplicate: true });
+      }
       return Response.json({ error: "client_event_id_conflict" }, { status: 409 });
     }
+    // Log only code + message; `error.details` can quote attacker-
+    // controlled payload values and may leak PII into server logs.
     // eslint-disable-next-line no-console
-    console.error("[guest/log POST] supabase error", error);
+    console.error("[guest/log POST] supabase error", {
+      code: error.code,
+      message: error.message,
+    });
     return Response.json({ error: "server_error" }, { status: 500 });
   }
 

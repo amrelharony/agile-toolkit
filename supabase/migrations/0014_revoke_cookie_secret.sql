@@ -1,0 +1,27 @@
+-- Agile Toolkit — squad-guest hardening: hide cookie_secret from the
+-- owner's authenticated client.
+--
+-- ══════════════════════════════════════════════════════════════════════
+-- Why this exists
+-- ══════════════════════════════════════════════════════════════════════
+-- `squad_profiles.cookie_secret` is the per-profile HMAC key that
+-- signs the guest cookie (see migration 0010 + `getGuestSession`).
+-- RLS in 0010 allows the workspace owner to SELECT every column of
+-- every profile in their squads. The application code is careful
+-- never to ask for cookie_secret from the authenticated client —
+-- the column is only ever read by the service-role
+-- `getGuestSession` path. But RLS does not encode that discipline:
+-- a future maintainer who writes `select("*")` in a guest-management
+-- UI silently leaks the HMAC keys to the owner's browser, and the
+-- owner could mint forged cookies for any of their guests.
+--
+-- Defense-in-depth: revoke column-level SELECT on cookie_secret from
+-- the authenticated role. The service-role client (used by
+-- `getGuestSession` and `createSquadProfile`) bypasses RLS and
+-- column-level GRANTs entirely, so the legitimate verification
+-- path keeps working. INSERT keeps the column writable so
+-- createSquadProfile can stamp the secret on row creation.
+-- ══════════════════════════════════════════════════════════════════════
+
+-- REVOKE is idempotent — re-running has no effect if already revoked.
+revoke select (cookie_secret) on public.squad_profiles from authenticated;

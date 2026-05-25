@@ -21,6 +21,14 @@
  *     in the realtime channel. A fresh guest sees an empty board until
  *     the owner's next heartbeat (≤10 s). We display a hint instead of
  *     a broken-looking empty state.
+ *
+ * Persistence isolation:
+ *   * The workspace store's persist slot (`agile-toolkit:workspace`) is
+ *     shared with every owner-mode tab on the same browser. Before the
+ *     guest seeds board metadata we swap the persist storage to an
+ *     in-memory no-op so the seeded row, inbound activity events, and
+ *     any guest-side workspace mutations never leak to localStorage.
+ *     The original storage is restored on unmount.
  */
 
 import { useEffect, useState } from "react";
@@ -49,12 +57,33 @@ export function GuestCanvasClient({ boardId, role, profile }: Props) {
     // Rehydrate persisted stores (workspace + canvas UI). On a fresh
     // guest tab these are no-ops, but we still need to trigger them
     // once because both opt out of automatic hydration.
+    //
+    // Capture the original persist storage BEFORE rehydrate so the
+    // cleanup can put it back. We swap to a no-op storage immediately
+    // after rehydrate so the board-metadata seed below (and any
+    // subsequent guest-side writes — inbound activity events, etc.)
+    // never touch the shared `agile-toolkit:workspace` localStorage
+    // slot. Without this the seeded `"Shared board"` row appears in the
+    // owner's dashboard the next time they open a tab on this browser.
+    const originalStorage = useWorkspaceStore.persist.getOptions().storage;
+    // PersistStorage<S> shape — getItem returns StorageValue<S> | null,
+    // not a raw string (createJSONStorage wraps a StateStorage into this
+    // higher-level interface). A no-op getItem returning null leaves the
+    // store at its in-memory defaults; setItem / removeItem are inert.
+    const noopStorage: NonNullable<typeof originalStorage> = {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+    };
+
     void Promise.resolve(useWorkspaceStore.persist.rehydrate())
       .catch(() => {})
       .finally(() => {
+        useWorkspaceStore.persist.setOptions({ storage: noopStorage });
         // Seed the board metadata so WhiteboardCanvas can find it.
         // Whiteboard objects are NOT seeded — they arrive via the
-        // realtime room's drift-recovery heartbeat (≤10 s).
+        // realtime room's drift-recovery heartbeat (≤10 s). With the
+        // no-op storage installed above, this write is in-memory only.
         const st = useWorkspaceStore.getState();
         const existing = (st.whiteboards ?? []).some((b) => b.id === boardId);
         if (!existing) {
@@ -72,6 +101,13 @@ export function GuestCanvasClient({ boardId, role, profile }: Props) {
       });
 
     setRealtimeOn(isRealtimeAvailable());
+
+    return () => {
+      // Restore the original storage so subsequent (non-guest) tabs on
+      // the same module instance — e.g. HMR reloads in dev — see their
+      // real persist storage again.
+      useWorkspaceStore.persist.setOptions({ storage: originalStorage });
+    };
   }, [boardId, profile.id, profile.displayName]);
 
   if (!ready) {
@@ -134,7 +170,14 @@ export function GuestCanvasClient({ boardId, role, profile }: Props) {
           <ZoomControls />
         </div>
         <div className="absolute inset-0">
-          <WhiteboardCanvas boardId={boardId} readOnly={readOnly} canComment={canComment} />
+          <WhiteboardCanvas
+            boardId={boardId}
+            readOnly={readOnly}
+            canComment={canComment}
+            presenceName={profile.displayName}
+            presenceColor={profile.color}
+            isGuest
+          />
         </div>
         {!realtimeOn && (
           <div

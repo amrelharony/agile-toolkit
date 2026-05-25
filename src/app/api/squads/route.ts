@@ -11,7 +11,7 @@
 
 import type { NextRequest } from "next/server";
 import { requireAuthorizedUser } from "@/lib/auth/require-user";
-import { generateSquadCode } from "@/lib/squads/server";
+import { generateSquadCode, sanitizeSquadName } from "@/lib/squads/server";
 
 export async function GET() {
   let user, supabase;
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "invalid_json" }, { status: 400 });
   }
   const b = (body ?? {}) as { name?: unknown };
-  const name = typeof b.name === "string" ? b.name.trim().slice(0, 80) : "";
+  const name = sanitizeSquadName(b.name);
   if (!name) {
     return Response.json({ error: "name_required" }, { status: 400 });
   }

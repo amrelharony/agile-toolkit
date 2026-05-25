@@ -262,19 +262,25 @@ export function ReleasePlannerClient() {
   // intermediate value. Use `updateConfigQuiet` for `onChange` /
   // slider `onValueChange`; reserve the logged `updateConfig` for
   // commit moments (`onBlur`, slider `onValueCommit`, button click).
-  const updateConfigQuiet: typeof updateConfigRaw = (updates) => {
-    updateConfigRaw(updates);
-  };
-  const updateConfig: typeof updateConfigRaw = (updates) => {
-    updateConfigRaw(updates);
-    log(RELEASE_PLANNER_ACTIONS.RELEASE_UPDATED, {
-      fields: Object.keys(updates),
-    });
-  };
-  const reset = () => {
+  const updateConfigQuiet = useCallback<typeof updateConfigRaw>(
+    (updates) => {
+      updateConfigRaw(updates);
+    },
+    [updateConfigRaw]
+  );
+  const updateConfig = useCallback<typeof updateConfigRaw>(
+    (updates) => {
+      updateConfigRaw(updates);
+      log(RELEASE_PLANNER_ACTIONS.RELEASE_UPDATED, {
+        fields: Object.keys(updates),
+      });
+    },
+    [updateConfigRaw, log]
+  );
+  const reset = useCallback(() => {
     resetRaw();
     log(RELEASE_PLANNER_ACTIONS.RELEASE_RESET, {});
-  };
+  }, [resetRaw, log]);
 
   const chartRef = useRef<HTMLDivElement>(null);
 

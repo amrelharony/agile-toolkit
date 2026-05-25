@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import { nanoid } from "nanoid";
 import { useHistoryStore } from "./history-store";
 import { sanitizePayload } from "./sanitize";
@@ -68,8 +69,15 @@ export function useHistoryLogger(toolId: ToolId): HistoryLogger {
   // stamped with userId=null exactly as they would pre-sign-in.
   const auth = useAuthOptional();
   const guest = useGuestProfile();
+  const pathname = usePathname();
   const user = auth?.user ?? null;
   const status = auth?.status ?? "anonymous";
+  // Belt-and-braces: if we're under the (guest) tree but no guest
+  // profile resolved (cookie missing/expired/revoked), don't fall
+  // through to the owner-mode local-store write — that would pollute
+  // the browser's persisted history slot and surface ghost events
+  // when the owner later signs in on the same browser.
+  const inGuestTree = pathname?.startsWith("/guest") ?? false;
   // Two refs initialised synchronously (not in a useEffect) so the
   // FIRST log() call sees populated values. useState's lazy initialiser
   // runs exactly once per mount and locks the value in.
@@ -94,6 +102,13 @@ export function useHistoryLogger(toolId: ToolId): HistoryLogger {
   const log = useCallback(
     (action: string, payload: Record<string, unknown> = {}, opts: LogOptions = {}) => {
       if (typeof window === "undefined") return;
+      if (inGuestTree && !guest) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          "[history-logger] in guest tree but no guest profile resolved — dropping event."
+        );
+        return;
+      }
       const id = nanoid();
       const undoIndex = timeTravelRegistry.get(toolId)?.pastLength();
       const occurredAtSafe =
@@ -152,7 +167,7 @@ export function useHistoryLogger(toolId: ToolId): HistoryLogger {
       };
       addEvent(event);
     },
-    [toolId, status, user?.id, addEvent, ensureClientId, guest]
+    [toolId, status, user?.id, addEvent, ensureClientId, guest, inGuestTree]
   );
 
   return { log, toolRunId: toolRunIdRef.current };

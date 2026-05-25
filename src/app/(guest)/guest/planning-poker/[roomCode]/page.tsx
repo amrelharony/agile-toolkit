@@ -1,6 +1,7 @@
 import { redirect, notFound } from "next/navigation";
 import { getGuestSession } from "@/lib/auth/guest-session";
 import { resolveGuestInvite } from "@/lib/squads/invites";
+import { isValidGuestPathSegment } from "@/lib/squads/validate";
 import { GuestPokerClient } from "./guest-poker-client";
 
 export const metadata = {
@@ -12,6 +13,9 @@ interface Params {
 }
 
 export default async function GuestPokerPage({ params }: { params: Params }) {
+  if (!isValidGuestPathSegment(params.roomCode)) {
+    notFound();
+  }
   const session = await getGuestSession();
   if (!session) {
     redirect(`/guest/join?next=${encodeURIComponent(`/guest/planning-poker/${params.roomCode}`)}`);

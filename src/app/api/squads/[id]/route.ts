@@ -20,7 +20,7 @@
 
 import type { NextRequest } from "next/server";
 import { requireAuthorizedUser } from "@/lib/auth/require-user";
-import { generateSquadCode } from "@/lib/squads/server";
+import { generateSquadCode, sanitizeSquadName } from "@/lib/squads/server";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -70,8 +70,16 @@ export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
 
   const update: Record<string, string> = {};
   if (b.regenerateCode === true) update.code = generateSquadCode();
-  if (typeof b.name === "string" && b.name.trim()) {
-    update.name = b.name.trim().slice(0, 80);
+  // Distinguish "field absent" (don't touch) from "field present but
+  // invalid" (reject). The prior shape silently dropped a malformed
+  // name when paired with regenerateCode, leaving the caller unaware
+  // their rename was discarded.
+  if (b.name !== undefined) {
+    const cleaned = sanitizeSquadName(b.name);
+    if (!cleaned) {
+      return Response.json({ error: "invalid_name" }, { status: 400 });
+    }
+    update.name = cleaned;
   }
   if (Object.keys(update).length === 0) {
     return Response.json({ error: "no_changes" }, { status: 400 });
@@ -83,11 +91,19 @@ export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
     .eq("id", id)
     .eq("owner_id", user.id)
     .select("id, name, code, created_at, revoked_at")
-    .single();
-  if (error || !data) {
+    .maybeSingle();
+  if (error) {
     // eslint-disable-next-line no-console
     console.error("[squads PATCH] supabase error", error);
     return Response.json({ error: "server_error" }, { status: 500 });
+  }
+  if (!data) {
+    // No row updated → the squad doesn't exist or isn't owned by the
+    // caller. PostgREST returns no error on .maybeSingle() when 0 rows
+    // match; report as 404 for clarity (the DELETE handler uses the
+    // same silent-success pattern, but for rename/regen the client
+    // needs to know it failed).
+    return Response.json({ error: "not_found" }, { status: 404 });
   }
   return Response.json({
     squad: {

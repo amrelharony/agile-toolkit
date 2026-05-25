@@ -1,6 +1,7 @@
 import { redirect, notFound } from "next/navigation";
 import { getGuestSession } from "@/lib/auth/guest-session";
 import { resolveGuestInvite } from "@/lib/squads/invites";
+import { isValidGuestPathSegment } from "@/lib/squads/validate";
 import { GuestCanvasClient } from "./guest-canvas-client";
 
 export const metadata = {
@@ -12,6 +13,9 @@ interface Params {
 }
 
 export default async function GuestCanvasPage({ params }: { params: Params }) {
+  if (!isValidGuestPathSegment(params.boardId)) {
+    notFound();
+  }
   const session = await getGuestSession();
   if (!session) {
     // Preserve the originally-requested URL so the join flow can

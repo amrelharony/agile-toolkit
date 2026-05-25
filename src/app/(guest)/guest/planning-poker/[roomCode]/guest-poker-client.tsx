@@ -11,10 +11,11 @@
  * `<PresenceIdentityProvider>` with the guest profile, which `useRoom`
  * reads as its presence id. No localStorage clobbering.
  *
- * Join: the first time we receive a session-sync that doesn't contain
- * us, we add ourselves to participants and broadcast. The host's next
- * mutation overwrites it, but as long as the host doesn't strip
- * participants on every change (they don't), the entry persists.
+ * Join: every render checks `session.participants.some(p => p.id === userId)`.
+ * If the local row is missing (initial join OR clobbered by a host-side
+ * race), we re-broadcast our row. The host's merge accepts the
+ * participant-row mutation. The check runs on every received session so
+ * a transient ghost recovers within one heartbeat.
  */
 
 import { useEffect, useState } from "react";
@@ -34,30 +35,19 @@ export function GuestPokerClient({ roomCode, role, profile }: Props) {
 }
 
 function GuestPokerInner({ roomCode, role, profile }: Props) {
-  // Guest is NOT the host — no heartbeat, no host-only mutations.
-  const { session, setSession, isConnected, isLocalOnly, userId } = usePokerSession(
-    roomCode,
-    /* isHost */ false
-  );
+  const { session, setSession, isConnected, isLocalOnly, userId, isHost, subscribeToSessionEnded } =
+    usePokerSession(roomCode, /* isHost */ false);
 
-  // Auto-join: when we receive the first session and we're not in
-  // participants, add ourselves and broadcast. This races safely with
-  // the host's heartbeat — last-write-wins on the full session means
-  // the host's next snapshot will preserve us (their snapshot is built
-  // from the most recent state they received, which includes us).
-  const [hasJoined, setHasJoined] = useState(false);
+  const [hostEnded, setHostEnded] = useState(false);
+
+  // Auto-rejoin: on every received session, if our row is missing and
+  // we're not a viewer, broadcast our participant row. No `hasJoined`
+  // latch — that latch caused a permanent ghost when the host's
+  // heartbeat raced our initial join broadcast.
   useEffect(() => {
-    if (hasJoined) return;
     if (!session) return;
-    if (session.participants.some((p) => p.id === userId)) {
-      setHasJoined(true);
-      return;
-    }
-    if (role === "viewer") {
-      // Viewers don't appear as voting participants — they observe only.
-      setHasJoined(true);
-      return;
-    }
+    if (role === "viewer") return;
+    if (session.participants.some((p) => p.id === userId)) return;
     setSession((prev) => {
       if (!prev) return prev;
       if (prev.participants.some((p) => p.id === userId)) return prev;
@@ -66,8 +56,12 @@ function GuestPokerInner({ roomCode, role, profile }: Props) {
         participants: [...prev.participants, { id: userId, name: profile.displayName, vote: null }],
       };
     });
-    setHasJoined(true);
-  }, [session, userId, profile.displayName, role, hasJoined, setSession]);
+  }, [session, userId, profile.displayName, role, setSession]);
+
+  useEffect(() => {
+    const off = subscribeToSessionEnded(() => setHostEnded(true));
+    return off;
+  }, [subscribeToSessionEnded]);
 
   if (!session) {
     return (
@@ -120,11 +114,20 @@ function GuestPokerInner({ roomCode, role, profile }: Props) {
             </span>
           </div>
         </header>
+        {hostEnded && (
+          <div
+            role="alert"
+            className="flex items-center gap-2 border border-amber-500/40 bg-amber-500/10 rounded px-3 py-2 text-xs text-amber-200"
+          >
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            The host left the session. Live updates have stopped.
+          </div>
+        )}
         <SessionScreen
           session={session}
           onUpdateSession={(updater) => setSession((prev) => (prev ? updater(prev) : prev))}
           localParticipantId={userId}
-          isHost={false}
+          isHost={isHost}
           onLeave={() => {
             window.location.href = "/guest";
           }}

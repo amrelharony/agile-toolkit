@@ -798,13 +798,19 @@ export interface WhiteboardActivityEvent {
   boardId: string;
   /** When (epoch ms). */
   at: number;
-  /** Who. */
+  /** Who — display name, derived from sender's presence. May be spoofed
+   * by a hostile peer; trust `by` for identity-binding checks. */
   author: string;
   /** Free-form event kind: "added", "removed", "moved", "edited",
    * "comment", "vote", etc. */
   kind: string;
   /** Short preview of what changed — e.g. "3 stickies added". */
   summary: string;
+  /** Sender's room identity. Optional for backward compatibility with
+   * pre-fix events already persisted in localStorage. Set by
+   * `broadcastActivity` on the wire and used by the receiver to verify
+   * the event came from a peer in the current presence roster. */
+  by?: string;
 }
 
 export const emptyWorkspace: Workspace = {

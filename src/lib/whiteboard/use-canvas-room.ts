@@ -34,6 +34,30 @@ import {
 import { isValidObject, MAX_ID_LEN, MAX_COORD, MAX_VERSION } from "./object-validator";
 
 const HEARTBEAT_MS = 10_000;
+/** Bidi-override / isolate codepoints + C0 controls + LRM/RLM/ALM.
+ * Mirrors the regex in `use-canvas-presence.ts:72` so the activity log
+ * and the presence layer reject the same hostile characters (RTL spoof
+ * of another user's name, control chars that mangle log readouts).
+ * Built from `\u` escapes so the source stays pure ASCII — raw bidi
+ * chars in a regex literal get mangled by git autocrlf / editor save. */
+const RTL_OVERRIDE_RE = new RegExp(
+  "[\\u0000-\\u001F\\u007F\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]"
+);
+/** Reject activity events whose `at` is older than this — mirrors the
+ * activity log's effective retention. A hostile peer broadcasting
+ * `at: 0` (1970) would otherwise land in the rolling log with a
+ * stable past timestamp, sorting above legitimate entries forever. */
+const ACTIVITY_PAST_TOLERANCE_MS = 24 * 60 * 60_000;
+/** Dedicated inbound dedup window for `whiteboard:activity`. Sized
+ * independently of the visible activity log so a buffered/retransmitted
+ * broadcast that arrives after the rolling log has rotated past its id
+ * still gets deduped. */
+const ACTIVITY_DEDUP_RING_SIZE = 500;
+/** Max number of recent activity events to fan back out on
+ * `whiteboard:request`. Lets a guest joining mid-session populate their
+ * local activity stream without a dedicated bootstrap event. Receiver
+ * dedups by id so re-delivering events they already have is harmless. */
+const ACTIVITY_BOOTSTRAP_MAX = 50;
 /** Random jitter ceiling for drift-recovery requests. Each peer that
  * notices drift waits 0…N ms before sending a `whiteboard:request`,
  * and cancels its own request if it sees somebody else's first. This
@@ -206,10 +230,23 @@ function isValidActivityEvent(raw: unknown): raw is WhiteboardActivityEvent {
   // Reject far-future timestamps to mirror the history_events guard —
   // 5 minutes of clock skew is the same window we use elsewhere.
   if (r.at > Date.now() + 5 * 60_000) return false;
+  // Reject far-past timestamps so a hostile peer can't land an event
+  // with `at: 0` (1970) that sorts above legitimate entries forever.
+  if (r.at < Date.now() - ACTIVITY_PAST_TOLERANCE_MS) return false;
   if (typeof r.author !== "string" || r.author.length === 0 || r.author.length > 200) return false;
+  if (RTL_OVERRIDE_RE.test(r.author)) return false;
   if (typeof r.kind !== "string" || r.kind.length === 0 || r.kind.length > 64) return false;
+  if (RTL_OVERRIDE_RE.test(r.kind)) return false;
   if (typeof r.summary !== "string" || r.summary.length === 0 || r.summary.length > 1000)
     return false;
+  if (RTL_OVERRIDE_RE.test(r.summary)) return false;
+  // `by` is optional for backward compatibility with pre-fix events
+  // already persisted in localStorage. When present it must look like
+  // a valid identity id (length-bounded). Receivers cross-check against
+  // the live presence roster as a soft identity-binding gate.
+  if (r.by !== undefined) {
+    if (typeof r.by !== "string" || r.by.length === 0 || r.by.length > MAX_ID_LEN) return false;
+  }
   return true;
 }
 
@@ -292,6 +329,14 @@ export function useCanvasRoom({
     // of N peers all requesting the same drifted ids.
     const pendingDriftIds = new Set<string>();
     let driftTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Dedicated dedup ring for inbound `whiteboard:activity`. Sized
+    // independently of the visible activity log so a buffered/retransmitted
+    // broadcast that arrives after the rolling log has rotated past its
+    // id still gets deduped. Cleared on cleanup with the rest of the
+    // effect-scoped state.
+    const seenActivityIds = new Set<string>();
+    const seenActivityOrder: string[] = [];
 
     // ─── Inbound-patch coalescer ──────────────────────────────────────
     // Each incoming `whiteboard:patch` triggers an `applyPatch` against
@@ -431,14 +476,27 @@ export function useCanvasRoom({
       const have = (useWorkspaceStore.getState().whiteboardObjects ?? []).filter(
         (o) => o.boardId === boardId && requested.has(o.id)
       );
-      if (have.length === 0) return;
-      const patch: WhiteboardPatch = {
-        upserted: have,
-        removed: [],
-        by: roomRef.current.userId,
-        at: new Date().toISOString(),
-      };
-      roomRef.current.broadcast("whiteboard:patch", patch);
+      if (have.length !== 0) {
+        const patch: WhiteboardPatch = {
+          upserted: have,
+          removed: [],
+          by: roomRef.current.userId,
+          at: new Date().toISOString(),
+        };
+        roomRef.current.broadcast("whiteboard:patch", patch);
+      }
+      // Bootstrap the requester's activity stream. A guest who joined
+      // mid-session has an empty local log; without this they'd never
+      // see entries created before they arrived. We piggyback on the
+      // existing drift-recovery request rather than introducing a new
+      // event type. Receiver dedups by id so re-delivering events the
+      // requester already has is harmless.
+      const recentActivity = (useWorkspaceStore.getState().whiteboardActivityLog ?? [])
+        .filter((e) => e.boardId === boardId)
+        .slice(-ACTIVITY_BOOTSTRAP_MAX);
+      for (const ev of recentActivity) {
+        roomRef.current.broadcast("whiteboard:activity", ev);
+      }
     });
 
     // ─── whiteboard:focus — "Bring everyone to me" / "Spotlight" ───
@@ -460,16 +518,37 @@ export function useCanvasRoom({
     // received event to OUR local log; we never re-broadcast (the
     // sender already broadcast it once).
     //
-    // Dedup by event id to guard against (a) Supabase reconnects
-    // re-delivering buffered broadcasts, and (b) a future change to
-    // the broadcast.self default that would loop sender broadcasts
-    // back. `appendWhiteboardActivity` in the workspace store does
-    // NOT dedup by id — it just appends — so the guard lives here.
+    // Dedup by event id via the dedicated `seenActivityIds` ring sized
+    // independently of the visible activity log. The rolling log can
+    // rotate past the id of a buffered/retransmitted broadcast; the
+    // ring guards against (a) Supabase reconnect re-delivery,
+    // (b) a future broadcast.self change that would loop sender
+    // broadcasts back, and (c) the activity-bootstrap fan-out on
+    // `whiteboard:request` re-delivering recent events.
+    // `appendWhiteboardActivity` in the workspace store does NOT
+    // dedup by id — it just appends — so the guard lives here.
     const offActivity = roomRef.current.subscribeToEvent("whiteboard:activity", (raw) => {
       if (!isValidActivityEvent(raw)) return;
       if (raw.boardId !== boardId) return;
-      const log = useWorkspaceStore.getState().whiteboardActivityLog ?? [];
-      if (log.some((e) => e.id === raw.id)) return;
+      if (seenActivityIds.has(raw.id)) return;
+      // Soft identity-binding: if `by` is present, accept only when it
+      // matches a peer currently in the presence roster. While presence
+      // is still syncing (roster empty in the first frame after channel
+      // mount) we accept anyway so a fast-arriving event isn't dropped
+      // before peers materialise. Pre-fix events without `by` are also
+      // accepted for backward compatibility — their `author` may be
+      // spoofable but the field-level validator already caps length
+      // and rejects bidi/control characters.
+      if (raw.by !== undefined) {
+        const liveMembers = roomRef.current.members;
+        if (liveMembers.length > 0 && !liveMembers.some((m) => m.id === raw.by)) return;
+      }
+      seenActivityIds.add(raw.id);
+      seenActivityOrder.push(raw.id);
+      if (seenActivityOrder.length > ACTIVITY_DEDUP_RING_SIZE) {
+        const evicted = seenActivityOrder.shift();
+        if (evicted !== undefined) seenActivityIds.delete(evicted);
+      }
       useWorkspaceStore.getState().appendWhiteboardActivity(raw);
     });
 
@@ -551,8 +630,13 @@ export function useCanvasRoom({
     (event: WhiteboardActivityEvent) => {
       if (!roomRef.current) return;
       if (readOnly) return;
-      if (!isValidActivityEvent(event)) return;
-      roomRef.current.broadcast("whiteboard:activity", event);
+      // Stamp `by` from the room's identity — don't trust the caller.
+      // A buggy emit-site elsewhere (or a future code path) that ships
+      // the wrong `by` would otherwise pass identity-binding gates on
+      // receivers under a spoofed id.
+      const stamped: WhiteboardActivityEvent = { ...event, by: roomRef.current.userId };
+      if (!isValidActivityEvent(stamped)) return;
+      roomRef.current.broadcast("whiteboard:activity", stamped);
     },
     [readOnly]
   );

@@ -97,3 +97,50 @@ describe("useHistoryStore.addEvents", () => {
     expect(useHistoryStore.getState().events).toHaveLength(1);
   });
 });
+
+describe("useHistoryStore.addEvent (single-event chronological insertion)", () => {
+  beforeEach(() => {
+    useHistoryStore.setState({
+      events: [],
+      clientId: "tab-1",
+      lastSyncAt: null,
+      syncStatus: "idle",
+      syncError: null,
+    });
+  });
+
+  it("appends when the new event is at or after the tail", () => {
+    const a = evt({ clientEventId: "evt-A", occurredAt: "2026-05-24T10:00:00Z" });
+    const b = evt({ clientEventId: "evt-B", occurredAt: "2026-05-24T10:00:05Z" });
+    useHistoryStore.getState().addEvent(a);
+    useHistoryStore.getState().addEvent(b);
+    expect(useHistoryStore.getState().events.map((e) => e.clientEventId)).toEqual([
+      "evt-A",
+      "evt-B",
+    ]);
+  });
+
+  it("inserts in chronological position when occurredAt is in the past (backfill)", () => {
+    const a = evt({ clientEventId: "evt-A", occurredAt: "2026-05-24T10:00:00Z" });
+    const b = evt({ clientEventId: "evt-B", occurredAt: "2026-05-24T10:00:10Z" });
+    const backfilled = evt({
+      clientEventId: "evt-backfill",
+      occurredAt: "2026-05-24T10:00:05Z",
+    });
+    useHistoryStore.getState().addEvent(a);
+    useHistoryStore.getState().addEvent(b);
+    useHistoryStore.getState().addEvent(backfilled);
+    expect(useHistoryStore.getState().events.map((e) => e.clientEventId)).toEqual([
+      "evt-A",
+      "evt-backfill",
+      "evt-B",
+    ]);
+  });
+
+  it("dedupes single-event by clientEventId", () => {
+    const a = evt({ clientEventId: "evt-A", occurredAt: "2026-05-24T10:00:00Z" });
+    useHistoryStore.getState().addEvent(a);
+    useHistoryStore.getState().addEvent(a);
+    expect(useHistoryStore.getState().events).toHaveLength(1);
+  });
+});

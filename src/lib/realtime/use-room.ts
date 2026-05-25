@@ -39,6 +39,18 @@ const COLORS = [
 const COLOR_SET = new Set(COLORS);
 const FALLBACK_COLOR = COLORS[0];
 
+// Permissive color validator for caller-supplied identity.color. Accepts the
+// usual #rgb/#rrggbb(aa), rgb()/rgba(), hsl()/hsla() and short named tokens —
+// mirrors `use-presence.ts`'s widened palette so a guest's stored profile
+// color survives the round-trip even when it isn't in the 8-entry COLORS
+// allowlist used for peer-broadcast normalisation.
+const CALLER_COLOR_RE =
+  /^(#[0-9a-fA-F]{3,8}|rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)|rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*(0|1|0?\.\d+)\s*\)|hsl\(\s*\d+\s*,\s*\d+%\s*,\s*\d+%\s*\)|hsla\(\s*\d+\s*,\s*\d+%\s*,\s*\d+%\s*,\s*(0|1|0?\.\d+)\s*\)|[a-zA-Z]{3,20})$/;
+
+function isCallerColor(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 32 && CALLER_COLOR_RE.test(value);
+}
+
 function assignColor(userId: string): string {
   let hash = 0;
   for (let i = 0; i < userId.length; i++) hash = (hash * 31 + userId.charCodeAt(i)) >>> 0;
@@ -108,7 +120,7 @@ interface UseRoomOptions<T> {
    * doing so would contaminate any other tab on the same browser (e.g.
    * the owner signed in elsewhere) for the duration of the session.
    */
-  identity?: { id: string; name: string };
+  identity?: { id: string; name: string; color?: string };
 }
 
 export function useRoom<T>(
@@ -138,7 +150,7 @@ export function useRoom<T>(
   // to every handler in the Set. Cleared on channel teardown so the
   // next channel re-binds fresh.
   const boundEventsRef = useRef<Set<string>>(new Set());
-  const userRef = useRef<{ id: string; name: string } | null>(null);
+  const userRef = useRef<{ id: string; name: string; color?: string } | null>(null);
   // Identity precedence: explicit option > tree-scoped context > localStorage.
   // Guest pages mount <PresenceIdentityProvider> so they don't have to
   // overwrite the shared `agile-toolkit:user` slot (which would
@@ -209,6 +221,18 @@ export function useRoom<T>(
       }
       return () => {
         handlers.delete(handler);
+        if (handlers.size === 0) {
+          // Drop the empty Set so dispatch's `set.size === 0` early-return
+          // in bindEventToChannel never even looks it up, and clear the
+          // bound flag so a future subscribeToEvent for the same name
+          // re-binds via bindEventToChannel (current supabase-js doesn't
+          // expose a per-listener disposer from `channel.on`, so we can't
+          // remove the underlying broadcast listener — the cheapest
+          // alternative is to keep dispatch O(1) and re-use the binding
+          // on resubscribe).
+          eventHandlersRef.current.delete(event);
+          boundEventsRef.current.delete(event);
+        }
       };
     },
     [bindEventToChannel]
@@ -217,6 +241,7 @@ export function useRoom<T>(
   useEffect(() => {
     if (isLocalOnly || !roomId) {
       setIsConnected(false);
+      setMembers([]);
       return;
     }
 
@@ -294,6 +319,7 @@ export function useRoom<T>(
       bindEventToChannel(channel, event);
     });
 
+    const trackedColor = isCallerColor(me.color) ? me.color : assignColor(me.id);
     channel.subscribe((status) => {
       if (status === "SUBSCRIBED") {
         setIsConnected(true);
@@ -301,7 +327,7 @@ export function useRoom<T>(
         void channel.track({
           id: me.id,
           name: me.name,
-          color: assignColor(me.id),
+          color: trackedColor,
           joinedAt: new Date().toISOString(),
         });
       } else {
@@ -339,8 +365,11 @@ export function useRoom<T>(
     // tear down and re-create the realtime channel each commit. We capture
     // it once at mount and accept the trade-off that swapping the validator
     // mid-session requires re-rendering with a new roomId.
+    // Including `user?.id` in the deps so a switch-profile flow (or the
+    // owner-tree case where identity arrives after the AuthProvider
+    // resolves) remounts the channel with the new presence key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toolId, roomId, isLocalOnly]);
+  }, [toolId, roomId, isLocalOnly, user?.id]);
 
   return {
     state,

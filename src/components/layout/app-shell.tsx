@@ -35,6 +35,7 @@ import { HolidayEngine } from "@/lib/holiday/engine";
 import { EmotionProvider } from "@/lib/emotion/provider";
 import { WeatherProvider } from "@/lib/weather/provider";
 import { AuthProvider } from "@/lib/auth/auth-provider";
+import { OwnerPresenceProvider } from "./owner-presence-provider";
 import { CloudSyncProvider } from "@/lib/sync/sync-provider";
 import { HistorySyncProvider } from "@/lib/history/sync-provider";
 import { TimeTravelShortcuts } from "@/components/history/time-travel-shortcuts";
@@ -46,7 +47,13 @@ import { RecentToolTracker } from "@/lib/tools/tool-prefs";
 // Routes that bypass the full app chrome (sidebar/header/providers).
 // Middleware allows them through unauthenticated, so they must render
 // without depending on auth state, workspace store rehydration, etc.
-const BARE_ROUTE_PREFIXES = ["/auth", "/not-authorized", "/guest"];
+const BARE_ROUTE_PREFIXES = [
+  "/auth/sign-in",
+  "/auth/sign-out",
+  "/auth/callback",
+  "/not-authorized",
+  "/guest",
+];
 
 function isBareRoute(pathname: string | null): boolean {
   if (!pathname) return false;
@@ -102,46 +109,48 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
             <WeatherProvider>
               <GamificationProvider>
                 <AuthProvider>
-                  <CloudSyncProvider>
-                    <HistorySyncProvider>
-                      <TimeTravelShortcuts />
-                      <RecentToolTracker />
-                      {/* Skip-to-content link for screen readers + keyboard users */}
-                      <a
-                        href="#main-content"
-                        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-3 focus:py-2 focus:bg-accent focus:text-bg focus:rounded-md"
-                      >
-                        Skip to content
-                      </a>
+                  <OwnerPresenceProvider>
+                    <CloudSyncProvider>
+                      <HistorySyncProvider>
+                        <TimeTravelShortcuts />
+                        <RecentToolTracker />
+                        {/* Skip-to-content link for screen readers + keyboard users */}
+                        <a
+                          href="#main-content"
+                          className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-3 focus:py-2 focus:bg-accent focus:text-bg focus:rounded-md"
+                        >
+                          Skip to content
+                        </a>
 
-                      <div className="flex min-h-screen">
-                        <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-                        <div className="flex-1 flex flex-col min-w-0">
-                          <Header
-                            onOpenSearch={() => setSearchOpen(true)}
-                            onOpenSidebar={() => setSidebarOpen(true)}
-                            onOpenTrophyCase={() => setTrophyOpen(true)}
-                          />
-                          <main
-                            id="main-content"
-                            className="flex-1 pb-[calc(2rem+env(safe-area-inset-bottom))] md:pb-8 pl-safe pr-safe md:pl-0 md:pr-0"
-                          >
-                            {children}
-                          </main>
+                        <div className="flex min-h-screen">
+                          <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+                          <div className="flex-1 flex flex-col min-w-0">
+                            <Header
+                              onOpenSearch={() => setSearchOpen(true)}
+                              onOpenSidebar={() => setSidebarOpen(true)}
+                              onOpenTrophyCase={() => setTrophyOpen(true)}
+                            />
+                            <main
+                              id="main-content"
+                              className="flex-1 pb-[calc(2rem+env(safe-area-inset-bottom))] md:pb-8 pl-safe pr-safe md:pl-0 md:pr-0"
+                            >
+                              {children}
+                            </main>
+                          </div>
+                          <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
                         </div>
-                        <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
-                      </div>
-                      <TrophyCase open={trophyOpen} onOpenChange={setTrophyOpen} />
-                      <Suspense fallback={null}>
-                        <HolidayEngine />
-                      </Suspense>
-                      {/* BYOK settings dialog — open/close state lives in llm-ui-store,
+                        <TrophyCase open={trophyOpen} onOpenChange={setTrophyOpen} />
+                        <Suspense fallback={null}>
+                          <HolidayEngine />
+                        </Suspense>
+                        {/* BYOK settings dialog — open/close state lives in llm-ui-store,
             so this single mount serves both header-chip and UserMenu
             entry points. Dynamic-imported so non-AI users never load it. */}
-                      <LlmSettingsDialog />
-                      <AgentSheet />
-                    </HistorySyncProvider>
-                  </CloudSyncProvider>
+                        <LlmSettingsDialog />
+                        <AgentSheet />
+                      </HistorySyncProvider>
+                    </CloudSyncProvider>
+                  </OwnerPresenceProvider>
                 </AuthProvider>
               </GamificationProvider>
             </WeatherProvider>

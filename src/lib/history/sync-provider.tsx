@@ -3,11 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useHistoryStore } from "./history-store";
-import {
-  pushEvents,
-  pullEvents,
-  subscribeToHistory,
-} from "./sync";
+import { pushEvents, pullEvents, subscribeToHistory } from "./sync";
 
 const PUSH_DEBOUNCE_MS = 800;
 const BACKOFF_BASE_MS = 1000;
@@ -41,9 +37,7 @@ export function HistorySyncProvider({ children }: { children: React.ReactNode })
   const setLastSyncAt = useHistoryStore((s) => s.setLastSyncAt);
   const addEvents = useHistoryStore((s) => s.addEvents);
   const markSynced = useHistoryStore((s) => s.markSynced);
-  const setUserOnAnonymousEvents = useHistoryStore(
-    (s) => s.setUserOnAnonymousEvents
-  );
+  const setUserOnAnonymousEvents = useHistoryStore((s) => s.setUserOnAnonymousEvents);
 
   // Initial sign-in / sign-out handling
   useEffect(() => {
@@ -69,17 +63,21 @@ export function HistorySyncProvider({ children }: { children: React.ReactNode })
       setSyncStatus("syncing");
       try {
         // Stamp anonymous events with userId on the initial run.
-        const stamped =
-          reason === "initial" ? setUserOnAnonymousEvents(userId) : [];
+        const stamped = reason === "initial" ? setUserOnAnonymousEvents(userId) : [];
         const allEvents = useHistoryStore.getState().events;
+        // Owner client only re-pushes events it authored itself; guest-
+        // authored rows (squadProfileId !== null) arrive via realtime
+        // onInsert and never need re-pushing. Without this filter, a
+        // guest-authored event sitting in the local store with a null
+        // syncedAt could be re-emitted by the owner — and since the
+        // owner has no permission to claim guest attribution, the DB
+        // would either reject it (with the H13 policy) or accept a
+        // forged row (pre-policy).
         const unsynced = allEvents.filter(
-          (e) => e.userId === userId && !e.syncedAt
+          (e) => e.userId === userId && !e.syncedAt && e.squadProfileId == null
         );
         const stampedIds = new Set(stamped.map((e) => e.clientEventId));
-        const toPush = [
-          ...stamped,
-          ...unsynced.filter((e) => !stampedIds.has(e.clientEventId)),
-        ];
+        const toPush = [...stamped, ...unsynced.filter((e) => !stampedIds.has(e.clientEventId))];
         if (toPush.length > 0) {
           const written = await pushEvents(toPush, userId);
           if (written.length > 0) {
@@ -144,22 +142,20 @@ export function HistorySyncProvider({ children }: { children: React.ReactNode })
     const unsub = useHistoryStore.subscribe((s, prev) => {
       if (s.events === prev.events) return;
       const newOnes = s.events.filter(
-        (e) => e.userId === userId && !e.syncedAt
+        (e) => e.userId === userId && !e.syncedAt && e.squadProfileId == null
       );
       if (newOnes.length === 0) return;
       // Respect the backoff window: don't schedule a push until we're past it.
       const now = Date.now();
       const delay =
-        backoffUntilRef.current > now
-          ? backoffUntilRef.current - now
-          : PUSH_DEBOUNCE_MS;
+        backoffUntilRef.current > now ? backoffUntilRef.current - now : PUSH_DEBOUNCE_MS;
       if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
       pushTimerRef.current = setTimeout(() => {
         void (async () => {
           // Re-read at fire time so we push the freshest set.
           const fresh = useHistoryStore
             .getState()
-            .events.filter((e) => e.userId === userId && !e.syncedAt);
+            .events.filter((e) => e.userId === userId && !e.syncedAt && e.squadProfileId == null);
           if (fresh.length === 0) return;
           try {
             const written = await pushEvents(fresh, userId);
@@ -173,8 +169,7 @@ export function HistorySyncProvider({ children }: { children: React.ReactNode })
             const msg = err instanceof Error ? err.message : String(err);
             failureCountRef.current += 1;
             const wait = Math.min(
-              BACKOFF_BASE_MS *
-                2 ** Math.min(failureCountRef.current - 1, 8),
+              BACKOFF_BASE_MS * 2 ** Math.min(failureCountRef.current - 1, 8),
               BACKOFF_MAX_MS
             );
             backoffUntilRef.current = Date.now() + wait;

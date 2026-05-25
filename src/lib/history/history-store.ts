@@ -122,7 +122,31 @@ export const useHistoryStore = create<HistoryStore>()(
           if (s.events.some((e) => e.clientEventId === event.clientEventId)) {
             return s;
           }
-          const next = [...s.events, event];
+          // Fast path: append if the event is at-or-after the tail. Backfill
+          // / clock-skew / `opts.occurredAt` in the past would otherwise
+          // append out-of-order, breaking selectors that walk the array
+          // backwards (eventCountByDay, selectEvents, signal bridge).
+          const last = s.events[s.events.length - 1];
+          let next: HistoryEvent[];
+          if (!last || event.occurredAt >= last.occurredAt) {
+            next = [...s.events, event];
+          } else {
+            // Linear scan from the tail — backfilled events are rare and the
+            // array is capped at EVENTS_CAP. Insert before the first event
+            // that occurs strictly after this one, tie-breaking on
+            // clientEventId for determinism with addEvents' merge sort.
+            next = s.events.slice();
+            let i = next.length;
+            while (
+              i > 0 &&
+              (next[i - 1].occurredAt > event.occurredAt ||
+                (next[i - 1].occurredAt === event.occurredAt &&
+                  next[i - 1].clientEventId > event.clientEventId))
+            ) {
+              i--;
+            }
+            next.splice(i, 0, event);
+          }
           if (next.length > EVENTS_CAP) next.splice(0, next.length - EVENTS_CAP);
           return { events: next };
         }),

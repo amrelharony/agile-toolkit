@@ -87,10 +87,15 @@ export async function pushEvents(events: HistoryEvent[], userId: string): Promis
     //   1. SELECT existing rows by client_event_id — already-written, mark synced.
     //   2. UPSERT the rest. Only ids returned by .select() are confirmed writes.
     const sliceIds = slice.map((r) => r.client_event_id);
+    // Scope the existing-check to owner-authored rows only — a guest-
+    // authored row that happens to share a client_event_id would otherwise
+    // swallow our local owner-authored event silently (added to
+    // writtenIds without ever being persisted).
     const { data: existing, error: existErr } = await supabase
       .from("history_events")
       .select("client_event_id")
       .eq("user_id", userId)
+      .is("squad_profile_id", null)
       .in("client_event_id", sliceIds);
     if (existErr) throw existErr;
     const existingArr = ((existing as { client_event_id: string }[]) ?? []).map(

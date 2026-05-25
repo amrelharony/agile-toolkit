@@ -40,6 +40,7 @@ export interface InviteSummary {
 /**
  * List sessions a guest can join. Returns rows where:
  *   * squad_id matches the guest's squad
+ *   * parent squad has NOT been soft-revoked
  *   * profile_id is null (anyone) OR matches the guest profile id
  *   * not revoked
  *   * not expired
@@ -51,13 +52,18 @@ export async function listInvitesForGuest(opts: {
   const admin = getSquadAdminClient();
   if (!admin) return [];
   const nowIso = new Date().toISOString();
+  // `squads!inner` embeds the parent row and filters out invites whose
+  // parent squad was soft-revoked. The `revoked_at.is.null` predicate on
+  // the embedded resource is filter-on-embedded; PostgREST applies it
+  // server-side so the network payload is already gated.
   const { data, error } = await admin
     .from("session_invites")
     .select(
-      "id, owner_id, squad_id, tool_id, entity_id, role, profile_id, created_at, expires_at, revoked_at"
+      "id, owner_id, squad_id, tool_id, entity_id, role, profile_id, created_at, expires_at, revoked_at, squad:squads!inner(revoked_at)"
     )
     .eq("squad_id", opts.squadId)
     .is("revoked_at", null)
+    .is("squad.revoked_at", null)
     .or(`profile_id.is.null,profile_id.eq.${opts.profileId}`)
     .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
     .order("created_at", { ascending: false });
@@ -82,16 +88,23 @@ export async function resolveGuestInvite(opts: {
   // Prefer profile-pinned invite, but accept any-profile invite as fallback.
   // Two queries instead of one OR-with-priority because postgrest's `.or()`
   // doesn't give us an explicit preference ordering.
+  //
+  // SQL-side filtering on:
+  //   * expires_at (DB enforces TTL alongside the JS post-check)
+  //   * squad.revoked_at via inner-join embed (soft-revoked squad
+  //     can't grant any invite, even otherwise-active ones)
   const pinned = await admin
     .from("session_invites")
     .select(
-      "id, owner_id, squad_id, tool_id, entity_id, role, profile_id, created_at, expires_at, revoked_at"
+      "id, owner_id, squad_id, tool_id, entity_id, role, profile_id, created_at, expires_at, revoked_at, squad:squads!inner(revoked_at)"
     )
     .eq("squad_id", opts.squadId)
     .eq("tool_id", opts.toolId)
     .eq("entity_id", opts.entityId)
     .eq("profile_id", opts.profileId)
     .is("revoked_at", null)
+    .is("squad.revoked_at", null)
+    .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
     .maybeSingle();
   const pinnedRow = pinned.data as SessionInviteRow | null;
   if (pinnedRow && (!pinnedRow.expires_at || pinnedRow.expires_at > nowIso)) {
@@ -100,13 +113,15 @@ export async function resolveGuestInvite(opts: {
   const open = await admin
     .from("session_invites")
     .select(
-      "id, owner_id, squad_id, tool_id, entity_id, role, profile_id, created_at, expires_at, revoked_at"
+      "id, owner_id, squad_id, tool_id, entity_id, role, profile_id, created_at, expires_at, revoked_at, squad:squads!inner(revoked_at)"
     )
     .eq("squad_id", opts.squadId)
     .eq("tool_id", opts.toolId)
     .eq("entity_id", opts.entityId)
     .is("profile_id", null)
     .is("revoked_at", null)
+    .is("squad.revoked_at", null)
+    .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
     .maybeSingle();
   const openRow = open.data as SessionInviteRow | null;
   if (openRow && (!openRow.expires_at || openRow.expires_at > nowIso)) {

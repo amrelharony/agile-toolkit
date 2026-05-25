@@ -39,7 +39,7 @@ export function getSquadAdminClient(): SupabaseClient | null {
 // join form can import them too. Re-exported here so route handlers
 // import everything from one place.
 // ──────────────────────────────────────────────────────────────────────
-export { sanitizeDisplayName } from "./validate";
+export { sanitizeDisplayName, sanitizeSquadName, isValidGuestPathSegment } from "./validate";
 
 // Color palette + validator live in `./colors` so the client-side join
 // form can import them without dragging in this server-only module.
@@ -82,7 +82,13 @@ export function generateSquadCode(): string {
 export async function findActiveSquadByCode(code: string): Promise<SquadRow | null> {
   const admin = getSquadAdminClient();
   if (!admin) return null;
-  if (typeof code !== "string" || code.length < 16 || code.length > 64) return null;
+  // generateSquadCode always emits exactly 32 base64url chars. Reject
+  // any other length pre-DB: the DB constraint allows 16-64 for
+  // forward-compat with future code generators, but every real lookup
+  // today is exactly 32. Tightening here also narrows the timing
+  // oracle (a 32-char unknown code costs a DB hit; everything else
+  // returns synchronously, same as a malformed input).
+  if (typeof code !== "string" || code.length !== 32) return null;
   const { data, error } = await admin
     .from("squads")
     .select("id, owner_id, name, code, created_at, revoked_at")
@@ -94,17 +100,31 @@ export async function findActiveSquadByCode(code: string): Promise<SquadRow | nu
 }
 
 /**
+ * Outcome of createSquadProfile. `error` distinguishes the two
+ * caller-actionable cases (name collision under the partial unique
+ * index from migration 0013, or service-role unavailable / generic
+ * insert failure) from the happy path.
+ */
+export type CreateSquadProfileResult =
+  | { row: SquadProfileRow; cookieSecret: string; error: null }
+  | { row: null; cookieSecret: null; error: "name_taken" | "server_error" };
+
+/**
  * Create a guest profile under the given squad. Returns the row plus
  * the freshly-minted cookie_secret for the caller to sign the cookie
  * with. The cookie_secret is NEVER returned to the client.
+ *
+ * On unique-index violation (23505) — same (squad_id, lower(display_name))
+ * already active — returns `{ error: "name_taken" }` so the redeem
+ * route can surface a 409 to the client.
  */
 export async function createSquadProfile(opts: {
   squadId: string;
   displayName: string;
   color: string;
-}): Promise<{ row: SquadProfileRow; cookieSecret: string } | null> {
+}): Promise<CreateSquadProfileResult> {
   const admin = getSquadAdminClient();
-  if (!admin) return null;
+  if (!admin) return { row: null, cookieSecret: null, error: "server_error" };
   const cookieSecret = randomBytes(32).toString("base64url");
   const { data, error } = await admin
     .from("squad_profiles")
@@ -117,8 +137,14 @@ export async function createSquadProfile(opts: {
     })
     .select("id, squad_id, display_name, color, avatar_seed, created_at, last_seen_at, revoked_at")
     .single();
-  if (error || !data) return null;
-  return { row: data as SquadProfileRow, cookieSecret };
+  if (error) {
+    if (error.code === "23505") {
+      return { row: null, cookieSecret: null, error: "name_taken" };
+    }
+    return { row: null, cookieSecret: null, error: "server_error" };
+  }
+  if (!data) return { row: null, cookieSecret: null, error: "server_error" };
+  return { row: data as SquadProfileRow, cookieSecret, error: null };
 }
 
 /** Update last_seen_at to "now" — best-effort, errors swallowed. */

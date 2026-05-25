@@ -1,7 +1,11 @@
 /**
  * Guest session — httpOnly cookie carrying a HMAC-signed profile id.
  *
- * Cookie format: `<profileId>.<base64url(HMAC-SHA256(cookie_secret, profileId))>`
+ * Cookie format (current):
+ *   `<profileId>.<iat>.<base64url(HMAC-SHA256(secret, "profileId.iat"))>`
+ *
+ * Legacy format still accepted during migration:
+ *   `<profileId>.<base64url(HMAC-SHA256(secret, "profileId"))>`
  *
  * Security model:
  *   * The signing key is the profile's own `cookie_secret` column. The
@@ -10,7 +14,11 @@
  *   * The cookie is httpOnly + sameSite=lax + secure (in production).
  *     XSS can't read it; CSRF is mitigated by sameSite for state-
  *     changing endpoints. Token bearer semantics — anyone holding
- *     the signed cookie acts as that profile until revoke_at is set.
+ *     the signed cookie acts as that profile until revoked_at is set
+ *     or the embedded iat ages past COOKIE_MAX_AGE_SECONDS.
+ *   * The embedded iat lets the server expire a cookie independent
+ *     of browser maxAge, which is honour-only (an extension that
+ *     persists deleted cookies, a manually-replayed value, etc).
  *   * Verification reads the row via the service-role client (RLS
  *     bypass) because guests have no auth.uid(). Authorization
  *     happens in the calling route after this returns.
@@ -38,21 +46,54 @@ export function generateCookieSecret(): string {
 }
 
 function sign(profileId: string, secret: string): string {
-  const sig = createHmac("sha256", secret).update(profileId).digest("base64url");
-  return `${profileId}.${sig}`;
+  const iat = Math.floor(Date.now() / 1000);
+  const payload = `${profileId}.${iat}`;
+  const sig = createHmac("sha256", secret).update(payload).digest("base64url");
+  return `${payload}.${sig}`;
 }
 
+/**
+ * Verify the cookie signature against the secret. Accepts both the
+ * current 3-part format (`profileId.iat.sig`) and the legacy 2-part
+ * format (`profileId.sig`) during the migration window. Returns
+ * `false` (rejecting) when the current-format iat is older than
+ * COOKIE_MAX_AGE_SECONDS — server-side expiry independent of the
+ * browser's cookie-maxAge.
+ *
+ * Legacy fallback: TODO remove after grace period — once all
+ * pre-iat cookies have aged out via browser maxAge (365 days from
+ * deploy), drop the 2-part branch.
+ */
 function verifySignature(value: string, secret: string): boolean {
-  const dot = value.indexOf(".");
-  if (dot <= 0) return false;
-  const profileId = value.slice(0, dot);
-  const sig = value.slice(dot + 1);
-  if (!sig) return false;
-  const expected = createHmac("sha256", secret).update(profileId).digest("base64url");
-  const a = Buffer.from(sig);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
+  const parts = value.split(".");
+  if (parts.length === 3) {
+    const [profileId, iatStr, sig] = parts;
+    if (!profileId || !iatStr || !sig) return false;
+    const iat = Number(iatStr);
+    if (!Number.isFinite(iat) || !Number.isInteger(iat) || iat <= 0) return false;
+    const nowSec = Math.floor(Date.now() / 1000);
+    // Reject cookies whose embedded issuance time is in the future
+    // (clock skew or tampering) or aged past the max-age window.
+    if (iat > nowSec + 60) return false;
+    if (nowSec - iat > COOKIE_MAX_AGE_SECONDS) return false;
+    const expected = createHmac("sha256", secret)
+      .update(`${profileId}.${iatStr}`)
+      .digest("base64url");
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+  }
+  if (parts.length === 2) {
+    const [profileId, sig] = parts;
+    if (!profileId || !sig) return false;
+    const expected = createHmac("sha256", secret).update(profileId).digest("base64url");
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+  }
+  return false;
 }
 
 /**
@@ -60,8 +101,9 @@ function verifySignature(value: string, secret: string): boolean {
  * return the resolved session. Returns null when:
  *   * cookie missing or malformed
  *   * profile id doesn't exist
- *   * profile has been revoked
+ *   * profile or its parent squad has been revoked
  *   * HMAC mismatch (cookie was tampered or secret was rotated)
+ *   * cookie iat is older than COOKIE_MAX_AGE_SECONDS
  */
 export async function getGuestSession(): Promise<GuestSession | null> {
   const cookieStore = cookies();
@@ -76,13 +118,27 @@ export async function getGuestSession(): Promise<GuestSession | null> {
   const admin = getSquadAdminClient();
   if (!admin) return null;
 
+  // Embed `squads.revoked_at` so a soft-revoked squad disables every
+  // active cookie under it without nulling the underlying profile.
   const { data, error } = await admin
     .from("squad_profiles")
-    .select("id, squad_id, display_name, color, cookie_secret, revoked_at, last_seen_at")
+    .select(
+      "id, squad_id, display_name, color, cookie_secret, revoked_at, last_seen_at, squad:squads(revoked_at)"
+    )
     .eq("id", profileId)
     .single();
   if (error || !data) return null;
   if (data.revoked_at) return null;
+  const squad = data.squad as
+    | { revoked_at: string | null }
+    | { revoked_at: string | null }[]
+    | null;
+  // PostgREST returns embedded one-to-one as either an object or a
+  // single-element array depending on relationship hints; handle both.
+  const squadRevokedAt = Array.isArray(squad)
+    ? (squad[0]?.revoked_at ?? null)
+    : (squad?.revoked_at ?? null);
+  if (squadRevokedAt) return null;
   if (!verifySignature(value, data.cookie_secret as string)) return null;
 
   return {

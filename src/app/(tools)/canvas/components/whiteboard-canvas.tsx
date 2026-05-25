@@ -73,6 +73,17 @@ interface WhiteboardCanvasProps {
    * cannot edit objects but CAN drop new comment threads. Ignored when
    * `readOnly` is false (editors always can). Phase 32. */
   canComment?: boolean;
+  /** Display name to use for cursor labels and activity-log authorship.
+   * Owner-side callers can omit — the canvas presence hook falls back to
+   * the tree-scoped PresenceIdentity context, then to "Anonymous". */
+  presenceName?: string;
+  /** Cursor color (CSS color string). Owner-side callers can omit. */
+  presenceColor?: string;
+  /** When true, this peer is a guest (squad invite). Local activity-log
+   * writes are skipped so the shared `agile-toolkit:workspace` localStorage
+   * doesn't accumulate guest-authored entries that survive sign-out. The
+   * activity stream the guest sees is fed by inbound peer broadcasts. */
+  isGuest?: boolean;
 }
 
 // Returns a fresh z that is strictly greater than every current object's z
@@ -130,6 +141,9 @@ export function WhiteboardCanvas({
   onViewportSize,
   readOnly = false,
   canComment = false,
+  presenceName,
+  presenceColor,
+  isGuest = false,
 }: WhiteboardCanvasProps) {
   // Viewport DOM ref + cached DOMRect + size live in their own hook so
   // the ResizeObserver + scroll listener stays out of this file.
@@ -314,7 +328,11 @@ export function WhiteboardCanvas({
   // suppression, activity-log authorship, follow-me, and reload all
   // broke at the seam. Pass the room's userId as the presence hint so
   // both layers agree on who this peer is.
-  const { members, publish, self } = useCanvasPresence(channelName, { id: roomUserId });
+  const { members, publish, self } = useCanvasPresence(channelName, {
+    id: roomUserId,
+    name: presenceName,
+    color: presenceColor,
+  });
 
   // Activity-log helper. Coalesces small per-keystroke events into
   // larger summaries by skipping no-op summaries and only logging
@@ -330,13 +348,25 @@ export function WhiteboardCanvas({
         kind,
         summary,
       };
-      appendActivity(event);
+      // Guests must NOT write to the local workspace store — the activity
+      // log is persisted to the shared `agile-toolkit:workspace` slot and
+      // would otherwise survive sign-out into any owner-mode tab on the
+      // same browser. The owner's broadcast path still re-enters this
+      // hook via the inbound `whiteboard:activity` handler if the guest
+      // needs to see their own line — but today the guest UI doesn't
+      // mount an ActivityStream, so it's a no-op visually too.
+      if (!isGuest) appendActivity(event);
       // Fan out to peers so the owner sees "Alice added 1 sticky" in
       // their own activity stream. broadcastActivity no-ops in
       // readOnly mode and when realtime is unavailable.
+      // KNOWN: this fires even when the caller's preceding mutation
+      // (e.g. upsertMany) didn't actually apply — store actions don't
+      // surface a "did anything change" return today. Peers may see an
+      // activity line with no corresponding object change. Tracked for
+      // a follow-up where mutation actions return boolean / counts.
       broadcastActivity(event);
     },
-    [appendActivity, boardId, self.name, broadcastActivity]
+    [appendActivity, boardId, self.name, broadcastActivity, isGuest]
   );
 
   // Publish selection + tool changes to peers. Cursor updates happen

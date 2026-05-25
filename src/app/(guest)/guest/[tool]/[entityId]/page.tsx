@@ -1,6 +1,7 @@
 import { redirect, notFound } from "next/navigation";
 import { getGuestSession } from "@/lib/auth/guest-session";
 import { resolveGuestInvite } from "@/lib/squads/invites";
+import { isValidGuestPathSegment } from "@/lib/squads/validate";
 import { GuestToolPlaceholder } from "./guest-tool-placeholder";
 
 export const metadata = {
@@ -13,6 +14,13 @@ interface Params {
 }
 
 export default async function GuestToolPage({ params }: { params: Params }) {
+  // Reject overlong / control-char URL segments at the page layer.
+  // Next.js URL segments accept up to ~2 KB each; the downstream
+  // log endpoint caps entity_id at 200 chars, so any page that
+  // accepts more would mount, then refuse every subsequent action.
+  if (!isValidGuestPathSegment(params.tool) || !isValidGuestPathSegment(params.entityId)) {
+    notFound();
+  }
   const session = await getGuestSession();
   if (!session) {
     redirect(`/guest/join?next=${encodeURIComponent(`/guest/${params.tool}/${params.entityId}`)}`);

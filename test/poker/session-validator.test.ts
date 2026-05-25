@@ -100,4 +100,12 @@ describe("isValidSession", () => {
     expect(isValidSession(baseSession({ currentStoryIdx: NaN }))).toBe(false);
     expect(isValidSession(baseSession({ currentStoryIdx: Infinity }))).toBe(false);
   });
+
+  it("rejects non-integer or out-of-range currentStoryIdx", () => {
+    expect(isValidSession(baseSession({ currentStoryIdx: 1.5 }))).toBe(false);
+    expect(isValidSession(baseSession({ currentStoryIdx: -1 }))).toBe(false);
+    expect(isValidSession(baseSession({ currentStoryIdx: 501 }))).toBe(false);
+    expect(isValidSession(baseSession({ currentStoryIdx: 500 }))).toBe(true);
+    expect(isValidSession(baseSession({ currentStoryIdx: 0 }))).toBe(true);
+  });
 });

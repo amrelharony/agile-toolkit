@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
   const toolId = url.searchParams.get("toolId");
   const entityId = url.searchParams.get("entityId");
 
+  const nowIso = new Date().toISOString();
   let query = supabase
     .from("session_invites")
     .select(
@@ -36,6 +37,10 @@ export async function GET(req: NextRequest) {
     )
     .eq("owner_id", user.id)
     .is("revoked_at", null)
+    // Drop expired invites from the listing — guests have stopped being
+    // able to use them since `resolveGuestInvite` enforces the same
+    // predicate, so showing them as "active" in the owner UI misleads.
+    .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
     .order("created_at", { ascending: false });
   if (toolId) {
     if (!TOOL_ID_RE.test(toolId)) {
@@ -130,6 +135,9 @@ export async function POST(req: NextRequest) {
 
   let expiresAt: string | null = null;
   if (typeof b.ttlDays === "number" && Number.isFinite(b.ttlDays) && b.ttlDays > 0) {
+    // Cap at 365 days. The DB CHECK allows `created_at + 366 days` as
+    // a safety buffer; the JS API stays one day inside that to give
+    // PostgreSQL's interval arithmetic + clock skew breathing room.
     const days = Math.min(365, Math.max(1, Math.floor(b.ttlDays)));
     const d = new Date();
     d.setUTCDate(d.getUTCDate() + days);
@@ -148,37 +156,46 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "squad_not_found" }, { status: 404 });
   }
 
-  // If a profile_id was supplied, confirm it belongs to this squad.
+  // If a profile_id was supplied, confirm it belongs to this squad AND
+  // is still active. Without the revoked_at filter, the invite is
+  // created pinned to a dead profile that can never claim it — the
+  // invite then sits as a permanent zombie occupying the unique-index
+  // slot until manually cleaned.
   if (profileId) {
     const { data: profile } = await supabase
       .from("squad_profiles")
       .select("id")
       .eq("id", profileId)
       .eq("squad_id", squadId)
+      .is("revoked_at", null)
       .maybeSingle();
     if (!profile) {
       return Response.json({ error: "profile_not_in_squad" }, { status: 400 });
     }
   }
 
-  const { data, error } = await supabase
+  const insertRow = {
+    owner_id: user.id,
+    squad_id: squadId,
+    tool_id: toolId,
+    entity_id: entityId,
+    role,
+    profile_id: profileId,
+    expires_at: expiresAt,
+  };
+
+  // First attempt.
+  let inserted = await supabase
     .from("session_invites")
-    .insert({
-      owner_id: user.id,
-      squad_id: squadId,
-      tool_id: toolId,
-      entity_id: entityId,
-      role,
-      profile_id: profileId,
-      expires_at: expiresAt,
-    })
+    .insert(insertRow)
     .select("id, squad_id, tool_id, entity_id, role, profile_id, created_at, expires_at")
     .single();
-  if (error) {
-    // Unique-index violation: an active invite for this exact (squad,
-    // tool, entity, profile) already exists. That's a no-op, not an
-    // error — return 200 with the existing row so the UI can render it.
-    if (error.code === "23505") {
+
+  if (inserted.error) {
+    if (inserted.error.code === "23505") {
+      // Unique-index violation: an active invite for this exact (squad,
+      // tool, entity, profile) already exists.
+      //
       // PostgREST `.is(col, val)` only accepts boolean | null — for a
       // non-null UUID match we must use `.eq()`. Falling back to `.is`
       // with a UUID makes the lookup return zero rows and the route
@@ -196,12 +213,67 @@ export async function POST(req: NextRequest) {
       if (existing) {
         return Response.json({ invite: rowToInvite(existing), existed: true });
       }
+      // Recovery SELECT found nothing — the conflicting row must have
+      // been revoked between our INSERT attempt and this lookup, freeing
+      // the partial-unique slot. Retry the INSERT once; if it conflicts
+      // again something is genuinely wrong (e.g. a concurrent peer
+      // inserted between the lookup and this retry, which the next
+      // 23505 surfaces as 500 rather than spin-looping).
+      inserted = await supabase
+        .from("session_invites")
+        .insert(insertRow)
+        .select("id, squad_id, tool_id, entity_id, role, profile_id, created_at, expires_at")
+        .single();
+      if (inserted.error) {
+        // eslint-disable-next-line no-console
+        console.error("[sessions POST] retry failed", inserted.error);
+        return Response.json({ error: "server_error" }, { status: 500 });
+      }
+    } else {
+      // eslint-disable-next-line no-console
+      console.error("[sessions POST] supabase error", inserted.error);
+      return Response.json({ error: "server_error" }, { status: 500 });
     }
-    // eslint-disable-next-line no-console
-    console.error("[sessions POST] supabase error", error);
+  }
+
+  const inviteRow = inserted.data;
+  if (!inviteRow) {
     return Response.json({ error: "server_error" }, { status: 500 });
   }
-  return Response.json({ invite: rowToInvite(data), existed: false });
+
+  // Audit-log the issuance so the owner's activity feed can reconstruct
+  // when a guest gained access. Best-effort — failure here does NOT
+  // roll back the invite (the invite is the source of truth; the log
+  // row is reconstructable from squad_profiles/session_invites if
+  // needed). Owner-authored (squad_profile_id = NULL).
+  void supabase
+    .from("history_events")
+    .insert({
+      user_id: user.id,
+      tool_id: toolId,
+      action: "invite_created",
+      payload: {
+        toolId,
+        entityId,
+        role,
+        squadId,
+        profileId,
+        inviteId: inviteRow.id,
+      },
+      is_milestone: false,
+      client_id: "server",
+      client_event_id: `invite_create_${inviteRow.id}`,
+      tool_run_id: `invite_${inviteRow.id}`,
+      occurred_at: new Date().toISOString(),
+    })
+    .then(({ error: auditErr }) => {
+      if (auditErr) {
+        // eslint-disable-next-line no-console
+        console.error("[sessions POST] audit insert failed", auditErr.code);
+      }
+    });
+
+  return Response.json({ invite: rowToInvite(inviteRow), existed: false });
 }
 
 function rowToInvite(d: {

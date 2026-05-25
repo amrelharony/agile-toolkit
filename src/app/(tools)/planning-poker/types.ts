@@ -71,7 +71,13 @@ export function isValidSession(raw: unknown): raw is Session {
     return false;
   if (typeof r.host !== "string" || r.host.length < 1 || r.host.length > 80) return false;
   if (typeof r.hostId !== "string" || r.hostId.length < 1 || r.hostId.length > 64) return false;
-  if (typeof r.currentStoryIdx !== "number" || !Number.isFinite(r.currentStoryIdx)) return false;
+  if (
+    typeof r.currentStoryIdx !== "number" ||
+    !Number.isInteger(r.currentStoryIdx) ||
+    r.currentStoryIdx < 0 ||
+    r.currentStoryIdx > 500
+  )
+    return false;
   if (typeof r.revealed !== "boolean") return false;
   if (!Array.isArray(r.scale) || r.scale.length === 0 || r.scale.length > 32) return false;
   for (const s of r.scale) {

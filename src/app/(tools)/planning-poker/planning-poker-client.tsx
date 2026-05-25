@@ -177,7 +177,8 @@ export function PlanningPokerClient() {
   const [pendingInitial, setPendingInitial] = useState<Session | null>(null);
 
   const pokerHook = usePokerSession(activeRoomCode, /* isHost */ true);
-  const { session, setSession, isConnected, isLocalOnly, userId } = pokerHook;
+  const { session, setSession, isConnected, isLocalOnly, userId, isHost, broadcastSessionEnded } =
+    pokerHook;
 
   useEffect(() => {
     if (!pendingInitial) return;
@@ -215,6 +216,7 @@ export function PlanningPokerClient() {
   };
 
   const handleLeave = () => {
+    broadcastSessionEnded();
     setActiveRoomCode(null);
     setPendingInitial(null);
     setSession(() => null);
@@ -300,7 +302,7 @@ export function PlanningPokerClient() {
               session={session}
               onUpdateSession={(updater) => setSession((prev) => (prev ? updater(prev) : prev))}
               localParticipantId={userId}
-              isHost={true}
+              isHost={isHost}
               onLeave={handleLeave}
               extraHeaderActions={
                 <>

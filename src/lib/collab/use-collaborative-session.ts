@@ -214,21 +214,49 @@ export function useCollaborativeSession(
   // get a profile in this room). A future hardening pass can add a
   // server-issued channel JWT (see plan, "hard problems #5").
   const roomId = entityId || null;
-  const room = useRoom<unknown>(toolId, roomId, null);
+  // Thread author identity into the room so peers see the owner's
+  // display_name / OWNER_COLOR (and guests see their squad-profile
+  // color, when present) instead of the localStorage-backed fallback.
+  // Color is left undefined when we don't have a tool-side value —
+  // useRoom hashes the id into its 8-entry palette in that case.
+  const roomIdentity = useMemo(() => {
+    if (!author) return undefined;
+    return { id: author.id, name: author.displayName, color: author.color };
+  }, [author]);
+  const room = useRoom<unknown>(toolId, roomId, null, { identity: roomIdentity });
 
   const attribute = useCallback(() => author, [author]);
 
-  return {
-    session: { mode, role },
-    author,
-    attribute,
-    log,
-    members: room.members,
-    broadcast: room.broadcast,
-    subscribeToEvent: room.subscribeToEvent,
-    isConnected: room.isConnected,
-    isLocalOnly: room.isLocalOnly,
-  };
+  // The returned object is memoised so consumers can safely put `collab`
+  // itself into a useEffect dep array without tearing down per-render
+  // subscriptions. Tools that prefer a narrower dep can still destructure
+  // (`const { subscribeToEvent } = collab;`) — `subscribeToEvent` is a
+  // useCallback inside useRoom with stable identity.
+  return useMemo(
+    () => ({
+      session: { mode, role },
+      author,
+      attribute,
+      log,
+      members: room.members,
+      broadcast: room.broadcast,
+      subscribeToEvent: room.subscribeToEvent,
+      isConnected: room.isConnected,
+      isLocalOnly: room.isLocalOnly,
+    }),
+    [
+      mode,
+      role,
+      author,
+      attribute,
+      log,
+      room.members,
+      room.broadcast,
+      room.subscribeToEvent,
+      room.isConnected,
+      room.isLocalOnly,
+    ]
+  );
 }
 
 export type { GuestProfile };
