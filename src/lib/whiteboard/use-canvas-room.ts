@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRoom } from "@/lib/realtime/use-room";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { WhiteboardObject } from "@/lib/stores/workspace-types";
+import type { WhiteboardObject, WhiteboardActivityEvent } from "@/lib/stores/workspace-types";
 import {
   applyPatch,
   buildHeartbeat,
@@ -154,11 +154,22 @@ function isValidFocus(raw: unknown): raw is FocusBroadcast {
   // divides by these and produces zoom ≈ 0 / NaN → recipients lose
   // their camera state with no recovery short of a page reload.
   if (
-    typeof rect.x !== "number" || !Number.isFinite(rect.x) || Math.abs(rect.x) > MAX_COORD ||
-    typeof rect.y !== "number" || !Number.isFinite(rect.y) || Math.abs(rect.y) > MAX_COORD ||
-    typeof rect.w !== "number" || !Number.isFinite(rect.w) || rect.w <= 0 || rect.w > MAX_COORD ||
-    typeof rect.h !== "number" || !Number.isFinite(rect.h) || rect.h <= 0 || rect.h > MAX_COORD
-  ) return false;
+    typeof rect.x !== "number" ||
+    !Number.isFinite(rect.x) ||
+    Math.abs(rect.x) > MAX_COORD ||
+    typeof rect.y !== "number" ||
+    !Number.isFinite(rect.y) ||
+    Math.abs(rect.y) > MAX_COORD ||
+    typeof rect.w !== "number" ||
+    !Number.isFinite(rect.w) ||
+    rect.w <= 0 ||
+    rect.w > MAX_COORD ||
+    typeof rect.h !== "number" ||
+    !Number.isFinite(rect.h) ||
+    rect.h <= 0 ||
+    rect.h > MAX_COORD
+  )
+    return false;
   // Spotlight must have a roughly-future expiresAt and can't camp on
   // screen forever (cap at 60s). Snap doesn't use expiresAt.
   //
@@ -176,17 +187,56 @@ function isValidFocus(raw: unknown): raw is FocusBroadcast {
   return true;
 }
 
-export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = false }: CanvasRoomOptions): {
+/**
+ * Shape validator for inbound `whiteboard:activity` events.
+ *
+ * Receivers feed validated events into `appendWhiteboardActivity` which
+ * has its own caps; this is the first-line defence against a hostile
+ * peer flooding the activity ring or injecting oversized author/summary
+ * strings that would survive the store's CHECK constraints. Matches the
+ * store's per-field caps (workspace-store.ts lines 890–895).
+ */
+function isValidActivityEvent(raw: unknown): raw is WhiteboardActivityEvent {
+  if (!raw || typeof raw !== "object") return false;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.id !== "string" || r.id.length === 0 || r.id.length > 100) return false;
+  if (typeof r.boardId !== "string" || r.boardId.length === 0 || r.boardId.length > 100)
+    return false;
+  if (typeof r.at !== "number" || !Number.isFinite(r.at)) return false;
+  // Reject far-future timestamps to mirror the history_events guard —
+  // 5 minutes of clock skew is the same window we use elsewhere.
+  if (r.at > Date.now() + 5 * 60_000) return false;
+  if (typeof r.author !== "string" || r.author.length === 0 || r.author.length > 200) return false;
+  if (typeof r.kind !== "string" || r.kind.length === 0 || r.kind.length > 64) return false;
+  if (typeof r.summary !== "string" || r.summary.length === 0 || r.summary.length > 1000)
+    return false;
+  return true;
+}
+
+export function useCanvasRoom({
+  toolId = "canvas",
+  roomId,
+  boardId,
+  readOnly = false,
+}: CanvasRoomOptions): {
   isConnected: boolean;
   userId: string;
   /** Broadcast a "follow me" / "look here" event to peers. `snap` is
    * the "Bring everyone to me" gesture — peers' cameras fit to the
    * supplied rect. `spotlight` highlights the rect without moving
    * peer cameras. */
-  broadcastFocus: (kind: "snap" | "spotlight", rect: { x: number; y: number; w: number; h: number }) => void;
+  broadcastFocus: (
+    kind: "snap" | "spotlight",
+    rect: { x: number; y: number; w: number; h: number }
+  ) => void;
   /** Peer focus event from realtime. Receivers use this to render
    * the spotlight overlay or snap their camera. */
   remoteFocus: FocusBroadcast | null;
+  /** Broadcast a board-activity event so peers see e.g. "Alice added
+   * 1 sticky" in their own activity stream. Receivers append to their
+   * own workspaceActivityLog; the broadcast carries the sender's name
+   * (from local presence). Skipped silently when readOnly. */
+  broadcastActivity: (event: WhiteboardActivityEvent) => void;
 } {
   // We don't use the `state-sync` channel — all cross-peer data flows
   // through our own validated `whiteboard:*` broadcast events. By passing
@@ -268,7 +318,7 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
       // The per-patch board-filter + boardId guard already ran on
       // ingest; here we just apply the merge.
       let merged = (useWorkspaceStore.getState().whiteboardObjects ?? []).filter(
-        (o) => o.boardId === boardId,
+        (o) => o.boardId === boardId
       );
       const localById = new Map(merged.map((o) => [o.id, o]));
       // Accumulate "what each patch wanted to remove" so the final
@@ -323,9 +373,11 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
       if (flushRaf === null) {
         // requestAnimationFrame is undefined during SSR / Jest — fall
         // back to a microtask boundary so tests still flush deterministically.
-        flushRaf = typeof requestAnimationFrame !== "undefined"
-          ? requestAnimationFrame(flushInbound)
-          : (Promise.resolve().then(flushInbound), 1 as unknown as ReturnType<typeof requestAnimationFrame>);
+        flushRaf =
+          typeof requestAnimationFrame !== "undefined"
+            ? requestAnimationFrame(flushInbound)
+            : (Promise.resolve().then(flushInbound),
+              1 as unknown as ReturnType<typeof requestAnimationFrame>);
       }
     });
 
@@ -335,7 +387,7 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
       const me = roomRef.current.userId;
       if (hb.by === me) return;
       const localObjects = (useWorkspaceStore.getState().whiteboardObjects ?? []).filter(
-        (o) => o.boardId === boardId,
+        (o) => o.boardId === boardId
       );
       const needed = detectDrift(localObjects, hb);
       if (needed.length === 0) return;
@@ -348,14 +400,17 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
       // same request, flooding the channel.
       for (const id of needed) pendingDriftIds.add(id);
       if (driftTimer !== null) return; // batch with the pending timer
-      driftTimer = setTimeout(() => {
-        driftTimer = null;
-        const ids = Array.from(pendingDriftIds);
-        pendingDriftIds.clear();
-        if (ids.length === 0) return;
-        const req: WhiteboardRequest = { ids, by: roomRef.current.userId };
-        roomRef.current.broadcast("whiteboard:request", req);
-      }, Math.floor(Math.random() * DRIFT_REQUEST_JITTER_MS));
+      driftTimer = setTimeout(
+        () => {
+          driftTimer = null;
+          const ids = Array.from(pendingDriftIds);
+          pendingDriftIds.clear();
+          if (ids.length === 0) return;
+          const req: WhiteboardRequest = { ids, by: roomRef.current.userId };
+          roomRef.current.broadcast("whiteboard:request", req);
+        },
+        Math.floor(Math.random() * DRIFT_REQUEST_JITTER_MS)
+      );
     });
 
     const offRequest = roomRef.current.subscribeToEvent("whiteboard:request", (raw) => {
@@ -374,7 +429,7 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
       if (readOnly) return;
       const requested = new Set(req.ids);
       const have = (useWorkspaceStore.getState().whiteboardObjects ?? []).filter(
-        (o) => o.boardId === boardId && requested.has(o.id),
+        (o) => o.boardId === boardId && requested.has(o.id)
       );
       if (have.length === 0) return;
       const patch: WhiteboardPatch = {
@@ -397,11 +452,33 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
       setRemoteFocus(raw);
     });
 
+    // ─── whiteboard:activity — peer activity-log fan-out ───────────
+    // The activity log (`whiteboardActivityLog`) is rendered by the
+    // owner's ActivityStream panel. Without this fan-out, the owner
+    // sees only their own log entries — guest edits land via patch
+    // but no "Alice added 1 sticky" line ever appears. We append the
+    // received event to OUR local log; we never re-broadcast (the
+    // sender already broadcast it once).
+    //
+    // Dedup by event id to guard against (a) Supabase reconnects
+    // re-delivering buffered broadcasts, and (b) a future change to
+    // the broadcast.self default that would loop sender broadcasts
+    // back. `appendWhiteboardActivity` in the workspace store does
+    // NOT dedup by id — it just appends — so the guard lives here.
+    const offActivity = roomRef.current.subscribeToEvent("whiteboard:activity", (raw) => {
+      if (!isValidActivityEvent(raw)) return;
+      if (raw.boardId !== boardId) return;
+      const log = useWorkspaceStore.getState().whiteboardActivityLog ?? [];
+      if (log.some((e) => e.id === raw.id)) return;
+      useWorkspaceStore.getState().appendWhiteboardActivity(raw);
+    });
+
     return () => {
       offPatch();
       offHeartbeat();
       offRequest();
       offFocus();
+      offActivity();
       if (driftTimer !== null) clearTimeout(driftTimer);
       // R9: cancel the pending rAF too. Previously a queued patch could
       // fire AFTER teardown, mutating `lastBroadcastRef.current` and
@@ -425,7 +502,10 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
   useEffect(() => {
     if (!remoteFocus || remoteFocus.kind !== "spotlight") return;
     const ttl = (remoteFocus.expiresAt ?? Date.now()) - Date.now();
-    if (ttl <= 0) { setRemoteFocus(null); return; }
+    if (ttl <= 0) {
+      setRemoteFocus(null);
+      return;
+    }
     const h = setTimeout(() => setRemoteFocus(null), ttl);
     return () => clearTimeout(h);
   }, [remoteFocus]);
@@ -460,7 +540,21 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
       };
       roomRef.current.broadcast("whiteboard:focus", payload);
     },
-    [readOnly],
+    [readOnly]
+  );
+
+  // Public helper — fan out a local activity-log entry to peers so
+  // their own activity stream gets the same "Alice added 1 sticky"
+  // line. Skipped silently when readOnly because viewers don't emit
+  // mutations and therefore have nothing legitimate to log.
+  const broadcastActivity = useCallback(
+    (event: WhiteboardActivityEvent) => {
+      if (!roomRef.current) return;
+      if (readOnly) return;
+      if (!isValidActivityEvent(event)) return;
+      roomRef.current.broadcast("whiteboard:activity", event);
+    },
+    [readOnly]
   );
 
   // Reset the broadcast snapshot whenever the active board changes.
@@ -554,11 +648,11 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
       if (stopped) return;
       if (typeof document !== "undefined" && document.hidden) return;
       const list = (useWorkspaceStore.getState().whiteboardObjects ?? []).filter(
-        (o) => o.boardId === boardId,
+        (o) => o.boardId === boardId
       );
       roomRef.current.broadcast(
         "whiteboard:heartbeat",
-        buildHeartbeat(list, roomRef.current.userId),
+        buildHeartbeat(list, roomRef.current.userId)
       );
     };
     tick();
@@ -584,5 +678,6 @@ export function useCanvasRoom({ toolId = "canvas", roomId, boardId, readOnly = f
     userId: room.userId,
     broadcastFocus,
     remoteFocus,
+    broadcastActivity,
   };
 }

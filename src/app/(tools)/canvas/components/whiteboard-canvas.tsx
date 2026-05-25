@@ -31,7 +31,12 @@ import { boardInsights } from "@/lib/analytics/board-insights";
 import { useCanvasRoom } from "@/lib/whiteboard/use-canvas-room";
 import { useCanvasPresence } from "@/lib/whiteboard/use-canvas-presence";
 import { CursorOverlay } from "./cursor-overlay";
-import { PresenceChips, SpotlightCutout, ConnectorBanner, EmptyCanvasHint } from "./canvas-overlays";
+import {
+  PresenceChips,
+  SpotlightCutout,
+  ConnectorBanner,
+  EmptyCanvasHint,
+} from "./canvas-overlays";
 import { CanvasWorldLayer } from "./canvas-world-layer";
 import { CanvasModals } from "./canvas-modals";
 import { useRemoteFocusReceiver } from "../hooks/use-remote-focus-receiver";
@@ -41,7 +46,11 @@ import { usePresentationMode } from "../hooks/use-presentation-mode";
 import { useTabNavigation } from "../hooks/use-tab-navigation";
 import { useArrowKeyNudge } from "../hooks/use-arrow-key-nudge";
 import { useCursorChatAndReactions } from "../hooks/use-cursor-chat-and-reactions";
-import { useFrameBookmarkShortcut, useEnterEditShortcut, useCardDetailShortcut } from "../hooks/use-contextual-shortcuts";
+import {
+  useFrameBookmarkShortcut,
+  useEnterEditShortcut,
+  useCardDetailShortcut,
+} from "../hooks/use-contextual-shortcuts";
 import { useSpaceHoldPan, useWheelZoom } from "../hooks/use-pan-zoom-controls";
 import { useCanvasShortcuts } from "../hooks/use-canvas-shortcuts";
 import { useAlignDistribute } from "../hooks/use-align-distribute";
@@ -50,6 +59,9 @@ import { useAddObjectAt } from "../hooks/use-add-object-at";
 import { useCanvasPointerMachine } from "../hooks/use-canvas-pointer-machine";
 import { useObjectInteractions } from "../hooks/use-object-interactions";
 import { useMindMapStructural } from "../hooks/use-mind-map-structural";
+import { useInputClass } from "../hooks/use-input-class";
+import { WetInkLayer, type WetInkApi } from "./wet-ink-layer";
+import { useCanvasTouchGestures } from "../hooks/use-canvas-touch-gestures";
 
 interface WhiteboardCanvasProps {
   boardId: string;
@@ -113,7 +125,12 @@ function makeActivityId(): string {
  * Drag-to-move, marquee select, resize, free-hand, connectors come in
  * later PRs (22B–22G). This PR is "static render + add + select + pan/zoom".
  */
-export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, canComment = false }: WhiteboardCanvasProps) {
+export function WhiteboardCanvas({
+  boardId,
+  onViewportSize,
+  readOnly = false,
+  canComment = false,
+}: WhiteboardCanvasProps) {
   // Viewport DOM ref + cached DOMRect + size live in their own hook so
   // the ResizeObserver + scroll listener stays out of this file.
   const { viewportRef, viewportRectRef, size } = useViewportSize(onViewportSize);
@@ -125,7 +142,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   const allObjects = useWorkspaceStore((s) => s.whiteboardObjects);
   const objects = useMemo(
     () => (allObjects ?? []).filter((o) => o.boardId === boardId),
-    [allObjects, boardId],
+    [allObjects, boardId]
   );
   const upsert = useWorkspaceStore((s) => s.upsertWhiteboardObject);
   const upsertMany = useWorkspaceStore((s) => s.upsertWhiteboardObjects);
@@ -135,7 +152,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   const allCommentThreads = useWorkspaceStore((s) => s.whiteboardCommentThreads);
   const commentThreads = useMemo(
     () => (allCommentThreads ?? []).filter((c) => c.boardId === boardId),
-    [allCommentThreads, boardId],
+    [allCommentThreads, boardId]
   );
   const camera = useCanvasStore((s) => s.camera);
   const setCamera = useCanvasStore((s) => s.setCamera);
@@ -223,7 +240,9 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   // presence, Esc cancels. Triggered by pressing "/" on an empty canvas.
   // The DRAFT lives inside the ChatComposer child component (not here)
   // so per-keystroke setState doesn't re-render the entire viewport.
-  const [chatComposerScreen, setChatComposerScreen] = useState<{ x: number; y: number } | null>(null);
+  const [chatComposerScreen, setChatComposerScreen] = useState<{ x: number; y: number } | null>(
+    null
+  );
   const { log } = useHistoryLogger("canvas");
   const { pushSnapshot, undo, redo } = useCanvasUndoStack(boardId);
 
@@ -280,7 +299,12 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   // Pass `readOnly` so viewer/commenter modes don't broadcast local
   // store mutations. Even if a UI handler bypasses its `readOnly` gate
   // (browser extension, etc.), the network-side broadcast is silenced.
-  const { broadcastFocus, remoteFocus, userId: roomUserId } = useCanvasRoom({ toolId: "canvas", roomId: boardId, boardId, readOnly });
+  const {
+    broadcastFocus,
+    remoteFocus,
+    userId: roomUserId,
+    broadcastActivity,
+  } = useCanvasRoom({ toolId: "canvas", roomId: boardId, boardId, readOnly });
 
   const channelName = boardId ? `tool:canvas:presence:${boardId}` : null;
   // R11-fix: unify identities. useCanvasRoom uses localStorage-backed
@@ -298,16 +322,21 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   const logActivity = useCallback(
     (kind: string, summary: string) => {
       if (!summary || summary.length === 0) return;
-      appendActivity({
+      const event = {
         id: makeActivityId(),
         boardId,
         at: Date.now(),
         author: self.name || "Anonymous",
         kind,
         summary,
-      });
+      };
+      appendActivity(event);
+      // Fan out to peers so the owner sees "Alice added 1 sticky" in
+      // their own activity stream. broadcastActivity no-ops in
+      // readOnly mode and when realtime is unavailable.
+      broadcastActivity(event);
     },
-    [appendActivity, boardId, self.name],
+    [appendActivity, boardId, self.name, broadcastActivity]
   );
 
   // Publish selection + tool changes to peers. Cursor updates happen
@@ -351,23 +380,27 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   // ~60 Hz. Stashing them in refs keeps the shortcut callback identity
   // stable while still seeing fresh state on every key press.
   const objectsRef = useRef(objects);
-  useEffect(() => { objectsRef.current = objects; }, [objects]);
+  useEffect(() => {
+    objectsRef.current = objects;
+  }, [objects]);
   const objectsByIdRef = useRef(objectsById);
-  useEffect(() => { objectsByIdRef.current = objectsById; }, [objectsById]);
+  useEffect(() => {
+    objectsByIdRef.current = objectsById;
+  }, [objectsById]);
   // Cluster + insights — only computed while the AI panel is open so we
   // don't pay the k-means cost on every render. Memoised on objects so
   // movement re-runs clustering live.
   const clusters = useMemo(
     () => (showAIPanel ? clusterObjects(objects, { mode: "content" }) : []),
-    [objects, showAIPanel],
+    [objects, showAIPanel]
   );
   const insights = useMemo(
     () => (showAIPanel ? boardInsights(objects) : []),
-    [objects, showAIPanel],
+    [objects, showAIPanel]
   );
   const activeCommentThread = useMemo(
     () => commentThreads.find((t) => t.id === activeCommentThreadId) ?? null,
-    [commentThreads, activeCommentThreadId],
+    [commentThreads, activeCommentThreadId]
   );
   // Selection bounding box — used by the resize handles.
   const selectionBbox = useMemo<Rect | null>(() => {
@@ -422,18 +455,64 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   useTabNavigation({ objects, selection, size, camera, setSelection, setCamera });
 
   const toggleFrameBookmark = useCanvasStore((s) => s.toggleFrameBookmark);
-  useFrameBookmarkShortcut({ selection, objectsById, boardId, toggleFrameBookmark, logActivity, readOnly });
+  useFrameBookmarkShortcut({
+    selection,
+    objectsById,
+    boardId,
+    toggleFrameBookmark,
+    logActivity,
+    readOnly,
+  });
   useEnterEditShortcut({ selection, objectsById, editingObjectId, setEditingObjectId, readOnly });
   useCardDetailShortcut({ selection, objectsById, cardDetailId, setCardDetailId, readOnly });
 
-  useArrowKeyNudge({ selection, objectsById, upsertMany, pushSnapshot, readOnly, presentationFrameIndex });
+  useArrowKeyNudge({
+    selection,
+    objectsById,
+    upsertMany,
+    pushSnapshot,
+    readOnly,
+    presentationFrameIndex,
+  });
 
   // Empty React onWheel handler — the real wheel listener is attached
   // natively in `useWheelZoom` because React's synthetic wheel is
   // passive (can't preventDefault). The JSX still binds this prop so
   // React doesn't strip the data-canvas attribute lookup.
-  const onWheel = useCallback(() => { /* handled natively in useWheelZoom */ }, []);
-  useWheelZoom({ viewportRef, viewportRectRef, camera, throttledSetCamera, presentationFrameIndex });
+  const onWheel = useCallback(() => {
+    /* handled natively in useWheelZoom */
+  }, []);
+  useWheelZoom({
+    viewportRef,
+    viewportRectRef,
+    camera,
+    throttledSetCamera,
+    presentationFrameIndex,
+  });
+
+  // Input-class detection (touch vs mouse, stylus presence, pen counter).
+  // Declared up here because the touch-gesture hook below needs the pen
+  // counter to gate pinch / pan during stylus inking; consumers further
+  // down (selection-handles hit area, palm rejection in pointer machine,
+  // first-run toast) also read from this same instance.
+  const inputClass = useInputClass();
+
+  // Touch gestures (pinch zoom, two-finger pan, double-tap fit, long-press
+  // context menu). Gated on pointerType === "touch" inside the hook so
+  // mouse / pen never collide with the existing wheel + pointer machine,
+  // and gated on `anyPenActive === 0` so palm touches during stylus
+  // inking don't zoom or pan the board.
+  useCanvasTouchGestures({
+    viewportRef,
+    viewportRectRef,
+    camera,
+    throttledSetCamera,
+    setCamera,
+    objects,
+    viewportSize: size,
+    presentationFrameIndex,
+    anyPenActiveRef: inputClass.anyPenActiveRef,
+  });
 
   // Convert client pointer event to world coords.
   //
@@ -460,7 +539,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
     },
     // viewportRectRef returned by useViewportSize is identity-stable;
     // include it in deps to keep react-hooks/exhaustive-deps happy.
-    [camera, viewportRectRef],
+    [camera, viewportRectRef]
   );
 
   /** AI-brainstorm landing: when the brainstorm action produces N
@@ -513,9 +592,26 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
       pushSnapshot();
       upsertMany(stickies);
       setSelection(stickies.map((s) => s.id));
-      logActivity("added", `Brainstormed ${stickies.length} sticky${stickies.length === 1 ? "" : "s"} via AI`);
+      logActivity(
+        "added",
+        `Brainstormed ${stickies.length} sticky${stickies.length === 1 ? "" : "s"} via AI`
+      );
     },
-    [readOnly, topZRef, size.w, size.h, camera.x, camera.y, camera.zoom, boardId, stickyColor, pushSnapshot, upsertMany, setSelection, logActivity],
+    [
+      readOnly,
+      topZRef,
+      size.w,
+      size.h,
+      camera.x,
+      camera.y,
+      camera.zoom,
+      boardId,
+      stickyColor,
+      pushSnapshot,
+      upsertMany,
+      setSelection,
+      logActivity,
+    ]
   );
 
   /**
@@ -563,9 +659,12 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
       if (patched.length === 0) return;
       pushSnapshot();
       upsertMany(patched);
-      logActivity("edited", `AI-updated ${patched.length} object${patched.length === 1 ? "" : "s"}`);
+      logActivity(
+        "edited",
+        `AI-updated ${patched.length} object${patched.length === 1 ? "" : "s"}`
+      );
     },
-    [readOnly, objectsById, pushSnapshot, upsertMany, logActivity],
+    [readOnly, objectsById, pushSnapshot, upsertMany, logActivity]
   );
 
   /**
@@ -577,7 +676,9 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
    * in card.sourceRef so a future "push to backlog" flow can use it.
    */
   const onApplyActionItems = useCallback(
-    (items: readonly { title: string; ownerId?: string; ownerName?: string; targetTool?: string }[]) => {
+    (
+      items: readonly { title: string; ownerId?: string; ownerName?: string; targetTool?: string }[]
+    ) => {
       if (readOnly || items.length === 0) return;
       const now = new Date().toISOString();
       const z = claimZRange(topZRef, items.length);
@@ -597,31 +698,52 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
         originX = camera.x + viewW * 0.7;
         originY = camera.y + viewH * 0.2;
       }
-      const cards: WhiteboardObject[] = items.map((item, i) => ({
-        id: wbId("wb"),
-        boardId,
-        type: "card",
-        x: originX,
-        y: originY + i * (cardH + gap),
-        w: cardW,
-        h: cardH,
-        z: z + i,
-        version: 1,
-        createdAt: now,
-        updatedAt: now,
-        title: item.title,
-        assignee: item.ownerName,
-        color: "#00f0ff",
-        sourceRef: item.targetTool && item.targetTool !== "none"
-          ? { tool: item.targetTool, entityId: item.ownerId ?? "" }
-          : undefined,
-      } as WhiteboardObject));
+      const cards: WhiteboardObject[] = items.map(
+        (item, i) =>
+          ({
+            id: wbId("wb"),
+            boardId,
+            type: "card",
+            x: originX,
+            y: originY + i * (cardH + gap),
+            w: cardW,
+            h: cardH,
+            z: z + i,
+            version: 1,
+            createdAt: now,
+            updatedAt: now,
+            title: item.title,
+            assignee: item.ownerName,
+            color: "#00f0ff",
+            sourceRef:
+              item.targetTool && item.targetTool !== "none"
+                ? { tool: item.targetTool, entityId: item.ownerId ?? "" }
+                : undefined,
+          }) as WhiteboardObject
+      );
       pushSnapshot();
       upsertMany(cards);
       setSelection(cards.map((c) => c.id));
-      logActivity("added", `AI-extracted ${cards.length} action item${cards.length === 1 ? "" : "s"}`);
+      logActivity(
+        "added",
+        `AI-extracted ${cards.length} action item${cards.length === 1 ? "" : "s"}`
+      );
     },
-    [readOnly, topZRef, selectionBbox, size.w, size.h, camera.x, camera.y, camera.zoom, boardId, pushSnapshot, upsertMany, setSelection, logActivity],
+    [
+      readOnly,
+      topZRef,
+      selectionBbox,
+      size.w,
+      size.h,
+      camera.x,
+      camera.y,
+      camera.zoom,
+      boardId,
+      pushSnapshot,
+      upsertMany,
+      setSelection,
+      logActivity,
+    ]
   );
 
   /**
@@ -694,7 +816,20 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
       setSelection([rootId]);
       logActivity("added", `AI-generated mind map with ${positioned.length} nodes`);
     },
-    [readOnly, topZRef, boardId, size.w, size.h, camera.x, camera.y, camera.zoom, pushSnapshot, upsertMany, setSelection, logActivity],
+    [
+      readOnly,
+      topZRef,
+      boardId,
+      size.w,
+      size.h,
+      camera.x,
+      camera.y,
+      camera.zoom,
+      pushSnapshot,
+      upsertMany,
+      setSelection,
+      logActivity,
+    ]
   );
 
   /**
@@ -733,14 +868,53 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
       setSelection([sticky.id]);
       logActivity("added", `Summarised cluster into a sticky`);
     },
-    [readOnly, topZRef, boardId, stickyColor, pushSnapshot, upsertMany, setSelection, logActivity],
+    [readOnly, topZRef, boardId, stickyColor, pushSnapshot, upsertMany, setSelection, logActivity]
   );
 
   const pickedDiagramShape = useCanvasStore((s) => s.pickedDiagramShape);
   const addObjectAt = useAddObjectAt({
-    boardId, stickyColor, tool, topZRef, pickedDiagramShape,
-    upsert, setTool, setSelection, setEditingObjectId, logActivity,
+    boardId,
+    stickyColor,
+    tool,
+    topZRef,
+    pickedDiagramShape,
+    upsert,
+    setTool,
+    setSelection,
+    setEditingObjectId,
+    logActivity,
   });
+
+  // Wet-ink layer is mounted below; the pointer machine writes into this
+  // ref to push live samples at < 1 frame latency.
+  const wetInkApiRef = useRef<WetInkApi | null>(null);
+
+  // One-time gesture hint for touch users so they discover the new
+  // pinch / two-finger pan / long-press affordances on first visit.
+  // Persisted in localStorage so it only fires once per device.
+  useEffect(() => {
+    if (!inputClass.isCoarse) return;
+    if (typeof window === "undefined") return;
+    const KEY = "canvas:touchGestureHintSeen:v1";
+    try {
+      if (window.localStorage.getItem(KEY) === "1") return;
+    } catch {
+      return;
+    }
+    // Lazy import so the toast bundle isn't pulled into desktop sessions.
+    void import("sonner").then(({ toast }) => {
+      toast.message("Tablet tips", {
+        description: "Pinch to zoom · Two-finger drag to pan · Long-press for actions",
+        duration: 7000,
+      });
+      try {
+        window.localStorage.setItem(KEY, "1");
+      } catch {
+        // Ignore storage errors (private mode, quota); the hint just
+        // shows again next visit, which is harmless.
+      }
+    });
+  }, [inputClass.isCoarse]);
 
   // The canvas pointer state machine owns the three viewport pointer
   // handlers + every ref they share (pan latches, lasso fast-path,
@@ -756,19 +930,53 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
     lassoPointsRef,
     lastLassoWorldRef,
   } = useCanvasPointerMachine({
-    boardId, readOnly, canComment,
-    camera, tool, stickyColor, snapToGridEnabled, snapToObjectsEnabled,
+    boardId,
+    readOnly,
+    canComment,
+    camera,
+    tool,
+    stickyColor,
+    snapToGridEnabled,
+    snapToObjectsEnabled,
     pendingConnectorFromId,
-    drag, resize, rotation, marquee, drawing,
-    setMarquee, setDrawing, setDrag, setResize, setRotation,
-    setPendingConnectorFromId, setDragGuides, setEditingObjectId, setTool,
-    selection, setSelection, clearSelection,
-    objects, objectsById, upsert, upsertMany, upsertCommentThread,
-    viewportRef, viewportRectRef, spaceHeldRef, topZRef, dragGuidesRef,
-    throttledSetCamera, clientToWorld,
-    publish, setPreviewCursor, setActiveCommentThreadId,
+    drag,
+    resize,
+    rotation,
+    marquee,
+    drawing,
+    setMarquee,
+    setDrawing,
+    setDrag,
+    setResize,
+    setRotation,
+    setPendingConnectorFromId,
+    setDragGuides,
+    setEditingObjectId,
+    setTool,
+    selection,
+    setSelection,
+    clearSelection,
+    objects,
+    objectsById,
+    upsert,
+    upsertMany,
+    upsertCommentThread,
+    viewportRef,
+    viewportRectRef,
+    spaceHeldRef,
+    topZRef,
+    dragGuidesRef,
+    anyPenActiveRef: inputClass.anyPenActiveRef,
+    wetInkApiRef,
+    throttledSetCamera,
+    clientToWorld,
+    publish,
+    setPreviewCursor,
+    setActiveCommentThreadId,
     addObjectAt,
-    pushSnapshot, log, logActivity,
+    pushSnapshot,
+    log,
+    logActivity,
   });
 
   useCursorChatAndReactions({
@@ -784,18 +992,38 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   // owns. The shortcuts also reference the same drag/resize/etc.
   // ephemeral state so they can self-suppress mid-gesture.
   useCanvasShortcuts({
-    objectsRef, objectsByIdRef, topZRef,
-    lassoRafRef, lassoPointsRef, lastLassoWorldRef,
-    drag, resize, rotation, marquee, drawing, pendingConnectorFromId,
-    selection, setSelection, clearSelection,
-    setDrag, setResize, setRotation, setMarquee, setDrawing, setPendingConnectorFromId,
+    objectsRef,
+    objectsByIdRef,
+    topZRef,
+    lassoRafRef,
+    lassoPointsRef,
+    lastLassoWorldRef,
+    drag,
+    resize,
+    rotation,
+    marquee,
+    drawing,
+    pendingConnectorFromId,
+    selection,
+    setSelection,
+    clearSelection,
+    setDrag,
+    setResize,
+    setRotation,
+    setMarquee,
+    setDrawing,
+    setPendingConnectorFromId,
     setTool,
-    boardId, removeMany, upsertMany,
-    pushSnapshot, undo, redo,
-    log, logActivity,
+    boardId,
+    removeMany,
+    upsertMany,
+    pushSnapshot,
+    undo,
+    redo,
+    log,
+    logActivity,
     readOnly,
   });
-
 
   const { onAlign, onDistribute } = useAlignDistribute({
     selection,
@@ -806,10 +1034,18 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
   });
 
   const { importImagesAt, importPdfAt } = useCanvasImports({
-    boardId, objects, upsertMany, setSelection,
-    pushSnapshot, log, logActivity, readOnly,
-    editingObjectId, chatComposerScreen,
-    clientToWorld, viewportRectRef,
+    boardId,
+    objects,
+    upsertMany,
+    setSelection,
+    pushSnapshot,
+    log,
+    logActivity,
+    readOnly,
+    editingObjectId,
+    chatComposerScreen,
+    clientToWorld,
+    viewportRectRef,
   });
 
   const {
@@ -823,13 +1059,30 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
     onRotateByDelta,
     onRotateStart,
   } = useObjectInteractions({
-    boardId, objects, objectsById, upsert, upsertMany,
-    tool, setTool, selection, setSelection, toggleSelection,
-    pendingConnectorFromId, setPendingConnectorFromId,
-    setDrag, setMarquee, setResize, setRotation, setEditingObjectId,
-    viewportRef, dragSnapIndexRef, topZRef,
+    boardId,
+    objects,
+    objectsById,
+    upsert,
+    upsertMany,
+    tool,
+    setTool,
+    selection,
+    setSelection,
+    toggleSelection,
+    pendingConnectorFromId,
+    setPendingConnectorFromId,
+    setDrag,
+    setMarquee,
+    setResize,
+    setRotation,
+    setEditingObjectId,
+    viewportRef,
+    dragSnapIndexRef,
+    topZRef,
     clientToWorld,
-    pushSnapshot, log, logActivity,
+    pushSnapshot,
+    log,
+    logActivity,
     readOnly,
   });
 
@@ -879,10 +1132,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
    * compares/sec spent on stable order alone. Memoising on the live
    * object array reduces the work to one sort per actual mutation.
    */
-  const sortedObjects = useMemo(
-    () => objects.slice().sort((a, b) => a.z - b.z),
-    [objects],
-  );
+  const sortedObjects = useMemo(() => objects.slice().sort((a, b) => a.z - b.z), [objects]);
   // R9: hoist `.includes` → `Set.has`. The render loop walks N=1000
   // objects per render; without the Set, each check is O(M selection)
   // and tagFilter check is O(K tagFilter), making the loop O(N×(M+K))
@@ -918,11 +1168,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
     });
   }, [sortedObjects, viewportWorld, selectionSet, editingObjectId]);
 
-
-  const cursor =
-    tool === "hand" ? "grab" :
-    tool === "select" ? "default" :
-    "crosshair";
+  const cursor = tool === "hand" ? "grab" : tool === "select" ? "default" : "crosshair";
 
   return (
     <div
@@ -1006,6 +1252,9 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
         onMindMapStructural={onMindMapStructural}
       />
 
+      {/* Low-latency wet-ink preview for the in-progress freehand stroke. */}
+      <WetInkLayer viewportRef={viewportRef} camera={camera} apiRef={wetInkApiRef} />
+
       {/* Selection outline + resize handles — drawn in screen space so
           1-px-wide borders stay 1-px-wide at any zoom.
           Resize handles now render for multi-select too (Phase 24);
@@ -1019,41 +1268,53 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
           onHandlePointerDown={onResizeHandlePointerDown}
           onRotateStart={onRotateStart}
           onRotateByDelta={onRotateByDelta}
-          currentRotationDeg={selection.length === 1
-            ? (objectsById.get(selection[0])?.rotation ?? 0)
-            : 0}
+          currentRotationDeg={
+            selection.length === 1 ? (objectsById.get(selection[0])?.rotation ?? 0) : 0
+          }
+          isCoarse={inputClass.isCoarse}
         />
       )}
 
       {/* Floating align toolbar — visible only when 2+ objects are
           selected, the select tool is active, and no in-flight gesture
           would compete with it. */}
-      {selectionBbox && tool === "select" && selection.length >= 2 && !drag && !resize && !marquee && (
-        <AlignToolbar
-          selectionBbox={selectionBbox}
-          camera={camera}
-          canDistribute={selection.length >= 3}
-          onAlign={onAlign}
-          onDistribute={onDistribute}
-        />
-      )}
+      {selectionBbox &&
+        tool === "select" &&
+        selection.length >= 2 &&
+        !drag &&
+        !resize &&
+        !marquee && (
+          <AlignToolbar
+            selectionBbox={selectionBbox}
+            camera={camera}
+            canDistribute={selection.length >= 3}
+            onAlign={onAlign}
+            onDistribute={onDistribute}
+          />
+        )}
 
       {/* Property panel — visible whenever any object is selected and
           no in-flight gesture. Anchored ABOVE the selection bbox;
           AlignToolbar anchors BELOW so they don't overlap on multi-
           select. */}
-      {selectionBbox && tool === "select" && selection.length >= 1 && !drag && !resize && !marquee && !editingObjectId && (
-        <PropertyPanel
-          selection={selection
-            .map((id) => objectsById.get(id))
-            .filter((o): o is WhiteboardObject => !!o)}
-          selectionBbox={selectionBbox}
-          camera={camera}
-          viewportHeight={size.h}
-          onPatch={onPatchStyles}
-          onOpenCardDetail={setCardDetailId}
-        />
-      )}
+      {selectionBbox &&
+        tool === "select" &&
+        selection.length >= 1 &&
+        !drag &&
+        !resize &&
+        !marquee &&
+        !editingObjectId && (
+          <PropertyPanel
+            selection={selection
+              .map((id) => objectsById.get(id))
+              .filter((o): o is WhiteboardObject => !!o)}
+            selectionBbox={selectionBbox}
+            camera={camera}
+            viewportHeight={size.h}
+            onPatch={onPatchStyles}
+            onOpenCardDetail={setCardDetailId}
+          />
+        )}
 
       {/* Marquee — only renders while a marquee drag is in progress. */}
       {marquee && <Marquee marquee={marquee} camera={camera} />}
@@ -1068,12 +1329,7 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
 
       {/* Remote cursors + selection boxes from peers. Silent no-op when
           Supabase env vars aren't configured (solo mode). */}
-      <CursorOverlay
-        members={members}
-        selfId={self.id}
-        camera={camera}
-        objectsById={objectsById}
-      />
+      <CursorOverlay members={members} selfId={self.id} camera={camera} objectsById={objectsById} />
 
       {/* Cursor-chat composer — extracted into its own component so
           per-keystroke setState doesn't re-render the entire canvas
@@ -1100,7 +1356,11 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
           frames={orderedFrames as readonly Extract<WhiteboardObject, { type: "frame" }>[]}
           index={presentationFrameIndex}
           onPrev={() => setPresentationFrameIndex(Math.max(0, presentationFrameIndex - 1))}
-          onNext={() => setPresentationFrameIndex(Math.min(orderedFrames.length - 1, presentationFrameIndex + 1))}
+          onNext={() =>
+            setPresentationFrameIndex(
+              Math.min(orderedFrames.length - 1, presentationFrameIndex + 1)
+            )
+          }
           onExit={() => setPresentationFrameIndex(null)}
         />
       )}
@@ -1118,17 +1378,13 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
         logActivity={logActivity}
       />
 
-      {spotlightRect && (
-        <SpotlightCutout rect={spotlightRect} camera={camera} size={size} />
-      )}
+      {spotlightRect && <SpotlightCutout rect={spotlightRect} camera={camera} size={size} />}
 
       {/* AI-cluster outlines + comment pins are rendered in screen space
           (not under the world transform) because the components compute
           their own camera projection. Keeps the projection logic local
           to each overlay. */}
-      {showAIPanel && clusters.length > 0 && (
-        <ClusterOverlay clusters={clusters} camera={camera} />
-      )}
+      {showAIPanel && clusters.length > 0 && <ClusterOverlay clusters={clusters} camera={camera} />}
       <CommentPins
         threads={commentThreads}
         objectsById={objectsById}
@@ -1177,7 +1433,13 @@ export function WhiteboardCanvas({ boardId, onViewportSize, readOnly = false, ca
 // WhiteboardCanvas re-rendered (e.g. on a selection change). The grid
 // is cheap but the inline style object is large; saving the reconcile
 // is worth the memo.
-const GridBackground = memo(function GridBackgroundImpl({ camera, viewportSize }: { camera: { x: number; y: number; zoom: number }; viewportSize: { w: number; h: number } }) {
+const GridBackground = memo(function GridBackgroundImpl({
+  camera,
+  viewportSize,
+}: {
+  camera: { x: number; y: number; zoom: number };
+  viewportSize: { w: number; h: number };
+}) {
   // Major + minor grid, sized to current zoom. We draw via a CSS background
   // so it's free in terms of React reconciliation cost.
   const minor = 20 * camera.zoom;
@@ -1212,7 +1474,11 @@ const GridBackground = memo(function GridBackgroundImpl({ camera, viewportSize }
 // drag (~60 Hz). Only the SVG re-renders. Memoised on `camera` so a
 // parent re-render that didn't change the camera doesn't paint this
 // either.
-const DragGuidesLayer = memo(function DragGuidesLayerImpl({ camera }: { camera: { x: number; y: number; zoom: number } }) {
+const DragGuidesLayer = memo(function DragGuidesLayerImpl({
+  camera,
+}: {
+  camera: { x: number; y: number; zoom: number };
+}) {
   const dragGuides = useCanvasStore((s) => s.dragGuides);
   if (dragGuides.length === 0) return null;
   return <AlignmentGuides guides={dragGuides} camera={camera} />;

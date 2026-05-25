@@ -15,7 +15,18 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { X, Share2, BookmarkPlus, Copy, Trash2, Check, Send, AlertTriangle } from "lucide-react";
+import {
+  X,
+  Share2,
+  BookmarkPlus,
+  Copy,
+  Trash2,
+  Check,
+  Send,
+  AlertTriangle,
+  Users,
+} from "lucide-react";
+import { SessionShareContent } from "@/components/collab/session-share-modal";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
@@ -34,7 +45,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "share" | "save" | "post";
+type Tab = "share" | "save" | "post" | "squad";
 
 export function ShareModal({ boardId, boardName, onClose }: Props) {
   // Stable callback ref so the keydown effect doesn't re-register on
@@ -55,9 +66,17 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       const target = e.target as HTMLElement | null;
+      // Form-control elements own their own Esc behaviour: INPUT reverts
+      // pending edits, TEXTAREA does the same, SELECT collapses its
+      // open dropdown without dismissing the surrounding modal,
+      // contentEditable cancels composition. Closing the modal on top
+      // of those would lose the user's in-progress edit.
       if (
         target &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
       )
         return;
       // Stop propagation only after we've decided to act, so a stacked
@@ -162,6 +181,18 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
               <Send className="w-4 h-4" />
               Post to Slack / Teams
             </button>
+            <button
+              type="button"
+              onClick={() => setTab("squad")}
+              className={`px-3 py-1.5 rounded text-sm flex items-center gap-1.5 transition-colors ${
+                tab === "squad"
+                  ? "bg-accent/15 text-accent border border-accent/40"
+                  : "text-sub hover:text-text"
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              Invite squad
+            </button>
           </div>
           <button
             type="button"
@@ -198,6 +229,7 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
             tokens={tokens}
           />
         )}
+        {tab === "squad" && <SessionShareContent toolId="canvas" entityId={boardId} />}
       </div>
     </div>
   );
