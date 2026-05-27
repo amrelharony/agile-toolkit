@@ -179,6 +179,17 @@ const rules: Partial<Record<string, Rule>> = {
     return d.getHours() === 0 && d.getMinutes() === 0;
   },
   "prestige-one": (_e, _m, s) => s.prestige >= 1,
+  // ─── Recognition (Phase 2 kudos redesign) ────────────────────────────
+  // Counters are bumped by the `tool:kudos:*` events forwarded from
+  // emit(). `kudos-combo-5` reads the combo state directly so 5 rapid
+  // sends inside the 3 s window unlock it; the multi-recipient gate
+  // lives in the dispatch site that emits `tool:kudos:squad-complete`.
+  "generous-spirit-25": (_e, _m, s) => (s.counters["tool:kudos:sent"] ?? 0) >= 25,
+  "receiver-10": (_e, _m, s) => (s.counters["tool:kudos:received"] ?? 0) >= 10,
+  "squad-booster-all": (evt) => evt === "tool:kudos:squad-complete",
+  "fair-witness": (evt, m) => evt === "tool:kudos:llm-suggested-pick" && Boolean(m?.suggested),
+  "kudos-combo-5": (evt, m) =>
+    evt === "tool:kudos:sent" && typeof m?.comboDepth === "number" && m.comboDepth >= 4,
 };
 
 function evtFlag(meta: Record<string, unknown> | undefined, key: string): boolean {
@@ -202,6 +213,17 @@ function xpForEvent(name: string): { amount: number; source: XpSource } {
   if (name === "export") return { amount: 5, source: "click" };
   if (name === "prompt-copied") return { amount: 10, source: "click" };
   if (name.startsWith("secret:")) return { amount: 100, source: "secret" };
+  // Kudos redesign Phase 2 — recognition events have higher XP than
+  // ordinary entity adds because they are social signals. Receive is
+  // attributed to the viewer (signal-bridge fires the signal-side
+  // kudos.received only when toProfileId matches the local viewer).
+  // `llm-suggested-pick` rewards using the fairness recommendation
+  // (Phase 3 wires the emit site).
+  if (name === "tool:kudos:sent") return { amount: 25, source: "entity-added" };
+  if (name === "tool:kudos:received") return { amount: 15, source: "entity-resolved" };
+  if (name === "tool:kudos:reaction-added") return { amount: 5, source: "entity-added" };
+  if (name === "tool:kudos:thread-reply") return { amount: 10, source: "entity-added" };
+  if (name === "tool:kudos:llm-suggested-pick") return { amount: 30, source: "entity-added" };
   if (name.startsWith("tool:")) {
     // Tool-specific events: most are entity creation or state transitions.
     if (name.endsWith(":finish") || name.endsWith(":achieved"))

@@ -12,6 +12,7 @@ import { installSignalBridge } from "@/lib/signals/signal-bridge";
 import { bootstrapPredictions } from "@/lib/predictions/bootstrap";
 import { installKudosCloudSync } from "@/lib/kudos/cloud-sync";
 import { runKudosBackfillIfNeeded } from "@/lib/kudos/backfill";
+import { installKudosReceiveBridge } from "@/lib/kudos/receive-bridge";
 // Populate the tool action registry at app load — must happen before
 // any component that consumes the agent / MCP surface mounts.
 import "@/lib/actions/register-all";
@@ -108,6 +109,7 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
     installSignalBridge();
     bootstrapPredictions();
     installKudosCloudSync();
+    installKudosReceiveBridge();
     void Promise.resolve().then(() => runKudosBackfillIfNeeded());
   }, []);
 

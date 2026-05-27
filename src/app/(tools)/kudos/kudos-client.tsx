@@ -9,6 +9,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useAuthOptional } from "@/lib/auth/auth-provider";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { KUDOS_ACTIONS } from "@/lib/history/event-actions";
+import { emit } from "@/lib/sonification/emit";
 import { exportPng } from "@/lib/whiteboard/export";
 import { generateKudosPrompts } from "@/lib/ai-prompts/kudos";
 import type { Kudos, Workspace } from "@/lib/stores/workspace-types";
@@ -177,12 +178,17 @@ export function KudosClient() {
     room.sendKudos(kudos);
     log(KUDOS_ACTIONS.KUDOS_SENT, {
       kudosId: kudos.id,
-      theme: kudos.theme,
+      theme: typeof kudos.theme === "string" ? kudos.theme : kudos.theme.id,
       toName: kudos.toName,
       toProfileId: kudos.toProfileId,
       fromProfileId: kudos.fromProfileId,
       messageWords: kudos.message.split(/\s+/).filter(Boolean).length,
     });
+    // Phase 2 — fan out to sonification + haptics + gamification. The
+    // emit module already routes by tool id; the signal-bridge emits
+    // `kudos.sent` on the workspace-store add so the cloud-sync layer
+    // independently picks it up.
+    emit("kudos", "sent");
   };
 
   const handleDownload = async (kudos: Kudos, el: HTMLDivElement) => {

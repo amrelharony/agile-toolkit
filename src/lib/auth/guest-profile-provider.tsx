@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect } from "react";
+import { setLocalViewerProfileId } from "@/lib/signals/signal-bridge";
 
 /**
  * Client-side context exposing the current guest profile.
@@ -37,6 +38,16 @@ export function GuestProfileProvider({
   profile: GuestProfile | null;
   children: React.ReactNode;
 }) {
+  // Phase 2 kudos redesign — the signal-bridge needs to know the local
+  // viewer's profile id so `kudos.received` only fires when an inbound
+  // kudos is addressed to THIS guest (vs another squad member). Owner-
+  // mode AppShell never mounts this provider, so the bridge stays at
+  // its default (null) which the bridge interprets as "owner mode —
+  // every workspace-wide kudos counts as received".
+  useEffect(() => {
+    setLocalViewerProfileId(profile?.id ?? null);
+    return () => setLocalViewerProfileId(null);
+  }, [profile?.id]);
   return <GuestProfileContext.Provider value={profile}>{children}</GuestProfileContext.Provider>;
 }
 

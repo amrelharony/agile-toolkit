@@ -107,7 +107,13 @@ const releasePlanner: ToolPalette = {
 const standup: ToolPalette = {
   "entry-added": { voice: "pluck", step: 2, octave: 5 },
   "blocker-raised": { voice: "dissonant", steps: [0, 1], octave: 4 },
-  "blocker-cleared": { voice: "chord", steps: [0, 4, 7], octave: 5, duration: 0.9, filter: "bright" },
+  "blocker-cleared": {
+    voice: "chord",
+    steps: [0, 4, 7],
+    octave: 5,
+    duration: 0.9,
+    filter: "bright",
+  },
 };
 
 const sprintReview: ToolPalette = {
@@ -152,7 +158,13 @@ const skillsMatrix: ToolPalette = {
 
 const impediments: ToolPalette = {
   "impediment-raised": { voice: "dissonant", steps: [0, 1], octave: 4 },
-  "impediment-resolved": { voice: "chord", steps: [0, 4, 7], octave: 5, duration: 1.0, filter: "bright" },
+  "impediment-resolved": {
+    voice: "chord",
+    steps: [0, 4, 7],
+    octave: 5,
+    duration: 1.0,
+    filter: "bright",
+  },
   "severity-changed": { voice: "blip", step: 3, octave: 5, velocity: 0.5 },
 };
 
@@ -240,7 +252,13 @@ const dependencyMap: ToolPalette = {
 
 const valueStream: ToolPalette = {
   "stage-added": { voice: "pluck", step: 2, octave: 5 },
-  "flow-efficiency-good": { voice: "chord", steps: [0, 4, 7], octave: 5, duration: 0.9, filter: "bright" },
+  "flow-efficiency-good": {
+    voice: "chord",
+    steps: [0, 4, 7],
+    octave: 5,
+    duration: 0.9,
+    filter: "bright",
+  },
   "flow-efficiency-bad": { voice: "dissonant", steps: [0, -1], octave: 4, filter: "warm" },
 };
 
@@ -248,11 +266,23 @@ const okrs: ToolPalette = {
   "objective-added": { voice: "pluck", step: 0, octave: 5 },
   "kr-added": { voice: "pluck", step: 2, octave: 5 },
   "kr-updated": { voice: "blip", step: 3, octave: 5, velocity: 0.5 },
-  "okr-achieved": { voice: "chord", steps: [0, 4, 7, 12], octave: 5, duration: 1.6, filter: "bright" },
+  "okr-achieved": {
+    voice: "chord",
+    steps: [0, 4, 7, 12],
+    octave: 5,
+    duration: 1.6,
+    filter: "bright",
+  },
 };
 
 const npsCsat: ToolPalette = {
-  "score-promoter": { voice: "chord", steps: [0, 4, 7], octave: 5, duration: 0.8, filter: "bright" },
+  "score-promoter": {
+    voice: "chord",
+    steps: [0, 4, 7],
+    octave: 5,
+    duration: 0.8,
+    filter: "bright",
+  },
   "score-passive": { voice: "pluck", step: 2, octave: 5, filter: "warm" },
   "score-detractor": { voice: "dissonant", steps: [0, -1], octave: 4 },
 };
@@ -291,20 +321,27 @@ const ui: ToolPalette = {
   // piano root note (octave below `category-close` so Escape dismiss
   // reads as "closing/resolving" rather than competing with sidebar
   // chrome). Matches the velocity/duration of the other close cues.
-  "key-dismiss": { voice: "piano", step: 0, octave: 4, velocity: 0.30, duration: 0.35 },
+  "key-dismiss": { voice: "piano", step: 0, octave: 4, velocity: 0.3, duration: 0.35 },
   // Typing — soft mechanical-keyboard taps. Quiet velocity + cent jitter so
   // each keystroke is slightly different pitch and the stream doesn't sound
   // like a metronome. Use a single short percussive voice for all three.
   keystroke: { voice: "click", step: 2, octave: 5, velocity: 0.16, jitterCents: 60 },
   "keystroke-space": { voice: "click", step: 4, octave: 5, velocity: 0.18, jitterCents: 40 },
-  "keystroke-backspace": { voice: "click", step: 0, octave: 4, velocity: 0.2, jitterCents: 30, filter: "muffled" },
+  "keystroke-backspace": {
+    voice: "click",
+    step: 0,
+    octave: 4,
+    velocity: 0.2,
+    jitterCents: 30,
+    filter: "muffled",
+  },
   // Radix data-state transitions (MutationObserver)
   "state-open": { voice: "chord", steps: [0, 2, 4], octave: 5, duration: 0.5 },
   // Was: sawtooth `pad` voice (1.2s release tail, harmonically rich →
   // perceived as noisy when the dropdown / dialog close was a routine
   // dismiss). Now matches `key-dismiss` + `category-close` — a soft
   // piano root note that resolves cleanly without lingering.
-  "state-close": { voice: "piano", step: 0, octave: 4, velocity: 0.30, duration: 0.35 },
+  "state-close": { voice: "piano", step: 0, octave: 4, velocity: 0.3, duration: 0.35 },
   "toggle-on": { voice: "pluck", step: 4, octave: 5, filter: "bright" },
   "toggle-off": { voice: "pluck", step: 1, octave: 4, filter: "warm" },
   // Sidebar category collapse/expand — deliberately distinct from the
@@ -326,9 +363,9 @@ const ui: ToolPalette = {
   //   category-open  → step 3 (P5, the bright "rising" note)
   //   category-close → step 0 (root, the "resolving" note)
   //   sidebar-nav    → step 2 (maj3, a neutral middle note for taps)
-  "category-open": { voice: "piano", step: 3, octave: 5, velocity: 0.35, duration: 0.40 },
-  "category-close": { voice: "piano", step: 0, octave: 5, velocity: 0.30, duration: 0.35 },
-  "sidebar-nav": { voice: "piano", step: 2, octave: 5, velocity: 0.25, duration: 0.30 },
+  "category-open": { voice: "piano", step: 3, octave: 5, velocity: 0.35, duration: 0.4 },
+  "category-close": { voice: "piano", step: 0, octave: 5, velocity: 0.3, duration: 0.35 },
+  "sidebar-nav": { voice: "piano", step: 2, octave: 5, velocity: 0.25, duration: 0.3 },
   "tab-change": { voice: "blip", step: 3, octave: 5, velocity: 0.45 },
   // Dnd-kit drag lifecycle
   "drag-start": { voice: "blip", step: 2, octave: 5, velocity: 0.45 },
@@ -345,9 +382,35 @@ const ui: ToolPalette = {
 // Real-time / presence surfaces shared by all multiplayer tools.
 const rt: ToolPalette = {
   "sync-remote": { voice: "blip", step: 4, octave: 6, velocity: 0.4 },
-  "member-join": { voice: "chord", steps: [0, 2, 4, 7], octave: 5, duration: 0.9, filter: "bright" },
+  "member-join": {
+    voice: "chord",
+    steps: [0, 2, 4, 7],
+    octave: 5,
+    duration: 0.9,
+    filter: "bright",
+  },
   "member-leave": { voice: "pad", step: 0, octave: 4, duration: 1.0, filter: "warm" },
   "room-connected": { voice: "chord", steps: [0, 4, 7], octave: 5, duration: 0.8, filter: "open" },
+};
+
+// Kudos redesign Phase 2 — send is a rising major arpeggio (delight),
+// receive is a warm descending chord (settle), fairness alert is a
+// single soft chime (heads-up without alarm), reaction is a short
+// pluck (acknowledgement). Reduced-motion bypass lives in `emit.ts`.
+const kudos: ToolPalette = {
+  sent: { voice: "chord", steps: [0, 4, 7], octave: 5, duration: 0.6, filter: "bright" },
+  received: { voice: "chord", steps: [7, 4, 0], octave: 5, duration: 0.9, filter: "warm" },
+  "fairness-alert": { voice: "pluck", step: 5, octave: 5, velocity: 0.4, filter: "warm" },
+  "reaction-added": { voice: "pluck", step: 4, octave: 6, velocity: 0.5 },
+  "thread-reply": { voice: "pluck", step: 2, octave: 5 },
+  "llm-suggested-pick": { voice: "blip", step: 7, octave: 6, velocity: 0.6, filter: "bright" },
+  "squad-complete": {
+    voice: "chord",
+    steps: [0, 4, 7, 12],
+    octave: 5,
+    duration: 1.4,
+    filter: "bright",
+  },
 };
 
 export const palette: PaletteMap = {
@@ -393,6 +456,7 @@ export const palette: PaletteMap = {
   okrs,
   "nps-csat": npsCsat,
   "mood-tracker": moodTracker,
+  kudos,
   // pseudo-tools for universal surfaces
   ui,
   rt,

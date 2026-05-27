@@ -22,6 +22,7 @@ import Link from "next/link";
 import { ArrowLeft, Loader2, AlertTriangle, Users, Wifi, WifiOff } from "lucide-react";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { KUDOS_ACTIONS } from "@/lib/history/event-actions";
+import { emit } from "@/lib/sonification/emit";
 import { exportPng } from "@/lib/whiteboard/export";
 import type { Kudos } from "@/lib/stores/workspace-types";
 import { KudosForm, type RecipientOption } from "@/app/(tools)/kudos/components/kudos-form";
@@ -116,12 +117,16 @@ export function GuestKudosClient({ role, profile }: Props) {
     room.sendKudos(kudos);
     log(KUDOS_ACTIONS.KUDOS_SENT, {
       kudosId: kudos.id,
-      theme: kudos.theme,
+      theme: typeof kudos.theme === "string" ? kudos.theme : kudos.theme.id,
       toName: kudos.toName,
       toProfileId: kudos.toProfileId,
       fromProfileId: kudos.fromProfileId,
       messageWords: kudos.message.split(/\s+/).filter(Boolean).length,
     });
+    // Phase 2 — sonification + haptics + gamification fan-out. Guests
+    // share the same emit surface as the owner so the audible/tactile
+    // affordance is identical regardless of role.
+    emit("kudos", "sent");
   };
 
   const handleDownload = async (kudos: Kudos, el: HTMLDivElement) => {
