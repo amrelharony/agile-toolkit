@@ -38,6 +38,11 @@ export interface GuestSession {
   squadId: string;
   displayName: string;
   color: string;
+  /** Workspace owner that this squad belongs to. Used by tools to scope
+   *  realtime channels per-workspace — without it, every workspace on
+   *  the same Supabase project would share a global channel for any
+   *  tool with a constant entityId. */
+  squadOwnerId: string;
 }
 
 /** Random base64url string suitable for storing as a profile's HMAC key. */
@@ -120,25 +125,29 @@ export async function getGuestSession(): Promise<GuestSession | null> {
 
   // Embed `squads.revoked_at` so a soft-revoked squad disables every
   // active cookie under it without nulling the underlying profile.
+  // Also embed `owner_id` so tools can scope realtime channels per
+  // workspace owner — without that scoping, two distinct owners on the
+  // same Supabase project share any global channel name a tool happens
+  // to use (e.g. kudos with entityId="workspace").
   const { data, error } = await admin
     .from("squad_profiles")
     .select(
-      "id, squad_id, display_name, color, cookie_secret, revoked_at, last_seen_at, squad:squads(revoked_at)"
+      "id, squad_id, display_name, color, cookie_secret, revoked_at, last_seen_at, squad:squads(revoked_at, owner_id)"
     )
     .eq("id", profileId)
     .single();
   if (error || !data) return null;
   if (data.revoked_at) return null;
   const squad = data.squad as
-    | { revoked_at: string | null }
-    | { revoked_at: string | null }[]
+    | { revoked_at: string | null; owner_id: string }
+    | { revoked_at: string | null; owner_id: string }[]
     | null;
   // PostgREST returns embedded one-to-one as either an object or a
   // single-element array depending on relationship hints; handle both.
-  const squadRevokedAt = Array.isArray(squad)
-    ? (squad[0]?.revoked_at ?? null)
-    : (squad?.revoked_at ?? null);
-  if (squadRevokedAt) return null;
+  const squadRow = Array.isArray(squad) ? (squad[0] ?? null) : squad;
+  if (!squadRow) return null;
+  if (squadRow.revoked_at) return null;
+  if (typeof squadRow.owner_id !== "string" || squadRow.owner_id.length === 0) return null;
   if (!verifySignature(value, data.cookie_secret as string)) return null;
 
   return {
@@ -146,6 +155,7 @@ export async function getGuestSession(): Promise<GuestSession | null> {
     squadId: data.squad_id as string,
     displayName: data.display_name as string,
     color: data.color as string,
+    squadOwnerId: squadRow.owner_id,
   };
 }
 

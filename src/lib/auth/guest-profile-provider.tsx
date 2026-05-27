@@ -20,6 +20,12 @@ export interface GuestProfile {
   displayName: string;
   color: string;
   squadId: string;
+  /** Workspace owner id (auth.users.id) of the squad this guest belongs
+   *  to. Required for any tool whose realtime channel is workspace-
+   *  scoped (e.g. kudos) — without it, peers from different workspaces
+   *  on the same Supabase project would converge on the same channel
+   *  name and cross-pollute. */
+  squadOwnerId: string;
 }
 
 const GuestProfileContext = createContext<GuestProfile | null>(null);

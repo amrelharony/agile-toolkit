@@ -76,7 +76,9 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
         </p>
       </div>
       <div
-        className={`flex flex-wrap items-end justify-between gap-2 px-${compact ? "4" : "6"} py-3 text-xs`}
+        className={`flex flex-wrap items-end justify-between gap-2 ${
+          compact ? "px-4" : "px-6"
+        } py-3 text-xs`}
         style={{ borderTop: "1px solid rgba(0,0,0,0.1)" }}
       >
         <span>

@@ -20,7 +20,6 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { ArrowLeft, Loader2, AlertTriangle, Users, Wifi, WifiOff } from "lucide-react";
-import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { KUDOS_ACTIONS } from "@/lib/history/event-actions";
 import { exportPng } from "@/lib/whiteboard/export";
@@ -33,7 +32,13 @@ import { KUDOS_TOOL_ID } from "@/app/(tools)/kudos/types";
 interface Props {
   entityId: string;
   role: "editor" | "viewer" | "commenter";
-  profile: { id: string; displayName: string; color: string; squadId: string };
+  profile: {
+    id: string;
+    displayName: string;
+    color: string;
+    squadId: string;
+    squadOwnerId: string;
+  };
 }
 
 interface SquadProfileSummary {
@@ -44,10 +49,24 @@ interface SquadProfileSummary {
 
 export function GuestKudosClient({ role, profile }: Props) {
   const isViewer = role === "viewer";
-  const room = useKudosRoom({ isHost: false });
+  // Guest mode:
+  //   * Ephemeral state — DO NOT persist incoming kudos to the shared
+  //     `agile-toolkit:workspace` localStorage slot. Without this, a
+  //     guest session on a browser later used by an owner would
+  //     contaminate the owner's dashboard with stray kudos.
+  //   * Channel scoped by squadOwnerId so different workspaces on the
+  //     same Supabase project don't share the kudos channel.
+  //   * Role passed through so the hook can enforce the viewer-cannot-
+  //     broadcast invariant at the broadcast layer (defence-in-depth
+  //     against any client patch / hot-reload race that mounts the form
+  //     for a viewer).
+  const room = useKudosRoom({
+    isHost: false,
+    ownerId: profile.squadOwnerId,
+    persistence: "ephemeral",
+    role,
+  });
   const { log } = useHistoryLogger(KUDOS_TOOL_ID);
-
-  const kudos = useWorkspaceStore((s) => s.kudos ?? []);
 
   // Fetch the guest's squad members on mount so the To picker can
   // offer them. The endpoint enforces "your squad only" so we don't
@@ -174,7 +193,7 @@ export function GuestKudosClient({ role, profile }: Props) {
               <Users className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               You&apos;re a viewer — kudos others send to the wall appear here live.
             </div>
-            <KudosWall kudos={kudos} highlightToProfileId={profile.id} />
+            <KudosWall kudos={room.kudos} highlightToProfileId={profile.id} />
           </div>
         ) : squadProfiles.length === 0 && !loadError ? (
           <div className="flex items-center justify-center gap-2 py-12 text-sub text-sm">
@@ -192,7 +211,7 @@ export function GuestKudosClient({ role, profile }: Props) {
             />
             <div className="flex flex-col gap-2">
               <h2 className="text-sm font-semibold text-text">Recent kudos</h2>
-              <KudosWall kudos={kudos} highlightToProfileId={profile.id} />
+              <KudosWall kudos={room.kudos} highlightToProfileId={profile.id} />
             </div>
           </div>
         )}

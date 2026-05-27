@@ -3,82 +3,145 @@
 /**
  * Realtime sync for the workspace kudos wall.
  *
+ * Channel scope: `tool:kudos:room:workspace-${ownerId}`. Per-workspace,
+ * NOT global — without the ownerId in the room name, every workspace
+ * on the same Supabase project would share one channel and squad A
+ * would receive squad B's kudos.
+ *
+ * State source-of-truth depends on mode:
+ *   * Owner — workspace store (persists across reloads, syncs to cloud)
+ *   * Guest — ephemeral useState (the guest's localStorage is shared
+ *     with whatever owner happens to use the same browser later, so
+ *     we deliberately don't pollute the workspace persist slot)
+ *
+ * Both modes broadcast on send and apply inbound events identically;
+ * only the local-write target differs.
+ *
  * Protocol:
  *   * `kudos:created { kudos, by }` — sender emits on save. Receivers
- *     dedup by `id` (against the local store) before appending. Skip
- *     self-echoes via `by === userId`.
- *   * `kudos:snapshot { kudos[], by }` — owner-side keepalive every
- *     10 s with the 20 most recent kudos. Guests joining after the
- *     last `kudos:created` get caught up within one heartbeat.
+ *     dedup by id, skip self-echoes via `by === userId`.
+ *   * `kudos:snapshot { kudos[], by }` — host-side keepalive every
+ *     10 s with the 20 most recent kudos. Skipped when nothing changed
+ *     OR no peers are present to receive it — bandwidth saver.
  *
- * Workspace store is the source of truth on the owner side. Guests'
- * stores are ephemeral (their (guest) tree doesn't mount the
- * persistence provider that owners get from AppShell); the heartbeat
- * keeps them populated.
- *
- * Adopts the `roomRef` pattern from `use-canvas-room` /
- * `use-poker-session` so the heartbeat interval and inbound
- * subscription don't churn on every parent re-render — `useRoom`
- * returns a fresh object literal each call.
+ * Role gating: viewers cannot broadcast. The page-level UI already
+ * hides the form for viewers, but `sendKudos` defends in depth so a
+ * patched/hot-reloaded client can't side-step the role.
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRoom } from "@/lib/realtime/use-room";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Kudos } from "@/lib/stores/workspace-types";
-import { KUDOS_TOOL_ID, KUDOS_ENTITY_ID, isValidKudos } from "./types";
+import { KUDOS_TOOL_ID, isValidKudos } from "./types";
 
 const HEARTBEAT_MS = 10_000;
 const SNAPSHOT_SIZE = 20;
+const GUEST_CAP = 500;
+
+export type KudosRole = "editor" | "viewer" | "commenter";
+
+export interface UseKudosRoomOptions {
+  /** Whether this peer is the room host (the workspace owner). Hosts
+   *  emit the keepalive snapshot; guests don't. */
+  isHost: boolean;
+  /** Auth user id (owner) or `squadOwnerId` from the guest profile.
+   *  Scopes the realtime channel so different workspaces don't
+   *  cross-pollute. `null` keeps the hook local-only (e.g. before the
+   *  owner-side auth subscription resolves). */
+  ownerId: string | null;
+  /** Persistence mode:
+   *   * `"workspace"` — owner side: kudos flow through the workspace
+   *     store (persist + cloud sync).
+   *   * `"ephemeral"` — guest side: kudos live in local useState only,
+   *     so closing the tab doesn't pollute the shared
+   *     `agile-toolkit:workspace` localStorage slot. */
+  persistence: "workspace" | "ephemeral";
+  /** Sender's role — determines whether `sendKudos` actually broadcasts.
+   *  Viewers never broadcast (read-only). */
+  role: KudosRole;
+}
 
 export interface KudosRoomHook {
   isConnected: boolean;
   isLocalOnly: boolean;
   /** Stable per-peer id (auth user, squad profile, or solo nanoid). */
   userId: string;
-  /** Send a kudos: append locally + broadcast. The local append goes
-   *  through `upsertKudos` so the 500-cap + shape validator both run. */
+  /** Source-of-truth kudos array. Owner reads from workspace store;
+   *  guest reads from local ephemeral state. The hook unifies both
+   *  so consumers don't have to branch. */
+  kudos: Kudos[];
+  /** Append + broadcast. No-ops in viewer mode. */
   sendKudos: (kudos: Kudos) => void;
 }
 
-export function useKudosRoom(opts: { isHost: boolean }): KudosRoomHook {
-  // We don't use useRoom's built-in state-sync channel — reject all
-  // state-sync broadcasts so a hostile peer can't spam setStateInternal.
-  const room = useRoom<unknown>(KUDOS_TOOL_ID, KUDOS_ENTITY_ID, null, {
+function dedupAndAppend(list: Kudos[], k: Kudos): Kudos[] {
+  const idx = list.findIndex((x) => x.id === k.id);
+  if (idx >= 0) {
+    if (list[idx] === k) return list;
+    const next = list.slice();
+    next[idx] = k;
+    return next;
+  }
+  const appended = [...list, k];
+  return appended.length > GUEST_CAP ? appended.slice(-GUEST_CAP) : appended;
+}
+
+export function useKudosRoom(opts: UseKudosRoomOptions): KudosRoomHook {
+  // Scoped channel — without ownerId we run local-only.
+  const roomId = opts.ownerId ? `workspace-${opts.ownerId}` : null;
+  const room = useRoom<unknown>(KUDOS_TOOL_ID, roomId, null, {
     validateState: (_raw): _raw is unknown => false,
   });
 
-  const upsertKudos = useWorkspaceStore((s) => s.upsertKudos);
+  // Always hold both state paths so React's hook order is stable.
+  // The actual `kudos` returned to the caller picks the right one
+  // based on `persistence` (set once at mount; effectively static).
+  const ownerKudos = useWorkspaceStore((s) => s.kudos ?? EMPTY_KUDOS);
+  const upsertOwnerKudos = useWorkspaceStore((s) => s.upsertKudos);
+  const [ephemeralKudos, setEphemeralKudos] = useState<Kudos[]>([]);
 
-  // Ref the live room so the effects don't depend on `room` itself —
-  // useRoom returns a new object every render, and putting it in a
-  // dep array would tear down + recreate the subscription / interval
-  // on every parent re-render.
+  const persistence = opts.persistence;
+  const kudos = persistence === "workspace" ? ownerKudos : ephemeralKudos;
+
+  // Stash the live room in a ref so the effects don't depend on
+  // `room` itself — useRoom returns a fresh object every render.
   const roomRef = useRef(room);
   roomRef.current = room;
+  // sessionRef-style stash for the latest peer count + kudos list so
+  // the heartbeat interval reads current data without re-creating the
+  // effect on every store update.
+  const kudosRef = useRef(kudos);
+  kudosRef.current = kudos;
+  const membersRef = useRef(room.members);
+  membersRef.current = room.members;
+  // Track the last snapshot we broadcast so the heartbeat can skip
+  // when nothing changed AND no fresh peer has appeared since.
+  const lastSnapshotIdsRef = useRef<string>("");
+  const lastMemberCountRef = useRef<number>(0);
 
-  // Inbound: validate shape, skip self-echoes, dedup by id, write.
+  // Inbound: validate + skip self-echo + dedup-by-id + apply.
   useEffect(() => {
     if (room.isLocalOnly) return;
+    const apply = (k: Kudos) => {
+      if (persistence === "workspace") upsertOwnerKudos(k);
+      else setEphemeralKudos((prev) => dedupAndAppend(prev, k));
+    };
     const offCreated = roomRef.current.subscribeToEvent("kudos:created", (raw) => {
       if (!raw || typeof raw !== "object") return;
       const env = raw as { kudos?: unknown; by?: unknown };
       if (typeof env.by === "string" && env.by === roomRef.current.userId) return;
       if (!isValidKudos(env.kudos)) return;
-      // upsertKudos already dedupes by id and runs its own validator;
-      // it's a safe no-op for events we've already accepted.
-      upsertKudos(env.kudos);
+      apply(env.kudos);
     });
     const offSnapshot = roomRef.current.subscribeToEvent("kudos:snapshot", (raw) => {
       if (!raw || typeof raw !== "object") return;
       const env = raw as { kudos?: unknown; by?: unknown };
       if (typeof env.by === "string" && env.by === roomRef.current.userId) return;
       if (!Array.isArray(env.kudos)) return;
-      // Bound the snapshot size we accept — a hostile peer broadcasting
-      // 50k entries shouldn't be able to overwhelm the receiver.
       const slice = env.kudos.slice(0, SNAPSHOT_SIZE);
       for (const k of slice) {
-        if (isValidKudos(k)) upsertKudos(k);
+        if (isValidKudos(k)) apply(k);
       }
     });
     return () => {
@@ -86,29 +149,58 @@ export function useKudosRoom(opts: { isHost: boolean }): KudosRoomHook {
       offSnapshot();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [room.isLocalOnly]);
+  }, [room.isLocalOnly, persistence]);
 
-  // Host-side heartbeat — broadcasts the 20 most recent kudos every
-  // HEARTBEAT_MS so late joiners converge without waiting for the
-  // next send. Skipped silently when the wall is empty.
+  // Host-side heartbeat. Three optimisations vs the naive every-10s:
+  //   1. Skip when the wall is empty.
+  //   2. Skip when there are no peers (just the host alone — no one
+  //      to converge to).
+  //   3. Skip when neither the kudos list nor the peer count has
+  //      changed since the last broadcast — saves bandwidth in long
+  //      idle sessions.
   useEffect(() => {
     if (!opts.isHost || room.isLocalOnly || !room.isConnected) return;
     const id = setInterval(() => {
-      const list = useWorkspaceStore.getState().kudos ?? [];
+      const list = kudosRef.current;
       if (list.length === 0) return;
+      const memberCount = membersRef.current.length;
+      // Always need to broadcast at LEAST once when a new peer joins.
+      const peersChanged = memberCount !== lastMemberCountRef.current;
       const recent = list.slice(-SNAPSHOT_SIZE);
+      const idsKey = recent.map((k) => k.id).join(",");
+      const contentChanged = idsKey !== lastSnapshotIdsRef.current;
+      if (!peersChanged && !contentChanged) return;
+      // If we're alone in the room there's no one to receive it.
+      // Skip but DO update the last-snapshot ref so the next genuine
+      // peer arrival triggers a broadcast.
+      if (memberCount <= 1) {
+        lastSnapshotIdsRef.current = idsKey;
+        lastMemberCountRef.current = memberCount;
+        return;
+      }
       roomRef.current.broadcast("kudos:snapshot", {
         kudos: recent,
         by: roomRef.current.userId,
       });
+      lastSnapshotIdsRef.current = idsKey;
+      lastMemberCountRef.current = memberCount;
     }, HEARTBEAT_MS);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opts.isHost, room.isLocalOnly, room.isConnected]);
 
+  const role = opts.role;
   const sendKudos = useCallback(
     (kudos: Kudos) => {
-      upsertKudos(kudos);
+      // Defence-in-depth: the page-level UI hides the form for
+      // viewers, but a hot-reload race or a patched build could still
+      // call sendKudos. Refuse at the hook level.
+      if (role === "viewer") return;
+      if (persistence === "workspace") {
+        upsertOwnerKudos(kudos);
+      } else {
+        setEphemeralKudos((prev) => dedupAndAppend(prev, kudos));
+      }
       if (!roomRef.current.isLocalOnly) {
         roomRef.current.broadcast("kudos:created", {
           kudos,
@@ -116,13 +208,19 @@ export function useKudosRoom(opts: { isHost: boolean }): KudosRoomHook {
         });
       }
     },
-    [upsertKudos]
+    [persistence, role, upsertOwnerKudos]
   );
 
   return {
     isConnected: room.isConnected,
     isLocalOnly: room.isLocalOnly,
     userId: room.userId,
+    kudos,
     sendKudos,
   };
 }
+
+// Stable empty-array reference so a workspace-mode hook with no kudos
+// doesn't trigger re-renders on every store mutation due to a fresh
+// `s.kudos ?? []` allocation.
+const EMPTY_KUDOS: Kudos[] = [];

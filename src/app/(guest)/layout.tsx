@@ -20,6 +20,7 @@ export default async function GuestLayout({ children }: { children: React.ReactN
         displayName: session.displayName,
         color: session.color,
         squadId: session.squadId,
+        squadOwnerId: session.squadOwnerId,
       }
     : null;
   const content = <GuestProfileProvider profile={profile}>{children}</GuestProfileProvider>;

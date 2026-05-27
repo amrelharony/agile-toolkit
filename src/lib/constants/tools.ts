@@ -1051,7 +1051,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "kudos",
-    code: "D12",
+    code: "D17",
     name: "Kudos Wall",
     description:
       "Squad-interactive recognition wall — send themed kudos cards live, download as PNG, attribute by squad profile",

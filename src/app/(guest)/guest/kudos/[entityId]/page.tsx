@@ -38,6 +38,7 @@ export default async function GuestKudosPage({ params }: { params: Params }) {
         displayName: session.displayName,
         color: session.color,
         squadId: session.squadId,
+        squadOwnerId: session.squadOwnerId,
       }}
     />
   );
