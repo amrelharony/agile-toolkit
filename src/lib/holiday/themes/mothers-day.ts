@@ -90,10 +90,10 @@ const theme: HolidayTheme = {
         outModes: { default: "out" },
         path: polygonPath({ sides: 8, turnSteps: 28, angle: 35, delay: 0.08 }),
       },
-      shape: {
-        type: ["character", "circle"],
-        options: { character: { value: ["❤", "🌸"], font: "sans-serif", weight: "400" } },
-      },
+      // Circles for hearts, stars for flowers — emoji glyphs render flat on
+      // Windows sans-serif. The big pulsing-heart SVG carries the heart-shape
+      // theming.
+      shape: { type: ["circle", "star"] },
       rotate: { value: { min: -20, max: 20 }, animation: { enable: true, speed: 3 } },
     },
     interactivity: combineInteractivity(

@@ -41,10 +41,10 @@ const theme: HolidayTheme = {
         // in straight lines).
         path: polygonPath({ sides: 6, turnSteps: 30, angle: 30, delay: 0.1 }),
       },
-      shape: {
-        type: ["character", "circle"],
-        options: { character: { value: ["🏮", "🌙"], font: "sans-serif" } },
-      },
+      // Circles for lanterns, stars for the moon — emoji glyphs are flat
+      // colored shapes on Windows sans-serif. The SVG crescent overlay
+      // carries the moon-and-star theming.
+      shape: { type: ["circle", "star"] },
       wobble: { enable: true, distance: 6, speed: 2 },
       // Ember sparks emitted from lanterns — small bright trail-like specks.
       shadow: { enable: true, color: "#f59e0b", blur: 12 },

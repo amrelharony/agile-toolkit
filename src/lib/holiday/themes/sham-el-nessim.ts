@@ -97,10 +97,10 @@ const theme: HolidayTheme = {
         // Leaves carried in waves across the screen — feels like wind.
         path: polygonPath({ sides: 10, turnSteps: 20, angle: 50, delay: 0.05 }),
       },
-      shape: {
-        type: ["character", "circle"],
-        options: { character: { value: ["🍃", "🌼"], font: "sans-serif" } },
-      },
+      // Circles for leaves, stars for flowers — emoji glyphs render flat on
+      // Windows sans-serif. The rising-sun SVG overlay carries the spring
+      // theming.
+      shape: { type: ["circle", "star"] },
       wobble: { enable: true, distance: 10, speed: 4 },
       rotate: { value: { min: 0, max: 360 }, animation: { enable: true, speed: 3, sync: false } },
     },

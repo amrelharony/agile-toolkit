@@ -118,10 +118,10 @@ const theme: HolidayTheme = {
         gravity: { enable: true, acceleration: 1.8 },
         path: polygonPath({ sides: 12, turnSteps: 18, angle: 60, delay: 0.05 }),
       },
-      shape: {
-        type: ["character", "circle"],
-        options: { character: { value: ["🍃", "🌿"], font: "sans-serif" } },
-      },
+      // Circles only — leaf emoji glyphs render flat on Windows sans-serif,
+      // and there's no built-in leaf shape. The rotating-globe SVG overlay
+      // carries the earth/nature theming.
+      shape: { type: "circle" },
       rotate: { value: { min: 0, max: 360 }, animation: { enable: true, speed: 4 } },
       wobble: { enable: true, distance: 14, speed: 6 },
     },

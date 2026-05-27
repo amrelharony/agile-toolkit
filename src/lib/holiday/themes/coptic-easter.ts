@@ -106,10 +106,10 @@ const theme: HolidayTheme = {
         // Butterfly-like wandering — petals don't fall straight.
         path: polygonPath({ sides: 8, turnSteps: 25, angle: 40, delay: 0.05 }),
       },
-      shape: {
-        type: ["character", "circle"],
-        options: { character: { value: ["🌸", "🌷"], font: "sans-serif" } },
-      },
+      // Circles + stars for the blossoms — emoji glyphs render flat on
+      // Windows sans-serif. The ornate Coptic cross overlay carries the
+      // religious theming.
+      shape: { type: ["circle", "star"] },
       wobble: { enable: true, distance: 12, speed: 5 },
       rotate: { value: { min: 0, max: 360 }, animation: { enable: true, speed: 4, sync: false } },
     },

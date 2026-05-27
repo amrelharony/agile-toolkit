@@ -135,10 +135,9 @@ const theme: HolidayTheme = {
         direction: "none",
         outModes: { default: "out" },
       },
-      shape: {
-        type: ["character", "circle"],
-        options: { character: { value: ["🦇", "🎃", "👻"], font: "sans-serif" } },
-      },
+      // Circles only — bat/pumpkin/ghost emoji glyphs render flat on Windows
+      // sans-serif. The flying-bat SVG overlay carries the spooky theming.
+      shape: { type: "circle" },
       rotate: { value: { min: -30, max: 30 }, animation: { enable: true, speed: 3, sync: false } },
     },
     interactivity: combineInteractivity(

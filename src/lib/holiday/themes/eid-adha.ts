@@ -32,10 +32,10 @@ const theme: HolidayTheme = {
         direction: "top",
         outModes: { default: "out" },
       },
-      shape: {
-        type: ["character", "circle"],
-        options: { character: { value: ["🌙", "⭐"], font: "sans-serif" } },
-      },
+      // Built-in shapes only — emoji glyphs render as flat colored shapes on
+      // platforms without color-emoji fonts (Windows sans-serif). Circle+star
+      // is the natural Eid pair, the SVG crescent overlay carries the moon.
+      shape: { type: ["circle", "star"] },
       // Constellation links between nearby stars — gives the celestial feel.
       links: constellationLinks("#fbbf24", 0.16, 130),
     },
