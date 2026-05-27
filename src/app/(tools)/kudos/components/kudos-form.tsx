@@ -18,15 +18,16 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Send, Download, AlertTriangle, Loader2 } from "lucide-react";
+import { Send, Download, AlertTriangle, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { SectionCard } from "@/components/shared/section-card";
-import type { Kudos, KudosTheme } from "@/lib/stores/workspace-types";
+import type { Kudos, KudosSentiment, KudosTheme } from "@/lib/stores/workspace-types";
 import { KUDOS_THEMES, KUDOS_WORD_LIMITS, countWords } from "../types";
 import { KudosCard } from "./kudos-card";
+import { analyseSentiment } from "@/lib/kudos/llm/sentiment";
 
 export interface RecipientOption {
   /** Stable id — squad profile id or workspace team-member id, or
@@ -62,6 +63,32 @@ interface Props {
   /** Optional slot above the Send button (used by the parent to render
    *  the AI-prompt generator). */
   aiSuggestSlot?: React.ReactNode;
+  /**
+   * Phase 3 — predicted recipient (from `usePredictedDefault`). When set
+   * AND the user hasn't picked one yet, the form prefills the To select
+   * with the matching recipient option. Single-shot via
+   * `didAutoSelectRef` so subsequent updates don't clobber a manual pick.
+   */
+  predictedRecipientId?: string;
+  /**
+   * Phase 3 — inline hint shown above the form. The parent (owner-side
+   * only) renders an under-recognised teammate suggestion here with a
+   * one-click "send to them" button. Free-form ReactNode keeps the form
+   * agnostic to whether the hint came from fairness, LLM, or a manual
+   * prompt.
+   */
+  fairnessHintSlot?: React.ReactNode;
+  /**
+   * Phase 3 — when the parent's "send to under-recognised X" button
+   * fires it bumps a counter via this callback shape: `{recipientId, token}`.
+   * The token monotonically increases per click; the form treats a bump
+   * as a forced override of the auto-select latch and snaps the picker
+   * to `recipientId`. A bump that lands BEFORE the user has typed in
+   * the free-text field is safe; one that lands AFTER still wins (the
+   * user explicitly clicked the hint button). Optional — the form
+   * works without it.
+   */
+  forcedRecipient?: { id: string; token: number };
 }
 
 const newKudosId = (): string => {
@@ -82,6 +109,9 @@ export function KudosForm({
   onSubmit,
   onDownload,
   aiSuggestSlot,
+  predictedRecipientId,
+  fairnessHintSlot,
+  forcedRecipient,
 }: Props) {
   const [theme, setTheme] = useState<KudosTheme>("awesome");
   const [recipientId, setRecipientId] = useState<string>("");
@@ -98,14 +128,77 @@ export function KudosForm({
   // the form. A user who chose "Pick a recipient…" (value="") then
   // typed in the free-text field would see the dropdown jump to
   // recipients[0] mid-edit and might Send to the wrong person.
+  //
+  // Phase 3 — if a predicted recipient is provided, prefer it over the
+  // raw alphabetical first pick. Same one-shot latch: a predicted match
+  // that lands AFTER the user has started picking should NOT overwrite
+  // their choice.
   const didAutoSelectRef = useRef(false);
   useEffect(() => {
     if (didAutoSelectRef.current) return;
-    if (!recipientId && recipients.length > 0) {
-      setRecipientId(recipients[0].id);
-      didAutoSelectRef.current = true;
+    if (recipientId) return;
+    if (recipients.length === 0) return;
+    if (predictedRecipientId) {
+      const match = recipients.find((r) => r.profileId === predictedRecipientId);
+      if (match) {
+        setRecipientId(match.id);
+        didAutoSelectRef.current = true;
+        return;
+      }
     }
-  }, [recipientId, recipients]);
+    setRecipientId(recipients[0].id);
+    didAutoSelectRef.current = true;
+  }, [recipientId, recipients, predictedRecipientId]);
+
+  // Phase 3 — forced recipient override (fires when the parent's
+  // under-recognised hint button is clicked). Re-runs ONLY when the
+  // monotonic token changes; the latch is intentionally not consulted
+  // here because the user explicitly clicked the hint.
+  const lastForcedTokenRef = useRef<number>(forcedRecipient?.token ?? -1);
+  useEffect(() => {
+    if (!forcedRecipient) return;
+    if (forcedRecipient.token === lastForcedTokenRef.current) return;
+    lastForcedTokenRef.current = forcedRecipient.token;
+    setRecipientId(forcedRecipient.id);
+    didAutoSelectRef.current = true;
+  }, [forcedRecipient]);
+
+  // Phase 3 — debounced sentiment classifier. Surfaces an inline soft
+  // warning when the model reads the message as backhanded; it does NOT
+  // gate the Send button. Send-on-failure means a missing BYOK key or a
+  // model error simply leaves `sentiment` as null and the warning never
+  // shows.
+  const [sentiment, setSentiment] = useState<KudosSentiment | null>(null);
+  const sentimentAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    // Reset on every keystroke; only the final call after the debounce
+    // window actually issues. Clearing here also wipes a stale warning
+    // when the user edits past the sarcasm.
+    setSentiment(null);
+    sentimentAbortRef.current?.abort();
+    const trimmed = message.trim();
+    // Don't bill the LLM for short text — sarcasm needs context. Aligns
+    // with the form's "needs >= 1 word" gate so we skip the no-op call
+    // when the textarea is empty.
+    if (trimmed.length < 12) return;
+    const controller = new AbortController();
+    sentimentAbortRef.current = controller;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await analyseSentiment({ message: trimmed, theme }, controller.signal);
+          if (controller.signal.aborted) return;
+          setSentiment(result);
+        } catch {
+          /* send-on-failure — no warning is fine */
+        }
+      })();
+    }, 600);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [message, theme]);
 
   const selectedRecipient = useMemo<RecipientOption | null>(() => {
     if (recipientId === "free") {
@@ -190,6 +283,7 @@ export function KudosForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+      {fairnessHintSlot}
       <SectionCard
         title="Compose kudos"
         className="border-border/40 bg-surface"
@@ -326,6 +420,22 @@ export function KudosForm({
           >
             {messageWords}/{KUDOS_WORD_LIMITS.message} words
           </div>
+          {/* Phase 3 — backhanded warning. Advisory only; the Send
+              button stays enabled so the user can override the model. */}
+          {sentiment?.label === "backhanded" && (
+            <div
+              role="status"
+              className="flex items-start gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+            >
+              <Sparkles className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+              <span>
+                This reads as sarcastic — send anyway?
+                {sentiment.tone.length > 0 && (
+                  <span className="text-amber-300/70"> (tone: {sentiment.tone.join(", ")})</span>
+                )}
+              </span>
+            </div>
+          )}
         </div>
 
         {aiSuggestSlot && <div>{aiSuggestSlot}</div>}

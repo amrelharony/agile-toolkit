@@ -59,7 +59,11 @@ function pendingValues(): PendingPost[] {
 function persist(): void {
   if (typeof window === "undefined") return;
   try {
-    const arr = pendingValues().map((p) => p.kudos);
+    // Persist the full PendingPost shape — not just `kudos` — so the
+    // MAX_ATTEMPTS ceiling survives page reload. Earlier versions
+    // re-seeded `attempt: 1` on rehydrate, letting unsendable rows
+    // retry forever across reloads.
+    const arr = pendingValues();
     if (arr.length === 0) {
       window.localStorage.removeItem(STORAGE_KEY);
     } else {
@@ -78,9 +82,22 @@ function rehydrate(): void {
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return;
     const now = Date.now();
-    for (const k of arr) {
-      if (!k || typeof k !== "object" || typeof k.id !== "string") continue;
-      pending.set(k.id, { kudos: k as Kudos, attempt: 1, notBefore: now });
+    for (const entry of arr) {
+      if (!entry || typeof entry !== "object") continue;
+      // Backward-compat: the legacy persist shape stored bare Kudos
+      // objects (no PendingPost wrapper). Detect by absence of
+      // `kudos` field and re-seed with attempt=1.
+      const wrapped = "kudos" in entry && entry.kudos && typeof entry.kudos === "object";
+      const kudos = (wrapped ? entry.kudos : entry) as Kudos;
+      if (typeof kudos.id !== "string") continue;
+      const attempt =
+        wrapped && typeof entry.attempt === "number" && entry.attempt >= 1
+          ? Math.min(entry.attempt, MAX_ATTEMPTS)
+          : 1;
+      // Drop dead-lettered rows on rehydrate so they don't loop forever.
+      if (attempt >= MAX_ATTEMPTS) continue;
+      const notBefore = wrapped && typeof entry.notBefore === "number" ? entry.notBefore : now;
+      pending.set(kudos.id, { kudos, attempt, notBefore });
     }
   } catch {
     // Corrupt payload — start clean rather than throwing on every install.
@@ -129,6 +146,14 @@ async function tick(): Promise<void> {
       const result = await attemptOne(post);
       if (result === "ok" || result === "drop") {
         pending.delete(post.kudos.id);
+        if (result === "ok") {
+          // Tell sibling tabs the id has landed so they can prune
+          // their queues. Without this every owner tab would re-POST
+          // every kudos (idempotent at the DB level, but wasted
+          // rate-limit headroom). The receive-side listener at
+          // install time calls `pending.delete(id)` on match.
+          broadcastChannel?.postMessage(post.kudos.id);
+        }
         return;
       }
       // retry

@@ -1,7 +1,8 @@
 import type { PromptDefinition } from "./types";
-import { buildPreamble } from "./prompt-utils";
+import { buildPreamble, sanitizePromptCell } from "./prompt-utils";
 import { buildWorkspaceContext } from "./cross-tool-context";
 import type { Workspace } from "../stores/workspace-types";
+import { getLastFairnessResult } from "../kudos/llm/fairness";
 
 /**
  * Suggested kudos message templates.
@@ -57,6 +58,83 @@ export function generateKudosPrompts(workspace?: Workspace | null): PromptDefini
       ]
     : [];
 
+  // Phase 3 — LLM intelligence templates. Both lean on data the fairness +
+  // history layers produce; they degrade gracefully when those layers are
+  // empty (no AI configured, no recent activity) by referring to the
+  // teammates / signals as placeholders.
+  const fairness = getLastFairnessResult();
+  const topUnderRecognised = fairness
+    ? fairness.underRecognised.slice(0, 3).map((u) => u.profileId)
+    : [];
+  const fairnessRefs =
+    topUnderRecognised.length > 0
+      ? `\n## Under-recognised teammates (top ${topUnderRecognised.length})\n` +
+        topUnderRecognised.map((id) => `- ${sanitizePromptCell(id, 64)}`).join("\n")
+      : "";
+
+  const recentImpedimentsResolved = workspace
+    ? workspace.impediments
+        .filter((i) => {
+          if (!i.resolvedAt) return false;
+          const t = Date.parse(i.resolvedAt);
+          if (!Number.isFinite(t)) return false;
+          return Date.now() - t <= 7 * 86_400_000;
+        })
+        .slice(0, 5)
+    : [];
+  const recentSprintsCompleted = workspace
+    ? workspace.sprints.filter((s) => s.status === "completed").slice(-3)
+    : [];
+  const winsRefs = (() => {
+    if (!workspace) return "";
+    if (recentImpedimentsResolved.length === 0 && recentSprintsCompleted.length === 0) {
+      return "";
+    }
+    const lines: string[] = [];
+    if (recentImpedimentsResolved.length > 0) {
+      lines.push("## Recent impediments resolved (last 7 days)");
+      for (const i of recentImpedimentsResolved) {
+        lines.push(`- ${sanitizePromptCell(i.title, 120)}`);
+      }
+    }
+    if (recentSprintsCompleted.length > 0) {
+      lines.push("## Recently completed sprints");
+      for (const s of recentSprintsCompleted) {
+        lines.push(
+          `- Sprint ${sanitizePromptCell(s.name ?? s.id, 60)} — ${s.pointsCompleted ?? 0}/${s.pointsPlanned ?? 0} pts`
+        );
+      }
+    }
+    return "\n" + lines.join("\n");
+  })();
+
+  const intelligence: PromptDefinition[] = [
+    {
+      id: "kudos-under-recognised",
+      title: "Recognise the under-recognised",
+      description:
+        "Draft kudos for teammates who've been shipping work but haven't received many cards lately.",
+      prompt:
+        buildPreamble(
+          "Kudos",
+          "Help the user write kudos for teammates flagged as under-recognised by the fairness analyser."
+        ) +
+        `${context}${fairnessRefs}\n\n## What I want\n\nWrite 3 short kudos messages (25-50 words each) aimed at the under-recognised profile ids above. Each should:\n  • Reference a specific recent contribution if context allows\n  • Sound warm and personal, not corporate\n  • Avoid generic praise ("great job") in favour of named impact\n\nIf no under-recognised teammates were flagged, write 3 generic but specific templates the user can adapt.\n\nReturn just the messages, separated by a blank line.`,
+    },
+    {
+      id: "kudos-this-weeks-wins",
+      title: "Celebrate this week's wins",
+      description:
+        "Draft kudos that reference impediments resolved or sprints completed in the last 7 days.",
+      prompt:
+        buildPreamble(
+          "Kudos",
+          "Help the user celebrate concrete wins from the last 7 days — impediments cleared, sprints landed, decisions recorded."
+        ) +
+        `${context}${winsRefs}\n\n## What I want\n\nWrite 3 short kudos messages (25-50 words each). Each should:\n  • Pull from a real win above (impediment title, sprint completion, etc.)\n  • Name the impact ("this unblocked the team", "shipped on time")\n  • Sound like one human writing to another\n\nReturn just the messages, separated by a blank line.`,
+    },
+  ];
+
   // Generic templates — always available, used as guest-mode fallback.
   const generic: PromptDefinition[] = [
     {
@@ -88,5 +166,5 @@ export function generateKudosPrompts(workspace?: Workspace | null): PromptDefini
     },
   ];
 
-  return [...grounded, ...generic];
+  return [...grounded, ...intelligence, ...generic];
 }

@@ -173,18 +173,33 @@ export function parseKudos(raw: unknown): KudosParseResult {
   // out-of-order delivery both look like past sends.
   if (sentAtMs > Date.now() + CLOCK_SKEW_MS) return { ok: false, error: "sent_at_in_future" };
 
+  // Optional ids: reject empty strings too. The DB uuid cast would 500
+  // on them and a stored "" carries no semantic meaning. Required
+  // fields (id, message) already reject zero-length.
   if (raw.toProfileId !== undefined) {
-    if (typeof raw.toProfileId !== "string" || raw.toProfileId.length > ID_MAX) {
+    if (
+      typeof raw.toProfileId !== "string" ||
+      raw.toProfileId.length === 0 ||
+      raw.toProfileId.length > ID_MAX
+    ) {
       return { ok: false, error: "invalid_to_profile_id" };
     }
   }
   if (raw.fromProfileId !== undefined) {
-    if (typeof raw.fromProfileId !== "string" || raw.fromProfileId.length > ID_MAX) {
+    if (
+      typeof raw.fromProfileId !== "string" ||
+      raw.fromProfileId.length === 0 ||
+      raw.fromProfileId.length > ID_MAX
+    ) {
       return { ok: false, error: "invalid_from_profile_id" };
     }
   }
   if (raw.teamName !== undefined) {
-    if (typeof raw.teamName !== "string" || raw.teamName.length > SHORT_TEXT_MAX) {
+    if (
+      typeof raw.teamName !== "string" ||
+      raw.teamName.length === 0 ||
+      raw.teamName.length > SHORT_TEXT_MAX
+    ) {
       return { ok: false, error: "invalid_team_name" };
     }
   }

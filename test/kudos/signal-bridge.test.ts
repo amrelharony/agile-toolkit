@@ -71,10 +71,39 @@ describe("signal-bridge — kudos emissions", () => {
     expect(received.length).toBe(1);
   });
 
-  it("treats owner-mode (viewer id null) as receiving every workspace-wide kudos (no toProfileId)", async () => {
+  it("owner-mode receives only guest-authored workspace-wide kudos, not own sends", async () => {
     setLocalViewerProfileId(null);
-    useWorkspaceStore.getState().upsertKudos(freshKudos({})); // no toProfileId
-    useWorkspaceStore.getState().upsertKudos(freshKudos({ toProfileId: "alice-profile" }));
+    // Owner-authored (no fromProfileId), workspace-wide (no
+    // toProfileId) — must NOT count as received, otherwise the owner
+    // double-counts every send as both sent and received and unlocks
+    // `receiver-10` from their own outbox.
+    useWorkspaceStore.getState().upsertKudos(freshKudos({}));
+    // Guest-authored (fromProfileId set), workspace-wide (no
+    // toProfileId) — SHOULD count as received: a guest sent it and
+    // the owner is the wall.
+    useWorkspaceStore.getState().upsertKudos(freshKudos({ fromProfileId: "guest-1" }));
+    // Guest-authored AND addressed to a specific OTHER profile —
+    // not for the owner, must not count as received either.
+    useWorkspaceStore
+      .getState()
+      .upsertKudos(freshKudos({ fromProfileId: "guest-1", toProfileId: "alice-profile" }));
+    await waitForFlush();
+    const received = collected.filter((s) => s.kind === "kudos.received");
+    expect(received.length).toBe(1);
+  });
+
+  it("guest viewer does not fire kudos.received on their own outbox", async () => {
+    setLocalViewerProfileId("guest-self");
+    // Self-send, addressed to self (rare but possible via free-text
+    // recipient picker resolving to own profile) — must not count as
+    // received. The guard is fromProfileId !== viewer.
+    useWorkspaceStore
+      .getState()
+      .upsertKudos(freshKudos({ toProfileId: "guest-self", fromProfileId: "guest-self" }));
+    // Genuine inbound from another guest — should fire received.
+    useWorkspaceStore
+      .getState()
+      .upsertKudos(freshKudos({ toProfileId: "guest-self", fromProfileId: "guest-other" }));
     await waitForFlush();
     const received = collected.filter((s) => s.kind === "kudos.received");
     expect(received.length).toBe(1);

@@ -556,8 +556,22 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
         fromProfileId: k.fromProfileId,
         theme: typeof k.theme === "string" ? k.theme : k.theme.id,
       });
-      const addressedToMe =
-        localViewerProfileId === null ? !k.toProfileId : k.toProfileId === localViewerProfileId;
+      // `kudos.received` must NOT fire for self-authored rows or the
+      // owner double-counts every send as both sent and received,
+      // unlocking `receiver-10` from their own outbox. Two gates:
+      //   1. Guest mode (viewer id set) — `toProfileId` matches AND
+      //      `fromProfileId` does NOT match the viewer.
+      //   2. Owner mode (viewer id null) — the row is guest-authored
+      //      (fromProfileId is non-null; owner-authored rows leave it
+      //      null) and lands on the workspace-wide wall (no
+      //      toProfileId picking a specific OTHER recipient).
+      let addressedToMe = false;
+      if (localViewerProfileId !== null) {
+        addressedToMe =
+          k.toProfileId === localViewerProfileId && k.fromProfileId !== localViewerProfileId;
+      } else {
+        addressedToMe = Boolean(k.fromProfileId) && !k.toProfileId;
+      }
       if (addressedToMe) {
         emit("kudos.received", "kudos", { id: k.id, fromProfileId: k.fromProfileId });
       }

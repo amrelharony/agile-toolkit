@@ -29,7 +29,14 @@ function kudosToRow(k: Kudos, ownerId: string): Record<string, unknown> {
     // wide kudos that aren't scoped to any one squad. The guest path
     // (api/guest/kudos) fills this in from the cookie's squad context.
     squad_id: null,
-    theme: typeof k.theme === "string" ? { id: k.theme } : k.theme,
+    // jsonb accepts both strings and objects; preserving the bare-string
+    // form for built-in themes keeps the round-trip identity (GET parses
+    // back into the same `KudosTheme | string` union the workspace store
+    // holds). Wrapping `"awesome"` as `{id:"awesome"}` would survive POST
+    // but parseKudos rejects it on the GET (no title/emoji/hex), and
+    // getKudosTheme falls through to inline-style rendering with
+    // undefined hex.
+    theme: k.theme,
     to_name: k.toName,
     to_profile_id: k.toProfileId ?? null,
     from_name: k.fromName,
@@ -126,7 +133,12 @@ export async function GET(req: NextRequest) {
         "reply_to, reactions"
     )
     .eq("owner_id", user.id)
+    // Secondary `id` order so ms-collision rows have a stable
+    // tiebreak. Without it a `?before=…` cursor could either
+    // duplicate or drop a row at the page boundary when two kudos
+    // share the same `sent_at`.
     .order("sent_at", { ascending: false })
+    .order("id", { ascending: false })
     .limit(limit);
 
   if (beforeParam) {

@@ -7,6 +7,7 @@ import {
 } from "../analytics/forecasting-bayesian";
 import { bootstrapQuantile } from "../analytics/bootstrap";
 import { registerPredictor } from "./registry";
+import { registerRecipientPredictor } from "@/lib/kudos/llm/suggest-recipient";
 
 let bootstrapped = false;
 
@@ -220,6 +221,14 @@ export function bootstrapPredictions(): void {
     // Without page-history in workspace, default to 5 pages/week.
     return { value: 5, confidence: "low", source: "default (no historical pages in workspace)" };
   });
+
+  // ── kudos: recipient suggestion (Phase 3 LLM intelligence) ──────────
+  // The actual LLM call is async and lives in `suggest-recipient.ts`.
+  // The predictor itself is synchronous (the registry contract) and
+  // reads the LLM result from a local cache. Owner-side form callers
+  // prime that cache via `primeRecipientSuggestion`; when the result
+  // lands the predictor's next invocation returns the top suggestion.
+  registerRecipientPredictor();
 }
 
 function daysBetween(a: string, b: string): number {

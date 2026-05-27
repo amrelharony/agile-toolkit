@@ -85,12 +85,38 @@ export async function POST(req: NextRequest) {
   // Override the from-identity from the verified cookie so a guest
   // cannot author kudos as another guest by tampering with the
   // payload's `fromProfileId` / `fromName`. The recipient side stays
-  // user-controlled (the form lets guests pick or free-text).
+  // user-controlled (the form lets guests pick or free-text), but when
+  // they name a squad profile we verify it belongs to the same squad —
+  // a guest in squad A must not be able to target squad B by knowing
+  // a profile id from there.
+  if (k.toProfileId) {
+    const { data: recipient, error: recipientErr } = await admin
+      .from("squad_profiles")
+      .select("id, squad_id")
+      .eq("id", k.toProfileId)
+      .maybeSingle();
+    if (recipientErr) {
+      // eslint-disable-next-line no-console
+      console.error(
+        "[guest/kudos POST] recipient lookup failed",
+        recipientErr.code,
+        recipientErr.message
+      );
+      return Response.json({ error: "server_error" }, { status: 500 });
+    }
+    if (!recipient || (recipient as { squad_id: string }).squad_id !== session.squadId) {
+      return Response.json({ error: "cross_squad_recipient" }, { status: 403 });
+    }
+  }
+
   const row = {
     id: k.id,
     owner_id: invite.ownerId,
     squad_id: session.squadId,
-    theme: typeof k.theme === "string" ? { id: k.theme } : k.theme,
+    // Bare-string form for built-in themes preserves round-trip identity
+    // through the jsonb column; see /api/kudos/route.ts:kudosToRow for
+    // the full rationale.
+    theme: k.theme,
     to_name: k.toName,
     to_profile_id: k.toProfileId ?? null,
     from_name: session.displayName,
