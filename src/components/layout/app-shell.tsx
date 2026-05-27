@@ -44,6 +44,14 @@ import { HistorySyncProvider } from "@/lib/history/sync-provider";
 import { TimeTravelShortcuts } from "@/components/history/time-travel-shortcuts";
 import { ErrorBoundary } from "./error-boundary";
 import { Suspense } from "react";
+
+// Phase 4 — global flying-card portal. Dynamic-imported so the
+// framer-motion + KudosCard subtree doesn't land in the eager bundle
+// for users who never send a kudos.
+const FlyingCardPortal = dynamic(
+  () => import("@/lib/kudos/beacon/flying-card").then((m) => m.FlyingCardPortal),
+  { ssr: false }
+);
 import { TrophyCase } from "@/components/gamification/trophy-case";
 import { RecentToolTracker } from "@/lib/tools/tool-prefs";
 
@@ -126,6 +134,9 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                       <HistorySyncProvider>
                         <TimeTravelShortcuts />
                         <RecentToolTracker />
+                        <Suspense fallback={null}>
+                          <FlyingCardPortal />
+                        </Suspense>
                         {/* Skip-to-content link for screen readers + keyboard users */}
                         <a
                           href="#main-content"

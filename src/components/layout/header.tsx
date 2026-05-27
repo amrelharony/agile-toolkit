@@ -18,6 +18,7 @@ import { useAgentStore } from "@/lib/agent/store";
 import { XpBar } from "@/components/gamification/xp-bar";
 import { WeatherWidget } from "@/lib/weather/widget";
 import { UserMenu } from "@/components/auth/user-menu";
+import { KudosHeaderBeacon } from "@/lib/kudos/beacon/header-beacon";
 import { cn } from "@/lib/utils";
 
 interface HeaderProps {
@@ -227,6 +228,12 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
         <div className="hidden sm:flex items-center">
           <LlmStatusChip />
         </div>
+        {/* Phase 4 kudos beacon — global pulse + count for incoming kudos.
+            Visible for guests too (they receive kudos as well). The
+            FlyingCard portal uses this element's rect as a fallback when
+            sender / recipient identity ids aren't resolvable, so it must
+            mount on every authenticated and guest page. */}
+        <KudosHeaderBeacon />
         {/* Agent chat button. Visible from xs+ — keyboard users can also
             hit Cmd/Ctrl+J to toggle (matches ChatGPT / Claude.ai). */}
         <button

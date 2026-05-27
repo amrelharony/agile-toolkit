@@ -27,6 +27,7 @@ import { exportPng } from "@/lib/whiteboard/export";
 import type { Kudos } from "@/lib/stores/workspace-types";
 import { KudosForm, type RecipientOption } from "@/app/(tools)/kudos/components/kudos-form";
 import { KudosWall } from "@/app/(tools)/kudos/components/kudos-wall";
+import { KudosBeacon } from "@/app/(tools)/kudos/components/kudos-beacon";
 import { useKudosRoom } from "@/app/(tools)/kudos/use-kudos-room";
 import { KUDOS_TOOL_ID } from "@/app/(tools)/kudos/types";
 
@@ -221,6 +222,7 @@ export function GuestKudosClient({ role, profile }: Props) {
           </div>
         )}
       </div>
+      <KudosBeacon />
     </div>
   );
 }

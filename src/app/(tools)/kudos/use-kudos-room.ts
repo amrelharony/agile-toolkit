@@ -19,7 +19,12 @@
  *
  * Protocol:
  *   * `kudos:created { kudos, by }` — sender emits on save. Receivers
- *     dedup by id, skip self-echoes via `by === userId`.
+ *     dedup by id, skip self-echoes via `by === userId`. The `kudos`
+ *     object carries every optional v2 field (sender/recipient identity
+ *     ids, sentiment, fairness score) — Phase 4's flying-card beacon
+ *     resolves DOM rects from `senderIdentityId` + `recipientIdentityId`
+ *     on every peer's local DOM, so the wire payload is intentionally
+ *     the full upgraded shape rather than a diff.
  *   * `kudos:snapshot { kudos[], by }` — host-side keepalive every
  *     10 s with the 20 most recent kudos. Skipped when nothing changed
  *     OR no peers are present to receive it — bandwidth saver.
