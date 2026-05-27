@@ -18,7 +18,9 @@ const GLOW = "rgba(249, 115, 22, 0.3)";
 function batSwarmAnimate(svg: SVGSVGElement, ctx: HolidayOverlayContext): () => void {
   const bats = svg.querySelectorAll<SVGGElement>("[data-hw-bat]");
   const moon = svg.querySelector<SVGGElement>("[data-hw-moon]");
-  const tweens: gsap.core.Tween[] = [];
+  // Tween, Timeline and from() all share an Animation base class with .kill().
+  // Use Animation as the common type instead of casting Timelines to Tween.
+  const tweens: gsap.core.Animation[] = [];
 
   // Each bat traces its own keyframed flight path, looping forever. The y
   // values curve up-then-down so each bat dips through the screen rather than
@@ -31,7 +33,7 @@ function batSwarmAnimate(svg: SVGSVGElement, ctx: HolidayOverlayContext): () => 
     wingsTl
       .to(wings, { scaleY: 0.5, duration: 0.18, transformOrigin: "50% 50%" })
       .to(wings, { scaleY: 1.0, duration: 0.18 });
-    tweens.push(wingsTl as unknown as gsap.core.Tween);
+    tweens.push(wingsTl);
 
     const flight = ctx.gsap.fromTo(
       bat,

@@ -16,10 +16,18 @@ import { useMoodProfile } from "@/lib/emotion/use-mood";
 import { useWeather } from "@/lib/weather/provider";
 import { loadGsap } from "@/lib/emotion/gsap";
 
-// tsparticles is dynamic-imported so its ~50KB stays out of the critical
+// tsparticles is dynamic-imported so its bundles stay out of the critical
 // path.  We cache the init promise so concurrent calls dedupe, and only
 // commit the success flag after the engine actually initialises — that way
 // a transient network failure doesn't lock out future retries.
+//
+// IMPORTANT: loadSlim alone does NOT cover everything our themes declare.
+// `move.trail`, `wobble`, `twinkle`, `emitters`, `move.path` and the
+// `trail` interaction mode each ship as separate packages and silently
+// no-op when not registered — that's how the previous "audit-clean"
+// version had unrendered fireworks (eid-fitr emitters) and missing wobble
+// across most themes. We load each one explicitly so what the theme
+// declares is what the user actually sees.
 let particlesInitPromise: Promise<boolean> | null = null;
 
 async function initParticles(): Promise<boolean> {
@@ -28,8 +36,21 @@ async function initParticles(): Promise<boolean> {
     try {
       const { initParticlesEngine } = await import("@tsparticles/react");
       const { loadSlim } = await import("@tsparticles/slim");
+      const { loadEmittersPlugin } = await import("@tsparticles/plugin-emitters");
+      const { loadWobbleUpdater } = await import("@tsparticles/updater-wobble");
+      const { loadTwinkleUpdater } = await import("@tsparticles/updater-twinkle");
+      const { loadTrailEffect } = await import("@tsparticles/effect-trail");
+      const { loadExternalTrailInteraction } =
+        await import("@tsparticles/interaction-external-trail");
+      const { loadPolygonPath } = await import("@tsparticles/path-polygon");
       await initParticlesEngine(async (engine) => {
         await loadSlim(engine);
+        await loadEmittersPlugin(engine);
+        await loadWobbleUpdater(engine);
+        await loadTwinkleUpdater(engine);
+        await loadTrailEffect(engine);
+        await loadExternalTrailInteraction(engine);
+        await loadPolygonPath(engine);
       });
       return true;
     } catch {
