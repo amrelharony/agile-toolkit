@@ -92,13 +92,18 @@ export function KudosForm({
   const [error, setError] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // Auto-select the first recipient option so the dropdown isn't
-  // empty on first render. Recipients re-populate when the parent
-  // refetches; we only auto-pick when nothing is selected yet, so a
-  // user mid-edit isn't yanked to a different recipient.
+  // Auto-select the first recipient ONCE per mount. Without the "once"
+  // latch the effect re-fires every time `recipients` changes — e.g.
+  // when an async fetch resolves AFTER the user has started reading
+  // the form. A user who chose "Pick a recipient…" (value="") then
+  // typed in the free-text field would see the dropdown jump to
+  // recipients[0] mid-edit and might Send to the wrong person.
+  const didAutoSelectRef = useRef(false);
   useEffect(() => {
+    if (didAutoSelectRef.current) return;
     if (!recipientId && recipients.length > 0) {
       setRecipientId(recipients[0].id);
+      didAutoSelectRef.current = true;
     }
   }, [recipientId, recipients]);
 

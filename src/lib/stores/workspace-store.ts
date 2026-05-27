@@ -50,6 +50,7 @@ import type {
   Kudos,
 } from "./workspace-types";
 import { emptyWorkspace } from "./workspace-types";
+import { isValidKudos } from "@/app/(tools)/kudos/types";
 
 interface WorkspaceActions {
   setTeamName: (name: string) => void;
@@ -913,22 +914,15 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           const next = log.slice(-1000);
           return { whiteboardActivityLog: next };
         }),
-      // Kudos wall: append + cap at 500 entries (drop oldest). Same
-      // shape-validation discipline as appendWhiteboardActivity — a
-      // hostile peer broadcasting `kudos:created` shouldn't be able to
-      // pollute the wall with a 50 MB message or a non-string field.
+      // Kudos wall: append + cap at 500 entries (drop oldest). Validates
+      // shape via `isValidKudos` — the SAME guard the realtime wire
+      // path uses — so a payload that survives one boundary cannot
+      // smuggle past the other (review #8). A hostile peer broadcasting
+      // `kudos:created` with `theme: "custom-x"` is rejected on the
+      // wire; an importJSON with the same bad theme is rejected here.
       upsertKudos: (k) =>
         set((s) => {
-          if (!k || typeof k !== "object") return s;
-          if (typeof k.id !== "string" || k.id.length === 0 || k.id.length > 64) return s;
-          if (typeof k.theme !== "string" || k.theme.length > 32) return s;
-          if (typeof k.toName !== "string" || k.toName.length === 0 || k.toName.length > 80)
-            return s;
-          if (typeof k.fromName !== "string" || k.fromName.length === 0 || k.fromName.length > 80)
-            return s;
-          if (typeof k.message !== "string" || k.message.length === 0 || k.message.length > 2000)
-            return s;
-          if (typeof k.sentAt !== "string" || k.sentAt.length > 64) return s;
+          if (!isValidKudos(k)) return s;
           const list = s.kudos ?? [];
           // Dedup by id (peer broadcast may re-deliver during reconnect).
           // If the id already exists we replace in place — kudos are
@@ -1101,36 +1095,12 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
                   return true;
                 })
             : undefined,
-          // Kudos wall — same per-entry validation as the realtime
-          // upsert path so a tampered export can't smuggle malformed
+          // Kudos wall — same `isValidKudos` guard the realtime + upsert
+          // paths use, so a tampered export can't smuggle malformed
           // entries past the import boundary. Cap to the same 500
           // ceiling the live store enforces.
           kudos: Array.isArray(p.kudos)
-            ? (p.kudos as unknown[])
-                .slice(-500)
-                .filter((e): e is import("./workspace-types").Kudos => {
-                  if (!e || typeof e !== "object") return false;
-                  const k = e as Record<string, unknown>;
-                  if (typeof k.id !== "string" || k.id.length === 0 || k.id.length > 64)
-                    return false;
-                  if (typeof k.theme !== "string" || k.theme.length > 32) return false;
-                  if (typeof k.toName !== "string" || k.toName.length === 0 || k.toName.length > 80)
-                    return false;
-                  if (
-                    typeof k.fromName !== "string" ||
-                    k.fromName.length === 0 ||
-                    k.fromName.length > 80
-                  )
-                    return false;
-                  if (
-                    typeof k.message !== "string" ||
-                    k.message.length === 0 ||
-                    k.message.length > 2000
-                  )
-                    return false;
-                  if (typeof k.sentAt !== "string" || k.sentAt.length > 64) return false;
-                  return true;
-                })
+            ? (p.kudos as unknown[]).slice(-500).filter(isValidKudos)
             : undefined,
         };
         // Drop undefined entries so emptyWorkspace defaults stand in for missing keys.

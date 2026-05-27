@@ -154,6 +154,14 @@ export function isValidKudos(raw: unknown): raw is Kudos {
   )
     return false;
   if (typeof r.sentAt !== "string" || r.sentAt.length === 0 || r.sentAt.length > 64) return false;
+  // Reject sentAt strings that parse to Invalid Date (e.g. "lol",
+  // "yesterday") — without this they survive the length-check, land
+  // on the wall, and the card renders the literal "Invalid Date".
+  // Also reject far-future timestamps (>5 min ahead, clock-skew
+  // tolerance) so a peer can't backdate-bomb the wall.
+  const sentAtMs = Date.parse(r.sentAt);
+  if (!Number.isFinite(sentAtMs)) return false;
+  if (sentAtMs > Date.now() + 5 * 60 * 1000) return false;
   // Optional fields — type-only checks; the absence is fine.
   if (
     r.toProfileId !== undefined &&

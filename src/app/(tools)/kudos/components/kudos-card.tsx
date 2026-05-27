@@ -32,10 +32,16 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
   ref
 ) {
   const theme = getKudosTheme(kudos.theme);
-  // sentAt is a stable ISO string from upsertKudos; format on the
-  // server-rendered initial pass with a deterministic locale to avoid
-  // a hydration mismatch with the client's locale-specific format.
-  const dateLabel = new Date(kudos.sentAt).toLocaleDateString("en-US");
+  // sentAt is a stable ISO string from upsertKudos, formatted with a
+  // deterministic locale to avoid SSR/CSR hydration drift. Validators
+  // only length-check the field — a hostile peer that survives them
+  // with sentAt="lol" would otherwise render the literal string
+  // "Invalid Date" both on screen and inside the downloaded PNG.
+  // Guard with Number.isFinite(getTime()) and fall back to an em-dash.
+  const sentAtDate = new Date(kudos.sentAt);
+  const dateLabel = Number.isFinite(sentAtDate.getTime())
+    ? sentAtDate.toLocaleDateString("en-US")
+    : "—";
 
   return (
     <div
