@@ -359,21 +359,28 @@ export function HolidayEngine() {
   const dismissKey = windowKey(theme.id, theme.window);
   const isPreview = !!previewParam || !!previewThemeId;
 
+  // Position offsets need to clear the sticky header. The header runs across
+  // the full width at ~64–80px tall (search bar + XP bar + user cluster), so
+  // overlays anchored at top-16/top-20 sat right under the header and looked
+  // visually empty. Starting at top-24/top-28 gives a comfortable gutter on
+  // both mobile and desktop. Bottom positions also clear the dismiss chip
+  // (which lives at bottom-20 right-3 / bottom-16 right-4).
   const overlayPositionClass = (() => {
     switch (theme.overlay?.position) {
       case "top-left":
-        return "top-16 left-3 md:top-20 md:left-6";
+        return "top-24 left-3 md:top-28 md:left-6";
       case "bottom-left":
-        return "bottom-24 left-3 md:bottom-20 md:left-6";
+        return "bottom-32 left-3 md:bottom-28 md:left-6";
       case "bottom-right":
-        return "bottom-32 right-3 md:bottom-28 md:right-6";
+        // Stay above the dismiss chip — chip is at bottom-20/bottom-16 z-60.
+        return "bottom-40 right-3 md:bottom-36 md:right-6";
       case "center":
         return "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2";
       case "top-center":
-        return "top-16 left-1/2 -translate-x-1/2 md:top-20";
+        return "top-24 left-1/2 -translate-x-1/2 md:top-28";
       case "top-right":
       default:
-        return "top-16 right-3 md:top-20 md:right-6";
+        return "top-24 right-3 md:top-28 md:right-6";
     }
   })();
 
@@ -396,8 +403,14 @@ export function HolidayEngine() {
       {theme.overlay ? (
         <div
           ref={overlayRef}
+          // Header sits at z-100; the overlay must NOT exceed that or it
+          // covers nav controls. z-[7] keeps it just above particles (z-[5])
+          // and the layer between, with no risk of obscuring header dropdowns
+          // or the dismiss chip (z-[60]). Geometric clearance — not z-stacking
+          // — is what keeps it from hiding behind the header (see position
+          // class offsets above).
           className={cn(
-            "pointer-events-none fixed z-[6]",
+            "pointer-events-none fixed z-[7]",
             overlayPositionClass,
             theme.overlay.className
           )}
