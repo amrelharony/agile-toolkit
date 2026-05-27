@@ -10,6 +10,8 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useLlmStore } from "@/lib/stores/llm-store";
 import { installSignalBridge } from "@/lib/signals/signal-bridge";
 import { bootstrapPredictions } from "@/lib/predictions/bootstrap";
+import { installKudosCloudSync } from "@/lib/kudos/cloud-sync";
+import { runKudosBackfillIfNeeded } from "@/lib/kudos/backfill";
 // Populate the tool action registry at app load — must happen before
 // any component that consumes the agent / MCP surface mounts.
 import "@/lib/actions/register-all";
@@ -96,9 +98,17 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
   // workspace-store mutations to the signal bus so any tool can subscribe
   // to entity changes (impediment.raised, sprint.completed, etc.).
   // Also bootstraps the smart-default predictor registry.
+  //
+  // Kudos redesign Phase 1: cloud-sync subscribes to `kudos.sent` on the
+  // same bus, so installing it after `installSignalBridge` guarantees the
+  // first emit lands on a registered listener. Backfill runs after
+  // workspace rehydration completes — kicked off in a microtask so the
+  // initial render isn't blocked by the (typically small) round-trip.
   useEffect(() => {
     installSignalBridge();
     bootstrapPredictions();
+    installKudosCloudSync();
+    void Promise.resolve().then(() => runKudosBackfillIfNeeded());
   }, []);
 
   return (
