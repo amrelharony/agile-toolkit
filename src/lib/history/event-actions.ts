@@ -48,6 +48,10 @@ export const PLANNING_POKER_ACTIONS = {
   STORY_CHANGED: "story_changed",
 } as const;
 
+export const KUDOS_ACTIONS = {
+  KUDOS_SENT: "kudos_sent", // milestone — append-only recognition card
+} as const;
+
 // ── Time-series accumulators ─────────────────────────────────────────
 export const BURNDOWN_ACTIONS = {
   DAY_LOGGED: "day_logged",
@@ -963,6 +967,7 @@ const MILESTONE_PAIRS: ReadonlySet<string> = new Set([
   `canvas:${CANVAS_ACTIONS.TEMPLATE_APPLIED}`,
   `canvas:${CANVAS_ACTIONS.IMPORT_PERFORMED}`,
   `canvas:${CANVAS_ACTIONS.CANVAS_RESET}`,
+  `kudos:${KUDOS_ACTIONS.KUDOS_SENT}`,
 ]);
 
 export function isMilestoneAction(toolId: string, action: string): boolean {

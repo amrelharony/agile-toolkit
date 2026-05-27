@@ -1049,6 +1049,22 @@ export const tools: ToolDefinition[] = [
       },
     ],
   },
+  {
+    id: "kudos",
+    code: "D12",
+    name: "Kudos Wall",
+    description:
+      "Squad-interactive recognition wall — send themed kudos cards live, download as PNG, attribute by squad profile",
+    category: "Outcomes & Pulse",
+    path: "/kudos",
+    icon: Award,
+    badge: "new",
+    requiresAuth: false,
+    isRealtime: true,
+    phase: 33,
+    usesWorkspace: true,
+    analyticsTier: 3,
+  },
 
   // Category J: Engineering Excellence (NEW — Phase 12)
   {

@@ -46,6 +46,8 @@ import type {
   WhiteboardGroup,
   WhiteboardSavedTemplate,
   WhiteboardActivityEvent,
+  // Kudos wall
+  Kudos,
 } from "./workspace-types";
 import { emptyWorkspace } from "./workspace-types";
 
@@ -141,6 +143,9 @@ interface WorkspaceActions {
   removeWhiteboardSavedTemplate: (id: string) => void;
   // Phase 32 — activity log
   appendWhiteboardActivity: (ev: WhiteboardActivityEvent) => void;
+  // Kudos wall — squad-interactive recognition cards
+  upsertKudos: (k: Kudos) => void;
+  removeKudos: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert. Use this for bulk imports — single-item upserts are O(n)
@@ -908,6 +913,42 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           const next = log.slice(-1000);
           return { whiteboardActivityLog: next };
         }),
+      // Kudos wall: append + cap at 500 entries (drop oldest). Same
+      // shape-validation discipline as appendWhiteboardActivity — a
+      // hostile peer broadcasting `kudos:created` shouldn't be able to
+      // pollute the wall with a 50 MB message or a non-string field.
+      upsertKudos: (k) =>
+        set((s) => {
+          if (!k || typeof k !== "object") return s;
+          if (typeof k.id !== "string" || k.id.length === 0 || k.id.length > 64) return s;
+          if (typeof k.theme !== "string" || k.theme.length > 32) return s;
+          if (typeof k.toName !== "string" || k.toName.length === 0 || k.toName.length > 80)
+            return s;
+          if (typeof k.fromName !== "string" || k.fromName.length === 0 || k.fromName.length > 80)
+            return s;
+          if (typeof k.message !== "string" || k.message.length === 0 || k.message.length > 2000)
+            return s;
+          if (typeof k.sentAt !== "string" || k.sentAt.length > 64) return s;
+          const list = s.kudos ?? [];
+          // Dedup by id (peer broadcast may re-deliver during reconnect).
+          // If the id already exists we replace in place — kudos are
+          // immutable in practice but the same id means "same event".
+          const idx = list.findIndex((x) => x.id === k.id);
+          if (idx >= 0) {
+            if (list[idx] === k) return s;
+            const replaced = list.slice();
+            replaced[idx] = k;
+            return { kudos: replaced };
+          }
+          // Append + cap. Newest at the END so reverse-iteration in the
+          // wall component is cheap; cap drops oldest from the front.
+          const appended = [...list, k];
+          const KUDOS_CAP = 500;
+          return {
+            kudos: appended.length > KUDOS_CAP ? appended.slice(-KUDOS_CAP) : appended,
+          };
+        }),
+      removeKudos: (id) => set((s) => ({ kudos: (s.kudos ?? []).filter((k) => k.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1057,6 +1098,37 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
                   if (typeof ev.author !== "string" || ev.author.length > 200) return false;
                   if (typeof ev.kind !== "string" || ev.kind.length > 64) return false;
                   if (typeof ev.summary !== "string" || ev.summary.length > 1000) return false;
+                  return true;
+                })
+            : undefined,
+          // Kudos wall — same per-entry validation as the realtime
+          // upsert path so a tampered export can't smuggle malformed
+          // entries past the import boundary. Cap to the same 500
+          // ceiling the live store enforces.
+          kudos: Array.isArray(p.kudos)
+            ? (p.kudos as unknown[])
+                .slice(-500)
+                .filter((e): e is import("./workspace-types").Kudos => {
+                  if (!e || typeof e !== "object") return false;
+                  const k = e as Record<string, unknown>;
+                  if (typeof k.id !== "string" || k.id.length === 0 || k.id.length > 64)
+                    return false;
+                  if (typeof k.theme !== "string" || k.theme.length > 32) return false;
+                  if (typeof k.toName !== "string" || k.toName.length === 0 || k.toName.length > 80)
+                    return false;
+                  if (
+                    typeof k.fromName !== "string" ||
+                    k.fromName.length === 0 ||
+                    k.fromName.length > 80
+                  )
+                    return false;
+                  if (
+                    typeof k.message !== "string" ||
+                    k.message.length === 0 ||
+                    k.message.length > 2000
+                  )
+                    return false;
+                  if (typeof k.sentAt !== "string" || k.sentAt.length > 64) return false;
                   return true;
                 })
             : undefined,
@@ -1380,6 +1452,7 @@ export function getWorkspaceSnapshot(): Workspace {
     // builders see the same workspace the user does.
     whiteboardSavedTemplates: state.whiteboardSavedTemplates,
     whiteboardActivityLog: state.whiteboardActivityLog,
+    kudos: state.kudos,
   };
 }
 
