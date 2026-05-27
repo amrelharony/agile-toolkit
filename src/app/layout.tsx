@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/layout/app-shell";
 import { Toaster } from "@/components/ui/sonner";
+import { ParticleBackground } from "@/components/shared/particle-background";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -51,19 +52,15 @@ export const metadata: Metadata = {
     url: "https://agile.amrelharony.com",
     siteName: "Agile Toolkit",
     title: "Agile Toolkit | Amr El Harony",
-    description:
-      "Curated collection of agile delivery tools, frameworks, and templates.",
+    description: "Curated collection of agile delivery tools, frameworks, and templates.",
   },
   twitter: {
     card: "summary_large_image",
     title: "Agile Toolkit | Amr El Harony",
-    description:
-      "Curated collection of agile delivery tools, frameworks, and templates.",
+    description: "Curated collection of agile delivery tools, frameworks, and templates.",
   },
   icons: {
-    icon: [
-      { url: "/AT.svg", type: "image/svg+xml" },
-    ],
+    icon: [{ url: "/AT.svg", type: "image/svg+xml" }],
     apple: "/AT.svg",
   },
 };
@@ -76,21 +73,12 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={cn(
-        "dark",
-        inter.variable,
-        jetbrainsMono.variable,
-        sourceSerif.variable
-      )}
+      className={cn("dark", inter.variable, jetbrainsMono.variable, sourceSerif.variable)}
       suppressHydrationWarning
     >
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         {/* Blocking script: swap to light if saved, before paint */}
         <script
           dangerouslySetInnerHTML={{
@@ -99,10 +87,11 @@ export default function RootLayout({
         />
       </head>
       <body className="font-sans antialiased touch-manipulation">
-        {/* Atmosphere background — 2 mesh blobs, noise overlay (reduced from main site) */}
+        {/* Atmosphere background — 2 mesh blobs, particle field, noise overlay (reduced from main site) */}
         <div className="atmosphere" aria-hidden="true">
           <div className="mesh-blob mesh-blob-1" />
           <div className="mesh-blob mesh-blob-2" />
+          <ParticleBackground />
         </div>
         <div className="noise-overlay" aria-hidden="true" />
 
