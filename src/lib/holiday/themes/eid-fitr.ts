@@ -50,10 +50,12 @@ const theme: HolidayTheme = {
         speed: { min: 2, max: 6 },
         direction: "none",
         outModes: { default: "destroy" },
-        // Trails behind each spark — gives the firework look.
-        trail: { enable: true, length: 6, fill: { color: "transparent" } },
       },
       shape: { type: ["circle", "star"] },
+      // Per-particle streak trails — uses the effect-trail plugin
+      // (move.trail is the canvas-blur trail which is wrong for a transparent
+      // overlay canvas; effect-trail draws an explicit path behind each spark).
+      effect: { type: "trail", options: { trail: { length: 8, fade: true } } },
       life: { duration: { value: 1.8 }, count: 1 },
     },
     emitters: [

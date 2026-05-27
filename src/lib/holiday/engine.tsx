@@ -291,6 +291,14 @@ export function HolidayEngine() {
   // static SVG still renders so the theme isn't visually empty.
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const overlayCleanupRef = useRef<(() => void) | null>(null);
+  // Stash the latest windMultiplier in a ref so themes that care can read the
+  // current value at any time without forcing the effect (and its GSAP
+  // timeline) to tear down + rebuild on every weather refresh — which would
+  // visibly restart e.g. the Halloween bat flight loop every ~hour.
+  const windMultiplierRef = useRef(windMultiplier);
+  useEffect(() => {
+    windMultiplierRef.current = windMultiplier;
+  }, [windMultiplier]);
 
   useEffect(() => {
     if (!theme?.overlay) return;
@@ -310,7 +318,10 @@ export function HolidayEngine() {
           const cleanup = theme.overlay?.animate?.(svg, {
             gsap: mod.default,
             reducedMotion: false,
-            windMultiplier,
+            // Capture the wind value at mount; weather changes don't restart
+            // the timeline. Themes that need live wind should read from a
+            // global signal instead.
+            windMultiplier: windMultiplierRef.current,
           });
           if (typeof cleanup === "function") {
             overlayCleanupRef.current = cleanup;
@@ -338,7 +349,7 @@ export function HolidayEngine() {
         }
       }
     };
-  }, [theme, windMultiplier]);
+  }, [theme]);
 
   if (!theme) return null;
 
@@ -393,7 +404,9 @@ export function HolidayEngine() {
           aria-hidden="true"
           data-holiday-overlay={theme.id}
           // Theme overlays are bundled, trusted code — same trust boundary as
-          // particleConfig. innerHTML is fine here; CSP allows it for our origin.
+          // particleConfig. The SVG strings are authored statically inside
+          // /themes and never touch user input, so injection here can't carry
+          // anything we didn't ship ourselves.
           dangerouslySetInnerHTML={{ __html: theme.overlay.svg }}
         />
       ) : null}

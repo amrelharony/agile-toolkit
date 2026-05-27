@@ -6,6 +6,7 @@ import {
   combineInteractivity,
   hoverAttract,
   makeOverlay,
+  polygonPath,
 } from "./_shared";
 
 const PRIMARY = "#f472b6";
@@ -103,11 +104,7 @@ const theme: HolidayTheme = {
         outModes: { default: "out" },
         gravity: { enable: true, acceleration: 1.4 },
         // Butterfly-like wandering — petals don't fall straight.
-        path: {
-          enable: true,
-          delay: { value: 0.05 },
-          options: { sides: 8, turnSteps: 25, angle: 40 },
-        },
+        path: polygonPath({ sides: 8, turnSteps: 25, angle: 40, delay: 0.05 }),
       },
       shape: {
         type: ["character", "circle"],

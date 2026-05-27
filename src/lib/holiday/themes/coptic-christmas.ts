@@ -6,6 +6,7 @@ import {
   combineInteractivity,
   hoverAttract,
   makeOverlay,
+  polygonPath,
 } from "./_shared";
 
 const PRIMARY = "#e63946";
@@ -87,11 +88,7 @@ const theme: HolidayTheme = {
         direction: "bottom",
         outModes: { default: "out" },
         // Soft drift so flakes meander rather than fall straight.
-        path: {
-          enable: true,
-          delay: { value: 0.2 },
-          options: { sides: 5, turnSteps: 36, angle: 25 },
-        },
+        path: polygonPath({ sides: 5, turnSteps: 36, angle: 25, delay: 0.2 }),
       },
       shape: { type: "circle" },
       wobble: { enable: true, distance: 8, speed: 4 },

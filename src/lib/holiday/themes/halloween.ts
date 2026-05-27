@@ -100,7 +100,7 @@ function bat(id: number): string {
 
 /** Full-viewport overlay so the bats can fly the full width.
  *  Includes a small moon in the top-right corner of the viewport. */
-const halloweenSky = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="100%" height="100%" preserveAspectRatio="none" data-holiday-svg="halloween-sky">
+const halloweenSky = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" data-holiday-svg="halloween-sky">
   <!-- Bats fly across the upper third of the viewport -->
   ${bat(1)}${bat(2)}${bat(3)}
   <!-- Moon, fixed at top-right of the viewport region -->

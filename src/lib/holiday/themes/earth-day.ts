@@ -6,6 +6,7 @@ import {
   combineInteractivity,
   hoverRepel,
   makeOverlay,
+  polygonPath,
 } from "./_shared";
 
 const PRIMARY = "#52b788";
@@ -115,11 +116,7 @@ const theme: HolidayTheme = {
         direction: "bottom",
         outModes: { default: "out" },
         gravity: { enable: true, acceleration: 1.8 },
-        path: {
-          enable: true,
-          delay: { value: 0.05 },
-          options: { sides: 12, turnSteps: 18, angle: 60 },
-        },
+        path: polygonPath({ sides: 12, turnSteps: 18, angle: 60, delay: 0.05 }),
       },
       shape: {
         type: ["character", "circle"],

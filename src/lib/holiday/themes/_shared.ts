@@ -247,6 +247,24 @@ export function pulseGlowAnimate(svg: SVGSVGElement, ctx: HolidayOverlayContext)
   };
 }
 
+/** Polygon-path generator config — used by themes that want particles to
+ *  meander instead of moving in a straight line. Requires loadPolygonPath
+ *  to be registered (engine.tsx initParticles does this). */
+export function polygonPath(
+  opts: { sides?: number; turnSteps?: number; angle?: number; delay?: number } = {}
+) {
+  return {
+    enable: true,
+    generator: "polygonPathGenerator",
+    delay: { value: opts.delay ?? 0.1 },
+    options: {
+      sides: opts.sides ?? 6,
+      turnSteps: opts.turnSteps ?? 30,
+      angle: opts.angle ?? 30,
+    },
+  };
+}
+
 /** Build an SVG overlay that's a static accented quote/text — used by Eid
  *  (Eid Mubarak), Mother's Day, etc. */
 export function textOverlay(opts: {

@@ -74,9 +74,10 @@ const theme: HolidayTheme = {
         speed: { min: 1, max: 4 },
         direction: "top",
         outModes: { default: "destroy" },
-        trail: { enable: true, length: 5, fill: { color: "transparent" } },
       },
       shape: { type: ["circle", "star"] },
+      // Per-particle confetti streak — see eid-fitr for why this beats move.trail.
+      effect: { type: "trail", options: { trail: { length: 6, fade: true } } },
       life: { duration: { value: 3 }, count: 1 },
       rotate: { value: { min: 0, max: 360 }, animation: { enable: true, speed: 5 } },
     },

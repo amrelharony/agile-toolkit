@@ -7,6 +7,7 @@ import {
   crescentMoonStar,
   hoverAttract,
   makeOverlay,
+  polygonPath,
   pulseGlowAnimate,
 } from "./_shared";
 
@@ -34,12 +35,11 @@ const theme: HolidayTheme = {
         direction: "top",
         outModes: { default: "out" },
         straight: false,
-        path: {
-          // Soft sway as lanterns rise — wandering reduces the conveyor-belt feel.
-          enable: true,
-          delay: { value: 0.1 },
-          options: { sides: 6, turnSteps: 30, angle: 30 },
-        },
+        // Soft sway as lanterns rise — wandering reduces the conveyor-belt feel.
+        // generator field is REQUIRED for path-polygon to activate (without it,
+        // the engine never picks the polygon path-generator and particles drift
+        // in straight lines).
+        path: polygonPath({ sides: 6, turnSteps: 30, angle: 30, delay: 0.1 }),
       },
       shape: {
         type: ["character", "circle"],
