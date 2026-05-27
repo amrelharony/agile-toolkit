@@ -169,8 +169,12 @@ describe("kudos/llm/sentiment", () => {
     });
     await analyseSentiment({ message: longMessage, theme: "awesome" });
     // The original message had 5000 chars; the prompt should NOT contain
-    // all of them — the helper slices to 1000 before embedding.
-    const xCount = (capturedPrompt.match(/x/g) ?? []).length;
+    // all of them — the helper slices to 1000 before embedding. Count
+    // 'x' only inside the <message>…</message> tags so unrelated 'x'
+    // chars in the template ("exact fields") don't skew the assertion.
+    const messageMatch = capturedPrompt.match(/<message>([\s\S]*?)<\/message>/);
+    const body = messageMatch ? messageMatch[1] : "";
+    const xCount = (body.match(/x/g) ?? []).length;
     expect(xCount).toBeLessThanOrEqual(1000);
   });
 });

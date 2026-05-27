@@ -185,8 +185,10 @@ describe("kudos/llm/fairness", () => {
       at: new Date().toISOString(),
       payload: { id: "kud_x" },
     });
-    // Bus is microtask-batched; give it a tick.
-    await new Promise<void>((res) => setTimeout(res, 10));
+    // The signal bus batches via requestAnimationFrame; in jsdom that
+    // polyfills to setTimeout(~16ms). 30 ms covers the rAF + the
+    // synchronous invalidate inside the subscriber.
+    await new Promise<void>((res) => setTimeout(res, 30));
     await computeFairness(input);
     expect(callSpy).toHaveBeenCalledTimes(2);
   });
