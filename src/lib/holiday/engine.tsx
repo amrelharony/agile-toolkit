@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { X, Sparkles } from "lucide-react";
@@ -14,6 +14,7 @@ import { isSaveData } from "./save-data";
 import { cn } from "@/lib/utils";
 import { useMoodProfile } from "@/lib/emotion/use-mood";
 import { useWeather } from "@/lib/weather/provider";
+import { loadGsap } from "@/lib/emotion/gsap";
 
 // tsparticles is dynamic-imported so its ~50KB stays out of the critical
 // path.  We cache the init promise so concurrent calls dedupe, and only
@@ -235,8 +236,21 @@ export function HolidayEngine() {
         ? baseMove.speed
         : 1;
     const scaledSpeed = baseSpeed * moodProfile.particleSpeed * windMultiplier;
+    // Force window-level event detection so the underlying UI keeps its
+    // pointer-events while interactive themes (click bursts, hover-attract)
+    // still receive mouse signals. Themes can set their own interactivity.modes
+    // without worrying about this plumbing.
     return {
       ...base,
+      detectRetina: base.detectRetina ?? true,
+      interactivity: {
+        ...(base.interactivity ?? {}),
+        detectsOn: "window",
+        events: {
+          ...(base.interactivity?.events ?? {}),
+          resize: { enable: true, delay: 0.5 },
+        },
+      },
       particles: {
         ...base.particles,
         move: {
@@ -247,6 +261,64 @@ export function HolidayEngine() {
     } as ISourceOptions;
   }, [theme, moodProfile.particleSpeed, windMultiplier]);
 
+  // ------------------------------------------------------------------------
+  // SVG overlay + GSAP animation
+  // ------------------------------------------------------------------------
+  // After the overlay SVG mounts, lazy-load GSAP and run the theme's `animate`
+  // hook. The hook returns a cleanup (to kill its timeline) which we invoke on
+  // theme unmount. Reduced-motion users skip the animate hook entirely; the
+  // static SVG still renders so the theme isn't visually empty.
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const overlayCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (!theme?.overlay) return;
+    if (prefersReducedMotion()) return;
+    if (isSaveData()) return;
+
+    const container = overlayRef.current;
+    if (!container) return;
+    const svg = container.querySelector("svg") as SVGSVGElement | null;
+    if (!svg) return;
+
+    let cancelled = false;
+    void loadGsap()
+      .then((mod) => {
+        if (cancelled) return;
+        try {
+          const cleanup = theme.overlay?.animate?.(svg, {
+            gsap: mod.default,
+            reducedMotion: false,
+            windMultiplier,
+          });
+          if (typeof cleanup === "function") {
+            overlayCleanupRef.current = cleanup;
+          }
+        } catch (err) {
+          if (process.env.NODE_ENV !== "production") {
+            // eslint-disable-next-line no-console
+            console.warn("[holiday] overlay animate failed:", err);
+          }
+        }
+      })
+      .catch(() => {
+        // GSAP failed to load — overlay still renders statically. Skip silently.
+      });
+
+    return () => {
+      cancelled = true;
+      const cleanup = overlayCleanupRef.current;
+      overlayCleanupRef.current = null;
+      if (cleanup) {
+        try {
+          cleanup();
+        } catch {
+          /* ignore — cleanup best-effort */
+        }
+      }
+    };
+  }, [theme, windMultiplier]);
+
   if (!theme) return null;
 
   const showParticles =
@@ -254,6 +326,24 @@ export function HolidayEngine() {
 
   const dismissKey = windowKey(theme.id, theme.window);
   const isPreview = !!previewParam || !!previewThemeId;
+
+  const overlayPositionClass = (() => {
+    switch (theme.overlay?.position) {
+      case "top-left":
+        return "top-16 left-3 md:top-20 md:left-6";
+      case "bottom-left":
+        return "bottom-24 left-3 md:bottom-20 md:left-6";
+      case "bottom-right":
+        return "bottom-32 right-3 md:bottom-28 md:right-6";
+      case "center":
+        return "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2";
+      case "top-center":
+        return "top-16 left-1/2 -translate-x-1/2 md:top-20";
+      case "top-right":
+      default:
+        return "top-16 right-3 md:top-20 md:right-6";
+    }
+  })();
 
   return (
     <>
@@ -269,6 +359,22 @@ export function HolidayEngine() {
             className="h-full w-full"
           />
         </div>
+      ) : null}
+
+      {theme.overlay ? (
+        <div
+          ref={overlayRef}
+          className={cn(
+            "pointer-events-none fixed z-[6]",
+            overlayPositionClass,
+            theme.overlay.className
+          )}
+          aria-hidden="true"
+          data-holiday-overlay={theme.id}
+          // Theme overlays are bundled, trusted code — same trust boundary as
+          // particleConfig. innerHTML is fine here; CSP allows it for our origin.
+          dangerouslySetInnerHTML={{ __html: theme.overlay.svg }}
+        />
       ) : null}
 
       {/* Dismiss chip — bottom-right, stays above particles, below XP bar */}
