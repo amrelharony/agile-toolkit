@@ -147,7 +147,19 @@ export function egyptianFlag(opts: { width?: number; eagle?: boolean } = {}): st
   </svg>`;
 }
 
-/** Glowing crescent moon + star — Ramadan / Eid al-Adha / Hijri New Year. */
+/** Glowing crescent moon + star — Ramadan / Eid al-Adha / Hijri New Year.
+ *
+ *  Implementation note: the previous version used a two-arc path
+ *  `A 38 38 ... A 28 28 ...` that shared its endpoints across the 76-unit
+ *  chord. Per SVG spec, an arc whose radius is too small for the requested
+ *  chord is auto-scaled up — so the inner radius-28 arc was rescaled to
+ *  match the outer radius-38 arc, collapsing the path into a degenerate
+ *  shape (no recognizable crescent rendered). Rebuilt with a mask-based
+ *  approach: draw a full moon disc and subtract an offset disc via a mask.
+ *  Guaranteed crescent geometry. Unique mask ID per call so multiple
+ *  themes loaded in sequence can't collide.
+ */
+let crescentSeq = 0;
 export function crescentMoonStar(
   opts: {
     width?: number;
@@ -156,21 +168,32 @@ export function crescentMoonStar(
     glowColor?: string;
   } = {}
 ): string {
-  const w = opts.width ?? 160;
+  const w = opts.width ?? 200;
   const moon = opts.moonColor ?? "#fde68a";
   const star = opts.starColor ?? "#fef3c7";
-  const glow = opts.glowColor ?? "rgba(245, 158, 11, 0.45)";
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="${w}" height="${w}" data-holiday-svg="crescent">
+  const glow = opts.glowColor ?? "rgba(245, 158, 11, 0.55)";
+  const id = ++crescentSeq;
+  const maskId = `crescent-mask-${id}`;
+  const glowId = `crescent-glow-${id}`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="${w}" height="${w}" data-holiday-svg="crescent" style="overflow:visible;">
     <defs>
-      <radialGradient id="moon-glow" cx="40%" cy="50%" r="55%">
+      <radialGradient id="${glowId}" cx="45%" cy="50%" r="55%">
         <stop offset="0%" stop-color="${glow}"/>
         <stop offset="100%" stop-color="transparent"/>
       </radialGradient>
+      <mask id="${maskId}" maskUnits="userSpaceOnUse" x="0" y="0" width="120" height="120">
+        <rect x="0" y="0" width="120" height="120" fill="white"/>
+        <!-- Offset disc subtracts the right portion of the full moon, leaving a crescent opening to the right -->
+        <circle cx="68" cy="60" r="32" fill="black"/>
+      </mask>
     </defs>
-    <circle data-holiday-glow cx="44" cy="60" r="48" fill="url(#moon-glow)"/>
-    <path data-holiday-moon d="M 50 22 A 38 38 0 1 0 50 98 A 28 28 0 1 1 50 22 Z" fill="${moon}"/>
-    <g data-holiday-star transform="translate(86 38)">
-      <polygon points="0,-10 3,-3 10,-3 4.5,1.5 6.5,9 0,5 -6.5,9 -4.5,1.5 -10,-3 -3,-3" fill="${star}"/>
+    <!-- Soft green/gold halo behind the moon -->
+    <circle data-holiday-glow cx="50" cy="60" r="56" fill="url(#${glowId})"/>
+    <!-- Full disc, masked into a crescent -->
+    <circle data-holiday-moon cx="50" cy="60" r="38" fill="${moon}" mask="url(#${maskId})"/>
+    <!-- 5-point accent star to the upper right -->
+    <g data-holiday-star transform="translate(95 32)">
+      <polygon points="0,-11 3.2,-3.3 11,-3.3 4.7,1.8 7,9.5 0,5 -7,9.5 -4.7,1.8 -11,-3.3 -3.2,-3.3" fill="${star}"/>
     </g>
   </svg>`;
 }
@@ -195,13 +218,20 @@ export function killGsapOf(ctx: HolidayOverlayContext, ...targets: unknown[]) {
 export function wavingFlagAnimate(svg: SVGSVGElement, ctx: HolidayOverlayContext): () => void {
   const flag = svg.querySelector<SVGGElement>("[data-holiday-flag]");
   if (!flag) return () => {};
+  // Lock visible — same defensive pattern as pulseGlowAnimate.
+  ctx.gsap.set(svg, { opacity: 1 });
   ctx.gsap.set(flag, { transformOrigin: "0% 50%" });
   const tl = ctx.gsap.timeline({ repeat: -1, yoyo: true, defaults: { ease: "sine.inOut" } });
   tl.to(flag, { skewY: 2.5 * ctx.windMultiplier, scaleX: 1.02, duration: 1.8 })
     .to(flag, { skewY: -1.5 * ctx.windMultiplier, scaleX: 0.99, duration: 1.6 })
     .to(flag, { skewY: 0, scaleX: 1, duration: 1.4 });
-  // Subtle entrance
-  ctx.gsap.from(svg, { opacity: 0, y: -12, duration: 0.8, ease: "power2.out" });
+  // Subtle entrance — fromTo with explicit end state so a killed-mid-tween
+  // can't strand the SVG at opacity 0 or y -12.
+  ctx.gsap.fromTo(
+    svg,
+    { opacity: 0, y: -12 },
+    { opacity: 1, y: 0, duration: 0.8, ease: "power2.out" }
+  );
   return () => {
     tl.kill();
     ctx.gsap.killTweensOf(flag);
@@ -214,19 +244,24 @@ export function wavingFlagAnimate(svg: SVGSVGElement, ctx: HolidayOverlayContext
 export function pulseGlowAnimate(svg: SVGSVGElement, ctx: HolidayOverlayContext): () => void {
   const glow = svg.querySelector<SVGCircleElement>("[data-holiday-glow]");
   const star = svg.querySelector<SVGGElement>("[data-holiday-star]");
-  const moon = svg.querySelector<SVGPathElement>("[data-holiday-moon]");
+  const moon = svg.querySelector<SVGCircleElement>("[data-holiday-moon]");
+
+  // Lock the SVG fully visible up front — defensive against React StrictMode
+  // double-mounting an effect where the cleanup runs before a `gsap.from`
+  // tween finishes, which would otherwise strand the element at opacity 0.
+  ctx.gsap.set(svg, { opacity: 1 });
 
   const tl = ctx.gsap.timeline({ repeat: -1, yoyo: true, defaults: { ease: "sine.inOut" } });
   if (glow) {
     tl.fromTo(
       glow,
-      { opacity: 0.55, scale: 0.9, transformOrigin: "44px 60px" },
-      { opacity: 1, scale: 1.15, duration: 2.4 },
+      { opacity: 0.6, scale: 0.9, transformOrigin: "50px 60px" },
+      { opacity: 1, scale: 1.18, duration: 2.4 },
       0
     );
   }
   if (star) {
-    ctx.gsap.set(star, { transformOrigin: "86px 38px" });
+    ctx.gsap.set(star, { transformOrigin: "95px 32px" });
     ctx.gsap.to(star, {
       rotation: 360,
       duration: 14,
@@ -236,9 +271,16 @@ export function pulseGlowAnimate(svg: SVGSVGElement, ctx: HolidayOverlayContext)
     tl.to(star, { scale: 1.25, duration: 1.6 }, 0.4);
   }
   if (moon) {
-    ctx.gsap.from(moon, { opacity: 0, y: -20, duration: 1, ease: "power2.out" });
+    // fromTo with explicit end state — `from` alone reads the current opacity
+    // as the end state, which fails if a previous run killed mid-tween.
+    ctx.gsap.fromTo(
+      moon,
+      { opacity: 0, y: -20 },
+      { opacity: 1, y: 0, duration: 1, ease: "power2.out" }
+    );
   }
-  ctx.gsap.from(svg, { opacity: 0, duration: 0.9, ease: "power2.out" });
+  // SVG entrance — explicit end state, see comment above.
+  ctx.gsap.fromTo(svg, { opacity: 0 }, { opacity: 1, duration: 0.9, ease: "power2.out" });
   return () => {
     tl.kill();
     if (star) ctx.gsap.killTweensOf(star);
