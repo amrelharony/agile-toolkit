@@ -37,6 +37,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRoom } from "@/lib/realtime/use-room";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { emitSignal } from "@/lib/signals/signal-bus";
+import { emit } from "@/lib/sonification/emit";
 import type { Kudos } from "@/lib/stores/workspace-types";
 import { KUDOS_TOOL_ID, isValidKudos } from "./types";
 
@@ -138,6 +140,26 @@ export function useKudosRoom(opts: UseKudosRoomOptions): KudosRoomHook {
       if (typeof env.by === "string" && env.by === roomRef.current.userId) return;
       if (!isValidKudos(env.kudos)) return;
       apply(env.kudos);
+      // Guest receive-side signal emission. The workspace-store diff in
+      // signal-bridge.ts only runs on the owner tree (AppShell installs
+      // it); guests mutate `ephemeralKudos` which the bridge never sees.
+      // Emit directly so the receive-bridge fan-out (sonification,
+      // haptics, mood lift, header-beacon pulse) and the gamification
+      // receive-XP path fire on the guest side too. Owners skip this
+      // branch — their bridge path already covers it.
+      if (
+        persistence === "ephemeral" &&
+        env.kudos.toProfileId === roomRef.current.userId &&
+        env.kudos.fromProfileId !== roomRef.current.userId
+      ) {
+        emitSignal({
+          kind: "kudos.received",
+          toolId: "kudos",
+          at: new Date().toISOString(),
+          payload: { id: env.kudos.id, fromProfileId: env.kudos.fromProfileId },
+        });
+        emit("kudos", "received");
+      }
     });
     const offSnapshot = roomRef.current.subscribeToEvent("kudos:snapshot", (raw) => {
       if (!raw || typeof raw !== "object") return;

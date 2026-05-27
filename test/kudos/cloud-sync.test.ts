@@ -127,4 +127,23 @@ describe("kudos/cloud-sync", () => {
     // Still exactly one pending row.
     expect(__pendingKudosSyncSize()).toBe(1);
   });
+
+  it("skips guest-authored rows — they POST via /api/guest/kudos directly", async () => {
+    fetchSpy.mockResolvedValue({ ok: true, status: 200 });
+    // Guest-authored kudos: fromProfileId is set. The guest client
+    // owns the cloud-sync write for these (POSTs to /api/guest/kudos);
+    // owner tabs receiving the realtime broadcast must NOT mirror via
+    // /api/kudos.
+    const k = freshKudos({ fromProfileId: "guest-1", toProfileId: "alice-profile" });
+    useWorkspaceStore.setState({ kudos: [k] });
+    emitSignal({
+      kind: "kudos.sent",
+      toolId: "kudos",
+      at: new Date().toISOString(),
+      payload: { id: k.id },
+    });
+    await wait(50);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(__pendingKudosSyncSize()).toBe(0);
+  });
 });

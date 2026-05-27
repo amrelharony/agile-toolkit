@@ -215,6 +215,16 @@ export function installKudosCloudSync(): void {
     if (!id) return;
     const kudos = lookupKudos(id);
     if (!kudos) return;
+    // Guest-authored rows (fromProfileId set) have their own server
+    // write path through `/api/guest/kudos` — the guest client POSTs
+    // directly from its handleSubmit. Owner tabs that receive the
+    // realtime broadcast end up with the row in their workspace store
+    // too, and without this gate every owner tab would re-POST the
+    // same guest-authored row to `/api/kudos` (idempotent at the DB,
+    // but burns the owner's rate-limit budget and produces a misleading
+    // squad_id=null on a row the guest endpoint already pinned to a
+    // squad). Skip them.
+    if (kudos.fromProfileId) return;
     enqueue(kudos);
     // Trigger a tick immediately so the typical case (one send → POST
     // ~250ms later) doesn't wait for the interval.

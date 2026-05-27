@@ -128,6 +128,22 @@ export function GuestKudosClient({ role, profile }: Props) {
     // share the same emit surface as the owner so the audible/tactile
     // affordance is identical regardless of role.
     emit("kudos", "sent");
+    // Persist guest-authored kudos to the owner's cloud via the
+    // service-role-backed guest endpoint. Without this, a guest's
+    // recognition relies on the owner being online to mirror via
+    // realtime — once the broadcast TTL expires the row is lost.
+    // POST is fire-and-forget: the realtime broadcast above already
+    // covers the live-wall case, and the owner's backfill will pick
+    // up any rows that landed cloud-side too.
+    try {
+      await fetch("/api/guest/kudos", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(kudos),
+      });
+    } catch {
+      // Network failure is non-fatal — the broadcast still went out.
+    }
   };
 
   const handleDownload = async (kudos: Kudos, el: HTMLDivElement) => {
