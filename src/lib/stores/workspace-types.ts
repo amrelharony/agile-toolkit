@@ -790,6 +790,47 @@ export interface Workspace {
   whiteboardSavedTemplates?: WhiteboardSavedTemplate[];
   /** Activity log — rolling 200-event ring per board. Phase 32. */
   whiteboardActivityLog?: WhiteboardActivityEvent[];
+  /** Squad-interactive kudos wall — rolling 500-entry cap to bound
+   *  localStorage growth (see workspace-store.upsertKudos). */
+  kudos?: Kudos[];
+}
+
+/**
+ * Single recognition card on the workspace kudos wall.
+ *
+ * Authored by the workspace owner OR any squad guest with an active
+ * invite. Persists in the owner's workspace store; broadcast to all
+ * peers in `tool:kudos:room:workspace` so guests' walls converge live.
+ * Guests don't persist beyond their session — the owner's heartbeat
+ * snapshot re-populates the wall on their next connect.
+ */
+export type KudosTheme =
+  | "awesome"
+  | "thank-you"
+  | "great-job"
+  | "congratulations"
+  | "very-happy"
+  | "you-rock"
+  | "well-done";
+
+export interface Kudos {
+  id: string;
+  theme: KudosTheme;
+  /** Recipient display name (free-text fallback or squad profile name). */
+  toName: string;
+  /** Squad profile id when sent to a named guest; lets the recipient's
+   *  tab highlight kudos addressed to them. */
+  toProfileId?: string;
+  /** Sender display name — owner email/display_name or guest profile name. */
+  fromName: string;
+  /** Squad profile id when guest-authored; null for owner-authored. */
+  fromProfileId?: string;
+  /** Optional team label (e.g. "Data Governance"). */
+  teamName?: string;
+  /** Message body — capped at ~50 words client-side. */
+  message: string;
+  /** Send timestamp. */
+  sentAt: ISODateString;
 }
 
 /** Per-board activity event (Phase 32). */
@@ -863,4 +904,5 @@ export const emptyWorkspace: Workspace = {
   whiteboardGroups: [],
   whiteboardSavedTemplates: [],
   whiteboardActivityLog: [],
+  kudos: [],
 };

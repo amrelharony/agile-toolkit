@@ -38,6 +38,12 @@ const COMMENTER_ACTIONS = new Set<string>([
   "comment_resolved",
   "comment_reopened",
   "ping",
+  // Kudos are append-only recognition cards — same threat model as a
+  // comment (the recipient sees positive content, the sender can't
+  // mutate or delete prior kudos). Letting commenters send kudos is
+  // a deliberate widening of the role; if abuse surfaces, kudos can
+  // be promoted to editor-only here.
+  "kudos_sent",
 ]);
 
 function isActionAllowed(role: "editor" | "viewer" | "commenter", action: string): boolean {

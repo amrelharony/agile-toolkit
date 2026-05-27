@@ -71,6 +71,7 @@ function buildGuestUrl(toolId: string, entityId: string): string {
   // to the generic /guest/<toolId>/<entityId> shape.
   if (toolId === "canvas") return `${origin}/guest/canvas/${enc}`;
   if (toolId === "planning-poker") return `${origin}/guest/planning-poker/${enc}`;
+  if (toolId === "kudos") return `${origin}/guest/kudos/${enc}`;
   return `${origin}/guest/${encodeURIComponent(toolId)}/${enc}`;
 }
 
