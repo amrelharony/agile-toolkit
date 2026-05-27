@@ -106,7 +106,7 @@ export function SignInCard() {
         href="/guest/join"
         className="inline-flex items-center justify-center w-full gap-2 rounded-md border border-border bg-transparent px-4 py-2 text-sm text-sub hover:text-accent hover:border-accent/30 transition-colors"
       >
-        <Users className="w-4 h-4" aria-hidden="true" />
+        <Users className="w-4 h-4 opacity-60" aria-hidden="true" />
         Join with a squad invite code
       </Link>
       <p className="text-[11px] text-sub/60">No account needed — your squad lead shares a code.</p>
