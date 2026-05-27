@@ -1,21 +1,36 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Wifi, WifiOff } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Sparkles, Wifi, WifiOff, Settings } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { SessionShareButton } from "@/components/collab/session-share-button";
+import { Button } from "@/components/ui/button";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useAuthOptional } from "@/lib/auth/auth-provider";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { useHistoryStore } from "@/lib/history/history-store";
 import { KUDOS_ACTIONS } from "@/lib/history/event-actions";
 import { emit } from "@/lib/sonification/emit";
 import { exportPng } from "@/lib/whiteboard/export";
 import { generateKudosPrompts } from "@/lib/ai-prompts/kudos";
+import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
+import {
+  analyseSentiment,
+  detectDuplicate,
+  computeFairness,
+  installFairnessInvalidator,
+  primeRecipientSuggestion,
+  type FairnessResult,
+} from "@/lib/kudos/llm";
+import { dispatch as dispatchGamification } from "@/lib/gamification/engine";
 import type { Kudos, Workspace } from "@/lib/stores/workspace-types";
 import { KudosForm, type RecipientOption } from "./components/kudos-form";
 import { KudosWall } from "./components/kudos-wall";
+import { KudosBeacon } from "./components/kudos-beacon";
+import { KudosSettings } from "./components/kudos-settings";
 import { useKudosRoom } from "./use-kudos-room";
+import { useKudosReactions } from "./use-kudos-reactions";
 import { KUDOS_ENTITY_ID, KUDOS_TOOL_ID } from "./types";
 
 /**
@@ -174,21 +189,263 @@ export function KudosClient() {
     [workspace]
   );
 
+  // ── Phase 3: LLM intelligence wiring ─────────────────────────────────
+  //
+  // Owner-only. Guests never run any of this — they don't have the
+  // history context (RLS limits what they see) and they're not the
+  // audience for the fairness-driven nudges anyway.
+  //
+  // Install the cache invalidator once on mount so a fresh kudos.sent
+  // signal flushes the fairness cache; the next consumer recomputes.
+  useEffect(() => {
+    const uninstall = installFairnessInvalidator();
+    return uninstall;
+  }, []);
+
+  // Compute fairness in the background. Input is redacted (no message
+  // bodies); the helper caches for 1 h and is invalidated by the
+  // installer above when a new kudos lands. We keep the result in
+  // state so the inline hint above the form re-renders when it lands.
+  const [fairness, setFairness] = useState<FairnessResult | null>(null);
+  const recentKudos = room.kudos;
+  const events = useHistoryStore((s) => s.events);
+  useEffect(() => {
+    if (squadProfiles.length === 0) return;
+    const controller = new AbortController();
+    const now = Date.now();
+    const thirtyDaysMs = 30 * 86_400_000;
+    const fourteenDaysMs = 14 * 86_400_000;
+    // Redacted projection — fairness MUST NOT see message bodies.
+    const recentKudosRedacted = recentKudos
+      .filter((k) => {
+        const t = Date.parse(k.sentAt);
+        if (!Number.isFinite(t)) return false;
+        return now - t <= thirtyDaysMs;
+      })
+      .filter((k) => !!k.toProfileId)
+      .map((k) => ({
+        toProfileId: k.toProfileId!,
+        fromProfileId: k.fromProfileId,
+        theme: typeof k.theme === "string" ? k.theme : k.theme.id,
+        sentAt: k.sentAt,
+        messageLength: k.message.length,
+      }));
+    // Activity signals — impediment.resolved, story status changes,
+    // decision.recorded. Coarse: kind + actor + at.
+    const recentSignals = events
+      .filter((e) => {
+        const t = Date.parse(e.occurredAt);
+        if (!Number.isFinite(t)) return false;
+        return now - t <= fourteenDaysMs;
+      })
+      .filter((e) => {
+        return (
+          (e.toolId === "impediments" && e.action.includes("resolve")) ||
+          (e.toolId === "stories" && e.action.includes("status")) ||
+          (e.toolId === "decision-log" && e.action.includes("record"))
+        );
+      })
+      .map((e) => ({
+        kind: `${e.toolId}.${e.action}`,
+        profileId: e.squadProfileId ?? undefined,
+        at: e.occurredAt,
+      }));
+
+    void (async () => {
+      const result = await computeFairness(
+        {
+          squadProfiles: squadProfiles.map((p) => ({ id: p.id, displayName: p.displayName })),
+          recentKudos: recentKudosRedacted,
+          recentSignals,
+        },
+        controller.signal
+      );
+      if (controller.signal.aborted) return;
+      setFairness(result);
+    })();
+    return () => {
+      controller.abort();
+    };
+  }, [squadProfiles, recentKudos, events]);
+
+  // Prime the LLM-based recipient suggestion. Populates the cache the
+  // predictor reads from — once it lands `usePredictedDefault` returns
+  // the top suggestion and the form pre-fills the To select.
+  useEffect(() => {
+    if (squadProfiles.length === 0) return;
+    const controller = new AbortController();
+    const sevenDaysMs = 7 * 86_400_000;
+    const now = Date.now();
+    const redactedEvents = events
+      .filter((e) => {
+        const t = Date.parse(e.occurredAt);
+        return Number.isFinite(t) && now - t <= sevenDaysMs;
+      })
+      .slice(-80)
+      .map((e) => ({
+        id: e.id,
+        toolId: e.toolId,
+        action: e.action,
+        // Payload summary kept terse on purpose — values vary by tool
+        // and we don't want to ship arbitrary user data into the prompt.
+        payloadSummary: Object.keys(e.payload).slice(0, 4).join(", "),
+        occurredAt: e.occurredAt,
+        squadProfileId: e.squadProfileId,
+      }));
+    void primeRecipientSuggestion(
+      {
+        recentHistoryEvents: redactedEvents,
+        squadProfiles: squadProfiles.map((p) => ({ id: p.id, displayName: p.displayName })),
+      },
+      controller.signal
+    );
+    return () => {
+      controller.abort();
+    };
+  }, [squadProfiles, events]);
+
+  // Pull the predicted recipient via the registry. The predictor reads
+  // from the cache primed above; before the LLM lands it returns
+  // `confidence: "none"` and we ignore the value.
+  const predicted = usePredictedDefault<string>("kudos", "recipient", "");
+  const predictedRecipientId =
+    predicted.confidence !== "none" && predicted.value ? predicted.value : undefined;
+
+  // Find the first under-recognised teammate that matches a recipient
+  // we can actually pick — drops phantom ids the model produced for
+  // people who aren't in the form's recipient list (race against a
+  // squad-profile refresh).
+  const fairnessHintTarget = useMemo(() => {
+    if (!fairness || fairness.underRecognised.length === 0) return null;
+    for (const u of fairness.underRecognised) {
+      const opt = recipients.find((r) => r.profileId === u.profileId);
+      if (opt) return { opt, suggestion: u };
+    }
+    return null;
+  }, [fairness, recipients]);
+
+  // Map the fairness target to its score so we can stamp
+  // `fairnessScoreAtSend` when the sender picks an under-recognised
+  // recipient (a click on the hint button, or a manual pick of the
+  // same person before the hint disappears).
+  const fairnessScoreByProfileId = useMemo(() => {
+    const m = new Map<string, number>();
+    if (fairness) {
+      for (const u of fairness.underRecognised) m.set(u.profileId, u.score);
+    }
+    return m;
+  }, [fairness]);
+
+  // The hint button stamps the recipient and emits the gamification
+  // event with the `suggested: true` meta flag so the `fair-witness`
+  // achievement unlocks. `emit()` doesn't accept a meta arg, so we
+  // dispatch the canonical event name directly into the engine.
+  //
+  // `forcedRecipient` is passed to the form as `{id, token}`. Bumping
+  // the token (monotonic) signals the form to override its one-shot
+  // latch and snap the picker to the hinted recipient.
+  const [forcedRecipient, setForcedRecipient] = useState<{ id: string; token: number } | null>(
+    null
+  );
+  const handleFairnessPick = useCallback(() => {
+    if (!fairnessHintTarget) return;
+    setForcedRecipient((prev) => ({
+      id: fairnessHintTarget.opt.id,
+      token: (prev?.token ?? 0) + 1,
+    }));
+    dispatchGamification({
+      name: "tool:kudos:llm-suggested-pick",
+      meta: { suggested: true, profileId: fairnessHintTarget.suggestion.profileId },
+    });
+  }, [fairnessHintTarget]);
+
+  // Slot rendered above the compose form. Owner-only.
+  const fairnessHintSlot = fairnessHintTarget ? (
+    <div className="flex items-start gap-3 rounded-lg border border-accent/40 bg-accent/5 px-4 py-3">
+      <Sparkles className="h-4 w-4 text-accent shrink-0 mt-0.5" aria-hidden="true" />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-text">
+          <span className="font-semibold">{fairnessHintTarget.opt.displayName}</span>{" "}
+          <span className="text-sub">
+            {fairnessHintTarget.suggestion.reason || "looks under-recognised this month"}
+          </span>
+          {" — recognise them?"}
+        </p>
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        onClick={handleFairnessPick}
+        className="bg-accent text-bg hover:bg-accent/80 font-semibold"
+      >
+        Send to {fairnessHintTarget.opt.displayName.split(/\s+/)[0]}
+      </Button>
+    </div>
+  ) : null;
+
   const handleSubmit = async (kudos: Kudos) => {
-    room.sendKudos(kudos);
+    // Phase 3 — sentiment + dedup BEFORE the room send so the stamped
+    // values ride along with the optimistic write + broadcast. Both
+    // helpers return null on any failure (no key, network, parse) so
+    // missing AI never blocks the send.
+    const recentForPair = room.kudos.filter(
+      (k) =>
+        k.toProfileId &&
+        kudos.toProfileId &&
+        k.toProfileId === kudos.toProfileId &&
+        k.fromProfileId === kudos.fromProfileId
+    );
+    const [sentiment, dup] = await Promise.all([
+      analyseSentiment({ message: kudos.message, theme: kudos.theme }),
+      detectDuplicate({ candidate: kudos, recent: recentForPair }),
+    ]);
+    const stamped: Kudos = { ...kudos };
+    if (sentiment) stamped.sentiment = sentiment;
+    if (dup?.isDup && dup.dupId) {
+      // Reuse the existing dupId as the group key so the wall stacks
+      // this card with the prior near-duplicate. A future row that the
+      // model maps to the SAME prior joins the same group.
+      stamped.llmDedupGroup = dup.dupId;
+    }
+    // Stamp fairness score at send time if the recipient was flagged.
+    // Frozen on send so the audit log captures the signal that prompted
+    // the sender, not its drift afterwards.
+    if (kudos.toProfileId) {
+      const score = fairnessScoreByProfileId.get(kudos.toProfileId);
+      if (typeof score === "number") {
+        stamped.fairnessScoreAtSend = score;
+      }
+    }
+
+    room.sendKudos(stamped);
     log(KUDOS_ACTIONS.KUDOS_SENT, {
-      kudosId: kudos.id,
-      theme: typeof kudos.theme === "string" ? kudos.theme : kudos.theme.id,
-      toName: kudos.toName,
-      toProfileId: kudos.toProfileId,
-      fromProfileId: kudos.fromProfileId,
-      messageWords: kudos.message.split(/\s+/).filter(Boolean).length,
+      kudosId: stamped.id,
+      theme: typeof stamped.theme === "string" ? stamped.theme : stamped.theme.id,
+      toName: stamped.toName,
+      toProfileId: stamped.toProfileId,
+      fromProfileId: stamped.fromProfileId,
+      messageWords: stamped.message.split(/\s+/).filter(Boolean).length,
     });
     // Phase 2 — fan out to sonification + haptics + gamification. The
     // emit module already routes by tool id; the signal-bridge emits
     // `kudos.sent` on the workspace-store add so the cloud-sync layer
     // independently picks it up.
     emit("kudos", "sent");
+  };
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const { addReaction } = useKudosReactions();
+
+  // Reply path piggybacks on the same realtime room — a reply is just
+  // a Kudos with `replyTo` set. The wall builds the reply object; we
+  // only forward to `room.sendKudos` and log it as a thread reply.
+  const handleSendReply = async (reply: Kudos) => {
+    room.sendKudos(reply);
+    log(KUDOS_ACTIONS.KUDOS_REPLIED, {
+      kudosId: reply.id,
+      replyTo: reply.replyTo,
+      toProfileId: reply.toProfileId,
+    });
   };
 
   const handleDownload = async (kudos: Kudos, el: HTMLDivElement) => {
@@ -231,6 +488,17 @@ export function KudosClient() {
             entityId={KUDOS_ENTITY_ID}
             label="Invite squad"
           />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setSettingsOpen(true)}
+            className="border-border/40 text-sub hover:text-text gap-1.5"
+            aria-label="Open kudos settings"
+          >
+            <Settings className="h-4 w-4" aria-hidden="true" />
+            Settings
+          </Button>
         </div>
       </div>
 
@@ -241,12 +509,26 @@ export function KudosClient() {
           recipients={recipients}
           onSubmit={handleSubmit}
           onDownload={handleDownload}
+          predictedRecipientId={predictedRecipientId}
+          fairnessHintSlot={fairnessHintSlot}
+          forcedRecipient={forcedRecipient ?? undefined}
         />
         <div className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold text-text">Recent kudos</h2>
-          <KudosWall kudos={room.kudos} />
+          <KudosWall
+            kudos={room.kudos}
+            viewerProfileId={ownerId ?? undefined}
+            onAddReaction={(id, emoji) => {
+              void addReaction(id, emoji);
+            }}
+            onSendReply={handleSendReply}
+            replyFromName={fromName}
+          />
         </div>
       </div>
+
+      <KudosSettings open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <KudosBeacon />
     </ToolPageWrapper>
   );
 }
