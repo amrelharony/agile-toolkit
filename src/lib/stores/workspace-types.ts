@@ -804,7 +804,13 @@ export interface Workspace {
  * Guests don't persist beyond their session — the owner's heartbeat
  * snapshot re-populates the wall on their next connect.
  */
-export type KudosTheme =
+/**
+ * Built-in catalog ids — the seven themes that ship with the tool.
+ * Custom themes live alongside as `KudosCustomTheme` objects so the
+ * Phase 3 LLM can synthesise themes without code edits and the Phase 5
+ * settings UI can let owners define palette additions.
+ */
+export type KudosBuiltInTheme =
   | "awesome"
   | "thank-you"
   | "great-job"
@@ -813,8 +819,41 @@ export type KudosTheme =
   | "you-rock"
   | "well-done";
 
+export interface KudosCustomTheme {
+  /** Stable identifier; alphanumeric+hyphen, ≤ 32 chars. */
+  id: string;
+  /** Display title. */
+  title: string;
+  /** Emoji shown on the card header strip. ≤ 4 codepoints. */
+  emoji: string;
+  /** Hex accent for the PNG-export path (CSS uses Tailwind utility classes). */
+  hex: string;
+}
+
+export type KudosTheme = KudosBuiltInTheme | KudosCustomTheme;
+
+export interface KudosSentiment {
+  label: "positive" | "neutral" | "backhanded";
+  /** 0..1 LLM confidence. */
+  confidence: number;
+  /** Free-form tone tags (e.g. ["grateful", "playful"]). */
+  tone: string[];
+}
+
+export interface KudosReaction {
+  emoji: string;
+  byProfileId: string;
+  at: ISODateString;
+}
+
 export interface Kudos {
   id: string;
+  /**
+   * Schema version. Absent on pre-redesign rows; parseKudos auto-stamps
+   * `1` on legacy inputs and `2` on inputs carrying v2-only fields. The
+   * field is forward-only — once a row is v2 it stays v2.
+   */
+  version?: 1 | 2;
   theme: KudosTheme;
   /** Recipient display name (free-text fallback or squad profile name). */
   toName: string;
@@ -831,6 +870,27 @@ export interface Kudos {
   message: string;
   /** Send timestamp. */
   sentAt: ISODateString;
+  /**
+   * Phase 4 — beacon identity hooks. The flying-card animation reads
+   * sender + recipient DOM rects via the `data-identity-id` attribute
+   * convention; these fields are the wire copy so every peer resolves
+   * the same endpoints independently.
+   */
+  senderIdentityId?: string;
+  recipientIdentityId?: string;
+  /** Phase 3 LLM advisories — never required; the no-AI path leaves all
+   *  three undefined and the wall renders identically. */
+  sentiment?: KudosSentiment;
+  /** Shared id across LLM-detected near-duplicates. The wall stacks
+   *  kudos that carry the same group. */
+  llmDedupGroup?: string;
+  /** Snapshot of recipient under-recognition score at send time (0..1).
+   *  Frozen on send so the audit log captures the signal that
+   *  prompted the sender, not its drift afterwards. */
+  fairnessScoreAtSend?: number;
+  /** Phase 5 — peers can react with emoji; depth-1 thread via replyTo. */
+  reactions?: KudosReaction[];
+  replyTo?: string;
 }
 
 /** Per-board activity event (Phase 32). */

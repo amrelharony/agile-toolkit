@@ -10,11 +10,38 @@ import type { SignalKind } from "./signal-bus";
  * over-invalidation just means recompute on next read.
  */
 export const INVALIDATION_MATRIX: Record<SignalKind, string[]> = {
-  "velocity.changed": ["velocity:", "burndown:", "predictability:", "forecast:", "capacity:", "annotations:"],
-  "sprint.completed": ["velocity:", "burndown:", "burnup:", "predictability:", "forecast:", "capacity:", "okr:", "release:", "annotations:"],
+  "velocity.changed": [
+    "velocity:",
+    "burndown:",
+    "predictability:",
+    "forecast:",
+    "capacity:",
+    "annotations:",
+  ],
+  "sprint.completed": [
+    "velocity:",
+    "burndown:",
+    "burnup:",
+    "predictability:",
+    "forecast:",
+    "capacity:",
+    "okr:",
+    "release:",
+    "annotations:",
+  ],
   "sprint.started": ["velocity:", "burndown:", "burnup:", "annotations:"],
-  "impediment.raised": ["impediments:", "survival:impediments", "crossCorr:blockers-vs-", "annotations:"],
-  "impediment.resolved": ["impediments:", "survival:impediments", "crossCorr:blockers-vs-", "annotations:"],
+  "impediment.raised": [
+    "impediments:",
+    "survival:impediments",
+    "crossCorr:blockers-vs-",
+    "annotations:",
+  ],
+  "impediment.resolved": [
+    "impediments:",
+    "survival:impediments",
+    "crossCorr:blockers-vs-",
+    "annotations:",
+  ],
   "risk.opened": ["risk:", "annotations:"],
   "risk.closed": ["risk:", "survival:risk", "annotations:"],
   "okr.kr.updated": ["okr:", "forecast:okr", "annotations:"],
@@ -22,7 +49,7 @@ export const INVALIDATION_MATRIX: Record<SignalKind, string[]> = {
   "techDebt.resolved": ["techDebt:", "annotations:"],
   "decision.recorded": ["decision:", "rfc:", "annotations:"],
   "story.statusChanged": ["cycleTime:", "kanban:", "story:", "annotations:"],
-  "moodLogged": ["mood:", "crossCorr:mood-vs-", "annotations:"],
+  moodLogged: ["mood:", "crossCorr:mood-vs-", "annotations:"],
   "incident.opened": ["incident:", "mttr:", "crossCorr:deploys-vs-incidents", "annotations:"],
   "incident.resolved": ["incident:", "mttr:", "annotations:"],
   "vuln.opened": ["vuln:", "annotations:"],
@@ -71,4 +98,12 @@ export const INVALIDATION_MATRIX: Record<SignalKind, string[]> = {
   "whiteboard.activityLogged": ["canvas:", "activity:"],
   "whiteboard.templateApplied": ["canvas:"],
   "whiteboard.crossToolImport": ["canvas:", "annotations:"],
+  // Kudos redesign — both surface-level wall caches and fairness/
+  // dedup derived caches keyed off the LLM helpers. Belt-and-braces:
+  // every new kudos event flushes the recognition derived caches.
+  "kudos.sent": ["kudos:", "fairness:", "recognition:"],
+  "kudos.received": ["kudos:", "recognition:"],
+  "kudos.reaction.added": ["kudos:", "recognition:"],
+  "kudos.fairness_alert": ["kudos:", "fairness:"],
+  "kudos.dup_detected": ["kudos:", "dedup:"],
 };

@@ -1,12 +1,14 @@
 /**
- * Kudos tool — theme catalog + runtime validators.
+ * Kudos tool — theme catalog + tool-scoped re-exports.
  *
  * Lives in a dedicated file because both the owner-side client and the
- * guest-side client import it, plus the runtime guard used by the
- * realtime sync hook to gate incoming peer broadcasts.
+ * guest-side client import it. The runtime shape guard used by the wire,
+ * the store, and JSON import lives in `src/lib/kudos/parse.ts` — this
+ * file re-exports it so historic call sites keep compiling.
  */
 
-import type { Kudos, KudosTheme } from "@/lib/stores/workspace-types";
+import type { Kudos, KudosBuiltInTheme, KudosTheme } from "@/lib/stores/workspace-types";
+import { isValidKudos as canonicalIsValidKudos, parseKudos } from "@/lib/kudos/parse";
 
 /**
  * Catalog of the seven kudos themes the user's original HTML defined.
@@ -17,7 +19,13 @@ import type { Kudos, KudosTheme } from "@/lib/stores/workspace-types";
  * surrounding border + emoji-chip badge.
  */
 export interface KudosThemeDef {
-  id: KudosTheme;
+  /**
+   * Built-in theme id. The catalog only carries the seven shipped
+   * themes; custom themes synthesised by Phase 3's LLM (or the Phase 5
+   * settings UI) ride alongside as `KudosCustomTheme` objects on the
+   * Kudos row itself and resolve their styling inline at render time.
+   */
+  id: KudosBuiltInTheme;
   title: string;
   emoji: string;
   /** Tailwind text/border color class for the accent stripe + emoji halo. */
@@ -92,8 +100,27 @@ const THEMES_BY_ID: Record<string, KudosThemeDef> = Object.fromEntries(
   KUDOS_THEMES.map((t) => [t.id, t])
 );
 
-export function getKudosTheme(id: string): KudosThemeDef {
-  return THEMES_BY_ID[id] ?? KUDOS_THEMES[0];
+/**
+ * Resolve the styling definition for a kudos theme. Accepts the original
+ * id-string form (the seven built-ins) AND the Phase 0 custom-theme
+ * object form — the latter ships its own emoji/hex inline so we synthesise
+ * a definition on the fly without touching the catalog.
+ */
+export function getKudosTheme(theme: KudosTheme | string): KudosThemeDef {
+  if (typeof theme === "string") {
+    return THEMES_BY_ID[theme] ?? KUDOS_THEMES[0];
+  }
+  return {
+    id: theme.id as KudosBuiltInTheme,
+    title: theme.title,
+    emoji: theme.emoji,
+    // Custom themes don't ship Tailwind classes — the render path uses
+    // inline styles for the header strip + accent ring when a hex is the
+    // only signal we have.
+    accent: "border-border",
+    headerBg: "",
+    hex: theme.hex,
+  };
 }
 
 /**
@@ -109,9 +136,6 @@ export const KUDOS_WORD_LIMITS = {
   message: 50,
 } as const;
 
-const SHORT_TEXT_MAX = 80;
-const MESSAGE_CHAR_MAX = 2000;
-
 /**
  * Count words in a string. Whitespace-collapsed split; empty input → 0.
  * Matches the original HTML's behavior so word-count UX is identical.
@@ -122,64 +146,17 @@ export function countWords(value: string): number {
   return trimmed.split(/\s+/).length;
 }
 
-const VALID_THEMES = new Set<KudosTheme>(KUDOS_THEMES.map((t) => t.id));
-
 /**
  * Defensive shape guard for incoming `kudos:created` / `kudos:snapshot`
- * realtime broadcasts. A peer can send anything — a buggy build, a
- * hostile client, a stale-format event from an old tab. We accept ONLY
- * the expected shape and reject everything else.
- *
- * Field caps deliberately match `workspace-store.upsertKudos` so a
- * payload that survives realtime validation also survives the store
- * write. Keep these two in sync.
+ * realtime broadcasts. Delegates to the canonical `parseKudos` in
+ * `src/lib/kudos/parse.ts` so the wire, the store, and any future cloud-
+ * hydrate path share one shape contract. The boolean-guard form lives
+ * here for historic call sites that don't need the error code.
  */
-export function isValidKudos(raw: unknown): raw is Kudos {
-  if (!raw || typeof raw !== "object") return false;
-  const r = raw as Record<string, unknown>;
-  if (typeof r.id !== "string" || r.id.length === 0 || r.id.length > 64) return false;
-  if (typeof r.theme !== "string" || !VALID_THEMES.has(r.theme as KudosTheme)) return false;
-  if (typeof r.toName !== "string" || r.toName.length === 0 || r.toName.length > SHORT_TEXT_MAX)
-    return false;
-  if (
-    typeof r.fromName !== "string" ||
-    r.fromName.length === 0 ||
-    r.fromName.length > SHORT_TEXT_MAX
-  )
-    return false;
-  if (
-    typeof r.message !== "string" ||
-    r.message.length === 0 ||
-    r.message.length > MESSAGE_CHAR_MAX
-  )
-    return false;
-  if (typeof r.sentAt !== "string" || r.sentAt.length === 0 || r.sentAt.length > 64) return false;
-  // Reject sentAt strings that parse to Invalid Date (e.g. "lol",
-  // "yesterday") — without this they survive the length-check, land
-  // on the wall, and the card renders the literal "Invalid Date".
-  // Also reject far-future timestamps (>5 min ahead, clock-skew
-  // tolerance) so a peer can't backdate-bomb the wall.
-  const sentAtMs = Date.parse(r.sentAt);
-  if (!Number.isFinite(sentAtMs)) return false;
-  if (sentAtMs > Date.now() + 5 * 60 * 1000) return false;
-  // Optional fields — type-only checks; the absence is fine.
-  if (
-    r.toProfileId !== undefined &&
-    (typeof r.toProfileId !== "string" || r.toProfileId.length > 64)
-  )
-    return false;
-  if (
-    r.fromProfileId !== undefined &&
-    (typeof r.fromProfileId !== "string" || r.fromProfileId.length > 64)
-  )
-    return false;
-  if (
-    r.teamName !== undefined &&
-    (typeof r.teamName !== "string" || r.teamName.length > SHORT_TEXT_MAX)
-  )
-    return false;
-  return true;
-}
+export const isValidKudos: (raw: unknown) => raw is Kudos = canonicalIsValidKudos;
+
+export { parseKudos };
+export type { KudosParseResult } from "@/lib/kudos/parse";
 
 /** Workspace-wide channel: one kudos wall per workspace. */
 export const KUDOS_ENTITY_ID = "workspace" as const;

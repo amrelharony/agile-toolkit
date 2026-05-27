@@ -50,6 +50,9 @@ export const PLANNING_POKER_ACTIONS = {
 
 export const KUDOS_ACTIONS = {
   KUDOS_SENT: "kudos_sent", // milestone — append-only recognition card
+  KUDOS_RECEIVED: "kudos_received", // viewer-side counterpart; XP attribution lives here
+  KUDOS_REACTED: "kudos_reacted",
+  KUDOS_REPLIED: "kudos_replied",
 } as const;
 
 // ── Time-series accumulators ─────────────────────────────────────────

@@ -7,6 +7,20 @@ import { bindCacheInvalidation } from "./derived-cache";
 import { INVALIDATION_MATRIX } from "./invalidation";
 
 /**
+ * Squad-profile id of the local viewer. Set by guest pages via
+ * `setLocalViewerProfileId(profile.id)` so the bridge can decide whether
+ * a kudos add is BOTH a `kudos.sent` (any add) AND a `kudos.received`
+ * (the new row is addressed to the local viewer). Owner-side viewers
+ * receive kudos via `toProfileId === null` (workspace-wide wall) — they
+ * see every kudos as both sent and received because the wall is theirs.
+ * Reset to `null` on sign-out.
+ */
+let localViewerProfileId: string | null = null;
+export function setLocalViewerProfileId(id: string | null): void {
+  localViewerProfileId = id;
+}
+
+/**
  * Single boot-time wire-up that translates workspace-store mutations into
  * signal-bus emissions. Tools never have to remember to emit; they just
  * use the workspace actions they already use.
@@ -88,8 +102,15 @@ export function installSignalBridge(): void {
       cynefinItems: state.cynefinItems,
       staceyItems: state.staceyItems,
       polarities: state.polarities,
+      // Phase 0 kudos redesign — diff kudos to emit kudos.sent on adds
+      // and kudos.received when the local viewer's profile id matches
+      // the new row's toProfileId.
+      kudos: state.kudos,
     };
-    if (!prev) { prev = next; return; }
+    if (!prev) {
+      prev = next;
+      return;
+    }
     diffAndEmit(prev, next);
     prev = next;
   });
@@ -142,7 +163,8 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
     prev.oodaCycles === next.oodaCycles &&
     prev.cynefinItems === next.cynefinItems &&
     prev.staceyItems === next.staceyItems &&
-    prev.polarities === next.polarities
+    prev.polarities === next.polarities &&
+    prev.kudos === next.kudos
   ) {
     return;
   }
@@ -157,7 +179,10 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
         emit("sprint.completed", "workspace", { sprintId: after.id });
       }
       if (before.pointsCompleted !== after.pointsCompleted && after.status === "completed") {
-        emit("velocity.changed", "workspace", { sprintId: after.id, pointsCompleted: after.pointsCompleted });
+        emit("velocity.changed", "workspace", {
+          sprintId: after.id,
+          pointsCompleted: after.pointsCompleted,
+        });
       }
     },
   });
@@ -201,7 +226,10 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
       // open-state so closed/accepted imports stay quiet.
       const score = (r.probability ?? 0) * (r.impact ?? 0);
       if (r.status === "open" || r.status === "mitigating") {
-        emit("risk.opened", "workspace", { riskId: r.id, score: Number.isFinite(score) ? score : 0 });
+        emit("risk.opened", "workspace", {
+          riskId: r.id,
+          score: Number.isFinite(score) ? score : 0,
+        });
       } else if (r.status === "closed") {
         emit("risk.closed", "workspace", { riskId: r.id });
       }
@@ -231,7 +259,12 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
         // current/target only, so renaming a KR left the canvas
         // sticky/card showing the old title.
         if (b.current !== kr.current || b.target !== kr.target || b.title !== kr.title) {
-          emit("okr.kr.updated", "workspace", { okrId: after.id, krId: kr.id, current: kr.current, target: kr.target });
+          emit("okr.kr.updated", "workspace", {
+            okrId: after.id,
+            krId: kr.id,
+            current: kr.current,
+            target: kr.target,
+          });
         }
       }
     },
@@ -320,7 +353,10 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
     },
     onChanged: (before, after) => {
       if (before.status !== "production" && after.status === "production") {
-        emit("prompt.versionPublished", "workspace", { promptId: after.id, version: after.version });
+        emit("prompt.versionPublished", "workspace", {
+          promptId: after.id,
+          version: after.version,
+        });
       }
     },
   });
@@ -348,12 +384,20 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
   diffById(prev.prioritizations, next.prioritizations, (p) => p.id, {
     onAdded: (p) => {
       if (Number.isFinite(p.score) && p.score !== 0) {
-        emit("prioritization.scored", "workspace", { itemId: p.id, framework: p.framework, score: p.score });
+        emit("prioritization.scored", "workspace", {
+          itemId: p.id,
+          framework: p.framework,
+          score: p.score,
+        });
       }
     },
     onChanged: (before, after) => {
       if (before.score !== after.score && Number.isFinite(after.score)) {
-        emit("prioritization.scored", "workspace", { itemId: after.id, framework: after.framework, score: after.score });
+        emit("prioritization.scored", "workspace", {
+          itemId: after.id,
+          framework: after.framework,
+          score: after.score,
+        });
       }
     },
   });
@@ -395,7 +439,11 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
     },
     onChanged: (before, after) => {
       if (before.status !== "production" && after.status === "production") {
-        emit("model.upgraded", "workspace", { id: after.id, name: after.name, status: after.status });
+        emit("model.upgraded", "workspace", {
+          id: after.id,
+          name: after.name,
+          status: after.status,
+        });
       }
     },
   });
@@ -491,6 +539,36 @@ function diffAndEmit(prev: Workspace, next: Workspace): void {
   // Polarities — fire per add.
   diffById(prev.polarities, next.polarities, (p) => p.id, {
     onAdded: (p) => emit("decision.polarityMapped", "workspace", { id: p.id, title: p.title }),
+  });
+
+  // Kudos — `kudos.sent` on every add (sender side AND every peer that
+  // received the broadcast and ran it through upsertKudos), plus
+  // `kudos.received` when the new row is addressed to the local viewer.
+  // Owners view their own wall and see every kudos as workspace-wide,
+  // so when `localViewerProfileId` is null we treat any add as a
+  // received-event too — that's the owner-self-receive case for
+  // gamification XP. Guests only count receives when the row names them.
+  diffById(prev.kudos, next.kudos, (k) => k.id, {
+    onAdded: (k) => {
+      emit("kudos.sent", "kudos", {
+        id: k.id,
+        toProfileId: k.toProfileId,
+        fromProfileId: k.fromProfileId,
+        theme: typeof k.theme === "string" ? k.theme : k.theme.id,
+      });
+      const addressedToMe =
+        localViewerProfileId === null ? !k.toProfileId : k.toProfileId === localViewerProfileId;
+      if (addressedToMe) {
+        emit("kudos.received", "kudos", { id: k.id, fromProfileId: k.fromProfileId });
+      }
+    },
+    onChanged: (before, after) => {
+      const beforeReactions = before.reactions?.length ?? 0;
+      const afterReactions = after.reactions?.length ?? 0;
+      if (afterReactions > beforeReactions) {
+        emit("kudos.reaction.added", "kudos", { id: after.id, count: afterReactions });
+      }
+    },
   });
 }
 

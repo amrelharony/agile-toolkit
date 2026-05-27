@@ -50,7 +50,7 @@ import type {
   Kudos,
 } from "./workspace-types";
 import { emptyWorkspace } from "./workspace-types";
-import { isValidKudos } from "@/app/(tools)/kudos/types";
+import { parseKudos } from "@/lib/kudos/parse";
 
 interface WorkspaceActions {
   setTeamName: (name: string) => void;
@@ -915,28 +915,31 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           return { whiteboardActivityLog: next };
         }),
       // Kudos wall: append + cap at 500 entries (drop oldest). Validates
-      // shape via `isValidKudos` — the SAME guard the realtime wire
-      // path uses — so a payload that survives one boundary cannot
-      // smuggle past the other (review #8). A hostile peer broadcasting
-      // `kudos:created` with `theme: "custom-x"` is rejected on the
-      // wire; an importJSON with the same bad theme is rejected here.
+      // shape via the canonical `parseKudos` — the SAME parser the
+      // realtime wire path uses — so a payload that survives one
+      // boundary cannot smuggle past the other. The parser also
+      // auto-upgrades v1 (pre-redesign) rows by stamping `version: 1`,
+      // and we write the upgraded shape back so the persist slot heals
+      // on next save without a one-shot migration.
       upsertKudos: (k) =>
         set((s) => {
-          if (!isValidKudos(k)) return s;
+          const parsed = parseKudos(k);
+          if (!parsed.ok) return s;
+          const stored = parsed.kudos;
           const list = s.kudos ?? [];
           // Dedup by id (peer broadcast may re-deliver during reconnect).
           // If the id already exists we replace in place — kudos are
           // immutable in practice but the same id means "same event".
-          const idx = list.findIndex((x) => x.id === k.id);
+          const idx = list.findIndex((x) => x.id === stored.id);
           if (idx >= 0) {
-            if (list[idx] === k) return s;
+            if (list[idx] === stored) return s;
             const replaced = list.slice();
-            replaced[idx] = k;
+            replaced[idx] = stored;
             return { kudos: replaced };
           }
           // Append + cap. Newest at the END so reverse-iteration in the
           // wall component is cheap; cap drops oldest from the front.
-          const appended = [...list, k];
+          const appended = [...list, stored];
           const KUDOS_CAP = 500;
           return {
             kudos: appended.length > KUDOS_CAP ? appended.slice(-KUDOS_CAP) : appended,
@@ -1095,12 +1098,17 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
                   return true;
                 })
             : undefined,
-          // Kudos wall — same `isValidKudos` guard the realtime + upsert
-          // paths use, so a tampered export can't smuggle malformed
-          // entries past the import boundary. Cap to the same 500
+          // Kudos wall — same `parseKudos` the realtime + upsert paths
+          // use, so a tampered export can't smuggle malformed entries
+          // past the import boundary. Map-then-filter so v1 rows arrive
+          // already upgraded to v2-stamped shape. Cap to the same 500
           // ceiling the live store enforces.
           kudos: Array.isArray(p.kudos)
-            ? (p.kudos as unknown[]).slice(-500).filter(isValidKudos)
+            ? (p.kudos as unknown[])
+                .slice(-500)
+                .map((raw) => parseKudos(raw))
+                .filter((r): r is Extract<typeof r, { ok: true }> => r.ok)
+                .map((r) => r.kudos)
             : undefined,
         };
         // Drop undefined entries so emptyWorkspace defaults stand in for missing keys.

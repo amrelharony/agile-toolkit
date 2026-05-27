@@ -63,37 +63,84 @@ export type SignalKind =
   | "whiteboard.boardShared"
   | "whiteboard.activityLogged"
   | "whiteboard.templateApplied"
-  | "whiteboard.crossToolImport";
+  | "whiteboard.crossToolImport"
+  // Kudos redesign — recognition feed; see plans/the-logic-of-kudo-floating-beacon.md
+  | "kudos.sent"
+  | "kudos.received"
+  | "kudos.reaction.added"
+  | "kudos.fairness_alert"
+  | "kudos.dup_detected";
 
 /** Frozen list of all SignalKind values — used by signal-bridge.ts to iterate
  *  every kind without hardcoding the union. Keep in sync with the union above. */
 export const ALL_SIGNAL_KINDS: readonly SignalKind[] = [
-  "velocity.changed", "impediment.raised", "impediment.resolved",
-  "risk.opened", "risk.closed", "okr.kr.updated",
-  "techDebt.added", "techDebt.resolved", "decision.recorded",
-  "story.statusChanged", "sprint.completed", "sprint.started",
-  "moodLogged", "incident.opened", "incident.resolved",
-  "vuln.opened", "vuln.closed", "deploy.recorded",
-  "flag.added", "flag.aged", "stakeholder.changed", "rfc.decided",
-  "llmEval.recorded", "llmEval.regressionDetected", "prompt.versionPublished",
-  "hallucination.logged", "hallucination.resolved", "tokenCost.threshold",
-  "model.upgraded", "redTeam.findingOpened", "redTeam.findingClosed",
-  "agentWorkflow.created", "hitl.reviewLogged", "rlhf.pairLogged",
-  "vector.collectionAdded", "modelCard.published", "prioritization.scored",
-  "prioritization.shipped", "decision.daciCreated", "decision.rapidCreated",
-  "decision.weightedScored", "decision.cynefinClassified",
-  "decision.staceyClassified", "decision.polarityMapped",
-  "ooda.cycleCompleted", "sixHats.thoughtLogged",
-  "whiteboard.boardCreated", "whiteboard.boardDeleted", "whiteboard.objectCreated",
-  "whiteboard.objectMoved", "whiteboard.objectDeleted", "whiteboard.commentAdded",
-  "whiteboard.commentMentioned", "whiteboard.boardShared",
-  "whiteboard.activityLogged", "whiteboard.templateApplied",
+  "velocity.changed",
+  "impediment.raised",
+  "impediment.resolved",
+  "risk.opened",
+  "risk.closed",
+  "okr.kr.updated",
+  "techDebt.added",
+  "techDebt.resolved",
+  "decision.recorded",
+  "story.statusChanged",
+  "sprint.completed",
+  "sprint.started",
+  "moodLogged",
+  "incident.opened",
+  "incident.resolved",
+  "vuln.opened",
+  "vuln.closed",
+  "deploy.recorded",
+  "flag.added",
+  "flag.aged",
+  "stakeholder.changed",
+  "rfc.decided",
+  "llmEval.recorded",
+  "llmEval.regressionDetected",
+  "prompt.versionPublished",
+  "hallucination.logged",
+  "hallucination.resolved",
+  "tokenCost.threshold",
+  "model.upgraded",
+  "redTeam.findingOpened",
+  "redTeam.findingClosed",
+  "agentWorkflow.created",
+  "hitl.reviewLogged",
+  "rlhf.pairLogged",
+  "vector.collectionAdded",
+  "modelCard.published",
+  "prioritization.scored",
+  "prioritization.shipped",
+  "decision.daciCreated",
+  "decision.rapidCreated",
+  "decision.weightedScored",
+  "decision.cynefinClassified",
+  "decision.staceyClassified",
+  "decision.polarityMapped",
+  "ooda.cycleCompleted",
+  "sixHats.thoughtLogged",
+  "whiteboard.boardCreated",
+  "whiteboard.boardDeleted",
+  "whiteboard.objectCreated",
+  "whiteboard.objectMoved",
+  "whiteboard.objectDeleted",
+  "whiteboard.commentAdded",
+  "whiteboard.commentMentioned",
+  "whiteboard.boardShared",
+  "whiteboard.activityLogged",
+  "whiteboard.templateApplied",
   "whiteboard.crossToolImport",
+  "kudos.sent",
+  "kudos.received",
+  "kudos.reaction.added",
+  "kudos.fairness_alert",
+  "kudos.dup_detected",
 ] as const;
 
 export interface Signal<T = unknown> {
   kind: SignalKind;
-  at: string;        // ISO timestamp
+  at: string; // ISO timestamp
   toolId: string;
   payload: T;
 }
@@ -128,7 +175,9 @@ function flush(): void {
     if (!set || set.size === 0) continue;
     // Iterate over a snapshot so subscribers can unsubscribe during dispatch.
     for (const fn of Array.from(set)) {
-      try { fn(s); } catch {
+      try {
+        fn(s);
+      } catch {
         // Subscriber errors must not break the bus.
       }
     }
@@ -165,7 +214,10 @@ export function emitSignal<T>(s: Signal<T>): void {
 export function subscribeSignals(kinds: SignalKind[], cb: Listener): () => void {
   for (const k of kinds) {
     let set = listeners.get(k);
-    if (!set) { set = new Set(); listeners.set(k, set); }
+    if (!set) {
+      set = new Set();
+      listeners.set(k, set);
+    }
     set.add(cb);
   }
   return () => {
