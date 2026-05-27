@@ -4,7 +4,6 @@ import { accentTokens, baseParticleConfig } from "./_shared";
 const theme: HolidayTheme = {
   id: "mawlid",
   name: "Mawlid al-Nabi",
-  priority: 40,
   accent: { primary: "#10b981", secondary: "#fbbf24", glow: "rgba(251, 191, 36, 0.25)" },
   cssTokens: accentTokens("#10b981", "#fbbf24", "rgba(251, 191, 36, 0.25)"),
   particleConfig: baseParticleConfig({

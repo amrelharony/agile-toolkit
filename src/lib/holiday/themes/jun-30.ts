@@ -4,9 +4,8 @@ import { accentTokens, baseParticleConfig } from "./_shared";
 const theme: HolidayTheme = {
   id: "jun-30",
   name: "June 30 Revolution",
-  priority: 80,
-  accent: { primary: "#ce1126", secondary: "#fcd116", glow: "rgba(252, 209, 22, 0.3)" },
-  cssTokens: accentTokens("#ce1126", "#fcd116", "rgba(252, 209, 22, 0.3)"),
+  accent: { primary: "#ce1126", secondary: "#fcd116", glow: "rgba(206, 17, 38, 0.3)" },
+  cssTokens: accentTokens("#ce1126", "#fcd116", "rgba(206, 17, 38, 0.3)"),
   particleConfig: baseParticleConfig({
     particles: {
       number: { value: 32, density: { enable: true } },

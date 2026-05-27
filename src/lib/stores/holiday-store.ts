@@ -25,7 +25,7 @@ const WINDOW_KEY_RE = /^[a-z0-9-]{1,40}::\d{4}-\d{2}-\d{2}$/i;
 
 /** Drop dismissed entries whose start date is older than ~18 months. Without
  *  pruning, the record grows unbounded across years of dismissals. */
-function pruneStale(record: Record<string, boolean>): Record<string, boolean> {
+export function pruneStale(record: Record<string, boolean>): Record<string, boolean> {
   const cutoff = Date.now() - 18 * 30 * 24 * 60 * 60 * 1000;
   const out: Record<string, boolean> = {};
   for (const [k, v] of Object.entries(record)) {

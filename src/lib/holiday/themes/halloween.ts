@@ -4,7 +4,6 @@ import { accentTokens, baseParticleConfig } from "./_shared";
 const theme: HolidayTheme = {
   id: "halloween",
   name: "Halloween",
-  priority: 40,
   accent: { primary: "#f97316", secondary: "#a855f7", glow: "rgba(249, 115, 22, 0.3)" },
   cssTokens: accentTokens("#f97316", "#a855f7", "rgba(249, 115, 22, 0.3)"),
   particleConfig: baseParticleConfig({
@@ -19,7 +18,10 @@ const theme: HolidayTheme = {
         direction: "none",
         outModes: { default: "out" },
       },
-      shape: { type: "character", options: { character: { value: ["🦇", "🎃", "👻"], font: "sans-serif" } } },
+      shape: {
+        type: ["character", "circle"],
+        options: { character: { value: ["🦇", "🎃", "👻"], font: "sans-serif" } },
+      },
       rotate: { value: { min: -30, max: 30 }, animation: { enable: true, speed: 3, sync: false } },
     },
   }),

@@ -17,7 +17,16 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
 import { SCRUM_ROLE_LABEL } from "@/lib/auth/types";
-import { LogOut, History, ShieldCheck, UserCircle, LogIn, Sparkles, KeyRound } from "lucide-react";
+import {
+  LogOut,
+  History,
+  ShieldCheck,
+  UserCircle,
+  LogIn,
+  Sparkles,
+  KeyRound,
+  Palette,
+} from "lucide-react";
 
 function getInitials(name: string | null | undefined, email: string): string {
   const source = (name ?? email).trim();
@@ -81,9 +90,7 @@ export function UserMenu() {
           aria-label={`Account menu for ${displayName}`}
         >
           <Avatar className="w-9 h-9">
-            {profile?.avatar_url && (
-              <AvatarImage src={profile.avatar_url} alt={displayName} />
-            )}
+            {profile?.avatar_url && <AvatarImage src={profile.avatar_url} alt={displayName} />}
             <AvatarFallback className="text-xs font-medium bg-accent/15 text-accent">
               {initials}
             </AvatarFallback>
@@ -92,9 +99,7 @@ export function UserMenu() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
         <div className="px-2 py-2">
-          <div className="text-sm font-medium text-text truncate">
-            {displayName}
-          </div>
+          <div className="text-sm font-medium text-text truncate">{displayName}</div>
           <div className="text-xs text-sub truncate">{user?.email}</div>
           {role && (
             <Badge variant="secondary" className="mt-1.5 text-[10px]">
@@ -135,6 +140,12 @@ export function UserMenu() {
           <Link href="/settings/access-tokens" className="cursor-pointer">
             <KeyRound className="w-4 h-4" aria-hidden="true" />
             <span>Access tokens</span>
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/settings/appearance" className="cursor-pointer">
+            <Palette className="w-4 h-4" aria-hidden="true" />
+            <span>Appearance</span>
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>

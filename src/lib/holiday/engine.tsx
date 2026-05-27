@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { X, Sparkles } from "lucide-react";
 import { useHolidayStore } from "@/lib/stores/holiday-store";
 import { getActiveHolidayIds, windowKey } from "./detect";
+import { todayInCairo } from "./calendars/gregorian";
 import { loadTheme, HOLIDAY_IDS } from "./themes";
 import type { HolidayId, HolidayTheme, HolidayWindow } from "./types";
 import type { ISourceOptions } from "@tsparticles/engine";
@@ -62,8 +63,12 @@ function injectThemeStyle(id: string, cssTokens: Record<string, string>) {
     el.id = styleId;
     document.head.appendChild(el);
   }
+  // Theme modules are bundled code so values are trusted, but a stray "}" or
+  // angle-bracket in a token value would break out of the :root rule and
+  // potentially the <style> element. Strip selector-breaking chars defensively.
+  const sanitize = (v: string) => String(v).replace(/[}<>]/g, "");
   const body = Object.entries(cssTokens)
-    .map(([k, v]) => `${k}: ${v};`)
+    .map(([k, v]) => `${k}: ${sanitize(v)};`)
     .join("\n");
   el.textContent = `:root{\n${body}\n}\n[data-holiday-theme="${id}"]{\n${body}\n}`;
   document.documentElement.setAttribute("data-holiday-theme", id);
@@ -104,7 +109,9 @@ export function HolidayEngine() {
     // effect bailed and no theme ever loaded. Better to boot with
     // defaults than block forever.
     void Promise.resolve(useHolidayStore.persist.rehydrate())
-      .then(() => { if (!cancelled) setHydrated(true); })
+      .then(() => {
+        if (!cancelled) setHydrated(true);
+      })
       .catch((err) => {
         if (process.env.NODE_ENV !== "production") {
           // eslint-disable-next-line no-console
@@ -133,9 +140,13 @@ export function HolidayEngine() {
       const forcedId = previewParam ?? previewThemeId;
       if (forcedId && HOLIDAY_IDS.includes(forcedId)) {
         const mod = await loadTheme(forcedId);
+        // Cancellation guard protects both setTheme and the synchronous
+        // injectThemeStyle below — do not remove without restructuring.
         if (cancelled) return;
-        // Use a synthetic window so dismissal is distinct from real windows
-        const now = new Date().toISOString().slice(0, 10);
+        // Use a synthetic window so dismissal is distinct from real windows.
+        // Anchor the synthetic date to Cairo so preview dismissal keys line up
+        // with real-window dismissal keys (which are Cairo-anchored).
+        const now = todayInCairo(new Date()).iso;
         setTheme({ ...mod, window: { startISO: now, endISO: now } });
         injectThemeStyle(forcedId, mod.cssTokens);
         return;
@@ -155,6 +166,8 @@ export function HolidayEngine() {
         return;
       }
       const mod = await loadTheme(detection.active.id);
+      // Cancellation guard protects both setTheme and the synchronous
+      // injectThemeStyle below — do not remove without restructuring.
       if (cancelled) return;
       setTheme({ ...mod, window: detection.active.window });
       injectThemeStyle(detection.active.id, mod.cssTokens);
@@ -215,7 +228,10 @@ export function HolidayEngine() {
     const base = theme.particleConfig;
     const baseMove = base.particles?.move;
     const baseSpeed =
-      typeof baseMove === "object" && baseMove && "speed" in baseMove && typeof baseMove.speed === "number"
+      typeof baseMove === "object" &&
+      baseMove &&
+      "speed" in baseMove &&
+      typeof baseMove.speed === "number"
         ? baseMove.speed
         : 1;
     const scaledSpeed = baseSpeed * moodProfile.particleSpeed * windMultiplier;
@@ -234,10 +250,7 @@ export function HolidayEngine() {
   if (!theme) return null;
 
   const showParticles =
-    particleOptions &&
-    particlesReady &&
-    !prefersReducedMotion() &&
-    !isSaveData();
+    particleOptions && particlesReady && !prefersReducedMotion() && !isSaveData();
 
   const dismissKey = windowKey(theme.id, theme.window);
   const isPreview = !!previewParam || !!previewThemeId;
@@ -273,7 +286,7 @@ export function HolidayEngine() {
           "px-3 py-1.5 text-[11px] text-sub hover:text-text hover:border-accent/40 transition",
           "flex items-center gap-1.5 shadow-lg",
           "bottom-20 right-3 md:bottom-16 md:right-4",
-          "active-press",
+          "active-press"
         )}
         aria-label={`Dismiss ${theme.name} theme`}
         data-no-sound="true"

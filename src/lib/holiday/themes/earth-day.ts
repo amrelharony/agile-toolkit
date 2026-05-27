@@ -4,7 +4,6 @@ import { accentTokens, baseParticleConfig } from "./_shared";
 const theme: HolidayTheme = {
   id: "earth-day",
   name: "Earth Day",
-  priority: 40,
   accent: { primary: "#52b788", secondary: "#2d6a4f", glow: "rgba(82, 183, 136, 0.25)" },
   cssTokens: accentTokens("#52b788", "#2d6a4f", "rgba(82, 183, 136, 0.25)"),
   particleConfig: baseParticleConfig({
@@ -20,7 +19,10 @@ const theme: HolidayTheme = {
         outModes: { default: "out" },
         gravity: { enable: true, acceleration: 2 },
       },
-      shape: { type: "character", options: { character: { value: ["🍃", "🌿"], font: "sans-serif" } } },
+      shape: {
+        type: ["character", "circle"],
+        options: { character: { value: ["🍃", "🌿"], font: "sans-serif" } },
+      },
       rotate: { value: { min: 0, max: 360 }, animation: { enable: true, speed: 4 } },
       wobble: { enable: true, distance: 14, speed: 8 },
     },

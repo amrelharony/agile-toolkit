@@ -34,11 +34,11 @@ export function getHijriDate(date: Date = new Date()): HijriDate {
   return { hYear, hMonth, hDay };
 }
 
-function toInt(raw: string): number {
+export function toInt(raw: string): number {
   // Map Arabic-Indic (U+0660..U+0669) and Extended Arabic-Indic (U+06F0..U+06F9) digits to ASCII
   const normalized = String(raw).replace(/[\u0660-\u0669\u06F0-\u06F9]/g, (d) => {
     const code = d.charCodeAt(0);
-    const base = code >= 0x06F0 ? 0x06F0 : 0x0660;
+    const base = code >= 0x06f0 ? 0x06f0 : 0x0660;
     return String(code - base);
   });
   const parsed = parseInt(normalized.replace(/\D/g, ""), 10);
@@ -55,7 +55,7 @@ function findGregorianRangeForHijri(
   hMonth: number,
   hDayStart: number,
   hDayEnd: number,
-  fromDate: Date = new Date(),
+  fromDate: Date = new Date()
 ): HolidayWindow | null {
   const dayMs = 86_400_000;
   const rangeStartTs = fromDate.getTime() - 45 * dayMs;
@@ -86,7 +86,9 @@ function findGregorianRangeForHijri(
  * Islamic Umm al-Qura holiday detection.  Returns only holidays whose Gregorian
  * window overlaps with a ±45-day scan around `now` so the detection stays cheap.
  */
-export function getIslamicHolidays(now: Date = new Date()): Array<{ id: HolidayId; window: HolidayWindow }> {
+export function getIslamicHolidays(
+  now: Date = new Date()
+): Array<{ id: HolidayId; window: HolidayWindow }> {
   const out: Array<{ id: HolidayId; window: HolidayWindow }> = [];
 
   const push = (id: HolidayId, w: HolidayWindow | null) => {

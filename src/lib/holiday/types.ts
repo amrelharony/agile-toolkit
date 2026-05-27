@@ -30,8 +30,6 @@ export interface HolidayTheme {
   id: HolidayId;
   /** Display name shown in the dismiss chip and settings UI. */
   name: string;
-  /** Higher priority wins when multiple holidays overlap. */
-  priority: number;
   accent: {
     primary: string;
     secondary: string;

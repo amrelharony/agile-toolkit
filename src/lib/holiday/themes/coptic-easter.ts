@@ -4,7 +4,6 @@ import { accentTokens, baseParticleConfig } from "./_shared";
 const theme: HolidayTheme = {
   id: "coptic-easter",
   name: "Coptic Easter",
-  priority: 60,
   accent: { primary: "#f472b6", secondary: "#fde68a", glow: "rgba(244, 114, 182, 0.25)" },
   cssTokens: accentTokens("#f472b6", "#fde68a", "rgba(244, 114, 182, 0.25)"),
   particleConfig: baseParticleConfig({
@@ -20,7 +19,10 @@ const theme: HolidayTheme = {
         outModes: { default: "out" },
         gravity: { enable: true, acceleration: 2 },
       },
-      shape: { type: "character", options: { character: { value: ["🌸", "🌷"], font: "sans-serif" } } },
+      shape: {
+        type: ["character", "circle"],
+        options: { character: { value: ["🌸", "🌷"], font: "sans-serif" } },
+      },
       wobble: { enable: true, distance: 12, speed: 5 },
     },
   }),
