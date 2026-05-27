@@ -43,6 +43,11 @@ export async function GET() {
     .select("id, display_name, color, last_seen_at")
     .eq("squad_id", session.squadId)
     .is("revoked_at", null)
+    // Exclude the caller from their own picker — server-side filter so
+    // any future consumer of this endpoint inherits the behaviour
+    // without having to re-implement the self-filter client-side
+    // (review #14).
+    .neq("id", session.profileId)
     .order("created_at", { ascending: false });
   if (error) {
     // eslint-disable-next-line no-console

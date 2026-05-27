@@ -171,6 +171,13 @@ export function KudosForm({
       previewIdRef.current = newKudosId();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't send kudos");
+      // Regenerate the preview id on failure too. Without this, a
+      // retry attempt — possibly with an edited message — reuses the
+      // same id; the store dedupes correctly, but any peer that
+      // received the partial first broadcast keeps the OLD message
+      // because dedup-by-id replaces in place. Fresh id forces a new
+      // append on every retry.
+      previewIdRef.current = newKudosId();
     } finally {
       setSubmitting(false);
     }

@@ -8,15 +8,21 @@
  * `upsertKudos` → store update → re-render) get the same entry
  * animation thanks to framer-motion's `AnimatePresence` keyed by id.
  *
- * The wall is read-only: clicking a card highlights it (could
- * eventually open a detail modal, but MVP keeps it simple). The
- * download-PNG action lives in the compose form, not here.
+ * Accessibility: the wall is declared `role="feed"` with `aria-live`
+ * polite — when a peer broadcast lands a new card the screen reader
+ * announces it via the card's `aria-label`. The empty state uses
+ * `role="status"` so the "No kudos yet" message is announced too.
+ *
+ * Motion: respects `prefers-reduced-motion`. Reduced-motion users
+ * still see kudos appear, just without the layout shuffle and pop-in.
  */
 
-import { motion, AnimatePresence } from "framer-motion";
+import { useMemo } from "react";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 import type { Kudos } from "@/lib/stores/workspace-types";
 import { KudosCard } from "./kudos-card";
+import { getKudosTheme } from "../types";
 
 interface Props {
   kudos: Kudos[];
@@ -29,9 +35,20 @@ interface Props {
 }
 
 export function KudosWall({ kudos, highlightToProfileId, limit = 50 }: Props) {
+  const reducedMotion = useReducedMotion();
+
+  // Reverse-chrono — newest first. Slice AFTER reverse so we keep the
+  // most-recent N, not the oldest N. Memoised so realtime broadcasts
+  // that don't change the list reference don't re-allocate.
+  const ordered = useMemo(() => kudos.slice().reverse().slice(0, limit), [kudos, limit]);
+
   if (kudos.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/40 bg-surface/40 px-6 py-12 text-center">
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/40 bg-surface/40 px-6 py-12 text-center"
+      >
         <Sparkles className="h-8 w-8 text-accent/40" aria-hidden="true" />
         <p className="text-sm text-text">No kudos yet</p>
         <p className="text-xs text-sub max-w-sm">
@@ -42,20 +59,41 @@ export function KudosWall({ kudos, highlightToProfileId, limit = 50 }: Props) {
     );
   }
 
-  // Reverse-chrono — newest first. Slice AFTER reverse so we keep the
-  // most-recent N, not the oldest N.
-  const ordered = [...kudos].reverse().slice(0, limit);
+  // Reduced-motion path: skip framer-motion entirely. The user still
+  // sees new entries; they just don't pop or shuffle. Avoids the
+  // `layout` cascade that would force 50 cards to animate to their
+  // new positions on every realtime insert.
+  if (reducedMotion) {
+    return (
+      <div role="feed" aria-busy={false} className="flex flex-col gap-3">
+        {ordered.map((k) => (
+          <article
+            key={k.id}
+            aria-label={kudosAriaLabel(k)}
+            className={
+              highlightToProfileId !== undefined && k.toProfileId === highlightToProfileId
+                ? "rounded-xl ring-2 ring-accent/60 ring-offset-2 ring-offset-bg"
+                : ""
+            }
+          >
+            <KudosCard kudos={k} compact />
+          </article>
+        ))}
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div role="feed" aria-busy={false} className="flex flex-col gap-3">
       <AnimatePresence initial={false}>
         {ordered.map((k) => {
           const highlighted =
             highlightToProfileId !== undefined && k.toProfileId === highlightToProfileId;
           return (
-            <motion.div
+            <motion.article
               key={k.id}
               layout
+              aria-label={kudosAriaLabel(k)}
               initial={{ opacity: 0, scale: 0.92, y: -8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
@@ -65,10 +103,21 @@ export function KudosWall({ kudos, highlightToProfileId, limit = 50 }: Props) {
               }
             >
               <KudosCard kudos={k} compact />
-            </motion.div>
+            </motion.article>
           );
         })}
       </AnimatePresence>
     </div>
   );
+}
+
+/**
+ * Build a screen-reader-friendly label so an assistive tech user is
+ * told "Thank You kudos from Alice to Bob: thanks for the review"
+ * rather than just navigating a wall of unlabeled cards.
+ */
+function kudosAriaLabel(k: Kudos): string {
+  const theme = getKudosTheme(k.theme);
+  const messageBrief = k.message.length > 120 ? `${k.message.slice(0, 117)}…` : k.message;
+  return `${theme.title} kudos from ${k.fromName} to ${k.toName}: ${messageBrief}`;
 }
