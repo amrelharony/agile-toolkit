@@ -56,7 +56,7 @@ function risingSunAnimate(svg: SVGSVGElement, ctx: HolidayOverlayContext): () =>
   };
 }
 
-const risingSun = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 100" width="200" height="160" data-holiday-svg="rising-sun">
+const risingSun = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 100" width="280" height="232" data-holiday-svg="rising-sun" style="overflow:visible;">
   <defs>
     <radialGradient id="sun-corona-grad" cx="50%" cy="50%" r="60%">
       <stop offset="0%" stop-color="rgba(254, 240, 138, 0.7)"/>
@@ -84,7 +84,7 @@ const theme: HolidayTheme = {
   cssTokens: accentTokens(PRIMARY, SECONDARY, GLOW),
   particleConfig: baseParticleConfig({
     particles: {
-      number: { value: 36, density: { enable: true } },
+      number: { value: 12, density: { enable: true } },
       color: { value: ["#84cc16", "#fef08a", "#bef264"] },
       opacity: { value: { min: 0.35, max: 0.8 } },
       size: { value: { min: 10, max: 18 } },

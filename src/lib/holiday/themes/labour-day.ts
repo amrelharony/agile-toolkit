@@ -43,7 +43,7 @@ function workersBannerAnimate(svg: SVGSVGElement, ctx: HolidayOverlayContext): (
   };
 }
 
-const workersBanner = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 80" width="180" height="80" data-holiday-svg="labour-banner" style="filter:drop-shadow(0 4px 12px rgba(0,0,0,0.3));">
+const workersBanner = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 80" width="280" height="124" data-holiday-svg="labour-banner" style="overflow:visible;filter:drop-shadow(0 6px 18px rgba(0,0,0,0.4));">
   <g data-ld-banner>
     <path d="M 4 4 L 168 4 L 176 36 L 168 68 L 4 68 Z" fill="#dc2626"/>
     <path d="M 4 4 L 168 4 L 176 36 L 168 68 L 4 68 Z" fill="url(#ld-shade)" opacity="0.4"/>
@@ -69,7 +69,7 @@ const theme: HolidayTheme = {
   cssTokens: accentTokens(PRIMARY, SECONDARY, GLOW),
   particleConfig: baseParticleConfig({
     particles: {
-      number: { value: 28, density: { enable: true } },
+      number: { value: 10, density: { enable: true } },
       color: { value: ["#dc2626", "#ef4444", "#fca5a5", "#fde047"] },
       opacity: { value: { min: 0.3, max: 0.7 }, animation: { enable: true, speed: 0.8 } },
       size: { value: { min: 2, max: 4 } },

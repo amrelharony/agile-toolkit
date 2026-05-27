@@ -114,14 +114,26 @@ export function constellationLinks(color: string, opacity = 0.18, distance = 120
 // Reusable SVG fragments
 // ---------------------------------------------------------------------------
 
-/** Egyptian flag SVG. Used by jan-25, jun-30, jul-23, sinai-liberation (and a
- *  red variant for labour-day). The eagle is heavily simplified to a single
- *  recognizable silhouette so it reads at small sizes. */
-export function egyptianFlag(opts: { width?: number; eagle?: boolean } = {}): string {
-  const w = opts.width ?? 160;
-  const h = Math.round(w * 0.6);
+/** Egyptian flag SVG with optional Arabic caption below. Used by all
+ *  Egyptian national-day themes. The flag itself is the recognizable
+ *  signature; the Arabic caption disambiguates which holiday it is, so a
+ *  visitor opening the page on Jan 25 immediately understands the context.
+ *  The eagle on the white stripe is heavily simplified to a single readable
+ *  silhouette at small sizes. */
+export function egyptianFlag(
+  opts: {
+    width?: number;
+    eagle?: boolean;
+    captionAr?: string;
+    captionEn?: string;
+  } = {}
+): string {
+  const w = opts.width ?? 280;
+  const flagH = Math.round(w * 0.6);
+  const hasCaption = !!(opts.captionAr || opts.captionEn);
+  const totalH = flagH + (hasCaption ? 50 : 0);
   const eagle = opts.eagle ?? true;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 60" width="${w}" height="${h}" data-holiday-svg="egypt-flag" style="filter:drop-shadow(0 4px 16px rgba(0,0,0,0.35));">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 ${hasCaption ? 78 : 60}" width="${w}" height="${totalH}" data-holiday-svg="egypt-flag" style="overflow:visible;filter:drop-shadow(0 8px 18px rgba(0,0,0,0.4));">
     <defs>
       <linearGradient id="egflag-shade" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="rgba(255,255,255,0.18)"/>
@@ -144,6 +156,20 @@ export function egyptianFlag(opts: { width?: number; eagle?: boolean } = {}): st
       }
       <rect x="0" y="0" width="100" height="60" fill="url(#egflag-shade)" opacity="0.7"/>
     </g>
+    ${
+      opts.captionAr
+        ? `<text data-holiday-caption-ar x="50" y="70" text-anchor="middle"
+            font-family="'Amiri','Scheherazade New','Noto Naskh Arabic',Georgia,serif"
+            font-size="7" font-weight="700" fill="#fcd116" direction="rtl">${opts.captionAr}</text>`
+        : ""
+    }
+    ${
+      opts.captionEn
+        ? `<text data-holiday-caption-en x="50" y="76" text-anchor="middle"
+            font-family="'Inter',sans-serif"
+            font-size="3" font-weight="500" fill="#ffffff" opacity="0.7" letter-spacing="2">${opts.captionEn}</text>`
+        : ""
+    }
   </svg>`;
 }
 

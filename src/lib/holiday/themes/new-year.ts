@@ -52,7 +52,7 @@ function yearAnimate(svg: SVGSVGElement, ctx: HolidayOverlayContext): () => void
   };
 }
 
-const yearSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120" width="340" height="128" data-holiday-svg="new-year-banner" style="filter:drop-shadow(0 0 24px rgba(255,215,0,0.5));">
+const yearSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120" width="420" height="158" data-holiday-svg="new-year-banner" style="overflow:visible;filter:drop-shadow(0 0 28px rgba(255,215,0,0.6));">
   <text data-ny-year x="50%" y="62%" text-anchor="middle" font-family="'Source Serif 4', Georgia, serif" font-size="60" font-weight="700" fill="#ffd700" letter-spacing="2">2026</text>
   <rect data-ny-underline x="120" y="80" width="80" height="2" fill="#ff00aa" rx="1"/>
   <text data-ny-sub x="50%" y="92%" text-anchor="middle" font-family="'Inter', sans-serif" font-size="11" font-weight="500" fill="#ffd700" opacity="0.75" letter-spacing="8">HAPPY NEW YEAR</text>
@@ -65,7 +65,7 @@ const theme: HolidayTheme = {
   cssTokens: accentTokens(PRIMARY, SECONDARY, GLOW),
   particleConfig: baseParticleConfig({
     particles: {
-      number: { value: 50, density: { enable: true } },
+      number: { value: 18, density: { enable: true } },
       color: { value: ["#ffd700", "#ff00aa", "#00e1ff", "#ffffff"] },
       opacity: { value: { min: 0.5, max: 1 }, animation: { enable: true, speed: 2, sync: false } },
       size: { value: { min: 1.5, max: 4 } },
@@ -81,20 +81,14 @@ const theme: HolidayTheme = {
       life: { duration: { value: 3 }, count: 1 },
       rotate: { value: { min: 0, max: 360 }, animation: { enable: true, speed: 5 } },
     },
-    emitters: [
-      {
-        position: { x: 15, y: 100 },
-        rate: { delay: 0.35, quantity: 8 },
-        size: { width: 0, height: 0 },
-        direction: "top",
-      },
-      {
-        position: { x: 85, y: 100 },
-        rate: { delay: 0.45, quantity: 8 },
-        size: { width: 0, height: 0 },
-        direction: "top",
-      },
-    ],
+    // Single corner emitter — two felt noisy and the year-banner is doing
+    // the centerpiece work.
+    emitters: {
+      position: { x: 50, y: 100 },
+      rate: { delay: 0.8, quantity: 4 },
+      size: { width: 40, height: 0, mode: "percent" },
+      direction: "top",
+    },
     interactivity: combineInteractivity(
       clickBurst({ quantity: 14 }),
       hoverAttract({ distance: 140, duration: 0.4 })

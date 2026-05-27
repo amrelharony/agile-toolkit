@@ -52,7 +52,7 @@ function snowflakeAnimate(svg: SVGSVGElement, ctx: HolidayOverlayContext): () =>
   };
 }
 
-const snowflakeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="170" height="170" data-holiday-svg="snowflake" style="filter:drop-shadow(0 0 12px rgba(255,255,255,0.7));">
+const snowflakeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="240" height="240" data-holiday-svg="snowflake" style="overflow:visible;filter:drop-shadow(0 0 16px rgba(255,255,255,0.8));">
   <g data-cc-flake stroke="#ffffff" stroke-width="1.5" fill="none" stroke-linecap="round">
     ${[0, 60, 120, 180, 240, 300]
       .map(
@@ -78,7 +78,7 @@ const theme: HolidayTheme = {
   cssTokens: accentTokens(PRIMARY, SECONDARY, GLOW),
   particleConfig: baseParticleConfig({
     particles: {
-      number: { value: 50, density: { enable: true } },
+      number: { value: 14, density: { enable: true } },
       color: { value: "#ffffff" },
       opacity: { value: { min: 0.4, max: 0.9 } },
       size: { value: { min: 2, max: 5 } },

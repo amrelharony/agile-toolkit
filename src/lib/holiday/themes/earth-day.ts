@@ -70,7 +70,7 @@ function rotatingGlobeAnimate(svg: SVGSVGElement, ctx: HolidayOverlayContext): (
   };
 }
 
-const globeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="170" height="170" data-holiday-svg="earth-globe" style="filter:drop-shadow(0 0 12px rgba(82, 183, 136, 0.5));">
+const globeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="240" height="240" data-holiday-svg="earth-globe" style="overflow:visible;filter:drop-shadow(0 0 18px rgba(82, 183, 136, 0.55));">
   <defs>
     <radialGradient id="ed-halo-grad" cx="50%" cy="50%" r="55%">
       <stop offset="0%" stop-color="rgba(149, 213, 178, 0.45)"/>
@@ -106,7 +106,7 @@ const theme: HolidayTheme = {
   cssTokens: accentTokens(PRIMARY, SECONDARY, GLOW),
   particleConfig: baseParticleConfig({
     particles: {
-      number: { value: 42, density: { enable: true } },
+      number: { value: 12, density: { enable: true } },
       color: { value: ["#52b788", "#95d5b2", "#40916c", "#74c69d"] },
       opacity: { value: { min: 0.5, max: 0.9 } },
       size: { value: { min: 8, max: 16 } },

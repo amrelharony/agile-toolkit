@@ -58,7 +58,7 @@ function ornateCrossAnimate(svg: SVGSVGElement, ctx: HolidayOverlayContext): () 
   };
 }
 
-const ornateCross = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="150" height="150" data-holiday-svg="coptic-cross">
+const ornateCross = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="220" height="220" data-holiday-svg="coptic-cross" style="overflow:visible;">
   <defs>
     <radialGradient id="ce-halo-grad" cx="50%" cy="50%" r="55%">
       <stop offset="0%" stop-color="rgba(253, 230, 138, 0.55)"/>
@@ -93,7 +93,7 @@ const theme: HolidayTheme = {
   cssTokens: accentTokens(PRIMARY, SECONDARY, GLOW),
   particleConfig: baseParticleConfig({
     particles: {
-      number: { value: 36, density: { enable: true } },
+      number: { value: 14, density: { enable: true } },
       color: { value: ["#f472b6", "#fde68a", "#c084fc", "#fbcfe8"] },
       opacity: { value: { min: 0.4, max: 0.85 } },
       size: { value: { min: 10, max: 18 } },

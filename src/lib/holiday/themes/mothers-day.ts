@@ -51,7 +51,7 @@ function heartBeatAnimate(svg: SVGSVGElement, ctx: HolidayOverlayContext): () =>
   };
 }
 
-const heartSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 140" width="160" height="186" data-holiday-svg="mothers-heart" style="filter:drop-shadow(0 4px 16px rgba(255, 107, 157, 0.6));">
+const heartSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 140" width="220" height="256" data-holiday-svg="mothers-heart" style="overflow:visible;filter:drop-shadow(0 6px 20px rgba(255, 107, 157, 0.65));">
   <defs>
     <radialGradient id="md-halo-grad" cx="50%" cy="50%" r="55%">
       <stop offset="0%" stop-color="rgba(255, 179, 198, 0.5)"/>
@@ -79,7 +79,7 @@ const theme: HolidayTheme = {
   cssTokens: accentTokens(PRIMARY, SECONDARY, GLOW),
   particleConfig: baseParticleConfig({
     particles: {
-      number: { value: 38, density: { enable: true } },
+      number: { value: 12, density: { enable: true } },
       color: { value: ["#ff6b9d", "#ffb3c6", "#ff8fab"] },
       opacity: { value: { min: 0.4, max: 0.85 } },
       size: { value: { min: 6, max: 14 } },

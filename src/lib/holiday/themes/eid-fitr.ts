@@ -41,7 +41,7 @@ const theme: HolidayTheme = {
   cssTokens: accentTokens(PRIMARY, SECONDARY, GLOW),
   particleConfig: baseParticleConfig({
     particles: {
-      number: { value: 50, density: { enable: true } },
+      number: { value: 18, density: { enable: true } },
       color: { value: ["#ffd700", "#00e1ff", "#ff00aa", "#ffffff", "#fbbf24"] },
       opacity: { value: { min: 0.4, max: 1 }, animation: { enable: true, speed: 2 } },
       size: { value: { min: 1, max: 3 } },
@@ -58,28 +58,14 @@ const theme: HolidayTheme = {
       effect: { type: "trail", options: { trail: { length: 8, fade: true } } },
       life: { duration: { value: 1.8 }, count: 1 },
     },
-    emitters: [
-      // Big bursts from three corners on a staggered cadence so the screen
-      // never has a quiet moment.
-      {
-        position: { x: 25, y: 35 },
-        rate: { delay: 1.4, quantity: 22 },
-        direction: "none",
-        size: { width: 0, height: 0 },
-      },
-      {
-        position: { x: 75, y: 45 },
-        rate: { delay: 1.9, quantity: 24 },
-        direction: "none",
-        size: { width: 0, height: 0 },
-      },
-      {
-        position: { x: 50, y: 75 },
-        rate: { delay: 2.3, quantity: 28 },
-        direction: "none",
-        size: { width: 0, height: 0 },
-      },
-    ],
+    // Single celebratory firework every ~2.4s — three was a wall of sparks
+    // and the "Eid Mubarak" banner couldn't breathe.
+    emitters: {
+      position: { x: 50, y: 60 },
+      rate: { delay: 2.4, quantity: 14 },
+      direction: "none",
+      size: { width: 0, height: 0 },
+    },
     interactivity: combineInteractivity(
       // Click anywhere = mini firework burst at the cursor.
       clickBurst({ quantity: 14 }),

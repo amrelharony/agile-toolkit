@@ -125,7 +125,7 @@ const theme: HolidayTheme = {
   cssTokens: accentTokens(PRIMARY, SECONDARY, GLOW),
   particleConfig: baseParticleConfig({
     particles: {
-      number: { value: 34, density: { enable: true } },
+      number: { value: 14, density: { enable: true } },
       color: { value: ["#f97316", "#a855f7", "#fbbf24"] },
       opacity: { value: { min: 0.4, max: 0.85 } },
       size: { value: { min: 10, max: 16 } },

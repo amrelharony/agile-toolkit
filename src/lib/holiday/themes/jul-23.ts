@@ -21,7 +21,7 @@ const theme: HolidayTheme = {
   cssTokens: accentTokens(PRIMARY, SECONDARY, GLOW),
   particleConfig: baseParticleConfig({
     particles: {
-      number: { value: 38, density: { enable: true } },
+      number: { value: 12, density: { enable: true } },
       // July 23 leans more celebratory — gold gets brighter weight.
       color: { value: ["#ce1126", "#ffffff", "#000000", "#fcd116", "#fde047"] },
       opacity: { value: { min: 0.4, max: 0.9 }, animation: { enable: true, speed: 1.2 } },
@@ -40,7 +40,11 @@ const theme: HolidayTheme = {
       hoverRepel({ distance: 130, duration: 0.4 })
     ),
   }),
-  overlay: makeOverlay(egyptianFlag({ width: 180 }), wavingFlagAnimate, "top-right"),
+  overlay: makeOverlay(
+    egyptianFlag({ width: 300, captionAr: "ثورة 23 يوليو", captionEn: "JUL 23 REVOLUTION" }),
+    wavingFlagAnimate,
+    "top-right"
+  ),
   accessibility: { reducedMotionFallback: "accent-only" },
 };
 export default theme;

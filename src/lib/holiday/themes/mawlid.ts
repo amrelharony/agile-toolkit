@@ -4,7 +4,6 @@ import {
   baseParticleConfig,
   clickBurst,
   combineInteractivity,
-  constellationLinks,
   hoverAttract,
   makeOverlay,
 } from "./_shared";
@@ -44,7 +43,7 @@ function geometricStarAnimate(svg: SVGSVGElement, ctx: HolidayOverlayContext): (
   };
 }
 
-const geometricStar = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="160" height="160" data-holiday-svg="mawlid-star">
+const geometricStar = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="240" height="240" data-holiday-svg="mawlid-star" style="overflow:visible;">
   <defs>
     <radialGradient id="mwl-glow" cx="50%" cy="50%" r="55%">
       <stop offset="0%" stop-color="rgba(251, 191, 36, 0.4)"/>
@@ -68,13 +67,14 @@ const theme: HolidayTheme = {
   cssTokens: accentTokens(PRIMARY, SECONDARY, GLOW),
   particleConfig: baseParticleConfig({
     particles: {
-      number: { value: 40, density: { enable: true } },
+      number: { value: 12, density: { enable: true } },
       color: { value: ["#fbbf24", "#10b981", "#ffffff"] },
       opacity: { value: { min: 0.4, max: 0.9 }, animation: { enable: true, speed: 0.8 } },
       size: { value: { min: 2, max: 5 } },
       move: { enable: true, speed: 0.6, direction: "none" },
       shape: { type: "star" },
-      links: constellationLinks("#10b981", 0.2, 110),
+      // No constellation links — they read as noise here. The geometric
+      // 8-point star overlay carries the recognizable iconography.
     },
     interactivity: combineInteractivity(
       clickBurst({ quantity: 10 }),
