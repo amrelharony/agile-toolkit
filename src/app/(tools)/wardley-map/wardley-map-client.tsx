@@ -18,13 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Plus,
-  Trash2,
-  Map as MapIcon,
-  GitBranch,
-  TrendingUp,
-} from "lucide-react";
+import { Plus, Trash2, Map as MapIcon, GitBranch, TrendingUp } from "lucide-react";
 import { generateWardleyMapPrompts } from "@/lib/ai-prompts/wardley-map";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -92,10 +86,7 @@ function NumDraftInput({ value, onCommit, ariaLabel }: NumDraftInputProps) {
     // Don't clobber the user's in-progress typing. If the field is focused,
     // we trust the local draft until blur. Also skip syncing when the
     // upstream value already matches what we last committed.
-    if (
-      typeof document !== "undefined" &&
-      document.activeElement === inputRef.current
-    ) {
+    if (typeof document !== "undefined" && document.activeElement === inputRef.current) {
       return;
     }
     if (value === lastCommittedRef.current) return;
@@ -144,10 +135,7 @@ function toY(visibility: number): number {
 }
 
 export function WardleyMapClient() {
-  const [state, setState] = usePersisted<State>(
-    "agile-toolkit:wardley-map",
-    DEFAULT_STATE
-  );
+  const [state, setState] = usePersisted<State>("agile-toolkit:wardley-map", DEFAULT_STATE);
   const [draft, setDraft] = useState({
     name: "",
     evolution: "0.50",
@@ -205,10 +193,7 @@ export function WardleyMapClient() {
     });
   };
 
-  const moveComponent = (
-    id: string,
-    patch: { evolution?: number; visibility?: number }
-  ) => {
+  const moveComponent = (id: string, patch: { evolution?: number; visibility?: number }) => {
     setState((s) => ({
       ...s,
       components: s.components.map((c) =>
@@ -230,9 +215,7 @@ export function WardleyMapClient() {
   const addLink = () => {
     const { fromId, toId } = linkDraft;
     if (!fromId || !toId || fromId === toId) return;
-    if (
-      state.links.some((l) => l.fromId === fromId && l.toId === toId)
-    ) {
+    if (state.links.some((l) => l.fromId === fromId && l.toId === toId)) {
       return;
     }
     const l: Link = { id: newId(), fromId, toId };
@@ -256,14 +239,11 @@ export function WardleyMapClient() {
   }, [state.components, state.links]);
 
   const stats = useMemo(() => {
-    const commodity = state.components.filter(
-      (c) => c.evolution >= 0.75
-    ).length;
+    const commodity = state.components.filter((c) => c.evolution >= 0.75).length;
     const avgEvo =
       state.components.length === 0
         ? 0
-        : state.components.reduce((s, c) => s + c.evolution, 0) /
-          state.components.length;
+        : state.components.reduce((s, c) => s + c.evolution, 0) / state.components.length;
     return {
       total: state.components.length,
       commodity,
@@ -303,8 +283,7 @@ export function WardleyMapClient() {
     [state.components, validLinks, workspace]
   );
 
-  const componentById = (id: string) =>
-    state.components.find((c) => c.id === id);
+  const componentById = (id: string) => state.components.find((c) => c.id === id);
 
   return (
     <ToolPageWrapper
@@ -366,12 +345,7 @@ export function WardleyMapClient() {
           value={stats.total}
           valueClassName="text-accent"
         />
-        <StatCard
-          variant="compact"
-          icon={GitBranch}
-          label="Links"
-          value={stats.links}
-        />
+        <StatCard variant="compact" icon={GitBranch} label="Links" value={stats.links} />
         <StatCard
           variant="compact"
           label="Commodity"
@@ -509,12 +483,7 @@ export function WardleyMapClient() {
                       stroke="var(--bg)"
                       strokeWidth={2}
                     />
-                    <text
-                      x={cx + 8}
-                      y={cy + 3}
-                      fontSize={10}
-                      fill="var(--text)"
-                    >
+                    <text x={cx + 8} y={cy + 3} fontSize={10} fill="var(--text)">
                       {c.name}
                     </text>
                   </g>
@@ -547,9 +516,7 @@ export function WardleyMapClient() {
                   max={1}
                   step={0.05}
                   value={draft.evolution}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, evolution: e.target.value }))
-                  }
+                  onChange={(e) => setDraft((d) => ({ ...d, evolution: e.target.value }))}
                   onBlur={(e) => {
                     // `Number(x) || 0.5` collapses 0 to 0.5 — use Number.isFinite
                     // so a deliberate 0 (Genesis) survives.
@@ -571,9 +538,7 @@ export function WardleyMapClient() {
                   max={1}
                   step={0.05}
                   value={draft.visibility}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, visibility: e.target.value }))
-                  }
+                  onChange={(e) => setDraft((d) => ({ ...d, visibility: e.target.value }))}
                   onBlur={(e) => {
                     // `Number(x) || 0.5` collapses 0 to 0.5 — use Number.isFinite
                     // so a deliberate 0 (infrastructure) survives.
@@ -588,9 +553,7 @@ export function WardleyMapClient() {
             </div>
             <Textarea
               value={draft.description}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, description: e.target.value }))
-              }
+              onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
               placeholder="Description (optional)..."
               rows={2}
               className="bg-bg border-border resize-none text-xs"
@@ -612,9 +575,7 @@ export function WardleyMapClient() {
       {state.components.length > 0 && (
         <Card className="bg-surface border-border mb-6">
           <CardContent className="p-4">
-            <div className="text-sm font-semibold text-text mb-2">
-              Components
-            </div>
+            <div className="text-sm font-semibold text-text mb-2">Components</div>
             <div className="space-y-2">
               {state.components.map((c) => (
                 <div
@@ -627,15 +588,11 @@ export function WardleyMapClient() {
                       {evolutionStage(c.evolution)}
                     </div>
                     {c.description && (
-                      <div className="text-[11px] text-sub mt-0.5 break-words">
-                        {c.description}
-                      </div>
+                      <div className="text-[11px] text-sub mt-0.5 break-words">{c.description}</div>
                     )}
                   </div>
                   <div className="flex items-center gap-1">
-                    <span className="text-[10px] uppercase tracking-wider text-sub">
-                      evo
-                    </span>
+                    <span className="text-[10px] uppercase tracking-wider text-sub">evo</span>
                     <NumDraftInput
                       value={c.evolution}
                       onCommit={(n) => moveComponent(c.id, { evolution: n })}
@@ -643,9 +600,7 @@ export function WardleyMapClient() {
                     />
                   </div>
                   <div className="flex items-center gap-1">
-                    <span className="text-[10px] uppercase tracking-wider text-sub">
-                      vis
-                    </span>
+                    <span className="text-[10px] uppercase tracking-wider text-sub">vis</span>
                     <NumDraftInput
                       value={c.visibility}
                       onCommit={(n) => moveComponent(c.id, { visibility: n })}
@@ -655,12 +610,12 @@ export function WardleyMapClient() {
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    size="icon"
                     onClick={() => removeComponent(c.id)}
-                    className="text-sub hover:text-danger h-6 w-6 p-0"
+                    className="text-sub hover:text-danger md:min-h-0 md:min-w-0 md:h-7 md:w-7 p-0 flex-shrink-0"
                     aria-label={`Remove ${c.name}`}
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-4 h-4 md:w-3.5 md:h-3.5" />
                   </Button>
                 </div>
               ))}
@@ -677,14 +632,9 @@ export function WardleyMapClient() {
             <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
               <Select
                 value={linkDraft.fromId || undefined}
-                onValueChange={(v) =>
-                  setLinkDraft((p) => ({ ...p, fromId: v }))
-                }
+                onValueChange={(v) => setLinkDraft((p) => ({ ...p, fromId: v }))}
               >
-                <SelectTrigger
-                  className="bg-bg border-border"
-                  aria-label="From component"
-                >
+                <SelectTrigger className="bg-bg border-border" aria-label="From component">
                   <SelectValue placeholder="From..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -697,14 +647,9 @@ export function WardleyMapClient() {
               </Select>
               <Select
                 value={linkDraft.toId || undefined}
-                onValueChange={(v) =>
-                  setLinkDraft((p) => ({ ...p, toId: v }))
-                }
+                onValueChange={(v) => setLinkDraft((p) => ({ ...p, toId: v }))}
               >
-                <SelectTrigger
-                  className="bg-bg border-border"
-                  aria-label="To component"
-                >
+                <SelectTrigger className="bg-bg border-border" aria-label="To component">
                   <SelectValue placeholder="To..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -718,9 +663,7 @@ export function WardleyMapClient() {
               <Button
                 onClick={addLink}
                 disabled={
-                  !linkDraft.fromId ||
-                  !linkDraft.toId ||
-                  linkDraft.fromId === linkDraft.toId
+                  !linkDraft.fromId || !linkDraft.toId || linkDraft.fromId === linkDraft.toId
                 }
                 className="gap-2 bg-accent text-bg hover:bg-accent/90 disabled:opacity-50"
               >
@@ -731,23 +674,19 @@ export function WardleyMapClient() {
             {validLinks.length > 0 && (
               <div className="space-y-1 pt-2">
                 {validLinks.map((l) => (
-                  <div
-                    key={l.id}
-                    className="flex items-center gap-2 text-xs text-text"
-                  >
+                  <div key={l.id} className="flex items-center gap-2 text-xs text-text">
                     <span>
-                      {componentById(l.fromId)?.name} →{" "}
-                      {componentById(l.toId)?.name}
+                      {componentById(l.fromId)?.name} → {componentById(l.toId)?.name}
                     </span>
                     <Button
                       type="button"
                       variant="ghost"
-                      size="sm"
+                      size="icon"
                       onClick={() => removeLink(l.id)}
-                      className="text-sub hover:text-danger h-5 w-5 p-0 ml-auto"
+                      className="text-sub hover:text-danger md:min-h-0 md:min-w-0 md:h-6 md:w-6 p-0 ml-auto flex-shrink-0"
                       aria-label="Remove link"
                     >
-                      <Trash2 className="w-3 h-3" />
+                      <Trash2 className="w-4 h-4 md:w-3 md:h-3" />
                     </Button>
                   </div>
                 ))}

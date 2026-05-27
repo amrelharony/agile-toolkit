@@ -86,11 +86,19 @@ export function LlmSettingsDialog() {
         </DialogHeader>
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as ProviderId)}>
-          <TabsList className="grid grid-cols-4 w-full bg-surface border border-border">
+          {/*
+           * `grid-cols-4` previously forced four equal columns regardless
+           * of viewport — at 320 px each tab clamped to ~70 px and the
+           * provider names "Anthropic" / "Mistral" truncated. The shared
+           * TabsList now supplies overflow-x-auto + shrink-0 triggers, so
+           * the natural-width labels swipe horizontally on narrow screens
+           * and sit comfortably side-by-side on wider ones.
+           */}
+          <TabsList className="w-full bg-surface border border-border justify-start gap-1">
             {PROVIDER_IDS.map((id) => {
               const configured = !!providers[id]?.apiKey;
               return (
-                <TabsTrigger key={id} value={id} className="relative">
+                <TabsTrigger key={id} value={id} className="relative flex-1 sm:flex-initial">
                   {PROVIDER_META[id].name}
                   {configured && (
                     <span
@@ -130,7 +138,7 @@ export function LlmSettingsDialog() {
         <div className="rounded-lg border border-border bg-surface p-4 space-y-3 text-xs text-sub">
           <div>
             <Label className="text-xs text-text">Key storage</Label>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 flex flex-col sm:flex-row gap-2">
               <button
                 type="button"
                 onClick={() => setStorageMode("session")}
@@ -164,7 +172,7 @@ export function LlmSettingsDialog() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Label htmlFor="llm-max-tokens" className="text-xs text-text shrink-0">
               Max output tokens per call
             </Label>

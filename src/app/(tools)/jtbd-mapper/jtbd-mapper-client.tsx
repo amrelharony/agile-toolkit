@@ -351,7 +351,7 @@ export function JtbdMapperClient() {
 
       <div className="rounded-lg border border-border bg-surface p-4 mb-4">
         <div className="text-xs uppercase tracking-wider text-sub mb-3">Add job story</div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
           <Input
             value={situation}
             onChange={(e) => setSituation(e.target.value)}

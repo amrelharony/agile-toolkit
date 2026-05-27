@@ -1061,7 +1061,7 @@ export function PrioritizerClient() {
     >
       <div className="space-y-6">
         {/* Actions row */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <Button variant="danger-ghost" size="sm" onClick={reset}>
             Reset to defaults
           </Button>

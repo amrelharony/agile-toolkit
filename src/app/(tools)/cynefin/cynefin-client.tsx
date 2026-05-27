@@ -11,7 +11,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { CynefinItem, Workspace } from "@/lib/stores/workspace-types";
@@ -21,11 +25,36 @@ import { CYNEFIN_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
 
 const DOMAINS: { id: CynefinItem["domain"]; label: string; color: string; recipe: string }[] = [
-  { id: "clear", label: "Clear", color: "#00ff88", recipe: "Sense → Categorise → Respond. Apply best practice." },
-  { id: "complicated", label: "Complicated", color: "#00f0ff", recipe: "Sense → Analyse → Respond. Bring in experts." },
-  { id: "complex", label: "Complex", color: "#9d4edd", recipe: "Probe → Sense → Respond. Run safe-to-fail experiments." },
-  { id: "chaotic", label: "Chaotic", color: "#ff6b6b", recipe: "Act → Sense → Respond. Stabilise first, then learn." },
-  { id: "confused", label: "Confused", color: "#888", recipe: "Break the problem into smaller domain-tagged pieces." },
+  {
+    id: "clear",
+    label: "Clear",
+    color: "#00ff88",
+    recipe: "Sense → Categorise → Respond. Apply best practice.",
+  },
+  {
+    id: "complicated",
+    label: "Complicated",
+    color: "#00f0ff",
+    recipe: "Sense → Analyse → Respond. Bring in experts.",
+  },
+  {
+    id: "complex",
+    label: "Complex",
+    color: "#9d4edd",
+    recipe: "Probe → Sense → Respond. Run safe-to-fail experiments.",
+  },
+  {
+    id: "chaotic",
+    label: "Chaotic",
+    color: "#ff6b6b",
+    recipe: "Act → Sense → Respond. Stabilise first, then learn.",
+  },
+  {
+    id: "confused",
+    label: "Confused",
+    color: "#888",
+    recipe: "Break the problem into smaller domain-tagged pieces.",
+  },
 ];
 
 export function CynefinClient() {
@@ -52,8 +81,14 @@ export function CynefinClient() {
     };
     upsert(item);
     log(CYNEFIN_ACTIONS.ITEM_ADDED, { title: item.title, domain });
-    emitSignal({ kind: "decision.cynefinClassified", at: item.loggedAt, toolId: "cynefin", payload: item });
-    setTitle(""); setRationale("");
+    emitSignal({
+      kind: "decision.cynefinClassified",
+      at: item.loggedAt,
+      toolId: "cynefin",
+      payload: item,
+    });
+    setTitle("");
+    setRationale("");
   }
 
   function reclassify(id: string, d: CynefinItem["domain"]) {
@@ -64,7 +99,13 @@ export function CynefinClient() {
   }
 
   const grouped = useMemo(() => {
-    const m: Record<CynefinItem["domain"], CynefinItem[]> = { clear: [], complicated: [], complex: [], chaotic: [], confused: [] };
+    const m: Record<CynefinItem["domain"], CynefinItem[]> = {
+      clear: [],
+      complicated: [],
+      complex: [],
+      chaotic: [],
+      confused: [],
+    };
     for (const it of list) {
       // Defensive lookup — pre-2014 Cynefin called the bottom-right
       // domain "simple" (now "clear"). A persisted item with that
@@ -78,18 +119,31 @@ export function CynefinClient() {
     return m;
   }, [list]);
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    cynefinItems: s.cynefinItems,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        cynefinItems: s.cynefinItems,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Cynefin Decision Picker",
-    prompts: generateCynefinPrompts({ grouped }, workspace),
-  }), [grouped, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Cynefin Decision Picker",
+      prompts: generateCynefinPrompts({ grouped }, workspace),
+    }),
+    [grouped, workspace]
+  );
 
   const csvData = {
     headers: ["Title", "Domain", "Rationale", "Recommended action"],
@@ -104,16 +158,40 @@ export function CynefinClient() {
     >
       <div ref={exportRef} className="space-y-4">
         <SectionCard title="Classify a problem" icon={Plus}>
-          <Input placeholder="Problem / decision" value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Problem or decision title" />
+          <Input
+            placeholder="Problem / decision"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            aria-label="Problem or decision title"
+          />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
             <Select value={domain} onValueChange={(v) => setDomain(v as CynefinItem["domain"])}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{DOMAINS.map((d) => <SelectItem key={d.id} value={d.id}>{d.label}</SelectItem>)}</SelectContent>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {DOMAINS.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>
+                    {d.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
-            <p className="text-xs text-sub italic flex items-center">{DOMAINS.find((d) => d.id === domain)?.recipe}</p>
+            <p className="text-xs text-sub italic flex items-center">
+              {DOMAINS.find((d) => d.id === domain)?.recipe}
+            </p>
           </div>
-          <Textarea placeholder="Why this domain? (rationale)" value={rationale} onChange={(e) => setRationale(e.target.value)} rows={2} className="mt-2" />
-          <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Classify</Button>
+          <Textarea
+            placeholder="Why this domain? (rationale)"
+            value={rationale}
+            onChange={(e) => setRationale(e.target.value)}
+            rows={2}
+            className="mt-2"
+          />
+          <Button onClick={add} className="mt-3 gap-1">
+            <Plus className="w-4 h-4" />
+            Classify
+          </Button>
         </SectionCard>
 
         <SectionCard
@@ -122,27 +200,57 @@ export function CynefinClient() {
           actions={
             <>
               <AiPromptGenerator config={promptConfig} />
-              <ExportButton filename="cynefin" csvData={csvData} jsonData={list} targetRef={exportRef} />
+              <ExportButton
+                filename="cynefin"
+                csvData={csvData}
+                jsonData={list}
+                targetRef={exportRef}
+              />
             </>
           }
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {DOMAINS.map((d) => (
-              <div key={d.id} className="border border-border rounded p-3 bg-surface-deep">
+              <div key={d.id} className="border border-border rounded p-3 bg-surface-deep min-w-0">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-bold uppercase" style={{ color: d.color }}>{d.label}</span>
+                  <span className="font-bold uppercase" style={{ color: d.color }}>
+                    {d.label}
+                  </span>
                   <span className="text-xs text-sub">{grouped[d.id].length}</span>
                 </div>
                 <p className="text-xs text-sub italic mb-2">{d.recipe}</p>
                 <ul className="space-y-1.5 text-sm">
                   {grouped[d.id].map((it) => (
                     <li key={it.id} className="flex items-center gap-2">
-                      <Select value={it.domain} onValueChange={(v) => reclassify(it.id, v as CynefinItem["domain"])}>
-                        <SelectTrigger className="h-7 w-32 text-xs" aria-label={`Cynefin domain for ${it.title}`}><SelectValue /></SelectTrigger>
-                        <SelectContent>{DOMAINS.map((opt) => <SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>)}</SelectContent>
+                      <Select
+                        value={it.domain}
+                        onValueChange={(v) => reclassify(it.id, v as CynefinItem["domain"])}
+                      >
+                        <SelectTrigger
+                          className="h-7 w-32 text-xs"
+                          aria-label={`Cynefin domain for ${it.title}`}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DOMAINS.map((opt) => (
+                            <SelectItem key={opt.id} value={opt.id}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
                       </Select>
-                      <span className="flex-1 truncate text-text">{it.title}</span>
-                      <button onClick={() => { removeOne(it.id); log(CYNEFIN_ACTIONS.ITEM_REMOVED, { id: it.id }); }} aria-label="Remove item" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                      <span className="flex-1 truncate text-text min-w-0">{it.title}</span>
+                      <button
+                        onClick={() => {
+                          removeOne(it.id);
+                          log(CYNEFIN_ACTIONS.ITEM_REMOVED, { id: it.id });
+                        }}
+                        aria-label="Remove item"
+                        className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </li>
                   ))}
                 </ul>

@@ -41,9 +41,12 @@ export function SmartInput<T extends string | number>({
   const [isAccepting, setIsAccepting] = useState(false);
   const acceptingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => () => {
-    if (acceptingTimer.current) clearTimeout(acceptingTimer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (acceptingTimer.current) clearTimeout(acceptingTimer.current);
+    },
+    []
+  );
 
   // Cancel any in-flight "Accepted!" flash if the prediction becomes
   // unavailable (confidence drops to "none"). Without this, the timer
@@ -79,15 +82,13 @@ export function SmartInput<T extends string | number>({
       <button
         type="button"
         onClick={accept}
-        className={`inline-flex items-center gap-1.5 mt-1 text-[11px] font-mono tracking-wider uppercase px-2 py-0.5 rounded-md border transition ${tone}`}
+        className={`min-touch-coarse inline-flex items-center gap-1.5 mt-1 text-[11px] font-mono tracking-wider uppercase px-2 py-0.5 rounded-md border transition ${tone}`}
         aria-label={`Accept predicted value: ${ghost}`}
       >
         <span>
           {conf === "low" ? "Suggested:" : conf === "medium" ? "Predicted:" : "Predicted:"} {ghost}
         </span>
-        {conf !== "low" && (
-          <span className="text-[9px] opacity-70">Tab</span>
-        )}
+        {conf !== "low" && <span className="text-[9px] opacity-70">Tab</span>}
         {"source" in predicted && predicted.source && (
           <span className="text-[10px] opacity-60 hidden sm:inline">· {predicted.source}</span>
         )}

@@ -687,7 +687,7 @@ export function FeatureFlagTrackerClient() {
                             variant="ghost"
                             size="sm"
                             onClick={() => removeFlag(f.id)}
-                            className="text-sub hover:text-danger"
+                            className="text-sub hover:text-danger min-touch-coarse"
                             aria-label={`Remove ${f.name}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />

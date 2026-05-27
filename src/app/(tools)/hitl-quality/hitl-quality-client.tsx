@@ -189,7 +189,7 @@ export function HitlQualityClient() {
       description="Capture reviewer ratings, agreement-with-model rate, and acceptance trend over time."
     >
       <div ref={exportRef} className="space-y-4">
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {/* BUG-T3-hitl-quality-1: report valid-vs-total so the KPI
               matches the data the mean/agreement are computed against. */}
           <KPI

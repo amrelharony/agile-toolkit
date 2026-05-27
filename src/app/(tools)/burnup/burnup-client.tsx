@@ -253,7 +253,7 @@ function StatCard({
           <span className="text-sm text-sub">{label}</span>
         </div>
         <div className="flex items-baseline gap-1.5">
-          <span className="text-3xl font-data font-bold text-text">{value}</span>
+          <span className="text-2xl sm:text-3xl font-data font-bold text-text">{value}</span>
           {unit && <span className="text-sm text-sub">{unit}</span>}
         </div>
       </CardContent>
@@ -820,14 +820,29 @@ export function BurnupClient() {
             {sortedEntries.map((entry) => (
               <div
                 key={entry.id}
-                className="grid grid-cols-[80px_1fr_1fr_1.2fr_auto] gap-3 items-center"
+                className="grid grid-cols-[1fr_auto] sm:grid-cols-[80px_1fr_1fr_1.2fr_auto] gap-2 sm:gap-3 sm:items-center rounded-md border border-border/40 sm:border-0 p-2 sm:p-0"
               >
-                <span className="font-data text-sm font-semibold text-accent">Day {entry.day}</span>
+                <div className="flex items-center sm:contents">
+                  <span className="font-data text-sm font-semibold text-accent">
+                    Day {entry.day}
+                  </span>
+                </div>
+
+                <Button
+                  variant="danger-ghost"
+                  size="icon"
+                  onClick={() => removeEntry(entry.id)}
+                  disabled={sortedEntries.length <= 1}
+                  aria-label={`Remove day ${entry.day}`}
+                  className="min-touch-coarse h-9 w-9 disabled:opacity-30 justify-self-end sm:order-last"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
 
                 <Input
                   type="number"
                   min={0}
-                  placeholder="— pts"
+                  placeholder="Scope (pts)"
                   value={entry.scope ?? ""}
                   onChange={(e) => {
                     if (e.target.value === "") {
@@ -837,13 +852,13 @@ export function BurnupClient() {
                     const n = Number(e.target.value);
                     if (Number.isFinite(n)) updateEntry(entry.id, { scope: Math.max(0, n) });
                   }}
-                  className="bg-surface-deep border-border text-text font-data focus:border-[#ff00aa]/50 focus:ring-[#ff00aa]/20"
+                  className="col-span-2 sm:col-span-1 bg-surface-deep border-border text-text font-data focus:border-[#ff00aa]/50 focus:ring-[#ff00aa]/20"
                 />
 
                 <Input
                   type="number"
                   min={0}
-                  placeholder="— pts"
+                  placeholder="Completed (pts)"
                   value={entry.completed ?? ""}
                   onChange={(e) => {
                     if (e.target.value === "") {
@@ -853,7 +868,7 @@ export function BurnupClient() {
                     const n = Number(e.target.value);
                     if (Number.isFinite(n)) updateEntry(entry.id, { completed: Math.max(0, n) });
                   }}
-                  className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+                  className="col-span-2 sm:col-span-1 bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
                 />
 
                 {/* Compact single-line note input — dense tracker row. */}
@@ -866,20 +881,9 @@ export function BurnupClient() {
                       description: e.target.value.trim() ? e.target.value : undefined,
                     })
                   }
-                  className="bg-surface-deep border-border text-text text-xs focus:border-accent/50 focus:ring-accent/20"
+                  className="col-span-2 sm:col-span-1 bg-surface-deep border-border text-text text-xs focus:border-accent/50 focus:ring-accent/20"
                   aria-label={`Note for day ${entry.day}`}
                 />
-
-                <Button
-                  variant="danger-ghost"
-                  size="icon"
-                  onClick={() => removeEntry(entry.id)}
-                  disabled={sortedEntries.length <= 1}
-                  aria-label={`Remove day ${entry.day}`}
-                  className="h-9 w-9 disabled:opacity-30"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
               </div>
             ))}
           </div>

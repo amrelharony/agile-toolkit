@@ -76,6 +76,10 @@ export function DiagramShapePicker({
         display: "grid",
         gridTemplateColumns: "repeat(4, 56px)",
         gap: 4,
+        maxWidth: "calc(100vw - 1.5rem)",
+        maxHeight: "calc(100dvh - 6rem)",
+        overflowY: "auto",
+        overscrollBehavior: "contain",
       }}
     >
       {entries.map(([kind, def]) => {

@@ -10,7 +10,11 @@ import { ExportButton } from "@/components/shared/export-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
@@ -40,8 +44,12 @@ export function MoscowClient() {
   function add() {
     if (!title.trim()) return;
     const item: PrioritizationItem = {
-      id: crypto.randomUUID(), framework: "moscow", title: title.trim().slice(0, 200),
-      fields: { bucket }, status: "scored", updatedAt: new Date().toISOString(),
+      id: crypto.randomUUID(),
+      framework: "moscow",
+      title: title.trim().slice(0, 200),
+      fields: { bucket },
+      status: "scored",
+      updatedAt: new Date().toISOString(),
     };
     upsert(item);
     log(MOSCOW_ACTIONS.ITEM_ADDED, { title: item.title, bucket });
@@ -51,7 +59,11 @@ export function MoscowClient() {
   function move(id: string, b: Bucket) {
     const it = items.find((x) => x.id === id);
     if (!it) return;
-    upsert({ ...it, fields: { ...(it.fields ?? {}), bucket: b }, updatedAt: new Date().toISOString() });
+    upsert({
+      ...it,
+      fields: { ...(it.fields ?? {}), bucket: b },
+      updatedAt: new Date().toISOString(),
+    });
     log(MOSCOW_ACTIONS.BUCKET_CHANGED, { id, bucket: b });
   }
 
@@ -64,24 +76,38 @@ export function MoscowClient() {
     const m: Record<Bucket, PrioritizationItem[]> = { must: [], should: [], could: [], wont: [] };
     for (const it of items) {
       const raw = it.fields?.bucket as Bucket;
-      const b: Bucket = raw === "must" || raw === "should" || raw === "could" || raw === "wont" ? raw : "must";
+      const b: Bucket =
+        raw === "must" || raw === "should" || raw === "could" || raw === "wont" ? raw : "must";
       m[b].push(it);
     }
     return m;
   }, [items]);
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    prioritizations: s.prioritizations,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        prioritizations: s.prioritizations,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "MoSCoW Matrix",
-    prompts: generateMoscowPrompts({ grouped }, workspace),
-  }), [grouped, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "MoSCoW Matrix",
+      prompts: generateMoscowPrompts({ grouped }, workspace),
+    }),
+    [grouped, workspace]
+  );
 
   const csvData = {
     headers: ["Bucket", "Title"],
@@ -97,13 +123,29 @@ export function MoscowClient() {
       <div ref={exportRef} className="space-y-4">
         <SectionCard title="Add scope item" icon={Plus}>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <Input className="sm:col-span-2" placeholder="Scope item" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input
+              className="sm:col-span-2"
+              placeholder="Scope item"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
             <Select value={bucket} onValueChange={(v) => setBucket(v as Bucket)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{BUCKETS.map((b) => <SelectItem key={b.id} value={b.id}>{b.label}</SelectItem>)}</SelectContent>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {BUCKETS.map((b) => (
+                  <SelectItem key={b.id} value={b.id}>
+                    {b.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
-          <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Add</Button>
+          <Button onClick={add} className="mt-3 gap-1">
+            <Plus className="w-4 h-4" />
+            Add
+          </Button>
         </SectionCard>
 
         <SectionCard
@@ -112,26 +154,53 @@ export function MoscowClient() {
           actions={
             <>
               <AiPromptGenerator config={promptConfig} />
-              <ExportButton filename="moscow" csvData={csvData} jsonData={items} targetRef={exportRef} />
+              <ExportButton
+                filename="moscow"
+                csvData={csvData}
+                jsonData={items}
+                targetRef={exportRef}
+              />
             </>
           }
         >
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {BUCKETS.map((b) => (
-              <div key={b.id} className="border border-border rounded p-3 bg-surface-deep">
+              <div key={b.id} className="border border-border rounded p-3 bg-surface-deep min-w-0">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-bold uppercase tracking-wider" style={{ color: b.color }}>{b.label}</span>
+                  <span
+                    className="text-sm font-bold uppercase tracking-wider"
+                    style={{ color: b.color }}
+                  >
+                    {b.label}
+                  </span>
                   <span className="text-xs text-sub">{grouped[b.id].length}</span>
                 </div>
                 <ul className="space-y-1">
                   {grouped[b.id].map((it) => (
                     <li key={it.id} className="flex items-center gap-2 text-sm">
-                      <Select value={(it.fields?.bucket as Bucket) ?? "must"} onValueChange={(v) => move(it.id, v as Bucket)}>
-                        <SelectTrigger className="h-7 w-24 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>{BUCKETS.map((opt) => <SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>)}</SelectContent>
+                      <Select
+                        value={(it.fields?.bucket as Bucket) ?? "must"}
+                        onValueChange={(v) => move(it.id, v as Bucket)}
+                      >
+                        <SelectTrigger className="h-7 w-24 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {BUCKETS.map((opt) => (
+                            <SelectItem key={opt.id} value={opt.id}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
                       </Select>
                       <span className="flex-1 truncate text-text">{it.title}</span>
-                      <button onClick={() => remove(it.id)} aria-label="Remove scope item" className="text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                      <button
+                        onClick={() => remove(it.id)}
+                        aria-label="Remove scope item"
+                        className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </li>
                   ))}
                 </ul>

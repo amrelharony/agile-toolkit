@@ -204,7 +204,7 @@ export function ToolbarTop() {
                 confirmingDelete ? "Click again to confirm delete" : "Delete current board"
               }
               className={cn(
-                "transition-colors w-7 h-7 rounded flex items-center justify-center",
+                "min-touch-coarse transition-colors w-7 h-7 rounded flex items-center justify-center",
                 confirmingDelete
                   ? "text-red-400 hover:text-red-300 bg-red-500/10"
                   : "text-sub hover:text-red-400 hover:bg-text/[0.04]"
@@ -242,7 +242,7 @@ export function ToolbarTop() {
           aria-pressed={snapToGridEnabled}
           title="Snap to grid (Cmd/Ctrl toggles during drag)"
           className={cn(
-            "w-7 h-7 rounded flex items-center justify-center transition-colors",
+            "min-touch-coarse w-7 h-7 rounded flex items-center justify-center transition-colors",
             snapToGridEnabled
               ? "bg-accent/20 text-accent"
               : "text-sub hover:text-text hover:bg-text/[0.04]"
@@ -256,7 +256,7 @@ export function ToolbarTop() {
           aria-pressed={snapToObjects}
           title="Snap to objects (alignment guides)"
           className={cn(
-            "w-7 h-7 rounded flex items-center justify-center transition-colors",
+            "min-touch-coarse w-7 h-7 rounded flex items-center justify-center transition-colors",
             snapToObjects
               ? "bg-accent/20 text-accent"
               : "text-sub hover:text-text hover:bg-text/[0.04]"
@@ -270,7 +270,7 @@ export function ToolbarTop() {
           aria-pressed={showMiniMap}
           title="Toggle minimap"
           className={cn(
-            "w-7 h-7 rounded flex items-center justify-center transition-colors",
+            "min-touch-coarse w-7 h-7 rounded flex items-center justify-center transition-colors",
             showMiniMap
               ? "bg-accent/20 text-accent"
               : "text-sub hover:text-text hover:bg-text/[0.04]"
@@ -293,7 +293,7 @@ export function ToolbarTop() {
           aria-pressed={showAIPanel}
           title="Toggle AI insights panel"
           className={cn(
-            "w-7 h-7 rounded flex items-center justify-center transition-colors",
+            "min-touch-coarse w-7 h-7 rounded flex items-center justify-center transition-colors",
             showAIPanel
               ? "bg-accent/20 text-accent"
               : "text-sub hover:text-text hover:bg-text/[0.04]"

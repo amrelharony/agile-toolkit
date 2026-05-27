@@ -236,20 +236,21 @@ export function ValueStreamClient() {
         </CalloutAlert>
       )}
 
-      <div className="flex gap-2 items-stretch overflow-x-auto pb-4">
+      <div className="scroll-x-snap items-stretch pb-4">
         {stages.map((s, i) => (
-          <div key={s.id} className="shrink-0 w-56 space-y-2">
+          <div key={s.id} className="w-[80vw] max-w-[16rem] md:w-56 space-y-2">
             <Card className="bg-surface border-border">
               <CardContent className="p-3 space-y-2">
                 <div className="flex items-center justify-between">
                   <Waves className="w-4 h-4 text-accent" />
                   <Button
                     variant="ghost"
-                    size="sm"
+                    size="icon"
                     onClick={() => remove(s.id)}
-                    className="h-6 text-sub hover:text-danger"
+                    className="md:min-h-0 md:min-w-0 md:h-7 md:w-7 text-sub hover:text-danger"
+                    aria-label={`Remove stage ${s.name}`}
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-4 h-4 md:w-3.5 md:h-3.5" />
                   </Button>
                 </div>
                 <BlurInput

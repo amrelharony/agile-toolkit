@@ -49,7 +49,7 @@ interface Props {
 export function KudosSettings({ open, onOpenChange }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl bg-surface border-border/40 max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-xl bg-surface border-border/40 max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-text">Kudos settings</DialogTitle>
           <DialogDescription className="text-sub">

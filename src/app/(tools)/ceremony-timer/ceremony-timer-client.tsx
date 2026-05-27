@@ -481,87 +481,91 @@ export function CeremonyTimerClient() {
             }`}
           >
             {/* SVG circular timer */}
-            <div
-              className="relative"
-              style={{
-                width: SVG_SIZE,
-                height: SVG_SIZE,
-                filter:
-                  started && remaining > 0
-                    ? `drop-shadow(${glow.split(",")[0].replace("0 0", "0 0")})`
-                    : undefined,
-              }}
-            >
-              <svg
-                width={SVG_SIZE}
-                height={SVG_SIZE}
-                viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`}
-                className="rotate-[-90deg]"
+            <div className="w-full max-w-[280px] mx-auto">
+              <div
+                className="relative aspect-square w-full"
+                style={{
+                  filter:
+                    started && remaining > 0
+                      ? `drop-shadow(${glow.split(",")[0].replace("0 0", "0 0")})`
+                      : undefined,
+                }}
               >
-                {/* Track */}
-                <circle
-                  cx={SVG_SIZE / 2}
-                  cy={SVG_SIZE / 2}
-                  r={RADIUS}
-                  fill="none"
-                  stroke="var(--surface-hover)"
-                  strokeWidth={STROKE_WIDTH}
-                />
-                {/* Progress */}
-                <circle
-                  cx={SVG_SIZE / 2}
-                  cy={SVG_SIZE / 2}
-                  r={RADIUS}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={STROKE_WIDTH}
-                  strokeLinecap="round"
-                  strokeDasharray={CIRCUMFERENCE}
-                  strokeDashoffset={dashOffset}
-                  style={{
-                    transition: "stroke-dashoffset 0.4s linear, stroke 0.5s ease",
-                    filter: started ? `drop-shadow(0 0 8px ${color})` : undefined,
-                  }}
-                />
-              </svg>
-
-              {/* Center time display */}
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="font-data text-5xl tabular-nums tracking-tight" style={{ color }}>
-                  {formatTime(remaining)}
-                </span>
-                {currentPersonName && started && (
-                  <span className="mt-2 text-sm font-medium text-accent flex items-center gap-1">
-                    <ChevronRight className="h-3 w-3" />
-                    {currentPersonName}
-                  </span>
-                )}
-                {remaining === 0 && started && (
-                  <span
-                    // Pulsing block instead of small text — combined
-                    // with the audio + vibration triggers, this is the
-                    // VISUAL channel of the multi-modal alarm. Without
-                    // animation the previous tiny destructive-coloured
-                    // text was easy to miss across the room during a
-                    // standup.
-                    //
-                    // `animate-pulse` is a Tailwind utility that the
-                    // toolkit's reduced-motion CSS automatically clamps
-                    // to a near-still state, so users with
-                    // prefers-reduced-motion still see the banner
-                    // without the pulse.
-                    role="status"
-                    aria-live="assertive"
-                    className="mt-3 px-3 py-1 rounded-md text-base font-bold uppercase tracking-wider animate-pulse"
+                <svg
+                  width="100%"
+                  height="100%"
+                  viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`}
+                  preserveAspectRatio="xMidYMid meet"
+                  className="rotate-[-90deg]"
+                >
+                  {/* Track */}
+                  <circle
+                    cx={SVG_SIZE / 2}
+                    cy={SVG_SIZE / 2}
+                    r={RADIUS}
+                    fill="none"
+                    stroke="var(--surface-hover)"
+                    strokeWidth={STROKE_WIDTH}
+                  />
+                  {/* Progress */}
+                  <circle
+                    cx={SVG_SIZE / 2}
+                    cy={SVG_SIZE / 2}
+                    r={RADIUS}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={STROKE_WIDTH}
+                    strokeLinecap="round"
+                    strokeDasharray={CIRCUMFERENCE}
+                    strokeDashoffset={dashOffset}
                     style={{
-                      color: "var(--destructive)",
-                      backgroundColor: "color-mix(in srgb, var(--destructive) 12%, transparent)",
-                      border: "1px solid color-mix(in srgb, var(--destructive) 35%, transparent)",
+                      transition: "stroke-dashoffset 0.4s linear, stroke 0.5s ease",
+                      filter: started ? `drop-shadow(0 0 8px ${color})` : undefined,
                     }}
+                  />
+                </svg>
+
+                {/* Center time display */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span
+                    className="font-data text-5xl tabular-nums tracking-tight"
+                    style={{ color }}
                   >
-                    Time&apos;s up!
+                    {formatTime(remaining)}
                   </span>
-                )}
+                  {currentPersonName && started && (
+                    <span className="mt-2 text-sm font-medium text-accent flex items-center gap-1">
+                      <ChevronRight className="h-3 w-3" />
+                      {currentPersonName}
+                    </span>
+                  )}
+                  {remaining === 0 && started && (
+                    <span
+                      // Pulsing block instead of small text — combined
+                      // with the audio + vibration triggers, this is the
+                      // VISUAL channel of the multi-modal alarm. Without
+                      // animation the previous tiny destructive-coloured
+                      // text was easy to miss across the room during a
+                      // standup.
+                      //
+                      // `animate-pulse` is a Tailwind utility that the
+                      // toolkit's reduced-motion CSS automatically clamps
+                      // to a near-still state, so users with
+                      // prefers-reduced-motion still see the banner
+                      // without the pulse.
+                      role="status"
+                      aria-live="assertive"
+                      className="mt-3 px-3 py-1 rounded-md text-base font-bold uppercase tracking-wider animate-pulse"
+                      style={{
+                        color: "var(--destructive)",
+                        backgroundColor: "color-mix(in srgb, var(--destructive) 12%, transparent)",
+                        border: "1px solid color-mix(in srgb, var(--destructive) 35%, transparent)",
+                      }}
+                    >
+                      Time&apos;s up!
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 

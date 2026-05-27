@@ -95,7 +95,9 @@ export function JoinClient({ initialCode, nextUrl }: Props) {
               placeholder="Paste your invite code"
               autoComplete="off"
               spellCheck={false}
-              className="w-full bg-surface border border-border rounded px-3 py-2 text-sm text-text font-mono focus:outline-none focus:border-accent"
+              // h-11 on phones (44 px tap floor); shrink to 36 px on md+.
+              // text-base also kills iOS auto-zoom on focus.
+              className="w-full h-11 md:h-9 bg-surface border border-border rounded px-3 text-base md:text-sm text-text font-mono focus:outline-none focus:border-accent"
             />
           </label>
 
@@ -107,7 +109,7 @@ export function JoinClient({ initialCode, nextUrl }: Props) {
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="How others will see you"
               maxLength={60}
-              className="w-full bg-surface border border-border rounded px-3 py-2 text-sm text-text focus:outline-none focus:border-accent"
+              className="w-full h-11 md:h-9 bg-surface border border-border rounded px-3 text-base md:text-sm text-text focus:outline-none focus:border-accent"
             />
           </label>
 
@@ -122,7 +124,7 @@ export function JoinClient({ initialCode, nextUrl }: Props) {
                   aria-label={`Color ${c}`}
                   aria-pressed={color === c}
                   style={{ backgroundColor: c }}
-                  className={`w-8 h-8 rounded-full border-2 transition ${
+                  className={`min-touch-coarse w-8 h-8 rounded-full border-2 transition ${
                     color === c ? "border-text scale-110" : "border-transparent hover:scale-105"
                   }`}
                 />

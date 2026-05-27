@@ -168,7 +168,7 @@ export function AIRedTeamClient() {
       description="Document adversarial testing: attack vectors, success rate, severity, and mitigation status."
     >
       <div ref={exportRef} className="space-y-4">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <KPI label="Total findings" value={String(list.length)} />
           <KPI label="Open" value={String(open.length)} tone={open.length > 0 ? "danger" : "ok"} />
           <KPI

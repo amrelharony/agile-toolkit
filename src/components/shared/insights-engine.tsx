@@ -55,51 +55,53 @@ export function InsightsEngine({ toolId, limit = 3, compact = false }: InsightsE
   }, []);
 
   const workspace = useWorkspaceStore(
-    useShallow((s): Workspace => ({
-      teamMembers: s.teamMembers,
-      sprints: s.sprints,
-      stories: s.stories,
-      impediments: s.impediments,
-      risks: s.risks,
-      okrs: s.okrs,
-      decisions: s.decisions,
-      techDebt: s.techDebt,
-      maturityLevel: s.maturityLevel,
-      teamName: s.teamName,
-      // Phase 19+ entities — included so anti-pattern rules that read
-      // workspace.llmEvals / .hallucinations / .prioritizations / .daciDecisions
-      // / etc. see the actual data instead of an undefined slot (which threw
-      // on `.filter()` and crashed the entire insights panel via ErrorBoundary).
-      llmEvals: s.llmEvals,
-      prompts: s.prompts,
-      hallucinations: s.hallucinations,
-      tokenSpend: s.tokenSpend,
-      models: s.models,
-      redTeamFindings: s.redTeamFindings,
-      agentWorkflows: s.agentWorkflows,
-      agentNodes: s.agentNodes,
-      hitlReviews: s.hitlReviews,
-      rlhfPairs: s.rlhfPairs,
-      vectorCollections: s.vectorCollections,
-      modelCards: s.modelCards,
-      prioritizations: s.prioritizations,
-      daciDecisions: s.daciDecisions,
-      rapidDecisions: s.rapidDecisions,
-      weightedOptions: s.weightedOptions,
-      weightedCriteria: s.weightedCriteria,
-      sixHatsThoughts: s.sixHatsThoughts,
-      oodaCycles: s.oodaCycles,
-      cynefinItems: s.cynefinItems,
-      staceyItems: s.staceyItems,
-      polarities: s.polarities,
-      polarityPoles: s.polarityPoles,
-      whiteboards: s.whiteboards,
-      whiteboardObjects: s.whiteboardObjects,
-      whiteboardCommentThreads: s.whiteboardCommentThreads,
-      whiteboardGroups: s.whiteboardGroups,
-      whiteboardSavedTemplates: s.whiteboardSavedTemplates,
-      whiteboardActivityLog: s.whiteboardActivityLog,
-    }))
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        // Phase 19+ entities — included so anti-pattern rules that read
+        // workspace.llmEvals / .hallucinations / .prioritizations / .daciDecisions
+        // / etc. see the actual data instead of an undefined slot (which threw
+        // on `.filter()` and crashed the entire insights panel via ErrorBoundary).
+        llmEvals: s.llmEvals,
+        prompts: s.prompts,
+        hallucinations: s.hallucinations,
+        tokenSpend: s.tokenSpend,
+        models: s.models,
+        redTeamFindings: s.redTeamFindings,
+        agentWorkflows: s.agentWorkflows,
+        agentNodes: s.agentNodes,
+        hitlReviews: s.hitlReviews,
+        rlhfPairs: s.rlhfPairs,
+        vectorCollections: s.vectorCollections,
+        modelCards: s.modelCards,
+        prioritizations: s.prioritizations,
+        daciDecisions: s.daciDecisions,
+        rapidDecisions: s.rapidDecisions,
+        weightedOptions: s.weightedOptions,
+        weightedCriteria: s.weightedCriteria,
+        sixHatsThoughts: s.sixHatsThoughts,
+        oodaCycles: s.oodaCycles,
+        cynefinItems: s.cynefinItems,
+        staceyItems: s.staceyItems,
+        polarities: s.polarities,
+        polarityPoles: s.polarityPoles,
+        whiteboards: s.whiteboards,
+        whiteboardObjects: s.whiteboardObjects,
+        whiteboardCommentThreads: s.whiteboardCommentThreads,
+        whiteboardGroups: s.whiteboardGroups,
+        whiteboardSavedTemplates: s.whiteboardSavedTemplates,
+        whiteboardActivityLog: s.whiteboardActivityLog,
+      })
+    )
   );
 
   const all = useMemo(
@@ -137,10 +139,7 @@ export function InsightsEngine({ toolId, limit = 3, compact = false }: InsightsE
         return (
           <div
             key={ins.id}
-            className={cn(
-              "rounded-lg border p-3 flex items-start gap-3",
-              colorFor(ins.severity)
-            )}
+            className={cn("rounded-lg border p-3 flex items-start gap-3", colorFor(ins.severity))}
           >
             <Icon className="w-4 h-4 mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
@@ -151,8 +150,10 @@ export function InsightsEngine({ toolId, limit = 3, compact = false }: InsightsE
             </div>
             <button
               type="button"
-              className="text-sub hover:text-text transition shrink-0"
-              onClick={() => setDismissedArr((arr) => (arr.includes(ins.id) ? arr : [...arr, ins.id]))}
+              className="min-touch-coarse text-sub hover:text-text transition shrink-0 inline-flex items-center justify-center -m-1 p-1 rounded"
+              onClick={() =>
+                setDismissedArr((arr) => (arr.includes(ins.id) ? arr : [...arr, ins.id]))
+              }
               aria-label="Dismiss"
             >
               <X className="w-3.5 h-3.5" />

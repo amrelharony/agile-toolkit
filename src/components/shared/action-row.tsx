@@ -39,16 +39,17 @@ export function ActionRow({ children, left, className }: ActionRowProps) {
         "mb-4 flex flex-wrap items-center gap-2",
         // Justify-between when there's left content; otherwise right-align.
         left ? "justify-between" : "justify-end",
-        // On the smallest phones the wrap can leave 1 button orphaned —
-        // stack everything full-width below xs to keep tap targets sane.
-        "max-xs:flex-col max-xs:items-stretch max-xs:[&>*]:w-full",
+        // Stack everything full-width below sm (640 px) — the old `max-xs`
+        // breakpoint (< 375 px) only saved the smallest iPhones; iPhone-12 /
+        // Android-mid still landed with 3 wrapped buttons stretching across
+        // the row at awkward widths. `max-sm` covers every phone-class
+        // viewport so each action gets a full-width target.
+        "max-sm:flex-col max-sm:items-stretch max-sm:[&>*]:w-full",
         className
       )}
     >
-      {left && <div className="flex items-center gap-2">{left}</div>}
-      <div className="flex flex-wrap items-center gap-2 max-xs:contents">
-        {children}
-      </div>
+      {left && <div className="flex flex-wrap items-center gap-2 max-sm:contents">{left}</div>}
+      <div className="flex flex-wrap items-center gap-2 max-sm:contents">{children}</div>
     </div>
   );
 }

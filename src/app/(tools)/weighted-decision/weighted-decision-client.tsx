@@ -306,7 +306,7 @@ export function WeightedDecisionClient() {
           <SectionCard title="Total score">
             <div className="-mx-2 h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} layout="vertical" margin={{ left: 80 }}>
+                <BarChart data={chartData} layout="vertical" margin={{ left: 16 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                   <XAxis type="number" stroke="#888" fontSize={11} />
                   <YAxis type="category" dataKey="name" stroke="#888" fontSize={11} width={150} />

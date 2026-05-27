@@ -568,7 +568,8 @@ export function TechDebtClient() {
                   variant="ghost"
                   size="sm"
                   onClick={() => remove(i.id)}
-                  className="text-sub hover:text-danger"
+                  aria-label="Remove debt item"
+                  className="text-sub hover:text-danger min-touch-coarse"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>

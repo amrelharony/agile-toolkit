@@ -933,7 +933,7 @@ export function CycleTimeClient() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            <div className="table-wrap-responsive">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">

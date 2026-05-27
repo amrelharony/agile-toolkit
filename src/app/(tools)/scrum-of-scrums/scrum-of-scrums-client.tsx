@@ -311,7 +311,8 @@ export function ScrumOfScrumsClient() {
                     variant="ghost"
                     size="sm"
                     onClick={() => remove(e.id)}
-                    className="text-sub hover:text-danger"
+                    className="text-sub hover:text-danger min-touch-coarse"
+                    aria-label="Remove entry"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>

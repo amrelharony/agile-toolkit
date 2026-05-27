@@ -271,7 +271,7 @@ export function EstimationGuideClient() {
       category="Sprint Planning & Estimation"
     >
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center gap-3 mb-6">
         <Select value={store.selectedScale} onValueChange={handleScaleChange}>
           <SelectTrigger className="w-[200px] border-border bg-card text-text hover:border-accent-cyan/30">
             <SelectValue placeholder="Select scale" />
@@ -285,7 +285,7 @@ export function EstimationGuideClient() {
           </SelectContent>
         </Select>
 
-        <div className="flex items-center gap-2 sm:ml-auto">
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
           <Button
             variant="outline"
             size="sm"

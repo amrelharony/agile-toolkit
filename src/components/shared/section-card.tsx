@@ -90,39 +90,36 @@ export function SectionCard({
   return (
     <Card className={className}>
       <CardHeader className={cn("pb-3", headerClassName)}>
-        <div className="flex items-center justify-between gap-3">
+        <div
+          className={cn(
+            // Wrap title + actions onto two lines on narrow viewports — the
+            // previous single-row flex collapsed the title to "Sprint…" once
+            // 3+ action buttons claimed the right edge. `gap-y-2` keeps the
+            // two lines visually grouped.
+            "flex flex-wrap items-center justify-between gap-x-3 gap-y-2"
+          )}
+        >
           <CardTitle
             className={cn(
               titleSizeClass,
-              "font-display text-text flex items-center gap-2 min-w-0",
+              "font-display text-text flex items-center gap-2 min-w-0 flex-1"
             )}
           >
             {Icon && (
               <Icon
-                className={cn(
-                  "w-4 h-4 shrink-0",
-                  iconClassName ?? "text-accent",
-                )}
+                className={cn("w-4 h-4 shrink-0", iconClassName ?? "text-accent")}
                 aria-hidden="true"
               />
             )}
             <span className="min-w-0 truncate">{title}</span>
             {titleSuffix && (
-              <span className="text-sm text-sub font-normal ml-1 shrink-0">
-                {titleSuffix}
-              </span>
+              <span className="text-sm text-sub font-normal ml-1 shrink-0">{titleSuffix}</span>
             )}
           </CardTitle>
-          {actions && (
-            <div className="flex items-center gap-2 shrink-0">{actions}</div>
-          )}
+          {actions && <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div>}
         </div>
       </CardHeader>
-      {bareContent ? (
-        children
-      ) : (
-        <CardContent className={contentClassName}>{children}</CardContent>
-      )}
+      {bareContent ? children : <CardContent className={contentClassName}>{children}</CardContent>}
     </Card>
   );
 }

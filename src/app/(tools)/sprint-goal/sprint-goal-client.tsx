@@ -440,7 +440,7 @@ export function SprintGoalClient() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => removeCriterion(criterion.id)}
-                                className="text-sub hover:text-red-400 hover:bg-red-500/10 shrink-0"
+                                className="min-touch-coarse text-sub hover:text-red-400 hover:bg-red-500/10 shrink-0"
                                 disabled={criteria.length === 1}
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -548,7 +548,7 @@ export function SprintGoalClient() {
                             variant="ghost"
                             size="icon"
                             onClick={() => removeKeyResult(index)}
-                            className="text-sub hover:text-red-400 hover:bg-red-500/10 shrink-0"
+                            className="min-touch-coarse text-sub hover:text-red-400 hover:bg-red-500/10 shrink-0"
                             disabled={keyResults.length === 1}
                           >
                             <Trash2 className="w-4 h-4" />

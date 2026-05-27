@@ -42,7 +42,7 @@ export function ToolCard({
       data-sonify-hover="card"
       className="
         group relative flex flex-col gap-3
-        p-5 rounded-2xl
+        p-4 sm:p-5 rounded-2xl
         bg-[var(--card)] border border-border
         backdrop-blur-[20px] saturate-[1.4]
         overflow-hidden
@@ -97,7 +97,10 @@ export function ToolCard({
               aria-pressed={favorited}
               data-no-sound="true"
               className={cn(
-                "w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-default",
+                // `min-touch-coarse` lifts the tap area to 44 × 44 on touch
+                // devices without enlarging the visual glyph on desktop where
+                // the 32 × 32 chip pairs with the adjacent ArrowRight.
+                "min-touch-coarse w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-default",
                 favorited
                   ? "text-accent-amber"
                   : "text-sub opacity-40 hover:opacity-100 hover:text-accent-amber"

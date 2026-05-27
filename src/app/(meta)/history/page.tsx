@@ -2,14 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import {
-  Search,
-  Download,
-  Filter,
-  History as HistoryIcon,
-  Sparkles,
-  Calendar,
-} from "lucide-react";
+import { Search, Download, Filter, History as HistoryIcon, Sparkles, Calendar } from "lucide-react";
 import { useHistory } from "@/lib/history/use-history";
 import { useHistoryStore } from "@/lib/history/history-store";
 import { useAuth } from "@/lib/auth/auth-provider";
@@ -98,8 +91,7 @@ export default function HistoryPage() {
   const visible = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const safePage = Math.min(page, pageCount - 1);
 
-  const toolName = (toolId: string) =>
-    ALL_TOOLS.find((t) => t.id === toolId)?.name ?? toolId;
+  const toolName = (toolId: string) => ALL_TOOLS.find((t) => t.id === toolId)?.name ?? toolId;
 
   return (
     <motion.div
@@ -126,16 +118,13 @@ export default function HistoryPage() {
 
         <div className="flex items-center gap-1 text-xs">
           {status === "authenticated" ? (
-            <Badge
-              variant={syncStatus === "error" ? "destructive" : "secondary"}
-              className="gap-1"
-            >
+            <Badge variant={syncStatus === "error" ? "destructive" : "secondary"} className="gap-1">
               <Sparkles className="w-3 h-3" aria-hidden="true" />
               {syncStatus === "syncing"
                 ? "Syncing…"
                 : syncStatus === "error"
-                ? "Sync error"
-                : `Synced${lastSyncAt ? ` • ${timeAgo(lastSyncAt)}` : ""}`}
+                  ? "Sync error"
+                  : `Synced${lastSyncAt ? ` • ${timeAgo(lastSyncAt)}` : ""}`}
             </Badge>
           ) : status === "anonymous" ? (
             <Badge variant="outline">Local only — sign in to sync</Badge>
@@ -209,7 +198,7 @@ export default function HistoryPage() {
                 setPage(0);
               }}
               className={cn(
-                "px-2.5 py-1 text-xs rounded-md transition-colors",
+                "min-touch-coarse px-2.5 py-1 text-xs rounded-md transition-colors",
                 rangeId === p.id
                   ? "bg-accent/15 text-accent border border-accent/30"
                   : "text-sub border border-transparent hover:bg-accent/5"
@@ -258,11 +247,7 @@ export default function HistoryPage() {
                     event={event}
                     expanded={expanded === event.clientEventId}
                     onToggle={() =>
-                      setExpanded(
-                        expanded === event.clientEventId
-                          ? null
-                          : event.clientEventId
-                      )
+                      setExpanded(expanded === event.clientEventId ? null : event.clientEventId)
                     }
                     toolName={toolName(event.toolId)}
                   />
@@ -304,10 +289,7 @@ export default function HistoryPage() {
 function EmptyState({ hasAnyEvents }: { hasAnyEvents: boolean }) {
   return (
     <div className="p-12 text-center text-sub">
-      <Filter
-        className="w-10 h-10 mx-auto mb-3 text-accent/30"
-        aria-hidden="true"
-      />
+      <Filter className="w-10 h-10 mx-auto mb-3 text-accent/30" aria-hidden="true" />
       {hasAnyEvents ? (
         <>
           <p className="text-sm font-medium text-text">No matches</p>
@@ -316,9 +298,7 @@ function EmptyState({ hasAnyEvents }: { hasAnyEvents: boolean }) {
       ) : (
         <>
           <p className="text-sm font-medium text-text">Nothing here yet</p>
-          <p className="text-xs mt-1">
-            Open any tool — actions are recorded automatically.
-          </p>
+          <p className="text-xs mt-1">Open any tool — actions are recorded automatically.</p>
         </>
       )}
     </div>
@@ -358,14 +338,11 @@ function EventRow({ event, toolName, expanded, onToggle }: EventRowProps) {
               </Badge>
             )}
             {event.syncedAt && (
-              <Sparkles
-                className="w-3 h-3 text-accent/60 shrink-0"
-                aria-label="Synced to cloud"
-              />
+              <Sparkles className="w-3 h-3 text-accent/60 shrink-0" aria-label="Synced to cloud" />
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <span className="text-[11px] text-sub font-mono">
+            <span className="hidden sm:inline text-[11px] text-sub font-mono">
               {event.occurredAt.slice(11, 16)}
             </span>
             <span className="text-[11px] text-sub">{timeAgo(event.occurredAt)}</span>

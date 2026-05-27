@@ -274,7 +274,7 @@ function WallEntry({
           type="button"
           onClick={() => setStackOpen((v) => !v)}
           aria-expanded={stackOpen}
-          className="mt-1.5 ml-2 inline-flex items-center gap-1 rounded-md border border-border/40 bg-surface-deep/60 px-2 py-0.5 text-[11px] text-sub hover:text-text"
+          className="min-touch-coarse mt-1.5 ml-2 inline-flex items-center gap-1 rounded-md border border-border/40 bg-surface-deep/60 px-2 py-0.5 text-[11px] text-sub hover:text-text"
         >
           {stackOpen ? (
             <ChevronDown className="h-3 w-3" aria-hidden="true" />
@@ -287,7 +287,7 @@ function WallEntry({
         </button>
       )}
       {stackOpen && clusterSiblings.length > 0 && (
-        <div className="ml-4 mt-2 flex flex-col gap-2">
+        <div className="ml-2 sm:ml-4 mt-2 flex flex-col gap-2">
           {clusterSiblings.map((sib) => (
             <div key={sib.id} aria-label={kudosAriaLabel(sib)}>
               <KudosCard
@@ -310,7 +310,7 @@ function WallEntry({
         />
       )}
       {replies.length > 0 && (
-        <div className="ml-6 mt-2 flex flex-col gap-2 border-l-2 border-border/40 pl-3">
+        <div className="ml-3 sm:ml-6 mt-2 flex flex-col gap-2 border-l-2 border-border/40 pl-3">
           {replies.map((r) => (
             <div key={r.id} aria-label={kudosAriaLabel(r)}>
               <KudosCard

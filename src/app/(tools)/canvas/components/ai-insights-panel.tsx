@@ -42,9 +42,18 @@ interface Props {
 const CLUSTER_COLORS = ["#00f0ff", "#a78bfa", "#34d399", "#f59e0b", "#f87171", "#60a5fa"];
 
 export function AIInsightsPanel({
-  boardId, selection, clusters, insights, objects,
-  onSelectCluster, onClose, onApplyStickies, onApplyClusterSummary,
-  onApplyTextUpdates, onApplyActionItems, onApplyMindMapTree,
+  boardId,
+  selection,
+  clusters,
+  insights,
+  objects,
+  onSelectCluster,
+  onClose,
+  onApplyStickies,
+  onApplyClusterSummary,
+  onApplyTextUpdates,
+  onApplyActionItems,
+  onApplyMindMapTree,
 }: Props) {
   // Pre-build a Map<id, object> so each cluster's summarize button
   // can resolve its members in O(1) without re-walking the full
@@ -53,7 +62,7 @@ export function AIInsightsPanel({
   for (const o of objects) objectsById.set(o.id, o);
   return (
     <div
-      className="fixed right-3 top-20 bottom-3 w-[320px] z-30 bg-surface border border-border rounded-lg shadow-xl flex flex-col"
+      className="fixed right-3 top-20 bottom-3 w-[min(20rem,calc(100vw-1.5rem))] z-30 bg-surface border border-border rounded-lg shadow-xl flex flex-col pr-safe pb-safe"
       data-canvas-export-ignore="true"
     >
       <div className="flex items-center justify-between p-3 border-b border-border">
@@ -61,12 +70,16 @@ export function AIInsightsPanel({
           <Sparkles className="w-4 h-4 text-accent" />
           AI Insights
         </h3>
-        <button onClick={onClose} aria-label="Close AI insights" className="text-sub hover:text-text">
+        <button
+          onClick={onClose}
+          aria-label="Close AI insights"
+          className="text-sub hover:text-text min-touch-coarse inline-flex items-center justify-center"
+        >
           <X className="w-4 h-4" />
         </button>
       </div>
 
-      <div className="flex-1 overflow-auto p-3 space-y-4">
+      <div className="flex-1 overflow-auto overscroll-contain-strict p-3 space-y-4">
         <AiCatchupSection boardId={boardId} />
 
         <AiSelectionActions
@@ -138,19 +151,18 @@ export function AIInsightsPanel({
           ) : (
             <ul className="space-y-2">
               {insights.map((i) => (
-                <li
-                  key={i.id}
-                  className="text-xs border border-border bg-surface-deep rounded p-2"
-                >
+                <li key={i.id} className="text-xs border border-border bg-surface-deep rounded p-2">
                   <div className="flex items-baseline justify-between mb-1">
                     <span className="text-text font-medium">{i.title}</span>
                     <span
                       // Higher-contrast palette — see canvas-client for
                       // rationale. Was text-*-300 on bg-*-500/20.
                       className={`text-[9px] uppercase font-bold px-1 py-0.5 rounded ${
-                        i.severity === "critical" ? "bg-red-700/50 text-red-100"
-                        : i.severity === "warn" ? "bg-amber-700/50 text-amber-100"
-                        : "bg-cyan-700/50 text-cyan-100"
+                        i.severity === "critical"
+                          ? "bg-red-700/50 text-red-100"
+                          : i.severity === "warn"
+                            ? "bg-amber-700/50 text-amber-100"
+                            : "bg-cyan-700/50 text-cyan-100"
                       }`}
                     >
                       {i.severity}

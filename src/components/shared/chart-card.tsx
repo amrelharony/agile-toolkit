@@ -95,11 +95,9 @@ export function ChartCard({
   return (
     <Card className={cn(containerQuery && "@container", className)}>
       <CardHeader className={cn(headerExtras && "pb-2")}>
-        <div className="flex items-center justify-between gap-3">
-          <CardTitle className="text-sm flex items-center gap-2 min-w-0">
-            {Icon && (
-              <Icon className="w-4 h-4 text-accent shrink-0" aria-hidden="true" />
-            )}
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <CardTitle className="text-sm flex items-center gap-2 min-w-0 flex-1">
+            {Icon && <Icon className="w-4 h-4 text-accent shrink-0" aria-hidden="true" />}
             <span className="min-w-0 truncate">{title}</span>
             {badge &&
               (typeof badge === "string" ? (
@@ -111,14 +109,17 @@ export function ChartCard({
               ))}
           </CardTitle>
           {headerExtras && (
-            <div className="flex items-center gap-2 shrink-0">{headerExtras}</div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">{headerExtras}</div>
           )}
         </div>
       </CardHeader>
       <CardContent>
         <div
           ref={chartContainerRef}
-          className="-mx-2"
+          // -mx-1 on phones leaves the card padding intact (so axis ticks
+          // don't visually clip into the card border); -mx-2 on sm+ where
+          // the card has more horizontal room to bleed the chart edge.
+          className="-mx-1 sm:-mx-2"
           style={{ height: heightStyle }}
         >
           <ResponsiveContainer width="100%" height="100%">

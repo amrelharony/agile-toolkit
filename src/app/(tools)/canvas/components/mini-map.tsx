@@ -35,7 +35,10 @@ function MiniMapImpl({ objects, camera, viewportSize, onPan }: MiniMapProps) {
         scale: 0.25,
       };
     }
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
     for (const o of deferredObjects) {
       if (o.x < minX) minX = o.x;
       if (o.y < minY) minY = o.y;
@@ -52,7 +55,10 @@ function MiniMapImpl({ objects, camera, viewportSize, onPan }: MiniMapProps) {
     if (vpX + vpW > maxX) maxX = vpX + vpW;
     if (vpY + vpH > maxY) maxY = vpY + vpH;
     const padding = 40;
-    minX -= padding; minY -= padding; maxX += padding; maxY += padding;
+    minX -= padding;
+    minY -= padding;
+    maxX += padding;
+    maxY += padding;
     const bbW = maxX - minX || 1;
     const bbH = maxY - minY || 1;
     const s = Math.min(MINIMAP_W / bbW, MINIMAP_H / bbH);
@@ -85,7 +91,10 @@ function MiniMapImpl({ objects, camera, viewportSize, onPan }: MiniMapProps) {
   };
 
   return (
-    <div className="absolute right-3 bottom-14 z-10 select-none" data-canvas-export-ignore="true">
+    <div
+      className="absolute right-3 bottom-14 z-10 select-none hidden sm:block"
+      data-canvas-export-ignore="true"
+    >
       <svg
         width={MINIMAP_W}
         height={MINIMAP_H}
@@ -112,9 +121,11 @@ function MiniMapImpl({ objects, camera, viewportSize, onPan }: MiniMapProps) {
           if (w < 1.5 && h < 1.5) return null;
           const tl = toMini(o.x, o.y);
           const color =
-            o.type === "sticky" && "color" in o ? o.color :
-            o.type === "frame" ? "rgba(148,163,184,0.25)" :
-            "rgba(0,240,255,0.4)";
+            o.type === "sticky" && "color" in o
+              ? o.color
+              : o.type === "frame"
+                ? "rgba(148,163,184,0.25)"
+                : "rgba(0,240,255,0.4)";
           return (
             <rect
               key={o.id}

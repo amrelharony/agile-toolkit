@@ -504,7 +504,7 @@ export function TechRadarClient() {
                           <div className="flex items-center gap-1 shrink-0">
                             <Select value={b.ring} onValueChange={(v) => moveBlip(b.id, v as Ring)}>
                               <SelectTrigger
-                                className="h-7 text-xs bg-surface border-border w-20"
+                                className="h-9 sm:h-7 text-xs bg-surface border-border w-20"
                                 aria-label={`Move ${b.name} to ring`}
                               >
                                 <SelectValue />
@@ -519,12 +519,12 @@ export function TechRadarClient() {
                             </Select>
                             <Button
                               variant="ghost"
-                              size="sm"
+                              size="icon"
                               onClick={() => removeBlip(b.id)}
-                              className="h-7 w-7 p-0 text-sub hover:text-danger"
+                              className="sm:min-h-0 sm:min-w-0 sm:h-7 sm:w-7 p-0 text-sub hover:text-danger"
                               aria-label={`Remove ${b.name}`}
                             >
-                              <Trash2 className="w-3 h-3" />
+                              <Trash2 className="w-4 h-4 sm:w-3 sm:h-3" />
                             </Button>
                           </div>
                         </div>

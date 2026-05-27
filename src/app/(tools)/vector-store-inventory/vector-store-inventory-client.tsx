@@ -125,7 +125,7 @@ export function VectorStoreInventoryClient() {
     >
       <div ref={exportRef} className="space-y-4">
         <SectionCard title="Add collection" icon={Plus}>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Input
               placeholder="Collection name"
               value={name}
@@ -178,7 +178,7 @@ export function VectorStoreInventoryClient() {
             }
           >
             <div className="table-wrap-responsive">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-full md:min-w-[640px] text-sm">
                 <thead>
                   <tr className="text-left text-xs text-sub uppercase">
                     <th className="p-2">Name</th>
@@ -207,7 +207,7 @@ export function VectorStoreInventoryClient() {
                         <button
                           onClick={() => remove(c.id)}
                           aria-label="Remove collection"
-                          className="text-sub hover:text-red-400"
+                          className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

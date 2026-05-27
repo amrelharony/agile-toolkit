@@ -10,16 +10,16 @@ interface PageHeaderProps {
   gradient?: boolean;
 }
 
-export function PageHeader({
-  label,
-  title,
-  subtitle,
-  actions,
-  gradient = false,
-}: PageHeaderProps) {
+export function PageHeader({ label, title, subtitle, actions, gradient = false }: PageHeaderProps) {
   return (
-    <header className="flex items-start justify-between gap-4 mb-8">
-      <div>
+    <header
+      className="
+        mb-6 sm:mb-8
+        flex flex-col gap-3
+        sm:flex-row sm:items-start sm:justify-between sm:gap-4
+      "
+    >
+      <div className="min-w-0 flex-1">
         {label && (
           <div className="label-mono mb-2" aria-hidden="true">
             {label}
@@ -28,18 +28,16 @@ export function PageHeader({
         )}
         <h1
           className={`
-            text-h5 md:text-h4 font-bold tracking-tight
+            font-bold tracking-tight text-fluid-h3 md:text-fluid-h2
             ${gradient ? "gradient-text-animated" : "text-text"}
           `}
         >
           {title}
         </h1>
-        {subtitle && (
-          <p className="text-body text-sub mt-1 max-w-lg">{subtitle}</p>
-        )}
+        {subtitle && <p className="text-fluid-body text-sub mt-1 max-w-prose">{subtitle}</p>}
       </div>
       {actions && (
-        <div className="flex items-center gap-2 mt-1" role="toolbar">
+        <div className="flex flex-wrap items-center gap-2 sm:mt-1 shrink-0" role="toolbar">
           {actions}
         </div>
       )}

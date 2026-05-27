@@ -502,7 +502,7 @@ export function LLMEvalTrackerClient() {
         {evals.length > 0 && (
           <SectionCard title={`Eval log (${evals.length})`} icon={AlertTriangle}>
             <div className="table-wrap-responsive">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-full md:min-w-[600px] text-sm">
                 <thead>
                   <tr className="text-left text-xs text-sub uppercase">
                     <th className="p-2">Date</th>
@@ -528,7 +528,7 @@ export function LLMEvalTrackerClient() {
                         <td className="p-2">
                           <button
                             onClick={() => remove(e.id)}
-                            className="text-sub hover:text-red-400"
+                            className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
                             aria-label="Remove eval"
                           >
                             <Trash2 className="w-4 h-4" />

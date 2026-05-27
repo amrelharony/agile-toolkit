@@ -77,7 +77,14 @@ function setStatus(h: Hypothesis, status: Status): Hypothesis {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-type TextField = "description" | "believe" | "willDo" | "toLearn" | "successMetric" | "experiment" | "outcome";
+type TextField =
+  | "description"
+  | "believe"
+  | "willDo"
+  | "toLearn"
+  | "successMetric"
+  | "experiment"
+  | "outcome";
 
 function useDraftField(value: string, commit: (next: string) => void) {
   const [draft, setDraft] = useState(value);
@@ -194,14 +201,25 @@ function HypothesisRow({
           </div>
           <div className="flex flex-col gap-2 items-end">
             <Select value={h.status} onValueChange={(v) => updateStatus(h.id, v as Status)}>
-              <SelectTrigger className="bg-bg border-border w-36 capitalize"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="bg-bg border-border w-full sm:w-36 capitalize">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                {(["drafted", "running", "validated", "invalidated", "inconclusive"] as Status[]).map((s) => (
-                  <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>
+                {(
+                  ["drafted", "running", "validated", "invalidated", "inconclusive"] as Status[]
+                ).map((s) => (
+                  <SelectItem key={s} value={s} className="capitalize">
+                    {s}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Button variant="ghost" size="sm" onClick={() => remove(h.id)} className="text-sub hover:text-danger">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => remove(h.id)}
+              className="text-sub hover:text-danger"
+            >
               <Trash2 className="w-3.5 h-3.5" />
             </Button>
           </div>
@@ -233,7 +251,9 @@ function HypothesisRow({
           />
         )}
         <div className="text-xs text-sub flex items-center gap-3">
-          <Badge variant="outline" className="capitalize">{h.status}</Badge>
+          <Badge variant="outline" className="capitalize">
+            {h.status}
+          </Badge>
           <span>raised {h.raisedAt}</span>
           {h.resolvedAt && <span>resolved {h.resolvedAt}</span>}
         </div>
@@ -303,12 +323,14 @@ export function HypothesisTrackerClient() {
           return Math.max(0, Math.round((end - start) / 86_400_000));
         })
         .filter((d) => Number.isFinite(d)),
-    [items],
+    [items]
   );
 
   const survivalCurve = useMemo(() => {
     if (resolvedDurations.length < 4) return [];
-    const obs = durationsFromTimeRanges(items.map((i) => ({ raisedAt: i.raisedAt, resolvedAt: i.resolvedAt })));
+    const obs = durationsFromTimeRanges(
+      items.map((i) => ({ raisedAt: i.raisedAt, resolvedAt: i.resolvedAt }))
+    );
     return kaplanMeier(obs);
   }, [items, resolvedDurations.length]);
 
@@ -316,7 +338,7 @@ export function HypothesisTrackerClient() {
 
   const survivalChartData = useMemo(
     () => survivalCurve.map((p) => ({ t: p.t, survival: Math.round(p.survival * 1000) / 1000 })),
-    [survivalCurve],
+    [survivalCurve]
   );
 
   const promptConfig = useMemo(
@@ -339,8 +361,30 @@ export function HypothesisTrackerClient() {
         <ExportButton
           filename="hypotheses"
           csvData={{
-            headers: ["Description", "Believe", "Will do", "To learn", "Success metric", "Experiment", "Outcome", "Status", "Raised", "Resolved"],
-            rows: items.map((i) => [i.description ?? "", i.believe, i.willDo, i.toLearn, i.successMetric, i.experiment ?? "", i.outcome ?? "", i.status, i.raisedAt, i.resolvedAt ?? ""]),
+            headers: [
+              "Description",
+              "Believe",
+              "Will do",
+              "To learn",
+              "Success metric",
+              "Experiment",
+              "Outcome",
+              "Status",
+              "Raised",
+              "Resolved",
+            ],
+            rows: items.map((i) => [
+              i.description ?? "",
+              i.believe,
+              i.willDo,
+              i.toLearn,
+              i.successMetric,
+              i.experiment ?? "",
+              i.outcome ?? "",
+              i.status,
+              i.raisedAt,
+              i.resolvedAt ?? "",
+            ]),
           }}
           jsonData={items}
         />
@@ -417,10 +461,9 @@ export function HypothesisTrackerClient() {
             </ResponsiveContainer>
           </div>
           <p className="text-[11px] text-sub mt-2">
-            Kaplan-Meier estimate over {resolvedDurations.length} resolved
-            hypothes{resolvedDurations.length === 1 ? "is" : "es"} (drafted /
-            running are right-censored). Y-axis: probability the hypothesis is
-            still open after N days.
+            Kaplan-Meier estimate over {resolvedDurations.length} resolved hypothes
+            {resolvedDurations.length === 1 ? "is" : "es"} (drafted / running are right-censored).
+            Y-axis: probability the hypothesis is still open after N days.
           </p>
         </SectionCard>
       )}

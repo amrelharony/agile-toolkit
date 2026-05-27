@@ -22,8 +22,7 @@ export function UndoRedoControls({ toolId }: UndoRedoControlsProps) {
   useEffect(() => {
     setIsMac(
       typeof navigator !== "undefined" &&
-        (navigator.platform.toUpperCase().includes("MAC") ||
-          navigator.userAgent.includes("Mac"))
+        (navigator.platform.toUpperCase().includes("MAC") || navigator.userAgent.includes("Mac"))
     );
   }, []);
 
@@ -42,7 +41,10 @@ export function UndoRedoControls({ toolId }: UndoRedoControlsProps) {
         title={undoTip}
         aria-label={undoTip}
         className={cn(
-          "rounded-none h-8 px-2 min-h-0",
+          // Desktop density: tight 32 px chip pair. On touch devices the
+          // [pointer:coarse] override lifts the pair to the 44 px touch
+          // floor so the undo/redo glyphs stay tappable.
+          "rounded-none h-8 px-2 min-h-0 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:px-3",
           "disabled:opacity-30"
         )}
       >
@@ -57,7 +59,10 @@ export function UndoRedoControls({ toolId }: UndoRedoControlsProps) {
         title={redoTip}
         aria-label={redoTip}
         className={cn(
-          "rounded-none h-8 px-2 min-h-0",
+          // Desktop density: tight 32 px chip pair. On touch devices the
+          // [pointer:coarse] override lifts the pair to the 44 px touch
+          // floor so the undo/redo glyphs stay tappable.
+          "rounded-none h-8 px-2 min-h-0 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:px-3",
           "disabled:opacity-30"
         )}
       >

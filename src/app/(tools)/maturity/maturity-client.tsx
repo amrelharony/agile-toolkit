@@ -4,13 +4,7 @@ import { useRef, useMemo, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
-import {
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  Radar,
-  Tooltip,
-} from "recharts";
+import { RadarChart, PolarGrid, PolarAngleAxis, Radar, Tooltip } from "recharts";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -45,9 +39,7 @@ interface MaturityStore {
   reset: () => void;
 }
 
-const DEFAULT_SCORES = Object.fromEntries(
-  MATURITY_DIMENSIONS.map((d) => [d.id, 1])
-);
+const DEFAULT_SCORES = Object.fromEntries(MATURITY_DIMENSIONS.map((d) => [d.id, 1]));
 
 const useMaturityStore = create<MaturityStore>()(
   persist(
@@ -143,10 +135,7 @@ export function MaturityClient() {
     useWorkspaceStore.getState().setMaturityLevel(rounded);
   }, [averageLevel]);
 
-  const maturityScore = useMemo(
-    () => getMaturityScore(averageLevel),
-    [averageLevel]
-  );
+  const maturityScore = useMemo(() => getMaturityScore(averageLevel), [averageLevel]);
 
   // Clamp `current` and `targetLevel` reads into the valid 1-5 band so that a
   // corrupted persisted score (or future schema drift) can't produce
@@ -169,26 +158,38 @@ export function MaturityClient() {
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
-        teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-        impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-        decisions: s.decisions, techDebt: s.techDebt,
-        maturityLevel: s.maturityLevel, teamName: s.teamName,
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
       })
     )
   );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Agile Maturity Assessment",
-    prompts: generateMaturityPrompts({
-      dimensions: MATURITY_DIMENSIONS.map((d) => ({
-        name: d.name,
-        currentScore: scores[d.id] ?? 1,
-        targetScore: targetLevel,
-      })),
-      overallScore: maturityScore.percentage,
-      targetLevel,
-    }, workspace),
-  }), [scores, targetLevel, maturityScore.percentage, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Agile Maturity Assessment",
+      prompts: generateMaturityPrompts(
+        {
+          dimensions: MATURITY_DIMENSIONS.map((d) => ({
+            name: d.name,
+            currentScore: scores[d.id] ?? 1,
+            targetScore: targetLevel,
+          })),
+          overallScore: maturityScore.percentage,
+          targetLevel,
+        },
+        workspace
+      ),
+    }),
+    [scores, targetLevel, maturityScore.percentage, workspace]
+  );
 
   /* -- Export -------------------------------------------------------------- */
 
@@ -242,19 +243,16 @@ export function MaturityClient() {
               }}
             >
               <Award className="w-5 h-5" style={{ color: maturityScore.color }} />
-              <span className="font-data text-2xl font-bold" style={{ color: maturityScore.color }}>
+              <span
+                className="font-data text-fluid-h3 font-bold"
+                style={{ color: maturityScore.color }}
+              >
                 {maturityScore.percentage}%
               </span>
-              <span className="text-sm text-sub">
-                {maturityScore.label}
-              </span>
+              <span className="text-sm text-sub">{maturityScore.label}</span>
             </div>
             <div className="text-sm text-sub">
-              Avg level{" "}
-              <span className="text-text font-medium">
-                {averageLevel.toFixed(1)}
-              </span>{" "}
-              / 5
+              Avg level <span className="text-text font-medium">{averageLevel.toFixed(1)}</span> / 5
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -264,12 +262,7 @@ export function MaturityClient() {
               clipboardText={clipboardText}
               targetRef={chartRef}
             />
-            <Button
-              variant="danger-ghost"
-              size="sm"
-              onClick={reset}
-              className="gap-1.5"
-            >
+            <Button variant="danger-ghost" size="sm" onClick={reset} className="gap-1.5">
               <RotateCcw className="w-4 h-4" />
               Reset
             </Button>
@@ -294,9 +287,7 @@ export function MaturityClient() {
               return (
                 <div key={dim.id} className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-text">
-                      {dim.name}
-                    </span>
+                    <span className="text-sm font-medium text-text">{dim.name}</span>
                     <Badge
                       variant="outline"
                       className="text-xs border-accent/30 text-accent bg-accent/5"
@@ -312,9 +303,7 @@ export function MaturityClient() {
                     onValueChange={([v]) => setScore(dim.id, v)}
                     className="w-full"
                   />
-                  <p className="text-xs text-sub leading-relaxed">
-                    {levelData.description}
-                  </p>
+                  <p className="text-xs text-sub leading-relaxed">{levelData.description}</p>
                 </div>
               );
             })}
@@ -337,14 +326,8 @@ export function MaturityClient() {
                 </div>
               }
             >
-              <RadarChart
-                data={radarData}
-                margin={{ top: 20, right: 30, bottom: 20, left: 30 }}
-              >
-                <PolarGrid
-                  gridType="polygon"
-                  stroke={chartTheme.gridColor}
-                />
+              <RadarChart data={radarData} margin={{ top: 20, right: 30, bottom: 20, left: 30 }}>
+                <PolarGrid gridType="polygon" stroke={chartTheme.gridColor} />
                 <PolarAngleAxis
                   dataKey="subject"
                   tick={{
@@ -402,9 +385,7 @@ export function MaturityClient() {
               <p className="font-medium text-text">
                 All dimensions meet or exceed target level {clampedTarget}!
               </p>
-              <p className="text-sm mt-1">
-                Raise the target to continue improving.
-              </p>
+              <p className="text-sm mt-1">Raise the target to continue improving.</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -416,18 +397,14 @@ export function MaturityClient() {
                   <ChevronRight className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
                   <div className="space-y-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-text text-sm">
-                        {dimension.name}
-                      </span>
+                      <span className="font-medium text-text text-sm">{dimension.name}</span>
                       <span className="text-xs text-sub">
                         Level {current} → {current + 1}
                         {current + 1 < clampedTarget && ` (target: ${clampedTarget})`}
                       </span>
                     </div>
                     {nextLevel ? (
-                      <p className="text-sm text-sub leading-relaxed">
-                        {nextLevel.description}
-                      </p>
+                      <p className="text-sm text-sub leading-relaxed">{nextLevel.description}</p>
                     ) : (
                       // Defensive: roadmapItems already filters dimensions
                       // below clampedTarget, but if levels[] is sparse the

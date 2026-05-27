@@ -923,13 +923,13 @@ export function ImpedimentsClient() {
           <Card className="bg-surface border-border">
             <CardContent className="p-4">
               <p className="text-xs text-sub mb-1">Total Open</p>
-              <p className="text-3xl font-data font-bold text-accent">{stats.open}</p>
+              <p className="text-fluid-h2 font-data font-bold text-accent">{stats.open}</p>
             </CardContent>
           </Card>
           <Card className="bg-surface border-border">
             <CardContent className="p-4">
               <p className="text-xs text-sub mb-1">Escalated</p>
-              <p className="text-3xl font-data font-bold text-[#ffaa00]">{stats.escalated}</p>
+              <p className="text-fluid-h2 font-data font-bold text-[#ffaa00]">{stats.escalated}</p>
             </CardContent>
           </Card>
           <Card className="bg-surface border-border">
@@ -939,7 +939,7 @@ export function ImpedimentsClient() {
               </p>
               {medianResolutionCI ? (
                 <>
-                  <p className="text-3xl font-data font-bold text-[#00ff88]">
+                  <p className="text-fluid-h2 font-data font-bold text-[#00ff88]">
                     {Math.round(medianResolutionCI.point)}
                     <span className="text-sm font-normal text-sub ml-1">days</span>
                   </p>
@@ -949,7 +949,7 @@ export function ImpedimentsClient() {
                   </p>
                 </>
               ) : (
-                <p className="text-3xl font-data font-bold text-[#00ff88]">
+                <p className="text-fluid-h2 font-data font-bold text-[#00ff88]">
                   {stats.avgDays}
                   <span className="text-sm font-normal text-sub ml-1">days</span>
                 </p>
@@ -1119,7 +1119,7 @@ export function ImpedimentsClient() {
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <AiPromptGenerator config={promptConfig} />
             {impediments.length > 0 && (
               <ExportButton filename="impediments" csvData={csvData} jsonData={impediments} />

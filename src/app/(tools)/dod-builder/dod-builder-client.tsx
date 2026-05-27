@@ -22,7 +22,18 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { Plus, Trash2, Code, ShieldCheck, FileCode, Gauge, Lock, CircleHelp, Camera, Check } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  Code,
+  ShieldCheck,
+  FileCode,
+  Gauge,
+  Lock,
+  CircleHelp,
+  Camera,
+  Check,
+} from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { generateDodBuilderPrompts } from "@/lib/ai-prompts/dod-builder";
 import { ActionRow } from "@/components/shared/action-row";
@@ -63,7 +74,12 @@ const STARTER: DodItem[] = [
   { id: "seed-ci", label: "Integration tests pass in CI", category: "testing", required: true },
   { id: "seed-docs", label: "README or inline docs updated", category: "docs", required: false },
   { id: "seed-perf", label: "Load-tested against SLO", category: "performance", required: false },
-  { id: "seed-security", label: "Security review for sensitive changes", category: "security", required: false },
+  {
+    id: "seed-security",
+    label: "Security review for sensitive changes",
+    category: "security",
+    required: false,
+  },
 ];
 
 const CATEGORIES: { id: CategoryId; label: string; icon: typeof Code }[] = [
@@ -76,7 +92,10 @@ const CATEGORIES: { id: CategoryId; label: string; icon: typeof Code }[] = [
 ];
 
 export function DodBuilderClient() {
-  const [state, setState] = usePersisted<DodState>("agile-toolkit:dod-builder", { items: STARTER, history: [] });
+  const [state, setState] = usePersisted<DodState>("agile-toolkit:dod-builder", {
+    items: STARTER,
+    history: [],
+  });
   const [newLabel, setNewLabel] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [activeCategory, setActiveCategory] = useState<CategoryId>("code");
@@ -86,7 +105,13 @@ export function DodBuilderClient() {
   const addItem = () => {
     if (!newLabel.trim()) return;
     const description = newDescription.trim() || undefined;
-    const item: DodItem = { id: nanoid(6), label: newLabel.trim(), description, category: activeCategory, required: false };
+    const item: DodItem = {
+      id: nanoid(6),
+      label: newLabel.trim(),
+      description,
+      category: activeCategory,
+      required: false,
+    };
     setState((s) => ({ ...s, items: [...s.items, item] }));
     log(DOD_ACTIONS.CRITERION_ADDED, {
       itemId: item.id,
@@ -214,7 +239,12 @@ export function DodBuilderClient() {
           filename="definition-of-done"
           csvData={{
             headers: ["Category", "Item", "Description", "Required"],
-            rows: state.items.map((i) => [i.category, i.label, i.description ?? "", i.required ? "Yes" : "No"]),
+            rows: state.items.map((i) => [
+              i.category,
+              i.label,
+              i.description ?? "",
+              i.required ? "Yes" : "No",
+            ]),
           }}
           jsonData={state}
         />
@@ -225,7 +255,9 @@ export function DodBuilderClient() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="text-sm text-sub">Last sprint DoD adherence</div>
-              <div className="text-2xl font-data text-accent">{Math.round(adherence * 100)}%</div>
+              <div className="text-fluid-h3 font-data text-accent">
+                {Math.round(adherence * 100)}%
+              </div>
             </div>
             <Progress value={adherence * 100} className="h-2" />
           </CardContent>
@@ -238,7 +270,9 @@ export function DodBuilderClient() {
         <CardContent className="p-4">
           <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
             <div className="flex-1">
-              <div className="text-xs text-sub uppercase tracking-wider font-mono mb-1.5">Sprint name</div>
+              <div className="text-xs text-sub uppercase tracking-wider font-mono mb-1.5">
+                Sprint name
+              </div>
               <Input
                 value={snapshotName}
                 onChange={(e) => setSnapshotName(e.target.value)}
@@ -272,7 +306,9 @@ export function DodBuilderClient() {
         <Card className="bg-surface border-border mb-6">
           <CardContent className="p-4 space-y-2">
             <div className="flex items-center justify-between">
-              <div className="text-sm text-sub">DoD adherence — last {adherenceSeries.length} sprints</div>
+              <div className="text-sm text-sub">
+                DoD adherence — last {adherenceSeries.length} sprints
+              </div>
               {adherenceTrend?.significant && (
                 <Badge
                   variant="outline"
@@ -293,7 +329,11 @@ export function DodBuilderClient() {
                   data={adherenceSeries}
                   margin={{ top: 8, right: 12, left: -12, bottom: 0 }}
                 >
-                  <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
+                  <CartesianGrid
+                    stroke={chartTheme.gridColor}
+                    strokeDasharray="3 3"
+                    vertical={false}
+                  />
                   <XAxis
                     dataKey="sprintName"
                     tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
@@ -316,7 +356,12 @@ export function DodBuilderClient() {
                     stroke={chartTheme.colors.cyan}
                     strokeDasharray="2 4"
                     strokeOpacity={0.55}
-                    label={{ value: "X̄", fill: chartTheme.colors.cyan, fontSize: 10, position: "right" }}
+                    label={{
+                      value: "X̄",
+                      fill: chartTheme.colors.cyan,
+                      fontSize: 10,
+                      position: "right",
+                    }}
                     ifOverflow="extendDomain"
                   />
                   <ReferenceLine
@@ -324,7 +369,12 @@ export function DodBuilderClient() {
                     stroke={chartTheme.colors.green}
                     strokeDasharray="2 4"
                     strokeOpacity={0.55}
-                    label={{ value: "UCL", fill: chartTheme.colors.green, fontSize: 10, position: "right" }}
+                    label={{
+                      value: "UCL",
+                      fill: chartTheme.colors.green,
+                      fontSize: 10,
+                      position: "right",
+                    }}
                     ifOverflow="extendDomain"
                   />
                   <ReferenceLine
@@ -332,7 +382,12 @@ export function DodBuilderClient() {
                     stroke={chartTheme.colors.red}
                     strokeDasharray="2 4"
                     strokeOpacity={0.55}
-                    label={{ value: "LCL", fill: chartTheme.colors.red, fontSize: 10, position: "right" }}
+                    label={{
+                      value: "LCL",
+                      fill: chartTheme.colors.red,
+                      fontSize: 10,
+                      position: "right",
+                    }}
                     ifOverflow="extendDomain"
                   />
                   <Line
@@ -352,7 +407,7 @@ export function DodBuilderClient() {
       )}
 
       <Tabs value={activeCategory} onValueChange={(v) => setActiveCategory(v as CategoryId)}>
-        <TabsList className="bg-surface border border-border mb-4">
+        <TabsList className="bg-surface border border-border mb-4 flex flex-wrap h-auto">
           {CATEGORIES.map((c) => {
             const Icon = c.icon;
             const count = state.items.filter((i) => i.category === c.id).length;
@@ -382,7 +437,7 @@ export function DodBuilderClient() {
                     type="button"
                     onClick={() => toggleDone(item.id)}
                     aria-label={item.done ? "Mark not done" : "Mark done"}
-                    className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition ${
+                    className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition min-touch-coarse ${
                       item.done
                         ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-300"
                         : "border-border text-transparent hover:border-emerald-500/40"
@@ -395,7 +450,7 @@ export function DodBuilderClient() {
                     aria-pressed={item.required}
                     aria-label={`Toggle required for ${item.label}`}
                     onClick={() => toggleRequired(item.id)}
-                    className={`px-2 py-0.5 rounded-md text-xs font-mono uppercase tracking-wider border transition mt-0.5 ${
+                    className={`px-2 py-0.5 rounded-md text-xs font-mono uppercase tracking-wider border transition mt-0.5 min-touch-coarse ${
                       item.required
                         ? "border-accent/60 bg-accent/10 text-accent"
                         : "border-border text-sub hover:border-accent/30"
@@ -416,7 +471,7 @@ export function DodBuilderClient() {
                     size="sm"
                     onClick={() => remove(item.id)}
                     aria-label={`Remove ${item.label}`}
-                    className="text-sub hover:text-danger"
+                    className="text-sub hover:text-danger min-touch-coarse"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>

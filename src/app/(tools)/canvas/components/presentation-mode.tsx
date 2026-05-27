@@ -47,9 +47,16 @@ function PresentationModeImpl({ frames, index, onPrev, onNext, onExit }: Present
       // Bail when defaultPrevented so the same ArrowRight doesn't
       // advance the frame TWICE.
       if (e.defaultPrevented) return;
-      if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); onNext(); }
-      else if (e.key === "ArrowLeft") { e.preventDefault(); onPrev(); }
-      else if (e.key === "Escape") { e.preventDefault(); onExit(); }
+      if (e.key === "ArrowRight" || e.key === " ") {
+        e.preventDefault();
+        onNext();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        onPrev();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        onExit();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -74,7 +81,8 @@ function PresentationModeImpl({ frames, index, onPrev, onNext, onExit }: Present
           <PlayCircle className="w-10 h-10 text-accent mx-auto mb-3" />
           <h3 className="text-text font-semibold mb-2">No frames to present</h3>
           <p className="text-sm text-sub mb-4">
-            Create frames around the content you want to walk through, then re-enter presentation mode.
+            Create frames around the content you want to walk through, then re-enter presentation
+            mode.
           </p>
           <button
             type="button"
@@ -124,9 +132,10 @@ function PresentationModeImpl({ frames, index, onPrev, onNext, onExit }: Present
             position: "absolute",
             bottom: 70,
             left: 16,
-            maxWidth: 360,
+            maxWidth: "min(360px, calc(100vw - 2rem))",
             maxHeight: 200,
             overflow: "auto",
+            overscrollBehavior: "contain",
             background: "rgba(11,15,23,0.95)",
             border: "1px solid #475569",
             borderRadius: 8,
@@ -140,7 +149,16 @@ function PresentationModeImpl({ frames, index, onPrev, onNext, onExit }: Present
             whiteSpace: "pre-wrap",
           }}
         >
-          <div style={{ fontSize: 9, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4, fontFamily: "ui-monospace, monospace" }}>
+          <div
+            style={{
+              fontSize: 9,
+              color: "#94a3b8",
+              textTransform: "uppercase",
+              letterSpacing: 1,
+              marginBottom: 4,
+              fontFamily: "ui-monospace, monospace",
+            }}
+          >
             Speaker notes
           </div>
           {cur.presenterNotes}
@@ -157,6 +175,7 @@ function PresentationModeImpl({ frames, index, onPrev, onNext, onExit }: Present
           display: "flex",
           alignItems: "center",
           gap: 6,
+          maxWidth: "calc(100vw - 1.5rem)",
           background: "rgba(11,15,23,0.95)",
           border: "1px solid #475569",
           borderRadius: 999,
@@ -175,8 +194,28 @@ function PresentationModeImpl({ frames, index, onPrev, onNext, onExit }: Present
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "0 12px", minWidth: 180 }}>
-          <span style={{ fontSize: 13, color: "#e5e7eb", fontWeight: 600 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            padding: "0 12px",
+            minWidth: 0,
+            flex: "1 1 auto",
+            overflow: "hidden",
+          }}
+        >
+          <span
+            style={{
+              fontSize: 13,
+              color: "#e5e7eb",
+              fontWeight: 600,
+              maxWidth: "100%",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
             {cur.label || `Frame ${index + 1}`}
           </span>
           <span style={{ fontSize: 10, color: "#94a3b8", fontFamily: "ui-monospace, monospace" }}>

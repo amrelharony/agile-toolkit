@@ -148,12 +148,12 @@ export function OpportunityTreeClient() {
         >
           <div className="flex items-start gap-2">
             <span
-              className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded font-data"
+              className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded font-data flex-shrink-0"
               style={{ background: `${kindColor}22`, color: kindColor }}
             >
               {node.kind}
             </span>
-            <div className="flex-1 space-y-2">
+            <div className="flex-1 min-w-0 space-y-2">
               <BlurTextarea
                 rows={2}
                 value={node.text}
@@ -180,31 +180,33 @@ export function OpportunityTreeClient() {
                 />
               )}
             </div>
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 flex-shrink-0">
               {CHILD_KIND[node.kind] && (
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => addChild(node)}
-                  className="h-7 text-sub hover:text-accent gap-1"
+                  className="min-touch md:min-h-0 md:h-7 text-sub hover:text-accent gap-1"
+                  aria-label={`Add ${CHILD_KIND[node.kind]}`}
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span className="text-xs">{CHILD_KIND[node.kind]}</span>
+                  <Plus className="w-4 h-4 md:w-3.5 md:h-3.5" />
+                  <span className="text-xs hidden xs:inline">{CHILD_KIND[node.kind]}</span>
                 </Button>
               )}
               <Button
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onClick={() => remove(node.id)}
-                className="h-7 text-sub hover:text-danger"
+                className="md:min-h-0 md:min-w-0 md:h-7 md:w-7 text-sub hover:text-danger"
+                aria-label={`Remove ${node.kind}`}
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Trash2 className="w-4 h-4 md:w-3.5 md:h-3.5" />
               </Button>
             </div>
           </div>
         </div>
         {childrenOf(node.id).length > 0 && (
-          <div className="pl-6 space-y-2 border-l border-border ml-2">
+          <div className="pl-3 md:pl-6 space-y-2 border-l border-border ml-1 md:ml-2">
             {childrenOf(node.id).map((child) => renderNode(child, depth + 1))}
           </div>
         )}

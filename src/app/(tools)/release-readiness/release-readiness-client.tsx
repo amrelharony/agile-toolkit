@@ -61,7 +61,11 @@ type GateId =
 const GATES: { id: GateId; label: string; description: string }[] = [
   { id: "a11y_audit", label: "A11y audit", description: "WCAG checks pass on changed UI" },
   { id: "perf_baseline", label: "Perf baseline", description: "P75 latency within budget" },
-  { id: "monitoring_dashboards", label: "Monitoring dashboards", description: "Updated for new flows" },
+  {
+    id: "monitoring_dashboards",
+    label: "Monitoring dashboards",
+    description: "Updated for new flows",
+  },
   { id: "alerts_tuned", label: "Alerts tuned", description: "No noisy or missing alerts" },
   { id: "rollback_tested", label: "Rollback tested", description: "Procedure dry-run succeeded" },
   { id: "runbook_linked", label: "Runbook linked", description: "Owner-on-call documented" },
@@ -209,9 +213,7 @@ export function ReleaseReadinessClient() {
 
   const markRolledBack = (id: string) => {
     setState((s) => ({
-      releases: s.releases.map((r) =>
-        r.id === id ? { ...r, status: "rolled_back" } : r
-      ),
+      releases: s.releases.map((r) => (r.id === id ? { ...r, status: "rolled_back" } : r)),
     }));
     log(RELEASE_READINESS_ACTIONS.RELEASE_ROLLED_BACK, {
       releaseId: id,
@@ -221,9 +223,7 @@ export function ReleaseReadinessClient() {
   const reopenForPlanning = (id: string) => {
     setState((s) => ({
       releases: s.releases.map((r) =>
-        r.id === id
-          ? { ...r, status: "planning", shippedDate: undefined }
-          : r
+        r.id === id ? { ...r, status: "planning", shippedDate: undefined } : r
       ),
     }));
     log(RELEASE_READINESS_ACTIONS.RELEASE_ADDED, {
@@ -240,9 +240,7 @@ export function ReleaseReadinessClient() {
   // % shipped on time = shipped releases where shippedDate <= plannedDate.
   const pctOnTime = useMemo(() => {
     if (shipped.length === 0) return null;
-    const onTime = shipped.filter(
-      (r) => r.shippedDate && r.shippedDate <= r.plannedDate
-    ).length;
+    const onTime = shipped.filter((r) => r.shippedDate && r.shippedDate <= r.plannedDate).length;
     return (onTime / shipped.length) * 100;
   }, [shipped]);
 
@@ -251,10 +249,7 @@ export function ReleaseReadinessClient() {
     // Use the at-ship snapshot when present; fall back to the live gate
     // count for releases shipped before the snapshot field existed.
     const sum = shipped.reduce(
-      (acc, r) =>
-        acc +
-        (r.gatesOpenAtShip ??
-          GATES.filter((g) => !r.gates[g.id]).length),
+      (acc, r) => acc + (r.gatesOpenAtShip ?? GATES.filter((g) => !r.gates[g.id]).length),
       0
     );
     return sum / shipped.length;
@@ -285,13 +280,10 @@ export function ReleaseReadinessClient() {
   const gatePassSeries = useMemo(() => {
     const ordered = [...shipped]
       .filter((r) => r.shippedDate)
-      .sort((a, b) =>
-        (a.shippedDate ?? "").localeCompare(b.shippedDate ?? "")
-      )
+      .sort((a, b) => (a.shippedDate ?? "").localeCompare(b.shippedDate ?? ""))
       .slice(-20);
     return ordered.map((r) => {
-      const open =
-        r.gatesOpenAtShip ?? GATES.filter((g) => !r.gates[g.id]).length;
+      const open = r.gatesOpenAtShip ?? GATES.filter((g) => !r.gates[g.id]).length;
       const passed = GATES.length - open;
       return {
         release: r.name,
@@ -421,12 +413,7 @@ export function ReleaseReadinessClient() {
         />
       </KpiGrid>
 
-      <SectionCard
-        title="Add a release"
-        icon={Plus}
-        titleSize="lg"
-        className="mb-6"
-      >
+      <SectionCard title="Add a release" icon={Plus} titleSize="lg" className="mb-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="md:col-span-2">
             <Label htmlFor="rr-name" className="text-xs text-sub">
@@ -435,9 +422,7 @@ export function ReleaseReadinessClient() {
             <Input
               id="rr-name"
               value={draft.name}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, name: e.target.value }))
-              }
+              onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
               onKeyDown={(e) => {
                 if (e.key === "Enter") addRelease();
               }}
@@ -453,9 +438,7 @@ export function ReleaseReadinessClient() {
               id="rr-date"
               type="date"
               value={draft.plannedDate}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, plannedDate: e.target.value }))
-              }
+              onChange={(e) => setDraft((d) => ({ ...d, plannedDate: e.target.value }))}
               className="bg-surface border-border font-data"
             />
           </div>
@@ -466,9 +449,7 @@ export function ReleaseReadinessClient() {
             <Textarea
               id="rr-desc"
               value={draft.description}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, description: e.target.value }))
-              }
+              onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
               placeholder="One-line scope, target audience, rollout plan…"
               rows={2}
               className="bg-surface border-border resize-none text-xs"
@@ -487,8 +468,7 @@ export function ReleaseReadinessClient() {
 
       {state.releases.length === 0 ? (
         <EmptyState icon={Rocket}>
-          No releases yet. Add one above to start ticking off pre-release
-          gates.
+          No releases yet. Add one above to start ticking off pre-release gates.
         </EmptyState>
       ) : (
         <div className="space-y-4 mb-6">
@@ -533,19 +513,20 @@ export function ReleaseReadinessClient() {
         >
           <div className="-mx-2" style={{ height: 220 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={gatePassSeries}
-                margin={{ top: 8, right: 12, left: -12, bottom: 0 }}
-              >
-                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
+              <LineChart data={gatePassSeries} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
+                <CartesianGrid
+                  stroke={chartTheme.gridColor}
+                  strokeDasharray="3 3"
+                  vertical={false}
+                />
                 <XAxis
                   dataKey="release"
                   tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
                   axisLine={false}
                   tickLine={false}
-                  interval={0}
+                  interval="preserveStartEnd"
                   height={50}
-                  angle={-25}
+                  angle={-45}
                   textAnchor="end"
                 />
                 <YAxis
@@ -564,7 +545,12 @@ export function ReleaseReadinessClient() {
                   stroke={chartTheme.colors.cyan}
                   strokeDasharray="2 4"
                   strokeOpacity={0.55}
-                  label={{ value: "X̄", fill: chartTheme.colors.cyan, fontSize: 10, position: "right" }}
+                  label={{
+                    value: "X̄",
+                    fill: chartTheme.colors.cyan,
+                    fontSize: 10,
+                    position: "right",
+                  }}
                   ifOverflow="extendDomain"
                 />
                 <ReferenceLine
@@ -572,7 +558,12 @@ export function ReleaseReadinessClient() {
                   stroke={chartTheme.colors.green}
                   strokeDasharray="2 4"
                   strokeOpacity={0.55}
-                  label={{ value: "UCL", fill: chartTheme.colors.green, fontSize: 10, position: "right" }}
+                  label={{
+                    value: "UCL",
+                    fill: chartTheme.colors.green,
+                    fontSize: 10,
+                    position: "right",
+                  }}
                   ifOverflow="extendDomain"
                 />
                 <ReferenceLine
@@ -580,7 +571,12 @@ export function ReleaseReadinessClient() {
                   stroke={chartTheme.colors.red}
                   strokeDasharray="2 4"
                   strokeOpacity={0.55}
-                  label={{ value: "LCL", fill: chartTheme.colors.red, fontSize: 10, position: "right" }}
+                  label={{
+                    value: "LCL",
+                    fill: chartTheme.colors.red,
+                    fontSize: 10,
+                    position: "right",
+                  }}
                   ifOverflow="extendDomain"
                 />
                 <Line
@@ -616,16 +612,9 @@ export function ReleaseReadinessClient() {
                   interval={0}
                   height={70}
                 />
-                <YAxis
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  allowDecimals={false}
-                />
+                <YAxis tick={{ fill: chartTheme.axisColor, fontSize: 11 }} allowDecimals={false} />
                 <Tooltip contentStyle={chartTheme.tooltipStyle} />
-                <Bar
-                  dataKey="skipped"
-                  fill={chartTheme.colors.amber}
-                  radius={[4, 4, 0, 0]}
-                />
+                <Bar dataKey="skipped" fill={chartTheme.colors.amber} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -686,27 +675,21 @@ function ReleaseCard({
       <div className="space-y-3">
         <div className="text-xs text-sub flex items-center gap-3">
           <span>
-            Planned:{" "}
-            <span className="font-data text-text">{release.plannedDate}</span>
+            Planned: <span className="font-data text-text">{release.plannedDate}</span>
           </span>
           {release.shippedDate && (
             <span>
-              Shipped:{" "}
-              <span className="font-data text-text">{release.shippedDate}</span>
+              Shipped: <span className="font-data text-text">{release.shippedDate}</span>
             </span>
           )}
         </div>
         {release.description && (
-          <p className="text-xs text-sub whitespace-pre-wrap break-words">
-            {release.description}
-          </p>
+          <p className="text-xs text-sub whitespace-pre-wrap break-words">{release.description}</p>
         )}
 
         <div className="h-1.5 rounded-full bg-bg overflow-hidden">
           <div
-            className={`h-full transition-all ${
-              allPassed ? "bg-emerald-400" : "bg-accent"
-            }`}
+            className={`h-full transition-all ${allPassed ? "bg-emerald-400" : "bg-accent"}`}
             style={{ width: `${pct}%` }}
             aria-label={`${pct.toFixed(0)}% gates complete`}
             role="progressbar"
@@ -716,7 +699,7 @@ function ReleaseCard({
           />
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
           {GATES.map((g) => (
             <label
               key={g.id}
@@ -731,12 +714,8 @@ function ReleaseCard({
                 aria-label={g.label}
               />
               <div className="flex-1 min-w-0">
-                <div className="text-xs font-semibold text-text">
-                  {g.label}
-                </div>
-                <div className="text-[11px] text-sub line-clamp-2">
-                  {g.description}
-                </div>
+                <div className="text-xs font-semibold text-text">{g.label}</div>
+                <div className="text-[11px] text-sub line-clamp-2">{g.description}</div>
               </div>
             </label>
           ))}
@@ -746,7 +725,9 @@ function ReleaseCard({
           <Button
             onClick={onShip}
             disabled={release.status !== "planning"}
-            title={allPassed ? "All gates pass" : "Ship with open gates (you'll be asked to confirm)"}
+            title={
+              allPassed ? "All gates pass" : "Ship with open gates (you'll be asked to confirm)"
+            }
             className="gap-2 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/40 disabled:opacity-50"
           >
             <Rocket className="w-4 h-4" aria-hidden="true" /> Ship
@@ -758,8 +739,7 @@ function ReleaseCard({
               onClick={onRollBack}
               className="border-danger/40 text-danger hover:bg-danger/10"
             >
-              <Undo2 className="w-4 h-4 mr-1" aria-hidden="true" /> Mark rolled
-              back
+              <Undo2 className="w-4 h-4 mr-1" aria-hidden="true" /> Mark rolled back
             </Button>
           )}
           {release.status === "rolled_back" && (
@@ -769,14 +749,12 @@ function ReleaseCard({
               onClick={onReopen}
               className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
             >
-              <Undo2 className="w-4 h-4 mr-1" aria-hidden="true" /> Reopen for
-              planning
+              <Undo2 className="w-4 h-4 mr-1" aria-hidden="true" /> Reopen for planning
             </Button>
           )}
           {!allPassed && release.status === "planning" && (
             <span className="text-xs text-sub">
-              {GATES.length - passed} gate{GATES.length - passed !== 1 && "s"}{" "}
-              remaining
+              {GATES.length - passed} gate{GATES.length - passed !== 1 && "s"} remaining
             </span>
           )}
         </div>

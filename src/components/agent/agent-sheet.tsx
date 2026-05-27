@@ -90,7 +90,7 @@ export function AgentSheet() {
 
   return (
     <Sheet open={open} onOpenChange={(o) => (o ? null : closeSheet())}>
-      <SheetContent side="right" className="w-full sm:max-w-md flex flex-col p-4">
+      <SheetContent side="right" className="w-full sm:max-w-md flex flex-col p-3 sm:p-4">
         <SheetHeader className="space-y-1 pb-2 border-b border-border">
           <SheetTitle className="text-base">Agent</SheetTitle>
           <SheetDescription className="text-xs">

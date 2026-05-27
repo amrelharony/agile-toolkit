@@ -707,7 +707,7 @@ export function VulnBurndownClient() {
                         variant="ghost"
                         size="sm"
                         onClick={() => remove(v.id)}
-                        className="text-sub hover:text-danger"
+                        className="text-sub hover:text-danger min-touch-coarse"
                         aria-label="Remove vuln"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

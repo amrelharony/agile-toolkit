@@ -335,7 +335,7 @@ export function PromptRegistryClient() {
                           {p.status !== "production" && (
                             <button
                               onClick={() => publish(p)}
-                              className="text-emerald-400 hover:text-emerald-300"
+                              className="text-emerald-400 hover:text-emerald-300 min-touch-coarse inline-flex items-center justify-center"
                               aria-label="Publish"
                             >
                               <CheckCircle2 className="w-4 h-4" />
@@ -343,7 +343,7 @@ export function PromptRegistryClient() {
                           )}
                           <button
                             onClick={() => remove(p.id)}
-                            className="text-sub hover:text-red-400"
+                            className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
                             aria-label="Remove"
                           >
                             <Trash2 className="w-4 h-4" />

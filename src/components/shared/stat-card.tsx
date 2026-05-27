@@ -98,21 +98,22 @@ export function StatCard({
   // the pre-extraction behaviour from velocity-client. Otherwise fall back
   // to a fixed accent tint.
   const chipBg =
-    iconColor && /^#[0-9a-f]{6}$/i.test(iconColor)
-      ? `${iconColor}1a`
-      : "rgba(0, 225, 255, 0.1)";
+    iconColor && /^#[0-9a-f]{6}$/i.test(iconColor) ? `${iconColor}1a` : "rgba(0, 225, 255, 0.1)";
 
   if (variant === "compact") {
     return (
       <Card className={cn(cardToneClass, className)}>
-        <CardContent className="p-4">
-          <div className="text-xs uppercase tracking-wider text-sub mb-1 flex items-center gap-1">
-            {Icon && <Icon className="w-3.5 h-3.5" aria-hidden="true" />}
-            <span>{label}</span>
+        <CardContent className="p-3 sm:p-4">
+          <div className="text-[10px] sm:text-xs uppercase tracking-wider text-sub mb-1 flex items-center gap-1 min-w-0">
+            {Icon && <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
+            <span className="truncate">{label}</span>
           </div>
           <div
             className={cn(
-              "font-data text-2xl text-text",
+              // Fluid value — scales from ~1.25 rem on 320 px phones to
+              // 1.5 rem on desktop — so dense KPI rows (2-up on phone) still
+              // read cleanly without truncating multi-digit values.
+              "font-data text-[clamp(1.25rem,3.5vw,1.5rem)] text-text break-words leading-tight",
               valueToneClass,
               valueClassName
             )}
@@ -129,22 +130,25 @@ export function StatCard({
   return (
     <Card className={cn(cardToneClass, className)}>
       <CardContent className="p-4 sm:p-5">
-        <div className="flex items-center gap-3 mb-3">
+        <div className="flex items-center gap-2 sm:gap-3 mb-2 sm:mb-3 min-w-0">
           {Icon && (
             <div
-              className="p-2 rounded-lg"
+              className="p-2 rounded-lg shrink-0"
               style={{ background: chipBg }}
               aria-hidden="true"
             >
               <Icon className="w-5 h-5" style={{ color: accent }} />
             </div>
           )}
-          <span className="text-sm text-sub">{label}</span>
+          <span className="text-xs sm:text-sm text-sub truncate">{label}</span>
         </div>
-        <div className="flex items-baseline gap-1.5">
+        <div className="flex items-baseline gap-1.5 flex-wrap">
           <span
             className={cn(
-              "text-2xl sm:text-3xl font-data font-bold text-text",
+              // Fluid value: 1.5 rem (24 px) on phones → 1.875 rem (30 px)
+              // on desktop. Replaces the static text-2xl→text-3xl jump so
+              // tiles breathe consistently across viewports.
+              "font-data font-bold text-text text-[clamp(1.5rem,4vw,1.875rem)] leading-tight break-words",
               valueToneClass,
               valueClassName
             )}

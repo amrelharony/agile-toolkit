@@ -258,7 +258,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="text-xs text-sub flex flex-col gap-1">
               Squad
               <select
@@ -267,7 +267,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                   setSelectedSquadId(e.target.value);
                   setSelectedProfileId("");
                 }}
-                className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent"
+                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent"
               >
                 {squads.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -281,7 +281,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
               <select
                 value={selectedProfileId}
                 onChange={(e) => setSelectedProfileId(e.target.value)}
-                className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent"
+                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent"
               >
                 <option value="">Anyone in squad</option>
                 {profilesForSelected.map((p) => (
@@ -292,13 +292,13 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
               </select>
             </label>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="text-xs text-sub flex flex-col gap-1">
               Role
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as "editor" | "viewer" | "commenter")}
-                className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent"
+                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent"
               >
                 <option value="editor">Editor (full collaboration)</option>
                 <option value="commenter">Commenter (read + comments)</option>
@@ -313,7 +313,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                   const v = e.target.value;
                   setTtlDays(v === "never" ? null : Number(v));
                 }}
-                className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent"
+                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent"
               >
                 <option value="1">1 day</option>
                 <option value="7">7 days</option>
@@ -459,7 +459,7 @@ export function SessionShareModal({ toolId, entityId, onClose }: ModalProps) {
       onClick={onClose}
     >
       <div
-        className="relative bg-surface border border-border rounded-xl max-w-lg w-[92vw] max-h-[80vh] overflow-auto"
+        className="relative bg-surface border border-border rounded-xl max-w-lg w-[92vw] max-h-[85dvh] overflow-auto overscroll-contain"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-border">
@@ -471,7 +471,7 @@ export function SessionShareModal({ toolId, entityId, onClose }: ModalProps) {
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="text-sub hover:text-text"
+            className="min-touch-coarse inline-flex items-center justify-center -m-1 p-1 rounded text-sub hover:text-text"
           >
             <X className="w-5 h-5" />
           </button>

@@ -204,9 +204,7 @@ function ControlRow({
             {FRAMEWORK_LABEL[c.framework]}
           </Badge>
           <span className="font-data text-text text-sm">{c.controlId}</span>
-          <span className="text-text font-medium text-sm flex-1 min-w-0 truncate">
-            {c.title}
-          </span>
+          <span className="text-text font-medium text-sm flex-1 min-w-0 truncate">{c.title}</span>
           <Select
             value={c.status}
             onValueChange={(v) => {
@@ -267,10 +265,7 @@ function ControlRow({
           {c.evidenceLinks.length > 0 && (
             <ul className="space-y-1">
               {c.evidenceLinks.map((url, i) => (
-                <li
-                  key={`${c.id}-evidence-${i}`}
-                  className="flex items-center gap-2 text-xs"
-                >
+                <li key={`${c.id}-evidence-${i}`} className="flex items-center gap-2 text-xs">
                   <a
                     href={url}
                     target="_blank"
@@ -292,7 +287,7 @@ function ControlRow({
               ))}
             </ul>
           )}
-          <div className="flex gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             <Input
               value={newLink}
               onChange={(e) => setNewLink(e.target.value)}
@@ -402,8 +397,7 @@ export function ControlMapClient() {
   const pctVerified = totalControls === 0 ? 0 : (verifiedCount / totalControls) * 100;
 
   const evidenceCount = useMemo(
-    () =>
-      state.controls.reduce((acc, c) => acc + c.evidenceLinks.length, 0),
+    () => state.controls.reduce((acc, c) => acc + c.evidenceLinks.length, 0),
     [state.controls]
   );
 
@@ -418,21 +412,15 @@ export function ControlMapClient() {
     // Sort entries in canonical FRAMEWORK_OPTIONS order so the dashboard
     // always displays SOC 2 → ISO 27001 → HIPAA → GDPR → Custom regardless of
     // which framework was added first.
-    const order = new Map<Framework, number>(
-      FRAMEWORK_OPTIONS.map((o, i) => [o.value, i])
-    );
+    const order = new Map<Framework, number>(FRAMEWORK_OPTIONS.map((o, i) => [o.value, i]));
     return Array.from(map.entries())
       .map(([fw, v]) => ({ framework: fw, ...v }))
-      .sort(
-        (a, b) => (order.get(a.framework) ?? 0) - (order.get(b.framework) ?? 0)
-      );
+      .sort((a, b) => (order.get(a.framework) ?? 0) - (order.get(b.framework) ?? 0));
   }, [state.controls]);
 
   const gapsCount = useMemo(
     () =>
-      state.controls.filter(
-        (c) => c.status === "not_started" || c.status === "in_progress"
-      ).length,
+      state.controls.filter((c) => c.status === "not_started" || c.status === "in_progress").length,
     [state.controls]
   );
 
@@ -538,12 +526,7 @@ export function ControlMapClient() {
           value={gapsCount}
           tone={gapsCount > 0 ? "warning" : "default"}
         />
-        <StatCard
-          variant="compact"
-          icon={FileCheck}
-          label="Evidence items"
-          value={evidenceCount}
-        />
+        <StatCard variant="compact" icon={FileCheck} label="Evidence items" value={evidenceCount} />
       </KpiGrid>
 
       {byFramework.length > 0 && (
@@ -554,21 +537,14 @@ export function ControlMapClient() {
         >
           <div className="space-y-3">
             {byFramework.map((f) => {
-              const pct = Math.min(
-                100,
-                (f.implemented / Math.max(1, f.total)) * 100
-              );
+              const pct = Math.min(100, (f.implemented / Math.max(1, f.total)) * 100);
               return (
                 <div key={f.framework}>
                   <div className="flex items-center justify-between mb-1 text-xs">
-                    <span className="text-text font-medium">
-                      {FRAMEWORK_LABEL[f.framework]}
-                    </span>
+                    <span className="text-text font-medium">{FRAMEWORK_LABEL[f.framework]}</span>
                     <span className="text-sub font-data">
                       {f.implemented} / {f.total}{" "}
-                      <span className="text-accent">
-                        ({pct.toFixed(0)}%)
-                      </span>
+                      <span className="text-accent">({pct.toFixed(0)}%)</span>
                     </span>
                   </div>
                   <Progress value={pct} className="h-2" />
@@ -579,11 +555,7 @@ export function ControlMapClient() {
         </SectionCard>
       )}
 
-      <SectionCard
-        title="New control"
-        icon={ShieldCheck}
-        className="mb-6 bg-surface border-border"
-      >
+      <SectionCard title="New control" icon={ShieldCheck} className="mb-6 bg-surface border-border">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="space-y-1">
             <Label className="text-xs text-sub">Control ID</Label>

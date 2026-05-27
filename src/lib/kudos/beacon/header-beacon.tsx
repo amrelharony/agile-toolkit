@@ -96,7 +96,7 @@ export function KudosHeaderBeacon() {
           type="button"
           data-no-sound="true"
           className={cn(
-            "relative w-9 h-9 rounded-lg flex items-center justify-center",
+            "min-touch-coarse relative w-9 h-9 rounded-lg flex items-center justify-center",
             "text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
           )}
           aria-label={unread > 0 ? `Kudos beacon — ${unread} new` : "Kudos beacon"}

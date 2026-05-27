@@ -230,8 +230,12 @@ export function ParticleBackground() {
       style={{
         position: "fixed",
         inset: 0,
+        // Use `100dvh` so the canvas matches the dynamic visible viewport
+        // on iOS — `100vh` includes the URL bar, leaving an ~80 px particle
+        // band BELOW the visible content. The body in globals.css already
+        // does the `100vh` → `100dvh` cascade for older Safari.
         width: "100vw",
-        height: "100vh",
+        height: "100dvh",
         pointerEvents: "none",
         zIndex: -1,
       }}

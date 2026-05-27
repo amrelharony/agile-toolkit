@@ -65,7 +65,7 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
       aria-label={`Level ${info.level}, ${pct}% to next level. ${unlockedCount} achievements. Open trophy case.`}
       title="Open trophy case"
       className={cn(
-        "flex items-center gap-2 h-8 rounded-full",
+        "min-touch-coarse flex items-center gap-2 h-8 rounded-full",
         "border border-border bg-surface/60 backdrop-blur-sm",
         "px-2.5 sm:px-3",
         "text-[10px] sm:text-[11px] font-mono uppercase tracking-wider",
@@ -97,9 +97,7 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
         />
       </div>
       <span className="font-data text-text/80 whitespace-nowrap hidden sm:inline">
-        {info.atMax
-          ? `${xp.toLocaleString()}`
-          : `${info.xpIntoLevel}/${info.xpNeededForLevel}`}
+        {info.atMax ? `${xp.toLocaleString()}` : `${info.xpIntoLevel}/${info.xpNeededForLevel}`}
       </span>
       <span className="hidden md:flex items-center gap-1 text-sub shrink-0">
         <span className="text-sub/50">·</span>

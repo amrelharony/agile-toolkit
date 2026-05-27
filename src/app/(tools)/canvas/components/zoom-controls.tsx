@@ -14,9 +14,7 @@ export function ZoomControls({ onFit, viewportSize }: ZoomControlsProps) {
   const setCamera = useCanvasStore((s) => s.setCamera);
 
   const zoomIn = () => {
-    const center = viewportSize
-      ? { x: viewportSize.w / 2, y: viewportSize.h / 2 }
-      : { x: 0, y: 0 };
+    const center = viewportSize ? { x: viewportSize.w / 2, y: viewportSize.h / 2 } : { x: 0, y: 0 };
     const next = clampZoom(camera.zoom * 1.2);
     const worldX = camera.x + center.x / camera.zoom;
     const worldY = camera.y + center.y / camera.zoom;
@@ -27,9 +25,7 @@ export function ZoomControls({ onFit, viewportSize }: ZoomControlsProps) {
     });
   };
   const zoomOut = () => {
-    const center = viewportSize
-      ? { x: viewportSize.w / 2, y: viewportSize.h / 2 }
-      : { x: 0, y: 0 };
+    const center = viewportSize ? { x: viewportSize.w / 2, y: viewportSize.h / 2 } : { x: 0, y: 0 };
     const next = clampZoom(camera.zoom / 1.2);
     const worldX = camera.x + center.x / camera.zoom;
     const worldY = camera.y + center.y / camera.zoom;
@@ -54,7 +50,7 @@ export function ZoomControls({ onFit, viewportSize }: ZoomControlsProps) {
         onClick={zoomOut}
         aria-label="Zoom out"
         title="Zoom out (Cmd+-)"
-        className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep"
+        className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep min-touch-coarse"
       >
         <ZoomOut className="w-4 h-4" aria-hidden="true" />
       </button>
@@ -72,7 +68,7 @@ export function ZoomControls({ onFit, viewportSize }: ZoomControlsProps) {
         onClick={zoomIn}
         aria-label="Zoom in"
         title="Zoom in (Cmd+=)"
-        className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep"
+        className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep min-touch-coarse"
       >
         <ZoomIn className="w-4 h-4" aria-hidden="true" />
       </button>
@@ -83,7 +79,7 @@ export function ZoomControls({ onFit, viewportSize }: ZoomControlsProps) {
           onClick={onFit}
           aria-label="Fit to content"
           title="Fit to content (Cmd+1)"
-          className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep"
+          className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep min-touch-coarse"
         >
           <Maximize2 className="w-4 h-4" aria-hidden="true" />
         </button>

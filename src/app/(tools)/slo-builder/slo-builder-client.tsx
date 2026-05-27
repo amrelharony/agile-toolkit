@@ -473,7 +473,7 @@ export function SloBuilderClient() {
                 className="bg-surface border-border"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <NumericField
                 id="slo-target"
                 label="Target (%)"
@@ -563,7 +563,7 @@ export function SloBuilderClient() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="burn-date" className="text-xs text-sub">
                     Date
@@ -633,7 +633,7 @@ export function SloBuilderClient() {
                       <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                     </Button>
                   </div>
-                  <div className="mt-3 grid grid-cols-3 gap-3 text-xs">
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
                     <div>
                       <div className="text-sub uppercase tracking-wider">Target</div>
                       <div className="font-data text-text">{(slo.target * 100).toFixed(2)}%</div>

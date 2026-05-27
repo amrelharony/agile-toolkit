@@ -275,7 +275,7 @@ function EntryCard({
             {!isResolved && (
               <button
                 onClick={onResolve}
-                className="mt-2 text-xs text-[#22c55e] hover:underline flex items-center gap-1"
+                className="mt-2 text-xs text-[#22c55e] hover:underline flex items-center gap-1 min-touch-coarse py-1"
               >
                 <CheckCircle2 className="w-3 h-3" />
                 Mark resolved
@@ -313,15 +313,17 @@ function TodayTab({
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-surface border border-border rounded-lg p-3 text-center">
-          <p className="text-2xl font-data font-bold text-accent">{todayEntries.length}</p>
+          <p className="text-fluid-h3 font-data font-bold text-accent">{todayEntries.length}</p>
           <p className="text-xs text-sub mt-0.5">Submitted</p>
         </div>
         <div className="bg-surface border border-border rounded-lg p-3 text-center">
-          <p className="text-2xl font-data font-bold text-[#eab308]">{missingMembers.length}</p>
+          <p className="text-fluid-h3 font-data font-bold text-[#eab308]">
+            {missingMembers.length}
+          </p>
           <p className="text-xs text-sub mt-0.5">Missing</p>
         </div>
         <div className="bg-surface border border-border rounded-lg p-3 text-center">
-          <p className="text-2xl font-data font-bold text-[#ef4444]">
+          <p className="text-fluid-h3 font-data font-bold text-[#ef4444]">
             {
               todayEntries.filter((e) => e.blockers.trim() && !resolvedBlockers.includes(e.id))
                 .length
@@ -440,8 +442,8 @@ function HistoryTab({ entries, members }: { entries: StandupEntry[]; members: st
 
       {/* Table */}
       {filtered.length > 0 ? (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="table-wrap-responsive">
+          <table className="w-full text-sm min-w-[640px]">
             <thead>
               <tr className="border-b border-border">
                 <th className="text-left text-xs text-sub font-medium uppercase tracking-wider pb-3 pr-4">
@@ -919,7 +921,8 @@ export function StandupClient() {
                       </div>
                       <button
                         onClick={() => removeMember(m)}
-                        className="text-sub hover:text-red-400 transition-colors"
+                        className="text-sub hover:text-red-400 transition-colors min-touch-coarse inline-flex items-center justify-center"
+                        aria-label={`Remove ${m}`}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>

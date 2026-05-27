@@ -182,18 +182,18 @@ export function TemplateGallery({ boardId, onClose }: Props) {
       aria-modal="true"
       aria-label="Template gallery"
       ref={dialogRef}
-      className="fixed inset-0 z-modal flex items-center justify-center bg-bg/80 backdrop-blur-sm"
+      className="fixed inset-0 z-modal flex items-center justify-center bg-bg/80 backdrop-blur-sm p-3"
       onClick={onClose}
     >
       <div
-        className="relative bg-surface border border-border rounded-xl p-6 max-w-3xl w-[92vw] max-h-[80vh] overflow-auto"
+        className="relative bg-surface border border-border rounded-xl p-4 sm:p-6 w-[min(48rem,calc(100vw-1.5rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain-strict"
         onClick={(e) => e.stopPropagation()}
       >
         <button
           type="button"
           onClick={onClose}
           aria-label="Close template gallery"
-          className="absolute top-3 right-3 text-sub hover:text-text"
+          className="absolute top-3 right-3 text-sub hover:text-text min-touch-coarse inline-flex items-center justify-center"
         >
           <X className="w-5 h-5" />
         </button>

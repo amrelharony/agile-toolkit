@@ -17,16 +17,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import {
-  Users,
-  Plus,
-  Trash2,
-  Clock,
-  Zap,
-  UserCheck,
-  Settings2,
-  Target,
-} from "lucide-react";
+import { Users, Plus, Trash2, Clock, Zap, UserCheck, Settings2, Target } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { bayesianForecastConfidence } from "@/lib/analytics/forecasting-bayesian";
@@ -107,8 +98,7 @@ const useCapacityStore = create<CapacityStore>()(
       members: [defaultFirstMember],
       config: { ...defaultConfig },
 
-      addMember: () =>
-        set((s) => ({ members: [...s.members, createMember()] })),
+      addMember: () => set((s) => ({ members: [...s.members, createMember()] })),
 
       removeMember: (id) =>
         set((s) => ({
@@ -117,16 +107,12 @@ const useCapacityStore = create<CapacityStore>()(
 
       updateMember: (id, updates) =>
         set((s) => ({
-          members: s.members.map((m) =>
-            m.id === id ? { ...m, ...updates } : m
-          ),
+          members: s.members.map((m) => (m.id === id ? { ...m, ...updates } : m)),
         })),
 
-      updateConfig: (updates) =>
-        set((s) => ({ config: { ...s.config, ...updates } })),
+      updateConfig: (updates) => set((s) => ({ config: { ...s.config, ...updates } })),
 
-      reset: () =>
-        set({ members: [createMember()], config: { ...defaultConfig } }),
+      reset: () => set({ members: [createMember()], config: { ...defaultConfig } }),
     }),
     { name: "agile-toolkit:capacity-planner", storage: safeJSONStorage("capacity-planner") }
   )
@@ -177,12 +163,8 @@ function SummaryCard({
           <span className="text-sm text-sub">{label}</span>
         </div>
         <div className="flex items-baseline gap-1.5">
-          <span className="text-3xl font-data font-bold text-text">
-            {value}
-          </span>
-          {unit && (
-            <span className="text-sm text-sub">{unit}</span>
-          )}
+          <span className="text-3xl font-data font-bold text-text">{value}</span>
+          {unit && <span className="text-sm text-sub">{unit}</span>}
         </div>
       </CardContent>
     </Card>
@@ -272,81 +254,81 @@ function MemberRow({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <div className="grid grid-cols-[1fr_1fr_0.6fr_0.5fr_0.6fr_auto] gap-3 items-end">
-        <div className="space-y-1.5">
-          <Label className="text-sub text-xs">Name</Label>
-          <Input
-            placeholder="Team member"
-            value={member.name}
-            onChange={(e) => onUpdate({ name: e.target.value })}
-            className="bg-surface border-border text-text focus:border-accent/50 focus:ring-accent/20"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-sub text-xs">Role</Label>
-          <Input
-            placeholder="e.g. Developer"
-            value={member.role}
-            onChange={(e) => onUpdate({ role: e.target.value })}
-            className="bg-surface border-border text-text focus:border-accent/50 focus:ring-accent/20"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-sub text-xs">Availability %</Label>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            value={member.availability}
-            onChange={(e) => {
-              const n = Number(e.target.value);
-              if (Number.isFinite(n)) {
-                onUpdate({ availability: Math.min(100, Math.max(0, n)) });
-              }
-            }}
-            className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-sub text-xs">Days Off</Label>
-          <Input
-            type="number"
-            min={0}
-            value={member.daysOff}
-            onChange={(e) => {
-              const n = Number(e.target.value);
-              if (Number.isFinite(n)) {
-                onUpdate({ daysOff: Math.max(0, n) });
-              }
-            }}
-            className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-sub text-xs">Eff. Hours</Label>
-          <div className="h-9 flex items-center px-3 rounded-md bg-accent/5 border border-accent/20">
-            <span className="font-data font-semibold text-accent">
-              {round(effectiveHours)}
-            </span>
+      <div className="md:grid md:grid-cols-[1fr_1fr_0.6fr_0.5fr_0.6fr_auto] md:gap-3 md:items-end">
+        <div className="grid grid-cols-2 gap-2 md:contents">
+          <div className="space-y-1.5 col-span-2">
+            <Label className="text-sub text-xs">Name</Label>
+            <Input
+              placeholder="Team member"
+              value={member.name}
+              onChange={(e) => onUpdate({ name: e.target.value })}
+              className="bg-surface border-border text-text focus:border-accent/50 focus:ring-accent/20"
+            />
           </div>
-        </div>
 
-        <div className="space-y-1.5">
-          <Label className="text-sub text-xs invisible">Del</Label>
-          <Button
-            variant="danger-ghost"
-            size="icon"
-            disabled={!canRemove}
-            onClick={onRemove}
-            aria-label={`Remove member ${member.name || "(unnamed)"}`}
-            className="h-9 w-9 disabled:opacity-30"
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
+          <div className="space-y-1.5 col-span-2">
+            <Label className="text-sub text-xs">Role</Label>
+            <Input
+              placeholder="e.g. Developer"
+              value={member.role}
+              onChange={(e) => onUpdate({ role: e.target.value })}
+              className="bg-surface border-border text-text focus:border-accent/50 focus:ring-accent/20"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-sub text-xs">Availability %</Label>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              value={member.availability}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isFinite(n)) {
+                  onUpdate({ availability: Math.min(100, Math.max(0, n)) });
+                }
+              }}
+              className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-sub text-xs">Days Off</Label>
+            <Input
+              type="number"
+              min={0}
+              value={member.daysOff}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isFinite(n)) {
+                  onUpdate({ daysOff: Math.max(0, n) });
+                }
+              }}
+              className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-sub text-xs">Eff. Hours</Label>
+            <div className="h-9 flex items-center px-3 rounded-md bg-accent/5 border border-accent/20">
+              <span className="font-data font-semibold text-accent">{round(effectiveHours)}</span>
+            </div>
+          </div>
+
+          <div className="space-y-1.5 flex md:block flex-col items-end md:items-stretch">
+            <Label className="text-sub text-xs invisible">Del</Label>
+            <Button
+              variant="danger-ghost"
+              size="icon"
+              disabled={!canRemove}
+              onClick={onRemove}
+              aria-label={`Remove member ${member.name || "(unnamed)"}`}
+              className="h-9 w-9 disabled:opacity-30"
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -388,26 +370,22 @@ export function CapacityPlannerClient() {
     useShallow((s): number[] =>
       s.sprints
         .filter((sp) => sp.status === "completed" && Number.isFinite(sp.pointsCompleted))
-        .map((sp) => sp.pointsCompleted ?? 0),
-    ),
+        .map((sp) => sp.pointsCompleted ?? 0)
+    )
   );
 
   const forecastConfidence = useMemo(
     () => bayesianForecastConfidence(velocityHistory),
-    [velocityHistory],
+    [velocityHistory]
   );
 
   const recentRegimeShift = useMemo(
     () => hasRecentChangepoint(velocityHistory, 3),
-    [velocityHistory],
+    [velocityHistory]
   );
 
   /* -- SmartInput predicted default for points-committed -------------------- */
-  const pointsCommittedPred = usePredictedDefault<number>(
-    "capacity-planner",
-    "pointsCommitted",
-    0,
-  );
+  const pointsCommittedPred = usePredictedDefault<number>("capacity-planner", "pointsCommitted", 0);
 
   const addMember: typeof addMemberRaw = (...args) => {
     addMemberRaw(...args);
@@ -440,9 +418,7 @@ export function CapacityPlannerClient() {
     }));
     const totalHours = perMember.reduce((sum, m) => sum + m.effectiveHours, 0);
     const avgAvailability =
-      members.length > 0
-        ? members.reduce((sum, m) => sum + m.availability, 0) / members.length
-        : 0;
+      members.length > 0 ? members.reduce((sum, m) => sum + m.availability, 0) / members.length : 0;
     const totalDaysOff = members.reduce((sum, m) => sum + m.daysOff, 0);
 
     return { perMember, totalHours, avgAvailability, totalDaysOff };
@@ -496,10 +472,13 @@ export function CapacityPlannerClient() {
     return lines.join("\n");
   }, [config, calculations]);
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Capacity Planner",
-    prompts: generateCapacityPrompts({ members, config }),
-  }), [members, config]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Capacity Planner",
+      prompts: generateCapacityPrompts({ members, config }),
+    }),
+    [members, config]
+  );
 
   /* -- Render ------------------------------------------------------------- */
 
@@ -547,9 +526,9 @@ export function CapacityPlannerClient() {
                 Recent regime shift in velocity detected
               </div>
               <div className="text-sub">
-                CUSUM flagged a changepoint in the last few sprints — historical
-                commitments may not be representative. Trim the sample to the
-                post-shift window before relying on the suggested commitment.
+                CUSUM flagged a changepoint in the last few sprints — historical commitments may not
+                be representative. Trim the sample to the post-shift window before relying on the
+                suggested commitment.
               </div>
             </div>
           </CalloutAlert>
@@ -618,17 +597,12 @@ export function CapacityPlannerClient() {
                       value={config.pointsCommitted ?? ""}
                       placeholder={ghost ?? "e.g. 30"}
                       onKeyDown={(e) => {
-                        if (
-                          e.key === "Tab" &&
-                          (config.pointsCommitted ?? "") === ""
-                        ) {
+                        if (e.key === "Tab" && (config.pointsCommitted ?? "") === "") {
                           e.preventDefault();
                           accept();
                         }
                       }}
-                      onChange={(e) =>
-                        updateConfig({ pointsCommitted: e.target.value })
-                      }
+                      onChange={(e) => updateConfig({ pointsCommitted: e.target.value })}
                       className="bg-surface border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
                     />
                     {chip}
@@ -690,19 +664,10 @@ export function CapacityPlannerClient() {
                 jsonData={jsonData}
                 targetRef={exportRef}
               />
-              <Button
-                variant="danger-ghost"
-                size="sm"
-                onClick={reset}
-              >
+              <Button variant="danger-ghost" size="sm" onClick={reset}>
                 Reset
               </Button>
-              <Button
-                size="sm"
-                variant="toolkit"
-                onClick={addMember}
-                className="gap-1.5"
-              >
+              <Button size="sm" variant="toolkit" onClick={addMember} className="gap-1.5">
                 <Plus className="w-4 h-4" />
                 Add Member
               </Button>
@@ -711,18 +676,12 @@ export function CapacityPlannerClient() {
         >
           {/* Column headers (visible on md+) */}
           <div className="hidden md:grid grid-cols-[1fr_1fr_0.6fr_0.5fr_0.6fr_auto] gap-3 px-1 pb-1 border-b border-border">
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">
-              Name
-            </span>
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">
-              Role
-            </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">Name</span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">Role</span>
             <span className="text-xs text-sub font-medium uppercase tracking-wider">
               Availability
             </span>
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">
-              Days Off
-            </span>
+            <span className="text-xs text-sub font-medium uppercase tracking-wider">Days Off</span>
             <span className="text-xs text-sub font-medium uppercase tracking-wider">
               Eff. Hours
             </span>
@@ -742,9 +701,7 @@ export function CapacityPlannerClient() {
 
           {/* Total bar */}
           <div className="mt-4 pt-4 border-t border-border flex items-center justify-between px-1">
-            <span className="text-sm font-medium text-sub">
-              Sprint Total
-            </span>
+            <span className="text-sm font-medium text-sub">Sprint Total</span>
             <div className="flex items-baseline gap-1.5">
               <span className="text-2xl font-data font-bold text-accent">
                 {round(calculations.totalHours)}
@@ -776,14 +733,8 @@ export function CapacityPlannerClient() {
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between mb-2 gap-2">
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-text">
-                              {m.name}
-                            </p>
-                            {m.role && (
-                              <p className="text-xs text-sub">
-                                {m.role}
-                              </p>
-                            )}
+                            <p className="text-sm font-medium text-text">{m.name}</p>
+                            {m.role && <p className="text-xs text-sub">{m.role}</p>}
                             {m.description && (
                               <p className="text-sub text-[11px] mt-0.5 mb-0.5 whitespace-pre-wrap break-words">
                                 {m.description}

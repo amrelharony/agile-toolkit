@@ -124,14 +124,14 @@ export function AccessTokensClient() {
             e.preventDefault();
             void onCreate();
           }}
-          className="flex gap-2"
+          className="flex flex-col sm:flex-row gap-2"
         >
           <input
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder="e.g. Claude Desktop on Laptop"
-            className="flex-1 rounded-md border border-border bg-bg px-3 py-2 text-sm text-text"
+            className="flex-1 min-w-0 rounded-md border border-border bg-bg px-3 py-2 text-sm text-text"
             maxLength={80}
             disabled={creating}
           />
@@ -158,8 +158,8 @@ export function AccessTokensClient() {
             value. Store it in your agent&apos;s config (e.g. <code>AGILE_TOOLKIT_PAT</code> env
             var).
           </p>
-          <div className="flex gap-2">
-            <code className="flex-1 font-mono text-sm bg-bg rounded-md border border-border px-3 py-2 break-all">
+          <div className="flex flex-wrap gap-2">
+            <code className="flex-1 min-w-0 basis-full sm:basis-0 font-mono text-sm bg-bg rounded-md border border-border px-3 py-2 break-all">
               {revealVisible
                 ? revealed.rawToken
                 : `${revealed.rawToken.slice(0, 8)}${"•".repeat(Math.max(0, revealed.rawToken.length - 8))}`}
@@ -170,6 +170,7 @@ export function AccessTokensClient() {
               variant="outline"
               aria-label={revealVisible ? "Hide token" : "Reveal token"}
               title={revealVisible ? "Hide" : "Reveal"}
+              className="min-touch-coarse shrink-0"
             >
               {revealVisible ? (
                 <EyeOff className="w-4 h-4" aria-hidden="true" />
@@ -182,6 +183,7 @@ export function AccessTokensClient() {
               size="icon"
               variant="outline"
               aria-label="Copy token"
+              className="min-touch-coarse shrink-0"
             >
               {copied ? (
                 <Check className="w-4 h-4" aria-hidden="true" />
@@ -238,6 +240,7 @@ export function AccessTokensClient() {
                     size="icon"
                     variant="outline"
                     aria-label={`Revoke ${t.name}`}
+                    className="min-touch-coarse shrink-0"
                   >
                     <Trash2 className="w-4 h-4" aria-hidden="true" />
                   </Button>

@@ -521,18 +521,18 @@ function DraggableCard({
       className="group relative rounded-md border text-sm p-2.5 bg-surface-deep hover:bg-surface transition-colors cursor-default"
       {...attributes}
     >
-      {/* Drag handle */}
+      {/* Drag handle — stays visible on touch devices since hover doesn't exist. */}
       <button
         type="button"
         {...listeners}
-        className="absolute left-1 top-1/2 -translate-y-1/2 text-sub/30 hover:text-sub cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+        className="min-touch-coarse absolute left-1 top-1/2 -translate-y-1/2 flex items-center justify-center text-sub/30 hover:text-sub cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity"
         tabIndex={-1}
         aria-label="Drag handle"
       >
-        <GripVertical className="w-3.5 h-3.5" />
+        <GripVertical className="w-4 h-4 [@media(pointer:coarse)]:w-5 [@media(pointer:coarse)]:h-5" />
       </button>
 
-      <div className="pl-4 pr-8">
+      <div className="pl-5 pr-8 [@media(pointer:coarse)]:pl-7">
         {/* Color dot + title */}
         <div className="flex items-start gap-1.5">
           <span
@@ -546,8 +546,8 @@ function DraggableCard({
         )}
       </div>
 
-      {/* Action buttons (top-right) */}
-      <div className="absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+      {/* Action buttons (top-right) — always visible on coarse pointers. */}
+      <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity">
         <CardEditDialog
           card={card}
           sliceId={sliceId}
@@ -555,21 +555,23 @@ function DraggableCard({
           trigger={
             <button
               type="button"
-              className="p-1 rounded text-sub hover:text-accent hover:bg-accent/10 transition-colors"
+              className="min-touch-coarse p-1 rounded text-sub hover:text-accent hover:bg-accent/10 transition-colors inline-flex items-center justify-center"
               title="Edit"
               onClick={(e) => e.stopPropagation()}
+              aria-label={`Edit ${card.title}`}
             >
-              <Pencil className="w-3 h-3" />
+              <Pencil className="w-3.5 h-3.5" />
             </button>
           }
         />
         <button
           type="button"
           onClick={() => removeCard(sliceId, stepId, card.id)}
-          className="btn-danger-ghost p-1 rounded"
+          className="btn-danger-ghost min-touch-coarse p-1 rounded inline-flex items-center justify-center"
           title="Delete card"
+          aria-label={`Delete ${card.title}`}
         >
-          <Trash2 className="w-3 h-3" />
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>
@@ -875,10 +877,11 @@ export function StoryMapperClient() {
                         <button
                           type="button"
                           onClick={() => removeStep(step.id)}
-                          className="btn-danger-ghost flex-shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-0.5 rounded"
+                          className="btn-danger-ghost min-touch-coarse flex-shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 p-0.5 rounded inline-flex items-center justify-center"
                           title="Remove step"
+                          aria-label={`Remove step ${step.name}`}
                         >
-                          <Trash2 className="w-3 h-3" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       )}
                     </div>
@@ -922,10 +925,11 @@ export function StoryMapperClient() {
                         <button
                           type="button"
                           onClick={() => removeSlice(slice.id)}
-                          className="btn-danger-ghost flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-0.5 rounded"
+                          className="btn-danger-ghost min-touch-coarse flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 p-0.5 rounded inline-flex items-center justify-center"
                           title="Remove slice"
+                          aria-label={`Remove slice ${slice.name}`}
                         >
-                          <Trash2 className="w-3 h-3" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       )}
                     </div>

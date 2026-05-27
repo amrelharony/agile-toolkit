@@ -235,7 +235,7 @@ function StatCard({
           </div>
           <span className="text-sm text-sub">{label}</span>
         </div>
-        <div className="font-data font-bold text-text text-2xl">{value}</div>
+        <div className="font-data font-bold text-text text-fluid-h3">{value}</div>
         {sub && <div className="text-xs text-sub mt-1">{sub}</div>}
       </CardContent>
     </Card>

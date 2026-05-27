@@ -390,95 +390,104 @@ export function EpicRoadmapClient() {
               your “to” quarter to see every epic.
             </div>
           )}
-          <CardContent className="p-4 overflow-x-auto">
-            <div
-              className="grid gap-1 min-w-[600px]"
-              style={{ gridTemplateColumns: `260px repeat(${columns.length}, minmax(80px, 1fr))` }}
-            >
-              <div />
-              {columns.map((c) => (
-                <div
-                  key={c}
-                  className="text-center text-xs font-data text-sub uppercase tracking-wider"
-                >
-                  {c}
-                </div>
-              ))}
-              {epics.map((e) => {
-                const viewStartQ = quarterIndex(from);
-                const viewEndQ = quarterIndex(to);
-                const epicStartQ = quarterIndex(e.startQuarter);
-                const epicEndQ = quarterIndex(e.endQuarter);
-                const outOfView =
-                  epicStartQ === 0 ||
-                  epicEndQ === 0 ||
-                  epicEndQ < viewStartQ ||
-                  epicStartQ > viewEndQ;
-                const start = Math.max(0, epicStartQ - viewStartQ);
-                const end = Math.min(columns.length - 1, epicEndQ - viewStartQ);
-                const span = Math.max(1, end - start + 1);
-                return (
-                  <div key={e.id} style={{ display: "contents" }}>
-                    <EpicRowEditor epic={e} update={update} logUpdate={logUpdate} remove={remove} />
-                    {columns.map((_, idx) => {
-                      if (outOfView || idx < start || idx > end) return <div key={idx} />;
-                      const isStart = idx === start;
-                      const isEnd = idx === end;
-                      const cellStartPct = (idx - start) / span;
-                      const cellEndPct = (idx - start + 1) / span;
-                      const prog = e.progress / 100;
-                      let cellFillPct = 0;
-                      if (prog >= cellEndPct) cellFillPct = 100;
-                      else if (prog > cellStartPct) {
-                        cellFillPct = ((prog - cellStartPct) / (cellEndPct - cellStartPct)) * 100;
-                      }
-                      const color = safeColor(e.color);
-                      return (
-                        <div key={idx} className="py-3">
-                          <div
-                            className="h-4 relative overflow-hidden"
-                            style={{
-                              background: `${color}22`,
-                              borderLeft: isStart ? `3px solid ${color}` : undefined,
-                              borderRight: isEnd ? `3px solid ${color}` : undefined,
-                              borderTopLeftRadius: isStart ? 4 : 0,
-                              borderBottomLeftRadius: isStart ? 4 : 0,
-                              borderTopRightRadius: isEnd ? 4 : 0,
-                              borderBottomRightRadius: isEnd ? 4 : 0,
-                            }}
-                          >
-                            <div
-                              className="h-full absolute left-0 top-0"
-                              style={{
-                                background: color,
-                                width: `${cellFillPct}%`,
-                                opacity: 0.45,
-                              }}
-                            />
-                            {idx === Math.floor((start + end) / 2) && (
-                              <div
-                                className="absolute inset-0 flex items-center justify-center text-[10px] font-data"
-                                style={{ color }}
-                              >
-                                {e.progress}%
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
+          <CardContent className="p-4">
+            <div className="overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0">
+              <div
+                className="grid gap-1 min-w-[600px]"
+                style={{
+                  gridTemplateColumns: `clamp(140px, 35vw, 260px) repeat(${columns.length}, minmax(80px, 1fr))`,
+                }}
+              >
+                <div />
+                {columns.map((c) => (
+                  <div
+                    key={c}
+                    className="text-center text-xs font-data text-sub uppercase tracking-wider"
+                  >
+                    {c}
                   </div>
-                );
-              })}
-              {epics.length === 0 && (
-                <div
-                  className="col-span-full text-center py-8 text-sub"
-                  style={{ gridColumn: `1 / span ${columns.length + 1}` }}
-                >
-                  <Milestone className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                  Add epics to populate the roadmap.
-                </div>
-              )}
+                ))}
+                {epics.map((e) => {
+                  const viewStartQ = quarterIndex(from);
+                  const viewEndQ = quarterIndex(to);
+                  const epicStartQ = quarterIndex(e.startQuarter);
+                  const epicEndQ = quarterIndex(e.endQuarter);
+                  const outOfView =
+                    epicStartQ === 0 ||
+                    epicEndQ === 0 ||
+                    epicEndQ < viewStartQ ||
+                    epicStartQ > viewEndQ;
+                  const start = Math.max(0, epicStartQ - viewStartQ);
+                  const end = Math.min(columns.length - 1, epicEndQ - viewStartQ);
+                  const span = Math.max(1, end - start + 1);
+                  return (
+                    <div key={e.id} style={{ display: "contents" }}>
+                      <EpicRowEditor
+                        epic={e}
+                        update={update}
+                        logUpdate={logUpdate}
+                        remove={remove}
+                      />
+                      {columns.map((_, idx) => {
+                        if (outOfView || idx < start || idx > end) return <div key={idx} />;
+                        const isStart = idx === start;
+                        const isEnd = idx === end;
+                        const cellStartPct = (idx - start) / span;
+                        const cellEndPct = (idx - start + 1) / span;
+                        const prog = e.progress / 100;
+                        let cellFillPct = 0;
+                        if (prog >= cellEndPct) cellFillPct = 100;
+                        else if (prog > cellStartPct) {
+                          cellFillPct = ((prog - cellStartPct) / (cellEndPct - cellStartPct)) * 100;
+                        }
+                        const color = safeColor(e.color);
+                        return (
+                          <div key={idx} className="py-3">
+                            <div
+                              className="h-4 relative overflow-hidden"
+                              style={{
+                                background: `${color}22`,
+                                borderLeft: isStart ? `3px solid ${color}` : undefined,
+                                borderRight: isEnd ? `3px solid ${color}` : undefined,
+                                borderTopLeftRadius: isStart ? 4 : 0,
+                                borderBottomLeftRadius: isStart ? 4 : 0,
+                                borderTopRightRadius: isEnd ? 4 : 0,
+                                borderBottomRightRadius: isEnd ? 4 : 0,
+                              }}
+                            >
+                              <div
+                                className="h-full absolute left-0 top-0"
+                                style={{
+                                  background: color,
+                                  width: `${cellFillPct}%`,
+                                  opacity: 0.45,
+                                }}
+                              />
+                              {idx === Math.floor((start + end) / 2) && (
+                                <div
+                                  className="absolute inset-0 flex items-center justify-center text-[10px] font-data"
+                                  style={{ color }}
+                                >
+                                  {e.progress}%
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+                {epics.length === 0 && (
+                  <div
+                    className="col-span-full text-center py-8 text-sub"
+                    style={{ gridColumn: `1 / span ${columns.length + 1}` }}
+                  >
+                    <Milestone className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                    Add epics to populate the roadmap.
+                  </div>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

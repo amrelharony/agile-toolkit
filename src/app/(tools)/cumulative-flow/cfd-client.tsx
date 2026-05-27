@@ -925,7 +925,7 @@ export function CFDClient() {
                 No entries yet. Click &ldquo;Add Date&rdquo; to start tracking.
               </p>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="table-wrap-responsive">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border">

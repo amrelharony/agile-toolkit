@@ -2,26 +2,10 @@
 
 import { useMemo } from "react";
 import { motion } from "framer-motion";
-import {
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { ChartCard } from "@/components/shared/chart-card";
 import { SectionCard } from "@/components/shared/section-card";
-import {
-  Activity,
-  Sparkles,
-  Trophy,
-  Flame,
-  Target,
-  Calendar,
-} from "lucide-react";
+import { Activity, Sparkles, Trophy, Flame, Target, Calendar } from "lucide-react";
 import { useHistory } from "@/lib/history/use-history";
 import { tools as ALL_TOOLS } from "@/lib/constants/tools";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -72,13 +56,11 @@ export default function InsightsPage() {
 
     // Tool usage tally
     const toolCounts = new Map<string, number>();
-    for (const e of events)
-      toolCounts.set(e.toolId, (toolCounts.get(e.toolId) ?? 0) + 1);
+    for (const e of events) toolCounts.set(e.toolId, (toolCounts.get(e.toolId) ?? 0) + 1);
     const toolSeries = Array.from(toolCounts.entries())
       .map(([toolId, count]) => ({
         toolId,
-        name:
-          ALL_TOOLS.find((t) => t.id === toolId)?.name ?? toolId,
+        name: ALL_TOOLS.find((t) => t.id === toolId)?.name ?? toolId,
         events: count,
       }))
       .sort((a, b) => b.events - a.events)
@@ -120,9 +102,7 @@ export default function InsightsPage() {
 
   const aiConfig = useMemo(() => generateHistoryInsightPrompts(events), [events]);
 
-  const greeting = profile?.display_name
-    ? `${profile.display_name.split(" ")[0]}'s`
-    : "Your";
+  const greeting = profile?.display_name ? `${profile.display_name.split(" ")[0]}'s` : "Your";
 
   return (
     <motion.div
@@ -190,10 +170,7 @@ export default function InsightsPage() {
             height={224}
             className="mb-6"
           >
-            <BarChart
-              data={stats.dailySeries}
-              margin={{ top: 10, right: 16, left: 0, bottom: 8 }}
-            >
+            <BarChart data={stats.dailySeries} margin={{ top: 10, right: 16, left: 0, bottom: 8 }}>
               <CartesianGrid stroke="#ffffff10" vertical={false} />
               <XAxis
                 dataKey="day"
@@ -240,10 +217,11 @@ export default function InsightsPage() {
                 <YAxis
                   type="category"
                   dataKey="name"
-                  width={130}
+                  width={90}
                   tick={{ fill: "#7a8794", fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}
+                  tickFormatter={(v: string) => (v.length > 14 ? `${v.slice(0, 13)}…` : v)}
                 />
                 <Tooltip
                   cursor={{ fill: "#ffffff08" }}
@@ -254,11 +232,7 @@ export default function InsightsPage() {
                     fontSize: 12,
                   }}
                 />
-                <Bar
-                  dataKey="events"
-                  fill={ACCENT}
-                  radius={[0, 4, 4, 0]}
-                />
+                <Bar dataKey="events" fill={ACCENT} radius={[0, 4, 4, 0]} />
               </BarChart>
             </ChartCard>
 
@@ -274,8 +248,7 @@ export default function InsightsPage() {
               <div className="grid grid-cols-7 @lg:grid-cols-[repeat(14,minmax(0,1fr))] gap-1.5">
                 {stats.heatmap.map((cell) => {
                   const intensity = cell.count / stats.maxHeat;
-                  const opacity =
-                    cell.count === 0 ? 0.06 : 0.18 + intensity * 0.82;
+                  const opacity = cell.count === 0 ? 0.06 : 0.18 + intensity * 0.82;
                   return (
                     <div
                       key={cell.day}
@@ -309,15 +282,8 @@ export default function InsightsPage() {
           </div>
 
           {/* Trend line */}
-          <ChartCard
-            title="30-day trend"
-            badge="experimental"
-            height={192}
-          >
-            <LineChart
-              data={stats.dailySeries}
-              margin={{ top: 10, right: 16, left: 0, bottom: 8 }}
-            >
+          <ChartCard title="30-day trend" badge="experimental" height={192}>
+            <LineChart data={stats.dailySeries} margin={{ top: 10, right: 16, left: 0, bottom: 8 }}>
               <CartesianGrid stroke="#ffffff10" vertical={false} />
               <XAxis
                 dataKey="day"
@@ -392,26 +358,16 @@ function KpiCard({
 function EmptyState({ authed }: { authed: boolean }) {
   return (
     <div
-      className={cn(
-        "border border-dashed border-border rounded-lg p-12 text-center",
-        "text-sub"
-      )}
+      className={cn("border border-dashed border-border rounded-lg p-12 text-center", "text-sub")}
     >
-      <Activity
-        className="w-10 h-10 mx-auto mb-3 text-accent/30"
-        aria-hidden="true"
-      />
-      <p className="text-sm font-medium text-text">
-        Insights unlock as you use the toolkit
-      </p>
+      <Activity className="w-10 h-10 mx-auto mb-3 text-accent/30" aria-hidden="true" />
+      <p className="text-sm font-medium text-text">Insights unlock as you use the toolkit</p>
       <p className="text-xs mt-1 max-w-md mx-auto">
-        Open any tool — record retros, log impediments, run a planning poker
-        session. Insights aggregate from your history.
+        Open any tool — record retros, log impediments, run a planning poker session. Insights
+        aggregate from your history.
       </p>
       {!authed && (
-        <p className="text-[11px] mt-3 text-accent/80">
-          Sign in to keep insights across devices.
-        </p>
+        <p className="text-[11px] mt-3 text-accent/80">Sign in to keep insights across devices.</p>
       )}
     </div>
   );

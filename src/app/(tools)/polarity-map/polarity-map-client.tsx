@@ -223,7 +223,7 @@ export function PolarityMapClient() {
                 <button
                   onClick={() => remove(pol.id)}
                   aria-label="Remove polarity"
-                  className="text-sub hover:text-red-400"
+                  className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -236,7 +236,10 @@ export function PolarityMapClient() {
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[left, right].map((p) => (
-                  <div key={p.id} className="border border-border rounded p-3 bg-surface-deep">
+                  <div
+                    key={p.id}
+                    className="border border-border rounded p-3 bg-surface-deep min-w-0"
+                  >
                     <div
                       className="font-bold text-sm mb-2"
                       style={{ color: p.side === "left" ? "#00f0ff" : "#ff00aa" }}

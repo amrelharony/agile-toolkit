@@ -392,15 +392,15 @@ export function MoodTrackerClient() {
                 const noteValue = noteDrafts[m.id] ?? todays?.note ?? "";
                 return (
                   <div key={m.id} className="rounded-lg border border-border bg-bg p-2 space-y-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm text-text w-40 truncate">{m.name}</span>
-                      <div className="flex gap-1.5 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm text-text w-full sm:w-40 sm:truncate">{m.name}</span>
+                      <div className="flex flex-wrap gap-1.5 flex-1 w-full sm:w-auto">
                         {FACES.map((f) => (
                           <button
                             key={f.score}
                             type="button"
                             onClick={() => log(m.id, f.score)}
-                            className={`flex-1 rounded-md border py-1.5 text-xs font-semibold transition ${
+                            className={`flex-1 min-w-[60px] rounded-md border py-1.5 text-xs font-semibold transition ${
                               todays?.score === f.score
                                 ? "border-transparent text-bg"
                                 : "border-border text-sub hover:border-accent/40"
@@ -551,10 +551,12 @@ export function MoodTrackerClient() {
               Add a team member to see the heatmap.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0">
               <div
                 className="grid gap-1"
-                style={{ gridTemplateColumns: `120px repeat(${days.length}, 32px)` }}
+                style={{
+                  gridTemplateColumns: `clamp(80px, 25vw, 120px) repeat(${days.length}, 32px)`,
+                }}
               >
                 <div />
                 {days.map((d) => (

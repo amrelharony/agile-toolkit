@@ -249,7 +249,7 @@ export function RapidDecisionClient() {
                           upsert({ ...d, status: v as RAPIDDecision["status"] })
                         }
                       >
-                        <SelectTrigger className="h-7 w-32 text-xs">
+                        <SelectTrigger className="h-7 w-32 text-xs min-touch-coarse">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>

@@ -269,7 +269,7 @@ export function ValueEffortMatrixClient() {
         {items.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {Object.entries(grouped).map(([q, list]) => (
-              <div key={q} className="border border-border rounded p-3 bg-surface-deep">
+              <div key={q} className="border border-border rounded p-3 bg-surface-deep min-w-0">
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-bold uppercase" style={{ color: QUAD_COLORS[q] }}>
                     {q}
@@ -278,9 +278,9 @@ export function ValueEffortMatrixClient() {
                 </div>
                 <ul className="space-y-1 text-sm">
                   {list.map((it) => (
-                    <li key={it.id} className="flex justify-between items-center">
-                      <span className="text-text truncate flex-1">{it.title}</span>
-                      <span className="text-xs text-sub mx-2">
+                    <li key={it.id} className="flex justify-between items-center min-w-0">
+                      <span className="text-text truncate flex-1 min-w-0">{it.title}</span>
+                      <span className="text-xs text-sub mx-2 shrink-0">
                         v{it.fields?.value} e{it.fields?.effort}
                       </span>
                       <button
@@ -289,7 +289,7 @@ export function ValueEffortMatrixClient() {
                           log(VALUE_EFFORT_ACTIONS.ITEM_REMOVED, { id: it.id });
                         }}
                         aria-label="Remove item"
-                        className="text-sub hover:text-red-400"
+                        className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

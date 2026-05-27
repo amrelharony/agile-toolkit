@@ -448,7 +448,7 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
           // open — those use z-[9999]. An open mic is sensitive
           // state; hiding it behind a modal makes users forget they
           // are still recording.
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] bg-surface border border-red-400/40 rounded-full px-4 py-2 shadow-xl flex items-center gap-2 max-w-[80vw]"
+          className="fixed bottom-[max(1.5rem,calc(env(safe-area-inset-bottom)+0.75rem))] left-1/2 -translate-x-1/2 z-[9999] bg-surface border border-red-400/40 rounded-full px-4 py-2 shadow-xl flex items-center gap-2 max-w-[80vw]"
           data-canvas-export-ignore="true"
         >
           {/* Distinct animation per state so users can tell at a glance
@@ -485,7 +485,7 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
       {error && (
         <div
           role="alert"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-modal bg-surface border border-amber-400/40 rounded-full px-4 py-2 shadow-xl"
+          className="fixed bottom-[max(1.5rem,calc(env(safe-area-inset-bottom)+0.75rem))] left-1/2 -translate-x-1/2 z-modal bg-surface border border-amber-400/40 rounded-full px-4 py-2 shadow-xl"
           data-canvas-export-ignore="true"
         >
           <span className="text-xs text-amber-200">{error}</span>

@@ -31,9 +31,11 @@ interface EmptyStateProps {
 }
 
 const PADDING: Record<NonNullable<EmptyStateProps["padding"]>, string> = {
-  md: "p-6",
-  lg: "p-8",
-  xl: "p-12",
+  // Mobile-first: tighten by 8 px on phones where the card padding eats
+  // a third of the viewport. Caps at the original desktop size on sm+.
+  md: "p-4 sm:p-6",
+  lg: "p-6 sm:p-8",
+  xl: "p-8 sm:p-12",
 };
 
 /**
@@ -68,12 +70,7 @@ export function EmptyState({
   return (
     <Card className={cn("bg-surface border-border", className)}>
       <CardContent className={cn("text-center text-sub", PADDING[padding])}>
-        {Icon && (
-          <Icon
-            className="w-10 h-10 mx-auto mb-3 opacity-40"
-            aria-hidden="true"
-          />
-        )}
+        {Icon && <Icon className="w-10 h-10 mx-auto mb-3 opacity-40" aria-hidden="true" />}
         {/* Announce the empty state to screen readers when this card replaces
             a previously populated one (e.g. user filters down to zero rows).
             Without role="status" the SR-only transition is silent. */}

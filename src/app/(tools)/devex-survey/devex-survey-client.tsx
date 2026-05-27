@@ -1,15 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  BarChart,
-  Bar,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-} from "recharts";
+import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, Legend } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -38,9 +30,9 @@ interface DevexResponse {
   id: string;
   respondent: string; // "" allowed (anonymous)
   date: string; // YYYY-MM-DD
-  flowState: number;       // 1-5
-  feedbackLoops: number;   // 1-5
-  cognitiveLoad: number;   // 1-5 (higher = MORE load = worse)
+  flowState: number; // 1-5
+  feedbackLoops: number; // 1-5
+  cognitiveLoad: number; // 1-5 (higher = MORE load = worse)
   comments?: string;
 }
 
@@ -71,10 +63,7 @@ function makeDraft(): DraftState {
 }
 
 export function DevexSurveyClient() {
-  const [state, setState] = usePersisted<DevexState>(
-    "agile-toolkit:devex-survey",
-    DEFAULT_STATE
-  );
+  const [state, setState] = usePersisted<DevexState>("agile-toolkit:devex-survey", DEFAULT_STATE);
   const [draft, setDraft] = useState<DraftState>(makeDraft);
   const { log } = useHistoryLogger("devex-survey");
 
@@ -89,9 +78,7 @@ export function DevexSurveyClient() {
     // accepts an empty string when the user clears it).  Without this the
     // entry sorts to the very top of the list and the date column shows
     // blank, which is misleading.
-    const safeDate = /^\d{4}-\d{2}-\d{2}$/.test(draft.date)
-      ? draft.date
-      : todayLocalISO();
+    const safeDate = /^\d{4}-\d{2}-\d{2}$/.test(draft.date) ? draft.date : todayLocalISO();
     const response: DevexResponse = {
       id: crypto.randomUUID(),
       respondent: draft.respondent.trim().slice(0, 120),
@@ -149,18 +136,13 @@ export function DevexSurveyClient() {
   // a stray `flowState: 7` doesn't show up as an extra response with a 5.
   const distribution = useMemo(() => {
     const inRange = (n: number) => Number.isInteger(n) && n >= 1 && n <= 5;
-    const count = (
-      pred: (r: (typeof sorted)[number]) => boolean
-    ): number => sorted.filter(pred).length;
+    const count = (pred: (r: (typeof sorted)[number]) => boolean): number =>
+      sorted.filter(pred).length;
     return [1, 2, 3, 4, 5].map((score) => ({
       score: `${score}`,
       flow: count((r) => inRange(r.flowState) && r.flowState === score),
-      feedback: count(
-        (r) => inRange(r.feedbackLoops) && r.feedbackLoops === score
-      ),
-      cognitive: count(
-        (r) => inRange(r.cognitiveLoad) && r.cognitiveLoad === score
-      ),
+      feedback: count((r) => inRange(r.feedbackLoops) && r.feedbackLoops === score),
+      cognitive: count((r) => inRange(r.cognitiveLoad) && r.cognitiveLoad === score),
     }));
   }, [sorted]);
 
@@ -209,14 +191,7 @@ export function DevexSurveyClient() {
         <ExportButton
           filename="devex-survey"
           csvData={{
-            headers: [
-              "Date",
-              "Respondent",
-              "Flow",
-              "Feedback Loops",
-              "Cognitive Load",
-              "Comments",
-            ],
+            headers: ["Date", "Respondent", "Flow", "Feedback Loops", "Cognitive Load", "Comments"],
             rows: sorted.map((r) => [
               r.date,
               r.respondent || "anonymous",
@@ -245,7 +220,13 @@ export function DevexSurveyClient() {
           label="Feedback loops (avg)"
           value={sorted.length === 0 ? "—" : avgFeedback.toFixed(2)}
           hint="Higher is better"
-          tone={avgFeedback >= 4 ? "success" : avgFeedback > 0 && avgFeedback <= 2 ? "danger" : "default"}
+          tone={
+            avgFeedback >= 4
+              ? "success"
+              : avgFeedback > 0 && avgFeedback <= 2
+                ? "danger"
+                : "default"
+          }
         />
         <StatCard
           variant="compact"
@@ -253,7 +234,13 @@ export function DevexSurveyClient() {
           label="Cognitive load (avg)"
           value={sorted.length === 0 ? "—" : avgCognitive.toFixed(2)}
           hint="Lower is better"
-          tone={avgCognitive > 0 && avgCognitive <= 2 ? "success" : avgCognitive >= 4 ? "danger" : "default"}
+          tone={
+            avgCognitive > 0 && avgCognitive <= 2
+              ? "success"
+              : avgCognitive >= 4
+                ? "danger"
+                : "default"
+          }
         />
       </KpiGrid>
 
@@ -268,9 +255,7 @@ export function DevexSurveyClient() {
                 <Input
                   id="devex-respondent"
                   value={draft.respondent}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, respondent: e.target.value }))
-                  }
+                  onChange={(e) => setDraft((d) => ({ ...d, respondent: e.target.value }))}
                   placeholder="anon"
                   className="bg-surface border-border"
                 />
@@ -283,9 +268,7 @@ export function DevexSurveyClient() {
                   id="devex-date"
                   type="date"
                   value={draft.date}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, date: e.target.value }))
-                  }
+                  onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
                   className="bg-surface border-border"
                 />
               </div>
@@ -315,9 +298,7 @@ export function DevexSurveyClient() {
               <Textarea
                 id="devex-comments"
                 value={draft.comments}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, comments: e.target.value }))
-                }
+                onChange={(e) => setDraft((d) => ({ ...d, comments: e.target.value }))}
                 placeholder="What's blocking you? What's working well?"
                 rows={3}
                 className="bg-surface border-border resize-none text-xs"
@@ -349,8 +330,8 @@ export function DevexSurveyClient() {
 
       {sorted.length > 0 && (
         <SectionCard title="Responses" titleSize="lg" className="mt-6">
-          <div className="overflow-x-auto -mx-4 px-4">
-            <table className="w-full text-xs min-w-[640px]">
+          <div className="table-wrap-responsive -mx-4 px-4">
+            <table className="w-full text-xs min-w-full md:min-w-[640px]">
               <thead>
                 <tr className="text-left text-sub border-b border-border">
                   <th className="py-2 pr-3">Date</th>

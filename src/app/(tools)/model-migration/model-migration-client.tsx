@@ -219,7 +219,7 @@ export function ModelMigrationClient() {
                 <button
                   onClick={() => removeStep(s.id)}
                   aria-label="Remove step"
-                  className="text-sub hover:text-red-400"
+                  className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>

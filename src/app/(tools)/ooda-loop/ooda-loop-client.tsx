@@ -191,16 +191,17 @@ export function OodaLoopClient() {
                     key={c.id}
                     className={`border rounded p-3 ${c.completedAt ? "bg-emerald-500/5 border-emerald-500/30" : "bg-surface-deep border-border"}`}
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-medium text-text">{c.topic}</span>
-                      <span className="flex items-center gap-2">
+                    <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                      <span className="font-medium text-text min-w-0 break-words">{c.topic}</span>
+                      <span className="flex items-center gap-2 shrink-0">
                         <span className="text-xs text-sub font-mono">
                           {(c.startedAt ?? "").slice(0, 16).replace("T", " ")}
                         </span>
                         {!c.completedAt && (
                           <button
                             onClick={() => complete(c)}
-                            className="text-emerald-400 hover:text-emerald-300"
+                            aria-label="Mark cycle complete"
+                            className="min-touch-coarse inline-flex items-center justify-center text-emerald-400 hover:text-emerald-300"
                           >
                             <CheckCircle2 className="w-4 h-4" />
                           </button>
@@ -211,7 +212,7 @@ export function OodaLoopClient() {
                             log(OODA_ACTIONS.CYCLE_REMOVED, { id: c.id });
                           }}
                           aria-label="Remove cycle"
-                          className="text-sub hover:text-red-400"
+                          className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

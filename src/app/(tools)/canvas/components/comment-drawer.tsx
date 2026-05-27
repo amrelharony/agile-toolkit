@@ -81,7 +81,7 @@ export function CommentDrawer({ thread, onClose }: Props) {
   // doesn't need the full TeamMember object.
   const mentionMembers = useMemo(
     () => teamMembers.map((m) => ({ id: m.id, name: m.name })),
-    [teamMembers],
+    [teamMembers]
   );
   // Initialise from sessionStorage so reopening the drawer restores any
   // in-progress text. The initialiser runs once on mount; we save on
@@ -150,9 +150,7 @@ export function CommentDrawer({ thread, onClose }: Props) {
       const target = e.target as HTMLElement | null;
       if (
         target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
       ) {
         return;
       }
@@ -168,9 +166,8 @@ export function CommentDrawer({ thread, onClose }: Props) {
   // Focus restore — when the drawer unmounts, return focus to whatever
   // element was focused before it opened.
   useEffect(() => {
-    const prev = typeof document !== "undefined"
-      ? (document.activeElement as HTMLElement | null)
-      : null;
+    const prev =
+      typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
     return () => {
       prev?.focus?.();
     };
@@ -188,14 +185,18 @@ export function CommentDrawer({ thread, onClose }: Props) {
     // the upsert OVERWROTE the entire array, silently dropping the
     // peer's reply (whole-object LWW). Reading live + appending
     // narrows the loss window to the patch-broadcast RTT.
-    const live = useWorkspaceStore.getState().whiteboardCommentThreads?.find((t) => t.id === thread.id) ?? thread;
+    const live =
+      useWorkspaceStore.getState().whiteboardCommentThreads?.find((t) => t.id === thread.id) ??
+      thread;
     upsert({
       ...live,
       comments: [
         ...live.comments,
         {
           id: wbId("c"),
-          author, text, at: now,
+          author,
+          text,
+          at: now,
           ...(mentions.length > 0 ? { mentions } : {}),
         },
       ],
@@ -237,14 +238,20 @@ export function CommentDrawer({ thread, onClose }: Props) {
     setDraft("");
     // Clear the persisted draft now that the message is in the thread.
     if (typeof window !== "undefined") {
-      try { window.sessionStorage.removeItem(DRAFT_KEY(thread.id)); } catch { /* quota / private mode */ }
+      try {
+        window.sessionStorage.removeItem(DRAFT_KEY(thread.id));
+      } catch {
+        /* quota / private mode */
+      }
     }
   };
 
   const toggleResolved = () => {
     // R5: same LWW read-live pattern as sendReply — avoid clobbering
     // peer-added comments that landed between mount and now.
-    const live = useWorkspaceStore.getState().whiteboardCommentThreads?.find((t) => t.id === thread.id) ?? thread;
+    const live =
+      useWorkspaceStore.getState().whiteboardCommentThreads?.find((t) => t.id === thread.id) ??
+      thread;
     upsert({ ...live, resolved: !live.resolved });
   };
 
@@ -280,22 +287,28 @@ export function CommentDrawer({ thread, onClose }: Props) {
       // region rather than a blocking dialog.
       role="complementary"
       aria-label={`Comment thread${thread.resolved ? " (resolved)" : ""}`}
-      className="fixed right-3 top-20 bottom-3 w-[320px] z-[60] bg-surface border border-border rounded-lg shadow-xl flex flex-col"
+      className="fixed right-3 top-20 bottom-3 w-[min(20rem,calc(100vw-1.5rem))] z-[60] bg-surface border border-border rounded-lg shadow-xl flex flex-col pr-safe pb-safe"
       data-canvas-export-ignore="true"
     >
       <div className="flex items-center justify-between p-3 border-b border-border">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-text">Thread</span>
           {thread.resolved && (
-            <span className="text-[10px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">resolved</span>
+            <span className="text-[10px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+              resolved
+            </span>
           )}
         </div>
-        <button onClick={onClose} aria-label="Close thread" className="text-sub hover:text-text">
+        <button
+          onClick={onClose}
+          aria-label="Close thread"
+          className="text-sub hover:text-text min-touch-coarse inline-flex items-center justify-center"
+        >
           <X className="w-4 h-4" />
         </button>
       </div>
 
-      <div className="flex-1 overflow-auto p-3 space-y-3">
+      <div className="flex-1 overflow-auto overscroll-contain-strict p-3 space-y-3">
         {thread.comments.length === 0 && (
           <p className="text-xs text-sub italic">No replies yet. Be the first.</p>
         )}
@@ -325,7 +338,11 @@ export function CommentDrawer({ thread, onClose }: Props) {
             const next = `${before}@${name.split(/\s+/)[0]} `;
             setDraft(next);
             if (typeof window !== "undefined") {
-              try { window.sessionStorage.setItem(DRAFT_KEY(thread.id), next); } catch { /* noop */ }
+              try {
+                window.sessionStorage.setItem(DRAFT_KEY(thread.id), next);
+              } catch {
+                /* noop */
+              }
             }
           }}
         />
@@ -344,14 +361,22 @@ export function CommentDrawer({ thread, onClose }: Props) {
             const v = e.target.value;
             setDraft(v);
             if (typeof window !== "undefined") {
-              try { window.sessionStorage.setItem(DRAFT_KEY(thread.id), v); } catch { /* noop */ }
+              try {
+                window.sessionStorage.setItem(DRAFT_KEY(thread.id), v);
+              } catch {
+                /* noop */
+              }
             }
           }}
           onCompositionEnd={(e) => {
             const v = (e.target as HTMLTextAreaElement).value;
             setDraft(v);
             if (typeof window !== "undefined") {
-              try { window.sessionStorage.setItem(DRAFT_KEY(thread.id), v); } catch { /* noop */ }
+              try {
+                window.sessionStorage.setItem(DRAFT_KEY(thread.id), v);
+              } catch {
+                /* noop */
+              }
             }
           }}
           onKeyDown={(e) => {
@@ -384,7 +409,11 @@ export function CommentDrawer({ thread, onClose }: Props) {
                     const next = `${before}@${picked.name.split(/\s+/)[0]} `;
                     setDraft(next);
                     if (typeof window !== "undefined") {
-                      try { window.sessionStorage.setItem(DRAFT_KEY(thread.id), next); } catch { /* noop */ }
+                      try {
+                        window.sessionStorage.setItem(DRAFT_KEY(thread.id), next);
+                      } catch {
+                        /* noop */
+                      }
                     }
                   }
                 }
@@ -477,7 +506,9 @@ function MentionAutocomplete({
               {(m.name || "?").charAt(0).toUpperCase()}
             </span>
             <span className="flex-1 truncate">{m.name}</span>
-            <span className="text-[9px] text-sub font-mono">@{m.name.split(/\s+/)[0]?.toLowerCase()}</span>
+            <span className="text-[9px] text-sub font-mono">
+              @{m.name.split(/\s+/)[0]?.toLowerCase()}
+            </span>
           </button>
         );
       })}

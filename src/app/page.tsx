@@ -90,9 +90,12 @@ export default function Home() {
         <InsightsEngine limit={3} />
       </div>
 
-      {/* Impact Metrics — responsive grid, no overflow on mobile */}
+      {/* Impact Metrics — 2 × 2 on phones (the prior grid-cols-4 squashed
+          the "Categories" tile down to ~83 px which couldn't seat the
+          mono-display digits comfortably), 4-up from sm+ where the
+          viewport has room. Gap also scales from 12 → 24 → 32 px. */}
       <div
-        className="grid grid-cols-4 gap-2 sm:gap-6 md:gap-8 mb-6 sm:mb-8 animate-slide-up delay-1 stagger-item"
+        className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-6 md:gap-8 mb-6 sm:mb-8 animate-slide-up delay-1 stagger-item"
         style={{ animationFillMode: "forwards" }}
       >
         {[
@@ -106,10 +109,10 @@ export default function Home() {
             className={`text-center animate-fade-in delay-${i + 1}`}
             style={{ animationFillMode: "forwards", opacity: 0 }}
           >
-            <div className="font-mono text-2xl sm:text-3xl md:text-h5 font-bold text-accent text-glow leading-none">
+            <div className="font-mono text-3xl sm:text-3xl md:text-h5 font-bold text-accent text-glow leading-none">
               {stat.value}
             </div>
-            <div className="font-mono text-[9px] sm:text-nano text-sub tracking-wider uppercase mt-1 truncate">
+            <div className="font-mono text-[10px] sm:text-nano text-sub tracking-wider uppercase mt-1 truncate">
               {stat.label}
             </div>
           </div>

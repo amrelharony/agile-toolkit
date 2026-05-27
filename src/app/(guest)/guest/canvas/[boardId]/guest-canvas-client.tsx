@@ -127,7 +127,7 @@ export function GuestCanvasClient({ boardId, role, profile }: Props) {
         <div className="flex items-center gap-2 min-w-0">
           <Link
             href="/guest"
-            className="inline-flex items-center gap-1 text-xs text-sub hover:text-text"
+            className="min-touch-coarse inline-flex items-center gap-1 -mx-1 px-1 rounded text-xs text-sub hover:text-text"
             aria-label="Back to guest home"
           >
             <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
@@ -182,7 +182,7 @@ export function GuestCanvasClient({ boardId, role, profile }: Props) {
         {!realtimeOn && (
           <div
             role="alert"
-            className="absolute left-1/2 bottom-4 -translate-x-1/2 flex items-center gap-2 border border-amber-500/40 bg-amber-500/10 rounded px-3 py-1.5 text-xs text-amber-200 shadow-lg"
+            className="absolute left-1/2 bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.5rem))] -translate-x-1/2 flex items-center gap-2 border border-amber-500/40 bg-amber-500/10 rounded px-3 py-1.5 text-xs text-amber-200 shadow-lg max-w-[calc(100vw-1rem)]"
           >
             <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
             Realtime is not configured. You won&apos;t see other participants&apos; edits.

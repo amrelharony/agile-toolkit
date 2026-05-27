@@ -509,7 +509,7 @@ export function OneOnOneClient() {
                   <div className="flex items-start gap-2">
                     <button
                       onClick={() => toggleAgendaStatus(a.id)}
-                      className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded font-data border border-current/40 shrink-0 hover:opacity-80"
+                      className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded font-data border border-current/40 shrink-0 hover:opacity-80 min-touch-coarse inline-flex items-center justify-center"
                       aria-label={`Cycle status for ${a.text}`}
                     >
                       {STATUS_LABELS[a.status]}
@@ -550,7 +550,7 @@ export function OneOnOneClient() {
                       variant="ghost"
                       size="sm"
                       onClick={() => removeAgendaItem(a.id)}
-                      className="h-6 w-6 p-0 text-sub hover:text-danger"
+                      className="h-6 w-6 p-0 text-sub hover:text-danger min-touch-coarse"
                       aria-label="Remove agenda item"
                     >
                       <Trash2 className="w-3 h-3" />
@@ -628,7 +628,7 @@ export function OneOnOneClient() {
                           e.stopPropagation();
                           removeMeeting(m.id);
                         }}
-                        className="h-7 w-7 p-0 text-sub hover:text-danger"
+                        className="h-7 w-7 p-0 text-sub hover:text-danger min-touch-coarse"
                         aria-label="Remove meeting"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

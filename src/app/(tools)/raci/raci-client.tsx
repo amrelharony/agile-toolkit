@@ -739,7 +739,7 @@ export function RACIClient() {
 
           {/* ── Desktop matrix view (md+) ─────────────────────────────── */}
           <div className="hidden md:block table-wrap-responsive">
-            <table className="w-full border-collapse min-w-[500px]">
+            <table className="w-full border-collapse min-w-[42rem]">
               <thead>
                 <tr>
                   {/* Top-left corner */}

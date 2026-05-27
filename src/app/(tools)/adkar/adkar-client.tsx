@@ -24,15 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import {
-  Plus,
-  Trash2,
-  ArrowRight,
-  Sparkles,
-  TrendingUp,
-  CheckCircle2,
-  Clock,
-} from "lucide-react";
+import { Plus, Trash2, ArrowRight, Sparkles, TrendingUp, CheckCircle2, Clock } from "lucide-react";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -44,12 +36,7 @@ import type { Workspace } from "@/lib/stores/workspace-types";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { cn } from "@/lib/utils";
 
-type Stage =
-  | "awareness"
-  | "desire"
-  | "knowledge"
-  | "ability"
-  | "reinforcement";
+type Stage = "awareness" | "desire" | "knowledge" | "ability" | "reinforcement";
 
 interface StageTransition {
   stage: Stage;
@@ -70,13 +57,7 @@ interface Initiative {
   description?: string;
 }
 
-const STAGES: Stage[] = [
-  "awareness",
-  "desire",
-  "knowledge",
-  "ability",
-  "reinforcement",
-];
+const STAGES: Stage[] = ["awareness", "desire", "knowledge", "ability", "reinforcement"];
 
 const STAGE_LABEL: Record<Stage, string> = {
   awareness: "Awareness",
@@ -87,16 +68,11 @@ const STAGE_LABEL: Record<Stage, string> = {
 };
 
 const STAGE_BLURB: Record<Stage, string> = {
-  awareness:
-    "People understand the need for change and the risks of doing nothing.",
-  desire:
-    "People are motivated to participate — incentives are aligned with the change.",
-  knowledge:
-    "People know how to change — training, processes, and tooling are available.",
-  ability:
-    "People can demonstrate the new behavior in real work, with support nearby.",
-  reinforcement:
-    "Mechanisms (rituals, metrics, rewards) sustain the change so it sticks.",
+  awareness: "People understand the need for change and the risks of doing nothing.",
+  desire: "People are motivated to participate — incentives are aligned with the change.",
+  knowledge: "People know how to change — training, processes, and tooling are available.",
+  ability: "People can demonstrate the new behavior in real work, with support nearby.",
+  reinforcement: "Mechanisms (rituals, metrics, rewards) sustain the change so it sticks.",
 };
 
 const STAGE_COLOR: Record<Stage, string> = {
@@ -115,10 +91,7 @@ function parseLocalDate(iso: string): Date | null {
 }
 
 export function AdkarClient() {
-  const [initiatives, setInitiatives] = usePersisted<Initiative[]>(
-    "agile-toolkit:adkar",
-    []
-  );
+  const [initiatives, setInitiatives] = usePersisted<Initiative[]>("agile-toolkit:adkar", []);
   const { log } = useHistoryLogger("adkar");
   const workspace = useWorkspaceStore(
     useShallow(
@@ -197,20 +170,13 @@ export function AdkarClient() {
         // so the final stage gets credited when the user lands on it.
         const isFinal = to === "reinforcement";
         const completedNext = Array.from(
-          new Set([
-            ...i.stagesCompleted,
-            i.currentStage,
-            ...(isFinal ? [to] : []),
-          ]),
+          new Set([...i.stagesCompleted, i.currentStage, ...(isFinal ? [to] : [])])
         );
         return {
           ...i,
           currentStage: to,
           stagesCompleted: completedNext,
-          stageHistory: [
-            ...i.stageHistory,
-            { stage: to, enteredAt: todayLocalISO() },
-          ],
+          stageHistory: [...i.stageHistory, { stage: to, enteredAt: todayLocalISO() }],
         };
       })
     );
@@ -239,10 +205,7 @@ export function AdkarClient() {
     return c;
   }, [initiatives]);
 
-  const pctReinforcement =
-    initiatives.length > 0
-      ? perStage.reinforcement / initiatives.length
-      : 0;
+  const pctReinforcement = initiatives.length > 0 ? perStage.reinforcement / initiatives.length : 0;
 
   const avgDaysPerStage = useMemo(() => {
     const deltas: number[] = [];
@@ -336,42 +299,32 @@ export function AdkarClient() {
           value={initiatives.length}
           valueClassName="text-accent"
         />
-        <StatCard
-          variant="compact"
-          icon={TrendingUp}
-          label="In Ability"
-          value={perStage.ability}
-        />
+        <StatCard variant="compact" icon={TrendingUp} label="In Ability" value={perStage.ability} />
         <StatCard
           variant="compact"
           icon={CheckCircle2}
           label="At Reinforcement"
           value={`${(pctReinforcement * 100).toFixed(0)}%`}
-          hint={`${perStage.reinforcement} initiative${
-            perStage.reinforcement === 1 ? "" : "s"
-          }`}
+          hint={`${perStage.reinforcement} initiative${perStage.reinforcement === 1 ? "" : "s"}`}
         />
         <StatCard
           variant="compact"
           icon={Clock}
           label="Avg days / stage"
-          value={
-            avgDaysPerStage !== null ? `${avgDaysPerStage.toFixed(1)}d` : "—"
-          }
+          value={avgDaysPerStage !== null ? `${avgDaysPerStage.toFixed(1)}d` : "—"}
         />
       </KpiGrid>
 
       <CalloutAlert tone="info" className="mb-4">
-        <strong>ADKAR</strong>: <em>Awareness</em> — understand the need.{" "}
-        <em>Desire</em> — choose to participate. <em>Knowledge</em> — know how
-        to change. <em>Ability</em> — apply the change in real work.{" "}
-        <em>Reinforcement</em> — sustain it so it sticks.
+        <strong>ADKAR</strong>: <em>Awareness</em> — understand the need. <em>Desire</em> — choose
+        to participate. <em>Knowledge</em> — know how to change. <em>Ability</em> — apply the change
+        in real work. <em>Reinforcement</em> — sustain it so it sticks.
       </CalloutAlert>
 
       {/* Add-initiative form */}
       <Card className="bg-surface border-border mb-4">
         <CardContent className="p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_180px_auto] gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-[1fr_1fr_180px_auto] gap-2">
             <div>
               <Label className="text-xs text-sub">Initiative</Label>
               <Input
@@ -440,9 +393,7 @@ export function AdkarClient() {
                   <CardContent className="p-4 space-y-3">
                     <div className="flex flex-col xs:flex-row xs:items-start xs:justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <div className="text-sm font-semibold text-text">
-                          {i.name}
-                        </div>
+                        <div className="text-sm font-semibold text-text">{i.name}</div>
                         <div className="text-xs text-sub mt-0.5">
                           {i.owner && `${i.owner} · `}started {i.startDate}
                         </div>
@@ -487,8 +438,8 @@ export function AdkarClient() {
                               completed
                                 ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200"
                                 : isCurrent
-                                ? "border-accent/60 bg-accent/10 text-accent font-semibold"
-                                : "border-border bg-bg text-sub"
+                                  ? "border-accent/60 bg-accent/10 text-accent font-semibold"
+                                  : "border-border bg-bg text-sub"
                             )}
                           >
                             {sIdx + 1}. {STAGE_LABEL[s]}
@@ -516,10 +467,7 @@ export function AdkarClient() {
                     layout="vertical"
                     margin={{ top: 10, right: 20, left: 10, bottom: 0 }}
                   >
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke={chartTheme.gridColor}
-                    />
+                    <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} />
                     <XAxis
                       type="number"
                       tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
@@ -548,9 +496,7 @@ export function AdkarClient() {
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {STAGES.map((s) => (
                   <div key={s} className="text-xs text-sub">
-                    <span className="font-semibold text-text">
-                      {STAGE_LABEL[s]}:
-                    </span>{" "}
+                    <span className="font-semibold text-text">{STAGE_LABEL[s]}:</span>{" "}
                     {STAGE_BLURB[s]}
                   </div>
                 ))}

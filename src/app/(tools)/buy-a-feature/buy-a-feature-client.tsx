@@ -34,17 +34,21 @@ export function BuyAFeatureClient() {
     const parsedPrice = parseFloat(price);
     const safePrice = Math.max(
       0,
-      Math.min(1_000_000_000, Number.isFinite(parsedPrice) ? parsedPrice : 0),
+      Math.min(1_000_000_000, Number.isFinite(parsedPrice) ? parsedPrice : 0)
     );
     const item: PrioritizationItem = {
-      id: crypto.randomUUID(), framework: "buy-feature", title: title.trim().slice(0, 200),
+      id: crypto.randomUUID(),
+      framework: "buy-feature",
+      title: title.trim().slice(0, 200),
       score: 0,
       fields: { price: safePrice, raised: 0 },
-      status: "open", updatedAt: new Date().toISOString(),
+      status: "open",
+      updatedAt: new Date().toISOString(),
     };
     upsert(item);
     log(BUY_FEATURE_ACTIONS.FEATURE_ADDED, { title: item.title, price: item.fields?.price });
-    setTitle(""); setPrice("");
+    setTitle("");
+    setPrice("");
   }
 
   function buy(it: PrioritizationItem, amount: number) {
@@ -53,26 +57,46 @@ export function BuyAFeatureClient() {
     // (or a future numeric-input UI bug) can't push score/raised into
     // Infinity territory.
     const safeAmount = Math.min(1_000_000, amount);
-    const next: PrioritizationItem = { ...it, score: (it.score ?? 0) + safeAmount, fields: { ...(it.fields ?? {}), raised: (Number(it.fields?.raised) || 0) + safeAmount }, updatedAt: new Date().toISOString() };
+    const next: PrioritizationItem = {
+      ...it,
+      score: (it.score ?? 0) + safeAmount,
+      fields: { ...(it.fields ?? {}), raised: (Number(it.fields?.raised) || 0) + safeAmount },
+      updatedAt: new Date().toISOString(),
+    };
     upsert(next);
     log(BUY_FEATURE_ACTIONS.PURCHASE_RECORDED, { id: it.id, amount: safeAmount });
   }
 
-  const sorted = [...items].sort((a, b) => (Number(b.fields?.raised) || 0) - (Number(a.fields?.raised) || 0));
+  const sorted = [...items].sort(
+    (a, b) => (Number(b.fields?.raised) || 0) - (Number(a.fields?.raised) || 0)
+  );
   const totalRaised = items.reduce((s, x) => s + (Number(x.fields?.raised) || 0), 0);
 
-  const workspace = useWorkspaceStore(useShallow((s): Workspace => ({
-    teamMembers: s.teamMembers, sprints: s.sprints, stories: s.stories,
-    impediments: s.impediments, risks: s.risks, okrs: s.okrs,
-    decisions: s.decisions, techDebt: s.techDebt,
-    maturityLevel: s.maturityLevel, teamName: s.teamName,
-    prioritizations: s.prioritizations,
-  })));
+  const workspace = useWorkspaceStore(
+    useShallow(
+      (s): Workspace => ({
+        teamMembers: s.teamMembers,
+        sprints: s.sprints,
+        stories: s.stories,
+        impediments: s.impediments,
+        risks: s.risks,
+        okrs: s.okrs,
+        decisions: s.decisions,
+        techDebt: s.techDebt,
+        maturityLevel: s.maturityLevel,
+        teamName: s.teamName,
+        prioritizations: s.prioritizations,
+      })
+    )
+  );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Buy-a-Feature",
-    prompts: generateBuyAFeaturePrompts({ items: sorted }, workspace),
-  }), [sorted, workspace]);
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Buy-a-Feature",
+      prompts: generateBuyAFeaturePrompts({ items: sorted }, workspace),
+    }),
+    [sorted, workspace]
+  );
 
   const csvData = {
     headers: ["Title", "Price", "Raised", "% funded"],
@@ -94,10 +118,26 @@ export function BuyAFeatureClient() {
 
         <SectionCard title="Add feature" icon={Plus}>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <Input className="sm:col-span-2" placeholder="Feature" value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Feature title" />
-            <Input type="number" min={0} placeholder="Price" value={price} onChange={(e) => setPrice(e.target.value)} aria-label="Feature price" />
+            <Input
+              className="sm:col-span-2"
+              placeholder="Feature"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              aria-label="Feature title"
+            />
+            <Input
+              type="number"
+              min={0}
+              placeholder="Price"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              aria-label="Feature price"
+            />
           </div>
-          <Button onClick={add} className="mt-3 gap-1"><Plus className="w-4 h-4" />Add</Button>
+          <Button onClick={add} className="mt-3 gap-1">
+            <Plus className="w-4 h-4" />
+            Add
+          </Button>
         </SectionCard>
 
         {items.length > 0 && (
@@ -107,7 +147,12 @@ export function BuyAFeatureClient() {
             actions={
               <>
                 <AiPromptGenerator config={promptConfig} />
-                <ExportButton filename="buy-a-feature" csvData={csvData} jsonData={items} targetRef={exportRef} />
+                <ExportButton
+                  filename="buy-a-feature"
+                  csvData={csvData}
+                  jsonData={items}
+                  targetRef={exportRef}
+                />
               </>
             }
           >
@@ -118,9 +163,11 @@ export function BuyAFeatureClient() {
                 const pct = price > 0 ? Math.min(100, Math.round((raised / price) * 100)) : 0;
                 return (
                   <li key={it.id} className="border border-border bg-surface-deep rounded p-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium text-text">{it.title}</span>
-                      <span className="text-xs text-sub font-mono">${raised}/${price} ({pct}%)</span>
+                    <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+                      <span className="font-medium text-text min-w-0 truncate">{it.title}</span>
+                      <span className="text-xs text-sub font-mono shrink-0">
+                        ${raised}/${price} ({pct}%)
+                      </span>
                     </div>
                     <div
                       className="w-full bg-surface h-2 rounded overflow-hidden mb-2"
@@ -132,9 +179,18 @@ export function BuyAFeatureClient() {
                     >
                       <div className="h-2 bg-emerald-400" style={{ width: `${pct}%` }} />
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <BuyButton onBuy={(n) => buy(it, n)} />
-                      <button onClick={() => { removeOne(it.id); log(BUY_FEATURE_ACTIONS.FEATURE_REMOVED, { id: it.id }); }} aria-label="Remove feature" className="ml-auto text-sub hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                      <button
+                        onClick={() => {
+                          removeOne(it.id);
+                          log(BUY_FEATURE_ACTIONS.FEATURE_REMOVED, { id: it.id });
+                        }}
+                        aria-label="Remove feature"
+                        className="min-touch-coarse inline-flex items-center justify-center ml-auto text-sub hover:text-red-400"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </li>
                 );
@@ -151,11 +207,23 @@ function BuyButton({ onBuy }: { onBuy: (n: number) => void }) {
   const [amount, setAmount] = useState("10");
   return (
     <div className="flex items-center gap-1">
-      <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className="h-8 w-20 text-xs" aria-label="Purchase amount" />
-      <Button size="sm" onClick={() => {
-        const n = parseFloat(amount);
-        if (Number.isFinite(n) && n > 0) onBuy(n);
-      }}>Buy</Button>
+      <Input
+        type="number"
+        min={0}
+        value={amount}
+        onChange={(e) => setAmount(e.target.value)}
+        className="h-8 w-20 text-xs"
+        aria-label="Purchase amount"
+      />
+      <Button
+        size="sm"
+        onClick={() => {
+          const n = parseFloat(amount);
+          if (Number.isFinite(n) && n > 0) onBuy(n);
+        }}
+      >
+        Buy
+      </Button>
     </div>
   );
 }

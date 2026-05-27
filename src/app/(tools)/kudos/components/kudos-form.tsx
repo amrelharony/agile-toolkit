@@ -302,7 +302,7 @@ export function KudosForm({
                 onClick={() => setTheme(t.id)}
                 aria-pressed={theme === t.id}
                 className={[
-                  "rounded-lg border px-2 py-2 text-xs font-medium transition-colors",
+                  "min-touch-coarse rounded-lg border px-2 py-2 text-xs font-medium transition-colors",
                   "flex items-center gap-1.5 justify-center",
                   theme === t.id
                     ? `${t.accent} bg-accent/5`
@@ -326,7 +326,7 @@ export function KudosForm({
             id="kudos-to"
             value={recipientId}
             onChange={(e) => setRecipientId(e.target.value)}
-            className="h-10 rounded-md bg-surface-deep border border-border/40 px-3 text-sm text-text"
+            className="h-10 [@media(pointer:coarse)]:h-11 rounded-md bg-surface-deep border border-border/40 px-3 text-sm text-text"
           >
             {recipients.length === 0 && <option value="">No teammates yet</option>}
             {recipients.length > 0 && <option value="">Pick a recipient…</option>}

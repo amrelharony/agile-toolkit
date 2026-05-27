@@ -57,14 +57,12 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                       router.push(tool.path);
                       onOpenChange(false);
                     }}
-                    className="flex items-center gap-3 cursor-pointer"
+                    className="flex items-center gap-2 sm:gap-3 cursor-pointer"
                   >
                     <Icon className="w-4 h-4 text-accent flex-shrink-0" />
                     <div className="flex-1 min-w-0">
                       <span className="font-medium">{tool.name}</span>
-                      <p className="text-xs text-sub truncate">
-                        {tool.description}
-                      </p>
+                      <p className="text-xs text-sub truncate">{tool.description}</p>
                     </div>
                     {tool.badge && (
                       <Badge

@@ -196,7 +196,7 @@ export function HundredDollarTestClient() {
                         log(HUNDRED_DOLLAR_ACTIONS.ITEM_REMOVED, { id: it.id });
                       }}
                       aria-label="Remove item"
-                      className="text-sub hover:text-red-400"
+                      className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

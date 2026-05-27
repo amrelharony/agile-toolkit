@@ -805,7 +805,7 @@ export function VelocityClient() {
           }
         >
           {/* Header row */}
-          <div className="grid grid-cols-[1fr_0.6fr_0.6fr_auto] gap-3 px-1 pb-2 border-b border-border">
+          <div className="hidden sm:grid grid-cols-[1fr_0.6fr_0.6fr_auto] gap-3 px-1 pb-2 border-b border-border">
             <span className="text-xs text-sub font-medium uppercase tracking-wider">
               Sprint Name
             </span>
@@ -815,7 +815,10 @@ export function VelocityClient() {
           </div>
 
           {sprints.map((sp) => (
-            <div key={sp.id} className="grid grid-cols-[1fr_0.6fr_0.6fr_auto] gap-3 items-center">
+            <div
+              key={sp.id}
+              className="grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_0.6fr_0.6fr_auto] gap-2 sm:gap-3 sm:items-center rounded-md border border-border/40 sm:border-0 p-2 sm:p-0"
+            >
               {/* Single-line Input chosen over Textarea here — sprint rows are
                   in a tight 4-column data grid, so a multi-line description
                   would break the row height alignment. Empty trims to undefined. */}
@@ -836,34 +839,44 @@ export function VelocityClient() {
                   aria-label={`Description for ${sp.name}`}
                 />
               </div>
-              <NumCell
-                value={sp.committed}
-                onCommit={(n) => updateSprint(sp.id, { committed: n })}
-                onCommitBlur={(n) => logSprintCommit(sp.id, "committed", n)}
-                min={0}
-                className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-              />
-              <NumCell
-                value={sp.completed}
-                onCommit={(n) => updateSprint(sp.id, { completed: n })}
-                onCommitBlur={(n) => logSprintCommit(sp.id, "completed", n)}
-                min={0}
-                className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-              />
               <Button
                 variant="danger-ghost"
                 size="icon"
                 disabled={sprints.length <= 1}
                 onClick={() => removeSprint(sp.id)}
-                className="h-9 w-9 disabled:opacity-30"
+                className="min-touch-coarse h-9 w-9 disabled:opacity-30 justify-self-end sm:order-last"
               >
                 <Trash2 className="w-4 h-4" />
               </Button>
+              <div className="col-span-2 sm:col-span-1 space-y-1">
+                <span className="sm:hidden text-[10px] text-sub font-medium uppercase tracking-wider">
+                  Committed
+                </span>
+                <NumCell
+                  value={sp.committed}
+                  onCommit={(n) => updateSprint(sp.id, { committed: n })}
+                  onCommitBlur={(n) => logSprintCommit(sp.id, "committed", n)}
+                  min={0}
+                  className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+                />
+              </div>
+              <div className="col-span-2 sm:col-span-1 space-y-1">
+                <span className="sm:hidden text-[10px] text-sub font-medium uppercase tracking-wider">
+                  Completed
+                </span>
+                <NumCell
+                  value={sp.completed}
+                  onCommit={(n) => updateSprint(sp.id, { completed: n })}
+                  onCommitBlur={(n) => logSprintCommit(sp.id, "completed", n)}
+                  min={0}
+                  className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+                />
+              </div>
             </div>
           ))}
 
           {/* Predictability note */}
-          <div className="mt-4 pt-4 border-t border-border flex items-center justify-between px-1">
+          <div className="mt-4 pt-4 border-t border-border flex flex-wrap items-center justify-between gap-2 px-1">
             <span className="text-sm text-sub">
               Sprints meeting commitment:{" "}
               <span className="text-accent font-data font-semibold">
@@ -879,7 +892,7 @@ export function VelocityClient() {
               / {sprints.filter((s) => s.committed > 0 || s.completed > 0).length}
             </span>
             <div className="flex items-baseline gap-1.5">
-              <span className="text-2xl font-data font-bold text-accent">
+              <span className="text-xl sm:text-2xl font-data font-bold text-accent">
                 {round(stats.predictability, 0)}%
               </span>
               <span className="text-sm text-sub">predictable</span>

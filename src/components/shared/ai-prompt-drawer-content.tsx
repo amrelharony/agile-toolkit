@@ -4,12 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Sparkles, Copy, Check, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet";
+import { SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { copyToClipboard } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
@@ -120,18 +115,15 @@ export default function AiPromptDrawerContent({ config }: AiPromptDrawerContentP
   const hasPrompts = config.prompts.length > 0;
   const { isReady, providerName, model, openSettings } = useActiveLlm();
   return (
-    <SheetContent
-      side="right"
-      className="w-[90vw] sm:max-w-lg bg-bg border-border p-0"
-    >
-      <SheetHeader className="px-6 pt-6 pb-4 border-b border-border">
+    <SheetContent side="right" className="w-[90vw] sm:max-w-lg bg-bg border-border p-0">
+      <SheetHeader className="px-4 sm:px-6 pt-5 sm:pt-6 pb-4 border-b border-border">
         <SheetTitle className="flex items-center gap-2 text-text">
           <Sparkles className="w-5 h-5 text-accent" />
           AI Prompts
         </SheetTitle>
         <SheetDescription className="text-sub">
-          Copy a prompt and paste it into any AI assistant for deeper insights
-          from your {config.toolName} data.
+          Copy a prompt and paste it into any AI assistant for deeper insights from your{" "}
+          {config.toolName} data.
         </SheetDescription>
         {/* AI status pill — clickable when off so anonymous users can
             discover the BYOK feature directly from the drawer. */}
@@ -155,7 +147,7 @@ export default function AiPromptDrawerContent({ config }: AiPromptDrawerContentP
         </div>
       </SheetHeader>
 
-      <ScrollArea className="h-[calc(100vh-160px)] px-6 py-4">
+      <ScrollArea className="h-[calc(100dvh-160px)] px-4 sm:px-6 py-4">
         {hasPrompts ? (
           <div className="space-y-4 pb-6">
             {config.prompts.map((p) => (

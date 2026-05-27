@@ -12,15 +12,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Mail,
-  Plus,
-  Trash2,
-  AlertTriangle,
-  Users,
-  Calendar,
-  FileDown,
-} from "lucide-react";
+import { Mail, Plus, Trash2, AlertTriangle, Users, Calendar, FileDown } from "lucide-react";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ASYNC_STANDUP_ACTIONS } from "@/lib/history/event-actions";
@@ -56,9 +48,7 @@ function buildDigestMarkdown(updates: AsyncUpdate[], date: string): string {
     return `# Async Standup — ${date}\n\nNo updates posted today.`;
   }
   const lines: string[] = [`# Async Standup — ${date}`, ""];
-  const blocked = todayUpdates.filter(
-    (u) => u.blockers && u.blockers.trim().length > 0
-  );
+  const blocked = todayUpdates.filter((u) => u.blockers && u.blockers.trim().length > 0);
   if (blocked.length > 0) {
     lines.push("## Blockers");
     for (const u of blocked) {
@@ -76,11 +66,9 @@ function buildDigestMarkdown(updates: AsyncUpdate[], date: string): string {
   for (const [member, ms] of Array.from(byMember.entries())) {
     lines.push(`## ${member}`);
     for (const u of ms) {
-      if (u.yesterday.trim())
-        lines.push(`- **Yesterday**: ${singleLine(u.yesterday)}`);
+      if (u.yesterday.trim()) lines.push(`- **Yesterday**: ${singleLine(u.yesterday)}`);
       if (u.today.trim()) lines.push(`- **Today**: ${singleLine(u.today)}`);
-      if (u.blockers && u.blockers.trim())
-        lines.push(`- **Blockers**: ${singleLine(u.blockers)}`);
+      if (u.blockers && u.blockers.trim()) lines.push(`- **Blockers**: ${singleLine(u.blockers)}`);
       if (u.description) lines.push(`- ${singleLine(u.description)}`);
     }
     lines.push("");
@@ -126,10 +114,7 @@ export function AsyncStandupClient() {
   );
 
   const blockerUpdates = useMemo(
-    () =>
-      todaysUpdates.filter(
-        (u) => u.blockers && u.blockers.trim().length > 0
-      ),
+    () => todaysUpdates.filter((u) => u.blockers && u.blockers.trim().length > 0),
     [todaysUpdates]
   );
 
@@ -147,10 +132,7 @@ export function AsyncStandupClient() {
     return map;
   }, [updates]);
   const avgPerDay = useMemo(() => {
-    const totalsInWindow = last14.reduce(
-      (acc, d) => acc + (updatesByDay.get(d) ?? 0),
-      0
-    );
+    const totalsInWindow = last14.reduce((acc, d) => acc + (updatesByDay.get(d) ?? 0), 0);
     return totalsInWindow / last14.length;
   }, [last14, updatesByDay]);
 
@@ -210,9 +192,7 @@ export function AsyncStandupClient() {
     // current local day rather than the day rendered by a stale closure.
     const dateNow = todayLocalISO();
     const todaysNow = updates.filter((u) => u.date === dateNow);
-    const blockersNow = todaysNow.filter(
-      (u) => u.blockers && u.blockers.trim().length > 0
-    );
+    const blockersNow = todaysNow.filter((u) => u.blockers && u.blockers.trim().length > 0);
     const md = buildDigestMarkdown(updates, dateNow);
     const ok = await copyToClipboard(md);
     if (ok) toast.success("Digest copied to clipboard");
@@ -281,11 +261,7 @@ export function AsyncStandupClient() {
           Generate Digest
         </Button>
         <AiPromptGenerator config={promptConfig} />
-        <ExportButton
-          filename="async-standup"
-          csvData={csvData}
-          jsonData={updates}
-        />
+        <ExportButton filename="async-standup" csvData={csvData} jsonData={updates} />
       </ActionRow>
 
       <KpiGrid cols={4} gap="lg">
@@ -296,12 +272,7 @@ export function AsyncStandupClient() {
           value={todaysUpdates.length}
           valueClassName="text-accent"
         />
-        <StatCard
-          variant="compact"
-          icon={Users}
-          label="Members today"
-          value={membersToday}
-        />
+        <StatCard variant="compact" icon={Users} label="Members today" value={membersToday} />
         <StatCard
           variant="compact"
           icon={AlertTriangle}
@@ -321,9 +292,7 @@ export function AsyncStandupClient() {
       {blockerUpdates.length > 0 && (
         <CalloutAlert tone="danger" className="mb-4">
           <strong>Blockers today:</strong>{" "}
-          {blockerUpdates
-            .map((u) => `${u.member} — ${u.blockers ?? ""}`.slice(0, 80))
-            .join(" · ")}
+          {blockerUpdates.map((u) => `${u.member} — ${u.blockers ?? ""}`.slice(0, 80)).join(" · ")}
         </CalloutAlert>
       )}
 
@@ -387,12 +356,8 @@ export function AsyncStandupClient() {
       {/* 14-day calendar */}
       <div className="rounded-lg border border-border bg-surface p-4 mb-4">
         <div className="flex items-center justify-between mb-3">
-          <div className="text-xs uppercase tracking-wider text-sub">
-            Last 14 days
-          </div>
-          <div className="text-xs text-sub">
-            Darker = more updates that day
-          </div>
+          <div className="text-xs uppercase tracking-wider text-sub">Last 14 days</div>
+          <div className="text-xs text-sub">Darker = more updates that day</div>
         </div>
         <div className="grid grid-cols-7 gap-1.5">
           {last14.map((d) => {
@@ -413,9 +378,7 @@ export function AsyncStandupClient() {
                 }}
                 title={`${d}: ${count} update${count === 1 ? "" : "s"}`}
               >
-                <div className="text-[10px] text-sub font-data">
-                  {d.slice(5)}
-                </div>
+                <div className="text-[10px] text-sub font-data">{d.slice(5)}</div>
                 <div className="font-data text-sm text-text">{count}</div>
               </div>
             );
@@ -431,9 +394,7 @@ export function AsyncStandupClient() {
       ) : (
         <div className="space-y-3">
           <div className="flex items-center gap-3">
-            <div className="text-xs uppercase tracking-wider text-sub">
-              Today&apos;s digest
-            </div>
+            <div className="text-xs uppercase tracking-wider text-sub">Today&apos;s digest</div>
             {recentImpedimentCount > 0 && (
               <Badge
                 className="bg-[#ef4444]/15 text-[#ef4444] border-[#ef4444]/30 gap-1.5 text-[10px]"
@@ -445,10 +406,7 @@ export function AsyncStandupClient() {
             )}
           </div>
           {Array.from(groupedByMemberToday.entries()).map(([m, list]) => (
-            <div
-              key={m}
-              className="rounded-lg border border-border bg-surface p-3"
-            >
+            <div key={m} className="rounded-lg border border-border bg-surface p-3">
               <div className="text-sm font-medium text-text mb-2">{m}</div>
               <div className="space-y-2">
                 {list.map((u) => (
@@ -475,16 +433,14 @@ export function AsyncStandupClient() {
                       </div>
                     )}
                     {u.description && (
-                      <div className="text-sub whitespace-pre-wrap">
-                        {u.description}
-                      </div>
+                      <div className="text-sub whitespace-pre-wrap">{u.description}</div>
                     )}
                     <div className="flex justify-end">
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => removeUpdate(u.id)}
-                        className="h-6 w-6 p-0 text-sub hover:text-danger"
+                        className="min-touch-coarse h-6 w-6 p-0 text-sub hover:text-danger"
                         aria-label="Remove update"
                       >
                         <Trash2 className="w-3 h-3" />

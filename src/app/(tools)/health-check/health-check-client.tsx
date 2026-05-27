@@ -399,7 +399,7 @@ export function HealthCheckClient() {
           {/* Dimension rows */}
           <div className="space-y-2">
             {/* Header */}
-            <div className="grid grid-cols-[1fr_auto_auto] gap-3 px-1 pb-2 border-b border-border">
+            <div className="hidden sm:grid grid-cols-[1fr_auto_auto] gap-3 px-1 pb-2 border-b border-border">
               <span className="text-xs text-sub font-medium uppercase tracking-wider">
                 Dimension
               </span>
@@ -414,7 +414,7 @@ export function HealthCheckClient() {
             {DIMENSIONS.map((dim) => (
               <div
                 key={dim}
-                className="grid grid-cols-[1fr_auto_auto] gap-3 items-center py-1.5 border-b border-border last:border-0"
+                className="flex flex-col gap-2 sm:grid sm:grid-cols-[1fr_auto_auto] sm:gap-3 sm:items-center py-1.5 border-b border-border last:border-0"
               >
                 <span className="text-sm text-text font-medium">{dim}</span>
                 <div className="flex gap-1.5 w-52 justify-center">

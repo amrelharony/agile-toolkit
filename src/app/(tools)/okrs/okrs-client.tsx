@@ -417,59 +417,61 @@ export function OkrsClient() {
                       key={kr.id}
                       className="space-y-2 rounded-md border border-border bg-bg p-2"
                     >
-                      <div className="grid grid-cols-[1fr_80px_80px_80px_32px] gap-2 items-center">
+                      <div className="grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_80px_80px_80px_32px] gap-2 items-center">
                         <BlurInput
                           value={kr.title}
                           onCommit={(v) => updateKr(o.id, kr.id, { title: v })}
                           placeholder="KR: Increase DAU from 1k to 10k"
-                          className="bg-surface border-border"
+                          className="bg-surface border-border col-span-2 sm:col-span-1"
                         />
-                        <NumCell
-                          value={kr.current}
-                          onChange={(n) => updateKr(o.id, kr.id, { current: n })}
-                          placeholder="Current"
-                          className="bg-surface border-border font-data"
-                        />
-                        {showTargetChip ? (
-                          <SmartInput<number>
-                            predicted={krTargetPrediction}
-                            onAccept={(v) => updateKr(o.id, kr.id, { target: v })}
-                            render={({ chip }) => (
-                              <div className="flex flex-col gap-0">
-                                <NumCell
-                                  value={kr.target}
-                                  onChange={(n) => updateKr(o.id, kr.id, { target: n })}
-                                  placeholder="Target"
-                                  className="bg-surface border-border font-data"
-                                />
-                                {chip}
-                              </div>
-                            )}
-                          />
-                        ) : (
+                        <div className="flex flex-wrap gap-2 col-span-2 sm:contents">
                           <NumCell
-                            value={kr.target}
-                            onChange={(n) => updateKr(o.id, kr.id, { target: n })}
-                            placeholder="Target"
-                            className="bg-surface border-border font-data"
+                            value={kr.current}
+                            onChange={(n) => updateKr(o.id, kr.id, { current: n })}
+                            placeholder="Current"
+                            className="bg-surface border-border font-data flex-1 min-w-[80px] sm:flex-none sm:min-w-0"
                           />
-                        )}
-                        <NumCell
-                          value={kr.confidence ?? 5}
-                          onChange={(n) => updateKr(o.id, kr.id, { confidence: n })}
-                          min={0}
-                          max={10}
-                          title="Confidence (0-10)"
-                          className="bg-surface border-border font-data"
-                        />
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeKr(o.id, kr.id)}
-                          className="text-sub hover:text-danger"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                          {showTargetChip ? (
+                            <SmartInput<number>
+                              predicted={krTargetPrediction}
+                              onAccept={(v) => updateKr(o.id, kr.id, { target: v })}
+                              render={({ chip }) => (
+                                <div className="flex flex-col gap-0 flex-1 min-w-[80px] sm:flex-none sm:min-w-0">
+                                  <NumCell
+                                    value={kr.target}
+                                    onChange={(n) => updateKr(o.id, kr.id, { target: n })}
+                                    placeholder="Target"
+                                    className="bg-surface border-border font-data"
+                                  />
+                                  {chip}
+                                </div>
+                              )}
+                            />
+                          ) : (
+                            <NumCell
+                              value={kr.target}
+                              onChange={(n) => updateKr(o.id, kr.id, { target: n })}
+                              placeholder="Target"
+                              className="bg-surface border-border font-data flex-1 min-w-[80px] sm:flex-none sm:min-w-0"
+                            />
+                          )}
+                          <NumCell
+                            value={kr.confidence ?? 5}
+                            onChange={(n) => updateKr(o.id, kr.id, { confidence: n })}
+                            min={0}
+                            max={10}
+                            title="Confidence (0-10)"
+                            className="bg-surface border-border font-data flex-1 min-w-[80px] sm:flex-none sm:min-w-0"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeKr(o.id, kr.id)}
+                            className="text-sub hover:text-danger shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
                       </div>
                       <BlurTextarea
                         value={kr.description ?? ""}

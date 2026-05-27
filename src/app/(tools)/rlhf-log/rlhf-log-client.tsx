@@ -236,7 +236,7 @@ export function RlhfLogClient() {
       description="Pairwise comparisons used as a dataset for RLHF or DPO training: prompt, A, B, winner, reviewer, reason."
     >
       <div ref={exportRef} className="space-y-4">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <KPI label="A wins" value={String(winA)} />
           <KPI label="B wins" value={String(winB)} />
           <KPI label="Ties" value={String(ties)} />

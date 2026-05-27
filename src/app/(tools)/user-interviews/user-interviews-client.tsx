@@ -278,7 +278,7 @@ export function UserInterviewsClient() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] lg:grid-cols-[320px_1fr] gap-4">
         <div className="space-y-2">
           {interviews.map((i) => (
             <button

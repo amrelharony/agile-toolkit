@@ -65,9 +65,7 @@ function ActivityStreamImpl({ boardId, onClose }: Props) {
       const target = e.target as HTMLElement | null;
       if (
         target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
       ) {
         return;
       }
@@ -83,9 +81,8 @@ function ActivityStreamImpl({ boardId, onClose }: Props) {
   // that toggled it). Keyboard / screen-reader users expect to land
   // back where they were.
   useEffect(() => {
-    const prev = typeof document !== "undefined"
-      ? (document.activeElement as HTMLElement | null)
-      : null;
+    const prev =
+      typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
     return () => {
       prev?.focus?.();
     };
@@ -98,7 +95,7 @@ function ActivityStreamImpl({ boardId, onClose }: Props) {
       // accurate landmark. Screen readers expose it as a peer region.
       role="complementary"
       aria-label="Board activity"
-      className="fixed right-3 top-20 bottom-3 w-[300px] z-40 bg-surface border border-border rounded-lg shadow-xl flex flex-col"
+      className="fixed right-3 top-20 bottom-3 w-[min(18.75rem,calc(100vw-1.5rem))] z-40 bg-surface border border-border rounded-lg shadow-xl flex flex-col pr-safe pb-safe"
       data-canvas-export-ignore="true"
     >
       <div className="flex items-center justify-between p-3 border-b border-border">
@@ -111,12 +108,12 @@ function ActivityStreamImpl({ boardId, onClose }: Props) {
           type="button"
           onClick={onClose}
           aria-label="Close activity stream"
-          className="text-sub hover:text-text"
+          className="text-sub hover:text-text min-touch-coarse inline-flex items-center justify-center"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto overscroll-contain-strict">
         {events.length === 0 ? (
           <div className="p-4 text-xs text-sub italic">
             No activity yet. Drag, edit, or import to see events here.

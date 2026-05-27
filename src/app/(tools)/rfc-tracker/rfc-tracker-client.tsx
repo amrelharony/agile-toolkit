@@ -514,7 +514,7 @@ export function RfcTrackerClient() {
                         variant="ghost"
                         size="sm"
                         onClick={() => removeRfc(r.id)}
-                        className="text-sub hover:text-danger"
+                        className="text-sub hover:text-danger min-touch-coarse"
                         aria-label={`Remove ${r.title}`}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -538,7 +538,7 @@ export function RfcTrackerClient() {
                           <button
                             type="button"
                             onClick={() => removeReviewer(r.id, name)}
-                            className="text-sub hover:text-danger"
+                            className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                             aria-label={`Remove ${name}`}
                           >
                             ×
@@ -646,7 +646,7 @@ export function RfcTrackerClient() {
                         onChange={(e) => setDecision(r.id, e.target.value)}
                         placeholder="What was decided and why..."
                         rows={3}
-                        className="bg-bg border-border text-sm"
+                        className="bg-bg border-border text-sm min-h-[80px]"
                         aria-label="Decision text"
                       />
                       <div className="flex justify-end mt-2">

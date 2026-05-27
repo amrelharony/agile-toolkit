@@ -59,7 +59,11 @@ const DEFAULT_STATE: State = { assumptions: [] };
 const STATUS_OPTS: { id: Status; label: string; tone: string }[] = [
   { id: "untested", label: "Untested", tone: "border-border bg-surface text-sub" },
   { id: "testing", label: "Testing", tone: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
-  { id: "validated", label: "Validated", tone: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  {
+    id: "validated",
+    label: "Validated",
+    tone: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
+  },
   { id: "invalidated", label: "Invalidated", tone: "border-danger/40 bg-danger/10 text-danger" },
 ];
 const STATUS_TONE: Record<Status, string> = STATUS_OPTS.reduce(
@@ -122,10 +126,7 @@ interface TestCard {
 }
 
 export function RiskiestAssumptionClient() {
-  const [state, setState] = usePersisted<State>(
-    "agile-toolkit:riskiest-assumption",
-    DEFAULT_STATE
-  );
+  const [state, setState] = usePersisted<State>("agile-toolkit:riskiest-assumption", DEFAULT_STATE);
   const [draft, setDraft] = useState({
     statement: "",
     riskLevel: "3",
@@ -194,9 +195,7 @@ export function RiskiestAssumptionClient() {
 
   const updateRisk = (id: string, riskLevel: Level) => {
     setState((s) => ({
-      assumptions: s.assumptions.map((x) =>
-        x.id === id ? { ...x, riskLevel } : x
-      ),
+      assumptions: s.assumptions.map((x) => (x.id === id ? { ...x, riskLevel } : x)),
     }));
     log(RISKIEST_ASSUMPTION_ACTIONS.ASSUMPTION_UPDATED, {
       assumptionId: id,
@@ -206,9 +205,7 @@ export function RiskiestAssumptionClient() {
 
   const updateEvidence = (id: string, evidenceLevel: Level) => {
     setState((s) => ({
-      assumptions: s.assumptions.map((x) =>
-        x.id === id ? { ...x, evidenceLevel } : x
-      ),
+      assumptions: s.assumptions.map((x) => (x.id === id ? { ...x, evidenceLevel } : x)),
     }));
     log(RISKIEST_ASSUMPTION_ACTIONS.ASSUMPTION_UPDATED, {
       assumptionId: id,
@@ -218,9 +215,7 @@ export function RiskiestAssumptionClient() {
 
   const updateStatus = (id: string, status: Status) => {
     setState((s) => ({
-      assumptions: s.assumptions.map((x) =>
-        x.id === id ? { ...x, status } : x
-      ),
+      assumptions: s.assumptions.map((x) => (x.id === id ? { ...x, status } : x)),
     }));
     log(RISKIEST_ASSUMPTION_ACTIONS.ASSUMPTION_UPDATED, {
       assumptionId: id,
@@ -263,12 +258,8 @@ export function RiskiestAssumptionClient() {
     const untestedHigh = state.assumptions.filter(
       (a) => a.status === "untested" && a.riskLevel >= 4
     ).length;
-    const validated = state.assumptions.filter(
-      (a) => a.status === "validated"
-    ).length;
-    const invalidated = state.assumptions.filter(
-      (a) => a.status === "invalidated"
-    ).length;
+    const validated = state.assumptions.filter((a) => a.status === "validated").length;
+    const invalidated = state.assumptions.filter((a) => a.status === "invalidated").length;
     return {
       total: state.assumptions.length,
       untestedHigh,
@@ -365,12 +356,7 @@ export function RiskiestAssumptionClient() {
           value={stats.validated}
           tone={stats.validated > 0 ? "success" : "default"}
         />
-        <StatCard
-          variant="compact"
-          icon={XCircle}
-          label="Invalidated"
-          value={stats.invalidated}
-        />
+        <StatCard variant="compact" icon={XCircle} label="Invalidated" value={stats.invalidated} />
       </KpiGrid>
 
       {/* Add form */}
@@ -393,9 +379,7 @@ export function RiskiestAssumptionClient() {
                 min={1}
                 max={5}
                 value={draft.riskLevel}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, riskLevel: e.target.value }))
-                }
+                onChange={(e) => setDraft((d) => ({ ...d, riskLevel: e.target.value }))}
                 onBlur={(e) => {
                   const v = clampLevel(Number(e.target.value) || 3);
                   setDraft((d) => ({ ...d, riskLevel: String(v) }));
@@ -411,9 +395,7 @@ export function RiskiestAssumptionClient() {
                 min={1}
                 max={5}
                 value={draft.evidenceLevel}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, evidenceLevel: e.target.value }))
-                }
+                onChange={(e) => setDraft((d) => ({ ...d, evidenceLevel: e.target.value }))}
                 onBlur={(e) => {
                   const v = clampLevel(Number(e.target.value) || 3);
                   setDraft((d) => ({ ...d, evidenceLevel: String(v) }));
@@ -424,9 +406,7 @@ export function RiskiestAssumptionClient() {
             </div>
             <Textarea
               value={draft.testIdea}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, testIdea: e.target.value }))
-              }
+              onChange={(e) => setDraft((d) => ({ ...d, testIdea: e.target.value }))}
               placeholder="Test idea (optional)..."
               rows={2}
               className="bg-bg border-border resize-none text-xs"
@@ -435,9 +415,7 @@ export function RiskiestAssumptionClient() {
           </div>
           <Textarea
             value={draft.description}
-            onChange={(e) =>
-              setDraft((d) => ({ ...d, description: e.target.value }))
-            }
+            onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
             placeholder="Description (optional)..."
             rows={2}
             className="bg-bg border-border resize-none text-xs"
@@ -462,7 +440,7 @@ export function RiskiestAssumptionClient() {
               Risk × Evidence matrix
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg border border-danger/40 bg-danger/5 p-3 min-h-[100px]">
+              <div className="rounded-lg border border-danger/40 bg-danger/5 p-3 min-h-[100px] min-w-0">
                 <div className="text-[10px] uppercase tracking-wider text-danger font-bold mb-2">
                   Test first · high risk · low evidence
                 </div>
@@ -478,7 +456,7 @@ export function RiskiestAssumptionClient() {
                   )}
                 </ul>
               </div>
-              <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 min-h-[100px]">
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 min-h-[100px] min-w-0">
                 <div className="text-[10px] uppercase tracking-wider text-amber-300 font-bold mb-2">
                   Monitor · high risk · high evidence
                 </div>
@@ -494,7 +472,7 @@ export function RiskiestAssumptionClient() {
                   )}
                 </ul>
               </div>
-              <div className="rounded-lg border border-border bg-bg p-3 min-h-[100px]">
+              <div className="rounded-lg border border-border bg-bg p-3 min-h-[100px] min-w-0">
                 <div className="text-[10px] uppercase tracking-wider text-sub font-bold mb-2">
                   Defer · low risk · low evidence
                 </div>
@@ -510,7 +488,7 @@ export function RiskiestAssumptionClient() {
                   )}
                 </ul>
               </div>
-              <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 min-h-[100px]">
+              <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 min-h-[100px] min-w-0">
                 <div className="text-[10px] uppercase tracking-wider text-emerald-300 font-bold mb-2">
                   Solid · low risk · high evidence
                 </div>
@@ -537,9 +515,7 @@ export function RiskiestAssumptionClient() {
           <Card
             key={a.id}
             className={`bg-surface border-border ${
-              idx === 0 && state.assumptions.length > 1
-                ? "border-l-2 border-l-accent"
-                : ""
+              idx === 0 && state.assumptions.length > 1 ? "border-l-2 border-l-accent" : ""
             }`}
           >
             <CardContent className="p-3 space-y-2">
@@ -550,30 +526,24 @@ export function RiskiestAssumptionClient() {
                 >
                   #{idx + 1} · score {score(a)}
                 </Badge>
-                <div className="flex-1 text-sm text-text break-words">
-                  {a.statement}
-                </div>
+                <div className="flex-1 text-sm text-text break-words">{a.statement}</div>
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   onClick={() => removeAssumption(a.id)}
-                  className="text-sub hover:text-danger h-6 w-6 p-0 shrink-0"
+                  className="text-sub hover:text-danger h-6 w-6 p-0 shrink-0 min-touch-coarse"
                   aria-label="Remove assumption"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
               </div>
               {a.description && (
-                <div className="text-xs text-sub whitespace-pre-wrap">
-                  {a.description}
-                </div>
+                <div className="text-xs text-sub whitespace-pre-wrap">{a.description}</div>
               )}
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex items-center gap-1">
-                  <span className="text-[10px] uppercase tracking-wider text-sub">
-                    risk
-                  </span>
+                  <span className="text-[10px] uppercase tracking-wider text-sub">risk</span>
                   <NumDraftInput
                     value={a.riskLevel}
                     onCommit={(n) => updateRisk(a.id, n as Level)}
@@ -581,19 +551,14 @@ export function RiskiestAssumptionClient() {
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  <span className="text-[10px] uppercase tracking-wider text-sub">
-                    evidence
-                  </span>
+                  <span className="text-[10px] uppercase tracking-wider text-sub">evidence</span>
                   <NumDraftInput
                     value={a.evidenceLevel}
                     onCommit={(n) => updateEvidence(a.id, n as Level)}
                     ariaLabel="Evidence"
                   />
                 </div>
-                <Select
-                  value={a.status}
-                  onValueChange={(v) => updateStatus(a.id, v as Status)}
-                >
+                <Select value={a.status} onValueChange={(v) => updateStatus(a.id, v as Status)}>
                   <SelectTrigger
                     className={`h-8 text-xs w-32 border ${STATUS_TONE[a.status]}`}
                     aria-label="Status"
@@ -621,8 +586,7 @@ export function RiskiestAssumptionClient() {
               </div>
               {a.testIdea && (
                 <div className="text-xs text-sub border-t border-border pt-2">
-                  <span className="font-semibold text-text">Test idea:</span>{" "}
-                  {a.testIdea}
+                  <span className="font-semibold text-text">Test idea:</span> {a.testIdea}
                 </div>
               )}
             </CardContent>
@@ -632,10 +596,7 @@ export function RiskiestAssumptionClient() {
 
       {/* Test card panel */}
       {testCard && (
-        <Card
-          ref={testCardRef}
-          className="bg-surface border-accent/40 mt-6"
-        >
+        <Card ref={testCardRef} className="bg-surface border-accent/40 mt-6">
           <CardContent className="p-4 space-y-2">
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2 text-sm font-semibold text-text">
@@ -647,7 +608,7 @@ export function RiskiestAssumptionClient() {
                 variant="ghost"
                 size="sm"
                 onClick={() => setTestCard(null)}
-                className="h-6 w-6 p-0 text-sub hover:text-text"
+                className="h-6 w-6 p-0 text-sub hover:text-text min-touch-coarse"
                 aria-label="Close test card"
               >
                 <X className="w-4 h-4" />
@@ -655,25 +616,18 @@ export function RiskiestAssumptionClient() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
               <div>
-                <div className="text-sub uppercase tracking-wider text-[10px] mb-1">
-                  Assumption
-                </div>
+                <div className="text-sub uppercase tracking-wider text-[10px] mb-1">Assumption</div>
                 <div className="text-text">{testCard.assumption.statement}</div>
               </div>
               <div>
-                <div className="text-sub uppercase tracking-wider text-[10px] mb-1">
-                  Score
-                </div>
+                <div className="text-sub uppercase tracking-wider text-[10px] mb-1">Score</div>
                 <div className="text-text font-data">
                   risk {testCard.assumption.riskLevel} · evidence{" "}
-                  {testCard.assumption.evidenceLevel} · score{" "}
-                  {score(testCard.assumption)}
+                  {testCard.assumption.evidenceLevel} · score {score(testCard.assumption)}
                 </div>
               </div>
               <div>
-                <div className="text-sub uppercase tracking-wider text-[10px] mb-1">
-                  Test
-                </div>
+                <div className="text-sub uppercase tracking-wider text-[10px] mb-1">Test</div>
                 <div className="text-text">
                   {testCard.assumption.testIdea ??
                     "(no test idea — write the cheapest experiment that produces a binary outcome)"}
@@ -684,8 +638,7 @@ export function RiskiestAssumptionClient() {
                   Metric & threshold
                 </div>
                 <div className="text-text italic">
-                  Define a single metric and the threshold that would
-                  invalidate this assumption.
+                  Define a single metric and the threshold that would invalidate this assumption.
                 </div>
               </div>
             </div>

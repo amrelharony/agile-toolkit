@@ -159,8 +159,11 @@ export function GuestKudosClient({ role, profile }: Props) {
   return (
     <div className="min-h-screen px-4 py-4">
       <div className="mx-auto max-w-6xl space-y-3">
-        <header className="flex items-center justify-between gap-3 text-xs">
-          <Link href="/guest" className="inline-flex items-center gap-1 text-sub hover:text-text">
+        <header className="flex flex-wrap items-center justify-between gap-3 text-xs">
+          <Link
+            href="/guest"
+            className="min-touch-coarse inline-flex items-center gap-1 -mx-1 px-1 rounded text-sub hover:text-text"
+          >
             <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
             Back
           </Link>

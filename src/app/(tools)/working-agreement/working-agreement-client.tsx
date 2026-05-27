@@ -641,7 +641,7 @@ export function WorkingAgreementClient() {
                         variant="ghost"
                         size="sm"
                         onClick={() => removeRule(r.id)}
-                        className="text-sub hover:text-danger"
+                        className="text-sub hover:text-danger min-touch-coarse"
                         aria-label={`Remove ${r.text}`}
                       >
                         <Trash2 className="w-4 h-4" />

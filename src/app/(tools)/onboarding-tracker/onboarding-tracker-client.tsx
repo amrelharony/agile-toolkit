@@ -491,7 +491,7 @@ export function OnboardingTrackerClient() {
                       variant="ghost"
                       size="sm"
                       onClick={() => removePerson(p.id)}
-                      className="text-sub hover:text-danger"
+                      className="text-sub hover:text-danger min-touch-coarse"
                       aria-label={`Remove ${p.name}`}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -526,7 +526,7 @@ export function OnboardingTrackerClient() {
                               type="button"
                               onClick={() => toggleMilestone(p.id, m.id)}
                               className={cn(
-                                "mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition",
+                                "mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition min-touch-coarse",
                                 completed
                                   ? "bg-emerald-500/30 border-emerald-500/60 text-emerald-200"
                                   : "border-border bg-surface text-transparent hover:text-sub"

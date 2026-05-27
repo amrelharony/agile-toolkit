@@ -295,7 +295,7 @@ export function DaciClient() {
                           onValueChange={(v) => setStatus(d, v as DACIDecision["status"])}
                         >
                           <SelectTrigger
-                            className="h-7 w-32 text-xs"
+                            className="h-7 w-32 text-xs min-touch-coarse"
                             aria-label={`Status for ${d.title}`}
                           >
                             <SelectValue />

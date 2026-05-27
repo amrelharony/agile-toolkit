@@ -658,7 +658,7 @@ export function RiskRegisterClient() {
                         variant="ghost"
                         size="sm"
                         onClick={() => remove(r.id)}
-                        className="text-sub hover:text-danger"
+                        className="text-sub hover:text-danger min-touch-coarse"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>

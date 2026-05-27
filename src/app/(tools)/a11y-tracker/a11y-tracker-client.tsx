@@ -129,10 +129,7 @@ function ageDays(i: A11yIssue): number {
 /* ── Main client ────────────────────────────────────────────────────────── */
 
 export function A11yTrackerClient() {
-  const [state, setState] = usePersisted<A11yState>(
-    "agile-toolkit:a11y-tracker",
-    DEFAULT_STATE
-  );
+  const [state, setState] = usePersisted<A11yState>("agile-toolkit:a11y-tracker", DEFAULT_STATE);
   const { log } = useHistoryLogger("a11y-tracker");
   const chartRef = useRef<HTMLDivElement>(null);
 
@@ -175,10 +172,7 @@ export function A11yTrackerClient() {
           ? {
               ...i,
               status,
-              resolvedAt:
-                status === "resolved"
-                  ? i.resolvedAt ?? todayLocalISO()
-                  : undefined,
+              resolvedAt: status === "resolved" ? (i.resolvedAt ?? todayLocalISO()) : undefined,
             }
           : i
       ),
@@ -188,9 +182,7 @@ export function A11yTrackerClient() {
         issueId: id,
         component: prev?.component,
         wcagCriterion: prev?.wcagCriterion,
-        ageDays: prev
-          ? ageDays({ ...prev, status, resolvedAt: todayLocalISO() })
-          : undefined,
+        ageDays: prev ? ageDays({ ...prev, status, resolvedAt: todayLocalISO() }) : undefined,
       });
     } else {
       log(A11Y_ACTIONS.ISSUE_UPDATED, { issueId: id, fields: ["status"] });
@@ -229,12 +221,7 @@ export function A11yTrackerClient() {
   }, [state.issues]);
 
   const componentsAffected = useMemo(
-    () =>
-      new Set(
-        state.issues
-          .filter((i) => i.status !== "resolved")
-          .map((i) => i.component)
-      ).size,
+    () => new Set(state.issues.filter((i) => i.status !== "resolved").map((i) => i.component)).size,
     [state.issues]
   );
 
@@ -315,7 +302,7 @@ export function A11yTrackerClient() {
       const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
       d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
       const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-      const week = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+      const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
       const key = `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
       // Latest snapshot in week wins (chartData is already date-sorted).
       map.set(key, { date: row.date, total: row.total });
@@ -422,16 +409,9 @@ export function A11yTrackerClient() {
           variant="compact"
           label="Critical / Serious"
           value={bySeverity.critical + bySeverity.serious}
-          tone={
-            bySeverity.critical + bySeverity.serious > 0 ? "danger" : "default"
-          }
+          tone={bySeverity.critical + bySeverity.serious > 0 ? "danger" : "default"}
         />
-        <StatCard
-          variant="compact"
-          icon={Clock}
-          label="Avg age"
-          value={`${avgAge.toFixed(1)}d`}
-        />
+        <StatCard variant="compact" icon={Clock} label="Avg age" value={`${avgAge.toFixed(1)}d`} />
         <StatCard
           variant="compact"
           icon={Layers}
@@ -440,11 +420,7 @@ export function A11yTrackerClient() {
         />
       </KpiGrid>
 
-      <SectionCard
-        title="Log a11y issue"
-        icon={Eye}
-        className="mb-6 bg-surface border-border"
-      >
+      <SectionCard title="Log a11y issue" icon={Eye} className="mb-6 bg-surface border-border">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="space-y-1">
             <Label className="text-xs text-sub">Component</Label>
@@ -542,11 +518,47 @@ export function A11yTrackerClient() {
             />
             <Tooltip contentStyle={chartTheme.tooltipStyle} />
             <Legend wrapperStyle={chartTheme.legendStyle} />
-            <Line type="monotone" dataKey="critical" stroke={SEVERITY_COLOR.critical} strokeWidth={2} dot={false} name="Critical" />
-            <Line type="monotone" dataKey="serious" stroke={SEVERITY_COLOR.serious} strokeWidth={2} dot={false} name="Serious" />
-            <Line type="monotone" dataKey="moderate" stroke={SEVERITY_COLOR.moderate} strokeWidth={2} dot={false} name="Moderate" />
-            <Line type="monotone" dataKey="minor" stroke={SEVERITY_COLOR.minor} strokeWidth={2} dot={false} name="Minor" />
-            <Line type="monotone" dataKey="total" stroke={chartTheme.colors.cyan} strokeWidth={1.5} strokeOpacity={0.55} dot={false} name="Total open" />
+            <Line
+              type="monotone"
+              dataKey="critical"
+              stroke={SEVERITY_COLOR.critical}
+              strokeWidth={2}
+              dot={false}
+              name="Critical"
+            />
+            <Line
+              type="monotone"
+              dataKey="serious"
+              stroke={SEVERITY_COLOR.serious}
+              strokeWidth={2}
+              dot={false}
+              name="Serious"
+            />
+            <Line
+              type="monotone"
+              dataKey="moderate"
+              stroke={SEVERITY_COLOR.moderate}
+              strokeWidth={2}
+              dot={false}
+              name="Moderate"
+            />
+            <Line
+              type="monotone"
+              dataKey="minor"
+              stroke={SEVERITY_COLOR.minor}
+              strokeWidth={2}
+              dot={false}
+              name="Minor"
+            />
+            <Line
+              type="monotone"
+              dataKey="total"
+              stroke={chartTheme.colors.cyan}
+              strokeWidth={1.5}
+              strokeOpacity={0.55}
+              dot={false}
+              name="Total open"
+            />
             {openControl && (
               <>
                 <ReferenceLine
@@ -554,7 +566,12 @@ export function A11yTrackerClient() {
                   stroke={chartTheme.colors.cyan}
                   strokeDasharray="2 4"
                   strokeOpacity={0.55}
-                  label={{ value: "X̄", fill: chartTheme.colors.cyan, fontSize: 10, position: "right" }}
+                  label={{
+                    value: "X̄",
+                    fill: chartTheme.colors.cyan,
+                    fontSize: 10,
+                    position: "right",
+                  }}
                   ifOverflow="extendDomain"
                 />
                 <ReferenceLine
@@ -562,7 +579,12 @@ export function A11yTrackerClient() {
                   stroke={chartTheme.colors.red}
                   strokeDasharray="2 4"
                   strokeOpacity={0.55}
-                  label={{ value: "UCL", fill: chartTheme.colors.red, fontSize: 10, position: "right" }}
+                  label={{
+                    value: "UCL",
+                    fill: chartTheme.colors.red,
+                    fontSize: 10,
+                    position: "right",
+                  }}
                   ifOverflow="extendDomain"
                 />
                 <ReferenceLine
@@ -570,7 +592,12 @@ export function A11yTrackerClient() {
                   stroke={chartTheme.colors.green}
                   strokeDasharray="2 4"
                   strokeOpacity={0.55}
-                  label={{ value: "LCL", fill: chartTheme.colors.green, fontSize: 10, position: "right" }}
+                  label={{
+                    value: "LCL",
+                    fill: chartTheme.colors.green,
+                    fontSize: 10,
+                    position: "right",
+                  }}
                   ifOverflow="extendDomain"
                 />
               </>
@@ -590,13 +617,8 @@ export function A11yTrackerClient() {
         >
           <ul className="divide-y divide-border">
             {componentRollup.map((c) => (
-              <li
-                key={c.component}
-                className="flex items-center justify-between py-2 text-xs"
-              >
-                <span className="text-text font-medium truncate">
-                  {c.component}
-                </span>
+              <li key={c.component} className="flex items-center justify-between py-2 text-xs">
+                <span className="text-text font-medium truncate">{c.component}</span>
                 <span className="flex items-center gap-2 shrink-0">
                   <span className="font-data text-sub">{c.count} open</span>
                   <Badge
@@ -640,15 +662,11 @@ export function A11yTrackerClient() {
                   >
                     {i.severity}
                   </Badge>
-                  <span className="font-data text-xs text-text">
-                    WCAG {i.wcagCriterion}
-                  </span>
+                  <span className="font-data text-xs text-text">WCAG {i.wcagCriterion}</span>
                   <span className="text-text font-medium text-sm flex-1 min-w-0 truncate">
                     {i.component}
                   </span>
-                  <span className="text-xs text-sub font-data">
-                    {ageDays(i)}d
-                  </span>
+                  <span className="text-xs text-sub font-data">{ageDays(i)}d</span>
                   <Select value={i.status} onValueChange={(v) => setStatus(i.id, v as Status)}>
                     <SelectTrigger
                       className="h-8 w-32 bg-bg border-border text-xs capitalize"
@@ -668,7 +686,7 @@ export function A11yTrackerClient() {
                     variant="ghost"
                     size="sm"
                     onClick={() => remove(i.id)}
-                    className="text-sub hover:text-danger"
+                    className="text-sub hover:text-danger min-touch-coarse"
                     aria-label="Remove issue"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -684,8 +702,8 @@ export function A11yTrackerClient() {
           ))}
         {state.issues.length === 0 && (
           <EmptyState icon={Eye}>
-            No accessibility issues logged. Add a component + WCAG criterion above
-            to start tracking remediation.
+            No accessibility issues logged. Add a component + WCAG criterion above to start tracking
+            remediation.
           </EmptyState>
         )}
       </div>

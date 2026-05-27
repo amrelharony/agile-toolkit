@@ -178,21 +178,21 @@ export function SquadsClient() {
         <ul className="space-y-3">
           {squads.map((s) => (
             <li key={s.id} className="bg-surface border border-border rounded-lg p-4">
-              <div className="flex items-start justify-between gap-3 mb-2">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-2">
                 <div className="min-w-0">
-                  <h3 className="text-base font-semibold text-text">{s.name}</h3>
+                  <h3 className="text-base font-semibold text-text break-words">{s.name}</h3>
                   <p className="text-xs text-sub mt-0.5">
                     {s.profileCount} guest{s.profileCount === 1 ? "" : "s"} • created{" "}
                     {new Date(s.createdAt).toLocaleDateString()}
                   </p>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1">
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => void onRegenerate(s.id)}
                     title="Regenerate invite code"
-                    className="text-xs gap-1"
+                    className="min-touch-coarse text-xs gap-1"
                   >
                     <RefreshCw className="w-3 h-3" aria-hidden="true" />
                     New code
@@ -202,22 +202,22 @@ export function SquadsClient() {
                     size="sm"
                     onClick={() => void onDelete(s.id, s.name)}
                     title="Delete squad"
-                    className="text-xs gap-1 text-red-400 hover:text-red-300"
+                    className="min-touch-coarse text-xs gap-1 text-red-400 hover:text-red-300"
                   >
                     <Trash2 className="w-3 h-3" aria-hidden="true" />
                     Delete
                   </Button>
                 </div>
               </div>
-              <div className="bg-surface-deep border border-border rounded px-3 py-2 flex items-center gap-2">
-                <code className="font-mono text-xs text-text break-all flex-1 min-w-0">
+              <div className="bg-surface-deep border border-border rounded px-3 py-2 flex flex-wrap items-center gap-2">
+                <code className="font-mono text-xs text-text break-all flex-1 min-w-0 basis-full sm:basis-0">
                   {s.code}
                 </code>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => void onCopy(s.code)}
-                  className="gap-1 text-xs shrink-0"
+                  className="min-touch-coarse gap-1 text-xs shrink-0"
                   title="Copy invite link"
                 >
                   {copiedCode === s.code ? (

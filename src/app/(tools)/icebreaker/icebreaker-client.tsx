@@ -95,7 +95,7 @@ function FilterChip({
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 border ${
+      className={`min-touch-coarse inline-flex items-center justify-center px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 border ${
         active
           ? "bg-accent-cyan/20 text-accent border-accent-cyan shadow-neon-cyan"
           : "bg-card text-sub border-border hover:border-border hover:text-text"
@@ -133,7 +133,8 @@ function IceBreakerCard({
               e.stopPropagation();
               onToggleFavorite(icebreaker.id);
             }}
-            className="shrink-0 p-1 -m-1 transition-colors"
+            aria-label={isFavorite ? "Unfavorite" : "Favorite"}
+            className="min-touch-coarse shrink-0 p-1 -m-1 inline-flex items-center justify-center transition-colors"
           >
             <Heart
               className={`w-4 h-4 transition-all duration-200 ${
@@ -209,7 +210,8 @@ function FeaturedCard({
               </div>
               <button
                 onClick={() => onToggleFavorite(icebreaker.id)}
-                className="shrink-0 p-2 -m-2 transition-colors"
+                aria-label={isFavorite ? "Unfavorite" : "Favorite"}
+                className="min-touch-coarse shrink-0 p-2 -m-2 inline-flex items-center justify-center transition-colors"
               >
                 <Heart
                   className={`w-5 h-5 transition-all duration-200 ${

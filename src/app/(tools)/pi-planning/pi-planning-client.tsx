@@ -352,8 +352,8 @@ export function PiPlanningClient() {
         </CardContent>
       </Card>
 
-      <div className="overflow-x-auto">
-        <table className="w-full border-separate border-spacing-2">
+      <div className="table-wrap-responsive">
+        <table className="min-w-full border-separate border-spacing-2">
           <thead>
             <tr>
               <th className="text-left text-xs text-sub uppercase tracking-wider w-40">Team</th>

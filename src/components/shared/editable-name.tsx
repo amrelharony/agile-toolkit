@@ -99,7 +99,10 @@ export function EditableName({
           }
         }}
         className={cn(
-          "h-7 text-sm bg-card border-border text-text focus:border-accent/50 focus:ring-accent/20",
+          // 36 × 9 (32 → 28 px) is the desktop density target; bump to
+          // 44 px on coarse pointers so the click-to-edit doesn't shrink
+          // below tap-floor when the user finally lands on the input.
+          "h-9 [@media(pointer:coarse)]:h-11 text-sm bg-card border-border text-text focus:border-accent/50 focus:ring-accent/20",
           className,
           inputClassName
         )}
@@ -117,9 +120,7 @@ export function EditableName({
       )}
       title="Click to edit"
     >
-      {value || (
-        <span className="text-sub italic">{placeholder ?? "—"}</span>
-      )}
+      {value || <span className="text-sub italic">{placeholder ?? "—"}</span>}
     </button>
   );
 }

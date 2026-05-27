@@ -137,10 +137,7 @@ export function RunbookScorerClient() {
 
   const avgHygiene = useMemo(() => {
     if (totalRunbooks === 0) return 0;
-    return (
-      state.runbooks.reduce((acc, r) => acc + hygieneScore(r), 0) /
-      totalRunbooks
-    );
+    return state.runbooks.reduce((acc, r) => acc + hygieneScore(r), 0) / totalRunbooks;
   }, [state.runbooks, totalRunbooks]);
 
   const staleCount = useMemo(
@@ -176,8 +173,7 @@ export function RunbookScorerClient() {
     list.sort((a, b) => {
       let diff = 0;
       if (sortKey === "name") diff = a.runbook.name.localeCompare(b.runbook.name);
-      else if (sortKey === "freshness")
-        diff = a.runbook.freshness - b.runbook.freshness;
+      else if (sortKey === "freshness") diff = a.runbook.freshness - b.runbook.freshness;
       else diff = a.hygiene - b.hygiene;
       return sortDir === "asc" ? diff : -diff;
     });
@@ -253,12 +249,7 @@ export function RunbookScorerClient() {
       </ActionRow>
 
       <KpiGrid cols={4} gap="lg">
-        <StatCard
-          variant="compact"
-          icon={BookOpen}
-          label="Runbooks"
-          value={totalRunbooks}
-        />
+        <StatCard variant="compact" icon={BookOpen} label="Runbooks" value={totalRunbooks} />
         <StatCard
           variant="compact"
           icon={ShieldCheck}
@@ -302,12 +293,7 @@ export function RunbookScorerClient() {
         </div>
       )}
 
-      <SectionCard
-        title="Add a runbook"
-        icon={Plus}
-        titleSize="lg"
-        className="mb-6"
-      >
+      <SectionCard title="Add a runbook" icon={Plus} titleSize="lg" className="mb-6">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="sm:col-span-2">
             <Label htmlFor="rb-name" className="text-xs text-sub">
@@ -316,9 +302,7 @@ export function RunbookScorerClient() {
             <Input
               id="rb-name"
               value={draft.name}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, name: e.target.value }))
-              }
+              onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
               onKeyDown={(e) => {
                 if (e.key === "Enter") addRunbook();
               }}
@@ -333,9 +317,7 @@ export function RunbookScorerClient() {
             <Input
               id="rb-owner"
               value={draft.owner}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, owner: e.target.value }))
-              }
+              onChange={(e) => setDraft((d) => ({ ...d, owner: e.target.value }))}
               placeholder="optional"
               className="bg-surface border-border"
             />
@@ -347,9 +329,7 @@ export function RunbookScorerClient() {
             <Textarea
               id="rb-desc"
               value={draft.description}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, description: e.target.value }))
-              }
+              onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
               placeholder="Notes about scope, owners, last drill…"
               rows={2}
               className="bg-surface border-border resize-none text-xs"
@@ -373,7 +353,7 @@ export function RunbookScorerClient() {
       ) : (
         <SectionCard title="Runbooks" icon={BookOpen} titleSize="lg" className="mb-6">
           <div className="overflow-x-auto -mx-4 px-4">
-            <table className="w-full text-xs min-w-[760px]">
+            <table className="w-full text-xs min-w-full md:min-w-[760px]">
               <thead>
                 <tr className="text-left text-sub border-b border-border">
                   <th className="py-2 pr-3">
@@ -491,9 +471,7 @@ function RunbookRow({
           aria-label={`Toggle tested-recently for ${runbook.name}`}
         />
       </td>
-      <td className="py-2 pr-3 font-data text-sub">
-        {runbook.lastReviewedAt ?? "—"}
-      </td>
+      <td className="py-2 pr-3 font-data text-sub">{runbook.lastReviewedAt ?? "—"}</td>
       <td className="py-2 pr-3">
         <Badge variant="outline" className={`${badgeClass} font-data`}>
           {hygiene.toFixed(2)}
@@ -505,7 +483,7 @@ function RunbookRow({
           size="sm"
           onClick={onRemove}
           aria-label={`Remove ${runbook.name}`}
-          className="h-7 w-7 p-0 text-sub hover:text-danger"
+          className="h-7 w-7 p-0 text-sub hover:text-danger min-touch-coarse"
         >
           <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
         </Button>
@@ -533,9 +511,7 @@ function RunbookEditor({
       <div className="flex items-center justify-between mb-3 gap-3">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-text">{runbook.name}</div>
-          {runbook.owner && (
-            <div className="text-xs text-sub">{runbook.owner}</div>
-          )}
+          {runbook.owner && <div className="text-xs text-sub">{runbook.owner}</div>}
         </div>
         <Badge
           variant="outline"
@@ -563,9 +539,7 @@ function RunbookEditor({
               max={5}
               step={1}
               value={[runbook.freshness]}
-              onValueChange={(vals) =>
-                onUpdate({ freshness: clampScore(vals[0] ?? 3) })
-              }
+              onValueChange={(vals) => onUpdate({ freshness: clampScore(vals[0] ?? 3) })}
               aria-label={`Freshness for ${runbook.name}`}
             />
           </div>
@@ -578,9 +552,7 @@ function RunbookEditor({
               max={5}
               step={1}
               value={[runbook.completeness]}
-              onValueChange={(vals) =>
-                onUpdate({ completeness: clampScore(vals[0] ?? 3) })
-              }
+              onValueChange={(vals) => onUpdate({ completeness: clampScore(vals[0] ?? 3) })}
               aria-label={`Completeness for ${runbook.name}`}
             />
           </div>

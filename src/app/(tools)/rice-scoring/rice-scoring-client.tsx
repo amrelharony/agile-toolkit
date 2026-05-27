@@ -100,12 +100,10 @@ export function RiceScoringClient() {
     [items]
   );
 
-  const chartData = ranked
-    .slice(0, 10)
-    .map((r) => ({
-      title: r.title.length > 20 ? r.title.slice(0, 20) + "…" : r.title,
-      score: Number(r.score.toFixed(2)),
-    }));
+  const chartData = ranked.slice(0, 10).map((r) => ({
+    title: r.title.length > 20 ? r.title.slice(0, 20) + "…" : r.title,
+    score: Number(r.score.toFixed(2)),
+  }));
 
   const workspace = useWorkspaceStore(
     useShallow(
@@ -266,7 +264,7 @@ export function RiceScoringClient() {
                         <button
                           onClick={() => remove(r.id)}
                           aria-label="Remove item"
-                          className="text-sub hover:text-red-400"
+                          className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

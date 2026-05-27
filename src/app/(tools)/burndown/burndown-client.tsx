@@ -301,7 +301,7 @@ function StatCard({
           <span className="text-sm text-sub">{label}</span>
         </div>
         <div className="flex items-baseline gap-1.5">
-          <span className="text-3xl font-data font-bold text-text">{value}</span>
+          <span className="text-2xl sm:text-3xl font-data font-bold text-text">{value}</span>
           {unit && <span className="text-sm text-sub">{unit}</span>}
         </div>
       </CardContent>
@@ -856,13 +856,24 @@ export function BurndownClient() {
             {sortedEntries.map((entry) => (
               <div
                 key={entry.id}
-                className="grid grid-cols-[80px_1fr_1.2fr_120px_auto] gap-3 items-center"
+                className="grid grid-cols-[1fr_auto] sm:grid-cols-[80px_1fr_1.2fr_120px_auto] gap-2 sm:gap-3 sm:items-center rounded-md border border-border/40 sm:border-0 p-2 sm:p-0"
               >
-                <div className="flex items-center">
+                {/* Day label + trash form a header row on mobile */}
+                <div className="flex items-center sm:contents">
                   <span className="font-data text-sm font-semibold text-accent">
                     Day {entry.day}
                   </span>
                 </div>
+
+                <Button
+                  variant="danger-ghost"
+                  size="icon"
+                  onClick={() => removeEntry(entry.id)}
+                  disabled={sortedEntries.length <= 1}
+                  className="min-touch-coarse h-9 w-9 disabled:opacity-30 justify-self-end sm:order-last"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
 
                 <Input
                   type="number"
@@ -874,7 +885,7 @@ export function BurndownClient() {
                       remaining: e.target.value === "" ? null : Number(e.target.value),
                     })
                   }
-                  className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
+                  className="col-span-2 sm:col-span-1 bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
                 />
 
                 {/* Compact single-line note input — dense tracker row. */}
@@ -887,13 +898,13 @@ export function BurndownClient() {
                       description: e.target.value.trim() ? e.target.value : undefined,
                     })
                   }
-                  className="bg-surface-deep border-border text-text text-xs focus:border-accent/50 focus:ring-accent/20"
+                  className="col-span-2 sm:col-span-1 bg-surface-deep border-border text-text text-xs focus:border-accent/50 focus:ring-accent/20"
                   aria-label={`Note for day ${entry.day}`}
                 />
 
                 <button
                   onClick={() => toggleScopeChange(entry.id)}
-                  className={`h-9 px-3 rounded-md text-xs font-medium border transition-colors ${
+                  className={`col-span-2 sm:col-span-1 h-9 px-3 rounded-md text-xs font-medium border transition-colors ${
                     entry.scopeChange
                       ? "bg-[#ffaa00]/15 border-[#ffaa00]/40 text-[#ffaa00]"
                       : "bg-card border-border text-sub hover:border-[#ffaa00]/30 hover:text-[#ffaa00]"
@@ -901,16 +912,6 @@ export function BurndownClient() {
                 >
                   {entry.scopeChange ? "Scope Changed" : "Mark Change"}
                 </button>
-
-                <Button
-                  variant="danger-ghost"
-                  size="icon"
-                  onClick={() => removeEntry(entry.id)}
-                  disabled={sortedEntries.length <= 1}
-                  className="h-9 w-9 disabled:opacity-30"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
               </div>
             ))}
           </div>

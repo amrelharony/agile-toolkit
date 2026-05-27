@@ -43,7 +43,7 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
   const [assignee, setAssignee] = useState(card.assignee ?? "");
   const [due, setDue] = useState(card.due ?? "");
   const [points, setPoints] = useState<string>(
-    typeof card.points === "number" ? String(card.points) : "",
+    typeof card.points === "number" ? String(card.points) : ""
   );
   const [status, setStatus] = useState(card.status ?? "");
   const [tagsInput, setTagsInput] = useState((card.tags ?? []).join(", "));
@@ -95,14 +95,23 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
     if (!t.points) snap.points = typeof card.points === "number" ? String(card.points) : "";
     if (!t.status) snap.status = card.status ?? "";
     if (!t.tagsInput) snap.tagsInput = (card.tags ?? []).join(", ");
-  }, [card.version, card.title, card.description, card.assignee, card.due, card.points, card.status, card.tags]);
+  }, [
+    card.version,
+    card.title,
+    card.description,
+    card.assignee,
+    card.due,
+    card.points,
+    card.status,
+    card.tags,
+  ]);
 
   // Suggest assignees from the workspace team members list — same data
   // source the rest of the toolkit uses.
   const teamMembers = useWorkspaceStore((s) => s.teamMembers ?? []);
   const assigneeSuggestions = useMemo(
     () => teamMembers.map((m) => m.name).filter(Boolean),
-    [teamMembers],
+    [teamMembers]
   );
 
   // Status options — canonical Kanban set plus any custom statuses
@@ -110,13 +119,7 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
   // workspace's actual vocabulary, not a hard-coded set).
   const stories = useWorkspaceStore((s) => s.stories ?? []);
   const statusOptions = useMemo(() => {
-    const set = new Set<string>([
-      "backlog",
-      "todo",
-      "in_progress",
-      "review",
-      "done",
-    ]);
+    const set = new Set<string>(["backlog", "todo", "in_progress", "review", "done"]);
     for (const st of stories) {
       if (st.status) set.add(st.status);
     }
@@ -139,9 +142,7 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
       const target = e.target as HTMLElement | null;
       if (
         target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
       ) {
         return;
       }
@@ -180,7 +181,7 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
           .trim()
           .toLowerCase()
           .replace(/[​-‍⁠﻿­️]/g, "")
-          .slice(0, 24),
+          .slice(0, 24)
       )
       .filter((t) => t.length > 0)
       .slice(0, 8);
@@ -228,22 +229,17 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
       aria-modal="true"
       aria-label="Card details"
       ref={dialogRef}
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-bg/80 backdrop-blur-sm"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-bg/80 backdrop-blur-sm p-3"
       onClick={onClose}
     >
       <div
-        className="relative bg-surface border border-border rounded-xl max-w-lg w-[92vw] max-h-[88vh] overflow-auto"
+        className="relative bg-surface border border-border rounded-xl w-[min(32rem,calc(100vw-1.5rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain-strict"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-2">
-            <div
-              className="w-1 h-6 rounded-full"
-              style={{ background: card.color ?? "#00f0ff" }}
-            />
-            <h2 className="text-sm font-mono uppercase tracking-wider text-text">
-              Edit card
-            </h2>
+            <div className="w-1 h-6 rounded-full" style={{ background: card.color ?? "#00f0ff" }} />
+            <h2 className="text-sm font-mono uppercase tracking-wider text-text">Edit card</h2>
             {card.sourceRef && (
               <span
                 title={card.sourceRef.tool}
@@ -257,7 +253,7 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
             type="button"
             onClick={onClose}
             aria-label="Close card details"
-            className="text-sub hover:text-text"
+            className="text-sub hover:text-text min-touch-coarse inline-flex items-center justify-center"
           >
             <X className="w-5 h-5" />
           </button>
@@ -275,7 +271,10 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
             <input
               type="text"
               value={title}
-              onChange={(e) => { touchedRef.current.title = true; setTitle(e.target.value); }}
+              onChange={(e) => {
+                touchedRef.current.title = true;
+                setTitle(e.target.value);
+              }}
               maxLength={140}
               className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent"
               autoFocus
@@ -286,7 +285,10 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
             <span>Description</span>
             <textarea
               value={description}
-              onChange={(e) => { touchedRef.current.description = true; setDescription(e.target.value); }}
+              onChange={(e) => {
+                touchedRef.current.description = true;
+                setDescription(e.target.value);
+              }}
               maxLength={2000}
               rows={4}
               className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent resize-none"
@@ -296,11 +298,17 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
 
           <div className="grid grid-cols-2 gap-3">
             <label className="text-xs text-sub flex flex-col gap-1">
-              <span className="flex items-center gap-1"><User className="w-3 h-3" />Assignee</span>
+              <span className="flex items-center gap-1">
+                <User className="w-3 h-3" />
+                Assignee
+              </span>
               <input
                 type="text"
                 value={assignee}
-                onChange={(e) => { touchedRef.current.assignee = true; setAssignee(e.target.value); }}
+                onChange={(e) => {
+                  touchedRef.current.assignee = true;
+                  setAssignee(e.target.value);
+                }}
                 list="card-assignee-suggestions"
                 maxLength={60}
                 className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent"
@@ -314,7 +322,10 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
             </label>
 
             <label className="text-xs text-sub flex flex-col gap-1">
-              <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />Due</span>
+              <span className="flex items-center gap-1">
+                <Calendar className="w-3 h-3" />
+                Due
+              </span>
               <input
                 type="date"
                 value={due ? due.slice(0, 10) : ""}
@@ -341,40 +352,60 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
             </label>
 
             <label className="text-xs text-sub flex flex-col gap-1">
-              <span className="flex items-center gap-1"><Hash className="w-3 h-3" />Points</span>
+              <span className="flex items-center gap-1">
+                <Hash className="w-3 h-3" />
+                Points
+              </span>
               <input
                 type="number"
                 inputMode="decimal"
                 min={0}
                 step={1}
                 value={points}
-                onChange={(e) => { touchedRef.current.points = true; setPoints(e.target.value); }}
+                onChange={(e) => {
+                  touchedRef.current.points = true;
+                  setPoints(e.target.value);
+                }}
                 className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent"
                 placeholder="—"
               />
             </label>
 
             <label className="text-xs text-sub flex flex-col gap-1">
-              <span className="flex items-center gap-1"><Activity className="w-3 h-3" />Status</span>
+              <span className="flex items-center gap-1">
+                <Activity className="w-3 h-3" />
+                Status
+              </span>
               <select
                 value={status}
-                onChange={(e) => { touchedRef.current.status = true; setStatus(e.target.value); }}
+                onChange={(e) => {
+                  touchedRef.current.status = true;
+                  setStatus(e.target.value);
+                }}
                 className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent"
               >
                 <option value="">— none —</option>
                 {statusOptions.map((s) => (
-                  <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
+                  <option key={s} value={s}>
+                    {s.replace(/_/g, " ")}
+                  </option>
                 ))}
               </select>
             </label>
           </div>
 
           <label className="text-xs text-sub flex flex-col gap-1">
-            <span className="flex items-center gap-1"><Tag className="w-3 h-3" />Tags (comma separated)</span>
+            <span className="flex items-center gap-1">
+              <Tag className="w-3 h-3" />
+              Tags (comma separated)
+            </span>
             <input
               type="text"
               value={tagsInput}
-              onChange={(e) => { touchedRef.current.tagsInput = true; setTagsInput(e.target.value); }}
+              onChange={(e) => {
+                touchedRef.current.tagsInput = true;
+                setTagsInput(e.target.value);
+              }}
               maxLength={200}
               className="bg-surface-deep border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-accent font-mono"
               placeholder="auth, blocker, q1-launch"
@@ -398,7 +429,8 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
           </div>
           {card.sourceRef && (
             <p className="text-[10px] text-sub italic text-center pt-1">
-              Linked to a {card.sourceRef.tool} item. {card.sourceRef.tool} edits flow into this card; card edits stay on the canvas.
+              Linked to a {card.sourceRef.tool} item. {card.sourceRef.tool} edits flow into this
+              card; card edits stay on the canvas.
             </p>
           )}
         </form>

@@ -470,9 +470,9 @@ export function SprintCompareClient() {
           title="Dimension Comparison"
           titleSize="lg"
           headerClassName="pb-4"
-          contentClassName="overflow-x-auto"
+          contentClassName="table-wrap-responsive"
         >
-          <table className="w-full text-sm">
+          <table className="min-w-full md:min-w-[640px] text-sm">
             <thead>
               <tr>
                 <th className="text-left px-4 py-2 text-sub font-medium text-xs uppercase tracking-wider border-b border-border">

@@ -712,7 +712,7 @@ export function IncidentCommanderClient() {
       {recent.length > 0 && (
         <SectionCard title="Recent incidents" titleSize="lg">
           <div className="overflow-x-auto -mx-4 px-4">
-            <table className="w-full text-xs min-w-[640px]">
+            <table className="w-full text-xs min-w-full md:min-w-[640px]">
               <thead>
                 <tr className="text-left text-sub border-b border-border">
                   <th className="py-2 pr-3">Title</th>

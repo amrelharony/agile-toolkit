@@ -136,15 +136,15 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
       aria-modal="true"
       aria-label="Share or save board"
       ref={dialogRef}
-      className="fixed inset-0 z-modal flex items-center justify-center bg-bg/80 backdrop-blur-sm"
+      className="fixed inset-0 z-modal flex items-center justify-center bg-bg/80 backdrop-blur-sm p-3"
       onClick={onClose}
     >
       <div
-        className="relative bg-surface border border-border rounded-xl max-w-xl w-[92vw] max-h-[80vh] overflow-auto"
+        className="relative bg-surface border border-border rounded-xl w-[min(36rem,calc(100vw-1.5rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain-strict"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2 p-4 border-b border-border">
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
             <button
               type="button"
               onClick={() => setTab("share")}
@@ -198,7 +198,7 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
             type="button"
             onClick={onClose}
             aria-label="Close share/save dialog"
-            className="text-sub hover:text-text"
+            className="text-sub hover:text-text min-touch-coarse inline-flex items-center justify-center flex-shrink-0"
           >
             <X className="w-5 h-5" />
           </button>

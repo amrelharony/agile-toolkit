@@ -88,9 +88,7 @@ function FindBarImpl({ objects, viewportSize, onPanToRect, onSelect, onClose }: 
         target && target.tagName === "INPUT" && target.closest("[data-find-bar]");
       const inForeignInput =
         target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable) &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) &&
         !insideFindBar;
       if (insideFindBar) {
         // Esc in the find bar input — close.
@@ -107,7 +105,10 @@ function FindBarImpl({ objects, viewportSize, onPanToRect, onSelect, onClose }: 
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const hits = useMemo<SearchHit[]>(() => searchObjects(objects, debouncedQuery), [objects, debouncedQuery]);
+  const hits = useMemo<SearchHit[]>(
+    () => searchObjects(objects, debouncedQuery),
+    [objects, debouncedQuery]
+  );
 
   // Clamp cursor when hits change (e.g. typing narrows results). Reset
   // to -1 ("no hit selected yet") so the next Enter jumps to hit #1,
@@ -156,7 +157,7 @@ function FindBarImpl({ objects, viewportSize, onPanToRect, onSelect, onClose }: 
       role="search"
       aria-label="Find on board"
       data-find-bar=""
-      className="absolute top-3 right-3 z-30 flex flex-col bg-surface/95 border border-border rounded-lg shadow-xl backdrop-blur-sm w-[320px] max-w-[90vw]"
+      className="absolute top-3 right-3 z-30 flex flex-col bg-surface/95 border border-border rounded-lg shadow-xl backdrop-blur-sm w-[min(20rem,calc(100vw-1.5rem))]"
       data-canvas-export-ignore="true"
     >
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
@@ -242,7 +243,7 @@ function FindBarImpl({ objects, viewportSize, onPanToRect, onSelect, onClose }: 
       {query.trim().length > 0 && (
         <div
           id="find-bar-results"
-          className="max-h-[220px] overflow-y-auto"
+          className="max-h-[220px] overflow-y-auto overscroll-contain-strict"
           role="listbox"
           aria-label="Find results"
         >

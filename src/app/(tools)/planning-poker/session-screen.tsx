@@ -456,7 +456,7 @@ export function SessionScreen({
                     </div>
                   </div>
 
-                  <h2 className="text-2xl font-display font-bold text-text text-glow-cyan px-1">
+                  <h2 className="text-xl sm:text-2xl font-display font-bold text-text text-glow-cyan px-1 break-words">
                     {currentStory.title}
                   </h2>
 

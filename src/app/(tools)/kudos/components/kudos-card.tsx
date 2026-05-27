@@ -146,7 +146,7 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
           {theme.emoji}
         </span>
         <h3
-          className={`font-bold text-white ${compact ? "text-lg" : "text-2xl"} flex-1`}
+          className={`font-bold text-white ${compact ? "text-lg" : "text-fluid-h3"} flex-1`}
           style={{ margin: 0 }}
         >
           {theme.title}
@@ -157,7 +157,7 @@ export const KudosCard = forwardRef<HTMLDivElement, KudosCardProps>(function Kud
             onClick={() => onToggleReply?.(kudos.id)}
             aria-pressed={isReplyOpen}
             aria-label={isReplyOpen ? "Hide reply" : "Reply to this kudos"}
-            className="rounded-md p-1 text-white/80 hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+            className="min-touch-coarse inline-flex items-center justify-center rounded-md p-1 text-white/80 hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
           >
             <MessageCircle className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -230,7 +230,7 @@ function ReactionStrip({ kudosId, grouped, onAddReaction, compact }: ReactionStr
           }`}
           aria-pressed={g.viewerReacted}
           className={[
-            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors",
+            "min-touch-coarse inline-flex items-center justify-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors",
             g.viewerReacted
               ? "border-black/40 bg-black/10 text-black"
               : "border-black/15 bg-black/[0.03] text-black/80 hover:bg-black/[0.06]",
@@ -246,19 +246,22 @@ function ReactionStrip({ kudosId, grouped, onAddReaction, compact }: ReactionStr
             <button
               type="button"
               aria-label="Add a reaction"
-              className="inline-flex items-center gap-1 rounded-full border border-dashed border-black/20 px-2 py-0.5 text-xs text-black/60 hover:border-black/40 hover:text-black/80"
+              className="min-touch-coarse inline-flex items-center justify-center gap-1 rounded-full border border-dashed border-black/20 px-2 py-0.5 text-xs text-black/60 hover:border-black/40 hover:text-black/80"
             >
               <Plus className="h-3 w-3" aria-hidden="true" />
             </button>
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-auto bg-surface border-border/60 p-2">
+          <PopoverContent
+            align="start"
+            className="w-auto max-w-[calc(100vw-2rem)] bg-surface border-border/60 p-2"
+          >
             <div role="group" aria-label="Pick a reaction" className="grid grid-cols-4 gap-1">
               {COMMON_REACTIONS.map((e) => (
                 <button
                   key={e}
                   type="button"
                   onClick={() => handlePick(e)}
-                  className="rounded-md px-2 py-1 text-lg hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                  className="min-touch-coarse rounded-md px-2 py-1 text-lg hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
                   aria-label={`React with ${e}`}
                 >
                   {e}

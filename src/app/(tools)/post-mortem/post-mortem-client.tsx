@@ -45,11 +45,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { POST_MORTEM_ACTIONS } from "@/lib/history/event-actions";
 import { generatePostMortemPrompts } from "@/lib/ai-prompts/post-mortem";
 import { chartTheme } from "@/components/charts/chart-theme";
-import {
-  durationsFromTimeRanges,
-  kaplanMeier,
-  medianSurvivalTime,
-} from "@/lib/analytics/survival";
+import { durationsFromTimeRanges, kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 
 type PMStatus = "draft" | "review" | "published";
 type ActionStatus = "open" | "in_progress" | "done";
@@ -155,10 +151,7 @@ function emptyDraft(): NewPMDraft {
 }
 
 export function PostMortemClient() {
-  const [state, setState] = usePersisted<PMState>(
-    "agile-toolkit:post-mortem",
-    DEFAULT_STATE
-  );
+  const [state, setState] = usePersisted<PMState>("agile-toolkit:post-mortem", DEFAULT_STATE);
   const { log } = useHistoryLogger("post-mortem");
   const [draft, setDraft] = useState<NewPMDraft>(emptyDraft);
 
@@ -197,9 +190,7 @@ export function PostMortemClient() {
 
   const updatePostMortem = (id: string, patch: Partial<PostMortem>) => {
     setState((s) => ({
-      postmortems: s.postmortems.map((p) =>
-        p.id === id ? { ...p, ...patch } : p
-      ),
+      postmortems: s.postmortems.map((p) => (p.id === id ? { ...p, ...patch } : p)),
     }));
     log(POST_MORTEM_ACTIONS.POSTMORTEM_UPDATED, {
       postmortemId: id,
@@ -237,9 +228,7 @@ export function PostMortemClient() {
     if (!trimmed) return;
     setState((s) => ({
       postmortems: s.postmortems.map((p) =>
-        p.id === id
-          ? { ...p, contributingFactors: [...p.contributingFactors, trimmed] }
-          : p
+        p.id === id ? { ...p, contributingFactors: [...p.contributingFactors, trimmed] } : p
       ),
     }));
     log(POST_MORTEM_ACTIONS.POSTMORTEM_UPDATED, {
@@ -254,9 +243,7 @@ export function PostMortemClient() {
         p.id === id
           ? {
               ...p,
-              contributingFactors: p.contributingFactors.filter(
-                (_, i) => i !== idx
-              ),
+              contributingFactors: p.contributingFactors.filter((_, i) => i !== idx),
             }
           : p
       ),
@@ -291,9 +278,7 @@ export function PostMortemClient() {
   const removeTimelineEntry = (id: string, entryId: string) => {
     setState((s) => ({
       postmortems: s.postmortems.map((p) =>
-        p.id === id
-          ? { ...p, timeline: p.timeline.filter((e) => e.id !== entryId) }
-          : p
+        p.id === id ? { ...p, timeline: p.timeline.filter((e) => e.id !== entryId) } : p
       ),
     }));
     log(POST_MORTEM_ACTIONS.POSTMORTEM_UPDATED, {
@@ -322,19 +307,13 @@ export function PostMortemClient() {
     });
   };
 
-  const updateAction = (
-    id: string,
-    actionId: string,
-    patch: Partial<ActionItem>
-  ) => {
+  const updateAction = (id: string, actionId: string, patch: Partial<ActionItem>) => {
     setState((s) => ({
       postmortems: s.postmortems.map((p) =>
         p.id === id
           ? {
               ...p,
-              actions: p.actions.map((a) =>
-                a.id === actionId ? { ...a, ...patch } : a
-              ),
+              actions: p.actions.map((a) => (a.id === actionId ? { ...a, ...patch } : a)),
             }
           : p
       ),
@@ -349,9 +328,7 @@ export function PostMortemClient() {
   const removeAction = (id: string, actionId: string) => {
     setState((s) => ({
       postmortems: s.postmortems.map((p) =>
-        p.id === id
-          ? { ...p, actions: p.actions.filter((a) => a.id !== actionId) }
-          : p
+        p.id === id ? { ...p, actions: p.actions.filter((a) => a.id !== actionId) } : p
       ),
     }));
     log(POST_MORTEM_ACTIONS.ACTION_REMOVED, {
@@ -370,17 +347,12 @@ export function PostMortemClient() {
   );
   const publishedThisQuarter = useMemo(
     () =>
-      state.postmortems.filter(
-        (p) => p.status === "published" && isThisQuarter(p.incidentDate)
-      ).length,
+      state.postmortems.filter((p) => p.status === "published" && isThisQuarter(p.incidentDate))
+        .length,
     [state.postmortems]
   );
   const overdueActions = useMemo(
-    () =>
-      state.postmortems.reduce(
-        (sum, p) => sum + p.actions.filter(isOverdue).length,
-        0
-      ),
+    () => state.postmortems.reduce((sum, p) => sum + p.actions.filter(isOverdue).length, 0),
     [state.postmortems]
   );
 
@@ -409,26 +381,21 @@ export function PostMortemClient() {
         // would have `durationsFromTimeRanges` censor them as "still alive
         // through today", biasing the curve toward longer survival.
         .filter(
-          (p) =>
-            (p.createdAt || p.incidentDate) &&
-            (p.status !== "published" || p.publishedAt),
+          (p) => (p.createdAt || p.incidentDate) && (p.status !== "published" || p.publishedAt)
         )
         .map((p) => ({
           raisedAt: p.createdAt ?? p.incidentDate,
           resolvedAt: p.status === "published" ? p.publishedAt : undefined,
-        })),
+        }))
     );
     return kaplanMeier(obs);
   }, [state.postmortems, publishedDurations.length]);
 
-  const medianTimeToPublish = useMemo(
-    () => medianSurvivalTime(survivalCurve),
-    [survivalCurve],
-  );
+  const medianTimeToPublish = useMemo(() => medianSurvivalTime(survivalCurve), [survivalCurve]);
 
   const survivalChartData = useMemo(
     () => survivalCurve.map((p) => ({ t: p.t, survival: Math.round(p.survival * 1000) / 1000 })),
-    [survivalCurve],
+    [survivalCurve]
   );
 
   // CSV — flatten all action items across post-mortems.
@@ -554,9 +521,7 @@ export function PostMortemClient() {
         <SectionCard
           title="Time-to-publish survival curve"
           icon={Activity}
-          titleSuffix={
-            medianTimeToPublish !== null ? `Median ${medianTimeToPublish}d` : undefined
-          }
+          titleSuffix={medianTimeToPublish !== null ? `Median ${medianTimeToPublish}d` : undefined}
           className="mb-6"
         >
           <div className="h-40 -mx-2">
@@ -601,20 +566,14 @@ export function PostMortemClient() {
             </ResponsiveContainer>
           </div>
           <p className="text-[11px] text-sub mt-2">
-            Kaplan-Meier estimate over {publishedDurations.length} published
-            post-mortem{publishedDurations.length === 1 ? "" : "s"} (drafts and
-            in-review are right-censored). Y-axis: probability the post-mortem
-            is still unpublished after N days.
+            Kaplan-Meier estimate over {publishedDurations.length} published post-mortem
+            {publishedDurations.length === 1 ? "" : "s"} (drafts and in-review are right-censored).
+            Y-axis: probability the post-mortem is still unpublished after N days.
           </p>
         </SectionCard>
       )}
 
-      <SectionCard
-        title="Create a post-mortem"
-        icon={Plus}
-        titleSize="lg"
-        className="mb-6"
-      >
+      <SectionCard title="Create a post-mortem" icon={Plus} titleSize="lg" className="mb-6">
         <div className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="sm:col-span-2">
@@ -624,9 +583,7 @@ export function PostMortemClient() {
               <Input
                 id="pm-title"
                 value={draft.title}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, title: e.target.value }))
-                }
+                onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") addPostMortem();
                 }}
@@ -642,9 +599,7 @@ export function PostMortemClient() {
                 id="pm-date"
                 type="date"
                 value={draft.incidentDate}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, incidentDate: e.target.value }))
-                }
+                onChange={(e) => setDraft((d) => ({ ...d, incidentDate: e.target.value }))}
                 className="bg-surface border-border font-data"
               />
             </div>
@@ -656,9 +611,7 @@ export function PostMortemClient() {
             <Textarea
               id="pm-desc"
               value={draft.description}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, description: e.target.value }))
-              }
+              onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
               placeholder="One-line context: severity, blast radius, customer impact"
               rows={2}
               className="bg-surface border-border resize-none text-xs"
@@ -675,8 +628,8 @@ export function PostMortemClient() {
 
       {state.postmortems.length === 0 ? (
         <EmptyState icon={ScrollText}>
-          No post-mortems yet. Create one above to capture the incident
-          summary, contributing factors, and follow-up actions.
+          No post-mortems yet. Create one above to capture the incident summary, contributing
+          factors, and follow-up actions.
         </EmptyState>
       ) : (
         <div className="space-y-4">
@@ -689,9 +642,7 @@ export function PostMortemClient() {
               onRemove={() => removePostMortem(pm.id)}
               onAddFactor={(t) => addContributingFactor(pm.id, t)}
               onRemoveFactor={(i) => removeContributingFactor(pm.id, i)}
-              onAddTimelineEntry={(author, text) =>
-                addTimelineEntry(pm.id, author, text)
-              }
+              onAddTimelineEntry={(author, text) => addTimelineEntry(pm.id, author, text)}
               onRemoveTimelineEntry={(eId) => removeTimelineEntry(pm.id, eId)}
               onAddAction={(t) => addAction(pm.id, t)}
               onUpdateAction={(aId, patch) => updateAction(pm.id, aId, patch)}
@@ -751,10 +702,7 @@ function PostMortemEditor({
       }
       actions={
         <div className="flex items-center gap-2">
-          <Select
-            value={pm.status}
-            onValueChange={(v) => onSetStatus(v as PMStatus)}
-          >
+          <Select value={pm.status} onValueChange={(v) => onSetStatus(v as PMStatus)}>
             <SelectTrigger
               className="h-8 w-32 text-xs bg-surface border-border"
               aria-label={`Status for ${pm.title}`}
@@ -772,7 +720,7 @@ function PostMortemEditor({
             size="sm"
             onClick={onRemove}
             aria-label={`Delete ${pm.title}`}
-            className="h-8 w-8 p-0 text-sub hover:text-danger"
+            className="h-8 w-8 p-0 text-sub hover:text-danger min-touch-coarse"
           >
             <Trash2 className="w-4 h-4" aria-hidden="true" />
           </Button>
@@ -782,17 +730,14 @@ function PostMortemEditor({
       <div className="space-y-5">
         <div className="text-xs text-sub flex items-center gap-3">
           <span>
-            Incident date:{" "}
-            <span className="font-data text-text">{pm.incidentDate}</span>
+            Incident date: <span className="font-data text-text">{pm.incidentDate}</span>
           </span>
           <span>
             {pm.actions.length} actions · {openCount} open
           </span>
         </div>
         {pm.description && (
-          <p className="text-xs text-sub whitespace-pre-wrap break-words">
-            {pm.description}
-          </p>
+          <p className="text-xs text-sub whitespace-pre-wrap break-words">{pm.description}</p>
         )}
 
         <div>
@@ -807,7 +752,7 @@ function PostMortemEditor({
             }}
             placeholder="What happened, in plain language. Skip blame."
             rows={4}
-            className="bg-surface border-border resize-y text-xs"
+            className="bg-surface border-border resize-y text-xs min-h-[100px]"
           />
         </div>
 
@@ -820,8 +765,8 @@ function PostMortemEditor({
           </div>
           {pm.contributingFactors.length === 0 ? (
             <p className="text-xs text-sub italic mb-2">
-              Add at least 2-3 factors. A single &apos;root cause&apos; usually means the
-              real story isn&apos;t told yet.
+              Add at least 2-3 factors. A single &apos;root cause&apos; usually means the real story
+              isn&apos;t told yet.
             </p>
           ) : (
             <ul className="space-y-1.5 mb-2">
@@ -831,14 +776,12 @@ function PostMortemEditor({
                   className="flex items-start gap-2 p-2 rounded-md border border-border bg-bg text-xs"
                 >
                   <span className="font-data text-sub shrink-0">{i + 1}.</span>
-                  <span className="flex-1 text-text whitespace-pre-wrap break-words">
-                    {f}
-                  </span>
+                  <span className="flex-1 text-text whitespace-pre-wrap break-words">{f}</span>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => onRemoveFactor(i)}
-                    className="h-6 w-6 p-0 text-sub hover:text-danger"
+                    className="h-6 w-6 p-0 text-sub hover:text-danger min-touch-coarse"
                     aria-label={`Remove factor ${i + 1}`}
                   >
                     <X className="w-3 h-3" aria-hidden="true" />
@@ -897,15 +840,13 @@ function PostMortemEditor({
                       {new Date(e.ts).toLocaleString()}
                     </span>
                     <span className="text-accent mr-2">{e.author}:</span>
-                    <span className="text-text whitespace-pre-wrap break-words">
-                      {e.text}
-                    </span>
+                    <span className="text-text whitespace-pre-wrap break-words">{e.text}</span>
                   </div>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => onRemoveTimelineEntry(e.id)}
-                    className="h-6 w-6 p-0 text-sub hover:text-danger"
+                    className="h-6 w-6 p-0 text-sub hover:text-danger min-touch-coarse"
                     aria-label="Remove entry"
                   >
                     <X className="w-3 h-3" aria-hidden="true" />
@@ -1039,7 +980,7 @@ function ActionItemRow({
             }
           }}
           aria-label={`Toggle done for ${action.text}`}
-          className="mt-1 shrink-0 accent-emerald-400"
+          className="mt-1 shrink-0 accent-emerald-400 min-touch-coarse"
         />
         <Textarea
           value={textDraft}
@@ -1049,8 +990,8 @@ function ActionItemRow({
             if (next && next !== action.text) onUpdate({ text: next });
             else if (!next) setTextDraft(action.text);
           }}
-          rows={1}
-          className="bg-surface border-border resize-none text-xs flex-1"
+          rows={2}
+          className="bg-surface border-border resize-y text-xs flex-1 min-h-[44px]"
           aria-label="Action text"
         />
         <Badge variant="outline" className={ACTION_STATUS_BADGE[action.status]}>
@@ -1060,7 +1001,7 @@ function ActionItemRow({
           variant="ghost"
           size="sm"
           onClick={onRemove}
-          className="h-6 w-6 p-0 text-sub hover:text-danger"
+          className="h-6 w-6 p-0 text-sub hover:text-danger min-touch-coarse"
           aria-label="Remove action"
         >
           <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
@@ -1068,9 +1009,7 @@ function ActionItemRow({
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <div>
-          <Label className="text-[10px] uppercase tracking-wider text-sub">
-            Owner
-          </Label>
+          <Label className="text-[10px] uppercase tracking-wider text-sub">Owner</Label>
           <Input
             value={ownerDraft}
             onChange={(e) => setOwnerDraft(e.target.value)}
@@ -1086,9 +1025,7 @@ function ActionItemRow({
           />
         </div>
         <div>
-          <Label className="text-[10px] uppercase tracking-wider text-sub">
-            Due
-          </Label>
+          <Label className="text-[10px] uppercase tracking-wider text-sub">Due</Label>
           <Input
             type="date"
             value={dueDraft}
@@ -1103,9 +1040,7 @@ function ActionItemRow({
           />
         </div>
         <div>
-          <Label className="text-[10px] uppercase tracking-wider text-sub">
-            Status
-          </Label>
+          <Label className="text-[10px] uppercase tracking-wider text-sub">Status</Label>
           <Select
             value={action.status}
             onValueChange={(v) => onUpdate({ status: v as ActionStatus })}

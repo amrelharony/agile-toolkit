@@ -254,7 +254,7 @@ export function PremortemClient() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-5 w-5 p-0 text-sub"
+                      className="h-5 w-5 p-0 text-sub min-touch-coarse"
                       onClick={() => move(c.id, -1)}
                     >
                       <ChevronUp className="w-3 h-3" />
@@ -263,7 +263,7 @@ export function PremortemClient() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-5 w-5 p-0 text-sub"
+                      className="h-5 w-5 p-0 text-sub min-touch-coarse"
                       onClick={() => move(c.id, 1)}
                     >
                       <ChevronDown className="w-3 h-3" />
@@ -300,7 +300,7 @@ export function PremortemClient() {
                     variant="ghost"
                     size="sm"
                     onClick={() => remove(c.id)}
-                    className="text-sub hover:text-danger"
+                    className="text-sub hover:text-danger min-touch-coarse"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>

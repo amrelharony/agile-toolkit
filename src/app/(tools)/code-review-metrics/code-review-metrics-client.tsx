@@ -144,10 +144,7 @@ function parseCsv(csv: string): ParseResult {
   let bodyStart = 0;
   let useHeader = false;
   const headerIndex: Record<string, number> = {};
-  if (
-    firstCells.length >= 7 &&
-    firstCells.some((c) => /author|opened|merged|review/i.test(c))
-  ) {
+  if (firstCells.length >= 7 && firstCells.some((c) => /author|opened|merged|review/i.test(c))) {
     firstCells.forEach((cell, i) => {
       headerIndex[cell.toLowerCase().replace(/\s+/g, "")] = i;
     });
@@ -205,14 +202,14 @@ function parseCsv(csv: string): ParseResult {
       skipped++;
       continue;
     }
-    const prNumber = (idxPrNumber !== undefined ? cells[idxPrNumber] ?? "" : "").trim();
+    const prNumber = (idxPrNumber !== undefined ? (cells[idxPrNumber] ?? "") : "").trim();
     const author = (cells[idxAuthor] ?? "").trim();
     const openedAt = (cells[idxOpenedAt] ?? "").trim();
-    const mergedAt = (idxMergedAt !== undefined ? cells[idxMergedAt] ?? "" : "").trim();
+    const mergedAt = (idxMergedAt !== undefined ? (cells[idxMergedAt] ?? "") : "").trim();
     const reviewers = Number(cells[idxReviewers] ?? "0");
     const comments = Number(cells[idxComments] ?? "0");
     const lines_ = Number(cells[idxLines] ?? "0");
-    const description = (idxDescription !== undefined ? cells[idxDescription] ?? "" : "").trim();
+    const description = (idxDescription !== undefined ? (cells[idxDescription] ?? "") : "").trim();
     if (!author || !openedAt) {
       skipped++;
       continue;
@@ -354,18 +351,12 @@ export function CodeReviewMetricsClient() {
 
   const avgReviewDepth = useMemo(() => {
     if (state.samples.length === 0) return 0;
-    return (
-      state.samples.reduce((acc, s) => acc + s.commentCount, 0) /
-      state.samples.length
-    );
+    return state.samples.reduce((acc, s) => acc + s.commentCount, 0) / state.samples.length;
   }, [state.samples]);
 
   const avgPrSize = useMemo(() => {
     if (state.samples.length === 0) return 0;
-    return (
-      state.samples.reduce((acc, s) => acc + s.linesChanged, 0) /
-      state.samples.length
-    );
+    return state.samples.reduce((acc, s) => acc + s.linesChanged, 0) / state.samples.length;
   }, [state.samples]);
 
   const unmerged = state.samples.filter((s) => !s.mergedAt).length;
@@ -403,10 +394,7 @@ export function CodeReviewMetricsClient() {
   /* ── Phase-15 analytics ───────────────────────────────────────────────── */
   // Underlying cycle-hours array — drives bootstrap CI brackets and the
   // weekly XmR series.
-  const cycleHoursArray = useMemo(
-    () => merged.map((s) => s.cycleHours as number),
-    [merged]
-  );
+  const cycleHoursArray = useMemo(() => merged.map((s) => s.cycleHours as number), [merged]);
 
   // Bootstrap percentile CIs for median + P85. The primitive collapses to a
   // point CI when n<3 — we guard above that to keep the UI honest.
@@ -430,7 +418,7 @@ export function CodeReviewMetricsClient() {
       const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
       date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
       const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-      const week = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+      const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
       const key = `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
       const arr = buckets.get(key) ?? [];
       arr.push(s.cycleHours);
@@ -444,10 +432,7 @@ export function CodeReviewMetricsClient() {
       }));
   }, [merged]);
 
-  const weeklyMeanSeries = useMemo(
-    () => weeklyCycle.map((w) => w.meanHours),
-    [weeklyCycle]
-  );
+  const weeklyMeanSeries = useMemo(() => weeklyCycle.map((w) => w.meanHours), [weeklyCycle]);
 
   // XmR control limits on the weekly cycle-time mean.
   const cycleControl = useMemo(
@@ -538,7 +523,13 @@ export function CodeReviewMetricsClient() {
           // "median" was misleading — relabel based on which statistic
           // is actually displayed.
           label={cycleP50CI ? "Cycle median" : "Cycle mean"}
-          value={cycleP50CI ? `${cycleP50CI.point.toFixed(1)}h` : avgCycleHours !== null ? `${avgCycleHours.toFixed(1)}h` : "—"}
+          value={
+            cycleP50CI
+              ? `${cycleP50CI.point.toFixed(1)}h`
+              : avgCycleHours !== null
+                ? `${avgCycleHours.toFixed(1)}h`
+                : "—"
+          }
           hint={
             cycleP50CI
               ? `± [${cycleP50CI.lower.toFixed(1)}, ${cycleP50CI.upper.toFixed(1)}] 95% CI`
@@ -671,8 +662,12 @@ export function CodeReviewMetricsClient() {
         className="mb-6 bg-surface border-border"
       >
         <div className="text-[11px] text-sub mb-2">
-          Paste a CSV with columns: <code>prNumber, author, openedAt, mergedAt, reviewerCount, commentCount, linesChanged, description</code>.
-          Header row optional. Dates accept ISO 8601 (e.g. <code>2026-05-09T14:30</code>).
+          Paste a CSV with columns:{" "}
+          <code>
+            prNumber, author, openedAt, mergedAt, reviewerCount, commentCount, linesChanged,
+            description
+          </code>
+          . Header row optional. Dates accept ISO 8601 (e.g. <code>2026-05-09T14:30</code>).
         </div>
         <Textarea
           rows={4}
@@ -728,10 +723,23 @@ export function CodeReviewMetricsClient() {
               tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
               axisLine={false}
               tickLine={false}
-              label={{ value: "Hours", angle: -90, position: "insideLeft", fill: chartTheme.axisColor, fontSize: 11 }}
+              label={{
+                value: "Hours",
+                angle: -90,
+                position: "insideLeft",
+                fill: chartTheme.axisColor,
+                fontSize: 11,
+              }}
             />
             <Tooltip contentStyle={chartTheme.tooltipStyle} />
-            <Line type="monotone" dataKey="meanHours" stroke={chartTheme.colors.cyan} strokeWidth={2} dot={{ r: 3 }} name="Mean cycle (h)" />
+            <Line
+              type="monotone"
+              dataKey="meanHours"
+              stroke={chartTheme.colors.cyan}
+              strokeWidth={2}
+              dot={{ r: 3 }}
+              name="Mean cycle (h)"
+            />
             {cycleControl && (
               <>
                 <ReferenceLine
@@ -739,7 +747,12 @@ export function CodeReviewMetricsClient() {
                   stroke={chartTheme.colors.cyan}
                   strokeDasharray="2 4"
                   strokeOpacity={0.55}
-                  label={{ value: "X̄", fill: chartTheme.colors.cyan, fontSize: 10, position: "right" }}
+                  label={{
+                    value: "X̄",
+                    fill: chartTheme.colors.cyan,
+                    fontSize: 10,
+                    position: "right",
+                  }}
                   ifOverflow="extendDomain"
                 />
                 <ReferenceLine
@@ -747,7 +760,12 @@ export function CodeReviewMetricsClient() {
                   stroke={chartTheme.colors.red}
                   strokeDasharray="2 4"
                   strokeOpacity={0.55}
-                  label={{ value: "UCL", fill: chartTheme.colors.red, fontSize: 10, position: "right" }}
+                  label={{
+                    value: "UCL",
+                    fill: chartTheme.colors.red,
+                    fontSize: 10,
+                    position: "right",
+                  }}
                   ifOverflow="extendDomain"
                 />
                 <ReferenceLine
@@ -755,7 +773,12 @@ export function CodeReviewMetricsClient() {
                   stroke={chartTheme.colors.green}
                   strokeDasharray="2 4"
                   strokeOpacity={0.55}
-                  label={{ value: "LCL", fill: chartTheme.colors.green, fontSize: 10, position: "right" }}
+                  label={{
+                    value: "LCL",
+                    fill: chartTheme.colors.green,
+                    fontSize: 10,
+                    position: "right",
+                  }}
                   ifOverflow="extendDomain"
                 />
               </>
@@ -790,10 +813,7 @@ export function CodeReviewMetricsClient() {
               axisLine={false}
               tickLine={false}
             />
-            <Tooltip
-              cursor={{ strokeDasharray: "3 3" }}
-              contentStyle={chartTheme.tooltipStyle}
-            />
+            <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={chartTheme.tooltipStyle} />
             <Scatter data={scatterData} fill="#00f0ff" />
           </ScatterChart>
         </ChartCard>
@@ -807,19 +827,11 @@ export function CodeReviewMetricsClient() {
           className="mb-6"
         >
           <div className="text-[11px] text-sub px-1 mb-2">
-            Measures comments left on each author&apos;s PRs — not reviews-given.
-            Reviewer-level credit isn&apos;t available because comments are
-            logged at the PR level only.
+            Measures comments left on each author&apos;s PRs — not reviews-given. Reviewer-level
+            credit isn&apos;t available because comments are logged at the PR level only.
           </div>
-          <BarChart
-            data={topAuthors}
-            margin={{ top: 10, right: 16, left: 0, bottom: 10 }}
-          >
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke={chartTheme.gridColor}
-              vertical={false}
-            />
+          <BarChart data={topAuthors} margin={{ top: 10, right: 16, left: 0, bottom: 10 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
             <XAxis
               dataKey="author"
               tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
@@ -868,22 +880,16 @@ export function CodeReviewMetricsClient() {
                           {cycle !== null ? `${cycle.toFixed(1)}h` : "open"}
                         </span>
                         <span className="text-sub">·</span>
-                        <span className="text-sub font-data">
-                          {s.linesChanged}L
-                        </span>
+                        <span className="text-sub font-data">{s.linesChanged}L</span>
                         <span className="text-sub">·</span>
-                        <span className="text-sub font-data">
-                          {s.commentCount} comments
-                        </span>
+                        <span className="text-sub font-data">{s.commentCount} comments</span>
                         <span className="text-sub">·</span>
-                        <span className="text-sub font-data">
-                          {s.reviewerCount} reviewers
-                        </span>
+                        <span className="text-sub font-data">{s.reviewerCount} reviewers</span>
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => remove(s.id)}
-                          className="ml-auto text-sub hover:text-danger"
+                          className="ml-auto text-sub hover:text-danger min-touch-coarse"
                           aria-label="Remove PR sample"
                         >
                           <Trash2 className="w-3.5 h-3.5" />

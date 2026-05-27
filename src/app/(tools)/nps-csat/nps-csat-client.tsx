@@ -17,7 +17,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, BarChart as BarIcon } from "lucide-react";
-import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from "recharts";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { zScoreAnomalies } from "@/lib/analytics/anomaly";
@@ -142,8 +150,13 @@ export function NpsCsatClient() {
       { date: string; npsSum: number; npsCount: number; csatSum: number; csatCount: number }
     >();
     for (const e of entries) {
-      const cur =
-        sums.get(e.date) ?? { date: e.date, npsSum: 0, npsCount: 0, csatSum: 0, csatCount: 0 };
+      const cur = sums.get(e.date) ?? {
+        date: e.date,
+        npsSum: 0,
+        npsCount: 0,
+        csatSum: 0,
+        csatCount: 0,
+      };
       if (e.kind === "nps") {
         cur.npsSum += e.score;
         cur.npsCount += 1;
@@ -238,7 +251,13 @@ export function NpsCsatClient() {
           filename="nps-csat"
           csvData={{
             headers: ["Date", "Kind", "Score", "Respondent", "Verbatim"],
-            rows: entries.map((e) => [e.date, e.kind, e.score, e.respondent ?? "", e.verbatim ?? ""]),
+            rows: entries.map((e) => [
+              e.date,
+              e.kind,
+              e.score,
+              e.respondent ?? "",
+              e.verbatim ?? "",
+            ]),
           }}
           jsonData={entries}
           // Only expose PNG export when the chart is actually rendered. The
@@ -281,8 +300,11 @@ export function NpsCsatClient() {
             <Plus className="w-4 h-4" />
             Add response
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-[120px_140px_120px_1fr_auto] gap-2">
-            <Select value={draft.kind} onValueChange={(v) => setDraft((d) => ({ ...d, kind: v as Kind }))}>
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(100px,1fr)_minmax(120px,1fr)_minmax(100px,1fr)_2fr_auto] gap-2">
+            <Select
+              value={draft.kind}
+              onValueChange={(v) => setDraft((d) => ({ ...d, kind: v as Kind }))}
+            >
               <SelectTrigger className="bg-bg border-border">
                 <SelectValue />
               </SelectTrigger>
@@ -364,14 +386,19 @@ export function NpsCsatClient() {
                 </span>
               )}
             </div>
-            <ResponsiveContainer width="100%" height={280}>
+            <ResponsiveContainer width="100%" height={240}>
               <LineChart data={trendData}>
                 <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
                 <XAxis dataKey="date" stroke={chartTheme.axisColor} />
                 <YAxis stroke={chartTheme.axisColor} />
                 <Tooltip contentStyle={chartTheme.tooltipStyle} />
                 <Line type="monotone" dataKey="nps" stroke={chartTheme.colors.cyan} name="NPS" />
-                <Line type="monotone" dataKey="csat" stroke={chartTheme.colors.purple} name="CSAT" />
+                <Line
+                  type="monotone"
+                  dataKey="csat"
+                  stroke={chartTheme.colors.purple}
+                  name="CSAT"
+                />
                 {npsChangepoints.map((cp, i) => (
                   <CausalLine key={`nps-cusum-${i}`} annotation={cp} />
                 ))}
@@ -402,15 +429,22 @@ export function NpsCsatClient() {
                     npsCategory(e.score) === "promoter"
                       ? "text-green-400"
                       : npsCategory(e.score) === "passive"
-                      ? "text-amber-300"
-                      : "text-danger"
+                        ? "text-amber-300"
+                        : "text-danger"
                   }`}
                 >
                   {npsCategory(e.score)}
                 </span>
               )}
-              <span className="text-sm text-text/80 flex-1 truncate">{e.verbatim || e.respondent || "—"}</span>
-              <Button variant="ghost" size="sm" onClick={() => remove(e.id)} className="text-sub hover:text-danger">
+              <span className="text-sm text-text/80 flex-1 truncate">
+                {e.verbatim || e.respondent || "—"}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => remove(e.id)}
+                className="text-sub hover:text-danger"
+              >
                 <Trash2 className="w-3.5 h-3.5" />
               </Button>
             </div>

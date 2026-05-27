@@ -53,7 +53,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-bg border-border">
+      <DialogContent className="max-w-4xl max-h-[90dvh] overflow-y-auto bg-bg border-border">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-text">
             <Trophy className="w-5 h-5 text-accent" />

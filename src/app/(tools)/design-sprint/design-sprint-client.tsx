@@ -579,7 +579,7 @@ export function DesignSprintClient() {
       </Card>
 
       {/* Day timeline */}
-      <div className="flex items-center gap-1.5 mb-6 overflow-x-auto pb-2">
+      <div className="scroll-x-snap items-center mb-6 pb-2">
         {state.sprint.days.map((d) => {
           const isCurrent = state.sprint!.currentDay === d.day;
           const taskPct =
@@ -591,7 +591,7 @@ export function DesignSprintClient() {
               key={d.day}
               type="button"
               onClick={() => setCurrentDay(d.day)}
-              className={`flex-1 min-w-[100px] rounded-lg border p-2 transition text-left ${
+              className={`min-w-[120px] md:flex-1 rounded-lg border p-2 transition text-left ${
                 isCurrent
                   ? "border-accent/60 bg-accent/10"
                   : "border-border bg-surface hover:border-accent/30"

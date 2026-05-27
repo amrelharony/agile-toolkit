@@ -10,13 +10,7 @@ import { KpiGrid } from "@/components/shared/kpi-grid";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Star,
-  Clock,
-  Users,
-  Heart,
-  Sparkles,
-} from "lucide-react";
+import { Star, Clock, Users, Heart, Sparkles } from "lucide-react";
 import { generateLiberatingStructuresPrompts } from "@/lib/ai-prompts/liberating-structures";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -242,7 +236,7 @@ export function LiberatingStructuresClient() {
       new Set(
         state.favorites
           .map((f) => f?.structureId)
-          .filter((id): id is string => typeof id === "string"),
+          .filter((id): id is string => typeof id === "string")
       ),
     [state.favorites]
   );
@@ -252,10 +246,7 @@ export function LiberatingStructuresClient() {
     setState((s) => ({
       favorites: isFav
         ? s.favorites.filter((f) => f.structureId !== structureId)
-        : [
-            ...s.favorites,
-            { id: newId(), structureId, ts: new Date().toISOString() },
-          ],
+        : [...s.favorites, { id: newId(), structureId, ts: new Date().toISOString() }],
     }));
     log(LIBERATING_STRUCTURES_ACTIONS.STRUCTURE_FAVORITED, {
       structureId,
@@ -276,8 +267,7 @@ export function LiberatingStructuresClient() {
   const filtered = useMemo(() => {
     return CATALOG.filter((s) => {
       if (groupFilter !== "all" && s.groupSize !== groupFilter) return false;
-      if (timingFilter !== "all" && bucketFor(s.timingMinutes) !== timingFilter)
-        return false;
+      if (timingFilter !== "all" && bucketFor(s.timingMinutes) !== timingFilter) return false;
       return true;
     });
   }, [groupFilter, timingFilter]);
@@ -343,14 +333,7 @@ export function LiberatingStructuresClient() {
         <ExportButton
           filename="liberating-structures-favorites"
           csvData={{
-            headers: [
-              "Name",
-              "Purpose",
-              "Timing",
-              "Group Size",
-              "Source",
-              "Description",
-            ],
+            headers: ["Name", "Purpose", "Timing", "Group Size", "Source", "Description"],
             rows: favoriteEntries.map((s) => [
               s.name,
               s.purpose,
@@ -373,18 +356,8 @@ export function LiberatingStructuresClient() {
           hint="structures"
           valueClassName="text-accent"
         />
-        <StatCard
-          variant="compact"
-          icon={Heart}
-          label="Favorites"
-          value={state.favorites.length}
-        />
-        <StatCard
-          variant="compact"
-          label="Showing"
-          value={filtered.length}
-          hint="match filters"
-        />
+        <StatCard variant="compact" icon={Heart} label="Favorites" value={state.favorites.length} />
+        <StatCard variant="compact" label="Showing" value={filtered.length} hint="match filters" />
       </KpiGrid>
 
       {/* Filters */}
@@ -478,9 +451,7 @@ export function LiberatingStructuresClient() {
               >
                 <CardContent className="p-4 space-y-2">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="text-sm font-semibold text-text">
-                      {s.name}
-                    </div>
+                    <div className="text-sm font-semibold text-text">{s.name}</div>
                     <button
                       type="button"
                       onClick={(e) => {
@@ -488,45 +459,31 @@ export function LiberatingStructuresClient() {
                         toggleFavorite(s.id);
                       }}
                       aria-label={isFav ? "Remove favorite" : "Add favorite"}
-                      className="shrink-0 p-1 -m-1"
+                      className="shrink-0 p-1 -m-1 min-touch-coarse inline-flex items-center justify-center"
                     >
                       <Heart
                         className={`w-4 h-4 transition ${
-                          isFav
-                            ? "fill-accent text-accent"
-                            : "text-sub hover:text-accent"
+                          isFav ? "fill-accent text-accent" : "text-sub hover:text-accent"
                         }`}
                       />
                     </button>
                   </div>
-                  <div className="text-xs text-sub line-clamp-2">
-                    {s.purpose}
-                  </div>
+                  <div className="text-xs text-sub line-clamp-2">{s.purpose}</div>
                   <div className="flex flex-wrap gap-1.5 pt-1">
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] bg-bg border-border text-sub"
-                    >
+                    <Badge variant="outline" className="text-[10px] bg-bg border-border text-sub">
                       <Clock className="w-3 h-3 mr-0.5" />
                       {s.timing}
                     </Badge>
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] bg-bg border-border text-sub"
-                    >
+                    <Badge variant="outline" className="text-[10px] bg-bg border-border text-sub">
                       <Users className="w-3 h-3 mr-0.5" />
                       {s.groupSize}
                     </Badge>
                   </div>
                   {isExpanded && (
                     <div className="pt-2 border-t border-border space-y-2">
-                      <p className="text-xs text-text leading-relaxed">
-                        {s.description}
-                      </p>
+                      <p className="text-xs text-text leading-relaxed">{s.description}</p>
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-sub">
-                          Source: {s.source}
-                        </span>
+                        <span className="text-[11px] text-sub">Source: {s.source}</span>
                         <Button
                           type="button"
                           size="sm"
@@ -538,9 +495,7 @@ export function LiberatingStructuresClient() {
                           className="gap-1.5 text-xs"
                         >
                           <Heart
-                            className={`w-3.5 h-3.5 ${
-                              isFav ? "fill-accent text-accent" : ""
-                            }`}
+                            className={`w-3.5 h-3.5 ${isFav ? "fill-accent text-accent" : ""}`}
                           />
                           {isFav ? "Saved" : "Save"}
                         </Button>

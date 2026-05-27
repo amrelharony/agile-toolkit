@@ -27,8 +27,8 @@ export function AppearanceClient() {
   return (
     <div className="space-y-6">
       <section className="rounded-lg border border-border bg-card p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-1">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1 min-w-0 flex-1">
             <label
               htmlFor="holiday-enabled"
               className="flex items-center gap-2 text-text font-medium"
@@ -48,13 +48,14 @@ export function AppearanceClient() {
             onCheckedChange={setEnabled}
             disabled={!hydrated}
             aria-label="Toggle holiday themes"
+            className="min-touch-coarse shrink-0"
           />
         </div>
       </section>
 
       <section className="rounded-lg border border-border bg-card p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-1">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1 min-w-0 flex-1">
             <h2 className="text-text font-medium">Dismissed themes</h2>
             <p className="text-sub text-sm max-w-xl">
               {dismissedCount === 0

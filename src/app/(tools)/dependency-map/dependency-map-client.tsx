@@ -458,9 +458,10 @@ export function DependencyMapClient() {
                   {n.team && <span className="text-xs text-sub font-mono mt-0.5">{n.team}</span>}
                   <Button
                     variant="ghost"
-                    size="sm"
+                    size="icon"
                     onClick={() => removeNode(n.id)}
-                    className="text-sub hover:text-danger"
+                    className="text-sub hover:text-danger flex-shrink-0"
+                    aria-label={`Remove node ${n.label}`}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
@@ -479,14 +480,15 @@ export function DependencyMapClient() {
                 key={e.id}
                 className="flex items-center gap-2 rounded-lg border border-border bg-surface p-2 text-xs"
               >
-                <span className="truncate text-text">{nodeLabel(e.from)}</span>
-                <span className="text-accent uppercase">{e.kind}</span>
-                <span className="truncate text-text flex-1">{nodeLabel(e.to)}</span>
+                <span className="truncate text-text min-w-0">{nodeLabel(e.from)}</span>
+                <span className="text-accent uppercase flex-shrink-0">{e.kind}</span>
+                <span className="truncate text-text flex-1 min-w-0">{nodeLabel(e.to)}</span>
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   onClick={() => removeEdge(e.id)}
-                  className="text-sub hover:text-danger"
+                  className="text-sub hover:text-danger flex-shrink-0"
+                  aria-label="Remove dependency"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>

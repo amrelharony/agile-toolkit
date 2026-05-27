@@ -537,7 +537,7 @@ export function SkillsMatrixClient() {
               </span>
             </div>
           )}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2 flex-wrap">
             <AiPromptGenerator config={promptConfig} />
             <ExportButton
               filename="team-skills-matrix"

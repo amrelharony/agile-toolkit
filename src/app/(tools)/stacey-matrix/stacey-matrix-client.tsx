@@ -250,7 +250,7 @@ export function StaceyMatrixClient() {
         {list.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {(["simple", "complicated", "complex", "chaotic"] as const).map((r) => (
-              <div key={r} className="border border-border rounded p-3 bg-surface-deep">
+              <div key={r} className="border border-border rounded p-3 bg-surface-deep min-w-0">
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-bold uppercase" style={{ color: COLORS[r] }}>
                     {r}
@@ -259,9 +259,9 @@ export function StaceyMatrixClient() {
                 </div>
                 <ul className="space-y-1 text-sm">
                   {grouped[r].map((it) => (
-                    <li key={it.id} className="flex items-center justify-between">
-                      <span className="text-text truncate flex-1">{it.title}</span>
-                      <span className="text-xs text-sub mx-2 font-mono">
+                    <li key={it.id} className="flex items-center justify-between min-w-0">
+                      <span className="text-text truncate flex-1 min-w-0">{it.title}</span>
+                      <span className="text-xs text-sub mx-2 font-mono shrink-0">
                         a{it.agreement.toFixed(2)} c{it.certainty.toFixed(2)}
                       </span>
                       <button
@@ -270,7 +270,7 @@ export function StaceyMatrixClient() {
                           log(STACEY_ACTIONS.ITEM_REMOVED, { id: it.id });
                         }}
                         aria-label="Remove item"
-                        className="text-sub hover:text-red-400"
+                        className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

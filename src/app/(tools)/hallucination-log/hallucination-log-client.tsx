@@ -456,7 +456,7 @@ export function HallucinationLogClient() {
                         {!x.resolvedAt && (
                           <button
                             onClick={() => resolve(x.id)}
-                            className="text-emerald-400 hover:text-emerald-300"
+                            className="text-emerald-400 hover:text-emerald-300 min-touch-coarse inline-flex items-center justify-center"
                             aria-label="Mark resolved"
                           >
                             <CheckCircle2 className="w-4 h-4" />
@@ -464,7 +464,7 @@ export function HallucinationLogClient() {
                         )}
                         <button
                           onClick={() => remove(x.id)}
-                          className="text-sub hover:text-red-400"
+                          className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
                           aria-label="Remove"
                         >
                           <Trash2 className="w-4 h-4" />

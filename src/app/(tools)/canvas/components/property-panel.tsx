@@ -28,9 +28,16 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Bold, AlignLeft, AlignCenter, AlignRight,
-  Minus, MoveRight, MoveLeft, ArrowRightCircle,
-  Tag, X,
+  Bold,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Minus,
+  MoveRight,
+  MoveLeft,
+  ArrowRightCircle,
+  Tag,
+  X,
 } from "lucide-react";
 import type { Camera, Rect } from "@/lib/geometry/bbox";
 import type {
@@ -67,9 +74,15 @@ interface PropertyPanelProps {
 const STICKY_COLORS = ["#fde68a", "#fca5a5", "#bef264", "#a5f3fc", "#fbcfe8", "#c4b5fd"];
 /** Stroke + fill palette for shapes / text / freehand. */
 const PAINT_COLORS = [
-  "#e5e7eb", "#94a3b8", "#0b0f17",
-  "#00f0ff", "#a78bfa", "#34d399",
-  "#f59e0b", "#f87171", "#60a5fa",
+  "#e5e7eb",
+  "#94a3b8",
+  "#0b0f17",
+  "#00f0ff",
+  "#a78bfa",
+  "#34d399",
+  "#f59e0b",
+  "#f87171",
+  "#60a5fa",
 ];
 /** Sans-first font picker — three options is enough to avoid a
  * dropdown library while still giving users an escape hatch from the
@@ -83,7 +96,11 @@ const FONT_SIZES = [10, 12, 14, 16, 20, 28, 40];
 const STROKE_WIDTHS = [1, 2, 4, 6];
 
 /** Project a world rect to the screen-anchor point for the panel. */
-function anchorScreenY(bbox: Rect, camera: Camera, viewportHeight: number): { top: number; below: boolean } {
+function anchorScreenY(
+  bbox: Rect,
+  camera: Camera,
+  viewportHeight: number
+): { top: number; below: boolean } {
   const top = (bbox.y - camera.y) * camera.zoom;
   // 56 px = panel height + margin. If above-the-bbox doesn't fit,
   // render below instead.
@@ -95,11 +112,19 @@ function anchorScreenY(bbox: Rect, camera: Camera, viewportHeight: number): { to
   return { top: 8, below: false };
 }
 
-function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, onPatch, onOpenCardDetail }: PropertyPanelProps) {
+function PropertyPanelImpl({
+  selection,
+  selectionBbox,
+  camera,
+  viewportHeight,
+  onPatch,
+  onOpenCardDetail,
+}: PropertyPanelProps) {
   if (selection.length === 0) return null;
 
   // Project to screen position.
-  const screenLeft = (selectionBbox.x - camera.x) * camera.zoom + (selectionBbox.w * camera.zoom) / 2;
+  const screenLeft =
+    (selectionBbox.x - camera.x) * camera.zoom + (selectionBbox.w * camera.zoom) / 2;
   const { top: screenTop } = anchorScreenY(selectionBbox, camera, viewportHeight);
 
   // Compute which control sets to show based on type uniformity.
@@ -107,10 +132,14 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
   const allOfType = (t: WhiteboardObject["type"]) => types.size === 1 && types.has(t);
 
   const stickies = selection.filter((o): o is WhiteboardSticky => o.type === "sticky");
-  const shapes = selection.filter((o): o is WhiteboardShape =>
-    o.type === "rect" || o.type === "ellipse" || o.type === "diamond" || o.type === "triangle");
+  const shapes = selection.filter(
+    (o): o is WhiteboardShape =>
+      o.type === "rect" || o.type === "ellipse" || o.type === "diamond" || o.type === "triangle"
+  );
   const texts = selection.filter((o): o is WhiteboardText => o.type === "text");
-  const lines = selection.filter((o): o is WhiteboardLine => o.type === "line" || o.type === "arrow");
+  const lines = selection.filter(
+    (o): o is WhiteboardLine => o.type === "line" || o.type === "arrow"
+  );
   const connectors = selection.filter((o): o is WhiteboardConnector => o.type === "connector");
   const freehands = selection.filter((o): o is WhiteboardFreehand => o.type === "freehand");
   const frames = selection.filter((o): o is WhiteboardFrame => o.type === "frame");
@@ -121,10 +150,7 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
   const kanbans = selection.filter((o): o is WhiteboardKanbanFrame => o.type === "kanban");
 
   /** Apply the same patch to every object in `targets`. */
-  const patchAll = <T extends WhiteboardObject>(
-    targets: readonly T[],
-    patch: Partial<T>,
-  ) => {
+  const patchAll = <T extends WhiteboardObject>(targets: readonly T[], patch: Partial<T>) => {
     if (targets.length === 0) return;
     onPatch(targets.map((o) => ({ id: o.id, patch: patch as Partial<WhiteboardObject> })));
   };
@@ -177,7 +203,11 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
           <PaletteRow
             label="Fill"
             colors={[...PAINT_COLORS, "transparent"]}
-            onPick={(c) => patchAll(shapes, { fill: c === "transparent" ? undefined : c } as Partial<WhiteboardShape>)}
+            onPick={(c) =>
+              patchAll(shapes, {
+                fill: c === "transparent" ? undefined : c,
+              } as Partial<WhiteboardShape>)
+            }
           />
           <PaletteRow
             label="Stroke"
@@ -194,8 +224,10 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
           colors={PAINT_COLORS}
           onPick={(c) => {
             if (lines.length > 0) patchAll(lines, { stroke: c } as Partial<WhiteboardLine>);
-            if (connectors.length > 0) patchAll(connectors, { stroke: c } as Partial<WhiteboardConnector>);
-            if (freehands.length > 0) patchAll(freehands, { stroke: c } as Partial<WhiteboardFreehand>);
+            if (connectors.length > 0)
+              patchAll(connectors, { stroke: c } as Partial<WhiteboardConnector>);
+            if (freehands.length > 0)
+              patchAll(freehands, { stroke: c } as Partial<WhiteboardFreehand>);
           }}
         />
       )}
@@ -205,9 +237,11 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
       {(shapes.length > 0 || lines.length > 0 || connectors.length > 0 || freehands.length > 0) && (
         <div className="flex items-center gap-0.5 shrink-0" aria-label="Stroke width">
           {STROKE_WIDTHS.map((w) => {
-            const activeShape = shapes.length > 0 && shapes.every((o) => (o.strokeWidth ?? 1.5) === w);
+            const activeShape =
+              shapes.length > 0 && shapes.every((o) => (o.strokeWidth ?? 1.5) === w);
             const activeLine = lines.length > 0 && lines.every((o) => o.strokeWidth === w);
-            const activeConn = connectors.length > 0 && connectors.every((o) => o.strokeWidth === w);
+            const activeConn =
+              connectors.length > 0 && connectors.every((o) => o.strokeWidth === w);
             const activeFree = freehands.length > 0 && freehands.every((o) => o.strokeWidth === w);
             const active = activeShape || activeLine || activeConn || activeFree;
             return (
@@ -218,10 +252,14 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
                 aria-pressed={active}
                 title={`${w}px`}
                 onClick={() => {
-                  if (shapes.length > 0) patchAll(shapes, { strokeWidth: w } as Partial<WhiteboardShape>);
-                  if (lines.length > 0) patchAll(lines, { strokeWidth: w } as Partial<WhiteboardLine>);
-                  if (connectors.length > 0) patchAll(connectors, { strokeWidth: w } as Partial<WhiteboardConnector>);
-                  if (freehands.length > 0) patchAll(freehands, { strokeWidth: w } as Partial<WhiteboardFreehand>);
+                  if (shapes.length > 0)
+                    patchAll(shapes, { strokeWidth: w } as Partial<WhiteboardShape>);
+                  if (lines.length > 0)
+                    patchAll(lines, { strokeWidth: w } as Partial<WhiteboardLine>);
+                  if (connectors.length > 0)
+                    patchAll(connectors, { strokeWidth: w } as Partial<WhiteboardConnector>);
+                  if (freehands.length > 0)
+                    patchAll(freehands, { strokeWidth: w } as Partial<WhiteboardFreehand>);
                 }}
                 className={`w-6 h-6 rounded flex items-center justify-center transition-colors ${
                   active
@@ -229,7 +267,9 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
                     : "text-sub hover:text-text hover:bg-surface-deep"
                 }`}
               >
-                <div style={{ width: 14, height: w, background: "currentColor", borderRadius: w / 2 }} />
+                <div
+                  style={{ width: 14, height: w, background: "currentColor", borderRadius: w / 2 }}
+                />
               </button>
             );
           })}
@@ -239,38 +279,51 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
 
       {/* ─── Dashed toggle — also gets the active pill so the user
           sees whether their current selection IS dashed. */}
-      {(lines.length > 0 || connectors.length > 0 || shapes.length > 0) && (() => {
-        const allDashed =
-          (lines.length === 0 || lines.every((o) => o.dashed)) &&
-          (connectors.length === 0 || connectors.every((o) => o.dashed)) &&
-          (shapes.length === 0 || shapes.every((o) => o.dashed)) &&
-          (lines.length + connectors.length + shapes.length > 0);
-        return (
-        <button
-          type="button"
-          aria-label="Toggle dashed stroke"
-          aria-pressed={allDashed}
-          title="Dashed"
-          onClick={() => {
-            // Per-object toggle so mixed selections preserve individual
-            // dashed state rather than being homogenised to the first
-            // object's inverse.
-            const entries: { id: string; patch: Partial<WhiteboardObject> }[] = [];
-            for (const c of lines) entries.push({ id: c.id, patch: { dashed: !c.dashed } as Partial<WhiteboardObject> });
-            for (const c of connectors) entries.push({ id: c.id, patch: { dashed: !c.dashed } as Partial<WhiteboardObject> });
-            for (const c of shapes) entries.push({ id: c.id, patch: { dashed: !c.dashed } as Partial<WhiteboardObject> });
-            onPatch(entries);
-          }}
-          className={`w-6 h-6 rounded flex items-center justify-center shrink-0 transition-colors ${
-            allDashed
-              ? "bg-accent/20 text-accent"
-              : "text-sub hover:text-text hover:bg-surface-deep"
-          }`}
-        >
-          <Minus className="w-4 h-4" style={{ strokeDasharray: "3 2" }} aria-hidden="true" />
-        </button>
-        );
-      })()}
+      {(lines.length > 0 || connectors.length > 0 || shapes.length > 0) &&
+        (() => {
+          const allDashed =
+            (lines.length === 0 || lines.every((o) => o.dashed)) &&
+            (connectors.length === 0 || connectors.every((o) => o.dashed)) &&
+            (shapes.length === 0 || shapes.every((o) => o.dashed)) &&
+            lines.length + connectors.length + shapes.length > 0;
+          return (
+            <button
+              type="button"
+              aria-label="Toggle dashed stroke"
+              aria-pressed={allDashed}
+              title="Dashed"
+              onClick={() => {
+                // Per-object toggle so mixed selections preserve individual
+                // dashed state rather than being homogenised to the first
+                // object's inverse.
+                const entries: { id: string; patch: Partial<WhiteboardObject> }[] = [];
+                for (const c of lines)
+                  entries.push({
+                    id: c.id,
+                    patch: { dashed: !c.dashed } as Partial<WhiteboardObject>,
+                  });
+                for (const c of connectors)
+                  entries.push({
+                    id: c.id,
+                    patch: { dashed: !c.dashed } as Partial<WhiteboardObject>,
+                  });
+                for (const c of shapes)
+                  entries.push({
+                    id: c.id,
+                    patch: { dashed: !c.dashed } as Partial<WhiteboardObject>,
+                  });
+                onPatch(entries);
+              }}
+              className={`w-6 h-6 rounded flex items-center justify-center shrink-0 transition-colors ${
+                allDashed
+                  ? "bg-accent/20 text-accent"
+                  : "text-sub hover:text-text hover:bg-surface-deep"
+              }`}
+            >
+              <Minus className="w-4 h-4" style={{ strokeDasharray: "3 2" }} aria-hidden="true" />
+            </button>
+          );
+        })()}
 
       {/* ─── Connector routing + arrowheads ─────────────────── */}
       {connectors.length > 0 && (
@@ -298,10 +351,12 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
               // independently. Previous behaviour was to read the
               // first connector's value and apply its inverse to all
               // (homogenising the selection unexpectedly).
-              onPatch(connectors.map((c) => ({
-                id: c.id,
-                patch: { arrowStart: !c.arrowStart } as Partial<WhiteboardObject>,
-              })));
+              onPatch(
+                connectors.map((c) => ({
+                  id: c.id,
+                  patch: { arrowStart: !c.arrowStart } as Partial<WhiteboardObject>,
+                }))
+              );
             }}
             className="w-6 h-6 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep"
           >
@@ -312,10 +367,12 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
             aria-label="Toggle arrow end"
             title="Arrow end"
             onClick={() => {
-              onPatch(connectors.map((c) => ({
-                id: c.id,
-                patch: { arrowEnd: !c.arrowEnd } as Partial<WhiteboardObject>,
-              })));
+              onPatch(
+                connectors.map((c) => ({
+                  id: c.id,
+                  patch: { arrowEnd: !c.arrowEnd } as Partial<WhiteboardObject>,
+                }))
+              );
             }}
             className="w-6 h-6 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep"
           >
@@ -348,7 +405,8 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
       {(stickies.length > 0 || texts.length > 0) && (
         <div className="flex items-center gap-0.5 shrink-0" aria-label="Font size">
           {FONT_SIZES.map((s) => {
-            const activeSticky = stickies.length > 0 && stickies.every((o) => (o.fontSize ?? 16) === s);
+            const activeSticky =
+              stickies.length > 0 && stickies.every((o) => (o.fontSize ?? 16) === s);
             const activeText = texts.length > 0 && texts.every((o) => o.fontSize === s);
             const active = activeSticky || activeText;
             return (
@@ -359,7 +417,8 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
                 aria-pressed={active}
                 title={`${s}px`}
                 onClick={() => {
-                  if (stickies.length > 0) patchAll(stickies, { fontSize: s } as Partial<WhiteboardSticky>);
+                  if (stickies.length > 0)
+                    patchAll(stickies, { fontSize: s } as Partial<WhiteboardSticky>);
                   if (texts.length > 0) patchAll(texts, { fontSize: s } as Partial<WhiteboardText>);
                 }}
                 className={`min-w-[22px] h-6 px-1 rounded text-[10px] font-mono transition-colors ${
@@ -380,8 +439,10 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
       {(stickies.length > 0 || texts.length > 0) && (
         <div className="flex items-center gap-0.5 shrink-0" aria-label="Font family">
           {FONT_FAMILIES.map((f) => {
-            const activeSticky = stickies.length > 0 && stickies.every((o) => (o.fontFamily ?? undefined) === f.value);
-            const activeText = texts.length > 0 && texts.every((o) => (o.fontFamily ?? undefined) === f.value);
+            const activeSticky =
+              stickies.length > 0 && stickies.every((o) => (o.fontFamily ?? undefined) === f.value);
+            const activeText =
+              texts.length > 0 && texts.every((o) => (o.fontFamily ?? undefined) === f.value);
             const active = activeSticky || activeText;
             return (
               <button
@@ -391,8 +452,10 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
                 aria-pressed={active}
                 title={f.label}
                 onClick={() => {
-                  if (stickies.length > 0) patchAll(stickies, { fontFamily: f.value } as Partial<WhiteboardSticky>);
-                  if (texts.length > 0) patchAll(texts, { fontFamily: f.value } as Partial<WhiteboardText>);
+                  if (stickies.length > 0)
+                    patchAll(stickies, { fontFamily: f.value } as Partial<WhiteboardSticky>);
+                  if (texts.length > 0)
+                    patchAll(texts, { fontFamily: f.value } as Partial<WhiteboardText>);
                 }}
                 className={`h-6 px-1.5 rounded text-[10px] transition-colors ${
                   active
@@ -419,10 +482,14 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
             onClick={() => {
               // Per-text toggle so mixed bold/regular selections flip
               // each independently rather than homogenising.
-              onPatch(texts.map((t) => ({
-                id: t.id,
-                patch: { fontWeight: (t.fontWeight ?? 400) >= 600 ? 400 : 700 } as Partial<WhiteboardObject>,
-              })));
+              onPatch(
+                texts.map((t) => ({
+                  id: t.id,
+                  patch: {
+                    fontWeight: (t.fontWeight ?? 400) >= 600 ? 400 : 700,
+                  } as Partial<WhiteboardObject>,
+                }))
+              );
             }}
             className="w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
@@ -463,7 +530,11 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
         <PaletteRow
           label="Background"
           colors={[...PAINT_COLORS, "transparent"]}
-          onPick={(c) => patchAll(frames, { fill: c === "transparent" ? undefined : `${c}33` } as Partial<WhiteboardFrame>)}
+          onPick={(c) =>
+            patchAll(frames, {
+              fill: c === "transparent" ? undefined : `${c}33`,
+            } as Partial<WhiteboardFrame>)
+          }
         />
       )}
 
@@ -495,12 +566,14 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
               type="button"
               aria-label={`Set ${sec} seconds`}
               title={`${Math.round(sec / 60)} min`}
-              onClick={() => patchAll(timers, {
-                durationSec: sec,
-                remainingSec: sec,
-                running: false,
-                startedAt: undefined,
-              } as Partial<WhiteboardTimer>)}
+              onClick={() =>
+                patchAll(timers, {
+                  durationSec: sec,
+                  remainingSec: sec,
+                  running: false,
+                  startedAt: undefined,
+                } as Partial<WhiteboardTimer>)
+              }
               className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
             >
               {Math.round(sec / 60)}m
@@ -517,11 +590,13 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
             type="button"
             aria-label="Fibonacci scale"
             title="Fibonacci: 1, 2, 3, 5, 8, 13, ?, ☕"
-            onClick={() => patchAll(votings, {
-              options: ["1", "2", "3", "5", "8", "13", "?", "☕"],
-              votes: {},
-              revealed: false,
-            } as Partial<WhiteboardVoting>)}
+            onClick={() =>
+              patchAll(votings, {
+                options: ["1", "2", "3", "5", "8", "13", "?", "☕"],
+                votes: {},
+                revealed: false,
+              } as Partial<WhiteboardVoting>)
+            }
             className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             Fib
@@ -530,11 +605,13 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
             type="button"
             aria-label="T-shirt sizes"
             title="T-shirt: XS, S, M, L, XL"
-            onClick={() => patchAll(votings, {
-              options: ["XS", "S", "M", "L", "XL"],
-              votes: {},
-              revealed: false,
-            } as Partial<WhiteboardVoting>)}
+            onClick={() =>
+              patchAll(votings, {
+                options: ["XS", "S", "M", "L", "XL"],
+                votes: {},
+                revealed: false,
+              } as Partial<WhiteboardVoting>)
+            }
             className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             T-shirt
@@ -543,11 +620,13 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
             type="button"
             aria-label="Dot vote"
             title="Dot vote: +1, +2, +3"
-            onClick={() => patchAll(votings, {
-              options: ["+1", "+2", "+3"],
-              votes: {},
-              revealed: false,
-            } as Partial<WhiteboardVoting>)}
+            onClick={() =>
+              patchAll(votings, {
+                options: ["+1", "+2", "+3"],
+                votes: {},
+                revealed: false,
+              } as Partial<WhiteboardVoting>)
+            }
             className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             Dots
@@ -563,10 +642,12 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
             type="button"
             aria-label="3 columns"
             title="To do / In progress / Done"
-            onClick={() => patchAll(kanbans, {
-              columns: ["todo", "in_progress", "done"],
-              columnLabels: ["To do", "In progress", "Done"],
-            } as Partial<WhiteboardKanbanFrame>)}
+            onClick={() =>
+              patchAll(kanbans, {
+                columns: ["todo", "in_progress", "done"],
+                columnLabels: ["To do", "In progress", "Done"],
+              } as Partial<WhiteboardKanbanFrame>)
+            }
             className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             3
@@ -575,10 +656,12 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
             type="button"
             aria-label="4 columns"
             title="Backlog / To do / In progress / Done"
-            onClick={() => patchAll(kanbans, {
-              columns: ["backlog", "todo", "in_progress", "done"],
-              columnLabels: ["Backlog", "To do", "In progress", "Done"],
-            } as Partial<WhiteboardKanbanFrame>)}
+            onClick={() =>
+              patchAll(kanbans, {
+                columns: ["backlog", "todo", "in_progress", "done"],
+                columnLabels: ["Backlog", "To do", "In progress", "Done"],
+              } as Partial<WhiteboardKanbanFrame>)
+            }
             className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             4
@@ -587,10 +670,12 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
             type="button"
             aria-label="5 columns"
             title="Backlog / To do / In progress / Review / Done"
-            onClick={() => patchAll(kanbans, {
-              columns: ["backlog", "todo", "in_progress", "review", "done"],
-              columnLabels: ["Backlog", "To do", "In progress", "Review", "Done"],
-            } as Partial<WhiteboardKanbanFrame>)}
+            onClick={() =>
+              patchAll(kanbans, {
+                columns: ["backlog", "todo", "in_progress", "review", "done"],
+                columnLabels: ["Backlog", "To do", "In progress", "Review", "Done"],
+              } as Partial<WhiteboardKanbanFrame>)
+            }
             className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             5
@@ -614,10 +699,7 @@ function PropertyPanelImpl({ selection, selectionBbox, camera, viewportHeight, o
        * The same tag namespace is shared with Story.tags / Risk.tags
        * so a sticky tagged "blocker" surfaces in the same filter. */}
       {selection.length > 0 && !types.has("embed") && (
-        <TagsEditor
-          selection={selection}
-          onPatch={onPatch}
-        />
+        <TagsEditor selection={selection} onPatch={onPatch} />
       )}
     </div>
   );
@@ -683,7 +765,11 @@ function TagsEditor({
     // can't bypass dedupe by pasting "blocker​" as a "new" tag. Covers
     // ZWSP, ZWNJ, ZWJ, Word Joiner (U+2060), ZWNBSP/BOM, soft hyphen,
     // and emoji Variation Selector-16 (U+FE0F).
-    const t = raw.trim().toLowerCase().replace(/[​-‍⁠﻿­️]/g, "").slice(0, 24);
+    const t = raw
+      .trim()
+      .toLowerCase()
+      .replace(/[​-‍⁠﻿­️]/g, "")
+      .slice(0, 24);
     if (!t) return;
     const updates: { id: string; patch: Partial<WhiteboardObject> }[] = [];
     let anyAtCap = false;
@@ -735,13 +821,11 @@ function TagsEditor({
         }`}
       >
         <Tag className="w-3.5 h-3.5" aria-hidden="true" />
-        {tags.length > 0 && (
-          <span className="text-[9px] font-mono ml-0.5">{tags.length}</span>
-        )}
+        {tags.length > 0 && <span className="text-[9px] font-mono ml-0.5">{tags.length}</span>}
       </button>
       {open && (
         <div
-          className="absolute top-full right-0 mt-1 bg-surface border border-border rounded-lg shadow-lg p-2 min-w-[200px] max-w-[280px] z-[9998]"
+          className="absolute top-full right-0 mt-1 bg-surface border border-border rounded-lg shadow-lg p-2 w-[min(17.5rem,calc(100vw-1.5rem))] z-[9998]"
           onClick={(e) => e.stopPropagation()}
         >
           {tags.length > 0 ? (
@@ -798,10 +882,7 @@ function TagsEditor({
               Add
             </button>
             {capWarning && (
-              <span
-                role="status"
-                className="text-[9px] font-mono text-amber-400 ml-1"
-              >
+              <span role="status" className="text-[9px] font-mono text-amber-400 ml-1">
                 ⚠ Some objects at 8-tag limit
               </span>
             )}
@@ -819,7 +900,15 @@ function TagsEditor({
  * themselves with tooltip-aware swatches. The aria-label on the wrapper
  * still announces the role for screen readers, and each swatch's
  * title/aria carries the colour value. */
-function PaletteRow({ label, colors, onPick }: { label: string; colors: readonly string[]; onPick: (c: string) => void }) {
+function PaletteRow({
+  label,
+  colors,
+  onPick,
+}: {
+  label: string;
+  colors: readonly string[];
+  onPick: (c: string) => void;
+}) {
   return (
     <div className="flex items-center gap-0.5" aria-label={label} title={label}>
       {colors.map((c) => (
@@ -831,9 +920,10 @@ function PaletteRow({ label, colors, onPick }: { label: string; colors: readonly
           onClick={() => onPick(c)}
           className="w-3.5 h-3.5 rounded-full border border-black/20 hover:ring-2 hover:ring-accent/50 transition-shadow"
           style={{
-            background: c === "transparent"
-              ? "repeating-conic-gradient(#374151 0% 25%, transparent 0% 50%) 50% / 6px 6px"
-              : c,
+            background:
+              c === "transparent"
+                ? "repeating-conic-gradient(#374151 0% 25%, transparent 0% 50%) 50% / 6px 6px"
+                : c,
           }}
         />
       ))}

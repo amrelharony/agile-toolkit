@@ -84,9 +84,9 @@ export function KudosThreadReply({ parent, fromName, fromProfileId, onSend, onSe
   return (
     <form
       onSubmit={handleSend}
-      className="ml-6 mt-2 flex items-start gap-2 rounded-md border border-border/40 bg-surface-deep/60 p-3"
+      className="ml-3 sm:ml-6 mt-2 flex flex-col sm:flex-row sm:items-start gap-2 rounded-md border border-border/40 bg-surface-deep/60 p-3"
     >
-      <div className="flex flex-1 flex-col gap-1.5">
+      <div className="flex flex-1 min-w-0 flex-col gap-1.5">
         <Input
           aria-label={`Reply to kudos for ${parent.toName}`}
           value={message}
@@ -115,7 +115,7 @@ export function KudosThreadReply({ parent, fromName, fromProfileId, onSend, onSe
         type="submit"
         size="sm"
         disabled={!canSubmit}
-        className="bg-accent text-[#0a0e1a] hover:bg-accent/80 gap-1.5 self-start"
+        className="bg-accent text-[#0a0e1a] hover:bg-accent/80 gap-1.5 self-stretch sm:self-start"
       >
         {submitting ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
