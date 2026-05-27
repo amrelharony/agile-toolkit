@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { getAuthBrowserClient } from "@/lib/auth/supabase-browser";
-import { LogIn } from "lucide-react";
+import { LogIn, Users } from "lucide-react";
 
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
@@ -37,7 +38,7 @@ export function SignInCard() {
 
   const next = safeNext(params.get("next"));
   const errCode = params.get("auth_error");
-  const initialError = errCode ? ERROR_MESSAGES[errCode] ?? "Sign-in failed." : null;
+  const initialError = errCode ? (ERROR_MESSAGES[errCode] ?? "Sign-in failed.") : null;
   const displayError = error ?? initialError;
 
   const handleSignIn = async () => {
@@ -82,6 +83,33 @@ export function SignInCard() {
           {displayError}
         </p>
       )}
+
+      {/* Guest-join path. Distinct from the owner sign-in above —
+          squad members don't need (and shouldn't have) a workspace
+          account. Visually subordinate so the primary path stays
+          obvious for the workspace owner. Middleware bypasses
+          /guest/*, so this link works for any unauthenticated
+          visitor. We intentionally don't forward `?next=` here: the
+          sign-in `next` targets owner routes which a guest can't
+          reach anyway; the guest-side pages stamp their own `?next=`
+          when they redirect to /guest/join. */}
+      <div
+        className="flex items-center gap-3 pt-2 text-[11px] uppercase tracking-wider text-sub/60"
+        aria-hidden="true"
+      >
+        <div className="flex-1 h-px bg-border" />
+        <span>or</span>
+        <div className="flex-1 h-px bg-border" />
+      </div>
+
+      <Link
+        href="/guest/join"
+        className="inline-flex items-center justify-center w-full gap-2 rounded-md border border-border bg-transparent px-4 py-2 text-sm text-sub hover:text-accent hover:border-accent/30 transition-colors"
+      >
+        <Users className="w-4 h-4" aria-hidden="true" />
+        Join with a squad invite code
+      </Link>
+      <p className="text-[11px] text-sub/60">No account needed — your squad lead shares a code.</p>
     </div>
   );
 }
