@@ -31,6 +31,11 @@ import type {
   TokenSpend,
   ModelEntry,
   RedTeamFinding,
+  AgentWorkflow,
+  AgentNode,
+  HitlReview,
+  RlhfPair,
+  VectorCollection,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -382,6 +387,109 @@ defineCrudActions<RedTeamFinding>({
   upsert: (x) => ws().upsertRedTeamFinding(x),
   remove: (id) => ws().removeRedTeamFinding(id),
   generateId: () => `redTeam_${nanoid(8)}`,
+});
+
+/* ── S12b: agentic-workflow, hitl-quality, rlhf-log, vector-store-inventory.
+ * Entities + store wiring + registerCollection already existed; these CRUD
+ * surfaces (+ the tool.<x>.* domain verbs in ../tools/) complete the agent
+ * enablement. agent-workflow has two collections joined by workflowId. */
+
+const AgentWorkflowSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+}) as unknown as z.ZodType<AgentWorkflow>;
+
+const AgentNodeSchema = z.object({
+  id: z.string(),
+  workflowId: z.string(),
+  label: z.string(),
+  kind: z.enum(["agent", "tool", "human", "fallback", "branch"]),
+  description: z.string().optional(),
+  next: z.array(z.string()).optional(),
+}) as unknown as z.ZodType<AgentNode>;
+
+const HitlReviewSchema = z.object({
+  id: z.string(),
+  feature: z.string().optional(),
+  reviewer: z.string().optional(),
+  rating: z.number(),
+  agreedWithModel: z.boolean(),
+  reason: z.string().optional(),
+  loggedAt: z.string(),
+}) as unknown as z.ZodType<HitlReview>;
+
+const RlhfPairSchema = z.object({
+  id: z.string(),
+  prompt: z.string(),
+  responseA: z.string(),
+  responseB: z.string(),
+  winner: z.enum(["A", "B", "tie"]),
+  reviewer: z.string().optional(),
+  reason: z.string().optional(),
+  loggedAt: z.string(),
+}) as unknown as z.ZodType<RlhfPair>;
+
+const VectorCollectionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  embeddingModel: z.string(),
+  dim: z.number(),
+  docCount: z.number(),
+  refreshCadence: z.string().optional(),
+  owner: z.string().optional(),
+  consumers: z.array(z.string()).optional(),
+  notes: z.string().optional(),
+}) as unknown as z.ZodType<VectorCollection>;
+
+defineCrudActions<AgentWorkflow>({
+  toolId: "workspace.agent_workflow",
+  entityName: "agent workflow",
+  schema: AgentWorkflowSchema,
+  selectAll: () => ws().agentWorkflows ?? [],
+  upsert: (x) => ws().upsertAgentWorkflow(x),
+  remove: (id) => ws().removeAgentWorkflow(id),
+  generateId: () => `agentWorkflow_${nanoid(8)}`,
+});
+
+defineCrudActions<AgentNode>({
+  toolId: "workspace.agent_node",
+  entityName: "agent node",
+  schema: AgentNodeSchema,
+  selectAll: () => ws().agentNodes ?? [],
+  upsert: (x) => ws().upsertAgentNode(x),
+  remove: (id) => ws().removeAgentNode(id),
+  generateId: () => `agentNode_${nanoid(8)}`,
+});
+
+defineCrudActions<HitlReview>({
+  toolId: "workspace.hitl_review",
+  entityName: "HITL review",
+  schema: HitlReviewSchema,
+  selectAll: () => ws().hitlReviews ?? [],
+  upsert: (x) => ws().upsertHitlReview(x),
+  remove: (id) => ws().removeHitlReview(id),
+  generateId: () => `hitlReview_${nanoid(8)}`,
+});
+
+defineCrudActions<RlhfPair>({
+  toolId: "workspace.rlhf_pair",
+  entityName: "RLHF pair",
+  schema: RlhfPairSchema,
+  selectAll: () => ws().rlhfPairs ?? [],
+  upsert: (x) => ws().upsertRlhfPair(x),
+  remove: (id) => ws().removeRlhfPair(id),
+  generateId: () => `rlhfPair_${nanoid(8)}`,
+});
+
+defineCrudActions<VectorCollection>({
+  toolId: "workspace.vector_collection",
+  entityName: "vector collection",
+  schema: VectorCollectionSchema,
+  selectAll: () => ws().vectorCollections ?? [],
+  upsert: (x) => ws().upsertVectorCollection(x),
+  remove: (id) => ws().removeVectorCollection(id),
+  generateId: () => `vectorCollection_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
