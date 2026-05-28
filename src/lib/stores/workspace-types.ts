@@ -764,6 +764,17 @@ export interface SprintGoal {
   keyResults: string[];
 }
 
+/** A Jobs-to-be-Done job story: "When <situation>, I want to <motivation>,
+ *  so I can <outcome>." parentJobId builds the job hierarchy. */
+export interface JobStory {
+  id: string;
+  situation: string;
+  motivation: string;
+  outcome: string;
+  parentJobId?: string;
+  description?: string;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -814,6 +825,7 @@ export interface Workspace {
   kudos?: Kudos[];
   // Sprint Planning (squad S1)
   sprintGoals?: SprintGoal[];
+  jobStories?: JobStory[];
 }
 
 /**

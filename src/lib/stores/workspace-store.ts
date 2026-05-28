@@ -50,6 +50,7 @@ import type {
   Kudos,
   // Sprint Planning (squad S1)
   SprintGoal,
+  JobStory,
 } from "./workspace-types";
 import { emptyWorkspace } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -152,6 +153,8 @@ interface WorkspaceActions {
   // Sprint Planning (squad S1)
   upsertSprintGoal: (x: SprintGoal) => void;
   removeSprintGoal: (id: string) => void;
+  upsertJobStory: (x: JobStory) => void;
+  removeJobStory: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert. Use this for bulk imports — single-item upserts are O(n)
@@ -955,6 +958,9 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ sprintGoals: replaceById(_st.sprintGoals ?? [], x) })),
       removeSprintGoal: (id) =>
         set((s) => ({ sprintGoals: (s.sprintGoals ?? []).filter((y) => y.id !== id) })),
+      upsertJobStory: (x) => set((_st) => ({ jobStories: replaceById(_st.jobStories ?? [], x) })),
+      removeJobStory: (id) =>
+        set((s) => ({ jobStories: (s.jobStories ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -999,6 +1005,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           polarities: s.polarities,
           polarityPoles: s.polarityPoles,
           sprintGoals: s.sprintGoals,
+          jobStories: s.jobStories,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1077,6 +1084,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           polarities: arr("polarities"),
           polarityPoles: arr("polarityPoles"),
           sprintGoals: arr("sprintGoals"),
+          jobStories: arr("jobStories"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -1356,6 +1364,7 @@ if (typeof window !== "undefined") {
     registerCollection("polarity", "polarities");
     registerCollection("polarityPole", "polarityPoles");
     registerCollection("sprintGoal", "sprintGoals");
+    registerCollection("jobStory", "jobStories");
     // Phase 22 — Canvas. Whiteboard objects are throttled to 2s pushes
     // because drag operations can dirty hundreds of them per second.
     registerCollection("whiteboard", "whiteboards");
@@ -1444,6 +1453,7 @@ export function getWorkspaceSnapshot(): Workspace {
     whiteboardActivityLog: state.whiteboardActivityLog,
     kudos: state.kudos,
     sprintGoals: state.sprintGoals,
+    jobStories: state.jobStories,
   };
 }
 

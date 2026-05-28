@@ -43,6 +43,7 @@ import type {
   Polarity,
   // Sprint Planning (squad S1)
   SprintGoal,
+  JobStory,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -483,6 +484,15 @@ const SprintGoalSchema = z.object({
   keyResults: z.array(z.string()),
 }) as unknown as z.ZodType<SprintGoal>;
 
+const JobStorySchema = z.object({
+  id: z.string(),
+  situation: z.string(),
+  motivation: z.string(),
+  outcome: z.string(),
+  parentJobId: z.string().optional(),
+  description: z.string().optional(),
+}) as unknown as z.ZodType<JobStory>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -561,6 +571,16 @@ defineCrudActions<SprintGoal>({
   upsert: (x) => ws().upsertSprintGoal(x),
   remove: (id) => ws().removeSprintGoal(id),
   generateId: () => `sprintGoal_${nanoid(8)}`,
+});
+
+defineCrudActions<JobStory>({
+  toolId: "workspace.job_story",
+  entityName: "job story",
+  schema: JobStorySchema,
+  selectAll: () => ws().jobStories ?? [],
+  upsert: (x) => ws().upsertJobStory(x),
+  remove: (id) => ws().removeJobStory(id),
+  generateId: () => `job_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
