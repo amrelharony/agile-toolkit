@@ -26,6 +26,8 @@ import type {
   RlhfPair,
   VectorCollection,
   ModelCard,
+  // S9 — Security & Compliance
+  ThreatModel,
   // Phase 20
   PrioritizationItem,
   // Phase 21
@@ -113,6 +115,8 @@ interface WorkspaceActions {
   removeVectorCollection: (id: string) => void;
   upsertModelCard: (x: ModelCard) => void;
   removeModelCard: (id: string) => void;
+  upsertThreatModel: (x: ThreatModel) => void;
+  removeThreatModel: (id: string) => void;
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
@@ -674,6 +678,11 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           modelCards: (s.modelCards ?? []).filter((y) => y.id !== id),
           whiteboardObjects: cascadeSourceRefRemoval(s.whiteboardObjects, "modelCard", id),
         })),
+      // S9 — Security & Compliance (singleton docs; no canvas cascade)
+      upsertThreatModel: (x) =>
+        set((_st) => ({ threatModels: replaceById(_st.threatModels ?? [], x) })),
+      removeThreatModel: (id) =>
+        set((s) => ({ threatModels: (s.threatModels ?? []).filter((y) => y.id !== id) })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) =>
         set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
@@ -1083,6 +1092,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           rlhfPairs: s.rlhfPairs,
           vectorCollections: s.vectorCollections,
           modelCards: s.modelCards,
+          threatModels: s.threatModels,
           // Phase 20
           prioritizations: s.prioritizations,
           // Phase 21
@@ -1175,6 +1185,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           rlhfPairs: arr("rlhfPairs"),
           vectorCollections: arr("vectorCollections"),
           modelCards: arr("modelCards"),
+          threatModels: arr("threatModels"),
           // Phase 20
           prioritizations: arr("prioritizations"),
           // Phase 21
@@ -1468,6 +1479,7 @@ if (typeof window !== "undefined") {
     registerCollection("rlhfPair", "rlhfPairs");
     registerCollection("vectorCollection", "vectorCollections");
     registerCollection("modelCard", "modelCards");
+    registerCollection("threatModel", "threatModels");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
     // Phase 21 — Decision frameworks
@@ -1563,6 +1575,7 @@ export function getWorkspaceSnapshot(): Workspace {
     rlhfPairs: state.rlhfPairs,
     vectorCollections: state.vectorCollections,
     modelCards: state.modelCards,
+    threatModels: state.threatModels,
     prioritizations: state.prioritizations,
     daciDecisions: state.daciDecisions,
     rapidDecisions: state.rapidDecisions,

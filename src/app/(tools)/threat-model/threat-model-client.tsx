@@ -25,43 +25,48 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2, Shield, AlertTriangle } from "lucide-react";
 import { generateThreatModelPrompts } from "@/lib/ai-prompts/threat-model";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { THREAT_MODEL_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import type {
+  Workspace,
+  Threat,
+  ThreatStride as Stride,
+  ThreatStatus as Status,
+} from "@/lib/stores/workspace-types";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
-
-type Stride =
-  | "spoofing"
-  | "tampering"
-  | "repudiation"
-  | "information_disclosure"
-  | "denial_of_service"
-  | "elevation_of_privilege";
-
-type Status = "open" | "mitigating" | "mitigated" | "accepted";
-
-interface Threat {
-  id: string;
-  service: string;
-  category: Stride;
-  severity: number; // 1-5
-  status: Status;
-  mitigation?: string;
-  raisedAt: string;
-  mitigatedAt?: string;
-  description?: string;
-}
 
 interface ThreatModelState {
   threats: Threat[];
 }
 
 const DEFAULT_STATE: ThreatModelState = { threats: [] };
+
+const TM_ID = "threatModel:current"; // MUST match TM_ID in threat-model.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// threat writes round-trip into the UI. Drop-in [state, setState] over the
+// workspace store — the rest of the component is unchanged.
+function useThreatModel(): [
+  ThreatModelState,
+  (u: ThreatModelState | ((p: ThreatModelState) => ThreatModelState)) => void,
+] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.threatModels ?? []).find((d) => d.id === TM_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertThreatModel);
+  const state: ThreatModelState = doc ? { threats: doc.threats } : DEFAULT_STATE;
+  const setState = (u: ThreatModelState | ((p: ThreatModelState) => ThreatModelState)) => {
+    const cur = (useWorkspaceStore.getState().threatModels ?? []).find((d) => d.id === TM_ID);
+    const curState: ThreatModelState = cur ? { threats: cur.threats } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: TM_ID, threats: next.threats });
+  };
+  return [state, setState];
+}
 
 const STRIDE_OPTIONS: { value: Stride; label: string }[] = [
   { value: "spoofing", label: "Spoofing" },
@@ -280,10 +285,7 @@ function ThreatRow({
 /* ── Main client component ──────────────────────────────────────────────── */
 
 export function ThreatModelClient() {
-  const [state, setState] = usePersisted<ThreatModelState>(
-    "agile-toolkit:threat-model",
-    DEFAULT_STATE
-  );
+  const [state, setState] = useThreatModel();
   const { log } = useHistoryLogger("threat-model");
 
   // Add-form draft fields

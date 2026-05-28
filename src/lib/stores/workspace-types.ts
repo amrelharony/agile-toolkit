@@ -245,6 +245,39 @@ export interface ModelCard {
 }
 
 /* ────────────────────────────────────────────────────────────────────
+ * S9 — Security & Compliance entities. Each tool is a singleton doc (one
+ * document per workspace under a fixed id, like kanban), holding the tool's
+ * collection(s). The nested item types are shared with the clients.
+ * ────────────────────────────────────────────────────────────────── */
+
+export type ThreatStride =
+  | "spoofing"
+  | "tampering"
+  | "repudiation"
+  | "information_disclosure"
+  | "denial_of_service"
+  | "elevation_of_privilege";
+export type ThreatStatus = "open" | "mitigating" | "mitigated" | "accepted";
+
+export interface Threat {
+  id: string;
+  service: string;
+  category: ThreatStride;
+  /** 1 (low) … 5 (critical). */
+  severity: number;
+  status: ThreatStatus;
+  mitigation?: string;
+  raisedAt: ISODateString;
+  mitigatedAt?: string;
+  description?: string;
+}
+
+export interface ThreatModel {
+  id: string;
+  threats: Threat[];
+}
+
+/* ────────────────────────────────────────────────────────────────────
  * Phase 20 — Prioritization Frameworks entities
  * ────────────────────────────────────────────────────────────────── */
 
@@ -1080,6 +1113,8 @@ export interface Workspace {
   rlhfPairs?: RlhfPair[];
   vectorCollections?: VectorCollection[];
   modelCards?: ModelCard[];
+  // S9 — Security & Compliance (singleton docs)
+  threatModels?: ThreatModel[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -1273,6 +1308,8 @@ export const emptyWorkspace: Workspace = {
   rlhfPairs: [],
   vectorCollections: [],
   modelCards: [],
+  // S9 — Security & Compliance
+  threatModels: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

@@ -31,6 +31,8 @@ import type {
   TokenSpend,
   ModelEntry,
   RedTeamFinding,
+  // S9 — Security & Compliance
+  ThreatModel,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -382,6 +384,44 @@ defineCrudActions<RedTeamFinding>({
   upsert: (x) => ws().upsertRedTeamFinding(x),
   remove: (id) => ws().removeRedTeamFinding(id),
   generateId: () => `redTeam_${nanoid(8)}`,
+});
+
+/* ── S9 — Security & Compliance (singleton-doc tools). ThreatModel holds a
+ * threats[] array under a fixed id (see SINGLETON_ID in the tool action
+ * file); the nested Threat shape rides through as a typed array schema. */
+
+const ThreatSchema = z.object({
+  id: z.string(),
+  service: z.string(),
+  category: z.enum([
+    "spoofing",
+    "tampering",
+    "repudiation",
+    "information_disclosure",
+    "denial_of_service",
+    "elevation_of_privilege",
+  ]),
+  severity: z.number(),
+  status: z.enum(["open", "mitigating", "mitigated", "accepted"]),
+  mitigation: z.string().optional(),
+  raisedAt: z.string(),
+  mitigatedAt: z.string().optional(),
+  description: z.string().optional(),
+});
+
+const ThreatModelSchema = z.object({
+  id: z.string(),
+  threats: z.array(ThreatSchema),
+}) as unknown as z.ZodType<ThreatModel>;
+
+defineCrudActions<ThreatModel>({
+  toolId: "workspace.threat_model",
+  entityName: "threat model",
+  schema: ThreatModelSchema,
+  selectAll: () => ws().threatModels ?? [],
+  upsert: (x) => ws().upsertThreatModel(x),
+  remove: (id) => ws().removeThreatModel(id),
+  generateId: () => `threatModel_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
