@@ -745,6 +745,25 @@ export interface WhiteboardSavedTemplate {
   createdBy?: string;
 }
 
+// ── Sprint Planning (squad S1) ───────────────────────────────────────
+/** One acceptance criterion on a sprint goal. */
+export interface AcceptanceCriterion {
+  id: string;
+  text: string;
+  relevantChecked: boolean;
+}
+
+/** The Sprint Goal builder's state — a singleton document (one current goal
+ *  under a fixed id): business objective, the goal statement, acceptance
+ *  criteria, and key results. */
+export interface SprintGoal {
+  id: string;
+  businessObjective: string;
+  goal: string;
+  criteria: AcceptanceCriterion[];
+  keyResults: string[];
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -793,6 +812,8 @@ export interface Workspace {
   /** Squad-interactive kudos wall — rolling 500-entry cap to bound
    *  localStorage growth (see workspace-store.upsertKudos). */
   kudos?: Kudos[];
+  // Sprint Planning (squad S1)
+  sprintGoals?: SprintGoal[];
 }
 
 /**

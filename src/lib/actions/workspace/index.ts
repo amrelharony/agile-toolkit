@@ -41,6 +41,8 @@ import type {
   OODACycle,
   CynefinItem,
   Polarity,
+  // Sprint Planning (squad S1)
+  SprintGoal,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -372,8 +374,17 @@ defineCrudActions<RedTeamFinding>({
 const PrioritizationItemSchema = z.object({
   id: z.string(),
   framework: z.enum([
-    "rice", "ice", "moscow", "kano", "wsjf", "cost-of-delay",
-    "value-effort", "buy-feature", "hundred-dollar", "eisenhower", "walking-skeleton",
+    "rice",
+    "ice",
+    "moscow",
+    "kano",
+    "wsjf",
+    "cost-of-delay",
+    "value-effort",
+    "buy-feature",
+    "hundred-dollar",
+    "eisenhower",
+    "walking-skeleton",
   ]),
   title: z.string(),
   description: z.string().optional(),
@@ -464,6 +475,14 @@ const PolaritySchema = z.object({
   deeperFear: z.string().optional(),
 }) as unknown as z.ZodType<Polarity>;
 
+const SprintGoalSchema = z.object({
+  id: z.string(),
+  businessObjective: z.string(),
+  goal: z.string(),
+  criteria: z.array(z.object({ id: z.string(), text: z.string(), relevantChecked: z.boolean() })),
+  keyResults: z.array(z.string()),
+}) as unknown as z.ZodType<SprintGoal>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -532,6 +551,16 @@ defineCrudActions<Polarity>({
   upsert: (x) => ws().upsertPolarity(x),
   remove: (id) => ws().removePolarity(id),
   generateId: () => `polarity_${nanoid(8)}`,
+});
+
+defineCrudActions<SprintGoal>({
+  toolId: "workspace.sprint_goal",
+  entityName: "sprint goal",
+  schema: SprintGoalSchema,
+  selectAll: () => ws().sprintGoals ?? [],
+  upsert: (x) => ws().upsertSprintGoal(x),
+  remove: (id) => ws().removeSprintGoal(id),
+  generateId: () => `sprintGoal_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
