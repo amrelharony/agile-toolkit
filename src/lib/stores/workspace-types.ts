@@ -762,6 +762,18 @@ export interface SosEntry {
   loggedAt: ISODateString;
 }
 
+/** One member's async daily standup update. */
+export interface AsyncUpdate {
+  id: string;
+  member: string;
+  /** YYYY-MM-DD (local). */
+  date: ISODateString;
+  yesterday: string;
+  today: string;
+  blockers?: string;
+  description?: string;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -812,6 +824,7 @@ export interface Workspace {
   kudos?: Kudos[];
   // Ceremonies (squad S3)
   sosEntries?: SosEntry[];
+  asyncUpdates?: AsyncUpdate[];
 }
 
 /**

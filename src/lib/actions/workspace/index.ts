@@ -43,6 +43,7 @@ import type {
   Polarity,
   // Ceremonies (squad S3)
   SosEntry,
+  AsyncUpdate,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -487,6 +488,16 @@ const SosEntrySchema = z.object({
   loggedAt: z.string(),
 }) as unknown as z.ZodType<SosEntry>;
 
+const AsyncUpdateSchema = z.object({
+  id: z.string(),
+  member: z.string(),
+  date: z.string(),
+  yesterday: z.string(),
+  today: z.string(),
+  blockers: z.string().optional(),
+  description: z.string().optional(),
+}) as unknown as z.ZodType<AsyncUpdate>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -565,6 +576,16 @@ defineCrudActions<SosEntry>({
   upsert: (x) => ws().upsertSosEntry(x),
   remove: (id) => ws().removeSosEntry(id),
   generateId: () => `sos_${nanoid(8)}`,
+});
+
+defineCrudActions<AsyncUpdate>({
+  toolId: "workspace.async_update",
+  entityName: "async standup update",
+  schema: AsyncUpdateSchema,
+  selectAll: () => ws().asyncUpdates ?? [],
+  upsert: (x) => ws().upsertAsyncUpdate(x),
+  remove: (id) => ws().removeAsyncUpdate(id),
+  generateId: () => `async_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
