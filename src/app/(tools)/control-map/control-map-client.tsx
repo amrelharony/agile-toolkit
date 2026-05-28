@@ -25,35 +25,47 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2, ShieldCheck, X, Link as LinkIcon, FileCheck } from "lucide-react";
 import { generateControlMapPrompts } from "@/lib/ai-prompts/control-map";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CONTROL_MAP_ACTIONS } from "@/lib/history/event-actions";
 import { toast } from "@/lib/utils/toast";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import type {
+  Workspace,
+  ComplianceControl as Control,
+  ControlFramework as Framework,
+  ControlStatus as Status,
+} from "@/lib/stores/workspace-types";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
-
-type Framework = "soc2" | "iso27001" | "hipaa" | "gdpr" | "custom";
-type Status = "not_started" | "in_progress" | "implemented" | "verified";
-
-interface Control {
-  id: string;
-  controlId: string;
-  framework: Framework;
-  title: string;
-  owner?: string;
-  status: Status;
-  evidenceLinks: string[];
-  description?: string;
-}
 
 interface ControlMapState {
   controls: Control[];
 }
 
 const DEFAULT_STATE: ControlMapState = { controls: [] };
+
+const CM_ID = "controlMap:current"; // MUST match CM_ID in control-map.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// control writes round-trip into the UI. Drop-in [state, setState].
+function useControlMap(): [
+  ControlMapState,
+  (u: ControlMapState | ((p: ControlMapState) => ControlMapState)) => void,
+] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.controlMaps ?? []).find((d) => d.id === CM_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertControlMap);
+  const state: ControlMapState = doc ? { controls: doc.controls } : DEFAULT_STATE;
+  const setState = (u: ControlMapState | ((p: ControlMapState) => ControlMapState)) => {
+    const cur = (useWorkspaceStore.getState().controlMaps ?? []).find((d) => d.id === CM_ID);
+    const curState: ControlMapState = cur ? { controls: cur.controls } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: CM_ID, controls: next.controls });
+  };
+  return [state, setState];
+}
 
 const FRAMEWORK_OPTIONS: { value: Framework; label: string }[] = [
   { value: "soc2", label: "SOC 2" },
@@ -324,10 +336,7 @@ function ControlRow({
 /* ── Main client ────────────────────────────────────────────────────────── */
 
 export function ControlMapClient() {
-  const [state, setState] = usePersisted<ControlMapState>(
-    "agile-toolkit:control-map",
-    DEFAULT_STATE
-  );
+  const [state, setState] = useControlMap();
   const { log } = useHistoryLogger("control-map");
 
   // Add-form draft state.
