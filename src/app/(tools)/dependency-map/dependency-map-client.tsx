@@ -18,7 +18,8 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2, Network, AlertTriangle, GitBranch } from "lucide-react";
 import { generateDependencyMapPrompts } from "@/lib/ai-prompts/dependency-map";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DEPENDENCY_MAP_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
@@ -47,6 +48,10 @@ interface State {
 }
 
 const DEFAULT_STATE: State = { nodes: [], edges: [] };
+
+// Singleton id for the one dependency map. MUST match DM_ID in
+// src/lib/actions/tools/dependency-map.ts so agent writes hit the same row.
+const DM_ID = "dependency-map:current";
 
 function detectCycles(nodes: Node[], edges: Edge[]): string[][] {
   const adj = new Map<string, string[]>();
@@ -142,7 +147,21 @@ function computeCriticalPath(nodes: Node[], edges: Edge[]): string[] {
 }
 
 export function DependencyMapClient() {
-  const [state, setState] = usePersisted<State>("agile-toolkit:dependency-map", DEFAULT_STATE);
+  // Synced workspace singleton (was isolated localStorage), so MCP graph
+  // writes round-trip into the UI. [state, setState] mirrors the old API.
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.dependencyMaps ?? []).find((d) => d.id === DM_ID))
+  );
+  const upsertDependencyMap = useWorkspaceStore((s) => s.upsertDependencyMap);
+  const state: State = doc ?? DEFAULT_STATE;
+  const setState = (updater: State | ((prev: State) => State)) => {
+    const cur = (useWorkspaceStore.getState().dependencyMaps ?? []).find((d) => d.id === DM_ID) ?? {
+      id: DM_ID,
+      ...DEFAULT_STATE,
+    };
+    const next = typeof updater === "function" ? updater(cur) : updater;
+    upsertDependencyMap({ ...next, id: DM_ID });
+  };
   const [newNode, setNewNode] = useState({ label: "", team: "", description: "" });
   const [newEdge, setNewEdge] = useState<{ from: string; to: string; kind: Edge["kind"] }>({
     from: "",

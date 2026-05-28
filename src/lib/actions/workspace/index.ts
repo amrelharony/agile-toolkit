@@ -53,6 +53,13 @@ import type {
   CapacityPlan,
   StoryMap,
   BacklogItem,
+  // Outcomes & Pulse (squad S6)
+  NpsResponse,
+  MoodEntry,
+  // Flow & Delivery (squad S6)
+  KanbanBoard,
+  DependencyMap,
+  ValueStreamStage,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -620,6 +627,45 @@ const BacklogItemSchema = z.object({
   matrixEffort: z.number(),
 }) as unknown as z.ZodType<BacklogItem>;
 
+const NpsResponseSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["nps", "csat"]),
+  date: z.string(),
+  score: z.number(),
+  respondent: z.string().optional(),
+  verbatim: z.string().optional(),
+}) as unknown as z.ZodType<NpsResponse>;
+
+const MoodEntrySchema = z.object({
+  id: z.string(),
+  memberId: z.string(),
+  date: z.string(),
+  score: z.number(),
+  note: z.string().optional(),
+  isPlaceholder: z.boolean().optional(),
+}) as unknown as z.ZodType<MoodEntry>;
+
+const KanbanBoardSchema = z.object({
+  id: z.string(),
+  cards: z.array(z.record(z.string(), z.unknown())),
+  wipLimits: z.record(z.string(), z.number()),
+}) as unknown as z.ZodType<KanbanBoard>;
+
+const DependencyMapSchema = z.object({
+  id: z.string(),
+  nodes: z.array(z.record(z.string(), z.unknown())),
+  edges: z.array(z.record(z.string(), z.unknown())),
+}) as unknown as z.ZodType<DependencyMap>;
+
+const ValueStreamStageSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  processTime: z.number(),
+  leadTime: z.number(),
+  completeAccurate: z.number(),
+}) as unknown as z.ZodType<ValueStreamStage>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -788,6 +834,56 @@ defineCrudActions<BacklogItem>({
   upsert: (x) => ws().upsertBacklogItem(x),
   remove: (id) => ws().removeBacklogItem(id),
   generateId: () => `backlog_${nanoid(8)}`,
+});
+
+defineCrudActions<NpsResponse>({
+  toolId: "workspace.nps_response",
+  entityName: "NPS/CSAT response",
+  schema: NpsResponseSchema,
+  selectAll: () => ws().npsResponses ?? [],
+  upsert: (x) => ws().upsertNpsResponse(x),
+  remove: (id) => ws().removeNpsResponse(id),
+  generateId: () => `nps_${nanoid(8)}`,
+});
+
+defineCrudActions<MoodEntry>({
+  toolId: "workspace.mood_entry",
+  entityName: "mood entry",
+  schema: MoodEntrySchema,
+  selectAll: () => ws().moodEntries ?? [],
+  upsert: (x) => ws().upsertMoodEntry(x),
+  remove: (id) => ws().removeMoodEntry(id),
+  generateId: () => `mood_${nanoid(8)}`,
+});
+
+defineCrudActions<KanbanBoard>({
+  toolId: "workspace.kanban_board",
+  entityName: "kanban board",
+  schema: KanbanBoardSchema,
+  selectAll: () => ws().kanbanBoards ?? [],
+  upsert: (x) => ws().upsertKanbanBoard(x),
+  remove: (id) => ws().removeKanbanBoard(id),
+  generateId: () => `kanban_${nanoid(8)}`,
+});
+
+defineCrudActions<DependencyMap>({
+  toolId: "workspace.dependency_map",
+  entityName: "dependency map",
+  schema: DependencyMapSchema,
+  selectAll: () => ws().dependencyMaps ?? [],
+  upsert: (x) => ws().upsertDependencyMap(x),
+  remove: (id) => ws().removeDependencyMap(id),
+  generateId: () => `depmap_${nanoid(8)}`,
+});
+
+defineCrudActions<ValueStreamStage>({
+  toolId: "workspace.value_stream_stage",
+  entityName: "value-stream stage",
+  schema: ValueStreamStageSchema,
+  selectAll: () => ws().valueStreamStages ?? [],
+  upsert: (x) => ws().upsertValueStreamStage(x),
+  remove: (id) => ws().removeValueStreamStage(id),
+  generateId: () => `vsstage_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────

@@ -27,7 +27,7 @@ import { trendDirection, mean } from "@/lib/analytics/anomaly";
 import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { generateMoodTrackerPrompts } from "@/lib/ai-prompts/mood-tracker";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -83,7 +83,15 @@ function lastNDays(n: number): string[] {
 }
 
 export function MoodTrackerClient() {
-  const [entries, setEntries] = usePersisted<MoodEntry[]>("agile-toolkit:mood-tracker", []);
+  // Synced workspace collection (was isolated localStorage), so MCP-recorded
+  // mood entries round-trip into the UI. setEntries mirrors the old [value,
+  // setter] API over the slice. Local MoodEntry === the synced entity shape.
+  const entries = useWorkspaceStore(useShallow((s) => (s.moodEntries ?? []) as MoodEntry[]));
+  const setEntries = (updater: MoodEntry[] | ((prev: MoodEntry[]) => MoodEntry[])) => {
+    const cur = (useWorkspaceStore.getState().moodEntries ?? []) as MoodEntry[];
+    const next = typeof updater === "function" ? updater(cur) : updater;
+    useWorkspaceStore.setState({ moodEntries: next });
+  };
   const [newMemberName, setNewMemberName] = useState("");
   // Drafts for the per-member optional note input. Keyed by memberId so each
   // row's textarea controls its own buffer without colliding with neighbors.

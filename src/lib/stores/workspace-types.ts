@@ -977,6 +977,85 @@ export interface BacklogItem {
   matrixEffort: number;
 }
 
+// ── Outcomes & Pulse (squad S6) ──────────────────────────────────────
+/** One NPS or CSAT survey response. NPS scores are 0–10; CSAT 1–5. */
+export interface NpsResponse {
+  id: string;
+  kind: "nps" | "csat";
+  date: ISODateString;
+  score: number;
+  respondent?: string;
+  verbatim?: string;
+}
+
+/** One daily team-mood data point for a member (1 rough … 5 great). */
+export interface MoodEntry {
+  id: string;
+  memberId: string;
+  date: ISODateString;
+  score: 1 | 2 | 3 | 4 | 5;
+  note?: string;
+  /** True when created note-first before a face was picked; excluded from
+   *  averages/trend until a real score lands. */
+  isPlaceholder?: boolean;
+}
+
+export type KanbanColumnId = "backlog" | "ready" | "in_progress" | "review" | "done";
+export type KanbanClassOfService = "standard" | "expedite" | "fixed_date" | "intangible";
+
+/** One card on the kanban board. */
+export interface KanbanCard {
+  id: string;
+  title: string;
+  description?: string;
+  column: KanbanColumnId;
+  class: KanbanClassOfService;
+  createdAt: ISODateString;
+  startedAt?: ISODateString;
+  completedAt?: ISODateString;
+}
+
+/** The kanban board — a singleton document (cards + per-column WIP limits). */
+export interface KanbanBoard {
+  id: string;
+  cards: KanbanCard[];
+  wipLimits: Record<KanbanColumnId, number>;
+}
+
+/** A node in the dependency graph (a team / workstream / deliverable). */
+export interface DependencyNode {
+  id: string;
+  label: string;
+  description?: string;
+  team?: string;
+}
+
+/** A directed dependency edge between two nodes. */
+export interface DependencyEdge {
+  id: string;
+  from: string;
+  to: string;
+  kind: "blocks" | "needs" | "informs";
+}
+
+/** The dependency map — a singleton graph document (nodes + edges). */
+export interface DependencyMap {
+  id: string;
+  nodes: DependencyNode[];
+  edges: DependencyEdge[];
+}
+
+/** One stage in a value-stream map. processTime + leadTime in the same unit
+ *  (typically days); completeAccurate is the %C/A (0–100) handed downstream. */
+export interface ValueStreamStage {
+  id: string;
+  name: string;
+  description?: string;
+  processTime: number;
+  leadTime: number;
+  completeAccurate: number;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -1037,6 +1116,13 @@ export interface Workspace {
   capacityPlans?: CapacityPlan[];
   storyMaps?: StoryMap[];
   backlogItems?: BacklogItem[];
+  // Outcomes & Pulse (squad S6)
+  npsResponses?: NpsResponse[];
+  moodEntries?: MoodEntry[];
+  // Flow & Delivery (squad S6)
+  kanbanBoards?: KanbanBoard[];
+  dependencyMaps?: DependencyMap[];
+  valueStreamStages?: ValueStreamStage[];
 }
 
 /**

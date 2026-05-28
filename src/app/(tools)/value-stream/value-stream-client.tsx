@@ -12,7 +12,8 @@ import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import { Waves, Plus, Trash2 } from "lucide-react";
 import { iqrOutliers } from "@/lib/analytics/anomaly";
 import { generateValueStreamPrompts } from "@/lib/ai-prompts/value-stream";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { VALUE_STREAM_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
@@ -78,7 +79,15 @@ function NumCell({
 }
 
 export function ValueStreamClient() {
-  const [stages, setStages] = usePersisted<Stage[]>("agile-toolkit:value-stream", []);
+  // Synced workspace collection (was isolated localStorage), so MCP writes
+  // round-trip into the UI. setStages mirrors the old [value, setter] API.
+  // Local Stage === the synced ValueStreamStage shape.
+  const stages = useWorkspaceStore(useShallow((s) => (s.valueStreamStages ?? []) as Stage[]));
+  const setStages = (updater: Stage[] | ((prev: Stage[]) => Stage[])) => {
+    const cur = (useWorkspaceStore.getState().valueStreamStages ?? []) as Stage[];
+    const next = typeof updater === "function" ? updater(cur) : updater;
+    useWorkspaceStore.setState({ valueStreamStages: next });
+  };
   const { log } = useHistoryLogger("value-stream");
 
   const add = () => {

@@ -40,7 +40,8 @@ import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { generateKanbanPrompts } from "@/lib/ai-prompts/kanban";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -141,6 +142,10 @@ const DEFAULT_STATE: KanbanState = {
   wipLimits: { backlog: 0, ready: 5, in_progress: 3, review: 2, done: 0 },
 };
 
+// Singleton id for the one kanban board. MUST match KB_ID in
+// src/lib/actions/tools/kanban.ts so agent writes hit the same row.
+const KB_ID = "kanban:current";
+
 function cycleTimeDays(c: KCard): number | null {
   if (!c.startedAt || !c.completedAt) return null;
   const start = new Date(c.startedAt).getTime();
@@ -161,7 +166,21 @@ function isoWeek(d: Date): { year: number; week: number } {
 }
 
 export function KanbanClient() {
-  const [state, setState] = usePersisted<KanbanState>("agile-toolkit:kanban", DEFAULT_STATE);
+  // Synced workspace singleton (was isolated localStorage), so MCP board
+  // writes round-trip into the UI. [state, setState] mirrors the old API.
+  const board = useWorkspaceStore(
+    useShallow((s) => (s.kanbanBoards ?? []).find((b) => b.id === KB_ID))
+  );
+  const upsertKanbanBoard = useWorkspaceStore((s) => s.upsertKanbanBoard);
+  const state: KanbanState = board ?? DEFAULT_STATE;
+  const setState = (updater: KanbanState | ((prev: KanbanState) => KanbanState)) => {
+    const cur = (useWorkspaceStore.getState().kanbanBoards ?? []).find((b) => b.id === KB_ID) ?? {
+      id: KB_ID,
+      ...DEFAULT_STATE,
+    };
+    const next = typeof updater === "function" ? updater(cur) : updater;
+    upsertKanbanBoard({ ...next, id: KB_ID });
+  };
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const { log } = useHistoryLogger("kanban");

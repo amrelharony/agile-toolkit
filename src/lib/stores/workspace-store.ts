@@ -60,6 +60,11 @@ import type {
   CapacityPlan,
   StoryMap,
   BacklogItem,
+  NpsResponse,
+  MoodEntry,
+  KanbanBoard,
+  DependencyMap,
+  ValueStreamStage,
 } from "./workspace-types";
 import { emptyWorkspace } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -181,6 +186,16 @@ interface WorkspaceActions {
   removeStoryMap: (id: string) => void;
   upsertBacklogItem: (x: BacklogItem) => void;
   removeBacklogItem: (id: string) => void;
+  upsertNpsResponse: (x: NpsResponse) => void;
+  removeNpsResponse: (id: string) => void;
+  upsertMoodEntry: (x: MoodEntry) => void;
+  removeMoodEntry: (id: string) => void;
+  upsertKanbanBoard: (x: KanbanBoard) => void;
+  removeKanbanBoard: (id: string) => void;
+  upsertDependencyMap: (x: DependencyMap) => void;
+  removeDependencyMap: (id: string) => void;
+  upsertValueStreamStage: (x: ValueStreamStage) => void;
+  removeValueStreamStage: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert. Use this for bulk imports — single-item upserts are O(n)
@@ -1018,6 +1033,26 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ backlogItems: replaceById(_st.backlogItems ?? [], x) })),
       removeBacklogItem: (id) =>
         set((s) => ({ backlogItems: (s.backlogItems ?? []).filter((y) => y.id !== id) })),
+      upsertNpsResponse: (x) =>
+        set((_st) => ({ npsResponses: replaceById(_st.npsResponses ?? [], x) })),
+      removeNpsResponse: (id) =>
+        set((s) => ({ npsResponses: (s.npsResponses ?? []).filter((y) => y.id !== id) })),
+      upsertMoodEntry: (x) =>
+        set((_st) => ({ moodEntries: replaceById(_st.moodEntries ?? [], x) })),
+      removeMoodEntry: (id) =>
+        set((s) => ({ moodEntries: (s.moodEntries ?? []).filter((y) => y.id !== id) })),
+      upsertKanbanBoard: (x) =>
+        set((_st) => ({ kanbanBoards: replaceById(_st.kanbanBoards ?? [], x) })),
+      removeKanbanBoard: (id) =>
+        set((s) => ({ kanbanBoards: (s.kanbanBoards ?? []).filter((y) => y.id !== id) })),
+      upsertDependencyMap: (x) =>
+        set((_st) => ({ dependencyMaps: replaceById(_st.dependencyMaps ?? [], x) })),
+      removeDependencyMap: (id) =>
+        set((s) => ({ dependencyMaps: (s.dependencyMaps ?? []).filter((y) => y.id !== id) })),
+      upsertValueStreamStage: (x) =>
+        set((_st) => ({ valueStreamStages: replaceById(_st.valueStreamStages ?? [], x) })),
+      removeValueStreamStage: (id) =>
+        set((s) => ({ valueStreamStages: (s.valueStreamStages ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1071,6 +1106,11 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           capacityPlans: s.capacityPlans,
           storyMaps: s.storyMaps,
           backlogItems: s.backlogItems,
+          npsResponses: s.npsResponses,
+          moodEntries: s.moodEntries,
+          kanbanBoards: s.kanbanBoards,
+          dependencyMaps: s.dependencyMaps,
+          valueStreamStages: s.valueStreamStages,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1158,6 +1198,11 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           capacityPlans: arr("capacityPlans"),
           storyMaps: arr("storyMaps"),
           backlogItems: arr("backlogItems"),
+          npsResponses: arr("npsResponses"),
+          moodEntries: arr("moodEntries"),
+          kanbanBoards: arr("kanbanBoards"),
+          dependencyMaps: arr("dependencyMaps"),
+          valueStreamStages: arr("valueStreamStages"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -1446,6 +1491,11 @@ if (typeof window !== "undefined") {
     registerCollection("capacityPlan", "capacityPlans");
     registerCollection("storyMap", "storyMaps");
     registerCollection("backlogItem", "backlogItems");
+    registerCollection("npsResponse", "npsResponses");
+    registerCollection("moodEntry", "moodEntries");
+    registerCollection("kanbanBoard", "kanbanBoards");
+    registerCollection("dependencyMap", "dependencyMaps");
+    registerCollection("valueStreamStage", "valueStreamStages");
     // Phase 22 — Canvas. Whiteboard objects are throttled to 2s pushes
     // because drag operations can dirty hundreds of them per second.
     registerCollection("whiteboard", "whiteboards");
@@ -1543,6 +1593,11 @@ export function getWorkspaceSnapshot(): Workspace {
     capacityPlans: state.capacityPlans,
     storyMaps: state.storyMaps,
     backlogItems: state.backlogItems,
+    npsResponses: state.npsResponses,
+    moodEntries: state.moodEntries,
+    kanbanBoards: state.kanbanBoards,
+    dependencyMaps: state.dependencyMaps,
+    valueStreamStages: state.valueStreamStages,
   };
 }
 
