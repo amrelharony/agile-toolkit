@@ -16,6 +16,7 @@
 import { memo, useEffect, useState } from "react";
 import { Play, Pause, RotateCcw, Timer as TimerIcon } from "lucide-react";
 import type { WhiteboardTimer } from "@/lib/stores/workspace-types";
+import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
 
 interface TimerObjectProps {
   object: WhiteboardTimer;
@@ -41,31 +42,16 @@ function TimerObjectImpl({ object: o, selected, onPointerDown, onMutate }: Timer
   const [now, setNow] = useState(0);
   useEffect(() => {
     setNow(Date.now());
-    if (!o.running) return;
-    // R5: pause the tick interval when the tab is hidden — setInterval
-    // keeps firing in the background and burns CPU even when no one
-    // is looking. visibilitychange + restart-on-visible is the
-    // standard fix.
-    let h: ReturnType<typeof setInterval> | null = null;
-    const start = () => {
-      if (h !== null) return;
-      h = setInterval(() => setNow(Date.now()), 250);
-    };
-    const stop = () => {
-      if (h !== null) { clearInterval(h); h = null; }
-    };
-    const onVis = () => { if (document.visibilityState === "visible") start(); else stop(); };
-    if (typeof document !== "undefined" && document.visibilityState === "visible") start();
-    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVis);
-    return () => {
-      stop();
-      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [o.running]);
+  }, []);
+  // R5: pause the tick when the tab is hidden so we don't burn CPU,
+  // and catch up the display the moment it becomes visible again.
+  // Extracted into useVisibilityTick — same contract as ceremony-timer.
+  useVisibilityTick(o.running, 250, () => setNow(Date.now()));
 
-  const remaining = o.running && o.startedAt
-    ? Math.max(0, o.durationSec - (now - o.startedAt) / 1000)
-    : o.remainingSec ?? o.durationSec;
+  const remaining =
+    o.running && o.startedAt
+      ? Math.max(0, o.durationSec - (now - o.startedAt) / 1000)
+      : (o.remainingSec ?? o.durationSec);
   const finished = remaining <= 0 && o.running;
 
   // R5: when the running timer reaches 0, persist running=false ONCE so
@@ -82,7 +68,10 @@ function TimerObjectImpl({ object: o, selected, onPointerDown, onMutate }: Timer
 
   const onStart = () => {
     if (o.running) return;
-    onMutate({ running: true, startedAt: Date.now() - ((o.durationSec - (o.remainingSec ?? o.durationSec)) * 1000) });
+    onMutate({
+      running: true,
+      startedAt: Date.now() - (o.durationSec - (o.remainingSec ?? o.durationSec)) * 1000,
+    });
   };
   const onPause = () => {
     if (!o.running) return;
@@ -120,7 +109,14 @@ function TimerObjectImpl({ object: o, selected, onPointerDown, onMutate }: Timer
       }}
     >
       {o.label && (
-        <div style={{ fontSize: 11, color: "#94a3b8", fontFamily: "ui-sans-serif, system-ui, sans-serif", marginBottom: 2 }}>
+        <div
+          style={{
+            fontSize: 11,
+            color: "#94a3b8",
+            fontFamily: "ui-sans-serif, system-ui, sans-serif",
+            marginBottom: 2,
+          }}
+        >
           {o.label}
         </div>
       )}
