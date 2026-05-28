@@ -14,7 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Triangle, DollarSign } from "lucide-react";
 import { generateTestPyramidPrompts } from "@/lib/ai-prompts/test-pyramid";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { TEST_PYRAMID_ACTIONS } from "@/lib/history/event-actions";
 
@@ -32,6 +33,28 @@ const DEFAULT_STATE: TestCounts = {
   integration: 0,
   e2e: 0,
 };
+
+const TP_ID = "testPyramid:current"; // MUST match TP_ID in test-pyramid.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// count writes round-trip into the UI. Drop-in [state, setState].
+function useTestPyramid(): [TestCounts, (u: TestCounts | ((p: TestCounts) => TestCounts)) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.testPyramids ?? []).find((d) => d.id === TP_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertTestPyramid);
+  const toCounts = (d: typeof doc): TestCounts =>
+    d
+      ? { unit: d.unit, integration: d.integration, e2e: d.e2e, description: d.description }
+      : DEFAULT_STATE;
+  const state = toCounts(doc);
+  const setState = (u: TestCounts | ((p: TestCounts) => TestCounts)) => {
+    const cur = (useWorkspaceStore.getState().testPyramids ?? []).find((d) => d.id === TP_ID);
+    const next = typeof u === "function" ? u(toCounts(cur)) : u;
+    upsert({ id: TP_ID, ...next });
+  };
+  return [state, setState];
+}
 
 // Cost-of-quality coefficients per the brief.
 const COST_PER_UNIT = 1;
@@ -100,10 +123,7 @@ function NumericField({
 /* ── Main client ────────────────────────────────────────────────────────── */
 
 export function TestPyramidClient() {
-  const [state, setState] = usePersisted<TestCounts>(
-    "agile-toolkit:test-pyramid",
-    DEFAULT_STATE
-  );
+  const [state, setState] = useTestPyramid();
   const { log } = useHistoryLogger("test-pyramid");
 
   const update = (patch: Partial<TestCounts>) => {
@@ -161,8 +181,7 @@ export function TestPyramidClient() {
   // When total is 0 there's nothing to evaluate — use a neutral tone instead
   // of misleading "all green".
   const NEUTRAL_COLOR = "#6b7280";
-  const e2eColor =
-    total === 0 ? NEUTRAL_COLOR : inverted ? "#ef4444" : "#34d399";
+  const e2eColor = total === 0 ? NEUTRAL_COLOR : inverted ? "#ef4444" : "#34d399";
   const intColor =
     total === 0
       ? NEUTRAL_COLOR
@@ -170,11 +189,7 @@ export function TestPyramidClient() {
         ? "#34d399"
         : "#facc15";
   const unitColor =
-    total === 0
-      ? NEUTRAL_COLOR
-      : state.unit >= state.integration
-        ? "#34d399"
-        : "#facc15";
+    total === 0 ? NEUTRAL_COLOR : state.unit >= state.integration ? "#34d399" : "#facc15";
 
   const promptConfig = useMemo(
     () => ({
@@ -254,17 +269,12 @@ export function TestPyramidClient() {
 
       {inverted && (
         <CalloutAlert tone="danger" className="mb-4">
-          <strong>Inverted pyramid detected:</strong> e2e count ({state.e2e})
-          exceeds unit count ({state.unit}). Slow feedback loops and brittle
-          tests are likely.
+          <strong>Inverted pyramid detected:</strong> e2e count ({state.e2e}) exceeds unit count (
+          {state.unit}). Slow feedback loops and brittle tests are likely.
         </CalloutAlert>
       )}
 
-      <SectionCard
-        title="Test counts"
-        icon={Triangle}
-        className="mb-6 bg-surface border-border"
-      >
+      <SectionCard title="Test counts" icon={Triangle} className="mb-6 bg-surface border-border">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <NumericField
             id="pyramid-unit"
@@ -305,11 +315,7 @@ export function TestPyramidClient() {
         </div>
       </SectionCard>
 
-      <SectionCard
-        title="Pyramid shape"
-        icon={Triangle}
-        className="mb-6 bg-surface border-border"
-      >
+      <SectionCard title="Pyramid shape" icon={Triangle} className="mb-6 bg-surface border-border">
         {total === 0 ? (
           <div className="text-xs text-sub py-6 text-center">
             Enter counts above to render the pyramid.
@@ -345,10 +351,9 @@ export function TestPyramidClient() {
       </SectionCard>
 
       <CalloutAlert tone="info">
-        <strong>How to read this:</strong> a healthy test suite is unit-heavy
-        (60-80% unit), with a thin layer of e2e. The cost estimate uses the
-        relative-cost rule of thumb — unit=1, integration=5, e2e=25 — so a high
-        cost number signals slow feedback loops, not just spend.
+        <strong>How to read this:</strong> a healthy test suite is unit-heavy (60-80% unit), with a
+        thin layer of e2e. The cost estimate uses the relative-cost rule of thumb — unit=1,
+        integration=5, e2e=25 — so a high cost number signals slow feedback loops, not just spend.
       </CalloutAlert>
     </ToolPageWrapper>
   );
@@ -371,9 +376,7 @@ function PyramidBar({
 }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="w-24 text-xs text-sub uppercase tracking-wider shrink-0">
-        {label}
-      </div>
+      <div className="w-24 text-xs text-sub uppercase tracking-wider shrink-0">{label}</div>
       <div className="flex-1 min-w-0 h-8 bg-bg/60 rounded relative overflow-hidden">
         <div
           className="h-full rounded transition-all"
