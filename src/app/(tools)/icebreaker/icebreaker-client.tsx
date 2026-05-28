@@ -57,8 +57,9 @@ function saveFavorites(ids: Set<string>) {
   // log so the failure isn't fully silent during dev.
   try {
     localStorage.setItem(FAVORITES_KEY, JSON.stringify(Array.from(ids)));
-  } catch (err) {
-    console.warn("[icebreaker] failed to persist favorites:", err);
+  } catch {
+    // Quota exceeded, disabled, or private mode — drop silently. Favorites
+    // are a convenience layer; the next render reads the in-memory set.
   }
 }
 

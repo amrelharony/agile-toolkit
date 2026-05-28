@@ -268,8 +268,7 @@ function ShareTab({
             setCopiedToken(token);
             setTimeout(() => setCopiedToken(null), 2000);
           },
-          (err: unknown) => {
-            console.warn("clipboard write failed:", err);
+          () => {
             setCopyError("Couldn't copy to clipboard — link is in the list below.");
           }
         );
@@ -308,8 +307,7 @@ function ShareTab({
         setCopiedToken(token);
         setTimeout(() => setCopiedToken(null), 2000);
       },
-      (err: unknown) => {
-        console.warn("clipboard write failed:", err);
+      () => {
         setCopyError("Couldn't copy to clipboard.");
       }
     );
@@ -655,8 +653,7 @@ function PostMessageTab({
         // would double-count in any subscribers (analytics, server-side
         // webhook forwarders, etc.).
       },
-      (err: unknown) => {
-        console.warn("clipboard write failed:", err);
+      () => {
         setCopyError(
           "Couldn't copy automatically — select the preview text above and copy manually."
         );
