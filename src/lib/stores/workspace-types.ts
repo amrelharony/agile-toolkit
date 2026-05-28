@@ -1000,6 +1000,28 @@ export interface MoodEntry {
   isPlaceholder?: boolean;
 }
 
+export type KanbanColumnId = "backlog" | "ready" | "in_progress" | "review" | "done";
+export type KanbanClassOfService = "standard" | "expedite" | "fixed_date" | "intangible";
+
+/** One card on the kanban board. */
+export interface KanbanCard {
+  id: string;
+  title: string;
+  description?: string;
+  column: KanbanColumnId;
+  class: KanbanClassOfService;
+  createdAt: ISODateString;
+  startedAt?: ISODateString;
+  completedAt?: ISODateString;
+}
+
+/** The kanban board — a singleton document (cards + per-column WIP limits). */
+export interface KanbanBoard {
+  id: string;
+  cards: KanbanCard[];
+  wipLimits: Record<KanbanColumnId, number>;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -1063,6 +1085,8 @@ export interface Workspace {
   // Outcomes & Pulse (squad S6)
   npsResponses?: NpsResponse[];
   moodEntries?: MoodEntry[];
+  // Flow & Delivery (squad S6)
+  kanbanBoards?: KanbanBoard[];
 }
 
 /**

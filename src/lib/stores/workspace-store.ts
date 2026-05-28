@@ -62,6 +62,7 @@ import type {
   BacklogItem,
   NpsResponse,
   MoodEntry,
+  KanbanBoard,
 } from "./workspace-types";
 import { emptyWorkspace } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -187,6 +188,8 @@ interface WorkspaceActions {
   removeNpsResponse: (id: string) => void;
   upsertMoodEntry: (x: MoodEntry) => void;
   removeMoodEntry: (id: string) => void;
+  upsertKanbanBoard: (x: KanbanBoard) => void;
+  removeKanbanBoard: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert. Use this for bulk imports — single-item upserts are O(n)
@@ -1032,6 +1035,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ moodEntries: replaceById(_st.moodEntries ?? [], x) })),
       removeMoodEntry: (id) =>
         set((s) => ({ moodEntries: (s.moodEntries ?? []).filter((y) => y.id !== id) })),
+      upsertKanbanBoard: (x) =>
+        set((_st) => ({ kanbanBoards: replaceById(_st.kanbanBoards ?? [], x) })),
+      removeKanbanBoard: (id) =>
+        set((s) => ({ kanbanBoards: (s.kanbanBoards ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1087,6 +1094,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           backlogItems: s.backlogItems,
           npsResponses: s.npsResponses,
           moodEntries: s.moodEntries,
+          kanbanBoards: s.kanbanBoards,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1176,6 +1184,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           backlogItems: arr("backlogItems"),
           npsResponses: arr("npsResponses"),
           moodEntries: arr("moodEntries"),
+          kanbanBoards: arr("kanbanBoards"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -1466,6 +1475,7 @@ if (typeof window !== "undefined") {
     registerCollection("backlogItem", "backlogItems");
     registerCollection("npsResponse", "npsResponses");
     registerCollection("moodEntry", "moodEntries");
+    registerCollection("kanbanBoard", "kanbanBoards");
     // Phase 22 — Canvas. Whiteboard objects are throttled to 2s pushes
     // because drag operations can dirty hundreds of them per second.
     registerCollection("whiteboard", "whiteboards");
@@ -1565,6 +1575,7 @@ export function getWorkspaceSnapshot(): Workspace {
     backlogItems: state.backlogItems,
     npsResponses: state.npsResponses,
     moodEntries: state.moodEntries,
+    kanbanBoards: state.kanbanBoards,
   };
 }
 

@@ -56,6 +56,8 @@ import type {
   // Outcomes & Pulse (squad S6)
   NpsResponse,
   MoodEntry,
+  // Flow & Delivery (squad S6)
+  KanbanBoard,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -641,6 +643,12 @@ const MoodEntrySchema = z.object({
   isPlaceholder: z.boolean().optional(),
 }) as unknown as z.ZodType<MoodEntry>;
 
+const KanbanBoardSchema = z.object({
+  id: z.string(),
+  cards: z.array(z.record(z.string(), z.unknown())),
+  wipLimits: z.record(z.string(), z.number()),
+}) as unknown as z.ZodType<KanbanBoard>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -829,6 +837,16 @@ defineCrudActions<MoodEntry>({
   upsert: (x) => ws().upsertMoodEntry(x),
   remove: (id) => ws().removeMoodEntry(id),
   generateId: () => `mood_${nanoid(8)}`,
+});
+
+defineCrudActions<KanbanBoard>({
+  toolId: "workspace.kanban_board",
+  entityName: "kanban board",
+  schema: KanbanBoardSchema,
+  selectAll: () => ws().kanbanBoards ?? [],
+  upsert: (x) => ws().upsertKanbanBoard(x),
+  remove: (id) => ws().removeKanbanBoard(id),
+  generateId: () => `kanban_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
