@@ -46,6 +46,7 @@ import type {
   AsyncUpdate,
   StandupEntry,
   SprintReview,
+  RetroBoard,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -525,6 +526,17 @@ const SprintReviewSchema = z.object({
   backlogDone: z.number(),
 }) as unknown as z.ZodType<SprintReview>;
 
+const RetroBoardSchema = z.object({
+  id: z.string(),
+  format: z.record(z.string(), z.unknown()),
+  phase: z.enum(["write", "vote", "discuss", "actions"]),
+  cards: z.array(z.record(z.string(), z.unknown())),
+  userVotes: z.number(),
+  timerSeconds: z.number(),
+  timerRunning: z.boolean(),
+  discussingIndex: z.number(),
+}) as unknown as z.ZodType<RetroBoard>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -633,6 +645,16 @@ defineCrudActions<SprintReview>({
   upsert: (x) => ws().upsertSprintReview(x),
   remove: (id) => ws().removeSprintReview(id),
   generateId: () => `sprintReview_${nanoid(8)}`,
+});
+
+defineCrudActions<RetroBoard>({
+  toolId: "workspace.retro_board",
+  entityName: "retro board",
+  schema: RetroBoardSchema,
+  selectAll: () => ws().retroBoards ?? [],
+  upsert: (x) => ws().upsertRetroBoard(x),
+  remove: (id) => ws().removeRetroBoard(id),
+  generateId: () => `retro_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────

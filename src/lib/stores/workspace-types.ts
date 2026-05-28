@@ -1,3 +1,5 @@
+import type { RetroFormat } from "@/lib/constants/retro-formats";
+
 export type ISODateString = string;
 
 export interface TeamMember {
@@ -834,6 +836,32 @@ export interface SprintReview {
   backlogDone: number;
 }
 
+/** One card on a retrospective board. */
+export interface RetroCard {
+  id: string;
+  columnKey: string;
+  text: string;
+  votes: number;
+  /** id of the parent card when grouped, else null. */
+  groupedWith: string | null;
+  isActionItem: boolean;
+  assignee: string;
+  discussing: boolean;
+}
+
+/** A retrospective board — a singleton document (one current retro under a
+ *  fixed id) holding the format, phase, cards, and timer state. */
+export interface RetroBoard {
+  id: string;
+  format: RetroFormat;
+  phase: "write" | "vote" | "discuss" | "actions";
+  cards: RetroCard[];
+  userVotes: number;
+  timerSeconds: number;
+  timerRunning: boolean;
+  discussingIndex: number;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -887,6 +915,7 @@ export interface Workspace {
   asyncUpdates?: AsyncUpdate[];
   standupEntries?: StandupEntry[];
   sprintReviews?: SprintReview[];
+  retroBoards?: RetroBoard[];
 }
 
 /**
