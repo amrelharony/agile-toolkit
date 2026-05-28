@@ -1045,6 +1045,17 @@ export interface DependencyMap {
   edges: DependencyEdge[];
 }
 
+/** One stage in a value-stream map. processTime + leadTime in the same unit
+ *  (typically days); completeAccurate is the %C/A (0–100) handed downstream. */
+export interface ValueStreamStage {
+  id: string;
+  name: string;
+  description?: string;
+  processTime: number;
+  leadTime: number;
+  completeAccurate: number;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -1111,6 +1122,7 @@ export interface Workspace {
   // Flow & Delivery (squad S6)
   kanbanBoards?: KanbanBoard[];
   dependencyMaps?: DependencyMap[];
+  valueStreamStages?: ValueStreamStage[];
 }
 
 /**

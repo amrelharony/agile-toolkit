@@ -59,6 +59,7 @@ import type {
   // Flow & Delivery (squad S6)
   KanbanBoard,
   DependencyMap,
+  ValueStreamStage,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -656,6 +657,15 @@ const DependencyMapSchema = z.object({
   edges: z.array(z.record(z.string(), z.unknown())),
 }) as unknown as z.ZodType<DependencyMap>;
 
+const ValueStreamStageSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  processTime: z.number(),
+  leadTime: z.number(),
+  completeAccurate: z.number(),
+}) as unknown as z.ZodType<ValueStreamStage>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -864,6 +874,16 @@ defineCrudActions<DependencyMap>({
   upsert: (x) => ws().upsertDependencyMap(x),
   remove: (id) => ws().removeDependencyMap(id),
   generateId: () => `depmap_${nanoid(8)}`,
+});
+
+defineCrudActions<ValueStreamStage>({
+  toolId: "workspace.value_stream_stage",
+  entityName: "value-stream stage",
+  schema: ValueStreamStageSchema,
+  selectAll: () => ws().valueStreamStages ?? [],
+  upsert: (x) => ws().upsertValueStreamStage(x),
+  remove: (id) => ws().removeValueStreamStage(id),
+  generateId: () => `vsstage_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
