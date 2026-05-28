@@ -288,6 +288,97 @@ export interface ModelMigration {
 }
 
 /* ────────────────────────────────────────────────────────────────────
+ * S9 — Security & Compliance entities. Each tool is a singleton doc (one
+ * document per workspace under a fixed id, like kanban), holding the tool's
+ * collection(s). The nested item types are shared with the clients.
+ * ────────────────────────────────────────────────────────────────── */
+
+export type ThreatStride =
+  | "spoofing"
+  | "tampering"
+  | "repudiation"
+  | "information_disclosure"
+  | "denial_of_service"
+  | "elevation_of_privilege";
+export type ThreatStatus = "open" | "mitigating" | "mitigated" | "accepted";
+
+export interface Threat {
+  id: string;
+  service: string;
+  category: ThreatStride;
+  /** 1 (low) … 5 (critical). */
+  severity: number;
+  status: ThreatStatus;
+  mitigation?: string;
+  raisedAt: ISODateString;
+  mitigatedAt?: string;
+  description?: string;
+}
+
+export interface ThreatModel {
+  id: string;
+  threats: Threat[];
+}
+
+export type VulnSeverity = "critical" | "high" | "medium" | "low";
+export type VulnStatus = "open" | "in_progress" | "resolved" | "accepted";
+
+export interface Vulnerability {
+  id: string;
+  cve?: string;
+  severity: VulnSeverity;
+  status: VulnStatus;
+  openedAt: ISODateString;
+  resolvedAt?: string;
+  slaTargetDays: number;
+  owner?: string;
+  description?: string;
+}
+
+export interface VulnBurndown {
+  id: string;
+  vulns: Vulnerability[];
+}
+
+export type ControlFramework = "soc2" | "iso27001" | "hipaa" | "gdpr" | "custom";
+export type ControlStatus = "not_started" | "in_progress" | "implemented" | "verified";
+
+export interface ComplianceControl {
+  id: string;
+  controlId: string;
+  framework: ControlFramework;
+  title: string;
+  owner?: string;
+  status: ControlStatus;
+  evidenceLinks: string[];
+  description?: string;
+}
+
+export interface ControlMap {
+  id: string;
+  controls: ComplianceControl[];
+}
+
+export type A11ySeverity = "critical" | "serious" | "moderate" | "minor";
+export type A11yStatus = "open" | "in_progress" | "resolved";
+
+export interface A11yIssue {
+  id: string;
+  component: string;
+  wcagCriterion: string;
+  severity: A11ySeverity;
+  status: A11yStatus;
+  openedAt: ISODateString;
+  resolvedAt?: string;
+  description?: string;
+}
+
+export interface A11yTracker {
+  id: string;
+  issues: A11yIssue[];
+}
+
+/* ────────────────────────────────────────────────────────────────────
  * Phase 20 — Prioritization Frameworks entities
  * ────────────────────────────────────────────────────────────────── */
 
@@ -1127,6 +1218,11 @@ export interface Workspace {
   aiFeatureSpecs?: AiFeatureSpec[];
   aiSafetyChecklists?: AiSafetyChecklist[];
   modelMigrations?: ModelMigration[];
+  // S9 — Security & Compliance (singleton docs)
+  threatModels?: ThreatModel[];
+  vulnBurndowns?: VulnBurndown[];
+  controlMaps?: ControlMap[];
+  a11yTrackers?: A11yTracker[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -1324,6 +1420,11 @@ export const emptyWorkspace: Workspace = {
   aiFeatureSpecs: [],
   aiSafetyChecklists: [],
   modelMigrations: [],
+  // S9 — Security & Compliance
+  threatModels: [],
+  vulnBurndowns: [],
+  controlMaps: [],
+  a11yTrackers: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

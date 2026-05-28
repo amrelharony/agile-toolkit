@@ -39,6 +39,11 @@ import type {
   AiFeatureSpec,
   AiSafetyChecklist,
   ModelMigration,
+  // S9 — Security & Compliance
+  ThreatModel,
+  VulnBurndown,
+  ControlMap,
+  A11yTracker,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -557,6 +562,123 @@ defineCrudActions<ModelMigration>({
   upsert: (x) => ws().upsertModelMigration(x),
   remove: (id) => ws().removeModelMigration(id),
   generateId: () => `modelMigration_${nanoid(8)}`,
+});
+
+/* ── S9 — Security & Compliance (singleton-doc tools). ThreatModel holds a
+ * threats[] array under a fixed id (see SINGLETON_ID in the tool action
+ * file); the nested Threat shape rides through as a typed array schema. */
+
+const ThreatSchema = z.object({
+  id: z.string(),
+  service: z.string(),
+  category: z.enum([
+    "spoofing",
+    "tampering",
+    "repudiation",
+    "information_disclosure",
+    "denial_of_service",
+    "elevation_of_privilege",
+  ]),
+  severity: z.number(),
+  status: z.enum(["open", "mitigating", "mitigated", "accepted"]),
+  mitigation: z.string().optional(),
+  raisedAt: z.string(),
+  mitigatedAt: z.string().optional(),
+  description: z.string().optional(),
+});
+
+const ThreatModelSchema = z.object({
+  id: z.string(),
+  threats: z.array(ThreatSchema),
+}) as unknown as z.ZodType<ThreatModel>;
+
+defineCrudActions<ThreatModel>({
+  toolId: "workspace.threat_model",
+  entityName: "threat model",
+  schema: ThreatModelSchema,
+  selectAll: () => ws().threatModels ?? [],
+  upsert: (x) => ws().upsertThreatModel(x),
+  remove: (id) => ws().removeThreatModel(id),
+  generateId: () => `threatModel_${nanoid(8)}`,
+});
+
+const VulnSchema = z.object({
+  id: z.string(),
+  cve: z.string().optional(),
+  severity: z.enum(["critical", "high", "medium", "low"]),
+  status: z.enum(["open", "in_progress", "resolved", "accepted"]),
+  openedAt: z.string(),
+  resolvedAt: z.string().optional(),
+  slaTargetDays: z.number(),
+  owner: z.string().optional(),
+  description: z.string().optional(),
+});
+
+const VulnBurndownSchema = z.object({
+  id: z.string(),
+  vulns: z.array(VulnSchema),
+}) as unknown as z.ZodType<VulnBurndown>;
+
+const ComplianceControlSchema = z.object({
+  id: z.string(),
+  controlId: z.string(),
+  framework: z.enum(["soc2", "iso27001", "hipaa", "gdpr", "custom"]),
+  title: z.string(),
+  owner: z.string().optional(),
+  status: z.enum(["not_started", "in_progress", "implemented", "verified"]),
+  evidenceLinks: z.array(z.string()),
+  description: z.string().optional(),
+});
+
+const ControlMapSchema = z.object({
+  id: z.string(),
+  controls: z.array(ComplianceControlSchema),
+}) as unknown as z.ZodType<ControlMap>;
+
+const A11yIssueSchema = z.object({
+  id: z.string(),
+  component: z.string(),
+  wcagCriterion: z.string(),
+  severity: z.enum(["critical", "serious", "moderate", "minor"]),
+  status: z.enum(["open", "in_progress", "resolved"]),
+  openedAt: z.string(),
+  resolvedAt: z.string().optional(),
+  description: z.string().optional(),
+});
+
+const A11yTrackerSchema = z.object({
+  id: z.string(),
+  issues: z.array(A11yIssueSchema),
+}) as unknown as z.ZodType<A11yTracker>;
+
+defineCrudActions<VulnBurndown>({
+  toolId: "workspace.vuln_burndown",
+  entityName: "vulnerability burndown",
+  schema: VulnBurndownSchema,
+  selectAll: () => ws().vulnBurndowns ?? [],
+  upsert: (x) => ws().upsertVulnBurndown(x),
+  remove: (id) => ws().removeVulnBurndown(id),
+  generateId: () => `vulnBurndown_${nanoid(8)}`,
+});
+
+defineCrudActions<ControlMap>({
+  toolId: "workspace.control_map",
+  entityName: "compliance control map",
+  schema: ControlMapSchema,
+  selectAll: () => ws().controlMaps ?? [],
+  upsert: (x) => ws().upsertControlMap(x),
+  remove: (id) => ws().removeControlMap(id),
+  generateId: () => `controlMap_${nanoid(8)}`,
+});
+
+defineCrudActions<A11yTracker>({
+  toolId: "workspace.a11y_tracker",
+  entityName: "accessibility tracker",
+  schema: A11yTrackerSchema,
+  selectAll: () => ws().a11yTrackers ?? [],
+  upsert: (x) => ws().upsertA11yTracker(x),
+  remove: (id) => ws().removeA11yTracker(id),
+  generateId: () => `a11yTracker_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
