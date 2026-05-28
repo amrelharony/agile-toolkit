@@ -1,3 +1,5 @@
+import type { RetroFormat } from "@/lib/constants/retro-formats";
+
 export type ISODateString = string;
 
 export interface TeamMember {
@@ -745,6 +747,121 @@ export interface WhiteboardSavedTemplate {
   createdBy?: string;
 }
 
+// ── Ceremonies (squad S3) ───────────────────────────────────────────
+/** One cross-team coordination entry in the Scrum of Scrums log. */
+export interface SosEntry {
+  id: string;
+  meetingDate: ISODateString;
+  team: string;
+  kind: "blocker" | "dependency" | "decision" | "update";
+  text: string;
+  blockedBy?: string;
+  status: "open" | "resolved";
+  resolvedAt?: ISODateString;
+  /** Creation timestamp — drives stable newest-first ordering now that
+   *  entries live in the insertion-ordered workspace store rather than a
+   *  prepend-ordered local array. */
+  loggedAt: ISODateString;
+}
+
+/** One member's async daily standup update. */
+export interface AsyncUpdate {
+  id: string;
+  member: string;
+  /** YYYY-MM-DD (local). */
+  date: ISODateString;
+  yesterday: string;
+  today: string;
+  blockers?: string;
+  description?: string;
+}
+
+/** One member's daily standup entry. */
+export interface StandupEntry {
+  id: string;
+  member: string;
+  /** YYYY-MM-DD (local). */
+  date: ISODateString;
+  yesterday: string;
+  today: string;
+  blockers: string;
+  /** Epoch ms the entry (and its blocker) was first raised. Preserved
+   *  across edits so blocker-age analytics don't reset. */
+  timestamp: number;
+  /** True once this entry's blocker has been marked resolved. Folds in the
+   *  old standalone resolvedBlockers[] list from the isolated store. */
+  blockerResolved?: boolean;
+}
+
+/** A demo item in a sprint review's demo script. */
+export interface DemoFeature {
+  id: string;
+  name: string;
+  description: string;
+  acceptanceCriteria: string;
+  timeMinutes: number;
+}
+
+export type FeedbackCategory = "positive" | "concern" | "suggestion";
+
+/** One piece of stakeholder feedback captured during a sprint review. */
+export interface FeedbackItem {
+  id: string;
+  stakeholder: string;
+  feedback: string;
+  category: FeedbackCategory;
+}
+
+/** A showcase-prep checklist item. */
+export interface ChecklistItem {
+  id: string;
+  label: string;
+  checked: boolean;
+}
+
+/** A sprint review session — a document holding its demo script, stakeholder
+ *  feedback, showcase checklist, and velocity summary. The tool is a
+ *  singleton, so there is normally one row under a fixed id. */
+export interface SprintReview {
+  id: string;
+  sprintName: string;
+  sprintNumber: string;
+  features: DemoFeature[];
+  meetingDate: string;
+  feedbackItems: FeedbackItem[];
+  checklistItems: ChecklistItem[];
+  committed: number;
+  completed: number;
+  totalBacklog: number;
+  backlogDone: number;
+}
+
+/** One card on a retrospective board. */
+export interface RetroCard {
+  id: string;
+  columnKey: string;
+  text: string;
+  votes: number;
+  /** id of the parent card when grouped, else null. */
+  groupedWith: string | null;
+  isActionItem: boolean;
+  assignee: string;
+  discussing: boolean;
+}
+
+/** A retrospective board — a singleton document (one current retro under a
+ *  fixed id) holding the format, phase, cards, and timer state. */
+export interface RetroBoard {
+  id: string;
+  format: RetroFormat;
+  phase: "write" | "vote" | "discuss" | "actions";
+  cards: RetroCard[];
+  userVotes: number;
+  timerSeconds: number;
+  timerRunning: boolean;
+  discussingIndex: number;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -793,6 +910,12 @@ export interface Workspace {
   /** Squad-interactive kudos wall — rolling 500-entry cap to bound
    *  localStorage growth (see workspace-store.upsertKudos). */
   kudos?: Kudos[];
+  // Ceremonies (squad S3)
+  sosEntries?: SosEntry[];
+  asyncUpdates?: AsyncUpdate[];
+  standupEntries?: StandupEntry[];
+  sprintReviews?: SprintReview[];
+  retroBoards?: RetroBoard[];
 }
 
 /**

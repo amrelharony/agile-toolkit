@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { safeJSONStorage } from "@/lib/stores/safe-storage";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { StandupEntry } from "@/lib/stores/workspace-types";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -31,116 +31,6 @@ import {
   Calendar,
   FileText,
 } from "lucide-react";
-
-/* -------------------------------------------------------------------------- */
-/*  Types                                                                     */
-/* -------------------------------------------------------------------------- */
-
-interface StandupEntry {
-  id: string;
-  member: string;
-  date: string; // YYYY-MM-DD
-  yesterday: string;
-  today: string;
-  blockers: string;
-  timestamp: number;
-}
-
-interface StandupStore {
-  members: string[];
-  entries: StandupEntry[];
-  addMember: (name: string) => void;
-  removeMember: (name: string) => void;
-  addEntry: (entry: Omit<StandupEntry, "id" | "timestamp">) => void;
-  /**
-   * Returns true if an entry with the same (member, date) already exists.
-   * Lets the form prompt the user before overwriting.
-   */
-  hasEntry: (member: string, date: string) => boolean;
-  /**
-   * Replaces the existing (member, date) entry with the new content; falls
-   * back to addEntry behavior if no match is found.
-   */
-  upsertEntry: (entry: Omit<StandupEntry, "id" | "timestamp">) => void;
-  resolveBlocker: (entryId: string) => void;
-  resolvedBlockers: string[]; // entry IDs whose blockers are resolved
-  reset: () => void;
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Store                                                                     */
-/* -------------------------------------------------------------------------- */
-
-const useStandupStore = create<StandupStore>()(
-  persist(
-    (set, get) => ({
-      members: ["Alice", "Bob", "Carol"],
-      entries: [],
-      resolvedBlockers: [],
-
-      addMember: (name) =>
-        set((s) => {
-          // BUG-T8-standup-2: case-insensitive + trimmed dedup so
-          // "Alice", "alice", "Alice " don't all create separate
-          // members. Canonicalize on insert (preserve user's casing
-          // for the first time the name appears).
-          const norm = name.trim().toLowerCase();
-          if (!norm) return s;
-          if (s.members.some((m) => m.trim().toLowerCase() === norm)) {
-            return s;
-          }
-          return { members: [...s.members, name.trim()] };
-        }),
-
-      removeMember: (name) =>
-        set((s) => ({
-          members: s.members.filter((m) => m.trim().toLowerCase() !== name.trim().toLowerCase()),
-        })),
-
-      addEntry: (entry) =>
-        set((s) => ({
-          entries: [...s.entries, { ...entry, id: crypto.randomUUID(), timestamp: Date.now() }],
-        })),
-
-      hasEntry: (member, date) => get().entries.some((e) => e.member === member && e.date === date),
-
-      upsertEntry: (entry) =>
-        set((s) => {
-          const idx = s.entries.findIndex(
-            (e) => e.member === entry.member && e.date === entry.date
-          );
-          if (idx === -1) {
-            return {
-              entries: [...s.entries, { ...entry, id: crypto.randomUUID(), timestamp: Date.now() }],
-            };
-          }
-          // BUG-T8-standup-3: PRESERVE the original `timestamp` (the
-          // moment the blocker was raised). The prior pattern refreshed
-          // it on every edit, which flipped the Blockers tab's age
-          // color back to green and silently reset blocker-age
-          // analytics. If we want an updated-at marker, add a separate
-          // `updatedAt` field rather than reusing the raise timestamp.
-          const next = s.entries.slice();
-          next[idx] = {
-            ...entry,
-            id: s.entries[idx].id,
-            timestamp: s.entries[idx].timestamp,
-          };
-          return { entries: next };
-        }),
-
-      resolveBlocker: (entryId) =>
-        set((s) => ({
-          resolvedBlockers: s.resolvedBlockers.includes(entryId)
-            ? s.resolvedBlockers
-            : [...s.resolvedBlockers, entryId],
-        })),
-
-      reset: () => set({ entries: [], resolvedBlockers: [] }),
-    }),
-    { name: "agile-toolkit:standup", storage: safeJSONStorage("standup") }
-  )
-);
 
 /* -------------------------------------------------------------------------- */
 /*  Helpers                                                                   */
@@ -605,18 +495,55 @@ function BlockersTab({
 /* -------------------------------------------------------------------------- */
 
 export function StandupClient() {
-  const {
-    members,
-    entries,
-    resolvedBlockers,
-    addMember,
-    removeMember,
-    addEntry,
-    hasEntry,
-    upsertEntry,
-    resolveBlocker,
-    reset: resetRaw,
-  } = useStandupStore();
+  const entries = useWorkspaceStore(useShallow((s) => s.standupEntries ?? []));
+  const teamMembers = useWorkspaceStore(useShallow((s) => s.teamMembers ?? []));
+  const upsertStandupEntry = useWorkspaceStore((s) => s.upsertStandupEntry);
+  const upsertTeamMember = useWorkspaceStore((s) => s.upsertTeamMember);
+  const removeTeamMember = useWorkspaceStore((s) => s.removeTeamMember);
+
+  // Roster is unified with the workspace team (shared across tools).
+  const members = useMemo(() => teamMembers.map((m) => m.name), [teamMembers]);
+  // resolvedBlockers folds into the entity now; derive the id list the
+  // subcomponents still consume so their props stay unchanged.
+  const resolvedBlockers = useMemo(
+    () => entries.filter((e) => e.blockerResolved).map((e) => e.id),
+    [entries]
+  );
+
+  const addMember = (name: string) => {
+    const norm = name.trim().toLowerCase();
+    if (!norm) return;
+    if (teamMembers.some((m) => m.name.trim().toLowerCase() === norm)) return;
+    upsertTeamMember({ id: `member_${crypto.randomUUID()}`, name: name.trim() });
+  };
+  const removeMember = (name: string) => {
+    const norm = name.trim().toLowerCase();
+    const tm = teamMembers.find((m) => m.name.trim().toLowerCase() === norm);
+    if (tm) removeTeamMember(tm.id);
+  };
+  const hasEntry = (member: string, date: string) =>
+    entries.some((e) => e.member === member && e.date === date);
+  const addEntry = (entry: Omit<StandupEntry, "id" | "timestamp">) =>
+    upsertStandupEntry({ ...entry, id: crypto.randomUUID(), timestamp: Date.now() });
+  const upsertEntry = (entry: Omit<StandupEntry, "id" | "timestamp">) => {
+    const existing = entries.find((e) => e.member === entry.member && e.date === entry.date);
+    // Preserve the original id + raise timestamp + resolved flag on edit.
+    upsertStandupEntry(
+      existing
+        ? {
+            ...entry,
+            id: existing.id,
+            timestamp: existing.timestamp,
+            blockerResolved: existing.blockerResolved,
+          }
+        : { ...entry, id: crypto.randomUUID(), timestamp: Date.now() }
+    );
+  };
+  const resolveBlocker = (entryId: string) => {
+    const e = entries.find((x) => x.id === entryId);
+    if (e) upsertStandupEntry({ ...e, blockerResolved: true });
+  };
+  const resetRaw = () => useWorkspaceStore.setState({ standupEntries: [] });
   const { log } = useHistoryLogger("standup");
 
   // Form state — split into two non-fighting fields: a select for picking an

@@ -13,7 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Mail, Plus, Trash2, AlertTriangle, Users, Calendar, FileDown } from "lucide-react";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { AsyncUpdate } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ASYNC_STANDUP_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
@@ -23,18 +25,6 @@ import { generateAsyncStandupPrompts } from "@/lib/ai-prompts/async-standup";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { copyToClipboard } from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
-
-interface AsyncUpdate {
-  id: string;
-  member: string;
-  date: string; // YYYY-MM-DD (local)
-  yesterday: string;
-  today: string;
-  blockers?: string;
-  description?: string;
-}
-
-const STORAGE_KEY = "agile-toolkit:async-standup";
 
 /** Flatten user-typed newlines so they don't break a markdown bullet's
  * single-line layout when copied to Slack/email. */
@@ -89,7 +79,9 @@ function last14Days(endISO: string): string[] {
 }
 
 export function AsyncStandupClient() {
-  const [updates, setUpdates] = usePersisted<AsyncUpdate[]>(STORAGE_KEY, []);
+  const updates = useWorkspaceStore(useShallow((s) => s.asyncUpdates ?? []));
+  const upsertAsyncUpdate = useWorkspaceStore((s) => s.upsertAsyncUpdate);
+  const removeAsyncUpdate = useWorkspaceStore((s) => s.removeAsyncUpdate);
   const { log } = useHistoryLogger("async-standup");
 
   const [member, setMember] = useState("");
@@ -163,7 +155,7 @@ export function AsyncStandupClient() {
       blockers: blk.length > 0 ? blk : undefined,
       description: desc.length > 0 ? desc : undefined,
     };
-    setUpdates((s) => [...s, upd]);
+    upsertAsyncUpdate(upd);
     log(ASYNC_STANDUP_ACTIONS.UPDATE_POSTED, {
       updateId: id,
       member: upd.member,
@@ -179,7 +171,7 @@ export function AsyncStandupClient() {
 
   const removeUpdate = (id: string) => {
     const u = updates.find((x) => x.id === id);
-    setUpdates((s) => s.filter((x) => x.id !== id));
+    removeAsyncUpdate(id);
     log(ASYNC_STANDUP_ACTIONS.UPDATE_REMOVED, {
       updateId: id,
       member: u?.member,

@@ -20,8 +20,7 @@ import { Plus, Trash2, GitBranch } from "lucide-react";
 import { generateScrumOfScrumsPrompts } from "@/lib/ai-prompts/scrum-of-scrums";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import type { Workspace, SosEntry } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SCRUM_OF_SCRUMS_ACTIONS } from "@/lib/history/event-actions";
@@ -30,18 +29,7 @@ import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { CalloutAlert } from "@/components/shared/callout-alert";
 
-type EntryKind = "blocker" | "dependency" | "decision" | "update";
-
-interface SosEntry {
-  id: string;
-  meetingDate: string;
-  team: string;
-  kind: EntryKind;
-  text: string;
-  blockedBy?: string;
-  status: "open" | "resolved";
-  resolvedAt?: string;
-}
+type EntryKind = SosEntry["kind"];
 
 const KIND_COLORS: Record<EntryKind, string> = {
   blocker: "#ef4444",
@@ -58,6 +46,7 @@ function empty(): SosEntry {
     kind: "update",
     text: "",
     status: "open",
+    loggedAt: new Date().toISOString(),
   };
 }
 
@@ -77,37 +66,40 @@ function ageDays(e: SosEntry): number | null {
 }
 
 export function ScrumOfScrumsClient() {
-  const [entries, setEntries] = usePersisted<SosEntry[]>("agile-toolkit:scrum-of-scrums", []);
+  const sosEntries = useWorkspaceStore(useShallow((s) => s.sosEntries ?? []));
+  const upsertSosEntry = useWorkspaceStore((s) => s.upsertSosEntry);
+  const removeSosEntry = useWorkspaceStore((s) => s.removeSosEntry);
+  // Entries live in the insertion-ordered workspace store; sort by creation
+  // time to preserve the newest-first ordering the prepend-array UI had.
+  const entries = useMemo(
+    () => [...sosEntries].sort((a, b) => (b.loggedAt ?? "").localeCompare(a.loggedAt ?? "")),
+    [sosEntries]
+  );
   const [draft, setDraft] = useState<SosEntry>(() => empty());
   const { log } = useHistoryLogger("scrum-of-scrums");
 
   const add = () => {
     if (!draft.text.trim() || !draft.team.trim()) return;
-    setEntries((s) => [draft, ...s]);
-    if (draft.kind === "blocker") {
+    const entry: SosEntry = { ...draft, loggedAt: new Date().toISOString() };
+    upsertSosEntry(entry);
+    if (entry.kind === "blocker") {
       log(SCRUM_OF_SCRUMS_ACTIONS.IMPEDIMENT_RAISED, {
-        team: draft.team,
-        text: draft.text,
+        team: entry.team,
+        text: entry.text,
       });
     } else {
       log(SCRUM_OF_SCRUMS_ACTIONS.TEAM_UPDATE_ADDED, {
-        team: draft.team,
-        kind: draft.kind,
+        team: entry.team,
+        kind: entry.kind,
       });
     }
     setDraft(empty());
   };
   const update = (id: string, patch: Partial<SosEntry>) => {
-    // Compute prev BEFORE the functional setter — React 18 batches the
-    // updater into the next render, so reading `logPayload` synchronously
-    // after `setEntries(...)` previously saw `null` 100% of the time.
-    // Status-change events were silently dropped from the history log.
-    // The trade-off is that we miss "freshest" entries if two concurrent
-    // update() calls race, but that's only relevant for the same id (which
-    // can't happen for status changes anyway — the UI gates on the row).
     const prev = entries.find((e) => e.id === id);
-    setEntries((curr) => curr.map((e) => (e.id === id ? { ...e, ...patch } : e)));
-    if (patch.status && prev && patch.status !== prev.status) {
+    if (!prev) return;
+    upsertSosEntry({ ...prev, ...patch });
+    if (patch.status && patch.status !== prev.status) {
       log(SCRUM_OF_SCRUMS_ACTIONS.TEAM_UPDATE_ADDED, {
         team: prev.team,
         kind: prev.kind,
@@ -117,7 +109,7 @@ export function ScrumOfScrumsClient() {
   };
   const remove = (id: string) => {
     const entry = entries.find((e) => e.id === id);
-    setEntries((s) => s.filter((e) => e.id !== id));
+    removeSosEntry(id);
     log(SCRUM_OF_SCRUMS_ACTIONS.TEAM_UPDATE_REMOVED, {
       team: entry?.team,
       kind: entry?.kind,

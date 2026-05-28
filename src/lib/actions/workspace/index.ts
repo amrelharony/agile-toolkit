@@ -41,6 +41,12 @@ import type {
   OODACycle,
   CynefinItem,
   Polarity,
+  // Ceremonies (squad S3)
+  SosEntry,
+  AsyncUpdate,
+  StandupEntry,
+  SprintReview,
+  RetroBoard,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -372,8 +378,17 @@ defineCrudActions<RedTeamFinding>({
 const PrioritizationItemSchema = z.object({
   id: z.string(),
   framework: z.enum([
-    "rice", "ice", "moscow", "kano", "wsjf", "cost-of-delay",
-    "value-effort", "buy-feature", "hundred-dollar", "eisenhower", "walking-skeleton",
+    "rice",
+    "ice",
+    "moscow",
+    "kano",
+    "wsjf",
+    "cost-of-delay",
+    "value-effort",
+    "buy-feature",
+    "hundred-dollar",
+    "eisenhower",
+    "walking-skeleton",
   ]),
   title: z.string(),
   description: z.string().optional(),
@@ -464,6 +479,64 @@ const PolaritySchema = z.object({
   deeperFear: z.string().optional(),
 }) as unknown as z.ZodType<Polarity>;
 
+const SosEntrySchema = z.object({
+  id: z.string(),
+  meetingDate: z.string(),
+  team: z.string(),
+  kind: z.enum(["blocker", "dependency", "decision", "update"]),
+  text: z.string(),
+  blockedBy: z.string().optional(),
+  status: z.enum(["open", "resolved"]),
+  resolvedAt: z.string().optional(),
+  loggedAt: z.string(),
+}) as unknown as z.ZodType<SosEntry>;
+
+const AsyncUpdateSchema = z.object({
+  id: z.string(),
+  member: z.string(),
+  date: z.string(),
+  yesterday: z.string(),
+  today: z.string(),
+  blockers: z.string().optional(),
+  description: z.string().optional(),
+}) as unknown as z.ZodType<AsyncUpdate>;
+
+const StandupEntrySchema = z.object({
+  id: z.string(),
+  member: z.string(),
+  date: z.string(),
+  yesterday: z.string(),
+  today: z.string(),
+  blockers: z.string(),
+  timestamp: z.number(),
+  blockerResolved: z.boolean().optional(),
+}) as unknown as z.ZodType<StandupEntry>;
+
+const SprintReviewSchema = z.object({
+  id: z.string(),
+  sprintName: z.string(),
+  sprintNumber: z.string(),
+  features: z.array(z.record(z.string(), z.unknown())),
+  meetingDate: z.string(),
+  feedbackItems: z.array(z.record(z.string(), z.unknown())),
+  checklistItems: z.array(z.record(z.string(), z.unknown())),
+  committed: z.number(),
+  completed: z.number(),
+  totalBacklog: z.number(),
+  backlogDone: z.number(),
+}) as unknown as z.ZodType<SprintReview>;
+
+const RetroBoardSchema = z.object({
+  id: z.string(),
+  format: z.record(z.string(), z.unknown()),
+  phase: z.enum(["write", "vote", "discuss", "actions"]),
+  cards: z.array(z.record(z.string(), z.unknown())),
+  userVotes: z.number(),
+  timerSeconds: z.number(),
+  timerRunning: z.boolean(),
+  discussingIndex: z.number(),
+}) as unknown as z.ZodType<RetroBoard>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -532,6 +605,56 @@ defineCrudActions<Polarity>({
   upsert: (x) => ws().upsertPolarity(x),
   remove: (id) => ws().removePolarity(id),
   generateId: () => `polarity_${nanoid(8)}`,
+});
+
+defineCrudActions<SosEntry>({
+  toolId: "workspace.sos_entry",
+  entityName: "Scrum of Scrums entry",
+  schema: SosEntrySchema,
+  selectAll: () => ws().sosEntries ?? [],
+  upsert: (x) => ws().upsertSosEntry(x),
+  remove: (id) => ws().removeSosEntry(id),
+  generateId: () => `sos_${nanoid(8)}`,
+});
+
+defineCrudActions<AsyncUpdate>({
+  toolId: "workspace.async_update",
+  entityName: "async standup update",
+  schema: AsyncUpdateSchema,
+  selectAll: () => ws().asyncUpdates ?? [],
+  upsert: (x) => ws().upsertAsyncUpdate(x),
+  remove: (id) => ws().removeAsyncUpdate(id),
+  generateId: () => `async_${nanoid(8)}`,
+});
+
+defineCrudActions<StandupEntry>({
+  toolId: "workspace.standup_entry",
+  entityName: "standup entry",
+  schema: StandupEntrySchema,
+  selectAll: () => ws().standupEntries ?? [],
+  upsert: (x) => ws().upsertStandupEntry(x),
+  remove: (id) => ws().removeStandupEntry(id),
+  generateId: () => `standup_${nanoid(8)}`,
+});
+
+defineCrudActions<SprintReview>({
+  toolId: "workspace.sprint_review",
+  entityName: "sprint review",
+  schema: SprintReviewSchema,
+  selectAll: () => ws().sprintReviews ?? [],
+  upsert: (x) => ws().upsertSprintReview(x),
+  remove: (id) => ws().removeSprintReview(id),
+  generateId: () => `sprintReview_${nanoid(8)}`,
+});
+
+defineCrudActions<RetroBoard>({
+  toolId: "workspace.retro_board",
+  entityName: "retro board",
+  schema: RetroBoardSchema,
+  selectAll: () => ws().retroBoards ?? [],
+  upsert: (x) => ws().upsertRetroBoard(x),
+  remove: (id) => ws().removeRetroBoard(id),
+  generateId: () => `retro_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
