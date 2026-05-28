@@ -1,9 +1,6 @@
 "use client";
 
 import { useRef, useMemo, useState, useEffect } from "react";
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -20,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Users, Plus, Trash2, Clock, Zap, UserCheck, Settings2, Target } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { CapacityPlan } from "@/lib/stores/workspace-types";
 import { bayesianForecastConfidence } from "@/lib/analytics/forecasting-bayesian";
 import { hasRecentChangepoint } from "@/lib/analytics/changepoint";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
@@ -92,31 +90,51 @@ const defaultFirstMember: TeamMember = {
   daysOff: 0,
 };
 
-const useCapacityStore = create<CapacityStore>()(
-  persist(
-    (set) => ({
-      members: [defaultFirstMember],
-      config: { ...defaultConfig },
+// Capacity-planner state is now a singleton synced workspace document (was an
+// isolated localStorage store), so MCP-written plans round-trip into the UI.
+// `useCapacityStore` keeps the exact CapacityStore API the component consumes;
+// each mutator reads the freshest doc via getState() to avoid clobbering.
+// MUST match CP_ID in src/lib/actions/tools/capacity-planner.ts.
+const CP_ID = "capacity-planner:current";
 
-      addMember: () => set((s) => ({ members: [...s.members, createMember()] })),
+function defaultPlan(): CapacityPlan {
+  return { id: CP_ID, members: [defaultFirstMember], config: { ...defaultConfig } };
+}
 
-      removeMember: (id) =>
-        set((s) => ({
-          members: s.members.filter((m) => m.id !== id),
-        })),
+function currentPlan(): CapacityPlan {
+  return (
+    (useWorkspaceStore.getState().capacityPlans ?? []).find((p) => p.id === CP_ID) ?? defaultPlan()
+  );
+}
 
-      updateMember: (id, updates) =>
-        set((s) => ({
-          members: s.members.map((m) => (m.id === id ? { ...m, ...updates } : m)),
-        })),
-
-      updateConfig: (updates) => set((s) => ({ config: { ...s.config, ...updates } })),
-
-      reset: () => set({ members: [createMember()], config: { ...defaultConfig } }),
-    }),
-    { name: "agile-toolkit:capacity-planner", storage: safeJSONStorage("capacity-planner") }
-  )
-);
+function useCapacityStore(): CapacityStore {
+  const plan = useWorkspaceStore(
+    useShallow((s) => (s.capacityPlans ?? []).find((p) => p.id === CP_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertCapacityPlan);
+  const cur = plan ?? defaultPlan();
+  return {
+    members: cur.members,
+    config: cur.config,
+    addMember: () =>
+      upsert({ ...currentPlan(), members: [...currentPlan().members, createMember()] }),
+    removeMember: (id) =>
+      upsert({ ...currentPlan(), members: currentPlan().members.filter((m) => m.id !== id) }),
+    updateMember: (id, updates) =>
+      upsert({
+        ...currentPlan(),
+        members: currentPlan().members.map((m) => (m.id === id ? { ...m, ...updates } : m)),
+      }),
+    updateConfig: (updates) =>
+      upsert({ ...currentPlan(), config: { ...currentPlan().config, ...updates } }),
+    reset: () => upsert({ id: CP_ID, members: [createMember()], config: { ...defaultConfig } }),
+  };
+}
+// Non-reactive snapshot of members — used by the addMember log wrapper to read
+// the just-appended member synchronously after the upsert.
+useCapacityStore.getState = (): Pick<CapacityStore, "members"> => ({
+  members: currentPlan().members,
+});
 
 /* -------------------------------------------------------------------------- */
 /*  Helpers                                                                   */

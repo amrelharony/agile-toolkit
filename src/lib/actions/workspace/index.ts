@@ -44,6 +44,7 @@ import type {
   // Sprint Planning (squad S1)
   SprintGoal,
   JobStory,
+  CapacityPlan,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -493,6 +494,27 @@ const JobStorySchema = z.object({
   description: z.string().optional(),
 }) as unknown as z.ZodType<JobStory>;
 
+const CapacityPlanSchema = z.object({
+  id: z.string(),
+  members: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      role: z.string(),
+      description: z.string().optional(),
+      availability: z.number(),
+      daysOff: z.number(),
+    })
+  ),
+  config: z.object({
+    sprintDays: z.number(),
+    ceremonyOverhead: z.number(),
+    focusFactor: z.number(),
+    hoursPerDay: z.number(),
+    pointsCommitted: z.string(),
+  }),
+}) as unknown as z.ZodType<CapacityPlan>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -581,6 +603,16 @@ defineCrudActions<JobStory>({
   upsert: (x) => ws().upsertJobStory(x),
   remove: (id) => ws().removeJobStory(id),
   generateId: () => `job_${nanoid(8)}`,
+});
+
+defineCrudActions<CapacityPlan>({
+  toolId: "workspace.capacity_plan",
+  entityName: "capacity plan",
+  schema: CapacityPlanSchema,
+  selectAll: () => ws().capacityPlans ?? [],
+  upsert: (x) => ws().upsertCapacityPlan(x),
+  remove: (id) => ws().removeCapacityPlan(id),
+  generateId: () => `capacityPlan_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────

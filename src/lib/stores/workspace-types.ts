@@ -775,6 +775,39 @@ export interface JobStory {
   description?: string;
 }
 
+/** A capacity-planner team member. Distinct from the lean workspace
+ *  TeamMember — carries sprint-capacity fields (availability, daysOff). */
+export interface CapacityMember {
+  id: string;
+  name: string;
+  role: string;
+  description?: string;
+  /** 0–100 percent. */
+  availability: number;
+  daysOff: number;
+}
+
+/** Sprint configuration for a capacity plan. */
+export interface CapacityConfig {
+  sprintDays: number;
+  /** 0–100 percent. */
+  ceremonyOverhead: number;
+  /** 0–1. */
+  focusFactor: number;
+  hoursPerDay: number;
+  /** Planned commitment in points, stored as a string so the input can be
+   *  cleared without coercing to NaN/0 mid-edit. */
+  pointsCommitted: string;
+}
+
+/** The capacity planner's state — a singleton document (one plan under a
+ *  fixed id): the team members and the sprint config. */
+export interface CapacityPlan {
+  id: string;
+  members: CapacityMember[];
+  config: CapacityConfig;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -826,6 +859,7 @@ export interface Workspace {
   // Sprint Planning (squad S1)
   sprintGoals?: SprintGoal[];
   jobStories?: JobStory[];
+  capacityPlans?: CapacityPlan[];
 }
 
 /**

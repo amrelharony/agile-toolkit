@@ -51,6 +51,7 @@ import type {
   // Sprint Planning (squad S1)
   SprintGoal,
   JobStory,
+  CapacityPlan,
 } from "./workspace-types";
 import { emptyWorkspace } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -155,6 +156,8 @@ interface WorkspaceActions {
   removeSprintGoal: (id: string) => void;
   upsertJobStory: (x: JobStory) => void;
   removeJobStory: (id: string) => void;
+  upsertCapacityPlan: (x: CapacityPlan) => void;
+  removeCapacityPlan: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert. Use this for bulk imports — single-item upserts are O(n)
@@ -961,6 +964,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       upsertJobStory: (x) => set((_st) => ({ jobStories: replaceById(_st.jobStories ?? [], x) })),
       removeJobStory: (id) =>
         set((s) => ({ jobStories: (s.jobStories ?? []).filter((y) => y.id !== id) })),
+      upsertCapacityPlan: (x) =>
+        set((_st) => ({ capacityPlans: replaceById(_st.capacityPlans ?? [], x) })),
+      removeCapacityPlan: (id) =>
+        set((s) => ({ capacityPlans: (s.capacityPlans ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1006,6 +1013,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           polarityPoles: s.polarityPoles,
           sprintGoals: s.sprintGoals,
           jobStories: s.jobStories,
+          capacityPlans: s.capacityPlans,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1085,6 +1093,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           polarityPoles: arr("polarityPoles"),
           sprintGoals: arr("sprintGoals"),
           jobStories: arr("jobStories"),
+          capacityPlans: arr("capacityPlans"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -1365,6 +1374,7 @@ if (typeof window !== "undefined") {
     registerCollection("polarityPole", "polarityPoles");
     registerCollection("sprintGoal", "sprintGoals");
     registerCollection("jobStory", "jobStories");
+    registerCollection("capacityPlan", "capacityPlans");
     // Phase 22 — Canvas. Whiteboard objects are throttled to 2s pushes
     // because drag operations can dirty hundreds of them per second.
     registerCollection("whiteboard", "whiteboards");
@@ -1454,6 +1464,7 @@ export function getWorkspaceSnapshot(): Workspace {
     kudos: state.kudos,
     sprintGoals: state.sprintGoals,
     jobStories: state.jobStories,
+    capacityPlans: state.capacityPlans,
   };
 }
 
