@@ -18,29 +18,37 @@ import { Slider } from "@/components/ui/slider";
 import { Plus, Trash2, Activity, MessageSquare, Brain } from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { generateDevexPrompts } from "@/lib/ai-prompts/devex-survey";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DEVEX_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
-
-interface DevexResponse {
-  id: string;
-  respondent: string; // "" allowed (anonymous)
-  date: string; // YYYY-MM-DD
-  flowState: number; // 1-5
-  feedbackLoops: number; // 1-5
-  cognitiveLoad: number; // 1-5 (higher = MORE load = worse)
-  comments?: string;
-}
+import type { Workspace, DevexResponse } from "@/lib/stores/workspace-types";
 
 interface DevexState {
   responses: DevexResponse[];
 }
 
 const DEFAULT_STATE: DevexState = { responses: [] };
+
+const DX_ID = "devexSurvey:current"; // MUST match DX_ID in devex-survey.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// response writes round-trip into the UI. Drop-in [state, setState].
+function useDevexSurvey(): [DevexState, (u: DevexState | ((p: DevexState) => DevexState)) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.devexSurveys ?? []).find((d) => d.id === DX_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertDevexSurvey);
+  const state: DevexState = doc ? { responses: doc.responses } : DEFAULT_STATE;
+  const setState = (u: DevexState | ((p: DevexState) => DevexState)) => {
+    const cur = (useWorkspaceStore.getState().devexSurveys ?? []).find((d) => d.id === DX_ID);
+    const curState: DevexState = cur ? { responses: cur.responses } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: DX_ID, responses: next.responses });
+  };
+  return [state, setState];
+}
 
 interface DraftState {
   respondent: string;
@@ -63,7 +71,7 @@ function makeDraft(): DraftState {
 }
 
 export function DevexSurveyClient() {
-  const [state, setState] = usePersisted<DevexState>("agile-toolkit:devex-survey", DEFAULT_STATE);
+  const [state, setState] = useDevexSurvey();
   const [draft, setDraft] = useState<DraftState>(makeDraft);
   const { log } = useHistoryLogger("devex-survey");
 
