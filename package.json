@@ -6,14 +6,20 @@
     "node": ">=20.0.0 <23.0.0"
   },
   "scripts": {
+    "predev": "node scripts/generate-action-registry.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/generate-action-registry.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "pretest": "node scripts/generate-action-registry.mjs",
     "test": "vitest",
+    "pretest:run": "node scripts/generate-action-registry.mjs",
     "test:run": "vitest run",
+    "scaffold:action": "node scripts/scaffold-action.mjs",
+    "mcp:smoke": "node scripts/mcp-smoke.mjs",
     "prepare": "husky"
   },
   "lint-staged": {
