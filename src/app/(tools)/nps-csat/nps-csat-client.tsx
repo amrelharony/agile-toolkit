@@ -33,7 +33,9 @@ import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { generateNpsCsatPrompts } from "@/lib/ai-prompts/nps-csat";
 import { emit as sonify } from "@/lib/sonification/emit";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { NpsResponse } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { NPS_CSAT_ACTIONS } from "@/lib/history/event-actions";
@@ -79,7 +81,16 @@ function csatAvg(entries: Entry[]): number {
 type Draft = Omit<Entry, "id">;
 
 export function NpsCsatClient() {
-  const [entries, setEntries] = usePersisted<Entry[]>("agile-toolkit:nps-csat", []);
+  // Synced workspace collection (was isolated localStorage), so MCP-recorded
+  // responses round-trip into the UI. setEntries mirrors the old [value,
+  // setter] API (value or updater) over the slice. NpsResponse is structurally
+  // identical to the local Entry type.
+  const entries = useWorkspaceStore(useShallow((s) => (s.npsResponses ?? []) as Entry[]));
+  const setEntries = (updater: Entry[] | ((prev: Entry[]) => Entry[])) => {
+    const cur = (useWorkspaceStore.getState().npsResponses ?? []) as Entry[];
+    const next = typeof updater === "function" ? updater(cur) : updater;
+    useWorkspaceStore.setState({ npsResponses: next as NpsResponse[] });
+  };
   const [draft, setDraft] = useState<Draft>(() => ({
     kind: "nps",
     date: todayLocalISO(),

@@ -53,6 +53,8 @@ import type {
   CapacityPlan,
   StoryMap,
   BacklogItem,
+  // Outcomes & Pulse (squad S6)
+  NpsResponse,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -620,6 +622,15 @@ const BacklogItemSchema = z.object({
   matrixEffort: z.number(),
 }) as unknown as z.ZodType<BacklogItem>;
 
+const NpsResponseSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["nps", "csat"]),
+  date: z.string(),
+  score: z.number(),
+  respondent: z.string().optional(),
+  verbatim: z.string().optional(),
+}) as unknown as z.ZodType<NpsResponse>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -788,6 +799,16 @@ defineCrudActions<BacklogItem>({
   upsert: (x) => ws().upsertBacklogItem(x),
   remove: (id) => ws().removeBacklogItem(id),
   generateId: () => `backlog_${nanoid(8)}`,
+});
+
+defineCrudActions<NpsResponse>({
+  toolId: "workspace.nps_response",
+  entityName: "NPS/CSAT response",
+  schema: NpsResponseSchema,
+  selectAll: () => ws().npsResponses ?? [],
+  upsert: (x) => ws().upsertNpsResponse(x),
+  remove: (id) => ws().removeNpsResponse(id),
+  generateId: () => `nps_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────

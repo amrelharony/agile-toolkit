@@ -977,6 +977,17 @@ export interface BacklogItem {
   matrixEffort: number;
 }
 
+// ── Outcomes & Pulse (squad S6) ──────────────────────────────────────
+/** One NPS or CSAT survey response. NPS scores are 0–10; CSAT 1–5. */
+export interface NpsResponse {
+  id: string;
+  kind: "nps" | "csat";
+  date: ISODateString;
+  score: number;
+  respondent?: string;
+  verbatim?: string;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -1037,6 +1048,8 @@ export interface Workspace {
   capacityPlans?: CapacityPlan[];
   storyMaps?: StoryMap[];
   backlogItems?: BacklogItem[];
+  // Outcomes & Pulse (squad S6)
+  npsResponses?: NpsResponse[];
 }
 
 /**
