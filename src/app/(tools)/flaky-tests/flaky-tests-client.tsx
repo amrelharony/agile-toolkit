@@ -39,7 +39,9 @@ import {
 import { Plus, Trash2, AlertOctagon, ArrowUpDown, TrendingUp } from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { generateFlakyPrompts } from "@/lib/ai-prompts/flaky-tests";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { FlakyTest, FlakyStatus as Status } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { FLAKY_TEST_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -49,25 +51,30 @@ import type { PredictedValue } from "@/lib/predictions/registry";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 
-type Status = "active" | "quarantined" | "fixed";
-
-interface FlakyTest {
-  id: string;
-  name: string;
-  suite?: string;
-  owner?: string;
-  failureRate: number; // 0-1
-  status: Status;
-  firstSeenAt: string;
-  fixedAt?: string;
-  description?: string;
-}
-
 interface FlakyState {
   tests: FlakyTest[];
 }
 
 const DEFAULT_STATE: FlakyState = { tests: [] };
+
+const FB_ID = "flakyTestBoard:current"; // MUST match FB_ID in flaky-tests.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// test writes round-trip into the UI. Drop-in [state, setState].
+function useFlakyTests(): [FlakyState, (u: FlakyState | ((p: FlakyState) => FlakyState)) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.flakyTestBoards ?? []).find((d) => d.id === FB_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertFlakyTestBoard);
+  const state: FlakyState = doc ? { tests: doc.tests } : DEFAULT_STATE;
+  const setState = (u: FlakyState | ((p: FlakyState) => FlakyState)) => {
+    const cur = (useWorkspaceStore.getState().flakyTestBoards ?? []).find((d) => d.id === FB_ID);
+    const curState: FlakyState = cur ? { tests: cur.tests } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: FB_ID, tests: next.tests });
+  };
+  return [state, setState];
+}
 
 const STATUS_OPTIONS: { value: Status; label: string }[] = [
   { value: "active", label: "Active" },
@@ -80,7 +87,7 @@ type SortField = "failureRate" | "name" | "status" | "firstSeenAt";
 /* ── Main client ────────────────────────────────────────────────────────── */
 
 export function FlakyTestsClient() {
-  const [state, setState] = usePersisted<FlakyState>("agile-toolkit:flaky-tests", DEFAULT_STATE);
+  const [state, setState] = useFlakyTests();
   const { log } = useHistoryLogger("flaky-tests");
   const chartRef = useRef<HTMLDivElement>(null);
 
