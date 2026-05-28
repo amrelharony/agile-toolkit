@@ -52,6 +52,7 @@ import type {
   SosEntry,
   AsyncUpdate,
   StandupEntry,
+  SprintReview,
 } from "./workspace-types";
 import { emptyWorkspace } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -158,6 +159,8 @@ interface WorkspaceActions {
   removeAsyncUpdate: (id: string) => void;
   upsertStandupEntry: (x: StandupEntry) => void;
   removeStandupEntry: (id: string) => void;
+  upsertSprintReview: (x: SprintReview) => void;
+  removeSprintReview: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert. Use this for bulk imports — single-item upserts are O(n)
@@ -969,6 +972,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ standupEntries: replaceById(_st.standupEntries ?? [], x) })),
       removeStandupEntry: (id) =>
         set((s) => ({ standupEntries: (s.standupEntries ?? []).filter((y) => y.id !== id) })),
+      upsertSprintReview: (x) =>
+        set((_st) => ({ sprintReviews: replaceById(_st.sprintReviews ?? [], x) })),
+      removeSprintReview: (id) =>
+        set((s) => ({ sprintReviews: (s.sprintReviews ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1015,6 +1022,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           sosEntries: s.sosEntries,
           asyncUpdates: s.asyncUpdates,
           standupEntries: s.standupEntries,
+          sprintReviews: s.sprintReviews,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1095,6 +1103,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           sosEntries: arr("sosEntries"),
           asyncUpdates: arr("asyncUpdates"),
           standupEntries: arr("standupEntries"),
+          sprintReviews: arr("sprintReviews"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -1376,6 +1385,7 @@ if (typeof window !== "undefined") {
     registerCollection("sosEntry", "sosEntries");
     registerCollection("asyncUpdate", "asyncUpdates");
     registerCollection("standupEntry", "standupEntries");
+    registerCollection("sprintReview", "sprintReviews");
     // Phase 22 — Canvas. Whiteboard objects are throttled to 2s pushes
     // because drag operations can dirty hundreds of them per second.
     registerCollection("whiteboard", "whiteboards");
@@ -1466,6 +1476,7 @@ export function getWorkspaceSnapshot(): Workspace {
     sosEntries: state.sosEntries,
     asyncUpdates: state.asyncUpdates,
     standupEntries: state.standupEntries,
+    sprintReviews: state.sprintReviews,
   };
 }
 

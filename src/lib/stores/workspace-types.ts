@@ -791,6 +791,49 @@ export interface StandupEntry {
   blockerResolved?: boolean;
 }
 
+/** A demo item in a sprint review's demo script. */
+export interface DemoFeature {
+  id: string;
+  name: string;
+  description: string;
+  acceptanceCriteria: string;
+  timeMinutes: number;
+}
+
+export type FeedbackCategory = "positive" | "concern" | "suggestion";
+
+/** One piece of stakeholder feedback captured during a sprint review. */
+export interface FeedbackItem {
+  id: string;
+  stakeholder: string;
+  feedback: string;
+  category: FeedbackCategory;
+}
+
+/** A showcase-prep checklist item. */
+export interface ChecklistItem {
+  id: string;
+  label: string;
+  checked: boolean;
+}
+
+/** A sprint review session — a document holding its demo script, stakeholder
+ *  feedback, showcase checklist, and velocity summary. The tool is a
+ *  singleton, so there is normally one row under a fixed id. */
+export interface SprintReview {
+  id: string;
+  sprintName: string;
+  sprintNumber: string;
+  features: DemoFeature[];
+  meetingDate: string;
+  feedbackItems: FeedbackItem[];
+  checklistItems: ChecklistItem[];
+  committed: number;
+  completed: number;
+  totalBacklog: number;
+  backlogDone: number;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -843,6 +886,7 @@ export interface Workspace {
   sosEntries?: SosEntry[];
   asyncUpdates?: AsyncUpdate[];
   standupEntries?: StandupEntry[];
+  sprintReviews?: SprintReview[];
 }
 
 /**

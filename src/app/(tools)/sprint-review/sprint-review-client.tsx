@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { safeJSONStorage } from "@/lib/stores/safe-storage";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { SprintReview } from "@/lib/stores/workspace-types";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -156,83 +156,111 @@ const DEFAULT_STATE = {
 /*  Store                                                                     */
 /* -------------------------------------------------------------------------- */
 
-const useSprintReviewStore = create<SprintReviewStore>()(
-  persist(
-    (set) => ({
-      ...DEFAULT_STATE,
+// The sprint review is a singleton document in the synced workspace store
+// (one row under a fixed id) rather than an isolated localStorage store, so
+// MCP-written reviews round-trip into the UI. `useSprintReviewStore` keeps the
+// exact shape the components consumed before the migration; each setter reads
+// the freshest doc via getState() to avoid clobbering on rapid edits.
+const SR_ID = "sprint-review:current";
 
-      setSprintName: (v) => set({ sprintName: v }),
-      setSprintNumber: (v) => set({ sprintNumber: v }),
-      addFeature: () =>
-        set((s) => ({
-          features: [
-            ...s.features,
-            {
-              id: crypto.randomUUID(),
-              name: "",
-              description: "",
-              acceptanceCriteria: "",
-              timeMinutes: 5,
-            },
-          ],
-        })),
-      removeFeature: (id) => set((s) => ({ features: s.features.filter((f) => f.id !== id) })),
-      updateFeature: (id, updates) =>
-        set((s) => ({
-          features: s.features.map((f) => (f.id === id ? { ...f, ...updates } : f)),
-        })),
+function currentDoc(): SprintReview {
+  const list = useWorkspaceStore.getState().sprintReviews ?? [];
+  return list.find((r) => r.id === SR_ID) ?? { id: SR_ID, ...DEFAULT_STATE };
+}
 
-      setMeetingDate: (v) => set({ meetingDate: v }),
-      addFeedback: () =>
-        set((s) => ({
-          feedbackItems: [
-            ...s.feedbackItems,
-            {
-              id: crypto.randomUUID(),
-              stakeholder: "",
-              feedback: "",
-              category: "positive" as FeedbackCategory,
-            },
-          ],
-        })),
-      removeFeedback: (id) =>
-        set((s) => ({
-          feedbackItems: s.feedbackItems.filter((f) => f.id !== id),
-        })),
-      updateFeedback: (id, updates) =>
-        set((s) => ({
-          feedbackItems: s.feedbackItems.map((f) => (f.id === id ? { ...f, ...updates } : f)),
-        })),
-
-      toggleChecklist: (id) =>
-        set((s) => ({
-          checklistItems: s.checklistItems.map((c) =>
-            c.id === id ? { ...c, checked: !c.checked } : c
-          ),
-        })),
-      addChecklistItem: (label) =>
-        set((s) => ({
-          checklistItems: [...s.checklistItems, { id: crypto.randomUUID(), label, checked: false }],
-        })),
-      removeChecklistItem: (id) =>
-        set((s) => ({
-          checklistItems: s.checklistItems.filter((c) => c.id !== id),
-        })),
-      updateChecklistLabel: (id, label) =>
-        set((s) => ({
-          checklistItems: s.checklistItems.map((c) => (c.id === id ? { ...c, label } : c)),
-        })),
-
-      setCommitted: (v) => set({ committed: v }),
-      setCompleted: (v) => set({ completed: v }),
-      setTotalBacklog: (v) => set({ totalBacklog: v }),
-      setBacklogDone: (v) => set({ backlogDone: v }),
-
-      reset: () => set({ ...DEFAULT_STATE }),
-    }),
-    { name: "agile-toolkit:sprint-review", storage: safeJSONStorage("sprint-review") }
-  )
-);
+function useSprintReviewStore(): SprintReviewStore {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.sprintReviews ?? []).find((r) => r.id === SR_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertSprintReview);
+  const cur: SprintReview = doc ?? { id: SR_ID, ...DEFAULT_STATE };
+  return {
+    sprintName: cur.sprintName,
+    sprintNumber: cur.sprintNumber,
+    features: cur.features,
+    meetingDate: cur.meetingDate,
+    feedbackItems: cur.feedbackItems,
+    checklistItems: cur.checklistItems,
+    committed: cur.committed,
+    completed: cur.completed,
+    totalBacklog: cur.totalBacklog,
+    backlogDone: cur.backlogDone,
+    setSprintName: (v) => upsert({ ...currentDoc(), sprintName: v }),
+    setSprintNumber: (v) => upsert({ ...currentDoc(), sprintNumber: v }),
+    addFeature: () =>
+      upsert({
+        ...currentDoc(),
+        features: [
+          ...currentDoc().features,
+          {
+            id: crypto.randomUUID(),
+            name: "",
+            description: "",
+            acceptanceCriteria: "",
+            timeMinutes: 5,
+          },
+        ],
+      }),
+    removeFeature: (id) =>
+      upsert({ ...currentDoc(), features: currentDoc().features.filter((f) => f.id !== id) }),
+    updateFeature: (id, updates) =>
+      upsert({
+        ...currentDoc(),
+        features: currentDoc().features.map((f) => (f.id === id ? { ...f, ...updates } : f)),
+      }),
+    setMeetingDate: (v) => upsert({ ...currentDoc(), meetingDate: v }),
+    addFeedback: () =>
+      upsert({
+        ...currentDoc(),
+        feedbackItems: [
+          ...currentDoc().feedbackItems,
+          { id: crypto.randomUUID(), stakeholder: "", feedback: "", category: "positive" },
+        ],
+      }),
+    removeFeedback: (id) =>
+      upsert({
+        ...currentDoc(),
+        feedbackItems: currentDoc().feedbackItems.filter((f) => f.id !== id),
+      }),
+    updateFeedback: (id, updates) =>
+      upsert({
+        ...currentDoc(),
+        feedbackItems: currentDoc().feedbackItems.map((f) =>
+          f.id === id ? { ...f, ...updates } : f
+        ),
+      }),
+    toggleChecklist: (id) =>
+      upsert({
+        ...currentDoc(),
+        checklistItems: currentDoc().checklistItems.map((c) =>
+          c.id === id ? { ...c, checked: !c.checked } : c
+        ),
+      }),
+    addChecklistItem: (label) =>
+      upsert({
+        ...currentDoc(),
+        checklistItems: [
+          ...currentDoc().checklistItems,
+          { id: crypto.randomUUID(), label, checked: false },
+        ],
+      }),
+    removeChecklistItem: (id) =>
+      upsert({
+        ...currentDoc(),
+        checklistItems: currentDoc().checklistItems.filter((c) => c.id !== id),
+      }),
+    updateChecklistLabel: (id, label) =>
+      upsert({
+        ...currentDoc(),
+        checklistItems: currentDoc().checklistItems.map((c) => (c.id === id ? { ...c, label } : c)),
+      }),
+    setCommitted: (v) => upsert({ ...currentDoc(), committed: v }),
+    setCompleted: (v) => upsert({ ...currentDoc(), completed: v }),
+    setTotalBacklog: (v) => upsert({ ...currentDoc(), totalBacklog: v }),
+    setBacklogDone: (v) => upsert({ ...currentDoc(), backlogDone: v }),
+    reset: () => upsert({ id: SR_ID, ...DEFAULT_STATE }),
+  };
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Helpers                                                                   */

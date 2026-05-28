@@ -45,6 +45,7 @@ import type {
   SosEntry,
   AsyncUpdate,
   StandupEntry,
+  SprintReview,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -510,6 +511,20 @@ const StandupEntrySchema = z.object({
   blockerResolved: z.boolean().optional(),
 }) as unknown as z.ZodType<StandupEntry>;
 
+const SprintReviewSchema = z.object({
+  id: z.string(),
+  sprintName: z.string(),
+  sprintNumber: z.string(),
+  features: z.array(z.record(z.string(), z.unknown())),
+  meetingDate: z.string(),
+  feedbackItems: z.array(z.record(z.string(), z.unknown())),
+  checklistItems: z.array(z.record(z.string(), z.unknown())),
+  committed: z.number(),
+  completed: z.number(),
+  totalBacklog: z.number(),
+  backlogDone: z.number(),
+}) as unknown as z.ZodType<SprintReview>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -608,6 +623,16 @@ defineCrudActions<StandupEntry>({
   upsert: (x) => ws().upsertStandupEntry(x),
   remove: (id) => ws().removeStandupEntry(id),
   generateId: () => `standup_${nanoid(8)}`,
+});
+
+defineCrudActions<SprintReview>({
+  toolId: "workspace.sprint_review",
+  entityName: "sprint review",
+  schema: SprintReviewSchema,
+  selectAll: () => ws().sprintReviews ?? [],
+  upsert: (x) => ws().upsertSprintReview(x),
+  remove: (id) => ws().removeSprintReview(id),
+  generateId: () => `sprintReview_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
