@@ -244,6 +244,49 @@ export interface ModelCard {
   updatedAt: ISODateString;
 }
 
+/* S12b singleton-doc entities (ai-feature-spec, ai-safety-checklist,
+ * model-migration). Each tool keeps exactly ONE document per workspace,
+ * stored as a single-element collection under a fixed id (see the
+ * SINGLETON_ID constants in the matching tool action files). */
+
+export interface AiFeatureSpec {
+  id: string;
+  featureName: string;
+  problem: string;
+  modelChoice: string;
+  evalCriteria: string;
+  fallback: string;
+  latencyBudgetMs: string;
+  hallucinationTolerance: string;
+  costBudget: string;
+  humanLoop: string;
+  rolloutPlan: string;
+  successMetric: string;
+}
+
+export interface AiSafetyChecklist {
+  id: string;
+  /** Map of checklist-item id → checked. Item definitions live in the
+   *  client (a fixed catalog); only the checked state is persisted. */
+  checks: Record<string, boolean>;
+}
+
+export interface ModelMigrationStep {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
+export interface ModelMigration {
+  id: string;
+  fromModel: string;
+  toModel: string;
+  /** Free-text deltas (carry a sign, e.g. "+2.1" / "-18"). */
+  evalDeltaPct: string;
+  costDeltaPct: string;
+  steps: ModelMigrationStep[];
+}
+
 /* ────────────────────────────────────────────────────────────────────
  * Phase 20 — Prioritization Frameworks entities
  * ────────────────────────────────────────────────────────────────── */
@@ -1080,6 +1123,10 @@ export interface Workspace {
   rlhfPairs?: RlhfPair[];
   vectorCollections?: VectorCollection[];
   modelCards?: ModelCard[];
+  // S12b singleton-doc tools
+  aiFeatureSpecs?: AiFeatureSpec[];
+  aiSafetyChecklists?: AiSafetyChecklist[];
+  modelMigrations?: ModelMigration[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -1273,6 +1320,10 @@ export const emptyWorkspace: Workspace = {
   rlhfPairs: [],
   vectorCollections: [],
   modelCards: [],
+  // S12b singleton-doc tools
+  aiFeatureSpecs: [],
+  aiSafetyChecklists: [],
+  modelMigrations: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

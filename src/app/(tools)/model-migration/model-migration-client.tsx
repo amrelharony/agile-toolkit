@@ -1,9 +1,6 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { useShallow } from "zustand/react/shallow";
 import { Repeat, Plus, Trash2, CheckCircle2, Circle } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -14,30 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BlurInput } from "@/components/shared/blur-fields";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import type { Workspace, ModelMigration, ModelMigrationStep } from "@/lib/stores/workspace-types";
 import { generateModelMigrationPrompts } from "@/lib/ai-prompts/model-migration";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { MODEL_MIGRATION_ACTIONS } from "@/lib/history/event-actions";
 
-interface Step {
-  id: string;
-  text: string;
-  done: boolean;
-}
-interface State {
-  fromModel: string;
-  toModel: string;
-  evalDeltaPct: string;
-  costDeltaPct: string;
-  steps: Step[];
-  setFromModel: (v: string) => void;
-  setToModel: (v: string) => void;
-  setEvalDelta: (v: string) => void;
-  setCostDelta: (v: string) => void;
-  addStep: (text: string) => void;
-  toggleStep: (id: string) => void;
-  removeStep: (id: string) => void;
-}
+const MIGRATION_ID = "modelMigration:current"; // MUST match MIGRATION_ID in model-migration.ts.
 
 const DEFAULT_STEPS = [
   "Run baseline eval suite on current model",
@@ -52,53 +31,82 @@ const DEFAULT_STEPS = [
   "Deprecate old model in registry",
 ];
 
-// Use deterministic IDs for the default step list so SSR and the first client
-// render don't produce different UUIDs (which causes a hydration mismatch).
-// New steps the user adds still get a fresh `crypto.randomUUID()`.
-function defaultSteps(): Step[] {
+// Deterministic IDs for the default step list so SSR and the first client
+// render don't produce different UUIDs (a hydration mismatch). User-added
+// steps still get a fresh `crypto.randomUUID()`.
+function defaultSteps(): ModelMigrationStep[] {
   return DEFAULT_STEPS.map((t, i) => ({ id: `default-step-${i}`, text: t, done: false }));
 }
 
-const useStore = create<State>()(
-  persist(
-    (set) => ({
-      fromModel: "",
-      toModel: "",
-      evalDeltaPct: "",
-      costDeltaPct: "",
-      steps: defaultSteps(),
-      setFromModel: (v) => set({ fromModel: v }),
-      setToModel: (v) => set({ toModel: v }),
-      setEvalDelta: (v) => set({ evalDeltaPct: v }),
-      setCostDelta: (v) => set({ costDeltaPct: v }),
-      addStep: (text) =>
-        set((s) => ({ steps: [...s.steps, { id: crypto.randomUUID(), text, done: false }] })),
-      toggleStep: (id) =>
-        set((s) => ({
-          steps: s.steps.map((st) => (st.id === id ? { ...st, done: !st.done } : st)),
-        })),
-      removeStep: (id) => set((s) => ({ steps: s.steps.filter((st) => st.id !== id) })),
-    }),
-    { name: "agile-toolkit:model-migration", storage: safeJSONStorage("model-migration") }
-  )
-);
+// Stable module-level default so the UI shows the starter checklist before
+// anything is persisted, and the reference stays constant across renders (no
+// re-render loop in the prompt useMemo).
+const defaultMigration: ModelMigration = {
+  id: MIGRATION_ID,
+  fromModel: "",
+  toModel: "",
+  evalDeltaPct: "",
+  costDeltaPct: "",
+  steps: defaultSteps(),
+};
+
+// Synced workspace singleton (was isolated localStorage), so MCP migration
+// writes round-trip into the UI. The returned setters mirror the old store API.
+function useMigration() {
+  const stored = useWorkspaceStore(
+    useShallow((s) => (s.modelMigrations ?? []).find((m) => m.id === MIGRATION_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertModelMigration);
+  const migration = stored ?? defaultMigration;
+  const mutate = (fn: (cur: ModelMigration) => ModelMigration) => {
+    const cur =
+      (useWorkspaceStore.getState().modelMigrations ?? []).find((m) => m.id === MIGRATION_ID) ??
+      defaultMigration;
+    upsert({ ...fn(cur), id: MIGRATION_ID });
+  };
+  return {
+    fromModel: migration.fromModel,
+    toModel: migration.toModel,
+    evalDeltaPct: migration.evalDeltaPct,
+    costDeltaPct: migration.costDeltaPct,
+    steps: migration.steps,
+    setFromModel: (v: string) => mutate((c) => ({ ...c, fromModel: v })),
+    setToModel: (v: string) => mutate((c) => ({ ...c, toModel: v })),
+    setEvalDelta: (v: string) => mutate((c) => ({ ...c, evalDeltaPct: v })),
+    setCostDelta: (v: string) => mutate((c) => ({ ...c, costDeltaPct: v })),
+    addStep: (text: string) =>
+      mutate((c) => ({
+        ...c,
+        steps: [...c.steps, { id: crypto.randomUUID(), text, done: false }],
+      })),
+    toggleStep: (id: string) =>
+      mutate((c) => ({
+        ...c,
+        steps: c.steps.map((s) => (s.id === id ? { ...s, done: !s.done } : s)),
+      })),
+    removeStep: (id: string) =>
+      mutate((c) => ({ ...c, steps: c.steps.filter((s) => s.id !== id) })),
+  };
+}
 
 export function ModelMigrationClient() {
-  // Use granular selectors so every keystroke in another input doesn't tear
-  // down and re-render every Textarea. `useStore()` with no selector would
-  // re-render the whole component on every state slice change.
-  const fromModel = useStore((s) => s.fromModel);
-  const toModel = useStore((s) => s.toModel);
-  const evalDeltaPct = useStore((s) => s.evalDeltaPct);
-  const costDeltaPct = useStore((s) => s.costDeltaPct);
-  const steps = useStore((s) => s.steps);
-  const setFromModel = useStore((s) => s.setFromModel);
-  const setToModel = useStore((s) => s.setToModel);
-  const setEvalDelta = useStore((s) => s.setEvalDelta);
-  const setCostDelta = useStore((s) => s.setCostDelta);
-  const addStepFn = useStore((s) => s.addStep);
-  const toggleStep = useStore((s) => s.toggleStep);
-  const removeStep = useStore((s) => s.removeStep);
+  // One workspace-backed hook (was 12 granular zustand selectors). Reads are
+  // memoised by useShallow on the singleton doc; setters write the whole doc
+  // back via upsert. BlurInput already commits on blur (not per keystroke).
+  const {
+    fromModel,
+    toModel,
+    evalDeltaPct,
+    costDeltaPct,
+    steps,
+    setFromModel,
+    setToModel,
+    setEvalDelta,
+    setCostDelta,
+    addStep: addStepFn,
+    toggleStep,
+    removeStep,
+  } = useMigration();
   const { log } = useHistoryLogger("model-migration");
   const exportRef = useRef<HTMLDivElement>(null);
   const [newStep, setNewStep] = useState("");

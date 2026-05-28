@@ -31,6 +31,14 @@ import type {
   TokenSpend,
   ModelEntry,
   RedTeamFinding,
+  AgentWorkflow,
+  AgentNode,
+  HitlReview,
+  RlhfPair,
+  VectorCollection,
+  AiFeatureSpec,
+  AiSafetyChecklist,
+  ModelMigration,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -382,6 +390,173 @@ defineCrudActions<RedTeamFinding>({
   upsert: (x) => ws().upsertRedTeamFinding(x),
   remove: (id) => ws().removeRedTeamFinding(id),
   generateId: () => `redTeam_${nanoid(8)}`,
+});
+
+/* ── S12b: agentic-workflow, hitl-quality, rlhf-log, vector-store-inventory.
+ * Entities + store wiring + registerCollection already existed; these CRUD
+ * surfaces (+ the tool.<x>.* domain verbs in ../tools/) complete the agent
+ * enablement. agent-workflow has two collections joined by workflowId. */
+
+const AgentWorkflowSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+}) as unknown as z.ZodType<AgentWorkflow>;
+
+const AgentNodeSchema = z.object({
+  id: z.string(),
+  workflowId: z.string(),
+  label: z.string(),
+  kind: z.enum(["agent", "tool", "human", "fallback", "branch"]),
+  description: z.string().optional(),
+  next: z.array(z.string()).optional(),
+}) as unknown as z.ZodType<AgentNode>;
+
+const HitlReviewSchema = z.object({
+  id: z.string(),
+  feature: z.string().optional(),
+  reviewer: z.string().optional(),
+  rating: z.number(),
+  agreedWithModel: z.boolean(),
+  reason: z.string().optional(),
+  loggedAt: z.string(),
+}) as unknown as z.ZodType<HitlReview>;
+
+const RlhfPairSchema = z.object({
+  id: z.string(),
+  prompt: z.string(),
+  responseA: z.string(),
+  responseB: z.string(),
+  winner: z.enum(["A", "B", "tie"]),
+  reviewer: z.string().optional(),
+  reason: z.string().optional(),
+  loggedAt: z.string(),
+}) as unknown as z.ZodType<RlhfPair>;
+
+const VectorCollectionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  embeddingModel: z.string(),
+  dim: z.number(),
+  docCount: z.number(),
+  refreshCadence: z.string().optional(),
+  owner: z.string().optional(),
+  consumers: z.array(z.string()).optional(),
+  notes: z.string().optional(),
+}) as unknown as z.ZodType<VectorCollection>;
+
+defineCrudActions<AgentWorkflow>({
+  toolId: "workspace.agent_workflow",
+  entityName: "agent workflow",
+  schema: AgentWorkflowSchema,
+  selectAll: () => ws().agentWorkflows ?? [],
+  upsert: (x) => ws().upsertAgentWorkflow(x),
+  remove: (id) => ws().removeAgentWorkflow(id),
+  generateId: () => `agentWorkflow_${nanoid(8)}`,
+});
+
+defineCrudActions<AgentNode>({
+  toolId: "workspace.agent_node",
+  entityName: "agent node",
+  schema: AgentNodeSchema,
+  selectAll: () => ws().agentNodes ?? [],
+  upsert: (x) => ws().upsertAgentNode(x),
+  remove: (id) => ws().removeAgentNode(id),
+  generateId: () => `agentNode_${nanoid(8)}`,
+});
+
+defineCrudActions<HitlReview>({
+  toolId: "workspace.hitl_review",
+  entityName: "HITL review",
+  schema: HitlReviewSchema,
+  selectAll: () => ws().hitlReviews ?? [],
+  upsert: (x) => ws().upsertHitlReview(x),
+  remove: (id) => ws().removeHitlReview(id),
+  generateId: () => `hitlReview_${nanoid(8)}`,
+});
+
+defineCrudActions<RlhfPair>({
+  toolId: "workspace.rlhf_pair",
+  entityName: "RLHF pair",
+  schema: RlhfPairSchema,
+  selectAll: () => ws().rlhfPairs ?? [],
+  upsert: (x) => ws().upsertRlhfPair(x),
+  remove: (id) => ws().removeRlhfPair(id),
+  generateId: () => `rlhfPair_${nanoid(8)}`,
+});
+
+defineCrudActions<VectorCollection>({
+  toolId: "workspace.vector_collection",
+  entityName: "vector collection",
+  schema: VectorCollectionSchema,
+  selectAll: () => ws().vectorCollections ?? [],
+  upsert: (x) => ws().upsertVectorCollection(x),
+  remove: (id) => ws().removeVectorCollection(id),
+  generateId: () => `vectorCollection_${nanoid(8)}`,
+});
+
+/* ── S12b singleton-doc tools (ai-feature-spec, ai-safety-checklist,
+ * model-migration). Each keeps ONE document per workspace under a fixed id
+ * (see SINGLETON_ID in the matching tool action files). The generic CRUD
+ * here still works, but the tool.<x>.* verbs operate on the singleton. */
+
+const AiFeatureSpecSchema = z.object({
+  id: z.string(),
+  featureName: z.string(),
+  problem: z.string(),
+  modelChoice: z.string(),
+  evalCriteria: z.string(),
+  fallback: z.string(),
+  latencyBudgetMs: z.string(),
+  hallucinationTolerance: z.string(),
+  costBudget: z.string(),
+  humanLoop: z.string(),
+  rolloutPlan: z.string(),
+  successMetric: z.string(),
+}) as unknown as z.ZodType<AiFeatureSpec>;
+
+const AiSafetyChecklistSchema = z.object({
+  id: z.string(),
+  checks: z.record(z.string(), z.boolean()),
+}) as unknown as z.ZodType<AiSafetyChecklist>;
+
+const ModelMigrationSchema = z.object({
+  id: z.string(),
+  fromModel: z.string(),
+  toModel: z.string(),
+  evalDeltaPct: z.string(),
+  costDeltaPct: z.string(),
+  steps: z.array(z.object({ id: z.string(), text: z.string(), done: z.boolean() })),
+}) as unknown as z.ZodType<ModelMigration>;
+
+defineCrudActions<AiFeatureSpec>({
+  toolId: "workspace.ai_feature_spec",
+  entityName: "AI feature spec",
+  schema: AiFeatureSpecSchema,
+  selectAll: () => ws().aiFeatureSpecs ?? [],
+  upsert: (x) => ws().upsertAiFeatureSpec(x),
+  remove: (id) => ws().removeAiFeatureSpec(id),
+  generateId: () => `aiFeatureSpec_${nanoid(8)}`,
+});
+
+defineCrudActions<AiSafetyChecklist>({
+  toolId: "workspace.ai_safety_checklist",
+  entityName: "AI safety checklist",
+  schema: AiSafetyChecklistSchema,
+  selectAll: () => ws().aiSafetyChecklists ?? [],
+  upsert: (x) => ws().upsertAiSafetyChecklist(x),
+  remove: (id) => ws().removeAiSafetyChecklist(id),
+  generateId: () => `aiSafetyChecklist_${nanoid(8)}`,
+});
+
+defineCrudActions<ModelMigration>({
+  toolId: "workspace.model_migration",
+  entityName: "model migration",
+  schema: ModelMigrationSchema,
+  selectAll: () => ws().modelMigrations ?? [],
+  upsert: (x) => ws().upsertModelMigration(x),
+  remove: (id) => ws().removeModelMigration(id),
+  generateId: () => `modelMigration_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
