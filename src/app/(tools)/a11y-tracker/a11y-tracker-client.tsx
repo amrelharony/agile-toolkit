@@ -40,32 +40,43 @@ import { xmrLimits } from "@/lib/analytics/control-chart";
 import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { generateA11yPrompts } from "@/lib/ai-prompts/a11y-tracker";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type {
+  A11yIssue,
+  A11ySeverity as Severity,
+  A11yStatus as Status,
+} from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { A11Y_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 
-type Severity = "critical" | "serious" | "moderate" | "minor";
-type Status = "open" | "in_progress" | "resolved";
-
-interface A11yIssue {
-  id: string;
-  component: string;
-  wcagCriterion: string;
-  severity: Severity;
-  status: Status;
-  openedAt: string;
-  resolvedAt?: string;
-  description?: string;
-}
-
 interface A11yState {
   issues: A11yIssue[];
 }
 
 const DEFAULT_STATE: A11yState = { issues: [] };
+
+const AT_ID = "a11yTracker:current"; // MUST match AT_ID in a11y-tracker.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// issue writes round-trip into the UI. Drop-in [state, setState].
+function useA11yTracker(): [A11yState, (u: A11yState | ((p: A11yState) => A11yState)) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.a11yTrackers ?? []).find((d) => d.id === AT_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertA11yTracker);
+  const state: A11yState = doc ? { issues: doc.issues } : DEFAULT_STATE;
+  const setState = (u: A11yState | ((p: A11yState) => A11yState)) => {
+    const cur = (useWorkspaceStore.getState().a11yTrackers ?? []).find((d) => d.id === AT_ID);
+    const curState: A11yState = cur ? { issues: cur.issues } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: AT_ID, issues: next.issues });
+  };
+  return [state, setState];
+}
 
 const SEVERITY_OPTIONS: { value: Severity; label: string }[] = [
   { value: "critical", label: "Critical" },
@@ -129,7 +140,7 @@ function ageDays(i: A11yIssue): number {
 /* ── Main client ────────────────────────────────────────────────────────── */
 
 export function A11yTrackerClient() {
-  const [state, setState] = usePersisted<A11yState>("agile-toolkit:a11y-tracker", DEFAULT_STATE);
+  const [state, setState] = useA11yTracker();
   const { log } = useHistoryLogger("a11y-tracker");
   const chartRef = useRef<HTMLDivElement>(null);
 
