@@ -28,6 +28,9 @@ import type {
   ModelCard,
   // S9 — Security & Compliance
   ThreatModel,
+  VulnBurndown,
+  ControlMap,
+  A11yTracker,
   // Phase 20
   PrioritizationItem,
   // Phase 21
@@ -117,6 +120,12 @@ interface WorkspaceActions {
   removeModelCard: (id: string) => void;
   upsertThreatModel: (x: ThreatModel) => void;
   removeThreatModel: (id: string) => void;
+  upsertVulnBurndown: (x: VulnBurndown) => void;
+  removeVulnBurndown: (id: string) => void;
+  upsertControlMap: (x: ControlMap) => void;
+  removeControlMap: (id: string) => void;
+  upsertA11yTracker: (x: A11yTracker) => void;
+  removeA11yTracker: (id: string) => void;
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
@@ -683,6 +692,18 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ threatModels: replaceById(_st.threatModels ?? [], x) })),
       removeThreatModel: (id) =>
         set((s) => ({ threatModels: (s.threatModels ?? []).filter((y) => y.id !== id) })),
+      upsertVulnBurndown: (x) =>
+        set((_st) => ({ vulnBurndowns: replaceById(_st.vulnBurndowns ?? [], x) })),
+      removeVulnBurndown: (id) =>
+        set((s) => ({ vulnBurndowns: (s.vulnBurndowns ?? []).filter((y) => y.id !== id) })),
+      upsertControlMap: (x) =>
+        set((_st) => ({ controlMaps: replaceById(_st.controlMaps ?? [], x) })),
+      removeControlMap: (id) =>
+        set((s) => ({ controlMaps: (s.controlMaps ?? []).filter((y) => y.id !== id) })),
+      upsertA11yTracker: (x) =>
+        set((_st) => ({ a11yTrackers: replaceById(_st.a11yTrackers ?? [], x) })),
+      removeA11yTracker: (id) =>
+        set((s) => ({ a11yTrackers: (s.a11yTrackers ?? []).filter((y) => y.id !== id) })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) =>
         set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
@@ -1093,6 +1114,9 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           vectorCollections: s.vectorCollections,
           modelCards: s.modelCards,
           threatModels: s.threatModels,
+          vulnBurndowns: s.vulnBurndowns,
+          controlMaps: s.controlMaps,
+          a11yTrackers: s.a11yTrackers,
           // Phase 20
           prioritizations: s.prioritizations,
           // Phase 21
@@ -1186,6 +1210,9 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           vectorCollections: arr("vectorCollections"),
           modelCards: arr("modelCards"),
           threatModels: arr("threatModels"),
+          vulnBurndowns: arr("vulnBurndowns"),
+          controlMaps: arr("controlMaps"),
+          a11yTrackers: arr("a11yTrackers"),
           // Phase 20
           prioritizations: arr("prioritizations"),
           // Phase 21
@@ -1480,6 +1507,9 @@ if (typeof window !== "undefined") {
     registerCollection("vectorCollection", "vectorCollections");
     registerCollection("modelCard", "modelCards");
     registerCollection("threatModel", "threatModels");
+    registerCollection("vulnBurndown", "vulnBurndowns");
+    registerCollection("controlMap", "controlMaps");
+    registerCollection("a11yTracker", "a11yTrackers");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
     // Phase 21 — Decision frameworks
@@ -1576,6 +1606,9 @@ export function getWorkspaceSnapshot(): Workspace {
     vectorCollections: state.vectorCollections,
     modelCards: state.modelCards,
     threatModels: state.threatModels,
+    vulnBurndowns: state.vulnBurndowns,
+    controlMaps: state.controlMaps,
+    a11yTrackers: state.a11yTrackers,
     prioritizations: state.prioritizations,
     daciDecisions: state.daciDecisions,
     rapidDecisions: state.rapidDecisions,
