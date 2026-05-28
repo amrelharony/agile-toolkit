@@ -988,6 +988,18 @@ export interface NpsResponse {
   verbatim?: string;
 }
 
+/** One daily team-mood data point for a member (1 rough … 5 great). */
+export interface MoodEntry {
+  id: string;
+  memberId: string;
+  date: ISODateString;
+  score: 1 | 2 | 3 | 4 | 5;
+  note?: string;
+  /** True when created note-first before a face was picked; excluded from
+   *  averages/trend until a real score lands. */
+  isPlaceholder?: boolean;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -1050,6 +1062,7 @@ export interface Workspace {
   backlogItems?: BacklogItem[];
   // Outcomes & Pulse (squad S6)
   npsResponses?: NpsResponse[];
+  moodEntries?: MoodEntry[];
 }
 
 /**

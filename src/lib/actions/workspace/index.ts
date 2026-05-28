@@ -55,6 +55,7 @@ import type {
   BacklogItem,
   // Outcomes & Pulse (squad S6)
   NpsResponse,
+  MoodEntry,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -631,6 +632,15 @@ const NpsResponseSchema = z.object({
   verbatim: z.string().optional(),
 }) as unknown as z.ZodType<NpsResponse>;
 
+const MoodEntrySchema = z.object({
+  id: z.string(),
+  memberId: z.string(),
+  date: z.string(),
+  score: z.number(),
+  note: z.string().optional(),
+  isPlaceholder: z.boolean().optional(),
+}) as unknown as z.ZodType<MoodEntry>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -809,6 +819,16 @@ defineCrudActions<NpsResponse>({
   upsert: (x) => ws().upsertNpsResponse(x),
   remove: (id) => ws().removeNpsResponse(id),
   generateId: () => `nps_${nanoid(8)}`,
+});
+
+defineCrudActions<MoodEntry>({
+  toolId: "workspace.mood_entry",
+  entityName: "mood entry",
+  schema: MoodEntrySchema,
+  selectAll: () => ws().moodEntries ?? [],
+  upsert: (x) => ws().upsertMoodEntry(x),
+  remove: (id) => ws().removeMoodEntry(id),
+  generateId: () => `mood_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
