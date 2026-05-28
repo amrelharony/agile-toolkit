@@ -1,8 +1,13 @@
 import type { NextRequest } from "next/server";
-import { handleJsonRpc, type JsonRpcRequest } from "@/lib/mcp/transport-http";
+import {
+  handleJsonRpc,
+  type JsonRpcRequest,
+  type McpCallObservation,
+} from "@/lib/mcp/transport-http";
 import { verifyBearer } from "@/lib/mcp/pat";
 import { registry } from "@/lib/actions/registry";
 import { tryConsume, rateCategoryForAction, type RateCategory } from "@/lib/mcp/rate-limit";
+import { buildCallLogRow, logMcpCalls } from "@/lib/mcp/call-log";
 
 // Ensure register-all runs in this runtime so the registry is populated
 // when an MCP request lands here without ever rendering the client.
@@ -171,9 +176,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Collect per-call observations during dispatch, then persist them.
+  const observations: McpCallObservation[] = [];
   const responses = await Promise.all(
-    requests.map((r) => handleJsonRpc(r, auth.userId, auth.squadProfileIds))
+    requests.map((r) =>
+      handleJsonRpc(r, auth.userId, auth.squadProfileIds, (obs) => observations.push(obs))
+    )
   );
+
+  // Observability: best-effort write to mcp_call_log. logMcpCalls never
+  // throws (swallows DB errors, no-ops without service-role env), so this
+  // can't affect the response — we await only to flush before the
+  // serverless function freezes.
+  if (observations.length > 0) {
+    await logMcpCalls(
+      observations.map((o) => buildCallLogRow(o, auth.userId, auth.squadProfileIds))
+    );
+  }
+
   const filtered = responses.filter((r): r is NonNullable<typeof r> => r !== null);
 
   // Notifications-only batch returns 204 No Content per JSON-RPC spec.

@@ -32,10 +32,19 @@ export interface JsonRpcResponse {
 
 const PROTOCOL_VERSION = "2024-11-05";
 
+/** Emitted once per `tools/call` for observability. The transport stays
+ *  DB-free — the route supplies a callback that persists these. */
+export interface McpCallObservation {
+  actionId: string;
+  ms: number;
+  isError: boolean;
+}
+
 export async function handleJsonRpc(
   request: JsonRpcRequest,
   userId: string,
-  squadProfileIds: readonly string[] = []
+  squadProfileIds: readonly string[] = [],
+  onCall?: (obs: McpCallObservation) => void
 ): Promise<JsonRpcResponse | null> {
   // Notifications (no id, no response).
   if (request.id === undefined || request.id === null) {
@@ -118,6 +127,7 @@ export async function handleJsonRpc(
       // Wrap handler call so semantic failures surface as isError:true in
       // the content block rather than -32603 internal errors. MCP clients
       // distinguish these.
+      const startedAt = Date.now();
       let payload: unknown;
       let isError = false;
       try {
@@ -133,6 +143,15 @@ export async function handleJsonRpc(
         // Circular reference or non-serialisable result.
         text = `[unserialisable result from ${name}]`;
         isError = true;
+      }
+      // Observability: emit per-call timing + outcome. Best-effort — the
+      // callback (DB write) is the route's concern and must never throw here.
+      if (onCall) {
+        try {
+          onCall({ actionId: action.id, ms: Date.now() - startedAt, isError });
+        } catch {
+          /* never let logging break a tool call */
+        }
       }
       return {
         jsonrpc: "2.0",
