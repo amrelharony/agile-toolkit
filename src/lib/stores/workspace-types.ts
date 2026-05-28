@@ -745,6 +745,23 @@ export interface WhiteboardSavedTemplate {
   createdBy?: string;
 }
 
+// ── Ceremonies (squad S3) ───────────────────────────────────────────
+/** One cross-team coordination entry in the Scrum of Scrums log. */
+export interface SosEntry {
+  id: string;
+  meetingDate: ISODateString;
+  team: string;
+  kind: "blocker" | "dependency" | "decision" | "update";
+  text: string;
+  blockedBy?: string;
+  status: "open" | "resolved";
+  resolvedAt?: ISODateString;
+  /** Creation timestamp — drives stable newest-first ordering now that
+   *  entries live in the insertion-ordered workspace store rather than a
+   *  prepend-ordered local array. */
+  loggedAt: ISODateString;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -793,6 +810,8 @@ export interface Workspace {
   /** Squad-interactive kudos wall — rolling 500-entry cap to bound
    *  localStorage growth (see workspace-store.upsertKudos). */
   kudos?: Kudos[];
+  // Ceremonies (squad S3)
+  sosEntries?: SosEntry[];
 }
 
 /**

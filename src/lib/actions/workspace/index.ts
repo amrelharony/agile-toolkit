@@ -41,6 +41,8 @@ import type {
   OODACycle,
   CynefinItem,
   Polarity,
+  // Ceremonies (squad S3)
+  SosEntry,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -372,8 +374,17 @@ defineCrudActions<RedTeamFinding>({
 const PrioritizationItemSchema = z.object({
   id: z.string(),
   framework: z.enum([
-    "rice", "ice", "moscow", "kano", "wsjf", "cost-of-delay",
-    "value-effort", "buy-feature", "hundred-dollar", "eisenhower", "walking-skeleton",
+    "rice",
+    "ice",
+    "moscow",
+    "kano",
+    "wsjf",
+    "cost-of-delay",
+    "value-effort",
+    "buy-feature",
+    "hundred-dollar",
+    "eisenhower",
+    "walking-skeleton",
   ]),
   title: z.string(),
   description: z.string().optional(),
@@ -464,6 +475,18 @@ const PolaritySchema = z.object({
   deeperFear: z.string().optional(),
 }) as unknown as z.ZodType<Polarity>;
 
+const SosEntrySchema = z.object({
+  id: z.string(),
+  meetingDate: z.string(),
+  team: z.string(),
+  kind: z.enum(["blocker", "dependency", "decision", "update"]),
+  text: z.string(),
+  blockedBy: z.string().optional(),
+  status: z.enum(["open", "resolved"]),
+  resolvedAt: z.string().optional(),
+  loggedAt: z.string(),
+}) as unknown as z.ZodType<SosEntry>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -532,6 +555,16 @@ defineCrudActions<Polarity>({
   upsert: (x) => ws().upsertPolarity(x),
   remove: (id) => ws().removePolarity(id),
   generateId: () => `polarity_${nanoid(8)}`,
+});
+
+defineCrudActions<SosEntry>({
+  toolId: "workspace.sos_entry",
+  entityName: "Scrum of Scrums entry",
+  schema: SosEntrySchema,
+  selectAll: () => ws().sosEntries ?? [],
+  upsert: (x) => ws().upsertSosEntry(x),
+  remove: (id) => ws().removeSosEntry(id),
+  generateId: () => `sos_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
