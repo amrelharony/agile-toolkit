@@ -379,6 +379,55 @@ export interface A11yTracker {
 }
 
 /* ────────────────────────────────────────────────────────────────────
+ * S10 — Quality Engineering entities (singleton-doc per tool, like kanban).
+ * ────────────────────────────────────────────────────────────────── */
+
+export interface TestPyramid {
+  id: string;
+  unit: number;
+  integration: number;
+  e2e: number;
+  description?: string;
+}
+
+export type FlakyStatus = "active" | "quarantined" | "fixed";
+
+export interface FlakyTest {
+  id: string;
+  name: string;
+  suite?: string;
+  owner?: string;
+  /** 0..1 observed failure rate. */
+  failureRate: number;
+  status: FlakyStatus;
+  firstSeenAt: ISODateString;
+  fixedAt?: string;
+  description?: string;
+}
+
+export interface FlakyTestBoard {
+  id: string;
+  tests: FlakyTest[];
+}
+
+export interface PrSample {
+  id: string;
+  prNumber?: string;
+  author: string;
+  openedAt: ISODateString;
+  mergedAt?: string;
+  reviewerCount: number;
+  commentCount: number;
+  linesChanged: number;
+  description?: string;
+}
+
+export interface CodeReviewLog {
+  id: string;
+  samples: PrSample[];
+}
+
+/* ────────────────────────────────────────────────────────────────────
  * Phase 20 — Prioritization Frameworks entities
  * ────────────────────────────────────────────────────────────────── */
 
@@ -1223,6 +1272,10 @@ export interface Workspace {
   vulnBurndowns?: VulnBurndown[];
   controlMaps?: ControlMap[];
   a11yTrackers?: A11yTracker[];
+  // S10 — Quality Engineering (singleton docs)
+  testPyramids?: TestPyramid[];
+  flakyTestBoards?: FlakyTestBoard[];
+  codeReviewLogs?: CodeReviewLog[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -1425,6 +1478,10 @@ export const emptyWorkspace: Workspace = {
   vulnBurndowns: [],
   controlMaps: [],
   a11yTrackers: [],
+  // S10 — Quality Engineering
+  testPyramids: [],
+  flakyTestBoards: [],
+  codeReviewLogs: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

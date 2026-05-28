@@ -35,6 +35,10 @@ import type {
   VulnBurndown,
   ControlMap,
   A11yTracker,
+  // S10 — Quality Engineering
+  TestPyramid,
+  FlakyTestBoard,
+  CodeReviewLog,
   // Phase 20
   PrioritizationItem,
   // Phase 21
@@ -136,6 +140,12 @@ interface WorkspaceActions {
   removeControlMap: (id: string) => void;
   upsertA11yTracker: (x: A11yTracker) => void;
   removeA11yTracker: (id: string) => void;
+  upsertTestPyramid: (x: TestPyramid) => void;
+  removeTestPyramid: (id: string) => void;
+  upsertFlakyTestBoard: (x: FlakyTestBoard) => void;
+  removeFlakyTestBoard: (id: string) => void;
+  upsertCodeReviewLog: (x: CodeReviewLog) => void;
+  removeCodeReviewLog: (id: string) => void;
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
@@ -730,6 +740,18 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ a11yTrackers: replaceById(_st.a11yTrackers ?? [], x) })),
       removeA11yTracker: (id) =>
         set((s) => ({ a11yTrackers: (s.a11yTrackers ?? []).filter((y) => y.id !== id) })),
+      upsertTestPyramid: (x) =>
+        set((_st) => ({ testPyramids: replaceById(_st.testPyramids ?? [], x) })),
+      removeTestPyramid: (id) =>
+        set((s) => ({ testPyramids: (s.testPyramids ?? []).filter((y) => y.id !== id) })),
+      upsertFlakyTestBoard: (x) =>
+        set((_st) => ({ flakyTestBoards: replaceById(_st.flakyTestBoards ?? [], x) })),
+      removeFlakyTestBoard: (id) =>
+        set((s) => ({ flakyTestBoards: (s.flakyTestBoards ?? []).filter((y) => y.id !== id) })),
+      upsertCodeReviewLog: (x) =>
+        set((_st) => ({ codeReviewLogs: replaceById(_st.codeReviewLogs ?? [], x) })),
+      removeCodeReviewLog: (id) =>
+        set((s) => ({ codeReviewLogs: (s.codeReviewLogs ?? []).filter((y) => y.id !== id) })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) =>
         set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
@@ -1146,6 +1168,9 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           vulnBurndowns: s.vulnBurndowns,
           controlMaps: s.controlMaps,
           a11yTrackers: s.a11yTrackers,
+          testPyramids: s.testPyramids,
+          flakyTestBoards: s.flakyTestBoards,
+          codeReviewLogs: s.codeReviewLogs,
           // Phase 20
           prioritizations: s.prioritizations,
           // Phase 21
@@ -1245,6 +1270,9 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           vulnBurndowns: arr("vulnBurndowns"),
           controlMaps: arr("controlMaps"),
           a11yTrackers: arr("a11yTrackers"),
+          testPyramids: arr("testPyramids"),
+          flakyTestBoards: arr("flakyTestBoards"),
+          codeReviewLogs: arr("codeReviewLogs"),
           // Phase 20
           prioritizations: arr("prioritizations"),
           // Phase 21
@@ -1545,6 +1573,9 @@ if (typeof window !== "undefined") {
     registerCollection("vulnBurndown", "vulnBurndowns");
     registerCollection("controlMap", "controlMaps");
     registerCollection("a11yTracker", "a11yTrackers");
+    registerCollection("testPyramid", "testPyramids");
+    registerCollection("flakyTestBoard", "flakyTestBoards");
+    registerCollection("codeReviewLog", "codeReviewLogs");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
     // Phase 21 — Decision frameworks
@@ -1647,6 +1678,9 @@ export function getWorkspaceSnapshot(): Workspace {
     vulnBurndowns: state.vulnBurndowns,
     controlMaps: state.controlMaps,
     a11yTrackers: state.a11yTrackers,
+    testPyramids: state.testPyramids,
+    flakyTestBoards: state.flakyTestBoards,
+    codeReviewLogs: state.codeReviewLogs,
     prioritizations: state.prioritizations,
     daciDecisions: state.daciDecisions,
     rapidDecisions: state.rapidDecisions,

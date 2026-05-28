@@ -44,6 +44,10 @@ import type {
   VulnBurndown,
   ControlMap,
   A11yTracker,
+  // S10 — Quality Engineering
+  TestPyramid,
+  FlakyTestBoard,
+  CodeReviewLog,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -679,6 +683,81 @@ defineCrudActions<A11yTracker>({
   upsert: (x) => ws().upsertA11yTracker(x),
   remove: (id) => ws().removeA11yTracker(id),
   generateId: () => `a11yTracker_${nanoid(8)}`,
+});
+
+/* ── S10 — Quality Engineering (singleton-doc tools). quality-cost is a pure
+ * calculator (no entity) — its compute action lives in ../tools/. */
+
+const TestPyramidSchema = z.object({
+  id: z.string(),
+  unit: z.number(),
+  integration: z.number(),
+  e2e: z.number(),
+  description: z.string().optional(),
+}) as unknown as z.ZodType<TestPyramid>;
+
+const FlakyTestSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  suite: z.string().optional(),
+  owner: z.string().optional(),
+  failureRate: z.number(),
+  status: z.enum(["active", "quarantined", "fixed"]),
+  firstSeenAt: z.string(),
+  fixedAt: z.string().optional(),
+  description: z.string().optional(),
+});
+
+const FlakyTestBoardSchema = z.object({
+  id: z.string(),
+  tests: z.array(FlakyTestSchema),
+}) as unknown as z.ZodType<FlakyTestBoard>;
+
+const PrSampleSchema = z.object({
+  id: z.string(),
+  prNumber: z.string().optional(),
+  author: z.string(),
+  openedAt: z.string(),
+  mergedAt: z.string().optional(),
+  reviewerCount: z.number(),
+  commentCount: z.number(),
+  linesChanged: z.number(),
+  description: z.string().optional(),
+});
+
+const CodeReviewLogSchema = z.object({
+  id: z.string(),
+  samples: z.array(PrSampleSchema),
+}) as unknown as z.ZodType<CodeReviewLog>;
+
+defineCrudActions<TestPyramid>({
+  toolId: "workspace.test_pyramid",
+  entityName: "test pyramid",
+  schema: TestPyramidSchema,
+  selectAll: () => ws().testPyramids ?? [],
+  upsert: (x) => ws().upsertTestPyramid(x),
+  remove: (id) => ws().removeTestPyramid(id),
+  generateId: () => `testPyramid_${nanoid(8)}`,
+});
+
+defineCrudActions<FlakyTestBoard>({
+  toolId: "workspace.flaky_test_board",
+  entityName: "flaky-test board",
+  schema: FlakyTestBoardSchema,
+  selectAll: () => ws().flakyTestBoards ?? [],
+  upsert: (x) => ws().upsertFlakyTestBoard(x),
+  remove: (id) => ws().removeFlakyTestBoard(id),
+  generateId: () => `flakyTestBoard_${nanoid(8)}`,
+});
+
+defineCrudActions<CodeReviewLog>({
+  toolId: "workspace.code_review_log",
+  entityName: "code-review log",
+  schema: CodeReviewLogSchema,
+  selectAll: () => ws().codeReviewLogs ?? [],
+  upsert: (x) => ws().upsertCodeReviewLog(x),
+  remove: (id) => ws().removeCodeReviewLog(id),
+  generateId: () => `codeReviewLog_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
