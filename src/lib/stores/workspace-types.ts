@@ -428,6 +428,90 @@ export interface CodeReviewLog {
 }
 
 /* ────────────────────────────────────────────────────────────────────
+ * S7 — Engineering Excellence entities (singleton-doc per tool, like kanban).
+ * ────────────────────────────────────────────────────────────────── */
+
+export interface DoraSample {
+  id: string;
+  quarter: string;
+  deployFreqPerWeek: number;
+  leadTimeHours: number;
+  /** 0..1 fractional change-failure rate. */
+  changeFailRate: number;
+  mttrHours: number;
+  description?: string;
+}
+
+export interface DoraScorecard {
+  id: string;
+  samples: DoraSample[];
+}
+
+export interface SloDefinition {
+  id: string;
+  name: string;
+  sliDescription: string;
+  /** 0..1 — e.g. 0.999 = 99.9%. */
+  target: number;
+  windowDays: number;
+  description?: string;
+}
+
+export interface SloBurn {
+  id: string;
+  sloId: string;
+  date: ISODateString;
+  errorMinutes: number;
+}
+
+export interface SloBuilder {
+  id: string;
+  slos: SloDefinition[];
+  burns: SloBurn[];
+}
+
+export interface SpaceScore {
+  id: string;
+  quarter: string;
+  /** Each 1..5. */
+  satisfaction: number;
+  performance: number;
+  activity: number;
+  communication: number;
+  efficiency: number;
+  description?: string;
+}
+
+export interface SpacePulse {
+  id: string;
+  scores: SpaceScore[];
+}
+
+export interface DevexResponse {
+  id: string;
+  respondent: string;
+  date: ISODateString;
+  /** Each 1..5; cognitiveLoad higher = worse. */
+  flowState: number;
+  feedbackLoops: number;
+  cognitiveLoad: number;
+  comments?: string;
+}
+
+export interface DevexSurvey {
+  id: string;
+  responses: DevexResponse[];
+}
+
+export interface PlatformMaturity {
+  id: string;
+  /** Per-dimension score (dimension id → level). */
+  dimensions: Record<string, number>;
+  /** Per-dimension free-text notes. */
+  notes: Record<string, string>;
+}
+
+/* ────────────────────────────────────────────────────────────────────
  * Phase 20 — Prioritization Frameworks entities
  * ────────────────────────────────────────────────────────────────── */
 
@@ -1276,6 +1360,12 @@ export interface Workspace {
   testPyramids?: TestPyramid[];
   flakyTestBoards?: FlakyTestBoard[];
   codeReviewLogs?: CodeReviewLog[];
+  // S7 — Engineering Excellence (singleton docs)
+  doraScorecards?: DoraScorecard[];
+  sloBuilders?: SloBuilder[];
+  spacePulses?: SpacePulse[];
+  devexSurveys?: DevexSurvey[];
+  platformMaturities?: PlatformMaturity[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -1482,6 +1572,12 @@ export const emptyWorkspace: Workspace = {
   testPyramids: [],
   flakyTestBoards: [],
   codeReviewLogs: [],
+  // S7 — Engineering Excellence
+  doraScorecards: [],
+  sloBuilders: [],
+  spacePulses: [],
+  devexSurveys: [],
+  platformMaturities: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

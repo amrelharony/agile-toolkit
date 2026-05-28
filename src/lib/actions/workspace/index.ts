@@ -48,6 +48,12 @@ import type {
   TestPyramid,
   FlakyTestBoard,
   CodeReviewLog,
+  // S7 — Engineering Excellence
+  DoraScorecard,
+  SloBuilder,
+  SpacePulse,
+  DevexSurvey,
+  PlatformMaturity,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -758,6 +764,132 @@ defineCrudActions<CodeReviewLog>({
   upsert: (x) => ws().upsertCodeReviewLog(x),
   remove: (id) => ws().removeCodeReviewLog(id),
   generateId: () => `codeReviewLog_${nanoid(8)}`,
+});
+
+/* ── S7 — Engineering Excellence (singleton-doc tools). */
+
+const DoraSampleSchema = z.object({
+  id: z.string(),
+  quarter: z.string(),
+  deployFreqPerWeek: z.number(),
+  leadTimeHours: z.number(),
+  changeFailRate: z.number(),
+  mttrHours: z.number(),
+  description: z.string().optional(),
+});
+
+const DoraScorecardSchema = z.object({
+  id: z.string(),
+  samples: z.array(DoraSampleSchema),
+}) as unknown as z.ZodType<DoraScorecard>;
+
+const SloDefinitionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  sliDescription: z.string(),
+  target: z.number(),
+  windowDays: z.number(),
+  description: z.string().optional(),
+});
+
+const SloBurnSchema = z.object({
+  id: z.string(),
+  sloId: z.string(),
+  date: z.string(),
+  errorMinutes: z.number(),
+});
+
+const SloBuilderSchema = z.object({
+  id: z.string(),
+  slos: z.array(SloDefinitionSchema),
+  burns: z.array(SloBurnSchema),
+}) as unknown as z.ZodType<SloBuilder>;
+
+const SpaceScoreSchema = z.object({
+  id: z.string(),
+  quarter: z.string(),
+  satisfaction: z.number(),
+  performance: z.number(),
+  activity: z.number(),
+  communication: z.number(),
+  efficiency: z.number(),
+  description: z.string().optional(),
+});
+
+const SpacePulseSchema = z.object({
+  id: z.string(),
+  scores: z.array(SpaceScoreSchema),
+}) as unknown as z.ZodType<SpacePulse>;
+
+const DevexResponseSchema = z.object({
+  id: z.string(),
+  respondent: z.string(),
+  date: z.string(),
+  flowState: z.number(),
+  feedbackLoops: z.number(),
+  cognitiveLoad: z.number(),
+  comments: z.string().optional(),
+});
+
+const DevexSurveySchema = z.object({
+  id: z.string(),
+  responses: z.array(DevexResponseSchema),
+}) as unknown as z.ZodType<DevexSurvey>;
+
+const PlatformMaturitySchema = z.object({
+  id: z.string(),
+  dimensions: z.record(z.string(), z.number()),
+  notes: z.record(z.string(), z.string()),
+}) as unknown as z.ZodType<PlatformMaturity>;
+
+defineCrudActions<DoraScorecard>({
+  toolId: "workspace.dora_scorecard",
+  entityName: "DORA scorecard",
+  schema: DoraScorecardSchema,
+  selectAll: () => ws().doraScorecards ?? [],
+  upsert: (x) => ws().upsertDoraScorecard(x),
+  remove: (id) => ws().removeDoraScorecard(id),
+  generateId: () => `doraScorecard_${nanoid(8)}`,
+});
+
+defineCrudActions<SloBuilder>({
+  toolId: "workspace.slo_builder",
+  entityName: "SLO builder",
+  schema: SloBuilderSchema,
+  selectAll: () => ws().sloBuilders ?? [],
+  upsert: (x) => ws().upsertSloBuilder(x),
+  remove: (id) => ws().removeSloBuilder(id),
+  generateId: () => `sloBuilder_${nanoid(8)}`,
+});
+
+defineCrudActions<SpacePulse>({
+  toolId: "workspace.space_pulse",
+  entityName: "SPACE pulse",
+  schema: SpacePulseSchema,
+  selectAll: () => ws().spacePulses ?? [],
+  upsert: (x) => ws().upsertSpacePulse(x),
+  remove: (id) => ws().removeSpacePulse(id),
+  generateId: () => `spacePulse_${nanoid(8)}`,
+});
+
+defineCrudActions<DevexSurvey>({
+  toolId: "workspace.devex_survey",
+  entityName: "DevEx survey",
+  schema: DevexSurveySchema,
+  selectAll: () => ws().devexSurveys ?? [],
+  upsert: (x) => ws().upsertDevexSurvey(x),
+  remove: (id) => ws().removeDevexSurvey(id),
+  generateId: () => `devexSurvey_${nanoid(8)}`,
+});
+
+defineCrudActions<PlatformMaturity>({
+  toolId: "workspace.platform_maturity",
+  entityName: "platform maturity assessment",
+  schema: PlatformMaturitySchema,
+  selectAll: () => ws().platformMaturities ?? [],
+  upsert: (x) => ws().upsertPlatformMaturity(x),
+  remove: (id) => ws().removePlatformMaturity(id),
+  generateId: () => `platformMaturity_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
