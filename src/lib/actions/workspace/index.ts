@@ -58,6 +58,7 @@ import type {
   MoodEntry,
   // Flow & Delivery (squad S6)
   KanbanBoard,
+  DependencyMap,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -649,6 +650,12 @@ const KanbanBoardSchema = z.object({
   wipLimits: z.record(z.string(), z.number()),
 }) as unknown as z.ZodType<KanbanBoard>;
 
+const DependencyMapSchema = z.object({
+  id: z.string(),
+  nodes: z.array(z.record(z.string(), z.unknown())),
+  edges: z.array(z.record(z.string(), z.unknown())),
+}) as unknown as z.ZodType<DependencyMap>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -847,6 +854,16 @@ defineCrudActions<KanbanBoard>({
   upsert: (x) => ws().upsertKanbanBoard(x),
   remove: (id) => ws().removeKanbanBoard(id),
   generateId: () => `kanban_${nanoid(8)}`,
+});
+
+defineCrudActions<DependencyMap>({
+  toolId: "workspace.dependency_map",
+  entityName: "dependency map",
+  schema: DependencyMapSchema,
+  selectAll: () => ws().dependencyMaps ?? [],
+  upsert: (x) => ws().upsertDependencyMap(x),
+  remove: (id) => ws().removeDependencyMap(id),
+  generateId: () => `depmap_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────

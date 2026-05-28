@@ -1022,6 +1022,29 @@ export interface KanbanBoard {
   wipLimits: Record<KanbanColumnId, number>;
 }
 
+/** A node in the dependency graph (a team / workstream / deliverable). */
+export interface DependencyNode {
+  id: string;
+  label: string;
+  description?: string;
+  team?: string;
+}
+
+/** A directed dependency edge between two nodes. */
+export interface DependencyEdge {
+  id: string;
+  from: string;
+  to: string;
+  kind: "blocks" | "needs" | "informs";
+}
+
+/** The dependency map — a singleton graph document (nodes + edges). */
+export interface DependencyMap {
+  id: string;
+  nodes: DependencyNode[];
+  edges: DependencyEdge[];
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -1087,6 +1110,7 @@ export interface Workspace {
   moodEntries?: MoodEntry[];
   // Flow & Delivery (squad S6)
   kanbanBoards?: KanbanBoard[];
+  dependencyMaps?: DependencyMap[];
 }
 
 /**
