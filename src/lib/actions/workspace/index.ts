@@ -44,6 +44,7 @@ import type {
   // Ceremonies (squad S3)
   SosEntry,
   AsyncUpdate,
+  StandupEntry,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -498,6 +499,17 @@ const AsyncUpdateSchema = z.object({
   description: z.string().optional(),
 }) as unknown as z.ZodType<AsyncUpdate>;
 
+const StandupEntrySchema = z.object({
+  id: z.string(),
+  member: z.string(),
+  date: z.string(),
+  yesterday: z.string(),
+  today: z.string(),
+  blockers: z.string(),
+  timestamp: z.number(),
+  blockerResolved: z.boolean().optional(),
+}) as unknown as z.ZodType<StandupEntry>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -586,6 +598,16 @@ defineCrudActions<AsyncUpdate>({
   upsert: (x) => ws().upsertAsyncUpdate(x),
   remove: (id) => ws().removeAsyncUpdate(id),
   generateId: () => `async_${nanoid(8)}`,
+});
+
+defineCrudActions<StandupEntry>({
+  toolId: "workspace.standup_entry",
+  entityName: "standup entry",
+  schema: StandupEntrySchema,
+  selectAll: () => ws().standupEntries ?? [],
+  upsert: (x) => ws().upsertStandupEntry(x),
+  remove: (id) => ws().removeStandupEntry(id),
+  generateId: () => `standup_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────

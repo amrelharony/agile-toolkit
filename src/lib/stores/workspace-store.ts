@@ -51,6 +51,7 @@ import type {
   // Ceremonies (squad S3)
   SosEntry,
   AsyncUpdate,
+  StandupEntry,
 } from "./workspace-types";
 import { emptyWorkspace } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -155,6 +156,8 @@ interface WorkspaceActions {
   removeSosEntry: (id: string) => void;
   upsertAsyncUpdate: (x: AsyncUpdate) => void;
   removeAsyncUpdate: (id: string) => void;
+  upsertStandupEntry: (x: StandupEntry) => void;
+  removeStandupEntry: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert. Use this for bulk imports — single-item upserts are O(n)
@@ -962,6 +965,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ asyncUpdates: replaceById(_st.asyncUpdates ?? [], x) })),
       removeAsyncUpdate: (id) =>
         set((s) => ({ asyncUpdates: (s.asyncUpdates ?? []).filter((y) => y.id !== id) })),
+      upsertStandupEntry: (x) =>
+        set((_st) => ({ standupEntries: replaceById(_st.standupEntries ?? [], x) })),
+      removeStandupEntry: (id) =>
+        set((s) => ({ standupEntries: (s.standupEntries ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1007,6 +1014,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           polarityPoles: s.polarityPoles,
           sosEntries: s.sosEntries,
           asyncUpdates: s.asyncUpdates,
+          standupEntries: s.standupEntries,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1086,6 +1094,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           polarityPoles: arr("polarityPoles"),
           sosEntries: arr("sosEntries"),
           asyncUpdates: arr("asyncUpdates"),
+          standupEntries: arr("standupEntries"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -1366,6 +1375,7 @@ if (typeof window !== "undefined") {
     registerCollection("polarityPole", "polarityPoles");
     registerCollection("sosEntry", "sosEntries");
     registerCollection("asyncUpdate", "asyncUpdates");
+    registerCollection("standupEntry", "standupEntries");
     // Phase 22 — Canvas. Whiteboard objects are throttled to 2s pushes
     // because drag operations can dirty hundreds of them per second.
     registerCollection("whiteboard", "whiteboards");
@@ -1455,6 +1465,7 @@ export function getWorkspaceSnapshot(): Workspace {
     kudos: state.kudos,
     sosEntries: state.sosEntries,
     asyncUpdates: state.asyncUpdates,
+    standupEntries: state.standupEntries,
   };
 }
 

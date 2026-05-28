@@ -774,6 +774,23 @@ export interface AsyncUpdate {
   description?: string;
 }
 
+/** One member's daily standup entry. */
+export interface StandupEntry {
+  id: string;
+  member: string;
+  /** YYYY-MM-DD (local). */
+  date: ISODateString;
+  yesterday: string;
+  today: string;
+  blockers: string;
+  /** Epoch ms the entry (and its blocker) was first raised. Preserved
+   *  across edits so blocker-age analytics don't reset. */
+  timestamp: number;
+  /** True once this entry's blocker has been marked resolved. Folds in the
+   *  old standalone resolvedBlockers[] list from the isolated store. */
+  blockerResolved?: boolean;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -825,6 +842,7 @@ export interface Workspace {
   // Ceremonies (squad S3)
   sosEntries?: SosEntry[];
   asyncUpdates?: AsyncUpdate[];
+  standupEntries?: StandupEntry[];
 }
 
 /**
