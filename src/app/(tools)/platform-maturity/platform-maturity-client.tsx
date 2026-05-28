@@ -16,7 +16,6 @@ import { Slider } from "@/components/ui/slider";
 import { Layers, ChevronRight, Save, RotateCcw } from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { generatePlatformMaturityPrompts } from "@/lib/ai-prompts/platform-maturity";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PLATFORM_MATURITY_ACTIONS } from "@/lib/history/event-actions";
 import { useShallow } from "zustand/react/shallow";
@@ -136,11 +135,31 @@ const DEFAULT_STATE: PlatformAssessment = {
   notes: {},
 };
 
-export function PlatformMaturityClient() {
-  const [state, setState] = usePersisted<PlatformAssessment>(
-    "agile-toolkit:platform-maturity",
-    DEFAULT_STATE
+const PM_ID = "platformMaturity:current"; // MUST match PM_ID in platform-maturity.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// dimension writes round-trip into the UI. Drop-in [state, setState].
+function usePlatformMaturity(): [
+  PlatformAssessment,
+  (u: PlatformAssessment | ((p: PlatformAssessment) => PlatformAssessment)) => void,
+] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.platformMaturities ?? []).find((d) => d.id === PM_ID))
   );
+  const upsert = useWorkspaceStore((s) => s.upsertPlatformMaturity);
+  const toAssessment = (d: typeof doc): PlatformAssessment =>
+    d ? { dimensions: d.dimensions, notes: d.notes } : DEFAULT_STATE;
+  const state = toAssessment(doc);
+  const setState = (u: PlatformAssessment | ((p: PlatformAssessment) => PlatformAssessment)) => {
+    const cur = (useWorkspaceStore.getState().platformMaturities ?? []).find((d) => d.id === PM_ID);
+    const next = typeof u === "function" ? u(toAssessment(cur)) : u;
+    upsert({ id: PM_ID, dimensions: next.dimensions, notes: next.notes });
+  };
+  return [state, setState];
+}
+
+export function PlatformMaturityClient() {
+  const [state, setState] = usePlatformMaturity();
   const { log } = useHistoryLogger("platform-maturity");
 
   const setScore = (id: DimensionId, score: number) => {

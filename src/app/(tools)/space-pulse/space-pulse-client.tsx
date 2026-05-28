@@ -18,13 +18,12 @@ import { Slider } from "@/components/ui/slider";
 import { Plus, Trash2, ArrowUp, ArrowDown, Minus } from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { generateSpacePrompts } from "@/lib/ai-prompts/space-pulse";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPACE_ACTIONS } from "@/lib/history/event-actions";
 import { toast } from "@/lib/utils/toast";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import type { Workspace, SpaceScore } from "@/lib/stores/workspace-types";
 
 // Quarter must be `YYYY-Q[1-4]` so localeCompare yields chronological order.
 // Anything else slips through, but we warn the user at write-time.
@@ -37,22 +36,30 @@ type SpaceDimensionKey =
   | "communication"
   | "efficiency";
 
-interface SpaceScore {
-  id: string;
-  quarter: string;
-  satisfaction: number; // 1-5
-  performance: number;
-  activity: number;
-  communication: number;
-  efficiency: number;
-  description?: string;
-}
-
 interface SpaceState {
   scores: SpaceScore[];
 }
 
 const DEFAULT_STATE: SpaceState = { scores: [] };
+
+const SP_ID = "spacePulse:current"; // MUST match SP_ID in space-pulse.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// score writes round-trip into the UI. Drop-in [state, setState].
+function useSpacePulse(): [SpaceState, (u: SpaceState | ((p: SpaceState) => SpaceState)) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.spacePulses ?? []).find((d) => d.id === SP_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertSpacePulse);
+  const state: SpaceState = doc ? { scores: doc.scores } : DEFAULT_STATE;
+  const setState = (u: SpaceState | ((p: SpaceState) => SpaceState)) => {
+    const cur = (useWorkspaceStore.getState().spacePulses ?? []).find((d) => d.id === SP_ID);
+    const curState: SpaceState = cur ? { scores: cur.scores } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: SP_ID, scores: next.scores });
+  };
+  return [state, setState];
+}
 
 const DIMENSIONS: { key: SpaceDimensionKey; label: string }[] = [
   { key: "satisfaction", label: "Satisfaction" },
@@ -91,7 +98,7 @@ function makeDraft(): DraftState {
 }
 
 export function SpacePulseClient() {
-  const [state, setState] = usePersisted<SpaceState>("agile-toolkit:space-pulse", DEFAULT_STATE);
+  const [state, setState] = useSpacePulse();
   const [draft, setDraft] = useState<DraftState>(makeDraft);
   const { log } = useHistoryLogger("space-pulse");
 

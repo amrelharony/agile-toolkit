@@ -39,6 +39,12 @@ import type {
   TestPyramid,
   FlakyTestBoard,
   CodeReviewLog,
+  // S7 — Engineering Excellence
+  DoraScorecard,
+  SloBuilder,
+  SpacePulse,
+  DevexSurvey,
+  PlatformMaturity,
   // Phase 20
   PrioritizationItem,
   // Phase 21
@@ -146,6 +152,16 @@ interface WorkspaceActions {
   removeFlakyTestBoard: (id: string) => void;
   upsertCodeReviewLog: (x: CodeReviewLog) => void;
   removeCodeReviewLog: (id: string) => void;
+  upsertDoraScorecard: (x: DoraScorecard) => void;
+  removeDoraScorecard: (id: string) => void;
+  upsertSloBuilder: (x: SloBuilder) => void;
+  removeSloBuilder: (id: string) => void;
+  upsertSpacePulse: (x: SpacePulse) => void;
+  removeSpacePulse: (id: string) => void;
+  upsertDevexSurvey: (x: DevexSurvey) => void;
+  removeDevexSurvey: (id: string) => void;
+  upsertPlatformMaturity: (x: PlatformMaturity) => void;
+  removePlatformMaturity: (id: string) => void;
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
@@ -752,6 +768,28 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ codeReviewLogs: replaceById(_st.codeReviewLogs ?? [], x) })),
       removeCodeReviewLog: (id) =>
         set((s) => ({ codeReviewLogs: (s.codeReviewLogs ?? []).filter((y) => y.id !== id) })),
+      upsertDoraScorecard: (x) =>
+        set((_st) => ({ doraScorecards: replaceById(_st.doraScorecards ?? [], x) })),
+      removeDoraScorecard: (id) =>
+        set((s) => ({ doraScorecards: (s.doraScorecards ?? []).filter((y) => y.id !== id) })),
+      upsertSloBuilder: (x) =>
+        set((_st) => ({ sloBuilders: replaceById(_st.sloBuilders ?? [], x) })),
+      removeSloBuilder: (id) =>
+        set((s) => ({ sloBuilders: (s.sloBuilders ?? []).filter((y) => y.id !== id) })),
+      upsertSpacePulse: (x) =>
+        set((_st) => ({ spacePulses: replaceById(_st.spacePulses ?? [], x) })),
+      removeSpacePulse: (id) =>
+        set((s) => ({ spacePulses: (s.spacePulses ?? []).filter((y) => y.id !== id) })),
+      upsertDevexSurvey: (x) =>
+        set((_st) => ({ devexSurveys: replaceById(_st.devexSurveys ?? [], x) })),
+      removeDevexSurvey: (id) =>
+        set((s) => ({ devexSurveys: (s.devexSurveys ?? []).filter((y) => y.id !== id) })),
+      upsertPlatformMaturity: (x) =>
+        set((_st) => ({ platformMaturities: replaceById(_st.platformMaturities ?? [], x) })),
+      removePlatformMaturity: (id) =>
+        set((s) => ({
+          platformMaturities: (s.platformMaturities ?? []).filter((y) => y.id !== id),
+        })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) =>
         set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
@@ -1171,6 +1209,11 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           testPyramids: s.testPyramids,
           flakyTestBoards: s.flakyTestBoards,
           codeReviewLogs: s.codeReviewLogs,
+          doraScorecards: s.doraScorecards,
+          sloBuilders: s.sloBuilders,
+          spacePulses: s.spacePulses,
+          devexSurveys: s.devexSurveys,
+          platformMaturities: s.platformMaturities,
           // Phase 20
           prioritizations: s.prioritizations,
           // Phase 21
@@ -1273,6 +1316,11 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           testPyramids: arr("testPyramids"),
           flakyTestBoards: arr("flakyTestBoards"),
           codeReviewLogs: arr("codeReviewLogs"),
+          doraScorecards: arr("doraScorecards"),
+          sloBuilders: arr("sloBuilders"),
+          spacePulses: arr("spacePulses"),
+          devexSurveys: arr("devexSurveys"),
+          platformMaturities: arr("platformMaturities"),
           // Phase 20
           prioritizations: arr("prioritizations"),
           // Phase 21
@@ -1576,6 +1624,11 @@ if (typeof window !== "undefined") {
     registerCollection("testPyramid", "testPyramids");
     registerCollection("flakyTestBoard", "flakyTestBoards");
     registerCollection("codeReviewLog", "codeReviewLogs");
+    registerCollection("doraScorecard", "doraScorecards");
+    registerCollection("sloBuilder", "sloBuilders");
+    registerCollection("spacePulse", "spacePulses");
+    registerCollection("devexSurvey", "devexSurveys");
+    registerCollection("platformMaturity", "platformMaturities");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
     // Phase 21 — Decision frameworks
@@ -1681,6 +1734,11 @@ export function getWorkspaceSnapshot(): Workspace {
     testPyramids: state.testPyramids,
     flakyTestBoards: state.flakyTestBoards,
     codeReviewLogs: state.codeReviewLogs,
+    doraScorecards: state.doraScorecards,
+    sloBuilders: state.sloBuilders,
+    spacePulses: state.spacePulses,
+    devexSurveys: state.devexSurveys,
+    platformMaturities: state.platformMaturities,
     prioritizations: state.prioritizations,
     daciDecisions: state.daciDecisions,
     rapidDecisions: state.rapidDecisions,

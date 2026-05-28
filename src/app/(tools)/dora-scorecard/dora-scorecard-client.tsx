@@ -34,28 +34,38 @@ import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { generateDoraPrompts } from "@/lib/ai-prompts/dora-scorecard";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { DoraSample } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DORA_ACTIONS } from "@/lib/history/event-actions";
 
 type Band = "Elite" | "High" | "Medium" | "Low";
-
-interface DoraSample {
-  id: string;
-  quarter: string;
-  deployFreqPerWeek: number;
-  leadTimeHours: number;
-  /** 0-1 fractional change failure rate. */
-  changeFailRate: number;
-  mttrHours: number;
-  description?: string;
-}
 
 interface DoraState {
   samples: DoraSample[];
 }
 
 const DEFAULT_STATE: DoraState = { samples: [] };
+
+const DS_ID = "doraScorecard:current"; // MUST match DS_ID in dora-scorecard.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// sample writes round-trip into the UI. Drop-in [state, setState].
+function useDoraScorecard(): [DoraState, (u: DoraState | ((p: DoraState) => DoraState)) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.doraScorecards ?? []).find((d) => d.id === DS_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertDoraScorecard);
+  const state: DoraState = doc ? { samples: doc.samples } : DEFAULT_STATE;
+  const setState = (u: DoraState | ((p: DoraState) => DoraState)) => {
+    const cur = (useWorkspaceStore.getState().doraScorecards ?? []).find((d) => d.id === DS_ID);
+    const curState: DoraState = cur ? { samples: cur.samples } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: DS_ID, samples: next.samples });
+  };
+  return [state, setState];
+}
 
 const BAND_TONE: Record<Band, "success" | "default" | "warning" | "danger"> = {
   Elite: "success",
@@ -131,7 +141,7 @@ function makeDraft(): DraftState {
 }
 
 export function DoraScorecardClient() {
-  const [state, setState] = usePersisted<DoraState>("agile-toolkit:dora-scorecard", DEFAULT_STATE);
+  const [state, setState] = useDoraScorecard();
   const [draft, setDraft] = useState<DraftState>(makeDraft);
   const { log } = useHistoryLogger("dora-scorecard");
 
