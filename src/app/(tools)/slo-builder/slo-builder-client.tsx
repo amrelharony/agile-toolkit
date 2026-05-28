@@ -33,27 +33,12 @@ import {
 } from "@/lib/analytics/forecasting-bayesian";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { generateSloPrompts } from "@/lib/ai-prompts/slo-builder";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { SloDefinition, SloBurn } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SLO_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
-
-interface SloDefinition {
-  id: string;
-  name: string;
-  sliDescription: string;
-  /** 0-1 — e.g. 0.999 = 99.9 %. */
-  target: number;
-  windowDays: number;
-  description?: string;
-}
-
-interface SloBurn {
-  id: string;
-  sloId: string;
-  date: string; // YYYY-MM-DD
-  errorMinutes: number;
-}
 
 interface SloState {
   slos: SloDefinition[];
@@ -61,6 +46,25 @@ interface SloState {
 }
 
 const DEFAULT_STATE: SloState = { slos: [], burns: [] };
+
+const SB_ID = "sloBuilder:current"; // MUST match SB_ID in slo-builder.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// SLO/burn writes round-trip into the UI. Drop-in [state, setState].
+function useSloBuilder(): [SloState, (u: SloState | ((p: SloState) => SloState)) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.sloBuilders ?? []).find((d) => d.id === SB_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertSloBuilder);
+  const state: SloState = doc ? { slos: doc.slos, burns: doc.burns } : DEFAULT_STATE;
+  const setState = (u: SloState | ((p: SloState) => SloState)) => {
+    const cur = (useWorkspaceStore.getState().sloBuilders ?? []).find((d) => d.id === SB_ID);
+    const curState: SloState = cur ? { slos: cur.slos, burns: cur.burns } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: SB_ID, slos: next.slos, burns: next.burns });
+  };
+  return [state, setState];
+}
 
 interface SloDraft {
   name: string;
@@ -154,7 +158,7 @@ function consumedMinutes(slo: SloDefinition, burns: SloBurn[]): number {
 }
 
 export function SloBuilderClient() {
-  const [state, setState] = usePersisted<SloState>("agile-toolkit:slo-builder", DEFAULT_STATE);
+  const [state, setState] = useSloBuilder();
   const [sloDraft, setSloDraft] = useState<SloDraft>(makeSloDraft);
   const [burnDraft, setBurnDraft] = useState<BurnDraft>(() => makeBurnDraft(""));
   const { log } = useHistoryLogger("slo-builder");
