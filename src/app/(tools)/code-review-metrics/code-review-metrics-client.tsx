@@ -35,30 +35,39 @@ import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 import { xmrLimits } from "@/lib/analytics/control-chart";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { generateCodeReviewPrompts } from "@/lib/ai-prompts/code-review-metrics";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { PrSample } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CODE_REVIEW_ACTIONS } from "@/lib/history/event-actions";
 import { toast } from "@/lib/utils/toast";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 
-interface PrSample {
-  id: string;
-  prNumber?: string;
-  author: string;
-  openedAt: string; // ISO datetime or YYYY-MM-DD
-  mergedAt?: string;
-  reviewerCount: number;
-  commentCount: number;
-  linesChanged: number;
-  description?: string;
-}
-
 interface CrState {
   samples: PrSample[];
 }
 
 const DEFAULT_STATE: CrState = { samples: [] };
+
+const CR_ID = "codeReviewLog:current"; // MUST match CR_ID in code-review-metrics.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// sample writes round-trip into the UI. Drop-in [state, setState].
+function useCodeReviewLog(): [CrState, (u: CrState | ((p: CrState) => CrState)) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.codeReviewLogs ?? []).find((d) => d.id === CR_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertCodeReviewLog);
+  const state: CrState = doc ? { samples: doc.samples } : DEFAULT_STATE;
+  const setState = (u: CrState | ((p: CrState) => CrState)) => {
+    const cur = (useWorkspaceStore.getState().codeReviewLogs ?? []).find((d) => d.id === CR_ID);
+    const curState: CrState = cur ? { samples: cur.samples } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: CR_ID, samples: next.samples });
+  };
+  return [state, setState];
+}
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 
@@ -240,10 +249,7 @@ function parseCsv(csv: string): ParseResult {
 /* ── Main client ────────────────────────────────────────────────────────── */
 
 export function CodeReviewMetricsClient() {
-  const [state, setState] = usePersisted<CrState>(
-    "agile-toolkit:code-review-metrics",
-    DEFAULT_STATE
-  );
+  const [state, setState] = useCodeReviewLog();
   const { log } = useHistoryLogger("code-review-metrics");
   const scatterRef = useRef<HTMLDivElement>(null);
 
