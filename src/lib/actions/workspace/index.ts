@@ -36,6 +36,9 @@ import type {
   HitlReview,
   RlhfPair,
   VectorCollection,
+  AiFeatureSpec,
+  AiSafetyChecklist,
+  ModelMigration,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -490,6 +493,70 @@ defineCrudActions<VectorCollection>({
   upsert: (x) => ws().upsertVectorCollection(x),
   remove: (id) => ws().removeVectorCollection(id),
   generateId: () => `vectorCollection_${nanoid(8)}`,
+});
+
+/* ── S12b singleton-doc tools (ai-feature-spec, ai-safety-checklist,
+ * model-migration). Each keeps ONE document per workspace under a fixed id
+ * (see SINGLETON_ID in the matching tool action files). The generic CRUD
+ * here still works, but the tool.<x>.* verbs operate on the singleton. */
+
+const AiFeatureSpecSchema = z.object({
+  id: z.string(),
+  featureName: z.string(),
+  problem: z.string(),
+  modelChoice: z.string(),
+  evalCriteria: z.string(),
+  fallback: z.string(),
+  latencyBudgetMs: z.string(),
+  hallucinationTolerance: z.string(),
+  costBudget: z.string(),
+  humanLoop: z.string(),
+  rolloutPlan: z.string(),
+  successMetric: z.string(),
+}) as unknown as z.ZodType<AiFeatureSpec>;
+
+const AiSafetyChecklistSchema = z.object({
+  id: z.string(),
+  checks: z.record(z.string(), z.boolean()),
+}) as unknown as z.ZodType<AiSafetyChecklist>;
+
+const ModelMigrationSchema = z.object({
+  id: z.string(),
+  fromModel: z.string(),
+  toModel: z.string(),
+  evalDeltaPct: z.string(),
+  costDeltaPct: z.string(),
+  steps: z.array(z.object({ id: z.string(), text: z.string(), done: z.boolean() })),
+}) as unknown as z.ZodType<ModelMigration>;
+
+defineCrudActions<AiFeatureSpec>({
+  toolId: "workspace.ai_feature_spec",
+  entityName: "AI feature spec",
+  schema: AiFeatureSpecSchema,
+  selectAll: () => ws().aiFeatureSpecs ?? [],
+  upsert: (x) => ws().upsertAiFeatureSpec(x),
+  remove: (id) => ws().removeAiFeatureSpec(id),
+  generateId: () => `aiFeatureSpec_${nanoid(8)}`,
+});
+
+defineCrudActions<AiSafetyChecklist>({
+  toolId: "workspace.ai_safety_checklist",
+  entityName: "AI safety checklist",
+  schema: AiSafetyChecklistSchema,
+  selectAll: () => ws().aiSafetyChecklists ?? [],
+  upsert: (x) => ws().upsertAiSafetyChecklist(x),
+  remove: (id) => ws().removeAiSafetyChecklist(id),
+  generateId: () => `aiSafetyChecklist_${nanoid(8)}`,
+});
+
+defineCrudActions<ModelMigration>({
+  toolId: "workspace.model_migration",
+  entityName: "model migration",
+  schema: ModelMigrationSchema,
+  selectAll: () => ws().modelMigrations ?? [],
+  upsert: (x) => ws().upsertModelMigration(x),
+  remove: (id) => ws().removeModelMigration(id),
+  generateId: () => `modelMigration_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
