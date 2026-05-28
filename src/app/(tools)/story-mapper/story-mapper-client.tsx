@@ -1,9 +1,6 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   DragOverlay,
   PointerSensor,
@@ -29,7 +26,7 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateStoryMapperPrompts } from "@/lib/ai-prompts/story-mapper";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import type { Workspace, StoryMap } from "@/lib/stores/workspace-types";
 import { EditableName } from "@/components/shared/editable-name";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { STORY_MAPPER_ACTIONS } from "@/lib/history/event-actions";
@@ -172,177 +169,201 @@ function buildDefaultSlices(steps: Step[]): Slice[] {
 /*  Store                                                                      */
 /* -------------------------------------------------------------------------- */
 
-// Defaults are computed lazily inside the create() initializer rather than at
-// module load. This guarantees crypto.randomUUID() never runs while the module
-// is being evaluated, eliminating any chance of an SSR/client mismatch the
-// first time the persist middleware hydrates from localStorage.
-const useStoryMapStore = create<StoryMapState>()(
-  persist(
-    (set) => {
-      const initialSteps = buildDefaultSteps();
-      const initialSlices = buildDefaultSlices(initialSteps);
+// The story map is a singleton synced workspace document (was an isolated
+// localStorage zustand store), so MCP-written maps round-trip into the UI.
+// `useStoryMapStore` preserves the prior store's API — including selector
+// access (e.g. useStoryMapStore((s) => s.addCard)) — and the mutator bodies
+// below are byte-for-byte unchanged: `set` is a shim that merges a partial
+// onto the synced doc. MUST match SM_ID in src/lib/actions/tools/story-mapper.ts.
+const SM_ID = "story-mapper:current";
+
+function defaultStoryMap(): StoryMap {
+  const steps = buildDefaultSteps();
+  return { id: SM_ID, steps, slices: buildDefaultSlices(steps) };
+}
+
+function currentStoryMap(): StoryMap {
+  return (
+    (useWorkspaceStore.getState().storyMaps ?? []).find((m) => m.id === SM_ID) ?? defaultStoryMap()
+  );
+}
+
+/** zustand-like `set` over the synced StoryMap doc: accepts a partial or an
+ *  updater returning a partial; merges onto the freshest doc (id preserved).
+ *  Reading freshest via getState() avoids clobbering on rapid sequential
+ *  mutations. Lets the mutator bodies stay identical to the original store. */
+function set(updater: Partial<StoryMap> | ((s: StoryMap) => Partial<StoryMap>)): void {
+  const cur = currentStoryMap();
+  const partial = typeof updater === "function" ? updater(cur) : updater;
+  useWorkspaceStore.getState().upsertStoryMap({ ...cur, ...partial });
+}
+
+const storyMapApi: Omit<StoryMapState, "steps" | "slices"> = {
+  addStep: () =>
+    set((s) => {
+      const newStep: Step = { id: makeId(), name: "New Step" };
       return {
-        steps: initialSteps,
-        slices: initialSlices,
-
-        addStep: () =>
-          set((s) => {
-            const newStep: Step = { id: makeId(), name: "New Step" };
-            return {
-              steps: [...s.steps, newStep],
-              slices: s.slices.map((sl) => ({
-                ...sl,
-                cards: { ...sl.cards, [newStep.id]: [] },
-              })),
-            };
-          }),
-
-        removeStep: (stepId) =>
-          set((s) => {
-            if (s.steps.length <= 1) return s;
-            return {
-              steps: s.steps.filter((st) => st.id !== stepId),
-              slices: s.slices.map((sl) => {
-                const cards = { ...sl.cards };
-                delete cards[stepId];
-                return { ...sl, cards };
-              }),
-            };
-          }),
-
-        renameStep: (stepId, name) =>
-          set((s) => ({
-            steps: s.steps.map((st) => (st.id === stepId ? { ...st, name } : st)),
-          })),
-
-        addSlice: () =>
-          set((s) => {
-            const emptyCards: StepCards = {};
-            for (const st of s.steps) emptyCards[st.id] = [];
-            return {
-              slices: [...s.slices, { id: makeId(), name: "New Slice", cards: emptyCards }],
-            };
-          }),
-
-        removeSlice: (sliceId) =>
-          set((s) => {
-            if (s.slices.length <= 1) return s;
-            return { slices: s.slices.filter((sl) => sl.id !== sliceId) };
-          }),
-
-        renameSlice: (sliceId, name) =>
-          set((s) => ({
-            slices: s.slices.map((sl) => (sl.id === sliceId ? { ...sl, name } : sl)),
-          })),
-
-        addCard: (sliceId, stepId) =>
-          set((s) => ({
-            slices: s.slices.map((sl) => {
-              if (sl.id !== sliceId) return sl;
-              const existing = sl.cards[stepId] ?? [];
-              const newCard: StoryCard = {
-                id: makeId(),
-                title: "New Story",
-                description: "",
-                color: CARD_COLORS[0].value,
-              };
-              return {
-                ...sl,
-                cards: { ...sl.cards, [stepId]: [...existing, newCard] },
-              };
-            }),
-          })),
-
-        updateCard: (sliceId, stepId, card) =>
-          set((s) => ({
-            slices: s.slices.map((sl) => {
-              if (sl.id !== sliceId) return sl;
-              return {
-                ...sl,
-                cards: {
-                  ...sl.cards,
-                  [stepId]: (sl.cards[stepId] ?? []).map((c) => (c.id === card.id ? card : c)),
-                },
-              };
-            }),
-          })),
-
-        removeCard: (sliceId, stepId, cardId) =>
-          set((s) => ({
-            slices: s.slices.map((sl) => {
-              if (sl.id !== sliceId) return sl;
-              return {
-                ...sl,
-                cards: {
-                  ...sl.cards,
-                  [stepId]: (sl.cards[stepId] ?? []).filter((c) => c.id !== cardId),
-                },
-              };
-            }),
-          })),
-
-        moveCard: (fromSliceId, fromStepId, toSliceId, toStepId, cardId, toIndex) =>
-          set((s) => {
-            // For same-cell reordering we have to decrement toIndex by one
-            // when the source position precedes the target — otherwise the
-            // splice after removal lands one slot past the intended spot.
-            let adjustedToIndex = toIndex;
-            if (
-              fromSliceId === toSliceId &&
-              fromStepId === toStepId &&
-              adjustedToIndex !== undefined
-            ) {
-              const sourceSlice = s.slices.find((sl) => sl.id === fromSliceId);
-              const sourceCards = sourceSlice?.cards[fromStepId] ?? [];
-              const fromIdx = sourceCards.findIndex((c) => c.id === cardId);
-              if (fromIdx !== -1 && fromIdx < adjustedToIndex) {
-                adjustedToIndex -= 1;
-              }
-            }
-
-            let movedCard: StoryCard | null = null;
-            const slices = s.slices.map((sl) => {
-              if (sl.id !== fromSliceId) return sl;
-              const fromCards = sl.cards[fromStepId] ?? [];
-              const idx = fromCards.findIndex((c) => c.id === cardId);
-              if (idx === -1) return sl;
-              movedCard = fromCards[idx];
-              return {
-                ...sl,
-                cards: {
-                  ...sl.cards,
-                  [fromStepId]: fromCards.filter((c) => c.id !== cardId),
-                },
-              };
-            });
-
-            if (!movedCard) return s;
-
-            const card = movedCard as StoryCard;
-            return {
-              slices: slices.map((sl) => {
-                if (sl.id !== toSliceId) return sl;
-                const toCards = [...(sl.cards[toStepId] ?? [])];
-                const insertAt = adjustedToIndex !== undefined ? adjustedToIndex : toCards.length;
-                toCards.splice(insertAt, 0, card);
-                return {
-                  ...sl,
-                  cards: { ...sl.cards, [toStepId]: toCards },
-                };
-              }),
-            };
-          }),
-
-        reset: () => {
-          const steps = buildDefaultSteps();
-          const slices = buildDefaultSlices(steps);
-          set({ steps, slices });
-        },
+        steps: [...s.steps, newStep],
+        slices: s.slices.map((sl) => ({
+          ...sl,
+          cards: { ...sl.cards, [newStep.id]: [] },
+        })),
       };
-    },
-    { name: "agile-toolkit:story-mapper", storage: safeJSONStorage("story-mapper") }
-  )
-);
+    }),
+
+  removeStep: (stepId) =>
+    set((s) => {
+      if (s.steps.length <= 1) return s;
+      return {
+        steps: s.steps.filter((st) => st.id !== stepId),
+        slices: s.slices.map((sl) => {
+          const cards = { ...sl.cards };
+          delete cards[stepId];
+          return { ...sl, cards };
+        }),
+      };
+    }),
+
+  renameStep: (stepId, name) =>
+    set((s) => ({
+      steps: s.steps.map((st) => (st.id === stepId ? { ...st, name } : st)),
+    })),
+
+  addSlice: () =>
+    set((s) => {
+      const emptyCards: StepCards = {};
+      for (const st of s.steps) emptyCards[st.id] = [];
+      return {
+        slices: [...s.slices, { id: makeId(), name: "New Slice", cards: emptyCards }],
+      };
+    }),
+
+  removeSlice: (sliceId) =>
+    set((s) => {
+      if (s.slices.length <= 1) return s;
+      return { slices: s.slices.filter((sl) => sl.id !== sliceId) };
+    }),
+
+  renameSlice: (sliceId, name) =>
+    set((s) => ({
+      slices: s.slices.map((sl) => (sl.id === sliceId ? { ...sl, name } : sl)),
+    })),
+
+  addCard: (sliceId, stepId) =>
+    set((s) => ({
+      slices: s.slices.map((sl) => {
+        if (sl.id !== sliceId) return sl;
+        const existing = sl.cards[stepId] ?? [];
+        const newCard: StoryCard = {
+          id: makeId(),
+          title: "New Story",
+          description: "",
+          color: CARD_COLORS[0].value,
+        };
+        return {
+          ...sl,
+          cards: { ...sl.cards, [stepId]: [...existing, newCard] },
+        };
+      }),
+    })),
+
+  updateCard: (sliceId, stepId, card) =>
+    set((s) => ({
+      slices: s.slices.map((sl) => {
+        if (sl.id !== sliceId) return sl;
+        return {
+          ...sl,
+          cards: {
+            ...sl.cards,
+            [stepId]: (sl.cards[stepId] ?? []).map((c) => (c.id === card.id ? card : c)),
+          },
+        };
+      }),
+    })),
+
+  removeCard: (sliceId, stepId, cardId) =>
+    set((s) => ({
+      slices: s.slices.map((sl) => {
+        if (sl.id !== sliceId) return sl;
+        return {
+          ...sl,
+          cards: {
+            ...sl.cards,
+            [stepId]: (sl.cards[stepId] ?? []).filter((c) => c.id !== cardId),
+          },
+        };
+      }),
+    })),
+
+  moveCard: (fromSliceId, fromStepId, toSliceId, toStepId, cardId, toIndex) =>
+    set((s) => {
+      // For same-cell reordering we have to decrement toIndex by one
+      // when the source position precedes the target — otherwise the
+      // splice after removal lands one slot past the intended spot.
+      let adjustedToIndex = toIndex;
+      if (fromSliceId === toSliceId && fromStepId === toStepId && adjustedToIndex !== undefined) {
+        const sourceSlice = s.slices.find((sl) => sl.id === fromSliceId);
+        const sourceCards = sourceSlice?.cards[fromStepId] ?? [];
+        const fromIdx = sourceCards.findIndex((c) => c.id === cardId);
+        if (fromIdx !== -1 && fromIdx < adjustedToIndex) {
+          adjustedToIndex -= 1;
+        }
+      }
+
+      let movedCard: StoryCard | null = null;
+      const slices = s.slices.map((sl) => {
+        if (sl.id !== fromSliceId) return sl;
+        const fromCards = sl.cards[fromStepId] ?? [];
+        const idx = fromCards.findIndex((c) => c.id === cardId);
+        if (idx === -1) return sl;
+        movedCard = fromCards[idx];
+        return {
+          ...sl,
+          cards: {
+            ...sl.cards,
+            [fromStepId]: fromCards.filter((c) => c.id !== cardId),
+          },
+        };
+      });
+
+      if (!movedCard) return s;
+
+      const card = movedCard as StoryCard;
+      return {
+        slices: slices.map((sl) => {
+          if (sl.id !== toSliceId) return sl;
+          const toCards = [...(sl.cards[toStepId] ?? [])];
+          const insertAt = adjustedToIndex !== undefined ? adjustedToIndex : toCards.length;
+          toCards.splice(insertAt, 0, card);
+          return {
+            ...sl,
+            cards: { ...sl.cards, [toStepId]: toCards },
+          };
+        }),
+      };
+    }),
+
+  reset: () => {
+    const steps = buildDefaultSteps();
+    const slices = buildDefaultSlices(steps);
+    set({ steps, slices });
+  },
+};
+
+// Selector-overload hook mirroring the prior zustand store: callable bare
+// (returns the full state) or with a selector (returns the selected slice).
+// steps/slices come from the reactive synced doc; the mutators are stable
+// module functions, so selector identities are stable across renders.
+function useStoryMapStore(): StoryMapState;
+function useStoryMapStore<T>(selector: (s: StoryMapState) => T): T;
+function useStoryMapStore<T>(selector?: (s: StoryMapState) => T): T | StoryMapState {
+  const doc = useWorkspaceStore(
+    useShallow((ws) => (ws.storyMaps ?? []).find((m) => m.id === SM_ID))
+  );
+  const cur = doc ?? defaultStoryMap();
+  const full: StoryMapState = { steps: cur.steps, slices: cur.slices, ...storyMapApi };
+  return selector ? selector(full) : full;
+}
 
 /* -------------------------------------------------------------------------- */
 /*  EditableName moved to @/components/shared/editable-name                     */

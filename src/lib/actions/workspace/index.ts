@@ -45,6 +45,7 @@ import type {
   SprintGoal,
   JobStory,
   CapacityPlan,
+  StoryMap,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -515,6 +516,28 @@ const CapacityPlanSchema = z.object({
   }),
 }) as unknown as z.ZodType<CapacityPlan>;
 
+const StoryMapSchema = z.object({
+  id: z.string(),
+  steps: z.array(z.object({ id: z.string(), name: z.string() })),
+  slices: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      cards: z.record(
+        z.string(),
+        z.array(
+          z.object({
+            id: z.string(),
+            title: z.string(),
+            description: z.string(),
+            color: z.string(),
+          })
+        )
+      ),
+    })
+  ),
+}) as unknown as z.ZodType<StoryMap>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -613,6 +636,16 @@ defineCrudActions<CapacityPlan>({
   upsert: (x) => ws().upsertCapacityPlan(x),
   remove: (id) => ws().removeCapacityPlan(id),
   generateId: () => `capacityPlan_${nanoid(8)}`,
+});
+
+defineCrudActions<StoryMap>({
+  toolId: "workspace.story_map",
+  entityName: "story map",
+  schema: StoryMapSchema,
+  selectAll: () => ws().storyMaps ?? [],
+  upsert: (x) => ws().upsertStoryMap(x),
+  remove: (id) => ws().removeStoryMap(id),
+  generateId: () => `storyMap_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────

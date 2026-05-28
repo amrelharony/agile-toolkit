@@ -808,6 +808,35 @@ export interface CapacityPlan {
   config: CapacityConfig;
 }
 
+/** A card on the story map. */
+export interface StoryMapCard {
+  id: string;
+  title: string;
+  description: string;
+  color: string;
+}
+
+/** A horizontal release slice; `cards` is keyed by step id. */
+export interface StoryMapSlice {
+  id: string;
+  name: string;
+  cards: Record<string, StoryMapCard[]>;
+}
+
+/** A user-activity step (column header) on the story map. */
+export interface StoryMapStep {
+  id: string;
+  name: string;
+}
+
+/** The story map — a singleton document (one map under a fixed id): the
+ *  steps (columns) and slices (rows) of the steps × slices grid. */
+export interface StoryMap {
+  id: string;
+  steps: StoryMapStep[];
+  slices: StoryMapSlice[];
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -860,6 +889,7 @@ export interface Workspace {
   sprintGoals?: SprintGoal[];
   jobStories?: JobStory[];
   capacityPlans?: CapacityPlan[];
+  storyMaps?: StoryMap[];
 }
 
 /**
