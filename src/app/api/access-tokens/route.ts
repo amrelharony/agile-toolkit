@@ -20,7 +20,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("access_tokens")
-    .select("id, name, prefix, created_at, last_used_at, expires_at, revoked_at")
+    .select("id, name, prefix, created_at, last_used_at, expires_at, revoked_at, squad_profile_ids")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
   if (error) {
@@ -49,7 +49,11 @@ export async function POST(req: NextRequest) {
   } catch {
     return Response.json({ error: "invalid_json" }, { status: 400 });
   }
-  const b = (body ?? {}) as { name?: unknown; expiresAt?: unknown };
+  const b = (body ?? {}) as {
+    name?: unknown;
+    expiresAt?: unknown;
+    squadProfileIds?: unknown;
+  };
   const name = typeof b.name === "string" ? b.name.trim().slice(0, 80) : "";
   if (!name) {
     return Response.json({ error: "name_required" }, { status: 400 });
@@ -69,6 +73,26 @@ export async function POST(req: NextRequest) {
     expiresAt = d.toISOString();
   }
 
+  // Squad scope (added in migration 0018). Optional — empty array means
+  // unscoped (full workspace reach, owner-equivalent). When non-empty
+  // we accept any uuid-shaped strings; the DB constraint enforces type.
+  // We do NOT verify here that the squad profiles actually belong to
+  // this user — RLS on squad_profiles will prevent the owner from
+  // creating a PAT against someone else's profile, and the worst case
+  // (typo'd uuid) is that the PAT has a scope no handler can match,
+  // which is a harmless dead-end rather than a privilege escalation.
+  let squadProfileIds: string[] = [];
+  if (Array.isArray(b.squadProfileIds)) {
+    squadProfileIds = b.squadProfileIds
+      .filter((x): x is string => typeof x === "string")
+      .map((s) => s.trim())
+      .filter((s) =>
+        // Cheap uuid-v4 shape check; not authoritative — the column
+        // is uuid[] so Postgres rejects anything malformed regardless.
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+      );
+  }
+
   const raw = generateRawToken();
   // BUG-A3: per-token salt for new tokens. Existing tokens (minted
   // before migration 0008) keep verifying via the legacy fixed-salt
@@ -86,8 +110,9 @@ export async function POST(req: NextRequest) {
       salt,
       prefix,
       expires_at: expiresAt,
+      squad_profile_ids: squadProfileIds,
     })
-    .select("id, name, prefix, created_at, last_used_at, expires_at, revoked_at")
+    .select("id, name, prefix, created_at, last_used_at, expires_at, revoked_at, squad_profile_ids")
     .single();
   if (error) {
     // eslint-disable-next-line no-console

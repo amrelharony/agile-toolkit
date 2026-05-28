@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -144,7 +145,6 @@ export function CeremonyTimerClient() {
   const [remaining, setRemaining] = useState(0);
   const [running, setRunning] = useState(false);
   const [started, setStarted] = useState(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Custom duration input
   const [customMin, setCustomMin] = useState("");
@@ -234,46 +234,38 @@ export function CeremonyTimerClient() {
   // displayed remaining time drift past actual wall-time, missing
   // the ten-second + minute-mark alarms and rendering after
   // ceremonies actually ended. Now: stash `endsAtRef`, compute
-  // remaining from the live clock each tick. On visibilitychange
-  // we recompute immediately so the display catches up.
+  // remaining from the live clock each tick. useVisibilityTick fires
+  // a catch-up call on visibility-change → visible so the display
+  // jumps to the correct time even after long tab-hidden stretches.
   const endsAtRef = useRef<number | null>(null);
+  const lastReportedRef = useRef<number>(0);
+  // Establish / clear the wall-clock anchor when running toggles.
   useEffect(() => {
     if (!running) {
       endsAtRef.current = null;
       return;
     }
-    // Establish endsAt the FIRST time `running` flips to true, based
-    // on the current `remaining`. Subsequent renders during this run
-    // don't re-anchor (otherwise pause/resume drift would re-emerge).
     if (endsAtRef.current === null) {
       endsAtRef.current = Date.now() + remaining * 1000;
+      lastReportedRef.current = remaining;
     }
-    let lastReported = remaining;
-    const tick = () => {
-      const endsAt = endsAtRef.current;
-      if (endsAt === null) return;
-      const next = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
-      // Fire alarms at threshold crossings against the previous tick's
-      // value (so suspending the tab through the 11-sec mark still
-      // emits the ten-second alarm on the next visible tick).
-      if (lastReported > 10 && next <= 10 && next > 0) sonify("ten-seconds");
-      else if (next > 0 && next !== lastReported && next % 60 === 0) sonify("minute-mark");
-      lastReported = next;
-      setRemaining(next);
-    };
-    intervalRef.current = setInterval(tick, 1000);
-    const onVis = () => {
-      if (document.visibilityState === "visible") tick();
-    };
-    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVis);
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVis);
-    };
     // `remaining` intentionally excluded — it changes every tick and
     // including it would re-run the effect every second.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [running, sonify]);
+  }, [running]);
+  useVisibilityTick(running, 1000, () => {
+    const endsAt = endsAtRef.current;
+    if (endsAt === null) return;
+    const next = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+    const lastReported = lastReportedRef.current;
+    // Fire alarms at threshold crossings against the previous tick's
+    // value (so suspending the tab through the 11-sec mark still
+    // emits the ten-second alarm on the next visible tick).
+    if (lastReported > 10 && next <= 10 && next > 0) sonify("ten-seconds");
+    else if (next > 0 && next !== lastReported && next % 60 === 0) sonify("minute-mark");
+    lastReportedRef.current = next;
+    setRemaining(next);
+  });
 
   // Stop the timer and fire the multi-channel finish alarm exactly once
   // when remaining reaches zero while running.

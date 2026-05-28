@@ -34,7 +34,8 @@ const PROTOCOL_VERSION = "2024-11-05";
 
 export async function handleJsonRpc(
   request: JsonRpcRequest,
-  userId: string
+  userId: string,
+  squadProfileIds: readonly string[] = []
 ): Promise<JsonRpcResponse | null> {
   // Notifications (no id, no response).
   if (request.id === undefined || request.id === null) {
@@ -108,7 +109,7 @@ export async function handleJsonRpc(
           `Invalid arguments: ${parsed.error?.message ?? "schema violation"}`
         );
       }
-      const ctx = makeContext(userId, "mcp");
+      const ctx = makeContext(userId, "mcp", undefined, squadProfileIds);
       // C1: dispatch to mcpHandler if the action defined one — it reads/
       // writes Supabase directly via server-store.ts. Without it, the
       // fallback `handler` operates on the empty server-side Zustand

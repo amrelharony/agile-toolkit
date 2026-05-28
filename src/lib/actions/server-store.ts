@@ -49,9 +49,20 @@ function admin(): SupabaseClient {
 }
 
 /** Convert a `defineCrudActions` toolId ("workspace.sprint") to the
- *  entity kind used in user_entities ("workspace:sprint"). */
+ *  entity kind used in user_entities ("workspace:sprint").
+ *
+ *  The toolId suffix is snake_case but the browser sync engine registers
+ *  collections under camelCase kinds (see `registerCollection` in
+ *  workspace-store.ts — e.g. "workspace:daciDecision"). We camelCase the
+ *  suffix here so MCP server-side writes land on the same `kind` the
+ *  browser hydrates from, making MCP→browser round-trip work. Single-word
+ *  suffixes (sprint, risk, okr…) are unaffected. */
 export function kindFromToolId(toolId: string): string {
-  return toolId.replace(/^workspace\./, "workspace:");
+  if (!toolId.startsWith("workspace.")) return toolId;
+  const suffix = toolId
+    .slice("workspace.".length)
+    .replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+  return `workspace:${suffix}`;
 }
 
 /** Paginated list of all non-deleted entities of a given kind. */

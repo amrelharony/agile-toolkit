@@ -191,7 +191,9 @@ export async function POST(req: NextRequest) {
     ? (body as unknown as JsonRpcRequest[])
     : [body as unknown as JsonRpcRequest];
 
-  const responses = await Promise.all(requests.map((r) => handleJsonRpc(r, auth.userId)));
+  const responses = await Promise.all(
+    requests.map((r) => handleJsonRpc(r, auth.userId, auth.squadProfileIds))
+  );
   const filtered = responses.filter((r): r is NonNullable<typeof r> => r !== null);
 
   // Notifications-only batch returns 204 No Content per JSON-RPC spec.

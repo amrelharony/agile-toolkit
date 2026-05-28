@@ -1,0 +1,230 @@
+# Agile Toolkit — File-touch contract for the 14-squad MCP buildout.
+#
+# Conventions:
+#   - Each squad owns its tool directories and a single action file.
+#   - Foundation (S0) owns everything cross-cutting; no other squad may
+#     touch S0-protected files. Squads needing infra changes open an
+#     "infra-ask" issue → S0 batches daily.
+#   - GitHub team handles are placeholders. Replace
+#     `@agile-toolkit/squad-N` with the real team / user / agent identity
+#     once configured. The slug indicates the squad's theme.
+#
+# Last-match-wins per GitHub CODEOWNERS rules — order matters.
+
+# ════════════════════════════════════════════════════════════════════
+# Catch-all (foundation reviews anything not explicitly assigned)
+# ════════════════════════════════════════════════════════════════════
+*                                                       @agile-toolkit/squad-0-foundation
+
+# ════════════════════════════════════════════════════════════════════
+# S0 — Foundation (action registry, MCP transport, auth, sync, shared infra)
+# ════════════════════════════════════════════════════════════════════
+src/lib/actions/registry.ts                             @agile-toolkit/squad-0-foundation
+src/lib/actions/register-all.ts                         @agile-toolkit/squad-0-foundation
+src/lib/actions/define-crud.ts                          @agile-toolkit/squad-0-foundation
+src/lib/actions/server-store.ts                         @agile-toolkit/squad-0-foundation
+src/lib/actions/context.ts                              @agile-toolkit/squad-0-foundation
+src/lib/actions/types.ts                                @agile-toolkit/squad-0-foundation
+src/lib/actions/workspace/                              @agile-toolkit/squad-0-foundation
+src/lib/actions/intents/                                @agile-toolkit/squad-0-foundation
+src/app/api/mcp/                                        @agile-toolkit/squad-0-foundation
+src/lib/mcp/                                            @agile-toolkit/squad-0-foundation
+src/middleware.ts                                       @agile-toolkit/squad-0-foundation
+mcp-server/                                             @agile-toolkit/squad-0-foundation
+supabase/migrations/                                    @agile-toolkit/squad-0-foundation
+src/app/layout.tsx                                      @agile-toolkit/squad-0-foundation
+src/components/charts/                                  @agile-toolkit/squad-0-foundation
+src/lib/hooks/                                          @agile-toolkit/squad-0-foundation
+src/lib/stores/workspace-store.ts                       @agile-toolkit/squad-0-foundation
+src/lib/stores/workspace-types.ts                       @agile-toolkit/squad-0-foundation
+src/lib/signals/                                        @agile-toolkit/squad-0-foundation
+src/lib/constants/tools.ts                              @agile-toolkit/squad-0-foundation
+scripts/                                                @agile-toolkit/squad-0-foundation
+.eslintrc.json                                          @agile-toolkit/squad-0-foundation
+.github/                                                @agile-toolkit/squad-0-foundation
+CODEOWNERS                                              @agile-toolkit/squad-0-foundation
+
+# ════════════════════════════════════════════════════════════════════
+# S1 — Sprint Planning & Estimation
+# ════════════════════════════════════════════════════════════════════
+src/app/(tools)/planning-poker/                         @agile-toolkit/squad-1-sprint-planning
+src/app/(tools)/capacity-planner/                       @agile-toolkit/squad-1-sprint-planning
+src/app/(tools)/estimation-guide/                       @agile-toolkit/squad-1-sprint-planning
+src/app/(tools)/refinement/                             @agile-toolkit/squad-1-sprint-planning
+src/app/(tools)/release-planner/                        @agile-toolkit/squad-1-sprint-planning
+src/app/(tools)/sprint-goal/                            @agile-toolkit/squad-1-sprint-planning
+src/app/(tools)/story-mapper/                           @agile-toolkit/squad-1-sprint-planning
+src/lib/actions/tools/sprint-planning.ts                @agile-toolkit/squad-1-sprint-planning
+
+# ════════════════════════════════════════════════════════════════════
+# S2 — Metrics & Dashboards (carries health-dashboard god-file split)
+# ════════════════════════════════════════════════════════════════════
+src/app/(tools)/velocity/                               @agile-toolkit/squad-2-metrics
+src/app/(tools)/burndown/                               @agile-toolkit/squad-2-metrics
+src/app/(tools)/burnup/                                 @agile-toolkit/squad-2-metrics
+src/app/(tools)/cumulative-flow/                        @agile-toolkit/squad-2-metrics
+src/app/(tools)/cycle-time/                             @agile-toolkit/squad-2-metrics
+src/app/(tools)/health-dashboard/                       @agile-toolkit/squad-2-metrics
+src/app/(tools)/sprint-compare/                         @agile-toolkit/squad-2-metrics
+src/lib/actions/tools/metrics.ts                        @agile-toolkit/squad-2-metrics
+
+# ════════════════════════════════════════════════════════════════════
+# S3 — Ceremonies (carries retro + sprint-review god-file splits)
+# ════════════════════════════════════════════════════════════════════
+src/app/(tools)/ceremony-timer/                         @agile-toolkit/squad-3-ceremonies
+src/app/(tools)/retro/                                  @agile-toolkit/squad-3-ceremonies
+src/app/(tools)/standup/                                @agile-toolkit/squad-3-ceremonies
+src/app/(tools)/sprint-review/                          @agile-toolkit/squad-3-ceremonies
+src/app/(tools)/one-on-one/                             @agile-toolkit/squad-3-ceremonies
+src/app/(tools)/scrum-of-scrums/                        @agile-toolkit/squad-3-ceremonies
+src/lib/actions/tools/ceremonies.ts                     @agile-toolkit/squad-3-ceremonies
+
+# ════════════════════════════════════════════════════════════════════
+# S4 — Team Health & Maturity
+# ════════════════════════════════════════════════════════════════════
+src/app/(tools)/health-check/                           @agile-toolkit/squad-4-team-health
+src/app/(tools)/maturity/                               @agile-toolkit/squad-4-team-health
+src/app/(tools)/mood-tracker/                           @agile-toolkit/squad-4-team-health
+src/app/(tools)/skills-matrix/                          @agile-toolkit/squad-4-team-health
+src/app/(tools)/working-agreement/                      @agile-toolkit/squad-4-team-health
+src/app/(tools)/psych-safety/                           @agile-toolkit/squad-4-team-health
+src/lib/actions/tools/team-health.ts                    @agile-toolkit/squad-4-team-health
+
+# ════════════════════════════════════════════════════════════════════
+# S5 — Portfolio, Discovery & Risk (carries impediments god-file split)
+# ════════════════════════════════════════════════════════════════════
+src/app/(tools)/epic-roadmap/                           @agile-toolkit/squad-5-portfolio
+src/app/(tools)/pi-planning/                            @agile-toolkit/squad-5-portfolio
+src/app/(tools)/risk-register/                          @agile-toolkit/squad-5-portfolio
+src/app/(tools)/premortem/                              @agile-toolkit/squad-5-portfolio
+src/app/(tools)/tech-debt/                              @agile-toolkit/squad-5-portfolio
+src/app/(tools)/decision-log/                           @agile-toolkit/squad-5-portfolio
+src/app/(tools)/impediments/                            @agile-toolkit/squad-5-portfolio
+src/app/(tools)/hypothesis-tracker/                     @agile-toolkit/squad-5-portfolio
+src/app/(tools)/user-interviews/                        @agile-toolkit/squad-5-portfolio
+src/app/(tools)/opportunity-tree/                       @agile-toolkit/squad-5-portfolio
+src/app/(tools)/stakeholder-map/                        @agile-toolkit/squad-5-portfolio
+src/lib/actions/tools/portfolio.ts                      @agile-toolkit/squad-5-portfolio
+
+# ════════════════════════════════════════════════════════════════════
+# S6 — Flow, Outcomes & Pulse
+# ════════════════════════════════════════════════════════════════════
+src/app/(tools)/kanban/                                 @agile-toolkit/squad-6-flow
+src/app/(tools)/okrs/                                   @agile-toolkit/squad-6-flow
+src/app/(tools)/nps-csat/                               @agile-toolkit/squad-6-flow
+src/app/(tools)/value-stream/                           @agile-toolkit/squad-6-flow
+src/app/(tools)/dependency-map/                         @agile-toolkit/squad-6-flow
+src/app/(tools)/dod-builder/                            @agile-toolkit/squad-6-flow
+src/app/(tools)/async-standup/                          @agile-toolkit/squad-6-flow
+src/app/(tools)/jtbd-mapper/                            @agile-toolkit/squad-6-flow
+src/app/(tools)/onboarding-tracker/                     @agile-toolkit/squad-6-flow
+src/app/(tools)/kudos/                                  @agile-toolkit/squad-6-flow
+src/lib/actions/tools/flow.ts                           @agile-toolkit/squad-6-flow
+
+# ════════════════════════════════════════════════════════════════════
+# S7 — Engineering Excellence
+# ════════════════════════════════════════════════════════════════════
+src/app/(tools)/dora-scorecard/                         @agile-toolkit/squad-7-engineering
+src/app/(tools)/space-pulse/                            @agile-toolkit/squad-7-engineering
+src/app/(tools)/slo-builder/                            @agile-toolkit/squad-7-engineering
+src/app/(tools)/devex-survey/                           @agile-toolkit/squad-7-engineering
+src/app/(tools)/platform-maturity/                      @agile-toolkit/squad-7-engineering
+src/app/(tools)/tech-radar/                             @agile-toolkit/squad-7-engineering
+src/lib/actions/tools/engineering.ts                    @agile-toolkit/squad-7-engineering
+
+# ════════════════════════════════════════════════════════════════════
+# S8 — Incidents & Reliability
+# ════════════════════════════════════════════════════════════════════
+src/app/(tools)/incident-commander/                     @agile-toolkit/squad-8-incidents
+src/app/(tools)/post-mortem/                            @agile-toolkit/squad-8-incidents
+src/app/(tools)/runbook-scorer/                         @agile-toolkit/squad-8-incidents
+src/app/(tools)/oncall-roster/                          @agile-toolkit/squad-8-incidents
+src/app/(tools)/release-readiness/                      @agile-toolkit/squad-8-incidents
+src/lib/actions/tools/incidents.ts                      @agile-toolkit/squad-8-incidents
+
+# ════════════════════════════════════════════════════════════════════
+# S9 — Security & Compliance
+# ════════════════════════════════════════════════════════════════════
+src/app/(tools)/threat-model/                           @agile-toolkit/squad-9-security
+src/app/(tools)/vuln-burndown/                          @agile-toolkit/squad-9-security
+src/app/(tools)/control-map/                            @agile-toolkit/squad-9-security
+src/app/(tools)/a11y-tracker/                           @agile-toolkit/squad-9-security
+src/lib/actions/tools/security.ts                       @agile-toolkit/squad-9-security
+
+# ════════════════════════════════════════════════════════════════════
+# S10 — Quality Engineering
+# ════════════════════════════════════════════════════════════════════
+src/app/(tools)/test-pyramid/                           @agile-toolkit/squad-10-quality
+src/app/(tools)/flaky-tests/                            @agile-toolkit/squad-10-quality
+src/app/(tools)/quality-cost/                           @agile-toolkit/squad-10-quality
+src/app/(tools)/code-review-metrics/                    @agile-toolkit/squad-10-quality
+src/lib/actions/tools/quality.ts                        @agile-toolkit/squad-10-quality
+
+# ════════════════════════════════════════════════════════════════════
+# S11 — Workshops & Facilitation (mostly compute-only tools)
+# ════════════════════════════════════════════════════════════════════
+src/app/(tools)/liberating-structures/                  @agile-toolkit/squad-11-workshops
+src/app/(tools)/design-sprint/                          @agile-toolkit/squad-11-workshops
+src/app/(tools)/icebreaker/                             @agile-toolkit/squad-11-workshops
+src/app/(tools)/raci/                                   @agile-toolkit/squad-11-workshops
+src/app/(tools)/hundred-dollar-test/                    @agile-toolkit/squad-11-workshops
+src/app/(tools)/buy-a-feature/                          @agile-toolkit/squad-11-workshops
+src/app/(tools)/riskiest-assumption/                    @agile-toolkit/squad-11-workshops
+src/app/(tools)/wardley-map/                            @agile-toolkit/squad-11-workshops
+src/app/(tools)/stacey-matrix/                          @agile-toolkit/squad-11-workshops
+src/app/(tools)/walking-skeleton/                       @agile-toolkit/squad-11-workshops
+src/lib/actions/tools/workshops.ts                      @agile-toolkit/squad-11-workshops
+
+# ════════════════════════════════════════════════════════════════════
+# S12a — AI/LLM PM — Eval & Safety
+# ════════════════════════════════════════════════════════════════════
+src/app/(tools)/llm-eval-tracker/                       @agile-toolkit/squad-12a-llm-eval
+src/app/(tools)/prompt-registry/                        @agile-toolkit/squad-12a-llm-eval
+src/app/(tools)/hallucination-log/                      @agile-toolkit/squad-12a-llm-eval
+src/app/(tools)/model-card/                             @agile-toolkit/squad-12a-llm-eval
+src/app/(tools)/model-comparison/                       @agile-toolkit/squad-12a-llm-eval
+src/app/(tools)/model-migration/                        @agile-toolkit/squad-12a-llm-eval
+src/app/(tools)/ai-safety-checklist/                    @agile-toolkit/squad-12a-llm-eval
+src/lib/actions/tools/llm-eval.ts                       @agile-toolkit/squad-12a-llm-eval
+
+# ════════════════════════════════════════════════════════════════════
+# S12b — AI/LLM PM — Workflows & Data
+# ════════════════════════════════════════════════════════════════════
+src/app/(tools)/agentic-workflow/                       @agile-toolkit/squad-12b-llm-workflows
+src/app/(tools)/hitl-quality/                           @agile-toolkit/squad-12b-llm-workflows
+src/app/(tools)/rlhf-log/                               @agile-toolkit/squad-12b-llm-workflows
+src/app/(tools)/vector-store-inventory/                 @agile-toolkit/squad-12b-llm-workflows
+src/app/(tools)/token-cost-tracker/                     @agile-toolkit/squad-12b-llm-workflows
+src/app/(tools)/ai-feature-spec/                        @agile-toolkit/squad-12b-llm-workflows
+src/app/(tools)/ai-red-team/                            @agile-toolkit/squad-12b-llm-workflows
+src/lib/actions/tools/llm-workflows.ts                  @agile-toolkit/squad-12b-llm-workflows
+
+# ════════════════════════════════════════════════════════════════════
+# S13 — Prioritization & Decision (carries prioritizer god-file split)
+# ════════════════════════════════════════════════════════════════════
+src/app/(tools)/prioritizer/                            @agile-toolkit/squad-13-prioritization
+src/app/(tools)/wsjf/                                   @agile-toolkit/squad-13-prioritization
+src/app/(tools)/ice-score/                              @agile-toolkit/squad-13-prioritization
+src/app/(tools)/rice-scoring/                           @agile-toolkit/squad-13-prioritization
+src/app/(tools)/moscow/                                 @agile-toolkit/squad-13-prioritization
+src/app/(tools)/eisenhower/                             @agile-toolkit/squad-13-prioritization
+src/app/(tools)/cost-of-delay/                          @agile-toolkit/squad-13-prioritization
+src/app/(tools)/kano-model/                             @agile-toolkit/squad-13-prioritization
+src/app/(tools)/weighted-decision/                      @agile-toolkit/squad-13-prioritization
+src/app/(tools)/daci/                                   @agile-toolkit/squad-13-prioritization
+src/app/(tools)/rapid-decision/                         @agile-toolkit/squad-13-prioritization
+src/app/(tools)/six-hats/                               @agile-toolkit/squad-13-prioritization
+src/app/(tools)/cynefin/                                @agile-toolkit/squad-13-prioritization
+src/app/(tools)/ooda-loop/                              @agile-toolkit/squad-13-prioritization
+src/app/(tools)/polarity-map/                           @agile-toolkit/squad-13-prioritization
+src/app/(tools)/value-effort-matrix/                    @agile-toolkit/squad-13-prioritization
+src/app/(tools)/feature-flag-tracker/                   @agile-toolkit/squad-13-prioritization
+src/app/(tools)/adkar/                                  @agile-toolkit/squad-13-prioritization
+src/app/(tools)/rfc-tracker/                            @agile-toolkit/squad-13-prioritization
+src/lib/actions/tools/prioritization.ts                 @agile-toolkit/squad-13-prioritization
+
+# ════════════════════════════════════════════════════════════════════
+# S14 — Visual Collaboration (canvas — already MCP-covered; quality lift only)
+# ════════════════════════════════════════════════════════════════════
+src/app/(tools)/canvas/                                 @agile-toolkit/squad-14-canvas
+src/lib/actions/tools/canvas.ts                         @agile-toolkit/squad-14-canvas

@@ -79,7 +79,7 @@ export function constantTimeEqual(a: string, b: string): boolean {
  */
 export async function verifyBearer(
   bearer: string
-): Promise<{ userId: string; tokenId: string } | null> {
+): Promise<{ userId: string; tokenId: string; squadProfileIds: string[] } | null> {
   if (!bearer.startsWith(TOKEN_PREFIX)) return null;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -142,8 +142,19 @@ export async function verifyBearer(
     }
     const rows = Array.isArray(data) ? data : [];
     if (rows.length === 0) return null;
-    const resolved = rows[0] as { token_id: string; user_id: string };
-    return { userId: resolved.user_id, tokenId: resolved.token_id };
+    const resolved = rows[0] as {
+      token_id: string;
+      user_id: string;
+      squad_profile_ids: string[] | null;
+    };
+    return {
+      userId: resolved.user_id,
+      tokenId: resolved.token_id,
+      // Post-0018 the column is NOT NULL with default '{}', but a stale
+      // RPC return from a pre-0018 deploy can still surface null. Coerce
+      // to empty so handlers always receive an array.
+      squadProfileIds: resolved.squad_profile_ids ?? [],
+    };
   }
   return null;
 }

@@ -19,8 +19,21 @@ export interface ActionContext {
    *  supplies this; MCP and UI callers leave it undefined and the
    *  handler must assume approval. */
   confirm?: (summary: string) => Promise<boolean>;
+  /** Squad-profile scope for this call. Empty array = unscoped (the
+   *  caller has full workspace reach, equivalent to the workspace
+   *  owner). Non-empty = the caller is acting as one or more of these
+   *  squad profiles; handlers may use this to filter reads and to
+   *  attribute writes via history_events.squad_profile_id. Always
+   *  defined (an array, possibly empty) so handlers can read it
+   *  without null-checks. */
+  squadProfileIds: string[];
 }
 
-export function makeContext(userId: string, source: ActionSource, confirm?: ActionContext["confirm"]): ActionContext {
-  return { userId, source, confirm };
+export function makeContext(
+  userId: string,
+  source: ActionSource,
+  confirm?: ActionContext["confirm"],
+  squadProfileIds: readonly string[] = []
+): ActionContext {
+  return { userId, source, confirm, squadProfileIds: [...squadProfileIds] };
 }

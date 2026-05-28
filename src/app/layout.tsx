@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
@@ -63,6 +63,20 @@ export const metadata: Metadata = {
     icon: [{ url: "/AT.svg", type: "image/svg+xml" }],
     apple: "/AT.svg",
   },
+};
+
+// Next.js 13.2+ moved viewport out of `metadata`. Without an explicit
+// export, iOS Safari defaults to a 980px-wide viewport and the responsive
+// CSS sweep across all 110 tools doesn't actually apply on mobile.
+// `themeColor` per color-scheme matches the inline theme script in <head>.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0b0e1a" },
+    { media: "(prefers-color-scheme: light)", color: "#f4f6fb" },
+  ],
 };
 
 export default function RootLayout({
