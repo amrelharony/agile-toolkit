@@ -32,33 +32,43 @@ import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { generateVulnPrompts } from "@/lib/ai-prompts/vuln-burndown";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type {
+  Vulnerability as Vuln,
+  VulnSeverity as Severity,
+  VulnStatus as Status,
+} from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { VULN_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 
-type Severity = "critical" | "high" | "medium" | "low";
-type Status = "open" | "in_progress" | "resolved" | "accepted";
-
-interface Vuln {
-  id: string;
-  cve?: string;
-  severity: Severity;
-  status: Status;
-  openedAt: string; // YYYY-MM-DD
-  resolvedAt?: string;
-  slaTargetDays: number;
-  owner?: string;
-  description?: string;
-}
-
 interface VulnState {
   vulns: Vuln[];
 }
 
 const DEFAULT_STATE: VulnState = { vulns: [] };
+
+const VB_ID = "vulnBurndown:current"; // MUST match VB_ID in vuln-burndown.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// vuln writes round-trip into the UI. Drop-in [state, setState].
+function useVulnBurndown(): [VulnState, (u: VulnState | ((p: VulnState) => VulnState)) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.vulnBurndowns ?? []).find((d) => d.id === VB_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertVulnBurndown);
+  const state: VulnState = doc ? { vulns: doc.vulns } : DEFAULT_STATE;
+  const setState = (u: VulnState | ((p: VulnState) => VulnState)) => {
+    const cur = (useWorkspaceStore.getState().vulnBurndowns ?? []).find((d) => d.id === VB_ID);
+    const curState: VulnState = cur ? { vulns: cur.vulns } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: VB_ID, vulns: next.vulns });
+  };
+  return [state, setState];
+}
 
 const SEVERITY_OPTIONS: { value: Severity; label: string }[] = [
   { value: "critical", label: "Critical" },
@@ -116,7 +126,7 @@ function ageDays(v: Vuln): number {
 /* ── Main client ────────────────────────────────────────────────────────── */
 
 export function VulnBurndownClient() {
-  const [state, setState] = usePersisted<VulnState>("agile-toolkit:vuln-burndown", DEFAULT_STATE);
+  const [state, setState] = useVulnBurndown();
   const { log } = useHistoryLogger("vuln-burndown");
   const chartRef = useRef<HTMLDivElement>(null);
 
