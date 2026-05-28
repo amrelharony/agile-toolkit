@@ -54,6 +54,12 @@ import type {
   StandupEntry,
   SprintReview,
   RetroBoard,
+  // Sprint Planning (squad S1)
+  SprintGoal,
+  JobStory,
+  CapacityPlan,
+  StoryMap,
+  BacklogItem,
 } from "./workspace-types";
 import { emptyWorkspace } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -164,6 +170,17 @@ interface WorkspaceActions {
   removeSprintReview: (id: string) => void;
   upsertRetroBoard: (x: RetroBoard) => void;
   removeRetroBoard: (id: string) => void;
+  // Sprint Planning (squad S1)
+  upsertSprintGoal: (x: SprintGoal) => void;
+  removeSprintGoal: (id: string) => void;
+  upsertJobStory: (x: JobStory) => void;
+  removeJobStory: (id: string) => void;
+  upsertCapacityPlan: (x: CapacityPlan) => void;
+  removeCapacityPlan: (id: string) => void;
+  upsertStoryMap: (x: StoryMap) => void;
+  removeStoryMap: (id: string) => void;
+  upsertBacklogItem: (x: BacklogItem) => void;
+  removeBacklogItem: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert. Use this for bulk imports — single-item upserts are O(n)
@@ -983,6 +1000,24 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ retroBoards: replaceById(_st.retroBoards ?? [], x) })),
       removeRetroBoard: (id) =>
         set((s) => ({ retroBoards: (s.retroBoards ?? []).filter((y) => y.id !== id) })),
+      upsertSprintGoal: (x) =>
+        set((_st) => ({ sprintGoals: replaceById(_st.sprintGoals ?? [], x) })),
+      removeSprintGoal: (id) =>
+        set((s) => ({ sprintGoals: (s.sprintGoals ?? []).filter((y) => y.id !== id) })),
+      upsertJobStory: (x) => set((_st) => ({ jobStories: replaceById(_st.jobStories ?? [], x) })),
+      removeJobStory: (id) =>
+        set((s) => ({ jobStories: (s.jobStories ?? []).filter((y) => y.id !== id) })),
+      upsertCapacityPlan: (x) =>
+        set((_st) => ({ capacityPlans: replaceById(_st.capacityPlans ?? [], x) })),
+      removeCapacityPlan: (id) =>
+        set((s) => ({ capacityPlans: (s.capacityPlans ?? []).filter((y) => y.id !== id) })),
+      upsertStoryMap: (x) => set((_st) => ({ storyMaps: replaceById(_st.storyMaps ?? [], x) })),
+      removeStoryMap: (id) =>
+        set((s) => ({ storyMaps: (s.storyMaps ?? []).filter((y) => y.id !== id) })),
+      upsertBacklogItem: (x) =>
+        set((_st) => ({ backlogItems: replaceById(_st.backlogItems ?? [], x) })),
+      removeBacklogItem: (id) =>
+        set((s) => ({ backlogItems: (s.backlogItems ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1031,6 +1066,11 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           standupEntries: s.standupEntries,
           sprintReviews: s.sprintReviews,
           retroBoards: s.retroBoards,
+          sprintGoals: s.sprintGoals,
+          jobStories: s.jobStories,
+          capacityPlans: s.capacityPlans,
+          storyMaps: s.storyMaps,
+          backlogItems: s.backlogItems,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1113,6 +1153,11 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           standupEntries: arr("standupEntries"),
           sprintReviews: arr("sprintReviews"),
           retroBoards: arr("retroBoards"),
+          sprintGoals: arr("sprintGoals"),
+          jobStories: arr("jobStories"),
+          capacityPlans: arr("capacityPlans"),
+          storyMaps: arr("storyMaps"),
+          backlogItems: arr("backlogItems"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -1396,6 +1441,11 @@ if (typeof window !== "undefined") {
     registerCollection("standupEntry", "standupEntries");
     registerCollection("sprintReview", "sprintReviews");
     registerCollection("retroBoard", "retroBoards");
+    registerCollection("sprintGoal", "sprintGoals");
+    registerCollection("jobStory", "jobStories");
+    registerCollection("capacityPlan", "capacityPlans");
+    registerCollection("storyMap", "storyMaps");
+    registerCollection("backlogItem", "backlogItems");
     // Phase 22 — Canvas. Whiteboard objects are throttled to 2s pushes
     // because drag operations can dirty hundreds of them per second.
     registerCollection("whiteboard", "whiteboards");
@@ -1488,6 +1538,11 @@ export function getWorkspaceSnapshot(): Workspace {
     standupEntries: state.standupEntries,
     sprintReviews: state.sprintReviews,
     retroBoards: state.retroBoards,
+    sprintGoals: state.sprintGoals,
+    jobStories: state.jobStories,
+    capacityPlans: state.capacityPlans,
+    storyMaps: state.storyMaps,
+    backlogItems: state.backlogItems,
   };
 }
 

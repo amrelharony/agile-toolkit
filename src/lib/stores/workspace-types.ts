@@ -862,6 +862,121 @@ export interface RetroBoard {
   discussingIndex: number;
 }
 
+// ── Sprint Planning (squad S1) ───────────────────────────────────────
+/** One acceptance criterion on a sprint goal. */
+export interface AcceptanceCriterion {
+  id: string;
+  text: string;
+  relevantChecked: boolean;
+}
+
+/** The Sprint Goal builder's state — a singleton document (one current goal
+ *  under a fixed id): business objective, the goal statement, acceptance
+ *  criteria, and key results. */
+export interface SprintGoal {
+  id: string;
+  businessObjective: string;
+  goal: string;
+  criteria: AcceptanceCriterion[];
+  keyResults: string[];
+}
+
+/** A Jobs-to-be-Done job story: "When <situation>, I want to <motivation>,
+ *  so I can <outcome>." parentJobId builds the job hierarchy. */
+export interface JobStory {
+  id: string;
+  situation: string;
+  motivation: string;
+  outcome: string;
+  parentJobId?: string;
+  description?: string;
+}
+
+/** A capacity-planner team member. Distinct from the lean workspace
+ *  TeamMember — carries sprint-capacity fields (availability, daysOff). */
+export interface CapacityMember {
+  id: string;
+  name: string;
+  role: string;
+  description?: string;
+  /** 0–100 percent. */
+  availability: number;
+  daysOff: number;
+}
+
+/** Sprint configuration for a capacity plan. */
+export interface CapacityConfig {
+  sprintDays: number;
+  /** 0–100 percent. */
+  ceremonyOverhead: number;
+  /** 0–1. */
+  focusFactor: number;
+  hoursPerDay: number;
+  /** Planned commitment in points, stored as a string so the input can be
+   *  cleared without coercing to NaN/0 mid-edit. */
+  pointsCommitted: string;
+}
+
+/** The capacity planner's state — a singleton document (one plan under a
+ *  fixed id): the team members and the sprint config. */
+export interface CapacityPlan {
+  id: string;
+  members: CapacityMember[];
+  config: CapacityConfig;
+}
+
+/** A card on the story map. */
+export interface StoryMapCard {
+  id: string;
+  title: string;
+  description: string;
+  color: string;
+}
+
+/** A horizontal release slice; `cards` is keyed by step id. */
+export interface StoryMapSlice {
+  id: string;
+  name: string;
+  cards: Record<string, StoryMapCard[]>;
+}
+
+/** A user-activity step (column header) on the story map. */
+export interface StoryMapStep {
+  id: string;
+  name: string;
+}
+
+/** The story map — a singleton document (one map under a fixed id): the
+ *  steps (columns) and slices (rows) of the steps × slices grid. */
+export interface StoryMap {
+  id: string;
+  steps: StoryMapStep[];
+  slices: StoryMapSlice[];
+}
+
+/** A backlog item scored across the prioritizer's four frameworks (MoSCoW,
+ *  WSJF, RICE, Value vs Effort). */
+export interface BacklogItem {
+  id: string;
+  name: string;
+  description?: string;
+  /** MoSCoW bucket. */
+  moscow: "must" | "should" | "could" | "wont";
+  /** WSJF inputs. */
+  businessValue: number;
+  timeCriticality: number;
+  riskReduction: number;
+  jobSize: number;
+  /** RICE inputs. */
+  reach: number;
+  impact: 0.25 | 0.5 | 1 | 2 | 3;
+  confidence: number;
+  effort: number;
+  /** Value vs Effort matrix inputs. */
+  value: number;
+  matrixEffort: number;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -916,6 +1031,12 @@ export interface Workspace {
   standupEntries?: StandupEntry[];
   sprintReviews?: SprintReview[];
   retroBoards?: RetroBoard[];
+  // Sprint Planning (squad S1)
+  sprintGoals?: SprintGoal[];
+  jobStories?: JobStory[];
+  capacityPlans?: CapacityPlan[];
+  storyMaps?: StoryMap[];
+  backlogItems?: BacklogItem[];
 }
 
 /**

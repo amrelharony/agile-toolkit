@@ -19,7 +19,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, User, Layers, GitBranch, AlertCircle } from "lucide-react";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { JTBD_ACTIONS } from "@/lib/history/event-actions";
 import { generateJtbdPrompts } from "@/lib/ai-prompts/jtbd-mapper";
@@ -35,8 +34,6 @@ interface JobStory {
   parentJobId?: string;
   description?: string;
 }
-
-const STORAGE_KEY = "agile-toolkit:jtbd-mapper";
 
 function renderJobLabel(j: JobStory): string {
   return `When ${j.situation || "(situation)"}, I want to ${j.motivation || "(motivation)"}, so I can ${j.outcome || "(outcome)"}.`;
@@ -71,7 +68,14 @@ function computeMaxDepth(jobs: JobStory[]): number {
 }
 
 export function JtbdMapperClient() {
-  const [jobs, setJobs] = usePersisted<JobStory[]>(STORAGE_KEY, []);
+  const jobs = useWorkspaceStore(useShallow((s) => s.jobStories ?? []));
+  // Mirrors the old usePersisted [value, setter] over the synced collection
+  // (whole-array replace), so every setJobs(...) call site below is unchanged.
+  const setJobs = (updater: JobStory[] | ((prev: JobStory[]) => JobStory[])) => {
+    const cur = useWorkspaceStore.getState().jobStories ?? [];
+    const next = typeof updater === "function" ? updater(cur) : updater;
+    useWorkspaceStore.setState({ jobStories: next });
+  };
   const { log } = useHistoryLogger("jtbd-mapper");
 
   // Form state for adding a new story.

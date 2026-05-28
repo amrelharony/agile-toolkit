@@ -47,6 +47,12 @@ import type {
   StandupEntry,
   SprintReview,
   RetroBoard,
+  // Sprint Planning (squad S1)
+  SprintGoal,
+  JobStory,
+  CapacityPlan,
+  StoryMap,
+  BacklogItem,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -537,6 +543,83 @@ const RetroBoardSchema = z.object({
   discussingIndex: z.number(),
 }) as unknown as z.ZodType<RetroBoard>;
 
+const SprintGoalSchema = z.object({
+  id: z.string(),
+  businessObjective: z.string(),
+  goal: z.string(),
+  criteria: z.array(z.object({ id: z.string(), text: z.string(), relevantChecked: z.boolean() })),
+  keyResults: z.array(z.string()),
+}) as unknown as z.ZodType<SprintGoal>;
+
+const JobStorySchema = z.object({
+  id: z.string(),
+  situation: z.string(),
+  motivation: z.string(),
+  outcome: z.string(),
+  parentJobId: z.string().optional(),
+  description: z.string().optional(),
+}) as unknown as z.ZodType<JobStory>;
+
+const CapacityPlanSchema = z.object({
+  id: z.string(),
+  members: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      role: z.string(),
+      description: z.string().optional(),
+      availability: z.number(),
+      daysOff: z.number(),
+    })
+  ),
+  config: z.object({
+    sprintDays: z.number(),
+    ceremonyOverhead: z.number(),
+    focusFactor: z.number(),
+    hoursPerDay: z.number(),
+    pointsCommitted: z.string(),
+  }),
+}) as unknown as z.ZodType<CapacityPlan>;
+
+const StoryMapSchema = z.object({
+  id: z.string(),
+  steps: z.array(z.object({ id: z.string(), name: z.string() })),
+  slices: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      cards: z.record(
+        z.string(),
+        z.array(
+          z.object({
+            id: z.string(),
+            title: z.string(),
+            description: z.string(),
+            color: z.string(),
+          })
+        )
+      ),
+    })
+  ),
+}) as unknown as z.ZodType<StoryMap>;
+
+const BacklogItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  moscow: z.enum(["must", "should", "could", "wont"]),
+  businessValue: z.number(),
+  timeCriticality: z.number(),
+  riskReduction: z.number(),
+  jobSize: z.number(),
+  reach: z.number(),
+  impact: z.number(),
+  confidence: z.number(),
+  effort: z.number(),
+  value: z.number(),
+  matrixEffort: z.number(),
+}) as unknown as z.ZodType<BacklogItem>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -655,6 +738,56 @@ defineCrudActions<RetroBoard>({
   upsert: (x) => ws().upsertRetroBoard(x),
   remove: (id) => ws().removeRetroBoard(id),
   generateId: () => `retro_${nanoid(8)}`,
+});
+
+defineCrudActions<SprintGoal>({
+  toolId: "workspace.sprint_goal",
+  entityName: "sprint goal",
+  schema: SprintGoalSchema,
+  selectAll: () => ws().sprintGoals ?? [],
+  upsert: (x) => ws().upsertSprintGoal(x),
+  remove: (id) => ws().removeSprintGoal(id),
+  generateId: () => `sprintGoal_${nanoid(8)}`,
+});
+
+defineCrudActions<JobStory>({
+  toolId: "workspace.job_story",
+  entityName: "job story",
+  schema: JobStorySchema,
+  selectAll: () => ws().jobStories ?? [],
+  upsert: (x) => ws().upsertJobStory(x),
+  remove: (id) => ws().removeJobStory(id),
+  generateId: () => `job_${nanoid(8)}`,
+});
+
+defineCrudActions<CapacityPlan>({
+  toolId: "workspace.capacity_plan",
+  entityName: "capacity plan",
+  schema: CapacityPlanSchema,
+  selectAll: () => ws().capacityPlans ?? [],
+  upsert: (x) => ws().upsertCapacityPlan(x),
+  remove: (id) => ws().removeCapacityPlan(id),
+  generateId: () => `capacityPlan_${nanoid(8)}`,
+});
+
+defineCrudActions<StoryMap>({
+  toolId: "workspace.story_map",
+  entityName: "story map",
+  schema: StoryMapSchema,
+  selectAll: () => ws().storyMaps ?? [],
+  upsert: (x) => ws().upsertStoryMap(x),
+  remove: (id) => ws().removeStoryMap(id),
+  generateId: () => `storyMap_${nanoid(8)}`,
+});
+
+defineCrudActions<BacklogItem>({
+  toolId: "workspace.backlog_item",
+  entityName: "backlog item",
+  schema: BacklogItemSchema,
+  selectAll: () => ws().backlogItems ?? [],
+  upsert: (x) => ws().upsertBacklogItem(x),
+  remove: (id) => ws().removeBacklogItem(id),
+  generateId: () => `backlog_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────

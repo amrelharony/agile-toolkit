@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useRef, useMemo } from "react";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { SprintGoal } from "@/lib/stores/workspace-types";
 import { motion, AnimatePresence } from "framer-motion";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -132,6 +134,17 @@ function genId() {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
+// Singleton id for the one current sprint goal. MUST match SG_ID in
+// src/lib/actions/tools/sprint-goal.ts so agent writes hit the same row.
+const SG_ID = "sprint-goal:current";
+const DEFAULT_SPRINT_GOAL: SprintGoal = {
+  id: SG_ID,
+  businessObjective: "",
+  goal: "",
+  criteria: [{ id: "criterion-1", text: "", relevantChecked: false }],
+  keyResults: [""],
+};
+
 export function SprintGoalClient() {
   // PERSIST the wizard state. Previously these were plain useState so
   // navigating away or refreshing wiped everything — a clear data-loss
@@ -140,19 +153,37 @@ export function SprintGoalClient() {
   // so the user can pick up where they left off. usePersisted internally
   // wraps localStorage with quota + SSR guards.
   const [activeStep, setActiveStep] = useState<Step>("objective");
-  const [businessObjective, setBusinessObjective] = usePersisted<string>(
-    "agile-toolkit:sprint-goal:objective",
-    ""
+  // Sprint-goal state is now a singleton synced workspace document (was four
+  // isolated localStorage keys), so MCP-written goals round-trip into the UI.
+  const goalDoc = useWorkspaceStore(
+    useShallow((s) => (s.sprintGoals ?? []).find((g) => g.id === SG_ID))
   );
-  const [sprintGoal, setSprintGoal] = usePersisted<string>("agile-toolkit:sprint-goal:goal", "");
-  const [criteria, setCriteria] = usePersisted<AcceptanceCriterion[]>(
-    "agile-toolkit:sprint-goal:criteria",
-    [{ id: genId(), text: "", relevantChecked: false }]
-  );
-  const [keyResults, setKeyResults] = usePersisted<string[]>(
-    "agile-toolkit:sprint-goal:key-results",
-    [""]
-  );
+  const upsertSprintGoal = useWorkspaceStore((s) => s.upsertSprintGoal);
+  const cur = goalDoc ?? DEFAULT_SPRINT_GOAL;
+  const businessObjective = cur.businessObjective;
+  const sprintGoal = cur.goal;
+  const criteria = cur.criteria;
+  const keyResults = cur.keyResults;
+  // Setters mirror the old usePersisted [value, setter] API (value or updater)
+  // so the handlers + JSX below are unchanged. Read freshest via getState().
+  function patchGoal<K extends keyof SprintGoal>(
+    key: K,
+    val: SprintGoal[K] | ((prev: SprintGoal[K]) => SprintGoal[K])
+  ) {
+    const d =
+      (useWorkspaceStore.getState().sprintGoals ?? []).find((g) => g.id === SG_ID) ??
+      DEFAULT_SPRINT_GOAL;
+    const next =
+      typeof val === "function" ? (val as (p: SprintGoal[K]) => SprintGoal[K])(d[key]) : val;
+    upsertSprintGoal({ ...d, [key]: next } as SprintGoal);
+  }
+  const setBusinessObjective = (v: string | ((p: string) => string)) =>
+    patchGoal("businessObjective", v);
+  const setSprintGoal = (v: string | ((p: string) => string)) => patchGoal("goal", v);
+  const setCriteria = (
+    v: AcceptanceCriterion[] | ((p: AcceptanceCriterion[]) => AcceptanceCriterion[])
+  ) => patchGoal("criteria", v);
+  const setKeyResults = (v: string[] | ((p: string[]) => string[])) => patchGoal("keyResults", v);
   const { log } = useHistoryLogger("sprint-goal");
   // Track whether we've already logged a GOAL_SAVED milestone for this
   // session of edits. Reset whenever the user mutates the goal/objective so
