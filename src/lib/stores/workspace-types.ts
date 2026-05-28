@@ -837,6 +837,29 @@ export interface StoryMap {
   slices: StoryMapSlice[];
 }
 
+/** A backlog item scored across the prioritizer's four frameworks (MoSCoW,
+ *  WSJF, RICE, Value vs Effort). */
+export interface BacklogItem {
+  id: string;
+  name: string;
+  description?: string;
+  /** MoSCoW bucket. */
+  moscow: "must" | "should" | "could" | "wont";
+  /** WSJF inputs. */
+  businessValue: number;
+  timeCriticality: number;
+  riskReduction: number;
+  jobSize: number;
+  /** RICE inputs. */
+  reach: number;
+  impact: 0.25 | 0.5 | 1 | 2 | 3;
+  confidence: number;
+  effort: number;
+  /** Value vs Effort matrix inputs. */
+  value: number;
+  matrixEffort: number;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -890,6 +913,7 @@ export interface Workspace {
   jobStories?: JobStory[];
   capacityPlans?: CapacityPlan[];
   storyMaps?: StoryMap[];
+  backlogItems?: BacklogItem[];
 }
 
 /**

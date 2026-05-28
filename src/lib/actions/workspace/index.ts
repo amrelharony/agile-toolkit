@@ -46,6 +46,7 @@ import type {
   JobStory,
   CapacityPlan,
   StoryMap,
+  BacklogItem,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -538,6 +539,23 @@ const StoryMapSchema = z.object({
   ),
 }) as unknown as z.ZodType<StoryMap>;
 
+const BacklogItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  moscow: z.enum(["must", "should", "could", "wont"]),
+  businessValue: z.number(),
+  timeCriticality: z.number(),
+  riskReduction: z.number(),
+  jobSize: z.number(),
+  reach: z.number(),
+  impact: z.number(),
+  confidence: z.number(),
+  effort: z.number(),
+  value: z.number(),
+  matrixEffort: z.number(),
+}) as unknown as z.ZodType<BacklogItem>;
+
 defineCrudActions<DACIDecision>({
   toolId: "workspace.daci_decision",
   entityName: "DACI decision",
@@ -646,6 +664,16 @@ defineCrudActions<StoryMap>({
   upsert: (x) => ws().upsertStoryMap(x),
   remove: (id) => ws().removeStoryMap(id),
   generateId: () => `storyMap_${nanoid(8)}`,
+});
+
+defineCrudActions<BacklogItem>({
+  toolId: "workspace.backlog_item",
+  entityName: "backlog item",
+  schema: BacklogItemSchema,
+  selectAll: () => ws().backlogItems ?? [],
+  upsert: (x) => ws().upsertBacklogItem(x),
+  remove: (id) => ws().removeBacklogItem(id),
+  generateId: () => `backlog_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────

@@ -1,9 +1,6 @@
 "use client";
 
 import { useMemo, useRef, useState, useEffect } from "react";
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   ScatterChart,
   Scatter,
@@ -184,30 +181,38 @@ const defaultItems: BacklogItem[] = [
 /*  Store                                                                      */
 /* -------------------------------------------------------------------------- */
 
-const usePrioritizerStore = create<PrioritizerStore>()(
-  persist(
-    (set) => ({
-      items: defaultItems,
+// Backlog items are now a synced workspace collection (were an isolated
+// localStorage zustand store), so MCP-written items round-trip into the UI.
+// `usePrioritizerStore` preserves the prior store's API. The deterministic
+// `defaultItems` seed is written into the store on first mount (when the
+// slice is still undefined) so SSR/first-paint matches and update/remove
+// operate on real rows. MUST match the kind in src/lib/actions/tools/prioritizer.ts.
+function usePrioritizerStore(): PrioritizerStore {
+  const raw = useWorkspaceStore(useShallow((s) => s.backlogItems));
+  const upsert = useWorkspaceStore((s) => s.upsertBacklogItem);
+  const removeItem = useWorkspaceStore((s) => s.removeBacklogItem);
 
-      addItem: () => set((s) => ({ items: [...s.items, createDefaultItem()] })),
-
-      updateItem: (id, updates) =>
-        set((s) => ({
-          items: s.items.map((item) => (item.id === id ? { ...item, ...updates } : item)),
-        })),
-
-      removeItem: (id) => set((s) => ({ items: s.items.filter((item) => item.id !== id) })),
-
-      reset: () => set({ items: defaultItems }),
-    }),
-    {
-      name: "agile-toolkit:prioritizer",
-      // Avoid Safari Private Browsing crash on hydration; same wrapping
-      // pattern as the other persisted tool stores.
-      storage: safeJSONStorage("prioritizer"),
+  // Seed the deterministic defaults once, only if the user has never had a
+  // backlog (slice undefined). An explicit empty array is respected.
+  useEffect(() => {
+    if (useWorkspaceStore.getState().backlogItems === undefined) {
+      useWorkspaceStore.setState({ backlogItems: defaultItems });
     }
-  )
-);
+  }, []);
+
+  return {
+    items: raw ?? defaultItems,
+    addItem: () => upsert(createDefaultItem()),
+    updateItem: (id, updates) => {
+      const cur = (useWorkspaceStore.getState().backlogItems ?? defaultItems).find(
+        (item) => item.id === id
+      );
+      if (cur) upsert({ ...cur, ...updates });
+    },
+    removeItem: (id) => removeItem(id),
+    reset: () => useWorkspaceStore.setState({ backlogItems: defaultItems }),
+  };
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Scoring helpers                                                             */

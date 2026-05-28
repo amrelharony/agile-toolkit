@@ -53,6 +53,7 @@ import type {
   JobStory,
   CapacityPlan,
   StoryMap,
+  BacklogItem,
 } from "./workspace-types";
 import { emptyWorkspace } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -161,6 +162,8 @@ interface WorkspaceActions {
   removeCapacityPlan: (id: string) => void;
   upsertStoryMap: (x: StoryMap) => void;
   removeStoryMap: (id: string) => void;
+  upsertBacklogItem: (x: BacklogItem) => void;
+  removeBacklogItem: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert. Use this for bulk imports — single-item upserts are O(n)
@@ -974,6 +977,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       upsertStoryMap: (x) => set((_st) => ({ storyMaps: replaceById(_st.storyMaps ?? [], x) })),
       removeStoryMap: (id) =>
         set((s) => ({ storyMaps: (s.storyMaps ?? []).filter((y) => y.id !== id) })),
+      upsertBacklogItem: (x) =>
+        set((_st) => ({ backlogItems: replaceById(_st.backlogItems ?? [], x) })),
+      removeBacklogItem: (id) =>
+        set((s) => ({ backlogItems: (s.backlogItems ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1021,6 +1028,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           jobStories: s.jobStories,
           capacityPlans: s.capacityPlans,
           storyMaps: s.storyMaps,
+          backlogItems: s.backlogItems,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1102,6 +1110,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           jobStories: arr("jobStories"),
           capacityPlans: arr("capacityPlans"),
           storyMaps: arr("storyMaps"),
+          backlogItems: arr("backlogItems"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -1384,6 +1393,7 @@ if (typeof window !== "undefined") {
     registerCollection("jobStory", "jobStories");
     registerCollection("capacityPlan", "capacityPlans");
     registerCollection("storyMap", "storyMaps");
+    registerCollection("backlogItem", "backlogItems");
     // Phase 22 — Canvas. Whiteboard objects are throttled to 2s pushes
     // because drag operations can dirty hundreds of them per second.
     registerCollection("whiteboard", "whiteboards");
@@ -1475,6 +1485,7 @@ export function getWorkspaceSnapshot(): Workspace {
     jobStories: state.jobStories,
     capacityPlans: state.capacityPlans,
     storyMaps: state.storyMaps,
+    backlogItems: state.backlogItems,
   };
 }
 
