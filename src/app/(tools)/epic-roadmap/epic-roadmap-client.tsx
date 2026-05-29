@@ -12,7 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Milestone, Plus, Trash2 } from "lucide-react";
 import { forecastLinear } from "@/lib/analytics/forecasting";
 import { generateEpicRoadmapPrompts } from "@/lib/ai-prompts/epic-roadmap";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { ActionRow } from "@/components/shared/action-row";
 import { EmptyState } from "@/components/shared/empty-state";
 import { CalloutAlert } from "@/components/shared/callout-alert";
@@ -198,8 +199,28 @@ function ProgressCell({ value, onChange }: { value: number; onChange: (n: number
   );
 }
 
+const ER_ID = "epicRoadmap:current"; // MUST match ER_ID in epic-roadmap.ts.
+const EMPTY_EPICS: Epic[] = [];
+
+// Synced workspace singleton (was isolated usePersisted/localStorage) wrapping
+// the epics[] array. Drop-in [state, setState] (structural types).
+function useEpics(): [Epic[], (u: Epic[] | ((p: Epic[]) => Epic[])) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.epicRoadmaps ?? []).find((d) => d.id === ER_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertEpicRoadmap);
+  const epics = doc?.epics ?? EMPTY_EPICS;
+  const setEpics = (u: Epic[] | ((p: Epic[]) => Epic[])) => {
+    const cur =
+      (useWorkspaceStore.getState().epicRoadmaps ?? []).find((d) => d.id === ER_ID)?.epics ?? [];
+    const next = typeof u === "function" ? u(cur) : u;
+    upsert({ id: ER_ID, epics: next });
+  };
+  return [epics, setEpics];
+}
+
 export function EpicRoadmapClient() {
-  const [epics, setEpics] = usePersisted<Epic[]>("agile-toolkit:epic-roadmap", []);
+  const [epics, setEpics] = useEpics();
   const thisYear = new Date().getFullYear();
   const [from, setFrom] = useState(`${thisYear} Q1`);
   const [to, setTo] = useState(`${thisYear} Q4`);
