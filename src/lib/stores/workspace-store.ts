@@ -64,6 +64,7 @@ import type {
   PostMortemLog,
   // S4 — Team Health & Maturity
   PsychSafetyLog,
+  MaturityAssessment,
   // Phase 20
   PrioritizationItem,
   // Phase 21
@@ -211,6 +212,8 @@ interface WorkspaceActions {
   removePostMortemLog: (id: string) => void;
   upsertPsychSafetyLog: (x: PsychSafetyLog) => void;
   removePsychSafetyLog: (id: string) => void;
+  upsertMaturityAssessment: (x: MaturityAssessment) => void;
+  removeMaturityAssessment: (id: string) => void;
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
@@ -932,6 +935,12 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ psychSafetyLogs: replaceById(_st.psychSafetyLogs ?? [], x) })),
       removePsychSafetyLog: (id) =>
         set((s) => ({ psychSafetyLogs: (s.psychSafetyLogs ?? []).filter((y) => y.id !== id) })),
+      upsertMaturityAssessment: (x) =>
+        set((_st) => ({ maturityAssessments: replaceById(_st.maturityAssessments ?? [], x) })),
+      removeMaturityAssessment: (id) =>
+        set((s) => ({
+          maturityAssessments: (s.maturityAssessments ?? []).filter((y) => y.id !== id),
+        })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) =>
         set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
@@ -1370,6 +1379,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           incidentCommanders: s.incidentCommanders,
           postMortemLogs: s.postMortemLogs,
           psychSafetyLogs: s.psychSafetyLogs,
+          maturityAssessments: s.maturityAssessments,
           opportunityTrees: s.opportunityTrees,
           // Phase 20
           prioritizations: s.prioritizations,
@@ -1492,6 +1502,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           incidentCommanders: arr("incidentCommanders"),
           postMortemLogs: arr("postMortemLogs"),
           psychSafetyLogs: arr("psychSafetyLogs"),
+          maturityAssessments: arr("maturityAssessments"),
           opportunityTrees: arr("opportunityTrees"),
           // Phase 20
           prioritizations: arr("prioritizations"),
@@ -1818,6 +1829,7 @@ if (typeof window !== "undefined") {
     registerCollection("postMortem", "postMortemLogs");
     // S4 — Team Health & Maturity
     registerCollection("psychSafety", "psychSafetyLogs");
+    registerCollection("maturityAssessment", "maturityAssessments");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
     // Phase 21 — Decision frameworks
@@ -1942,6 +1954,7 @@ export function getWorkspaceSnapshot(): Workspace {
     incidentCommanders: state.incidentCommanders,
     postMortemLogs: state.postMortemLogs,
     psychSafetyLogs: state.psychSafetyLogs,
+    maturityAssessments: state.maturityAssessments,
     opportunityTrees: state.opportunityTrees,
     prioritizations: state.prioritizations,
     daciDecisions: state.daciDecisions,

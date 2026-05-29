@@ -1707,6 +1707,13 @@ export interface PsychSafetyLog {
   responses: PsychSafetyResponse[];
 }
 
+/** Agile Maturity Assessment — 8 dimensions scored 1-5 + an improvement target. */
+export interface MaturityAssessment {
+  id: string;
+  scores: Record<string, number>; // dimensionId -> level 1-5
+  targetLevel: number;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -1769,6 +1776,7 @@ export interface Workspace {
   postMortemLogs?: PostMortemLog[];
   // S4 — Team Health & Maturity (singleton docs)
   psychSafetyLogs?: PsychSafetyLog[];
+  maturityAssessments?: MaturityAssessment[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -2000,6 +2008,7 @@ export const emptyWorkspace: Workspace = {
   postMortemLogs: [],
   // S4 — Team Health & Maturity
   psychSafetyLogs: [],
+  maturityAssessments: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

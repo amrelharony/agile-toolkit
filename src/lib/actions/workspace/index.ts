@@ -74,6 +74,7 @@ import type {
   PostMortemLog,
   // S4 — Team Health & Maturity
   PsychSafetyLog,
+  MaturityAssessment,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -1164,6 +1165,12 @@ const PsychSafetyLogSchema = z.object({
   responses: z.array(PsychSafetyResponseSchema),
 }) as unknown as z.ZodType<PsychSafetyLog>;
 
+const MaturityAssessmentSchema = z.object({
+  id: z.string(),
+  scores: z.record(z.string(), z.number()),
+  targetLevel: z.number(),
+}) as unknown as z.ZodType<MaturityAssessment>;
+
 const TreeNodeSchema = z.object({
   id: z.string(),
   kind: z.enum(["outcome", "opportunity", "solution", "experiment"]),
@@ -1324,6 +1331,16 @@ defineCrudActions<PsychSafetyLog>({
   upsert: (x) => ws().upsertPsychSafetyLog(x),
   remove: (id) => ws().removePsychSafetyLog(id),
   generateId: () => `psychSafetyLog_${nanoid(8)}`,
+});
+
+defineCrudActions<MaturityAssessment>({
+  toolId: "workspace.maturity_assessment",
+  entityName: "maturity assessment",
+  schema: MaturityAssessmentSchema,
+  selectAll: () => ws().maturityAssessments ?? [],
+  upsert: (x) => ws().upsertMaturityAssessment(x),
+  remove: (id) => ws().removeMaturityAssessment(id),
+  generateId: () => `maturityAssessment_${nanoid(8)}`,
 });
 
 defineCrudActions<OpportunityTree>({

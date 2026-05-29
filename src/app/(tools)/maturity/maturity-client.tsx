@@ -1,9 +1,6 @@
 "use client";
 
 import { useRef, useMemo, useEffect } from "react";
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { RadarChart, PolarGrid, PolarAngleAxis, Radar, Tooltip } from "recharts";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -25,35 +22,50 @@ import {
 } from "@/lib/constants/maturity-model";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace, MaturityLevel } from "@/lib/stores/workspace-types";
+import type { Workspace, MaturityLevel, MaturityAssessment } from "@/lib/stores/workspace-types";
 
 /* -------------------------------------------------------------------------- */
 /*  Store                                                                     */
 /* -------------------------------------------------------------------------- */
 
-interface MaturityStore {
-  scores: Record<string, number>; // dimensionId -> level 1-5
-  targetLevel: number;
-  setScore: (dimensionId: string, level: number) => void;
-  setTargetLevel: (level: number) => void;
-  reset: () => void;
-}
-
-const DEFAULT_SCORES = Object.fromEntries(MATURITY_DIMENSIONS.map((d) => [d.id, 1]));
-
-const useMaturityStore = create<MaturityStore>()(
-  persist(
-    (set) => ({
-      scores: DEFAULT_SCORES,
-      targetLevel: 4,
-      setScore: (dimensionId, level) =>
-        set((s) => ({ scores: { ...s.scores, [dimensionId]: level } })),
-      setTargetLevel: (level) => set({ targetLevel: level }),
-      reset: () => set({ scores: DEFAULT_SCORES, targetLevel: 4 }),
-    }),
-    { name: "agile-toolkit:maturity", storage: safeJSONStorage("maturity") }
-  )
+const MATURITY_ID = "maturity:current"; // MUST match MATURITY_ID in maturity.ts.
+const DEFAULT_TARGET = 4;
+const DEFAULT_SCORES: Record<string, number> = Object.fromEntries(
+  MATURITY_DIMENSIONS.map((d) => [d.id, 1])
 );
+
+// Synced workspace singleton (was isolated zustand persist/localStorage).
+// Mirrors the old useMaturityStore() API ({scores, targetLevel, setScore,
+// setTargetLevel, reset}) so the component body below is unchanged.
+function useMaturity() {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.maturityAssessments ?? []).find((d) => d.id === MATURITY_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertMaturityAssessment);
+  const scores = doc?.scores ?? DEFAULT_SCORES;
+  const targetLevel = doc?.targetLevel ?? DEFAULT_TARGET;
+  const current = (): MaturityAssessment => {
+    const d = (useWorkspaceStore.getState().maturityAssessments ?? []).find(
+      (x) => x.id === MATURITY_ID
+    );
+    return d ?? { id: MATURITY_ID, scores: DEFAULT_SCORES, targetLevel: DEFAULT_TARGET };
+  };
+  return {
+    scores,
+    targetLevel,
+    setScore: (dimensionId: string, level: number) => {
+      const c = current();
+      upsert({ ...c, id: MATURITY_ID, scores: { ...c.scores, [dimensionId]: level } });
+    },
+    setTargetLevel: (level: number) => {
+      const c = current();
+      upsert({ ...c, id: MATURITY_ID, targetLevel: level });
+    },
+    reset: () => {
+      upsert({ id: MATURITY_ID, scores: DEFAULT_SCORES, targetLevel: DEFAULT_TARGET });
+    },
+  };
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Radar tooltip                                                              */
@@ -93,7 +105,7 @@ export function MaturityClient() {
     setScore: setScoreRaw,
     setTargetLevel,
     reset: resetRaw,
-  } = useMaturityStore();
+  } = useMaturity();
   const { log } = useHistoryLogger("maturity");
 
   const setScore: typeof setScoreRaw = (...args) => {
