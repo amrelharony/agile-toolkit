@@ -12,7 +12,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Star, Clock, Users, Heart, Sparkles } from "lucide-react";
 import { generateLiberatingStructuresPrompts } from "@/lib/ai-prompts/liberating-structures";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { LIBERATING_STRUCTURES_ACTIONS } from "@/lib/history/event-actions";
 import { useShallow } from "zustand/react/shallow";
@@ -46,6 +45,27 @@ interface State {
 }
 
 const DEFAULT_STATE: State = { favorites: [] };
+
+const LS_ID = "liberatingStructures:current"; // MUST match LS_ID in liberating-structures.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// writes round-trip into the UI. Drop-in [state, setState] (structural types).
+function useLiberatingStructures(): [State, (u: State | ((p: State) => State)) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.liberatingStructures ?? []).find((d) => d.id === LS_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertLiberatingStructures);
+  const state: State = doc ? { favorites: doc.favorites } : DEFAULT_STATE;
+  const setState = (u: State | ((p: State) => State)) => {
+    const cur = (useWorkspaceStore.getState().liberatingStructures ?? []).find(
+      (d) => d.id === LS_ID
+    );
+    const curState: State = cur ? { favorites: cur.favorites } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: LS_ID, favorites: next.favorites });
+  };
+  return [state, setState];
+}
 
 const CATALOG: CatalogEntry[] = [
   {
@@ -218,10 +238,7 @@ function FilterChip({ label, active, onClick }: FilterChipProps) {
 }
 
 export function LiberatingStructuresClient() {
-  const [state, setState] = usePersisted<State>(
-    "agile-toolkit:liberating-structures",
-    DEFAULT_STATE
-  );
+  const [state, setState] = useLiberatingStructures();
   const [groupFilter, setGroupFilter] = useState<GroupSize | "all">("all");
   const [timingFilter, setTimingFilter] = useState<TimingBucket | "all">("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
