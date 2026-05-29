@@ -32,7 +32,6 @@ import {
   Send,
 } from "lucide-react";
 import { generateWorkingAgreementPrompts } from "@/lib/ai-prompts/working-agreement";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { WORKING_AGREEMENT_ACTIONS } from "@/lib/history/event-actions";
 import { useShallow } from "zustand/react/shallow";
@@ -128,6 +127,25 @@ const DEFAULT_STATE: State = {
   meta: { version: 0 },
 };
 
+const WA_ID = "workingAgreement:current"; // MUST match WA_ID in working-agreement.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// writes round-trip into the UI. Drop-in [state, setState] (structural types).
+function useWorkingAgreement(): [State, (u: State | ((p: State) => State)) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.workingAgreements ?? []).find((d) => d.id === WA_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertWorkingAgreement);
+  const state: State = doc ? { rules: doc.rules, meta: doc.meta } : DEFAULT_STATE;
+  const setState = (u: State | ((p: State) => State)) => {
+    const cur = (useWorkspaceStore.getState().workingAgreements ?? []).find((d) => d.id === WA_ID);
+    const curState: State = cur ? { rules: cur.rules, meta: cur.meta } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: WA_ID, rules: next.rules, meta: next.meta });
+  };
+  return [state, setState];
+}
+
 function newId(): string {
   return crypto.randomUUID();
 }
@@ -187,7 +205,7 @@ function AgreedByInput({
 }
 
 export function WorkingAgreementClient() {
-  const [state, setState] = usePersisted<State>("agile-toolkit:working-agreement", DEFAULT_STATE);
+  const [state, setState] = useWorkingAgreement();
   const [newRuleText, setNewRuleText] = useState("");
   const [newRuleDesc, setNewRuleDesc] = useState("");
   const [newRuleCategory, setNewRuleCategory] = useState<RuleCategory>("communication");
