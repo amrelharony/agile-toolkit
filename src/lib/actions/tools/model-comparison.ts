@@ -27,7 +27,7 @@
 import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { serverListEntities, serverGetEntity, serverUpsertEntity } from "../server-store";
+import { serverListEntities, serverUpsertEntity, serverVersionedUpdate } from "../server-store";
 import type { ModelEntry } from "@/lib/stores/workspace-types";
 
 const KIND_MODEL = "workspace:model";
@@ -122,7 +122,10 @@ registry.register({
     return { added: true, id: entry.id };
   },
   mcpHandler: async (params, ctx) => {
-    const entry: ModelEntry = { id: crypto.randomUUID(), ...params };
+    // Stamp version 1 on create so the optimistic-concurrency token starts
+    // monotonic (audit MEDIUM). The browser path gets this for free —
+    // upsertModel stamps version on a first insert.
+    const entry: ModelEntry = { id: crypto.randomUUID(), ...params, version: 1 };
     await serverUpsertEntity<ModelEntry>(ctx.userId, KIND_MODEL, entry);
     return { added: true, id: entry.id };
   },
@@ -151,12 +154,14 @@ registry.register({
     return { updated: true };
   },
   mcpHandler: async (params, ctx) => {
-    const current = await serverGetEntity<ModelEntry>(ctx.userId, KIND_MODEL, params.id);
-    if (!current) return { updated: false };
-    await serverUpsertEntity<ModelEntry>(ctx.userId, KIND_MODEL, {
-      ...current,
-      status: params.status,
-    });
-    return { updated: true };
+    // CAS read-modify-write (audit MEDIUM). serverVersionedUpdate returns
+    // null for an unknown id, so the not-found path needs no pre-read.
+    const res = await serverVersionedUpdate<ModelEntry>(
+      ctx.userId,
+      KIND_MODEL,
+      params.id,
+      (cur) => ({ ...cur, status: params.status })
+    );
+    return { updated: res !== null };
   },
 });

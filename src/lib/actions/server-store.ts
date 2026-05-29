@@ -133,6 +133,67 @@ export async function serverUpsertEntity<T extends { id: string }>(
   if (error) throw error;
 }
 
+/**
+ * Optimistic-concurrency read-modify-write for a single entity (audit
+ * MEDIUM). Reads the row, applies `mutate`, and writes back ONLY if the
+ * row's `updated_at` is unchanged since the read (compare-and-set). On a
+ * lost race it re-reads and re-applies `mutate` against the fresh row, so
+ * a concurrent writer (the user's browser push, or another agent call)
+ * that touched a DIFFERENT field is never clobbered.
+ *
+ * `updated_at` is the server-side CAS token (a top-level column, always
+ * present and exact). `mutate` is responsible for bumping the payload's
+ * `version` — the cross-layer LWW token the browser store also honours —
+ * so a realtime-delivered row carries a monotonic version and a later
+ * stale browser write is rejected by `upsertModel`'s guard.
+ *
+ * Returns the written payload, or null if the entity is missing/deleted.
+ * Throws after `maxAttempts` unresolved conflicts (a hot row under
+ * sustained contention — vanishingly rare in the single-user model).
+ */
+export async function serverVersionedUpdate<T extends { id: string; version?: number }>(
+  userId: string,
+  kind: string,
+  id: string,
+  mutate: (current: T) => T,
+  maxAttempts = 5
+): Promise<T | null> {
+  const c = admin();
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const { data, error } = await c
+      .from("user_entities")
+      .select("payload, updated_at, deleted")
+      .eq("user_id", userId)
+      .eq("kind", kind)
+      .eq("entity_id", id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data || (data as { deleted: boolean }).deleted) return null;
+    const row = data as { payload: T; updated_at: string };
+    const baseVersion = row.payload.version ?? 0;
+    const next = { ...mutate(row.payload), version: baseVersion + 1 };
+    const { data: updated, error: upErr } = await c
+      .from("user_entities")
+      .update({
+        payload: next,
+        client_id: SERVER_CLIENT_ID,
+        deleted: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", userId)
+      .eq("kind", kind)
+      .eq("entity_id", id)
+      .eq("updated_at", row.updated_at) // CAS: only if no one wrote since our read
+      .select("entity_id");
+    if (upErr) throw upErr;
+    if (updated && updated.length === 1) return next;
+    // Lost the race — another writer advanced updated_at. Re-read & retry.
+  }
+  throw new Error(
+    `[server-store] versioned update for ${kind}/${id} did not converge after ${maxAttempts} attempts`
+  );
+}
+
 /** Soft-delete (tombstone) so other devices reconcile correctly via the
  *  same sync engine path browser writes go through. */
 export async function serverDeleteEntity(userId: string, kind: string, id: string): Promise<void> {

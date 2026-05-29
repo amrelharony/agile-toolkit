@@ -168,6 +168,13 @@ export interface ModelEntry {
   evalScore?: number;
   status: "production" | "evaluation" | "experimental" | "deprecated";
   notes?: string;
+  /** Monotonic optimistic-concurrency token for last-write-wins. Edited by
+   *  both the user (UI) and background agents (tool.model_registry.* over
+   *  MCP); `upsertModel` and the server-side write verbs bump it on every
+   *  accepted write and reject writes built from an older base, so a stale
+   *  whole-row write can't silently clobber a concurrent change. Optional
+   *  for back-compat: legacy rows without a version are treated as 0. */
+  version?: number;
 }
 
 export interface RedTeamFinding {

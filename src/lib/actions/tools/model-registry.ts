@@ -78,12 +78,7 @@
 import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import {
-  serverListEntities,
-  serverGetEntity,
-  serverUpsertEntity,
-  serverBulkUpsertEntities,
-} from "../server-store";
+import { serverListEntities, serverGetEntity, serverVersionedUpdate } from "../server-store";
 import type { ModelEntry } from "@/lib/stores/workspace-types";
 
 /** Server-side entity kind. Matches kindFromToolId("workspace.model")
@@ -276,16 +271,24 @@ registry.register({
     const toDemote = all.filter(
       (m) => m.vendor === target.vendor && m.status === "production" && m.id !== target.id
     );
-    const writes: ModelEntry[] = toDemote.map((d) => ({
-      ...d,
-      status: "deprecated" as const,
+    // Per-row compare-and-set instead of a blind bulk upsert (audit MEDIUM):
+    // each write re-reads its row and re-applies the change on the fresh
+    // payload + bumps version, so a concurrent edit to a DIFFERENT field
+    // isn't clobbered. `demoted` reports the peers that were actually
+    // updated (a peer deleted mid-flight returns null and is skipped).
+    const demoted: string[] = [];
+    for (const d of toDemote) {
+      const res = await serverVersionedUpdate<ModelEntry>(ctx.userId, KIND_MODEL, d.id, (cur) => ({
+        ...cur,
+        status: "deprecated",
+      }));
+      if (res) demoted.push(d.id);
+    }
+    await serverVersionedUpdate<ModelEntry>(ctx.userId, KIND_MODEL, target.id, (cur) => ({
+      ...cur,
+      status: "production",
     }));
-    writes.push({ ...target, status: "production" as const });
-    // Bulk upsert in one round-trip. The browser-path doesn't need this
-    // optimisation (local Zustand mutation), but on MCP each
-    // serverUpsertEntity is a network hop.
-    await serverBulkUpsertEntities<ModelEntry>(ctx.userId, KIND_MODEL, writes);
-    return { promoted: true, demoted: toDemote.map((d) => d.id) };
+    return { promoted: true, demoted };
   },
 });
 
@@ -333,13 +336,19 @@ registry.register({
     if (current.status === "deprecated" && !params.reason) {
       return { updated: false };
     }
-    const nextNotes = appendReason(current.notes, params.reason);
-    await serverUpsertEntity<ModelEntry>(ctx.userId, KIND_MODEL, {
-      ...current,
-      status: "deprecated",
-      notes: nextNotes,
-    });
-    return { updated: true };
+    // CAS read-modify-write (audit MEDIUM): append onto the FRESH notes
+    // inside the mutate so a concurrent note edit isn't lost.
+    const res = await serverVersionedUpdate<ModelEntry>(
+      ctx.userId,
+      KIND_MODEL,
+      params.id,
+      (cur) => ({
+        ...cur,
+        status: "deprecated",
+        notes: appendReason(cur.notes, params.reason),
+      })
+    );
+    return { updated: res !== null };
   },
 });
 
@@ -388,12 +397,14 @@ registry.register({
     return { updated: true };
   },
   mcpHandler: async (params, ctx) => {
-    const current = await serverGetEntity<ModelEntry>(ctx.userId, KIND_MODEL, params.id);
-    if (!current) return { updated: false };
-    await serverUpsertEntity<ModelEntry>(ctx.userId, KIND_MODEL, {
-      ...current,
-      evalScore: params.evalScore,
-    });
-    return { updated: true };
+    // CAS read-modify-write (audit MEDIUM). serverVersionedUpdate returns
+    // null when the id is unknown, so the not-found case needs no pre-read.
+    const res = await serverVersionedUpdate<ModelEntry>(
+      ctx.userId,
+      KIND_MODEL,
+      params.id,
+      (cur) => ({ ...cur, evalScore: params.evalScore })
+    );
+    return { updated: res !== null };
   },
 });
