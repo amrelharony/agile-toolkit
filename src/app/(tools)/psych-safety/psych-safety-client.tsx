@@ -14,28 +14,21 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Heart, Plus, Trash2, AlertTriangle, Users } from "lucide-react";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PSYCH_SAFETY_ACTIONS } from "@/lib/history/event-actions";
 import { generatePsychSafetyPrompts } from "@/lib/ai-prompts/psych-safety";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
-
-type QuestionId = "q1" | "q2" | "q3" | "q4" | "q5" | "q6" | "q7";
+import type {
+  Workspace,
+  PsychSafetyResponse as Response,
+  PsychSafetyQuestionId as QuestionId,
+} from "@/lib/stores/workspace-types";
 
 interface QuestionMeta {
   id: QuestionId;
   text: string;
   reversed: boolean;
-}
-
-interface Response {
-  id: string;
-  ts: string; // ISO timestamp
-  scores: Record<QuestionId, number>; // 1-5 raw Likert
-  respondent?: string;
-  description?: string;
 }
 
 const QUESTIONS: QuestionMeta[] = [
@@ -76,8 +69,31 @@ const QUESTIONS: QuestionMeta[] = [
   },
 ];
 
-const STORAGE_KEY = "agile-toolkit:psych-safety";
+const PS_ID = "psychSafety:current"; // MUST match PS_ID in psych-safety.ts.
+const EMPTY_RESPONSES: Response[] = [];
 const ORG_BENCHMARK = 4.0;
+
+// Synced workspace singleton (was isolated usePersisted/localStorage) wrapping
+// the responses[] array. Drop-in [state, setState] (structural types) so the
+// component body below is unchanged.
+function usePsychSafetyResponses(): [
+  Response[],
+  (u: Response[] | ((p: Response[]) => Response[])) => void,
+] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.psychSafetyLogs ?? []).find((d) => d.id === PS_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertPsychSafetyLog);
+  const responses = doc?.responses ?? EMPTY_RESPONSES;
+  const setResponses = (u: Response[] | ((p: Response[]) => Response[])) => {
+    const cur =
+      (useWorkspaceStore.getState().psychSafetyLogs ?? []).find((d) => d.id === PS_ID)?.responses ??
+      [];
+    const next = typeof u === "function" ? u(cur) : u;
+    upsert({ id: PS_ID, responses: next });
+  };
+  return [responses, setResponses];
+}
 
 function adjustedScore(raw: number, reversed: boolean): number {
   return reversed ? 6 - raw : raw;
@@ -137,7 +153,7 @@ function projectRadar(
 }
 
 export function PsychSafetyClient() {
-  const [responses, setResponses] = usePersisted<Response[]>(STORAGE_KEY, []);
+  const [responses, setResponses] = usePsychSafetyResponses();
   const { log } = useHistoryLogger("psych-safety");
   const workspace = useWorkspaceStore(
     useShallow(

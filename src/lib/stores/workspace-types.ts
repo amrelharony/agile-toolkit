@@ -1689,6 +1689,24 @@ export interface ValueStreamStage {
   completeAccurate: number;
 }
 
+// ──────── S4 — Team Health & Maturity (singleton docs) ────────
+
+/** Edmondson 7-question psychological-safety instrument. q1/q3/q5 are reversed. */
+export type PsychSafetyQuestionId = "q1" | "q2" | "q3" | "q4" | "q5" | "q6" | "q7";
+
+export interface PsychSafetyResponse {
+  id: string;
+  ts: string; // ISO timestamp
+  scores: Record<PsychSafetyQuestionId, number>; // 1-5 raw Likert
+  respondent?: string;
+  description?: string;
+}
+
+export interface PsychSafetyLog {
+  id: string;
+  responses: PsychSafetyResponse[];
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -1749,6 +1767,8 @@ export interface Workspace {
   oncallRosters?: OncallRoster[];
   incidentCommanders?: IncidentCommander[];
   postMortemLogs?: PostMortemLog[];
+  // S4 — Team Health & Maturity (singleton docs)
+  psychSafetyLogs?: PsychSafetyLog[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -1978,6 +1998,8 @@ export const emptyWorkspace: Workspace = {
   oncallRosters: [],
   incidentCommanders: [],
   postMortemLogs: [],
+  // S4 — Team Health & Maturity
+  psychSafetyLogs: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

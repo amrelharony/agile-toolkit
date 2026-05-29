@@ -72,6 +72,8 @@ import type {
   OncallRoster,
   IncidentCommander,
   PostMortemLog,
+  // S4 — Team Health & Maturity
+  PsychSafetyLog,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -1149,6 +1151,19 @@ const UserInterviewLogSchema = z.object({
   interviews: z.array(InterviewSchema),
 }) as unknown as z.ZodType<UserInterviewLog>;
 
+const PsychSafetyResponseSchema = z.object({
+  id: z.string(),
+  ts: z.string(),
+  scores: z.record(z.string(), z.number()),
+  respondent: z.string().optional(),
+  description: z.string().optional(),
+});
+
+const PsychSafetyLogSchema = z.object({
+  id: z.string(),
+  responses: z.array(PsychSafetyResponseSchema),
+}) as unknown as z.ZodType<PsychSafetyLog>;
+
 const TreeNodeSchema = z.object({
   id: z.string(),
   kind: z.enum(["outcome", "opportunity", "solution", "experiment"]),
@@ -1299,6 +1314,16 @@ defineCrudActions<UserInterviewLog>({
   upsert: (x) => ws().upsertUserInterviewLog(x),
   remove: (id) => ws().removeUserInterviewLog(id),
   generateId: () => `userInterviewLog_${nanoid(8)}`,
+});
+
+defineCrudActions<PsychSafetyLog>({
+  toolId: "workspace.psych_safety_log",
+  entityName: "psych-safety log",
+  schema: PsychSafetyLogSchema,
+  selectAll: () => ws().psychSafetyLogs ?? [],
+  upsert: (x) => ws().upsertPsychSafetyLog(x),
+  remove: (id) => ws().removePsychSafetyLog(id),
+  generateId: () => `psychSafetyLog_${nanoid(8)}`,
 });
 
 defineCrudActions<OpportunityTree>({
