@@ -30,6 +30,7 @@ import type {
   Hallucination,
   TokenSpend,
   ModelEntry,
+  ModelCard,
   RedTeamFinding,
   AgentWorkflow,
   AgentNode,
@@ -344,7 +345,24 @@ const ModelEntrySchema = z.object({
   evalScore: z.number().optional(),
   status: z.enum(["production", "evaluation", "experimental", "deprecated"]),
   notes: z.string().optional(),
+  version: z.number().optional(),
 }) as unknown as z.ZodType<ModelEntry>;
+
+/** Model Card *documentation* (intended use / training data / limitations).
+ *  Distinct from ModelEntry above — that's the cost/latency/status registry
+ *  (kind workspace:model). This is the /model-card builder's collection
+ *  (kind workspace:modelCard). modelName is the only required field; the
+ *  rest are free-text doc sections the agent may fill incrementally. */
+const ModelCardSchema = z.object({
+  id: z.string(),
+  modelName: z.string(),
+  intendedUse: z.string().optional(),
+  trainingData: z.string().optional(),
+  evaluation: z.string().optional(),
+  limitations: z.string().optional(),
+  license: z.string().optional(),
+  updatedAt: z.string().optional(),
+}) as unknown as z.ZodType<ModelCard>;
 
 const RedTeamFindingSchema = z.object({
   id: z.string(),
@@ -406,6 +424,21 @@ defineCrudActions<ModelEntry>({
   upsert: (x) => ws().upsertModel(x),
   remove: (id) => ws().removeModel(id),
   generateId: () => `model_${nanoid(8)}`,
+});
+
+// workspace.model_card.* → kind "workspace:modelCard", matching
+// registerCollection("modelCard", "modelCards") in workspace-store.ts. This
+// is the agent surface for the /model-card documentation builder, which had
+// none before (the similarly-named tool.model_registry.* operates on the
+// `models` registry, a different collection).
+defineCrudActions<ModelCard>({
+  toolId: "workspace.model_card",
+  entityName: "model card",
+  schema: ModelCardSchema,
+  selectAll: () => ws().modelCards ?? [],
+  upsert: (x) => ws().upsertModelCard(x),
+  remove: (id) => ws().removeModelCard(id),
+  generateId: () => `modelCard_${nanoid(8)}`,
 });
 
 defineCrudActions<RedTeamFinding>({
