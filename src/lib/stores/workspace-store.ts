@@ -1890,6 +1890,13 @@ if (typeof window !== "undefined") {
     registerCollection("kanbanBoard", "kanbanBoards");
     registerCollection("dependencyMap", "dependencyMaps");
     registerCollection("valueStreamStage", "valueStreamStages");
+    // Kudos wall — was localStorage-only + ephemeral realtime broadcast; now
+    // also a per-entity synced collection so the agent (tool.kudos.*) can read
+    // + post and the wall cloud-persists cross-device. The realtime broadcast
+    // stays for instant live fan-out; upsertKudos is id-keyed so dual arrival
+    // (broadcast + sync pull) is idempotent. No competing cloud path exists
+    // (no monolithic workspace doc), so this does not double-write.
+    registerCollection("kudos", "kudos");
     // Phase 22 — Canvas. Whiteboard objects are throttled to 2s pushes
     // because drag operations can dirty hundreds of them per second.
     registerCollection("whiteboard", "whiteboards");
