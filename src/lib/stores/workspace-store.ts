@@ -56,6 +56,8 @@ import type {
   HypothesisTracker,
   UserInterviewLog,
   OpportunityTree,
+  // S8 — Incidents & Reliability
+  RunbookScorer,
   // Phase 20
   PrioritizationItem,
   // Phase 21
@@ -191,6 +193,8 @@ interface WorkspaceActions {
   removeUserInterviewLog: (id: string) => void;
   upsertOpportunityTree: (x: OpportunityTree) => void;
   removeOpportunityTree: (id: string) => void;
+  upsertRunbookScorer: (x: RunbookScorer) => void;
+  removeRunbookScorer: (id: string) => void;
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
@@ -884,6 +888,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ opportunityTrees: replaceById(_st.opportunityTrees ?? [], x) })),
       removeOpportunityTree: (id) =>
         set((s) => ({ opportunityTrees: (s.opportunityTrees ?? []).filter((y) => y.id !== id) })),
+      upsertRunbookScorer: (x) =>
+        set((_st) => ({ runbookScorers: replaceById(_st.runbookScorers ?? [], x) })),
+      removeRunbookScorer: (id) =>
+        set((s) => ({ runbookScorers: (s.runbookScorers ?? []).filter((y) => y.id !== id) })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) =>
         set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
@@ -1316,6 +1324,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           epicRoadmaps: s.epicRoadmaps,
           hypothesisTrackers: s.hypothesisTrackers,
           userInterviewLogs: s.userInterviewLogs,
+          runbookScorers: s.runbookScorers,
           opportunityTrees: s.opportunityTrees,
           // Phase 20
           prioritizations: s.prioritizations,
@@ -1432,6 +1441,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           epicRoadmaps: arr("epicRoadmaps"),
           hypothesisTrackers: arr("hypothesisTrackers"),
           userInterviewLogs: arr("userInterviewLogs"),
+          runbookScorers: arr("runbookScorers"),
           opportunityTrees: arr("opportunityTrees"),
           // Phase 20
           prioritizations: arr("prioritizations"),
@@ -1750,6 +1760,8 @@ if (typeof window !== "undefined") {
     registerCollection("hypothesisTracker", "hypothesisTrackers");
     registerCollection("userInterviewLog", "userInterviewLogs");
     registerCollection("opportunityTree", "opportunityTrees");
+    // S8 — Incidents & Reliability
+    registerCollection("runbookScorer", "runbookScorers");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
     // Phase 21 — Decision frameworks
@@ -1868,6 +1880,7 @@ export function getWorkspaceSnapshot(): Workspace {
     epicRoadmaps: state.epicRoadmaps,
     hypothesisTrackers: state.hypothesisTrackers,
     userInterviewLogs: state.userInterviewLogs,
+    runbookScorers: state.runbookScorers,
     opportunityTrees: state.opportunityTrees,
     prioritizations: state.prioritizations,
     daciDecisions: state.daciDecisions,

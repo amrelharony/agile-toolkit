@@ -661,6 +661,28 @@ export interface EpicRoadmap {
   epics: Epic[];
 }
 
+// ──────── S8 — Incidents & Reliability ────────
+
+/** Runbook hygiene score on a 1..5 scale. */
+export type ScoreValue = 1 | 2 | 3 | 4 | 5;
+
+export interface Runbook {
+  id: string;
+  name: string;
+  owner?: string;
+  lastReviewedAt?: string;
+  freshness: ScoreValue;
+  completeness: ScoreValue;
+  testedRecently: boolean;
+  description?: string;
+}
+
+/** runbook-scorer singleton: hygiene scoring across operational runbooks. */
+export interface RunbookScorer {
+  id: string;
+  runbooks: Runbook[];
+}
+
 export type HypothesisStatus = "drafted" | "running" | "validated" | "invalidated" | "inconclusive";
 
 export interface Hypothesis {
@@ -1583,6 +1605,8 @@ export interface Workspace {
   hypothesisTrackers?: HypothesisTracker[];
   userInterviewLogs?: UserInterviewLog[];
   opportunityTrees?: OpportunityTree[];
+  // S8 — Incidents & Reliability (singleton docs)
+  runbookScorers?: RunbookScorer[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -1806,6 +1830,8 @@ export const emptyWorkspace: Workspace = {
   hypothesisTrackers: [],
   userInterviewLogs: [],
   opportunityTrees: [],
+  // S8 — Incidents & Reliability
+  runbookScorers: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

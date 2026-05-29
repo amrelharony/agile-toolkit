@@ -25,30 +25,43 @@ import {
   ArrowUpDown,
   ShieldCheck,
 } from "lucide-react";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Runbook, ScoreValue, RunbookScorer } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RUNBOOK_SCORER_ACTIONS } from "@/lib/history/event-actions";
 import { generateRunbookScorerPrompts } from "@/lib/ai-prompts/runbook-scorer";
 import { mannKendall } from "@/lib/analytics/trend-test";
-
-type ScoreValue = 1 | 2 | 3 | 4 | 5;
-
-interface Runbook {
-  id: string;
-  name: string;
-  owner?: string;
-  lastReviewedAt?: string;
-  freshness: ScoreValue;
-  completeness: ScoreValue;
-  testedRecently: boolean;
-  description?: string;
-}
 
 interface RunbookState {
   runbooks: Runbook[];
 }
 
 const DEFAULT_STATE: RunbookState = { runbooks: [] };
+
+const RS_ID = "runbookScorer:current"; // MUST match RS_ID in runbook-scorer.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// runbook writes round-trip into the UI. Drop-in [state, setState].
+function useRunbookScorer(): [
+  RunbookState,
+  (u: RunbookState | ((p: RunbookState) => RunbookState)) => void,
+] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.runbookScorers ?? []).find((d) => d.id === RS_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertRunbookScorer);
+  const state: RunbookState = doc ? { runbooks: doc.runbooks } : DEFAULT_STATE;
+  const setState = (u: RunbookState | ((p: RunbookState) => RunbookState)) => {
+    const cur = (useWorkspaceStore.getState().runbookScorers ?? []).find(
+      (d: RunbookScorer) => d.id === RS_ID
+    );
+    const curState: RunbookState = cur ? { runbooks: cur.runbooks } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: RS_ID, runbooks: next.runbooks });
+  };
+  return [state, setState];
+}
 
 type SortKey = "hygiene" | "name" | "freshness";
 type SortDir = "asc" | "desc";
@@ -82,10 +95,7 @@ function emptyDraft(): RunbookDraft {
 }
 
 export function RunbookScorerClient() {
-  const [state, setState] = usePersisted<RunbookState>(
-    "agile-toolkit:runbook-scorer",
-    DEFAULT_STATE
-  );
+  const [state, setState] = useRunbookScorer();
   const { log } = useHistoryLogger("runbook-scorer");
   const [draft, setDraft] = useState<RunbookDraft>(emptyDraft);
   const [sortKey, setSortKey] = useState<SortKey>("hygiene");

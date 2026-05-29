@@ -66,6 +66,8 @@ import type {
   HypothesisTracker,
   UserInterviewLog,
   OpportunityTree,
+  // S8 — Incidents & Reliability
+  RunbookScorer,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -1157,6 +1159,23 @@ const OpportunityTreeSchema = z.object({
   nodes: z.array(TreeNodeSchema),
 }) as unknown as z.ZodType<OpportunityTree>;
 
+// S8 — Incidents & Reliability
+const RunbookSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  owner: z.string().optional(),
+  lastReviewedAt: z.string().optional(),
+  freshness: z.number().int().min(1).max(5),
+  completeness: z.number().int().min(1).max(5),
+  testedRecently: z.boolean(),
+  description: z.string().optional(),
+});
+
+const RunbookScorerSchema = z.object({
+  id: z.string(),
+  runbooks: z.array(RunbookSchema),
+}) as unknown as z.ZodType<RunbookScorer>;
+
 defineCrudActions<EpicRoadmap>({
   toolId: "workspace.epic_roadmap",
   entityName: "epic roadmap",
@@ -1195,6 +1214,16 @@ defineCrudActions<OpportunityTree>({
   upsert: (x) => ws().upsertOpportunityTree(x),
   remove: (id) => ws().removeOpportunityTree(id),
   generateId: () => `opportunityTree_${nanoid(8)}`,
+});
+
+defineCrudActions<RunbookScorer>({
+  toolId: "workspace.runbook_scorer",
+  entityName: "runbook scorecard",
+  schema: RunbookScorerSchema,
+  selectAll: () => ws().runbookScorers ?? [],
+  upsert: (x) => ws().upsertRunbookScorer(x),
+  remove: (id) => ws().removeRunbookScorer(id),
+  generateId: () => `runbookScorer_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
