@@ -783,6 +783,44 @@ export interface IncidentCommander {
   incidents: Incident[];
 }
 
+export type PostMortemStatus = "draft" | "review" | "published";
+export type PostMortemActionStatus = "open" | "in_progress" | "done";
+
+export interface PostMortemAction {
+  id: string;
+  text: string;
+  owner?: string;
+  dueDate?: string;
+  status: PostMortemActionStatus;
+}
+
+export interface PostMortemTimelineEntry {
+  id: string;
+  ts: string;
+  author: string;
+  text: string;
+}
+
+export interface PostMortem {
+  id: string;
+  title: string;
+  incidentDate: string;
+  status: PostMortemStatus;
+  summary?: string;
+  contributingFactors: string[];
+  timeline: PostMortemTimelineEntry[];
+  actions: PostMortemAction[];
+  description?: string;
+  createdAt?: string;
+  publishedAt?: string;
+}
+
+/** post-mortem singleton: blameless retrospectives with factors + actions. */
+export interface PostMortemLog {
+  id: string;
+  postmortems: PostMortem[];
+}
+
 export type HypothesisStatus = "drafted" | "running" | "validated" | "invalidated" | "inconclusive";
 
 export interface Hypothesis {
@@ -1710,6 +1748,7 @@ export interface Workspace {
   releaseReadinesses?: ReleaseReadiness[];
   oncallRosters?: OncallRoster[];
   incidentCommanders?: IncidentCommander[];
+  postMortemLogs?: PostMortemLog[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -1938,6 +1977,7 @@ export const emptyWorkspace: Workspace = {
   releaseReadinesses: [],
   oncallRosters: [],
   incidentCommanders: [],
+  postMortemLogs: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

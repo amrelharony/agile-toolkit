@@ -40,7 +40,9 @@ import {
   YAxis,
   Tooltip,
 } from "recharts";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { PostMortemLog } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { POST_MORTEM_ACTIONS } from "@/lib/history/event-actions";
 import { generatePostMortemPrompts } from "@/lib/ai-prompts/post-mortem";
@@ -87,6 +89,28 @@ interface PMState {
 }
 
 const DEFAULT_STATE: PMState = { postmortems: [] };
+
+const PM_ID = "postMortem:current"; // MUST match PM_ID in post-mortem.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// post-mortem writes round-trip into the UI. Drop-in [state, setState] bridging
+// the local PMState shape to the PostMortemLog entity (structurally equal).
+function usePostMortemLog(): [PMState, (u: PMState | ((p: PMState) => PMState)) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.postMortemLogs ?? []).find((d) => d.id === PM_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertPostMortemLog);
+  const state: PMState = doc ? { postmortems: doc.postmortems } : DEFAULT_STATE;
+  const setState = (u: PMState | ((p: PMState) => PMState)) => {
+    const cur = (useWorkspaceStore.getState().postMortemLogs ?? []).find(
+      (d: PostMortemLog) => d.id === PM_ID
+    );
+    const curState: PMState = cur ? { postmortems: cur.postmortems } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: PM_ID, postmortems: next.postmortems });
+  };
+  return [state, setState];
+}
 
 const STATUS_BADGE: Record<PMStatus, string> = {
   draft: "bg-amber-500/10 text-amber-300 border-amber-500/30",
@@ -151,7 +175,7 @@ function emptyDraft(): NewPMDraft {
 }
 
 export function PostMortemClient() {
-  const [state, setState] = usePersisted<PMState>("agile-toolkit:post-mortem", DEFAULT_STATE);
+  const [state, setState] = usePostMortemLog();
   const { log } = useHistoryLogger("post-mortem");
   const [draft, setDraft] = useState<NewPMDraft>(emptyDraft);
 

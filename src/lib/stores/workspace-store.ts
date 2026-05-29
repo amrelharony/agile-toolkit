@@ -61,6 +61,7 @@ import type {
   ReleaseReadiness,
   OncallRoster,
   IncidentCommander,
+  PostMortemLog,
   // Phase 20
   PrioritizationItem,
   // Phase 21
@@ -204,6 +205,8 @@ interface WorkspaceActions {
   removeOncallRoster: (id: string) => void;
   upsertIncidentCommander: (x: IncidentCommander) => void;
   removeIncidentCommander: (id: string) => void;
+  upsertPostMortemLog: (x: PostMortemLog) => void;
+  removePostMortemLog: (id: string) => void;
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
@@ -917,6 +920,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((s) => ({
           incidentCommanders: (s.incidentCommanders ?? []).filter((y) => y.id !== id),
         })),
+      upsertPostMortemLog: (x) =>
+        set((_st) => ({ postMortemLogs: replaceById(_st.postMortemLogs ?? [], x) })),
+      removePostMortemLog: (id) =>
+        set((s) => ({ postMortemLogs: (s.postMortemLogs ?? []).filter((y) => y.id !== id) })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) =>
         set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
@@ -1353,6 +1360,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           releaseReadinesses: s.releaseReadinesses,
           oncallRosters: s.oncallRosters,
           incidentCommanders: s.incidentCommanders,
+          postMortemLogs: s.postMortemLogs,
           opportunityTrees: s.opportunityTrees,
           // Phase 20
           prioritizations: s.prioritizations,
@@ -1473,6 +1481,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           releaseReadinesses: arr("releaseReadinesses"),
           oncallRosters: arr("oncallRosters"),
           incidentCommanders: arr("incidentCommanders"),
+          postMortemLogs: arr("postMortemLogs"),
           opportunityTrees: arr("opportunityTrees"),
           // Phase 20
           prioritizations: arr("prioritizations"),
@@ -1796,6 +1805,7 @@ if (typeof window !== "undefined") {
     registerCollection("releaseReadiness", "releaseReadinesses");
     registerCollection("oncallRoster", "oncallRosters");
     registerCollection("incidentCommander", "incidentCommanders");
+    registerCollection("postMortem", "postMortemLogs");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
     // Phase 21 — Decision frameworks
@@ -1918,6 +1928,7 @@ export function getWorkspaceSnapshot(): Workspace {
     releaseReadinesses: state.releaseReadinesses,
     oncallRosters: state.oncallRosters,
     incidentCommanders: state.incidentCommanders,
+    postMortemLogs: state.postMortemLogs,
     opportunityTrees: state.opportunityTrees,
     prioritizations: state.prioritizations,
     daciDecisions: state.daciDecisions,

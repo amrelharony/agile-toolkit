@@ -71,6 +71,7 @@ import type {
   ReleaseReadiness,
   OncallRoster,
   IncidentCommander,
+  PostMortemLog,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -1243,6 +1244,33 @@ const IncidentCommanderSchema = z.object({
   incidents: z.array(IncidentSchema),
 }) as unknown as z.ZodType<IncidentCommander>;
 
+const PostMortemActionSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  owner: z.string().optional(),
+  dueDate: z.string().optional(),
+  status: z.enum(["open", "in_progress", "done"]),
+});
+
+const PostMortemSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  incidentDate: z.string(),
+  status: z.enum(["draft", "review", "published"]),
+  summary: z.string().optional(),
+  contributingFactors: z.array(z.string()),
+  timeline: z.array(IncidentTimelineEntrySchema),
+  actions: z.array(PostMortemActionSchema),
+  description: z.string().optional(),
+  createdAt: z.string().optional(),
+  publishedAt: z.string().optional(),
+});
+
+const PostMortemLogSchema = z.object({
+  id: z.string(),
+  postmortems: z.array(PostMortemSchema),
+}) as unknown as z.ZodType<PostMortemLog>;
+
 defineCrudActions<EpicRoadmap>({
   toolId: "workspace.epic_roadmap",
   entityName: "epic roadmap",
@@ -1321,6 +1349,16 @@ defineCrudActions<IncidentCommander>({
   upsert: (x) => ws().upsertIncidentCommander(x),
   remove: (id) => ws().removeIncidentCommander(id),
   generateId: () => `incidentCommander_${nanoid(8)}`,
+});
+
+defineCrudActions<PostMortemLog>({
+  toolId: "workspace.post_mortem",
+  entityName: "post-mortem log",
+  schema: PostMortemLogSchema,
+  selectAll: () => ws().postMortemLogs ?? [],
+  upsert: (x) => ws().upsertPostMortemLog(x),
+  remove: (id) => ws().removePostMortemLog(id),
+  generateId: () => `postMortemLog_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
