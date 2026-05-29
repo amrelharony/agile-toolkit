@@ -60,6 +60,11 @@ import type {
   DesignSprint,
   RiskiestAssumption,
   WardleyMap,
+  // S5 — Portfolio & Discovery
+  EpicRoadmap,
+  HypothesisTracker,
+  UserInterviewLog,
+  OpportunityTree,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -1047,6 +1052,116 @@ defineCrudActions<WardleyMap>({
   upsert: (x) => ws().upsertWardleyMap(x),
   remove: (id) => ws().removeWardleyMap(id),
   generateId: () => `wardleyMap_${nanoid(8)}`,
+});
+
+/* ── S5 — Portfolio & Discovery (singleton-doc tools; each wraps a flat array). */
+
+const EpicSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().optional(),
+  startQuarter: z.string(),
+  endQuarter: z.string(),
+  progress: z.number(),
+  owner: z.string().optional(),
+  color: z.string().optional(),
+});
+
+const EpicRoadmapSchema = z.object({
+  id: z.string(),
+  epics: z.array(EpicSchema),
+}) as unknown as z.ZodType<EpicRoadmap>;
+
+const HypothesisSchema = z.object({
+  id: z.string(),
+  description: z.string().optional(),
+  believe: z.string(),
+  willDo: z.string(),
+  toLearn: z.string(),
+  successMetric: z.string(),
+  experiment: z.string().optional(),
+  outcome: z.string().optional(),
+  status: z.enum(["drafted", "running", "validated", "invalidated", "inconclusive"]),
+  raisedAt: z.string(),
+  resolvedAt: z.string().optional(),
+});
+
+const HypothesisTrackerSchema = z.object({
+  id: z.string(),
+  hypotheses: z.array(HypothesisSchema),
+}) as unknown as z.ZodType<HypothesisTracker>;
+
+const InterviewQuoteSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  tags: z.array(z.string()),
+});
+
+const InterviewSchema = z.object({
+  id: z.string(),
+  date: z.string(),
+  participant: z.string(),
+  context: z.string().optional(),
+  quotes: z.array(InterviewQuoteSchema),
+});
+
+const UserInterviewLogSchema = z.object({
+  id: z.string(),
+  interviews: z.array(InterviewSchema),
+}) as unknown as z.ZodType<UserInterviewLog>;
+
+const TreeNodeSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["outcome", "opportunity", "solution", "experiment"]),
+  text: z.string(),
+  parentId: z.string().nullable(),
+  evidence: z.string().optional(),
+  description: z.string().optional(),
+});
+
+const OpportunityTreeSchema = z.object({
+  id: z.string(),
+  nodes: z.array(TreeNodeSchema),
+}) as unknown as z.ZodType<OpportunityTree>;
+
+defineCrudActions<EpicRoadmap>({
+  toolId: "workspace.epic_roadmap",
+  entityName: "epic roadmap",
+  schema: EpicRoadmapSchema,
+  selectAll: () => ws().epicRoadmaps ?? [],
+  upsert: (x) => ws().upsertEpicRoadmap(x),
+  remove: (id) => ws().removeEpicRoadmap(id),
+  generateId: () => `epicRoadmap_${nanoid(8)}`,
+});
+
+defineCrudActions<HypothesisTracker>({
+  toolId: "workspace.hypothesis_tracker",
+  entityName: "hypothesis tracker",
+  schema: HypothesisTrackerSchema,
+  selectAll: () => ws().hypothesisTrackers ?? [],
+  upsert: (x) => ws().upsertHypothesisTracker(x),
+  remove: (id) => ws().removeHypothesisTracker(id),
+  generateId: () => `hypothesisTracker_${nanoid(8)}`,
+});
+
+defineCrudActions<UserInterviewLog>({
+  toolId: "workspace.user_interview_log",
+  entityName: "user-interview log",
+  schema: UserInterviewLogSchema,
+  selectAll: () => ws().userInterviewLogs ?? [],
+  upsert: (x) => ws().upsertUserInterviewLog(x),
+  remove: (id) => ws().removeUserInterviewLog(id),
+  generateId: () => `userInterviewLog_${nanoid(8)}`,
+});
+
+defineCrudActions<OpportunityTree>({
+  toolId: "workspace.opportunity_tree",
+  entityName: "opportunity solution tree",
+  schema: OpportunityTreeSchema,
+  selectAll: () => ws().opportunityTrees ?? [],
+  upsert: (x) => ws().upsertOpportunityTree(x),
+  remove: (id) => ws().removeOpportunityTree(id),
+  generateId: () => `opportunityTree_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────

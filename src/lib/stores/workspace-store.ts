@@ -51,6 +51,11 @@ import type {
   DesignSprint,
   RiskiestAssumption,
   WardleyMap,
+  // S5 — Portfolio & Discovery
+  EpicRoadmap,
+  HypothesisTracker,
+  UserInterviewLog,
+  OpportunityTree,
   // Phase 20
   PrioritizationItem,
   // Phase 21
@@ -178,6 +183,14 @@ interface WorkspaceActions {
   removeRiskiestAssumption: (id: string) => void;
   upsertWardleyMap: (x: WardleyMap) => void;
   removeWardleyMap: (id: string) => void;
+  upsertEpicRoadmap: (x: EpicRoadmap) => void;
+  removeEpicRoadmap: (id: string) => void;
+  upsertHypothesisTracker: (x: HypothesisTracker) => void;
+  removeHypothesisTracker: (id: string) => void;
+  upsertUserInterviewLog: (x: UserInterviewLog) => void;
+  removeUserInterviewLog: (id: string) => void;
+  upsertOpportunityTree: (x: OpportunityTree) => void;
+  removeOpportunityTree: (id: string) => void;
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
@@ -830,6 +843,24 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ wardleyMaps: replaceById(_st.wardleyMaps ?? [], x) })),
       removeWardleyMap: (id) =>
         set((s) => ({ wardleyMaps: (s.wardleyMaps ?? []).filter((y) => y.id !== id) })),
+      upsertEpicRoadmap: (x) =>
+        set((_st) => ({ epicRoadmaps: replaceById(_st.epicRoadmaps ?? [], x) })),
+      removeEpicRoadmap: (id) =>
+        set((s) => ({ epicRoadmaps: (s.epicRoadmaps ?? []).filter((y) => y.id !== id) })),
+      upsertHypothesisTracker: (x) =>
+        set((_st) => ({ hypothesisTrackers: replaceById(_st.hypothesisTrackers ?? [], x) })),
+      removeHypothesisTracker: (id) =>
+        set((s) => ({
+          hypothesisTrackers: (s.hypothesisTrackers ?? []).filter((y) => y.id !== id),
+        })),
+      upsertUserInterviewLog: (x) =>
+        set((_st) => ({ userInterviewLogs: replaceById(_st.userInterviewLogs ?? [], x) })),
+      removeUserInterviewLog: (id) =>
+        set((s) => ({ userInterviewLogs: (s.userInterviewLogs ?? []).filter((y) => y.id !== id) })),
+      upsertOpportunityTree: (x) =>
+        set((_st) => ({ opportunityTrees: replaceById(_st.opportunityTrees ?? [], x) })),
+      removeOpportunityTree: (id) =>
+        set((s) => ({ opportunityTrees: (s.opportunityTrees ?? []).filter((y) => y.id !== id) })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) =>
         set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
@@ -1259,6 +1290,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           designSprints: s.designSprints,
           riskiestAssumptions: s.riskiestAssumptions,
           wardleyMaps: s.wardleyMaps,
+          epicRoadmaps: s.epicRoadmaps,
+          hypothesisTrackers: s.hypothesisTrackers,
+          userInterviewLogs: s.userInterviewLogs,
+          opportunityTrees: s.opportunityTrees,
           // Phase 20
           prioritizations: s.prioritizations,
           // Phase 21
@@ -1371,6 +1406,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           designSprints: arr("designSprints"),
           riskiestAssumptions: arr("riskiestAssumptions"),
           wardleyMaps: arr("wardleyMaps"),
+          epicRoadmaps: arr("epicRoadmaps"),
+          hypothesisTrackers: arr("hypothesisTrackers"),
+          userInterviewLogs: arr("userInterviewLogs"),
+          opportunityTrees: arr("opportunityTrees"),
           // Phase 20
           prioritizations: arr("prioritizations"),
           // Phase 21
@@ -1684,6 +1723,10 @@ if (typeof window !== "undefined") {
     registerCollection("designSprint", "designSprints");
     registerCollection("riskiestAssumption", "riskiestAssumptions");
     registerCollection("wardleyMap", "wardleyMaps");
+    registerCollection("epicRoadmap", "epicRoadmaps");
+    registerCollection("hypothesisTracker", "hypothesisTrackers");
+    registerCollection("userInterviewLog", "userInterviewLogs");
+    registerCollection("opportunityTree", "opportunityTrees");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
     // Phase 21 — Decision frameworks
@@ -1799,6 +1842,10 @@ export function getWorkspaceSnapshot(): Workspace {
     designSprints: state.designSprints,
     riskiestAssumptions: state.riskiestAssumptions,
     wardleyMaps: state.wardleyMaps,
+    epicRoadmaps: state.epicRoadmaps,
+    hypothesisTrackers: state.hypothesisTrackers,
+    userInterviewLogs: state.userInterviewLogs,
+    opportunityTrees: state.opportunityTrees,
     prioritizations: state.prioritizations,
     daciDecisions: state.daciDecisions,
     rapidDecisions: state.rapidDecisions,

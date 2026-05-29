@@ -633,6 +633,84 @@ export interface WardleyMap {
 }
 
 /* ────────────────────────────────────────────────────────────────────
+ * S5 — Portfolio & Discovery entities (singleton-doc per tool; each wraps a
+ * flat array of records). Generic nested types namespaced (HypothesisStatus,
+ * TreeNodeKind).
+ * ────────────────────────────────────────────────────────────────── */
+
+export interface Epic {
+  id: string;
+  title: string;
+  description?: string;
+  startQuarter: string;
+  endQuarter: string;
+  progress: number;
+  owner?: string;
+  color?: string;
+}
+
+export interface EpicRoadmap {
+  id: string;
+  epics: Epic[];
+}
+
+export type HypothesisStatus = "drafted" | "running" | "validated" | "invalidated" | "inconclusive";
+
+export interface Hypothesis {
+  id: string;
+  description?: string;
+  believe: string;
+  willDo: string;
+  toLearn: string;
+  successMetric: string;
+  experiment?: string;
+  outcome?: string;
+  status: HypothesisStatus;
+  raisedAt: ISODateString;
+  resolvedAt?: string;
+}
+
+export interface HypothesisTracker {
+  id: string;
+  hypotheses: Hypothesis[];
+}
+
+export interface InterviewQuote {
+  id: string;
+  text: string;
+  tags: string[];
+}
+
+export interface Interview {
+  id: string;
+  date: ISODateString;
+  participant: string;
+  context?: string;
+  quotes: InterviewQuote[];
+}
+
+export interface UserInterviewLog {
+  id: string;
+  interviews: Interview[];
+}
+
+export type TreeNodeKind = "outcome" | "opportunity" | "solution" | "experiment";
+
+export interface TreeNode {
+  id: string;
+  kind: TreeNodeKind;
+  text: string;
+  parentId: string | null;
+  evidence?: string;
+  description?: string;
+}
+
+export interface OpportunityTree {
+  id: string;
+  nodes: TreeNode[];
+}
+
+/* ────────────────────────────────────────────────────────────────────
  * Phase 20 — Prioritization Frameworks entities
  * ────────────────────────────────────────────────────────────────── */
 
@@ -1493,6 +1571,11 @@ export interface Workspace {
   designSprints?: DesignSprint[];
   riskiestAssumptions?: RiskiestAssumption[];
   wardleyMaps?: WardleyMap[];
+  // S5 — Portfolio & Discovery (singleton docs)
+  epicRoadmaps?: EpicRoadmap[];
+  hypothesisTrackers?: HypothesisTracker[];
+  userInterviewLogs?: UserInterviewLog[];
+  opportunityTrees?: OpportunityTree[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -1711,6 +1794,11 @@ export const emptyWorkspace: Workspace = {
   designSprints: [],
   riskiestAssumptions: [],
   wardleyMaps: [],
+  // S5 — Portfolio & Discovery
+  epicRoadmaps: [],
+  hypothesisTrackers: [],
+  userInterviewLogs: [],
+  opportunityTrees: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks
