@@ -54,6 +54,12 @@ import type {
   SpacePulse,
   DevexSurvey,
   PlatformMaturity,
+  // S11 — Workshops & Facilitation
+  WorkingAgreement,
+  LiberatingStructures,
+  DesignSprint,
+  RiskiestAssumption,
+  WardleyMap,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -890,6 +896,157 @@ defineCrudActions<PlatformMaturity>({
   upsert: (x) => ws().upsertPlatformMaturity(x),
   remove: (id) => ws().removePlatformMaturity(id),
   generateId: () => `platformMaturity_${nanoid(8)}`,
+});
+
+/* ── S11 — Workshops & Facilitation (singleton-doc tools). */
+
+const CharterRuleSchema = z.object({
+  id: z.string(),
+  category: z.enum(["communication", "meetings", "decisions", "work", "conflict", "other"]),
+  text: z.string(),
+  agreedBy: z.array(z.string()),
+  description: z.string().optional(),
+  stillWorking: z.boolean().optional(),
+});
+
+const CharterMetaSchema = z.object({
+  teamName: z.string().optional(),
+  version: z.number(),
+  publishedAt: z.string().optional(),
+  description: z.string().optional(),
+});
+
+const WorkingAgreementSchema = z.object({
+  id: z.string(),
+  rules: z.array(CharterRuleSchema),
+  meta: CharterMetaSchema,
+}) as unknown as z.ZodType<WorkingAgreement>;
+
+const LsFavoriteSchema = z.object({
+  id: z.string(),
+  structureId: z.string(),
+  ts: z.string(),
+});
+
+const LiberatingStructuresSchema = z.object({
+  id: z.string(),
+  favorites: z.array(LsFavoriteSchema),
+}) as unknown as z.ZodType<LiberatingStructures>;
+
+const DesignSprintTaskSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  done: z.boolean(),
+  owner: z.string().optional(),
+});
+
+const DesignSprintDaySchema = z.object({
+  day: z.number(),
+  dayName: z.enum(["Map", "Sketch", "Decide", "Prototype", "Test"]),
+  tasks: z.array(DesignSprintTaskSchema),
+  artifacts: z.array(z.string()),
+});
+
+const DesignSprintPlanSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  startDate: z.string(),
+  currentDay: z.number(),
+  days: z.array(DesignSprintDaySchema),
+  description: z.string().optional(),
+  decider: z.string().optional(),
+  facilitator: z.string().optional(),
+  completedAt: z.string().optional(),
+});
+
+const DesignSprintSchema = z.object({
+  id: z.string(),
+  sprint: DesignSprintPlanSchema.nullable(),
+}) as unknown as z.ZodType<DesignSprint>;
+
+const AssumptionSchema = z.object({
+  id: z.string(),
+  statement: z.string(),
+  riskLevel: z.number(),
+  evidenceLevel: z.number(),
+  testIdea: z.string().optional(),
+  status: z.enum(["untested", "testing", "validated", "invalidated"]),
+  description: z.string().optional(),
+});
+
+const RiskiestAssumptionSchema = z.object({
+  id: z.string(),
+  assumptions: z.array(AssumptionSchema),
+}) as unknown as z.ZodType<RiskiestAssumption>;
+
+const WardleyComponentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  evolution: z.number(),
+  visibility: z.number(),
+  description: z.string().optional(),
+});
+
+const WardleyLinkSchema = z.object({
+  id: z.string(),
+  fromId: z.string(),
+  toId: z.string(),
+});
+
+const WardleyMapSchema = z.object({
+  id: z.string(),
+  components: z.array(WardleyComponentSchema),
+  links: z.array(WardleyLinkSchema),
+}) as unknown as z.ZodType<WardleyMap>;
+
+defineCrudActions<WorkingAgreement>({
+  toolId: "workspace.working_agreement",
+  entityName: "working agreement",
+  schema: WorkingAgreementSchema,
+  selectAll: () => ws().workingAgreements ?? [],
+  upsert: (x) => ws().upsertWorkingAgreement(x),
+  remove: (id) => ws().removeWorkingAgreement(id),
+  generateId: () => `workingAgreement_${nanoid(8)}`,
+});
+
+defineCrudActions<LiberatingStructures>({
+  toolId: "workspace.liberating_structures",
+  entityName: "liberating-structures favorites",
+  schema: LiberatingStructuresSchema,
+  selectAll: () => ws().liberatingStructures ?? [],
+  upsert: (x) => ws().upsertLiberatingStructures(x),
+  remove: (id) => ws().removeLiberatingStructures(id),
+  generateId: () => `liberatingStructures_${nanoid(8)}`,
+});
+
+defineCrudActions<DesignSprint>({
+  toolId: "workspace.design_sprint",
+  entityName: "design sprint",
+  schema: DesignSprintSchema,
+  selectAll: () => ws().designSprints ?? [],
+  upsert: (x) => ws().upsertDesignSprint(x),
+  remove: (id) => ws().removeDesignSprint(id),
+  generateId: () => `designSprint_${nanoid(8)}`,
+});
+
+defineCrudActions<RiskiestAssumption>({
+  toolId: "workspace.riskiest_assumption",
+  entityName: "riskiest-assumption canvas",
+  schema: RiskiestAssumptionSchema,
+  selectAll: () => ws().riskiestAssumptions ?? [],
+  upsert: (x) => ws().upsertRiskiestAssumption(x),
+  remove: (id) => ws().removeRiskiestAssumption(id),
+  generateId: () => `riskiestAssumption_${nanoid(8)}`,
+});
+
+defineCrudActions<WardleyMap>({
+  toolId: "workspace.wardley_map",
+  entityName: "Wardley map",
+  schema: WardleyMapSchema,
+  selectAll: () => ws().wardleyMaps ?? [],
+  upsert: (x) => ws().upsertWardleyMap(x),
+  remove: (id) => ws().removeWardleyMap(id),
+  generateId: () => `wardleyMap_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────

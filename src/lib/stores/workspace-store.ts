@@ -45,6 +45,12 @@ import type {
   SpacePulse,
   DevexSurvey,
   PlatformMaturity,
+  // S11 — Workshops & Facilitation
+  WorkingAgreement,
+  LiberatingStructures,
+  DesignSprint,
+  RiskiestAssumption,
+  WardleyMap,
   // Phase 20
   PrioritizationItem,
   // Phase 21
@@ -162,6 +168,16 @@ interface WorkspaceActions {
   removeDevexSurvey: (id: string) => void;
   upsertPlatformMaturity: (x: PlatformMaturity) => void;
   removePlatformMaturity: (id: string) => void;
+  upsertWorkingAgreement: (x: WorkingAgreement) => void;
+  removeWorkingAgreement: (id: string) => void;
+  upsertLiberatingStructures: (x: LiberatingStructures) => void;
+  removeLiberatingStructures: (id: string) => void;
+  upsertDesignSprint: (x: DesignSprint) => void;
+  removeDesignSprint: (id: string) => void;
+  upsertRiskiestAssumption: (x: RiskiestAssumption) => void;
+  removeRiskiestAssumption: (id: string) => void;
+  upsertWardleyMap: (x: WardleyMap) => void;
+  removeWardleyMap: (id: string) => void;
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
@@ -790,6 +806,30 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((s) => ({
           platformMaturities: (s.platformMaturities ?? []).filter((y) => y.id !== id),
         })),
+      upsertWorkingAgreement: (x) =>
+        set((_st) => ({ workingAgreements: replaceById(_st.workingAgreements ?? [], x) })),
+      removeWorkingAgreement: (id) =>
+        set((s) => ({ workingAgreements: (s.workingAgreements ?? []).filter((y) => y.id !== id) })),
+      upsertLiberatingStructures: (x) =>
+        set((_st) => ({ liberatingStructures: replaceById(_st.liberatingStructures ?? [], x) })),
+      removeLiberatingStructures: (id) =>
+        set((s) => ({
+          liberatingStructures: (s.liberatingStructures ?? []).filter((y) => y.id !== id),
+        })),
+      upsertDesignSprint: (x) =>
+        set((_st) => ({ designSprints: replaceById(_st.designSprints ?? [], x) })),
+      removeDesignSprint: (id) =>
+        set((s) => ({ designSprints: (s.designSprints ?? []).filter((y) => y.id !== id) })),
+      upsertRiskiestAssumption: (x) =>
+        set((_st) => ({ riskiestAssumptions: replaceById(_st.riskiestAssumptions ?? [], x) })),
+      removeRiskiestAssumption: (id) =>
+        set((s) => ({
+          riskiestAssumptions: (s.riskiestAssumptions ?? []).filter((y) => y.id !== id),
+        })),
+      upsertWardleyMap: (x) =>
+        set((_st) => ({ wardleyMaps: replaceById(_st.wardleyMaps ?? [], x) })),
+      removeWardleyMap: (id) =>
+        set((s) => ({ wardleyMaps: (s.wardleyMaps ?? []).filter((y) => y.id !== id) })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) =>
         set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
@@ -1214,6 +1254,11 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           spacePulses: s.spacePulses,
           devexSurveys: s.devexSurveys,
           platformMaturities: s.platformMaturities,
+          workingAgreements: s.workingAgreements,
+          liberatingStructures: s.liberatingStructures,
+          designSprints: s.designSprints,
+          riskiestAssumptions: s.riskiestAssumptions,
+          wardleyMaps: s.wardleyMaps,
           // Phase 20
           prioritizations: s.prioritizations,
           // Phase 21
@@ -1321,6 +1366,11 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           spacePulses: arr("spacePulses"),
           devexSurveys: arr("devexSurveys"),
           platformMaturities: arr("platformMaturities"),
+          workingAgreements: arr("workingAgreements"),
+          liberatingStructures: arr("liberatingStructures"),
+          designSprints: arr("designSprints"),
+          riskiestAssumptions: arr("riskiestAssumptions"),
+          wardleyMaps: arr("wardleyMaps"),
           // Phase 20
           prioritizations: arr("prioritizations"),
           // Phase 21
@@ -1629,6 +1679,11 @@ if (typeof window !== "undefined") {
     registerCollection("spacePulse", "spacePulses");
     registerCollection("devexSurvey", "devexSurveys");
     registerCollection("platformMaturity", "platformMaturities");
+    registerCollection("workingAgreement", "workingAgreements");
+    registerCollection("liberatingStructures", "liberatingStructures");
+    registerCollection("designSprint", "designSprints");
+    registerCollection("riskiestAssumption", "riskiestAssumptions");
+    registerCollection("wardleyMap", "wardleyMaps");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
     // Phase 21 — Decision frameworks
@@ -1739,6 +1794,11 @@ export function getWorkspaceSnapshot(): Workspace {
     spacePulses: state.spacePulses,
     devexSurveys: state.devexSurveys,
     platformMaturities: state.platformMaturities,
+    workingAgreements: state.workingAgreements,
+    liberatingStructures: state.liberatingStructures,
+    designSprints: state.designSprints,
+    riskiestAssumptions: state.riskiestAssumptions,
+    wardleyMaps: state.wardleyMaps,
     prioritizations: state.prioritizations,
     daciDecisions: state.daciDecisions,
     rapidDecisions: state.rapidDecisions,

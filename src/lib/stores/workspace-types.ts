@@ -512,6 +512,127 @@ export interface PlatformMaturity {
 }
 
 /* ────────────────────────────────────────────────────────────────────
+ * S11 — Workshops & Facilitation entities (singleton-doc per tool). Nested
+ * item types are namespaced (Charter*, DesignSprint*, Wardley*, Assumption*)
+ * to avoid clashing with other entities in this shared file (e.g. Sprint).
+ * ────────────────────────────────────────────────────────────────── */
+
+export type CharterRuleCategory =
+  | "communication"
+  | "meetings"
+  | "decisions"
+  | "work"
+  | "conflict"
+  | "other";
+
+export interface CharterRule {
+  id: string;
+  category: CharterRuleCategory;
+  text: string;
+  agreedBy: string[];
+  description?: string;
+  /** Adoption check-in: is the rule still working in practice? */
+  stillWorking?: boolean;
+}
+
+export interface CharterMeta {
+  teamName?: string;
+  version: number;
+  publishedAt?: string;
+  description?: string;
+}
+
+export interface WorkingAgreement {
+  id: string;
+  rules: CharterRule[];
+  meta: CharterMeta;
+}
+
+export interface LsFavorite {
+  id: string;
+  structureId: string;
+  ts: ISODateString;
+}
+
+export interface LiberatingStructures {
+  id: string;
+  favorites: LsFavorite[];
+}
+
+export type DesignSprintDayNumber = 1 | 2 | 3 | 4 | 5;
+
+export interface DesignSprintTask {
+  id: string;
+  text: string;
+  done: boolean;
+  owner?: string;
+}
+
+export interface DesignSprintDay {
+  day: DesignSprintDayNumber;
+  dayName: "Map" | "Sketch" | "Decide" | "Prototype" | "Test";
+  tasks: DesignSprintTask[];
+  artifacts: string[];
+}
+
+export interface DesignSprintPlan {
+  id: string;
+  name: string;
+  startDate: ISODateString;
+  currentDay: DesignSprintDayNumber;
+  days: DesignSprintDay[];
+  description?: string;
+  decider?: string;
+  facilitator?: string;
+  completedAt?: string;
+}
+
+export interface DesignSprint {
+  id: string;
+  sprint: DesignSprintPlan | null;
+}
+
+export type AssumptionLevel = 1 | 2 | 3 | 4 | 5;
+export type AssumptionStatus = "untested" | "testing" | "validated" | "invalidated";
+
+export interface Assumption {
+  id: string;
+  statement: string;
+  riskLevel: AssumptionLevel;
+  evidenceLevel: AssumptionLevel;
+  testIdea?: string;
+  status: AssumptionStatus;
+  description?: string;
+}
+
+export interface RiskiestAssumption {
+  id: string;
+  assumptions: Assumption[];
+}
+
+export interface WardleyComponent {
+  id: string;
+  name: string;
+  /** 0 = Genesis … 1 = Commodity (X axis). */
+  evolution: number;
+  /** 0 = invisible … 1 = highly visible to user (Y axis). */
+  visibility: number;
+  description?: string;
+}
+
+export interface WardleyLink {
+  id: string;
+  fromId: string;
+  toId: string;
+}
+
+export interface WardleyMap {
+  id: string;
+  components: WardleyComponent[];
+  links: WardleyLink[];
+}
+
+/* ────────────────────────────────────────────────────────────────────
  * Phase 20 — Prioritization Frameworks entities
  * ────────────────────────────────────────────────────────────────── */
 
@@ -1366,6 +1487,12 @@ export interface Workspace {
   spacePulses?: SpacePulse[];
   devexSurveys?: DevexSurvey[];
   platformMaturities?: PlatformMaturity[];
+  // S11 — Workshops & Facilitation (singleton docs)
+  workingAgreements?: WorkingAgreement[];
+  liberatingStructures?: LiberatingStructures[];
+  designSprints?: DesignSprint[];
+  riskiestAssumptions?: RiskiestAssumption[];
+  wardleyMaps?: WardleyMap[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -1578,6 +1705,12 @@ export const emptyWorkspace: Workspace = {
   spacePulses: [],
   devexSurveys: [],
   platformMaturities: [],
+  // S11 — Workshops & Facilitation
+  workingAgreements: [],
+  liberatingStructures: [],
+  designSprints: [],
+  riskiestAssumptions: [],
+  wardleyMaps: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

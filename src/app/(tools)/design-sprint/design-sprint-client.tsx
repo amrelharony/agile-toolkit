@@ -31,7 +31,6 @@ import {
   Trophy,
 } from "lucide-react";
 import { generateDesignSprintPrompts } from "@/lib/ai-prompts/design-sprint";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DESIGN_SPRINT_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -72,6 +71,25 @@ interface State {
 }
 
 const DEFAULT_STATE: State = { sprint: null };
+
+const DS_ID = "designSprint:current"; // MUST match DS_ID in design-sprint.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// writes round-trip into the UI. Drop-in [state, setState] (structural types).
+function useDesignSprint(): [State, (u: State | ((p: State) => State)) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.designSprints ?? []).find((d) => d.id === DS_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertDesignSprint);
+  const state: State = doc ? { sprint: doc.sprint } : DEFAULT_STATE;
+  const setState = (u: State | ((p: State) => State)) => {
+    const cur = (useWorkspaceStore.getState().designSprints ?? []).find((d) => d.id === DS_ID);
+    const curState: State = cur ? { sprint: cur.sprint } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: DS_ID, sprint: next.sprint });
+  };
+  return [state, setState];
+}
 
 const DEFAULT_TASKS: Record<DayNumber, string[]> = {
   1: [
@@ -137,7 +155,7 @@ function todayISO(): string {
 }
 
 export function DesignSprintClient() {
-  const [state, setState] = usePersisted<State>("agile-toolkit:design-sprint", DEFAULT_STATE);
+  const [state, setState] = useDesignSprint();
   const [newSprintName, setNewSprintName] = useState("");
   const [newSprintDate, setNewSprintDate] = useState(todayISO());
   const [newSprintDesc, setNewSprintDesc] = useState("");

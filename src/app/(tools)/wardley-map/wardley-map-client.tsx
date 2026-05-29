@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2, Map as MapIcon, GitBranch, TrendingUp } from "lucide-react";
 import { generateWardleyMapPrompts } from "@/lib/ai-prompts/wardley-map";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { WARDLEY_ACTIONS } from "@/lib/history/event-actions";
 import { useShallow } from "zustand/react/shallow";
@@ -49,6 +48,25 @@ interface State {
 }
 
 const DEFAULT_STATE: State = { components: [], links: [] };
+
+const WM_ID = "wardleyMap:current"; // MUST match WM_ID in wardley-map.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// writes round-trip into the UI. Drop-in [state, setState] (structural types).
+function useWardleyMap(): [State, (u: State | ((p: State) => State)) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.wardleyMaps ?? []).find((d) => d.id === WM_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertWardleyMap);
+  const state: State = doc ? { components: doc.components, links: doc.links } : DEFAULT_STATE;
+  const setState = (u: State | ((p: State) => State)) => {
+    const cur = (useWorkspaceStore.getState().wardleyMaps ?? []).find((d) => d.id === WM_ID);
+    const curState: State = cur ? { components: cur.components, links: cur.links } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: WM_ID, components: next.components, links: next.links });
+  };
+  return [state, setState];
+}
 
 const STAGES = ["Genesis", "Custom", "Product", "Commodity"] as const;
 
@@ -135,7 +153,7 @@ function toY(visibility: number): number {
 }
 
 export function WardleyMapClient() {
-  const [state, setState] = usePersisted<State>("agile-toolkit:wardley-map", DEFAULT_STATE);
+  const [state, setState] = useWardleyMap();
   const [draft, setDraft] = useState({
     name: "",
     evolution: "0.50",
