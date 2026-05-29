@@ -12,7 +12,6 @@ import { generateOpportunityTreePrompts } from "@/lib/ai-prompts/opportunity-tre
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { OPPORTUNITY_TREE_ACTIONS } from "@/lib/history/event-actions";
 import { ActionRow } from "@/components/shared/action-row";
@@ -45,8 +44,29 @@ const CHILD_KIND: Record<NodeKind, NodeKind | null> = {
   experiment: null,
 };
 
+const OT_ID = "opportunityTree:current"; // MUST match OT_ID in opportunity-tree.ts.
+const EMPTY_NODES: TreeNode[] = [];
+
+// Synced workspace singleton (was isolated usePersisted/localStorage) wrapping
+// the nodes[] array. Drop-in [state, setState] (structural types).
+function useNodes(): [TreeNode[], (u: TreeNode[] | ((p: TreeNode[]) => TreeNode[])) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.opportunityTrees ?? []).find((d) => d.id === OT_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertOpportunityTree);
+  const nodes = doc?.nodes ?? EMPTY_NODES;
+  const setNodes = (u: TreeNode[] | ((p: TreeNode[]) => TreeNode[])) => {
+    const cur =
+      (useWorkspaceStore.getState().opportunityTrees ?? []).find((d) => d.id === OT_ID)?.nodes ??
+      [];
+    const next = typeof u === "function" ? u(cur) : u;
+    upsert({ id: OT_ID, nodes: next });
+  };
+  return [nodes, setNodes];
+}
+
 export function OpportunityTreeClient() {
-  const [nodes, setNodes] = usePersisted<TreeNode[]>("agile-toolkit:opportunity-tree", []);
+  const [nodes, setNodes] = useNodes();
   const { log } = useHistoryLogger("opportunity-tree");
 
   const addRoot = () => {
