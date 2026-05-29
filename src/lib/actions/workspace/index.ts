@@ -70,6 +70,7 @@ import type {
   RunbookScorer,
   ReleaseReadiness,
   OncallRoster,
+  IncidentCommander,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -1217,6 +1218,31 @@ const OncallRosterSchema = z.object({
   expectedPagesPerWeek: z.number().optional(),
 }) as unknown as z.ZodType<OncallRoster>;
 
+const IncidentTimelineEntrySchema = z.object({
+  id: z.string(),
+  ts: z.string(),
+  author: z.string(),
+  text: z.string(),
+});
+
+const IncidentSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  severity: z.enum(["sev1", "sev2", "sev3", "sev4"]),
+  status: z.enum(["active", "mitigated", "resolved"]),
+  openedAt: z.string(),
+  resolvedAt: z.string().optional(),
+  commander: z.string().optional(),
+  scribe: z.string().optional(),
+  description: z.string().optional(),
+  timeline: z.array(IncidentTimelineEntrySchema),
+});
+
+const IncidentCommanderSchema = z.object({
+  id: z.string(),
+  incidents: z.array(IncidentSchema),
+}) as unknown as z.ZodType<IncidentCommander>;
+
 defineCrudActions<EpicRoadmap>({
   toolId: "workspace.epic_roadmap",
   entityName: "epic roadmap",
@@ -1285,6 +1311,16 @@ defineCrudActions<OncallRoster>({
   upsert: (x) => ws().upsertOncallRoster(x),
   remove: (id) => ws().removeOncallRoster(id),
   generateId: () => `oncallRoster_${nanoid(8)}`,
+});
+
+defineCrudActions<IncidentCommander>({
+  toolId: "workspace.incident_commander",
+  entityName: "incident board",
+  schema: IncidentCommanderSchema,
+  selectAll: () => ws().incidentCommanders ?? [],
+  upsert: (x) => ws().upsertIncidentCommander(x),
+  remove: (id) => ws().removeIncidentCommander(id),
+  generateId: () => `incidentCommander_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────

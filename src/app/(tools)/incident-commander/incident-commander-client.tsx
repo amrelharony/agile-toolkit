@@ -41,7 +41,9 @@ import {
   YAxis,
   Tooltip,
 } from "recharts";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { IncidentCommander } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { INCIDENT_ACTIONS } from "@/lib/history/event-actions";
 import { generateIncidentCommanderPrompts } from "@/lib/ai-prompts/incident-commander";
@@ -79,6 +81,31 @@ interface IncidentState {
 }
 
 const DEFAULT_STATE: IncidentState = { incidents: [] };
+
+const IC_ID = "incidentCommander:current"; // MUST match IC_ID in incident-commander.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// incident writes round-trip into the UI. Drop-in [state, setState] bridging
+// the local IncidentState shape to the IncidentCommander entity (structurally equal).
+function useIncidentCommander(): [
+  IncidentState,
+  (u: IncidentState | ((p: IncidentState) => IncidentState)) => void,
+] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.incidentCommanders ?? []).find((d) => d.id === IC_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertIncidentCommander);
+  const state: IncidentState = doc ? { incidents: doc.incidents } : DEFAULT_STATE;
+  const setState = (u: IncidentState | ((p: IncidentState) => IncidentState)) => {
+    const cur = (useWorkspaceStore.getState().incidentCommanders ?? []).find(
+      (d: IncidentCommander) => d.id === IC_ID
+    );
+    const curState: IncidentState = cur ? { incidents: cur.incidents } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: IC_ID, incidents: next.incidents });
+  };
+  return [state, setState];
+}
 
 const SEVERITY_LABEL: Record<Severity, string> = {
   sev1: "SEV-1",
@@ -146,10 +173,7 @@ function emptyDraft(): IncidentDraft {
 }
 
 export function IncidentCommanderClient() {
-  const [state, setState] = usePersisted<IncidentState>(
-    "agile-toolkit:incident-commander",
-    DEFAULT_STATE
-  );
+  const [state, setState] = useIncidentCommander();
   const { log } = useHistoryLogger("incident-commander");
   const [draft, setDraft] = useState<IncidentDraft>(emptyDraft);
   const [now, setNow] = useState<number>(() => Date.now());

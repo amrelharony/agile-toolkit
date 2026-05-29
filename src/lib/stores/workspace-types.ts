@@ -754,6 +754,35 @@ export interface OncallRoster {
   expectedPagesPerWeek?: number;
 }
 
+export type IncidentSeverity = "sev1" | "sev2" | "sev3" | "sev4";
+export type IncidentStatus = "active" | "mitigated" | "resolved";
+
+export interface IncidentTimelineEntry {
+  id: string;
+  ts: string;
+  author: string;
+  text: string;
+}
+
+export interface Incident {
+  id: string;
+  title: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  openedAt: string;
+  resolvedAt?: string;
+  commander?: string;
+  scribe?: string;
+  description?: string;
+  timeline: IncidentTimelineEntry[];
+}
+
+/** incident-commander singleton: live incident board with timelines + MTTR. */
+export interface IncidentCommander {
+  id: string;
+  incidents: Incident[];
+}
+
 export type HypothesisStatus = "drafted" | "running" | "validated" | "invalidated" | "inconclusive";
 
 export interface Hypothesis {
@@ -1680,6 +1709,7 @@ export interface Workspace {
   runbookScorers?: RunbookScorer[];
   releaseReadinesses?: ReleaseReadiness[];
   oncallRosters?: OncallRoster[];
+  incidentCommanders?: IncidentCommander[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -1907,6 +1937,7 @@ export const emptyWorkspace: Workspace = {
   runbookScorers: [],
   releaseReadinesses: [],
   oncallRosters: [],
+  incidentCommanders: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

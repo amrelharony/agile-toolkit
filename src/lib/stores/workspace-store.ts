@@ -60,6 +60,7 @@ import type {
   RunbookScorer,
   ReleaseReadiness,
   OncallRoster,
+  IncidentCommander,
   // Phase 20
   PrioritizationItem,
   // Phase 21
@@ -201,6 +202,8 @@ interface WorkspaceActions {
   removeReleaseReadiness: (id: string) => void;
   upsertOncallRoster: (x: OncallRoster) => void;
   removeOncallRoster: (id: string) => void;
+  upsertIncidentCommander: (x: IncidentCommander) => void;
+  removeIncidentCommander: (id: string) => void;
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
@@ -908,6 +911,12 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ oncallRosters: replaceById(_st.oncallRosters ?? [], x) })),
       removeOncallRoster: (id) =>
         set((s) => ({ oncallRosters: (s.oncallRosters ?? []).filter((y) => y.id !== id) })),
+      upsertIncidentCommander: (x) =>
+        set((_st) => ({ incidentCommanders: replaceById(_st.incidentCommanders ?? [], x) })),
+      removeIncidentCommander: (id) =>
+        set((s) => ({
+          incidentCommanders: (s.incidentCommanders ?? []).filter((y) => y.id !== id),
+        })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) =>
         set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
@@ -1343,6 +1352,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           runbookScorers: s.runbookScorers,
           releaseReadinesses: s.releaseReadinesses,
           oncallRosters: s.oncallRosters,
+          incidentCommanders: s.incidentCommanders,
           opportunityTrees: s.opportunityTrees,
           // Phase 20
           prioritizations: s.prioritizations,
@@ -1462,6 +1472,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           runbookScorers: arr("runbookScorers"),
           releaseReadinesses: arr("releaseReadinesses"),
           oncallRosters: arr("oncallRosters"),
+          incidentCommanders: arr("incidentCommanders"),
           opportunityTrees: arr("opportunityTrees"),
           // Phase 20
           prioritizations: arr("prioritizations"),
@@ -1784,6 +1795,7 @@ if (typeof window !== "undefined") {
     registerCollection("runbookScorer", "runbookScorers");
     registerCollection("releaseReadiness", "releaseReadinesses");
     registerCollection("oncallRoster", "oncallRosters");
+    registerCollection("incidentCommander", "incidentCommanders");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
     // Phase 21 — Decision frameworks
@@ -1905,6 +1917,7 @@ export function getWorkspaceSnapshot(): Workspace {
     runbookScorers: state.runbookScorers,
     releaseReadinesses: state.releaseReadinesses,
     oncallRosters: state.oncallRosters,
+    incidentCommanders: state.incidentCommanders,
     opportunityTrees: state.opportunityTrees,
     prioritizations: state.prioritizations,
     daciDecisions: state.daciDecisions,
