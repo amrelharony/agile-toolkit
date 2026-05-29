@@ -683,6 +683,51 @@ export interface RunbookScorer {
   runbooks: Runbook[];
 }
 
+export type ReleaseStatus = "planning" | "shipped" | "rolled_back";
+
+export type GateId =
+  | "a11y_audit"
+  | "perf_baseline"
+  | "monitoring_dashboards"
+  | "alerts_tuned"
+  | "rollback_tested"
+  | "runbook_linked"
+  | "sre_review"
+  | "security_review"
+  | "feature_flag_ready";
+
+/** Canonical readiness gates — the source of truth for both the client catalog
+ *  (which adds labels/descriptions) and the agent actions (empty/count math). */
+export const RELEASE_GATE_IDS: GateId[] = [
+  "a11y_audit",
+  "perf_baseline",
+  "monitoring_dashboards",
+  "alerts_tuned",
+  "rollback_tested",
+  "runbook_linked",
+  "sre_review",
+  "security_review",
+  "feature_flag_ready",
+];
+
+export interface Release {
+  id: string;
+  name: string;
+  plannedDate: string;
+  status: ReleaseStatus;
+  shippedDate?: string;
+  gates: Record<GateId, boolean>;
+  /** Open-gate count snapshotted at ship time (kept for historical p-charts). */
+  gatesOpenAtShip?: number;
+  description?: string;
+}
+
+/** release-readiness singleton: launch gates + ship/rollback tracking. */
+export interface ReleaseReadiness {
+  id: string;
+  releases: Release[];
+}
+
 export type HypothesisStatus = "drafted" | "running" | "validated" | "invalidated" | "inconclusive";
 
 export interface Hypothesis {
@@ -1607,6 +1652,7 @@ export interface Workspace {
   opportunityTrees?: OpportunityTree[];
   // S8 — Incidents & Reliability (singleton docs)
   runbookScorers?: RunbookScorer[];
+  releaseReadinesses?: ReleaseReadiness[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -1832,6 +1878,7 @@ export const emptyWorkspace: Workspace = {
   opportunityTrees: [],
   // S8 — Incidents & Reliability
   runbookScorers: [],
+  releaseReadinesses: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

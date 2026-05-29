@@ -68,6 +68,7 @@ import type {
   OpportunityTree,
   // S8 — Incidents & Reliability
   RunbookScorer,
+  ReleaseReadiness,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -1176,6 +1177,22 @@ const RunbookScorerSchema = z.object({
   runbooks: z.array(RunbookSchema),
 }) as unknown as z.ZodType<RunbookScorer>;
 
+const ReleaseSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  plannedDate: z.string(),
+  status: z.enum(["planning", "shipped", "rolled_back"]),
+  shippedDate: z.string().optional(),
+  gates: z.record(z.string(), z.boolean()),
+  gatesOpenAtShip: z.number().optional(),
+  description: z.string().optional(),
+});
+
+const ReleaseReadinessSchema = z.object({
+  id: z.string(),
+  releases: z.array(ReleaseSchema),
+}) as unknown as z.ZodType<ReleaseReadiness>;
+
 defineCrudActions<EpicRoadmap>({
   toolId: "workspace.epic_roadmap",
   entityName: "epic roadmap",
@@ -1224,6 +1241,16 @@ defineCrudActions<RunbookScorer>({
   upsert: (x) => ws().upsertRunbookScorer(x),
   remove: (id) => ws().removeRunbookScorer(id),
   generateId: () => `runbookScorer_${nanoid(8)}`,
+});
+
+defineCrudActions<ReleaseReadiness>({
+  toolId: "workspace.release_readiness",
+  entityName: "release readiness board",
+  schema: ReleaseReadinessSchema,
+  selectAll: () => ws().releaseReadinesses ?? [],
+  upsert: (x) => ws().upsertReleaseReadiness(x),
+  remove: (id) => ws().removeReleaseReadiness(id),
+  generateId: () => `releaseReadiness_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────

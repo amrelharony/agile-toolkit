@@ -37,26 +37,20 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { chartTheme } from "@/components/charts/chart-theme";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type {
+  ReleaseStatus,
+  GateId,
+  Release,
+  ReleaseReadiness,
+} from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RELEASE_READINESS_ACTIONS } from "@/lib/history/event-actions";
 import { generateReleaseReadinessPrompts } from "@/lib/ai-prompts/release-readiness";
 import { pChartLimits } from "@/lib/analytics/control-chart";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { todayLocalISO } from "@/lib/utils/formatters";
-
-type ReleaseStatus = "planning" | "shipped" | "rolled_back";
-
-type GateId =
-  | "a11y_audit"
-  | "perf_baseline"
-  | "monitoring_dashboards"
-  | "alerts_tuned"
-  | "rollback_tested"
-  | "runbook_linked"
-  | "sre_review"
-  | "security_review"
-  | "feature_flag_ready";
 
 const GATES: { id: GateId; label: string; description: string }[] = [
   { id: "a11y_audit", label: "A11y audit", description: "WCAG checks pass on changed UI" },
@@ -80,29 +74,35 @@ const STATUS_BADGE: Record<ReleaseStatus, string> = {
   rolled_back: "bg-danger/10 text-danger border-danger/30",
 };
 
-interface Release {
-  id: string;
-  name: string;
-  plannedDate: string;
-  status: ReleaseStatus;
-  shippedDate?: string;
-  gates: Record<GateId, boolean>;
-  /**
-   * Snapshot of gates that were *not* passing at the moment of shipping.
-   * Captured before the all-pass precondition is enforced so that future
-   * stats ("avg gates open at ship") stay meaningful even when policy
-   * changes (e.g. allowing partial-pass ship). Optional for backward
-   * compatibility with older persisted data.
-   */
-  gatesOpenAtShip?: number;
-  description?: string;
-}
-
 interface ReleaseState {
   releases: Release[];
 }
 
 const DEFAULT_STATE: ReleaseState = { releases: [] };
+
+const RR_ID = "releaseReadiness:current"; // MUST match RR_ID in release-readiness.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// release writes round-trip into the UI. Drop-in [state, setState].
+function useReleaseReadiness(): [
+  ReleaseState,
+  (u: ReleaseState | ((p: ReleaseState) => ReleaseState)) => void,
+] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.releaseReadinesses ?? []).find((d) => d.id === RR_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertReleaseReadiness);
+  const state: ReleaseState = doc ? { releases: doc.releases } : DEFAULT_STATE;
+  const setState = (u: ReleaseState | ((p: ReleaseState) => ReleaseState)) => {
+    const cur = (useWorkspaceStore.getState().releaseReadinesses ?? []).find(
+      (d: ReleaseReadiness) => d.id === RR_ID
+    );
+    const curState: ReleaseState = cur ? { releases: cur.releases } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: RR_ID, releases: next.releases });
+  };
+  return [state, setState];
+}
 
 function emptyGates(): Record<GateId, boolean> {
   return GATES.reduce(
@@ -125,10 +125,7 @@ function emptyDraft(): ReleaseDraft {
 }
 
 export function ReleaseReadinessClient() {
-  const [state, setState] = usePersisted<ReleaseState>(
-    "agile-toolkit:release-readiness",
-    DEFAULT_STATE
-  );
+  const [state, setState] = useReleaseReadiness();
   const { log } = useHistoryLogger("release-readiness");
   const [draft, setDraft] = useState<ReleaseDraft>(emptyDraft);
 
