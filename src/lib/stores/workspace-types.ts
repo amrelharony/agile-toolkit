@@ -728,6 +728,32 @@ export interface ReleaseReadiness {
   releases: Release[];
 }
 
+export type OncallSeverity = "sev1" | "sev2" | "sev3" | "sev4";
+
+export interface OncallShift {
+  id: string;
+  person: string;
+  startDate: string;
+  endDate: string;
+  description?: string;
+}
+
+export interface OncallPage {
+  id: string;
+  shiftId: string;
+  ts: string;
+  severity: OncallSeverity;
+  description?: string;
+}
+
+/** oncall-roster singleton: shifts + paging load + expected-pages baseline. */
+export interface OncallRoster {
+  id: string;
+  shifts: OncallShift[];
+  pages: OncallPage[];
+  expectedPagesPerWeek?: number;
+}
+
 export type HypothesisStatus = "drafted" | "running" | "validated" | "invalidated" | "inconclusive";
 
 export interface Hypothesis {
@@ -1653,6 +1679,7 @@ export interface Workspace {
   // S8 — Incidents & Reliability (singleton docs)
   runbookScorers?: RunbookScorer[];
   releaseReadinesses?: ReleaseReadiness[];
+  oncallRosters?: OncallRoster[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -1879,6 +1906,7 @@ export const emptyWorkspace: Workspace = {
   // S8 — Incidents & Reliability
   runbookScorers: [],
   releaseReadinesses: [],
+  oncallRosters: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

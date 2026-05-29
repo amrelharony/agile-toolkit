@@ -59,6 +59,7 @@ import type {
   // S8 — Incidents & Reliability
   RunbookScorer,
   ReleaseReadiness,
+  OncallRoster,
   // Phase 20
   PrioritizationItem,
   // Phase 21
@@ -198,6 +199,8 @@ interface WorkspaceActions {
   removeRunbookScorer: (id: string) => void;
   upsertReleaseReadiness: (x: ReleaseReadiness) => void;
   removeReleaseReadiness: (id: string) => void;
+  upsertOncallRoster: (x: OncallRoster) => void;
+  removeOncallRoster: (id: string) => void;
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
@@ -901,6 +904,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((s) => ({
           releaseReadinesses: (s.releaseReadinesses ?? []).filter((y) => y.id !== id),
         })),
+      upsertOncallRoster: (x) =>
+        set((_st) => ({ oncallRosters: replaceById(_st.oncallRosters ?? [], x) })),
+      removeOncallRoster: (id) =>
+        set((s) => ({ oncallRosters: (s.oncallRosters ?? []).filter((y) => y.id !== id) })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) =>
         set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
@@ -1335,6 +1342,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           userInterviewLogs: s.userInterviewLogs,
           runbookScorers: s.runbookScorers,
           releaseReadinesses: s.releaseReadinesses,
+          oncallRosters: s.oncallRosters,
           opportunityTrees: s.opportunityTrees,
           // Phase 20
           prioritizations: s.prioritizations,
@@ -1453,6 +1461,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           userInterviewLogs: arr("userInterviewLogs"),
           runbookScorers: arr("runbookScorers"),
           releaseReadinesses: arr("releaseReadinesses"),
+          oncallRosters: arr("oncallRosters"),
           opportunityTrees: arr("opportunityTrees"),
           // Phase 20
           prioritizations: arr("prioritizations"),
@@ -1774,6 +1783,7 @@ if (typeof window !== "undefined") {
     // S8 — Incidents & Reliability
     registerCollection("runbookScorer", "runbookScorers");
     registerCollection("releaseReadiness", "releaseReadinesses");
+    registerCollection("oncallRoster", "oncallRosters");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
     // Phase 21 — Decision frameworks
@@ -1894,6 +1904,7 @@ export function getWorkspaceSnapshot(): Workspace {
     userInterviewLogs: state.userInterviewLogs,
     runbookScorers: state.runbookScorers,
     releaseReadinesses: state.releaseReadinesses,
+    oncallRosters: state.oncallRosters,
     opportunityTrees: state.opportunityTrees,
     prioritizations: state.prioritizations,
     daciDecisions: state.daciDecisions,

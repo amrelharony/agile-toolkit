@@ -40,7 +40,9 @@ import {
   YAxis,
   Tooltip,
 } from "recharts";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { OncallRoster } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ONCALL_ACTIONS } from "@/lib/history/event-actions";
 import { generateOncallRosterPrompts } from "@/lib/ai-prompts/oncall-roster";
@@ -77,6 +79,40 @@ interface OncallState {
 }
 
 const DEFAULT_STATE: OncallState = { shifts: [], pages: [] };
+
+const OR_ID = "oncallRoster:current"; // MUST match OR_ID in oncall-roster.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// shift/page writes round-trip into the UI. Drop-in [state, setState] bridging
+// the local OncallState shape to the OncallRoster entity (structurally equal).
+function useOncallRoster(): [
+  OncallState,
+  (u: OncallState | ((p: OncallState) => OncallState)) => void,
+] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.oncallRosters ?? []).find((d) => d.id === OR_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertOncallRoster);
+  const state: OncallState = doc
+    ? { shifts: doc.shifts, pages: doc.pages, expectedPagesPerWeek: doc.expectedPagesPerWeek }
+    : DEFAULT_STATE;
+  const setState = (u: OncallState | ((p: OncallState) => OncallState)) => {
+    const cur = (useWorkspaceStore.getState().oncallRosters ?? []).find(
+      (d: OncallRoster) => d.id === OR_ID
+    );
+    const curState: OncallState = cur
+      ? { shifts: cur.shifts, pages: cur.pages, expectedPagesPerWeek: cur.expectedPagesPerWeek }
+      : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({
+      id: OR_ID,
+      shifts: next.shifts,
+      pages: next.pages,
+      expectedPagesPerWeek: next.expectedPagesPerWeek,
+    });
+  };
+  return [state, setState];
+}
 
 const SEVERITY_LABEL: Record<Severity, string> = {
   sev1: "SEV-1",
@@ -237,7 +273,7 @@ function ExpectedPagesInput({
 }
 
 export function OncallRosterClient() {
-  const [state, setState] = usePersisted<OncallState>("agile-toolkit:oncall-roster", DEFAULT_STATE);
+  const [state, setState] = useOncallRoster();
   const { log } = useHistoryLogger("oncall-roster");
   const [shiftDraft, setShiftDraft] = useState<ShiftDraft>(emptyShiftDraft);
   const [pageDraft, setPageDraft] = useState<PageDraft>(emptyPageDraft);

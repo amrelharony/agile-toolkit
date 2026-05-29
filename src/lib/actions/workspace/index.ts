@@ -69,6 +69,7 @@ import type {
   // S8 — Incidents & Reliability
   RunbookScorer,
   ReleaseReadiness,
+  OncallRoster,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -1193,6 +1194,29 @@ const ReleaseReadinessSchema = z.object({
   releases: z.array(ReleaseSchema),
 }) as unknown as z.ZodType<ReleaseReadiness>;
 
+const OncallShiftSchema = z.object({
+  id: z.string(),
+  person: z.string(),
+  startDate: z.string(),
+  endDate: z.string(),
+  description: z.string().optional(),
+});
+
+const OncallPageSchema = z.object({
+  id: z.string(),
+  shiftId: z.string(),
+  ts: z.string(),
+  severity: z.enum(["sev1", "sev2", "sev3", "sev4"]),
+  description: z.string().optional(),
+});
+
+const OncallRosterSchema = z.object({
+  id: z.string(),
+  shifts: z.array(OncallShiftSchema),
+  pages: z.array(OncallPageSchema),
+  expectedPagesPerWeek: z.number().optional(),
+}) as unknown as z.ZodType<OncallRoster>;
+
 defineCrudActions<EpicRoadmap>({
   toolId: "workspace.epic_roadmap",
   entityName: "epic roadmap",
@@ -1251,6 +1275,16 @@ defineCrudActions<ReleaseReadiness>({
   upsert: (x) => ws().upsertReleaseReadiness(x),
   remove: (id) => ws().removeReleaseReadiness(id),
   generateId: () => `releaseReadiness_${nanoid(8)}`,
+});
+
+defineCrudActions<OncallRoster>({
+  toolId: "workspace.oncall_roster",
+  entityName: "on-call roster",
+  schema: OncallRosterSchema,
+  selectAll: () => ws().oncallRosters ?? [],
+  upsert: (x) => ws().upsertOncallRoster(x),
+  remove: (id) => ws().removeOncallRoster(id),
+  generateId: () => `oncallRoster_${nanoid(8)}`,
 });
 
 /* ────────────────────────────────────────────────────────────────────
