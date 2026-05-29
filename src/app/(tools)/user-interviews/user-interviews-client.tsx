@@ -14,7 +14,6 @@ import { generateUserInterviewsPrompts } from "@/lib/ai-prompts/user-interviews"
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { INTERVIEW_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -83,11 +82,32 @@ function TagInput({ tags, onCommit }: { tags: string[]; onCommit: (next: string[
 // BUG-T9-user-interviews-2: BlurInput/BlurTextarea moved to
 // `@/components/shared/blur-fields` so other tools can reuse them.
 
-export function UserInterviewsClient() {
-  const [interviews, setInterviews] = usePersisted<Interview[]>(
-    "agile-toolkit:user-interviews",
-    []
+const UI_ID = "userInterviewLog:current"; // MUST match UI_ID in user-interviews.ts.
+const EMPTY_INTERVIEWS: Interview[] = [];
+
+// Synced workspace singleton (was isolated usePersisted/localStorage) wrapping
+// the interviews[] array. Drop-in [state, setState] (structural types).
+function useInterviews(): [
+  Interview[],
+  (u: Interview[] | ((p: Interview[]) => Interview[])) => void,
+] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.userInterviewLogs ?? []).find((d) => d.id === UI_ID))
   );
+  const upsert = useWorkspaceStore((s) => s.upsertUserInterviewLog);
+  const interviews = doc?.interviews ?? EMPTY_INTERVIEWS;
+  const setInterviews = (u: Interview[] | ((p: Interview[]) => Interview[])) => {
+    const cur =
+      (useWorkspaceStore.getState().userInterviewLogs ?? []).find((d) => d.id === UI_ID)
+        ?.interviews ?? [];
+    const next = typeof u === "function" ? u(cur) : u;
+    upsert({ id: UI_ID, interviews: next });
+  };
+  return [interviews, setInterviews];
+}
+
+export function UserInterviewsClient() {
+  const [interviews, setInterviews] = useInterviews();
   const [editing, setEditing] = useState<string | null>(null);
   // BUG-T9-user-interviews-1: opt-in "anonymize on export" — strips
   // emails / phone numbers / API keys from the exported quotes (does
