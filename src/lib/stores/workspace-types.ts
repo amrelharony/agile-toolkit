@@ -1753,6 +1753,48 @@ export interface HealthCheck {
   history: HealthCheckEntry[];
 }
 
+export type SkillProficiency = 0 | 1 | 2 | 3 | 4;
+// Named SkillsMatrix* to avoid clashing with the workspace's own TeamMember.
+export interface SkillsMatrixMember {
+  id: string;
+  name: string;
+  description?: string;
+}
+export interface SkillsMatrixSkill {
+  id: string;
+  name: string;
+  description?: string;
+}
+export type SkillsMatrixGrid = Record<string, Record<string, SkillProficiency>>; // skillId -> memberId -> level
+
+export interface SkillsMatrix {
+  id: string;
+  members: SkillsMatrixMember[];
+  skills: SkillsMatrixSkill[];
+  grid: SkillsMatrixGrid;
+}
+
+/** Demo seed shown until the first edit (3 members × 4 skills, all unrated). */
+export function defaultSkillsMatrix(id: string): SkillsMatrix {
+  const members: SkillsMatrixMember[] = [
+    { id: "m1", name: "Alice" },
+    { id: "m2", name: "Bob" },
+    { id: "m3", name: "Carol" },
+  ];
+  const skills: SkillsMatrixSkill[] = [
+    { id: "s1", name: "TypeScript" },
+    { id: "s2", name: "React" },
+    { id: "s3", name: "Node.js" },
+    { id: "s4", name: "CI/CD" },
+  ];
+  const grid: SkillsMatrixGrid = {};
+  for (const s of skills) {
+    grid[s.id] = {};
+    for (const m of members) grid[s.id][m.id] = 0;
+  }
+  return { id, members, skills, grid };
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -1817,6 +1859,7 @@ export interface Workspace {
   psychSafetyLogs?: PsychSafetyLog[];
   maturityAssessments?: MaturityAssessment[];
   healthChecks?: HealthCheck[];
+  skillsMatrices?: SkillsMatrix[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -2050,6 +2093,7 @@ export const emptyWorkspace: Workspace = {
   psychSafetyLogs: [],
   maturityAssessments: [],
   healthChecks: [],
+  skillsMatrices: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

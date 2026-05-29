@@ -1,9 +1,6 @@
 "use client";
 
 import { useRef, useMemo, useEffect } from "react";
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -27,43 +24,19 @@ import {
 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import {
+  defaultSkillsMatrix,
+  type Workspace,
+  type SkillsMatrix,
+  type SkillsMatrixMember as TeamMember,
+  type SkillsMatrixSkill as Skill,
+  type SkillProficiency as Proficiency,
+  type SkillsMatrixGrid as GridData,
+} from "@/lib/stores/workspace-types";
 
 /* -------------------------------------------------------------------------- */
-/*  Types & constants                                                         */
+/*  Constants (types come from workspace-types, aliased on import)            */
 /* -------------------------------------------------------------------------- */
-
-type Proficiency = 0 | 1 | 2 | 3 | 4;
-
-interface TeamMember {
-  id: string;
-  name: string;
-  description?: string;
-}
-
-interface Skill {
-  id: string;
-  name: string;
-  description?: string;
-}
-
-type GridData = Record<string, Record<string, Proficiency>>; // skillId -> memberId -> level
-
-interface SkillsMatrixStore {
-  members: TeamMember[];
-  skills: Skill[];
-  grid: GridData;
-  addMember: () => void;
-  removeMember: (id: string) => void;
-  updateMemberName: (id: string, name: string) => void;
-  updateMemberDescription: (id: string, description: string) => void;
-  addSkill: () => void;
-  removeSkill: (id: string) => void;
-  updateSkillName: (id: string, name: string) => void;
-  updateSkillDescription: (id: string, description: string) => void;
-  cycleCell: (skillId: string, memberId: string) => void;
-  reset: () => void;
-}
 
 /* -- Proficiency metadata -------------------------------------------------- */
 
@@ -111,169 +84,120 @@ const PROF_META: {
   },
 ];
 
-/* -- Default data ---------------------------------------------------------- */
+/* -- Synced singleton store (was isolated zustand persist/localStorage) ---- */
 
-const DEFAULT_MEMBERS: TeamMember[] = [
-  { id: "m1", name: "Alice" },
-  { id: "m2", name: "Bob" },
-  { id: "m3", name: "Carol" },
-];
+const SM_ID = "skillsMatrix:current"; // MUST match SM_ID in skills-matrix.ts.
 
-const DEFAULT_SKILLS: Skill[] = [
-  { id: "s1", name: "TypeScript" },
-  { id: "s2", name: "React" },
-  { id: "s3", name: "Node.js" },
-  { id: "s4", name: "CI/CD" },
-];
-
-function buildDefaultGrid(skills: Skill[], members: TeamMember[]): GridData {
-  const grid: GridData = {};
-  for (const s of skills) {
-    grid[s.id] = {};
-    for (const m of members) {
-      grid[s.id][m.id] = 0;
-    }
-  }
-  return grid;
+/** Latest doc snapshot, read synchronously (avoids stale closures in setters). */
+function peekDoc(): SkillsMatrix {
+  return (
+    (useWorkspaceStore.getState().skillsMatrices ?? []).find((d) => d.id === SM_ID) ??
+    defaultSkillsMatrix(SM_ID)
+  );
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Store                                                                     */
-/* -------------------------------------------------------------------------- */
+/** Lowest unused "<prefix> N" label (avoids same-millisecond collisions). */
+function nextLabel(names: string[], prefix: string): string {
+  const used = new Set(
+    names.map((nm) => parseInt(nm.replace(/\D/g, ""), 10)).filter(Number.isFinite)
+  );
+  let n = 1;
+  while (used.has(n)) n++;
+  return `${prefix} ${n}`;
+}
 
-const useSkillsStore = create<SkillsMatrixStore>()(
-  persist(
-    (set) => ({
-      members: DEFAULT_MEMBERS,
-      skills: DEFAULT_SKILLS,
-      grid: buildDefaultGrid(DEFAULT_SKILLS, DEFAULT_MEMBERS),
-
-      addMember: () => {
-        set((s) => {
-          // Pick the lowest unused integer suffix instead of `Date.now() % 1000`,
-          // which can collide if two adds land in the same millisecond.
-          const used = new Set(
-            s.members
-              .map((m) => parseInt(String(m.name).replace(/\D/g, ""), 10))
-              .filter(Number.isFinite)
-          );
-          let n = 1;
-          while (used.has(n)) n++;
-          const newMember: TeamMember = {
-            id: crypto.randomUUID(),
-            name: `Member ${n}`,
-          };
-          const grid = { ...s.grid };
-          for (const sId of Object.keys(grid)) {
-            grid[sId] = { ...grid[sId], [newMember.id]: 0 };
-          }
-          return { members: [...s.members, newMember], grid };
-        });
-      },
-
-      removeMember: (id) =>
-        set((s) => {
-          const grid = { ...s.grid };
-          for (const sId of Object.keys(grid)) {
-            const row = { ...grid[sId] };
-            delete row[id];
-            grid[sId] = row;
-          }
-          return { members: s.members.filter((m) => m.id !== id), grid };
-        }),
-
-      updateMemberName: (id, name) =>
-        set((s) => ({
-          members: s.members.map((m) => (m.id === id ? { ...m, name } : m)),
-        })),
-
-      updateMemberDescription: (id, description) =>
-        set((s) => ({
-          members: s.members.map((m) =>
-            m.id === id ? { ...m, description: description.trim() || undefined } : m
-          ),
-        })),
-
-      addSkill: () => {
-        set((s) => {
-          const used = new Set(
-            s.skills
-              .map((sk) => parseInt(String(sk.name).replace(/\D/g, ""), 10))
-              .filter(Number.isFinite)
-          );
-          let n = 1;
-          while (used.has(n)) n++;
-          const newSkill: Skill = {
-            id: crypto.randomUUID(),
-            name: `Skill ${n}`,
-          };
-          const row: Record<string, Proficiency> = {};
-          for (const m of s.members) {
-            row[m.id] = 0;
-          }
-          return {
-            skills: [...s.skills, newSkill],
-            grid: { ...s.grid, [newSkill.id]: row },
-          };
-        });
-      },
-
-      removeSkill: (id) =>
-        set((s) => {
-          const grid = { ...s.grid };
-          delete grid[id];
-          return { skills: s.skills.filter((sk) => sk.id !== id), grid };
-        }),
-
-      updateSkillName: (id, name) =>
-        set((s) => ({
-          skills: s.skills.map((sk) => (sk.id === id ? { ...sk, name } : sk)),
-        })),
-
-      updateSkillDescription: (id, description) =>
-        set((s) => ({
-          skills: s.skills.map((sk) =>
-            sk.id === id ? { ...sk, description: description.trim() || undefined } : sk
-          ),
-        })),
-
-      cycleCell: (skillId, memberId) =>
-        set((s) => {
-          const current = s.grid[skillId]?.[memberId] ?? 0;
-          const next = ((current + 1) % 5) as Proficiency;
-          return {
-            grid: {
-              ...s.grid,
-              [skillId]: {
-                ...s.grid[skillId],
-                [memberId]: next,
-              },
-            },
-          };
-        }),
-
-      reset: () => {
-        const members = [
-          { id: crypto.randomUUID(), name: "Alice" },
-          { id: crypto.randomUUID(), name: "Bob" },
-          { id: crypto.randomUUID(), name: "Carol" },
-        ];
-        const skills = [
-          { id: crypto.randomUUID(), name: "TypeScript" },
-          { id: crypto.randomUUID(), name: "React" },
-          { id: crypto.randomUUID(), name: "Node.js" },
-          { id: crypto.randomUUID(), name: "CI/CD" },
-        ];
-        set({
-          members,
-          skills,
-          grid: buildDefaultGrid(skills, members),
-        });
-      },
-    }),
-    { name: "agile-toolkit:skills-matrix", storage: safeJSONStorage("skills-matrix") }
-  )
-);
+// Mirrors the old useSkillsStore API ({members, skills, grid, addMember,
+// removeMember, updateMemberName, updateMemberDescription, addSkill,
+// removeSkill, updateSkillName, updateSkillDescription, cycleCell, reset})
+// but backed by the synced workspace store, so the component is unchanged.
+function useSkillsMatrix() {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.skillsMatrices ?? []).find((d) => d.id === SM_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertSkillsMatrix);
+  const view = doc ?? defaultSkillsMatrix(SM_ID);
+  const save = (next: SkillsMatrix) => upsert({ ...next, id: SM_ID });
+  return {
+    members: view.members,
+    skills: view.skills,
+    grid: view.grid,
+    addMember: () => {
+      const c = peekDoc();
+      const member: TeamMember = {
+        id: crypto.randomUUID(),
+        name: nextLabel(
+          c.members.map((m) => m.name),
+          "Member"
+        ),
+      };
+      const grid: GridData = {};
+      for (const sId of Object.keys(c.grid)) grid[sId] = { ...c.grid[sId], [member.id]: 0 };
+      save({ ...c, members: [...c.members, member], grid });
+    },
+    removeMember: (id: string) => {
+      const c = peekDoc();
+      const grid: GridData = {};
+      for (const sId of Object.keys(c.grid)) {
+        const row = { ...c.grid[sId] };
+        delete row[id];
+        grid[sId] = row;
+      }
+      save({ ...c, members: c.members.filter((m) => m.id !== id), grid });
+    },
+    updateMemberName: (id: string, name: string) => {
+      const c = peekDoc();
+      save({ ...c, members: c.members.map((m) => (m.id === id ? { ...m, name } : m)) });
+    },
+    updateMemberDescription: (id: string, description: string) => {
+      const c = peekDoc();
+      save({
+        ...c,
+        members: c.members.map((m) =>
+          m.id === id ? { ...m, description: description.trim() || undefined } : m
+        ),
+      });
+    },
+    addSkill: () => {
+      const c = peekDoc();
+      const skill: Skill = {
+        id: crypto.randomUUID(),
+        name: nextLabel(
+          c.skills.map((s) => s.name),
+          "Skill"
+        ),
+      };
+      const row: Record<string, Proficiency> = {};
+      for (const m of c.members) row[m.id] = 0;
+      save({ ...c, skills: [...c.skills, skill], grid: { ...c.grid, [skill.id]: row } });
+    },
+    removeSkill: (id: string) => {
+      const c = peekDoc();
+      const grid = { ...c.grid };
+      delete grid[id];
+      save({ ...c, skills: c.skills.filter((s) => s.id !== id), grid });
+    },
+    updateSkillName: (id: string, name: string) => {
+      const c = peekDoc();
+      save({ ...c, skills: c.skills.map((s) => (s.id === id ? { ...s, name } : s)) });
+    },
+    updateSkillDescription: (id: string, description: string) => {
+      const c = peekDoc();
+      save({
+        ...c,
+        skills: c.skills.map((s) =>
+          s.id === id ? { ...s, description: description.trim() || undefined } : s
+        ),
+      });
+    },
+    cycleCell: (skillId: string, memberId: string) => {
+      const c = peekDoc();
+      const current = c.grid[skillId]?.[memberId] ?? 0;
+      const next = ((current + 1) % 5) as Proficiency;
+      save({ ...c, grid: { ...c.grid, [skillId]: { ...c.grid[skillId], [memberId]: next } } });
+    },
+    reset: () => save(defaultSkillsMatrix(SM_ID)),
+  };
+}
 
 // EditableName moved to @/components/shared/editable-name.
 
@@ -348,7 +272,7 @@ export function SkillsMatrixClient() {
     updateSkillDescription,
     cycleCell: cycleCellRaw,
     reset: resetRaw,
-  } = useSkillsStore();
+  } = useSkillsMatrix();
   const { log } = useHistoryLogger("skills-matrix");
   // Debounce cycleCell logging — users typically click 3-4 times to find the
   // right rating. Logging each click would flood the audit log. We schedule
@@ -393,7 +317,7 @@ export function SkillsMatrixClient() {
       // The prior log payload swapped these labels, corrupting every
       // rating-change audit entry. Grid lookup was correct because the
       // store is keyed grid[skillId][memberId].
-      const settled = useSkillsStore.getState().grid[args[0]]?.[args[1]] ?? null;
+      const settled = peekDoc().grid[args[0]]?.[args[1]] ?? null;
       log(SKILLS_ACTIONS.RATING_CHANGED, {
         memberId: args[1],
         skillId: args[0],

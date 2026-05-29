@@ -76,6 +76,7 @@ import type {
   PsychSafetyLog,
   MaturityAssessment,
   HealthCheck,
+  SkillsMatrix,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -1195,6 +1196,19 @@ const HealthCheckSchema = z.object({
   ),
 }) as unknown as z.ZodType<HealthCheck>;
 
+const SkillsMatrixEntrySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+});
+
+const SkillsMatrixSchema = z.object({
+  id: z.string(),
+  members: z.array(SkillsMatrixEntrySchema),
+  skills: z.array(SkillsMatrixEntrySchema),
+  grid: z.record(z.string(), z.record(z.string(), z.number())),
+}) as unknown as z.ZodType<SkillsMatrix>;
+
 const TreeNodeSchema = z.object({
   id: z.string(),
   kind: z.enum(["outcome", "opportunity", "solution", "experiment"]),
@@ -1375,6 +1389,16 @@ defineCrudActions<HealthCheck>({
   upsert: (x) => ws().upsertHealthCheck(x),
   remove: (id) => ws().removeHealthCheck(id),
   generateId: () => `healthCheck_${nanoid(8)}`,
+});
+
+defineCrudActions<SkillsMatrix>({
+  toolId: "workspace.skills_matrix",
+  entityName: "skills matrix",
+  schema: SkillsMatrixSchema,
+  selectAll: () => ws().skillsMatrices ?? [],
+  upsert: (x) => ws().upsertSkillsMatrix(x),
+  remove: (id) => ws().removeSkillsMatrix(id),
+  generateId: () => `skillsMatrix_${nanoid(8)}`,
 });
 
 defineCrudActions<OpportunityTree>({
