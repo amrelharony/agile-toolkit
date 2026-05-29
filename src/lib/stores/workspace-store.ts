@@ -682,7 +682,30 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
             ),
           };
         }),
-      upsertModel: (x) => set((_st) => ({ models: replaceById(_st.models ?? [], x) })),
+      // Optimistic concurrency (audit MEDIUM). ModelEntry rows are written
+      // by BOTH the user (UI) and background agents (tool.model_registry.*).
+      // `version` is a monotonic LWW token: a write whose base version is
+      // strictly older than the stored row is a stale lost-update attempt
+      // and is dropped (the newer row stands); every accepted write bumps
+      // the version. A write that OMITS `version` is a legacy/blind write —
+      // accepted and stamped — so existing callers keep working (opt-in).
+      // Realtime-delivered rows bypass this (they go through setEntities),
+      // so this guards LOCAL writes against an already-advanced store.
+      upsertModel: (x) =>
+        set((s) => {
+          const list = s.models ?? [];
+          const current = list.find((m) => m.id === x.id);
+          if (!current) {
+            // First write for this id — keep an explicit version, else stamp 1.
+            return { models: replaceById(list, { ...x, version: x.version ?? 1 }) };
+          }
+          const currentV = current.version ?? 0;
+          if (x.version !== undefined && x.version < currentV) {
+            // Stale write — keep the newer stored row untouched.
+            return {};
+          }
+          return { models: replaceById(list, { ...x, version: currentV + 1 }) };
+        }),
       removeModel: (id) =>
         set((s) => ({
           models: (s.models ?? []).filter((y) => y.id !== id),

@@ -1,5 +1,5 @@
 /**
- * tool.model_card.* action coverage.
+ * tool.model_registry.* action coverage.
  *
  * CRUD-backed variant (squad S12a, Wave 4). Mirrors the prompt-registry
  * test pattern (single-production invariant), but the invariant lives on
@@ -42,14 +42,14 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { ModelEntry } from "@/lib/stores/workspace-types";
 
 // Side-effect import — registers the actions on the singleton.
-import "@/lib/actions/tools/model-card";
+import "@/lib/actions/tools/model-registry";
 
 const EXPECTED_ACTIONS = [
-  "tool.model_card.list_state",
-  "tool.model_card.compute_cost_estimate",
-  "tool.model_card.promote_to_production",
-  "tool.model_card.deprecate",
-  "tool.model_card.record_eval",
+  "tool.model_registry.list_state",
+  "tool.model_registry.compute_cost_estimate",
+  "tool.model_registry.promote_to_production",
+  "tool.model_registry.deprecate",
+  "tool.model_registry.record_eval",
 ] as const;
 
 function ctx() {
@@ -73,7 +73,7 @@ function seed(
   };
 }
 
-describe("tool.model_card — registration", () => {
+describe("tool.model_registry — registration", () => {
   it("registers all 5 expected actions", () => {
     for (const id of EXPECTED_ACTIONS) {
       const a = registry.get(id);
@@ -82,28 +82,28 @@ describe("tool.model_card — registration", () => {
   });
 
   it("read actions are category=read; mutation actions are category=write", () => {
-    expect(registry.get("tool.model_card.list_state")?.category).toBe("read");
-    expect(registry.get("tool.model_card.compute_cost_estimate")?.category).toBe("read");
-    expect(registry.get("tool.model_card.promote_to_production")?.category).toBe("write");
-    expect(registry.get("tool.model_card.deprecate")?.category).toBe("write");
-    expect(registry.get("tool.model_card.record_eval")?.category).toBe("write");
+    expect(registry.get("tool.model_registry.list_state")?.category).toBe("read");
+    expect(registry.get("tool.model_registry.compute_cost_estimate")?.category).toBe("read");
+    expect(registry.get("tool.model_registry.promote_to_production")?.category).toBe("write");
+    expect(registry.get("tool.model_registry.deprecate")?.category).toBe("write");
+    expect(registry.get("tool.model_registry.record_eval")?.category).toBe("write");
   });
 
   it("write actions all have an mcpHandler (server-side path)", () => {
-    expect(registry.get("tool.model_card.promote_to_production")?.mcpHandler).toBeTypeOf(
+    expect(registry.get("tool.model_registry.promote_to_production")?.mcpHandler).toBeTypeOf(
       "function"
     );
-    expect(registry.get("tool.model_card.deprecate")?.mcpHandler).toBeTypeOf("function");
-    expect(registry.get("tool.model_card.record_eval")?.mcpHandler).toBeTypeOf("function");
+    expect(registry.get("tool.model_registry.deprecate")?.mcpHandler).toBeTypeOf("function");
+    expect(registry.get("tool.model_registry.record_eval")?.mcpHandler).toBeTypeOf("function");
   });
 
   it("list_state exposes an mcpHandler; compute_cost_estimate intentionally does not (pure)", () => {
-    expect(registry.get("tool.model_card.list_state")?.mcpHandler).toBeTypeOf("function");
+    expect(registry.get("tool.model_registry.list_state")?.mcpHandler).toBeTypeOf("function");
     // compute_cost_estimate is a pure function — there's no server-side
     // state to consult. Omitting mcpHandler makes the dispatch layer
     // fall back to `handler`, which is the correct behaviour for a
     // pure computation.
-    expect(registry.get("tool.model_card.compute_cost_estimate")?.mcpHandler).toBeUndefined();
+    expect(registry.get("tool.model_registry.compute_cost_estimate")?.mcpHandler).toBeUndefined();
   });
 
   it("requiresConfirmation defaults: promote stays confirmable; deprecate + record_eval opt out", () => {
@@ -111,11 +111,11 @@ describe("tool.model_card — registration", () => {
     // promote_to_production's value is `undefined` in the registered
     // action object — we assert it's NOT explicitly set to false (the
     // executor reads the default).
-    expect(registry.get("tool.model_card.promote_to_production")?.requiresConfirmation).not.toBe(
-      false
-    );
-    expect(registry.get("tool.model_card.deprecate")?.requiresConfirmation).toBe(false);
-    expect(registry.get("tool.model_card.record_eval")?.requiresConfirmation).toBe(false);
+    expect(
+      registry.get("tool.model_registry.promote_to_production")?.requiresConfirmation
+    ).not.toBe(false);
+    expect(registry.get("tool.model_registry.deprecate")?.requiresConfirmation).toBe(false);
+    expect(registry.get("tool.model_registry.record_eval")?.requiresConfirmation).toBe(false);
   });
 });
 
@@ -126,13 +126,13 @@ type ListStateResult = {
   items: ModelEntry[];
 };
 
-describe("tool.model_card.list_state — rollup summary", () => {
+describe("tool.model_registry.list_state — rollup summary", () => {
   beforeEach(() => {
     useWorkspaceStore.setState({ models: [] });
   });
 
   it("returns zeroed buckets and empty items when the workspace is empty", async () => {
-    const action = registry.get("tool.model_card.list_state");
+    const action = registry.get("tool.model_registry.list_state");
     const result = (await action!.handler({}, ctx())) as ListStateResult;
     expect(result.totalCount).toBe(0);
     expect(result.items).toEqual([]);
@@ -157,7 +157,7 @@ describe("tool.model_card.list_state — rollup summary", () => {
     ];
     for (const s of seeds) useWorkspaceStore.getState().upsertModel(s);
 
-    const action = registry.get("tool.model_card.list_state");
+    const action = registry.get("tool.model_registry.list_state");
     const result = (await action!.handler({}, ctx())) as ListStateResult;
 
     expect(result.totalCount).toBe(5);
@@ -179,9 +179,9 @@ describe("tool.model_card.list_state — rollup summary", () => {
   });
 });
 
-describe("tool.model_card.compute_cost_estimate — pure cost math", () => {
+describe("tool.model_registry.compute_cost_estimate — pure cost math", () => {
   it("multiplies tokens by per-1k rates correctly", async () => {
-    const action = registry.get("tool.model_card.compute_cost_estimate");
+    const action = registry.get("tool.model_registry.compute_cost_estimate");
     const result = (await action!.handler(
       {
         model: {
@@ -211,7 +211,7 @@ describe("tool.model_card.compute_cost_estimate — pure cost math", () => {
   });
 
   it("treats missing per-1k rates as 0 (agent can detect via returned costPer1k* fields)", async () => {
-    const action = registry.get("tool.model_card.compute_cost_estimate");
+    const action = registry.get("tool.model_registry.compute_cost_estimate");
     const result = (await action!.handler(
       {
         model: { name: "uninitialised", vendor: "unknown" },
@@ -235,7 +235,7 @@ describe("tool.model_card.compute_cost_estimate — pure cost math", () => {
   });
 
   it("returns 0 totals for zero token counts (no division surprises)", async () => {
-    const action = registry.get("tool.model_card.compute_cost_estimate");
+    const action = registry.get("tool.model_registry.compute_cost_estimate");
     const result = (await action!.handler(
       {
         model: { name: "x", vendor: "y", inputCostPer1k: 1, outputCostPer1k: 1 },
@@ -248,7 +248,7 @@ describe("tool.model_card.compute_cost_estimate — pure cost math", () => {
   });
 
   it("rejects negative token counts via the Zod schema", () => {
-    const action = registry.get("tool.model_card.compute_cost_estimate");
+    const action = registry.get("tool.model_registry.compute_cost_estimate");
     const parsed = action!.paramsSchema.safeParse({
       model: { name: "x", vendor: "y" },
       inputTokens: -1,
@@ -258,7 +258,7 @@ describe("tool.model_card.compute_cost_estimate — pure cost math", () => {
   });
 });
 
-describe("tool.model_card.promote_to_production — single-production-per-vendor invariant", () => {
+describe("tool.model_registry.promote_to_production — single-production-per-vendor invariant", () => {
   beforeEach(() => {
     useWorkspaceStore.setState({ models: [] });
   });
@@ -270,7 +270,7 @@ describe("tool.model_card.promote_to_production — single-production-per-vendor
         seed({ id: "m1", name: "claude-3-sonnet", vendor: "anthropic", status: "experimental" })
       );
 
-    const action = registry.get("tool.model_card.promote_to_production");
+    const action = registry.get("tool.model_registry.promote_to_production");
     const result = (await action!.handler({ id: "m1" }, ctx())) as {
       promoted: boolean;
       demoted: string[];
@@ -300,7 +300,7 @@ describe("tool.model_card.promote_to_production — single-production-per-vendor
         seed({ id: "new-cand", name: "claude-4", vendor: "anthropic", status: "evaluation" })
       );
 
-    const action = registry.get("tool.model_card.promote_to_production");
+    const action = registry.get("tool.model_registry.promote_to_production");
     const result = (await action!.handler({ id: "new-cand" }, ctx())) as {
       promoted: boolean;
       demoted: string[];
@@ -339,7 +339,7 @@ describe("tool.model_card.promote_to_production — single-production-per-vendor
         seed({ id: "oai-prod", name: "gpt-4o", vendor: "openai", status: "production" })
       );
 
-    const action = registry.get("tool.model_card.promote_to_production");
+    const action = registry.get("tool.model_registry.promote_to_production");
     await action!.handler({ id: "ant-new" }, ctx());
 
     const all = useWorkspaceStore.getState().models ?? [];
@@ -349,7 +349,7 @@ describe("tool.model_card.promote_to_production — single-production-per-vendor
   });
 
   it("returns {promoted: false} for an unknown id (no throw)", async () => {
-    const action = registry.get("tool.model_card.promote_to_production");
+    const action = registry.get("tool.model_registry.promote_to_production");
     const result = (await action!.handler({ id: "does-not-exist" }, ctx())) as {
       promoted: boolean;
       demoted: string[];
@@ -366,7 +366,7 @@ describe("tool.model_card.promote_to_production — single-production-per-vendor
       .getState()
       .upsertModel(seed({ id: "m1", name: "claude-3", vendor: "anthropic", status: "production" }));
 
-    const action = registry.get("tool.model_card.promote_to_production");
+    const action = registry.get("tool.model_registry.promote_to_production");
     const result = (await action!.handler({ id: "m1" }, ctx())) as {
       promoted: boolean;
       demoted: string[];
@@ -379,7 +379,7 @@ describe("tool.model_card.promote_to_production — single-production-per-vendor
   });
 });
 
-describe("tool.model_card.deprecate — append-with-reason + idempotent", () => {
+describe("tool.model_registry.deprecate — append-with-reason + idempotent", () => {
   beforeEach(() => {
     useWorkspaceStore.setState({ models: [] });
   });
@@ -389,7 +389,7 @@ describe("tool.model_card.deprecate — append-with-reason + idempotent", () => 
       .getState()
       .upsertModel(seed({ id: "m1", name: "claude-3", vendor: "anthropic", status: "production" }));
 
-    const action = registry.get("tool.model_card.deprecate");
+    const action = registry.get("tool.model_registry.deprecate");
     const result = (await action!.handler({ id: "m1" }, ctx())) as { updated: boolean };
     expect(result.updated).toBe(true);
 
@@ -408,7 +408,7 @@ describe("tool.model_card.deprecate — append-with-reason + idempotent", () => 
       })
     );
 
-    const action = registry.get("tool.model_card.deprecate");
+    const action = registry.get("tool.model_registry.deprecate");
     await action!.handler({ id: "m1", reason: "Superseded by claude-4" }, ctx());
 
     const stored = (useWorkspaceStore.getState().models ?? []).find((m) => m.id === "m1");
@@ -420,7 +420,7 @@ describe("tool.model_card.deprecate — append-with-reason + idempotent", () => 
       .getState()
       .upsertModel(seed({ id: "m1", name: "claude-3", vendor: "anthropic", status: "production" }));
 
-    const action = registry.get("tool.model_card.deprecate");
+    const action = registry.get("tool.model_registry.deprecate");
     await action!.handler({ id: "m1", reason: "Hallucinates on edge cases" }, ctx());
 
     const stored = (useWorkspaceStore.getState().models ?? []).find((m) => m.id === "m1");
@@ -432,7 +432,7 @@ describe("tool.model_card.deprecate — append-with-reason + idempotent", () => 
       .getState()
       .upsertModel(seed({ id: "m1", name: "claude-3", vendor: "anthropic", status: "deprecated" }));
 
-    const action = registry.get("tool.model_card.deprecate");
+    const action = registry.get("tool.model_registry.deprecate");
     const result = (await action!.handler({ id: "m1" }, ctx())) as { updated: boolean };
     expect(result.updated).toBe(false);
   });
@@ -450,7 +450,7 @@ describe("tool.model_card.deprecate — append-with-reason + idempotent", () => 
       })
     );
 
-    const action = registry.get("tool.model_card.deprecate");
+    const action = registry.get("tool.model_registry.deprecate");
     const result = (await action!.handler({ id: "m1", reason: "Second reason" }, ctx())) as {
       updated: boolean;
     };
@@ -461,7 +461,7 @@ describe("tool.model_card.deprecate — append-with-reason + idempotent", () => 
   });
 
   it("returns {updated: false} for an unknown id (no throw)", async () => {
-    const action = registry.get("tool.model_card.deprecate");
+    const action = registry.get("tool.model_registry.deprecate");
     const result = (await action!.handler({ id: "does-not-exist" }, ctx())) as {
       updated: boolean;
     };
@@ -469,7 +469,7 @@ describe("tool.model_card.deprecate — append-with-reason + idempotent", () => 
   });
 });
 
-describe("tool.model_card.record_eval — score write-back", () => {
+describe("tool.model_registry.record_eval — score write-back", () => {
   beforeEach(() => {
     useWorkspaceStore.setState({ models: [] });
   });
@@ -479,7 +479,7 @@ describe("tool.model_card.record_eval — score write-back", () => {
       .getState()
       .upsertModel(seed({ id: "m1", name: "claude-3", vendor: "anthropic" }));
 
-    const action = registry.get("tool.model_card.record_eval");
+    const action = registry.get("tool.model_registry.record_eval");
     const result = (await action!.handler({ id: "m1", evalScore: 0.87 }, ctx())) as {
       updated: boolean;
     };
@@ -494,7 +494,7 @@ describe("tool.model_card.record_eval — score write-back", () => {
       .getState()
       .upsertModel(seed({ id: "m1", name: "claude-3", vendor: "anthropic", evalScore: 0.5 }));
 
-    const action = registry.get("tool.model_card.record_eval");
+    const action = registry.get("tool.model_registry.record_eval");
     await action!.handler({ id: "m1", evalScore: 0.9 }, ctx());
 
     const stored = (useWorkspaceStore.getState().models ?? []).find((m) => m.id === "m1");
@@ -502,7 +502,7 @@ describe("tool.model_card.record_eval — score write-back", () => {
   });
 
   it("returns {updated: false} for an unknown id (no throw)", async () => {
-    const action = registry.get("tool.model_card.record_eval");
+    const action = registry.get("tool.model_registry.record_eval");
     const result = (await action!.handler({ id: "does-not-exist", evalScore: 0.5 }, ctx())) as {
       updated: boolean;
     };
@@ -510,7 +510,7 @@ describe("tool.model_card.record_eval — score write-back", () => {
   });
 
   it("rejects an evalScore outside [0, 1] via the Zod schema", () => {
-    const action = registry.get("tool.model_card.record_eval");
+    const action = registry.get("tool.model_registry.record_eval");
     // Zod parse happens at the action boundary in production via
     // dispatch; here we hit the schema directly to confirm the bounds.
     const parsed = action!.paramsSchema.safeParse({ id: "m1", evalScore: 1.5 });
