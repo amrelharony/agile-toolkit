@@ -30,7 +30,6 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { generateRiskiestAssumptionPrompts } from "@/lib/ai-prompts/riskiest-assumption";
-import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RISKIEST_ASSUMPTION_ACTIONS } from "@/lib/history/event-actions";
 import { useShallow } from "zustand/react/shallow";
@@ -55,6 +54,27 @@ interface State {
 }
 
 const DEFAULT_STATE: State = { assumptions: [] };
+
+const RA_ID = "riskiestAssumption:current"; // MUST match RA_ID in riskiest-assumption.ts.
+
+// Synced workspace singleton (was isolated usePersisted/localStorage), so MCP
+// writes round-trip into the UI. Drop-in [state, setState] (structural types).
+function useRiskiestAssumption(): [State, (u: State | ((p: State) => State)) => void] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.riskiestAssumptions ?? []).find((d) => d.id === RA_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertRiskiestAssumption);
+  const state: State = doc ? { assumptions: doc.assumptions } : DEFAULT_STATE;
+  const setState = (u: State | ((p: State) => State)) => {
+    const cur = (useWorkspaceStore.getState().riskiestAssumptions ?? []).find(
+      (d) => d.id === RA_ID
+    );
+    const curState: State = cur ? { assumptions: cur.assumptions } : DEFAULT_STATE;
+    const next = typeof u === "function" ? u(curState) : u;
+    upsert({ id: RA_ID, assumptions: next.assumptions });
+  };
+  return [state, setState];
+}
 
 const STATUS_OPTS: { id: Status; label: string; tone: string }[] = [
   { id: "untested", label: "Untested", tone: "border-border bg-surface text-sub" },
@@ -126,7 +146,7 @@ interface TestCard {
 }
 
 export function RiskiestAssumptionClient() {
-  const [state, setState] = usePersisted<State>("agile-toolkit:riskiest-assumption", DEFAULT_STATE);
+  const [state, setState] = useRiskiestAssumption();
   const [draft, setDraft] = useState({
     statement: "",
     riskLevel: "3",
