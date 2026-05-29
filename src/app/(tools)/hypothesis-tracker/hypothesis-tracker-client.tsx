@@ -37,7 +37,8 @@ import { KpiGrid } from "@/components/shared/kpi-grid";
 import { EmptyState } from "@/components/shared/empty-state";
 import { SectionCard } from "@/components/shared/section-card";
 import { emit as sonify } from "@/lib/sonification/emit";
-import { usePersisted } from "@/lib/utils/use-persisted";
+import { useShallow } from "zustand/react/shallow";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { chartTheme } from "@/components/charts/chart-theme";
 
@@ -262,8 +263,32 @@ function HypothesisRow({
   );
 }
 
+const HT_ID = "hypothesisTracker:current"; // MUST match HT_ID in hypothesis-tracker.ts.
+const EMPTY_HYPOTHESES: Hypothesis[] = [];
+
+// Synced workspace singleton (was isolated usePersisted/localStorage) wrapping
+// the hypotheses[] array. Drop-in [state, setState] (structural types).
+function useHypotheses(): [
+  Hypothesis[],
+  (u: Hypothesis[] | ((p: Hypothesis[]) => Hypothesis[])) => void,
+] {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.hypothesisTrackers ?? []).find((d) => d.id === HT_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertHypothesisTracker);
+  const items = doc?.hypotheses ?? EMPTY_HYPOTHESES;
+  const setItems = (u: Hypothesis[] | ((p: Hypothesis[]) => Hypothesis[])) => {
+    const cur =
+      (useWorkspaceStore.getState().hypothesisTrackers ?? []).find((d) => d.id === HT_ID)
+        ?.hypotheses ?? [];
+    const next = typeof u === "function" ? u(cur) : u;
+    upsert({ id: HT_ID, hypotheses: next });
+  };
+  return [items, setItems];
+}
+
 export function HypothesisTrackerClient() {
-  const [items, setItems] = usePersisted<Hypothesis[]>("agile-toolkit:hypothesis-tracker", []);
+  const [items, setItems] = useHypotheses();
   const { log } = useHistoryLogger("hypothesis-tracker");
 
   const add = () => {
