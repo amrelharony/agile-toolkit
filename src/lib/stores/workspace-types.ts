@@ -1714,6 +1714,45 @@ export interface MaturityAssessment {
   targetLevel: number;
 }
 
+/** Spotify-model squad health check dimensions (single source for client + actions). */
+export const HEALTH_CHECK_DIMENSIONS = [
+  "Delivering Value",
+  "Easy to Release",
+  "Fun",
+  "Health of Codebase",
+  "Learning",
+  "Mission",
+  "Speed",
+  "Teamwork",
+] as const;
+export type HealthDimension = (typeof HEALTH_CHECK_DIMENSIONS)[number];
+export type HealthTrafficLight = "green" | "yellow" | "red";
+export type HealthTrend = "up" | "same" | "down";
+
+export interface HealthDimensionScore {
+  light: HealthTrafficLight;
+  trend: HealthTrend;
+}
+
+export interface HealthCheckSnapshot {
+  sprintName: string;
+  scores: Record<HealthDimension, HealthDimensionScore>;
+}
+
+export interface HealthCheckEntry {
+  id: string;
+  sprintName: string;
+  date: string;
+  scores: Record<HealthDimension, HealthDimensionScore>;
+}
+
+/** One synced squad-health-check document: the in-progress check + saved history. */
+export interface HealthCheck {
+  id: string;
+  current: HealthCheckSnapshot;
+  history: HealthCheckEntry[];
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -1777,6 +1816,7 @@ export interface Workspace {
   // S4 — Team Health & Maturity (singleton docs)
   psychSafetyLogs?: PsychSafetyLog[];
   maturityAssessments?: MaturityAssessment[];
+  healthChecks?: HealthCheck[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -2009,6 +2049,7 @@ export const emptyWorkspace: Workspace = {
   // S4 — Team Health & Maturity
   psychSafetyLogs: [],
   maturityAssessments: [],
+  healthChecks: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

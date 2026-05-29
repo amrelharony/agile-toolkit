@@ -1,9 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import {
   LineChart,
   Line,
@@ -20,7 +17,17 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateHealthCheckPrompts } from "@/lib/ai-prompts/health-check";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import {
+  HEALTH_CHECK_DIMENSIONS as DIMENSIONS,
+  type Workspace,
+  type HealthCheck,
+  type HealthDimension as Dimension,
+  type HealthTrafficLight as TrafficLight,
+  type HealthTrend as Trend,
+  type HealthDimensionScore as DimensionScore,
+  type HealthCheckSnapshot as CurrentCheck,
+  type HealthCheckEntry as HistoryEntry,
+} from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { HEALTH_CHECK_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -33,22 +40,6 @@ import { HeartPulse } from "lucide-react";
 /* -------------------------------------------------------------------------- */
 /*  Constants                                                                 */
 /* -------------------------------------------------------------------------- */
-
-const DIMENSIONS = [
-  "Delivering Value",
-  "Easy to Release",
-  "Fun",
-  "Health of Codebase",
-  "Learning",
-  "Mission",
-  "Speed",
-  "Teamwork",
-] as const;
-
-type Dimension = (typeof DIMENSIONS)[number];
-
-type TrafficLight = "green" | "yellow" | "red";
-type Trend = "up" | "same" | "down";
 
 const DIMENSION_COLORS: Record<Dimension, string> = {
   "Delivering Value": "#00f0ff",
@@ -64,39 +55,11 @@ const DIMENSION_COLORS: Record<Dimension, string> = {
 const SCORE_MAP: Record<TrafficLight, number> = { green: 2, yellow: 1, red: 0 };
 
 /* -------------------------------------------------------------------------- */
-/*  Types                                                                     */
+/*  Synced singleton store (was isolated zustand persist/localStorage)        */
 /* -------------------------------------------------------------------------- */
 
-type DimensionScore = {
-  light: TrafficLight;
-  trend: Trend;
-};
-
-type CurrentCheck = {
-  sprintName: string;
-  scores: Record<Dimension, DimensionScore>;
-};
-
-type HistoryEntry = {
-  id: string;
-  sprintName: string;
-  date: string;
-  scores: Record<Dimension, DimensionScore>;
-};
-
-interface HealthCheckStore {
-  current: CurrentCheck;
-  history: HistoryEntry[];
-  setSprintName: (name: string) => void;
-  setLight: (dim: Dimension, light: TrafficLight) => void;
-  setTrend: (dim: Dimension, trend: Trend) => void;
-  saveCheck: () => void;
-  reset: () => void;
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Default state                                                             */
-/* -------------------------------------------------------------------------- */
+const HEALTH_CHECK_ID = "healthCheck:current"; // MUST match HC_ID in health-check.ts.
+const EMPTY_HISTORY: HistoryEntry[] = [];
 
 function defaultScores(): Record<Dimension, DimensionScore> {
   return Object.fromEntries(
@@ -104,64 +67,75 @@ function defaultScores(): Record<Dimension, DimensionScore> {
   ) as Record<Dimension, DimensionScore>;
 }
 
-const DEFAULT_CURRENT: CurrentCheck = {
-  sprintName: "",
-  scores: defaultScores(),
-};
+function emptySnapshot(): CurrentCheck {
+  return { sprintName: "", scores: defaultScores() };
+}
 
-/* -------------------------------------------------------------------------- */
-/*  Store                                                                     */
-/* -------------------------------------------------------------------------- */
+/** Latest doc snapshot, read synchronously (avoids stale closures in setters). */
+function peekDoc(): HealthCheck {
+  const d = (useWorkspaceStore.getState().healthChecks ?? []).find((x) => x.id === HEALTH_CHECK_ID);
+  return d ?? { id: HEALTH_CHECK_ID, current: emptySnapshot(), history: [] };
+}
 
-const useHealthCheckStore = create<HealthCheckStore>()(
-  persist(
-    (set, get) => ({
-      current: DEFAULT_CURRENT,
-      history: [],
-
-      setSprintName: (name) => set((s) => ({ current: { ...s.current, sprintName: name } })),
-
-      setLight: (dim, light) =>
-        set((s) => ({
-          current: {
-            ...s.current,
-            scores: {
-              ...s.current.scores,
-              [dim]: { ...s.current.scores[dim], light },
-            },
-          },
-        })),
-
-      setTrend: (dim, trend) =>
-        set((s) => ({
-          current: {
-            ...s.current,
-            scores: {
-              ...s.current.scores,
-              [dim]: { ...s.current.scores[dim], trend },
-            },
-          },
-        })),
-
-      saveCheck: () => {
-        const { current, history } = get();
-        const entry: HistoryEntry = {
-          id: crypto.randomUUID(),
-          sprintName: current.sprintName || `Check ${history.length + 1}`,
-          date: todayLocalISO(),
-          scores: { ...current.scores },
-        };
-        set((s) => ({
-          history: [...s.history, entry],
-          current: { ...DEFAULT_CURRENT, scores: defaultScores() },
-        }));
-      },
-
-      reset: () => set({ current: { ...DEFAULT_CURRENT, scores: defaultScores() }, history: [] }),
-    }),
-    { name: "agile-toolkit:health-check", storage: safeJSONStorage("health-check") }
-  )
-);
+// Mirrors the old useHealthCheckStore API ({current, history, setSprintName,
+// setLight, setTrend, saveCheck, reset}) but backed by the synced workspace
+// store, so the component body below is unchanged.
+function useHealthCheck() {
+  const doc = useWorkspaceStore(
+    useShallow((s) => (s.healthChecks ?? []).find((d) => d.id === HEALTH_CHECK_ID))
+  );
+  const upsert = useWorkspaceStore((s) => s.upsertHealthCheck);
+  const current = doc?.current ?? emptySnapshot();
+  const history = doc?.history ?? EMPTY_HISTORY;
+  return {
+    current,
+    history,
+    setSprintName: (name: string) => {
+      const c = peekDoc();
+      upsert({ ...c, id: HEALTH_CHECK_ID, current: { ...c.current, sprintName: name } });
+    },
+    setLight: (dim: Dimension, light: TrafficLight) => {
+      const c = peekDoc();
+      upsert({
+        ...c,
+        id: HEALTH_CHECK_ID,
+        current: {
+          ...c.current,
+          scores: { ...c.current.scores, [dim]: { ...c.current.scores[dim], light } },
+        },
+      });
+    },
+    setTrend: (dim: Dimension, trend: Trend) => {
+      const c = peekDoc();
+      upsert({
+        ...c,
+        id: HEALTH_CHECK_ID,
+        current: {
+          ...c.current,
+          scores: { ...c.current.scores, [dim]: { ...c.current.scores[dim], trend } },
+        },
+      });
+    },
+    saveCheck: () => {
+      const c = peekDoc();
+      const entry: HistoryEntry = {
+        id: crypto.randomUUID(),
+        sprintName: c.current.sprintName || `Check ${c.history.length + 1}`,
+        date: todayLocalISO(),
+        scores: { ...c.current.scores },
+      };
+      upsert({
+        ...c,
+        id: HEALTH_CHECK_ID,
+        history: [...c.history, entry],
+        current: emptySnapshot(),
+      });
+    },
+    reset: () => {
+      upsert({ id: HEALTH_CHECK_ID, current: emptySnapshot(), history: [] });
+    },
+  };
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Helper components                                                         */
@@ -248,24 +222,25 @@ function TrendButton({
 /* -------------------------------------------------------------------------- */
 
 export function HealthCheckClient() {
-  // R5: destructuring `useHealthCheckStore()` re-subscribes the whole
-  // component to every store property — every keystroke on an unrelated
-  // tool sharing the store would re-render this whole page. Use
-  // individual selectors so each field is its own subscription.
-  const current = useHealthCheckStore((s) => s.current);
-  const history = useHealthCheckStore((s) => s.history);
-  const setSprintName = useHealthCheckStore((s) => s.setSprintName);
-  const setLight = useHealthCheckStore((s) => s.setLight);
-  const setTrend = useHealthCheckStore((s) => s.setTrend);
-  const saveCheckRaw = useHealthCheckStore((s) => s.saveCheck);
-  const resetRaw = useHealthCheckStore((s) => s.reset);
+  // useHealthCheck subscribes to a single synced doc via a useShallow
+  // selector (R5: one subscription, not one per field — edits on unrelated
+  // tools sharing the workspace store don't re-render this page).
+  const {
+    current,
+    history,
+    setSprintName,
+    setLight,
+    setTrend,
+    saveCheck: saveCheckRaw,
+    reset: resetRaw,
+  } = useHealthCheck();
   const { log } = useHistoryLogger("health-check");
 
   const saveCheck = () => {
     // Read latest store snapshot synchronously so we don't log a stale
     // `current` from a previous render (the destructured `current` above
     // can lag the most recent edit).
-    const pre = useHealthCheckStore.getState().current;
+    const pre = peekDoc().current;
     saveCheckRaw();
     log(HEALTH_CHECK_ACTIONS.CHECK_SAVED, {
       sprintName: pre?.sprintName,

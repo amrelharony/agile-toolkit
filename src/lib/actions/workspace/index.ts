@@ -75,6 +75,7 @@ import type {
   // S4 — Team Health & Maturity
   PsychSafetyLog,
   MaturityAssessment,
+  HealthCheck,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -1171,6 +1172,29 @@ const MaturityAssessmentSchema = z.object({
   targetLevel: z.number(),
 }) as unknown as z.ZodType<MaturityAssessment>;
 
+const HealthDimensionScoreSchema = z.object({
+  light: z.string(),
+  trend: z.string(),
+});
+
+const HealthCheckSnapshotSchema = z.object({
+  sprintName: z.string(),
+  scores: z.record(z.string(), HealthDimensionScoreSchema),
+});
+
+const HealthCheckSchema = z.object({
+  id: z.string(),
+  current: HealthCheckSnapshotSchema,
+  history: z.array(
+    z.object({
+      id: z.string(),
+      sprintName: z.string(),
+      date: z.string(),
+      scores: z.record(z.string(), HealthDimensionScoreSchema),
+    })
+  ),
+}) as unknown as z.ZodType<HealthCheck>;
+
 const TreeNodeSchema = z.object({
   id: z.string(),
   kind: z.enum(["outcome", "opportunity", "solution", "experiment"]),
@@ -1341,6 +1365,16 @@ defineCrudActions<MaturityAssessment>({
   upsert: (x) => ws().upsertMaturityAssessment(x),
   remove: (id) => ws().removeMaturityAssessment(id),
   generateId: () => `maturityAssessment_${nanoid(8)}`,
+});
+
+defineCrudActions<HealthCheck>({
+  toolId: "workspace.health_check",
+  entityName: "health check",
+  schema: HealthCheckSchema,
+  selectAll: () => ws().healthChecks ?? [],
+  upsert: (x) => ws().upsertHealthCheck(x),
+  remove: (id) => ws().removeHealthCheck(id),
+  generateId: () => `healthCheck_${nanoid(8)}`,
 });
 
 defineCrudActions<OpportunityTree>({
