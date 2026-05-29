@@ -1795,6 +1795,25 @@ export function defaultSkillsMatrix(id: string): SkillsMatrix {
   return { id, members, skills, grid };
 }
 
+/**
+ * Planning Poker — the live session is realtime-only (no persistence), but
+ * committed final estimates are recorded here so they survive + are agent-
+ * readable. One PokerEstimationLog singleton holding the estimate history.
+ */
+export interface PokerEstimate {
+  id: string;
+  storyTitle: string;
+  finalEstimate: string;
+  scaleType: string; // "fibonacci" | "tshirt" | "custom" (the tool's ScaleType)
+  votes?: string[]; // raw revealed votes that led to the estimate, if known
+  decidedAt: ISODateString;
+}
+
+export interface PokerEstimationLog {
+  id: string;
+  estimates: PokerEstimate[];
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -1860,6 +1879,7 @@ export interface Workspace {
   maturityAssessments?: MaturityAssessment[];
   healthChecks?: HealthCheck[];
   skillsMatrices?: SkillsMatrix[];
+  pokerEstimationLogs?: PokerEstimationLog[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -2094,6 +2114,7 @@ export const emptyWorkspace: Workspace = {
   maturityAssessments: [],
   healthChecks: [],
   skillsMatrices: [],
+  pokerEstimationLogs: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

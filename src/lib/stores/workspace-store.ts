@@ -67,6 +67,7 @@ import type {
   MaturityAssessment,
   HealthCheck,
   SkillsMatrix,
+  PokerEstimationLog,
   // Phase 20
   PrioritizationItem,
   // Phase 21
@@ -220,6 +221,8 @@ interface WorkspaceActions {
   removeHealthCheck: (id: string) => void;
   upsertSkillsMatrix: (x: SkillsMatrix) => void;
   removeSkillsMatrix: (id: string) => void;
+  upsertPokerEstimationLog: (x: PokerEstimationLog) => void;
+  removePokerEstimationLog: (id: string) => void;
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
@@ -955,6 +958,12 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ skillsMatrices: replaceById(_st.skillsMatrices ?? [], x) })),
       removeSkillsMatrix: (id) =>
         set((s) => ({ skillsMatrices: (s.skillsMatrices ?? []).filter((y) => y.id !== id) })),
+      upsertPokerEstimationLog: (x) =>
+        set((_st) => ({ pokerEstimationLogs: replaceById(_st.pokerEstimationLogs ?? [], x) })),
+      removePokerEstimationLog: (id) =>
+        set((s) => ({
+          pokerEstimationLogs: (s.pokerEstimationLogs ?? []).filter((y) => y.id !== id),
+        })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) =>
         set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
@@ -1396,6 +1405,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           maturityAssessments: s.maturityAssessments,
           healthChecks: s.healthChecks,
           skillsMatrices: s.skillsMatrices,
+          pokerEstimationLogs: s.pokerEstimationLogs,
           opportunityTrees: s.opportunityTrees,
           // Phase 20
           prioritizations: s.prioritizations,
@@ -1521,6 +1531,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           maturityAssessments: arr("maturityAssessments"),
           healthChecks: arr("healthChecks"),
           skillsMatrices: arr("skillsMatrices"),
+          pokerEstimationLogs: arr("pokerEstimationLogs"),
           opportunityTrees: arr("opportunityTrees"),
           // Phase 20
           prioritizations: arr("prioritizations"),
@@ -1850,6 +1861,7 @@ if (typeof window !== "undefined") {
     registerCollection("maturityAssessment", "maturityAssessments");
     registerCollection("healthCheck", "healthChecks");
     registerCollection("skillsMatrix", "skillsMatrices");
+    registerCollection("pokerEstimationLog", "pokerEstimationLogs");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
     // Phase 21 — Decision frameworks
@@ -1977,6 +1989,7 @@ export function getWorkspaceSnapshot(): Workspace {
     maturityAssessments: state.maturityAssessments,
     healthChecks: state.healthChecks,
     skillsMatrices: state.skillsMatrices,
+    pokerEstimationLogs: state.pokerEstimationLogs,
     opportunityTrees: state.opportunityTrees,
     prioritizations: state.prioritizations,
     daciDecisions: state.daciDecisions,

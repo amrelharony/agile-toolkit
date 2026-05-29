@@ -77,6 +77,7 @@ import type {
   MaturityAssessment,
   HealthCheck,
   SkillsMatrix,
+  PokerEstimationLog,
   // Phase 20 — Prioritization
   PrioritizationItem,
   // Phase 21 — Decision Frameworks
@@ -1209,6 +1210,20 @@ const SkillsMatrixSchema = z.object({
   grid: z.record(z.string(), z.record(z.string(), z.number())),
 }) as unknown as z.ZodType<SkillsMatrix>;
 
+const PokerEstimationLogSchema = z.object({
+  id: z.string(),
+  estimates: z.array(
+    z.object({
+      id: z.string(),
+      storyTitle: z.string(),
+      finalEstimate: z.string(),
+      scaleType: z.string(),
+      votes: z.array(z.string()).optional(),
+      decidedAt: z.string(),
+    })
+  ),
+}) as unknown as z.ZodType<PokerEstimationLog>;
+
 const TreeNodeSchema = z.object({
   id: z.string(),
   kind: z.enum(["outcome", "opportunity", "solution", "experiment"]),
@@ -1399,6 +1414,16 @@ defineCrudActions<SkillsMatrix>({
   upsert: (x) => ws().upsertSkillsMatrix(x),
   remove: (id) => ws().removeSkillsMatrix(id),
   generateId: () => `skillsMatrix_${nanoid(8)}`,
+});
+
+defineCrudActions<PokerEstimationLog>({
+  toolId: "workspace.poker_estimation_log",
+  entityName: "poker estimation log",
+  schema: PokerEstimationLogSchema,
+  selectAll: () => ws().pokerEstimationLogs ?? [],
+  upsert: (x) => ws().upsertPokerEstimationLog(x),
+  remove: (id) => ws().removePokerEstimationLog(id),
+  generateId: () => `pokerEstimationLog_${nanoid(8)}`,
 });
 
 defineCrudActions<OpportunityTree>({
