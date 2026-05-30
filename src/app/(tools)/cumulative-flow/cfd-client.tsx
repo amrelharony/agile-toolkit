@@ -1,27 +1,10 @@
 "use client";
 
 import { useRef, useMemo, useState, useEffect } from "react";
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { safeJSONStorage } from "@/lib/stores/safe-storage";
-import {
-  AreaChart,
-  Area,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-  ReferenceLine,
-  ReferenceDot,
-  ResponsiveContainer,
-  LineChart,
-  Line,
-} from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import { type CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { generateCFDPrompts } from "@/lib/ai-prompts/cumulative-flow";
 import { xmrLimits, westernElectricRules } from "@/lib/analytics/control-chart";
 import { cusum } from "@/lib/analytics/changepoint";
@@ -33,255 +16,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
+import { BlurTextarea } from "@/components/shared/blur-fields";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Layers, BarChart2, Settings2, AlertTriangle, Activity } from "lucide-react";
+import { Plus, Trash2, Layers, Settings2, AlertTriangle } from "lucide-react";
 import { toast } from "@/lib/utils/toast";
-
-/* -------------------------------------------------------------------------- */
-/*  Types                                                                     */
-/* -------------------------------------------------------------------------- */
-
-interface StatusColumn {
-  id: string;
-  name: string;
-  color: string;
-  /** Optional purpose/definition for the column (shown in tooltip). */
-  description?: string;
-}
-
-interface DataEntry {
-  id: string;
-  date: string;
-  counts: Record<string, number>; // statusId -> count
-  /** Optional note for the snapshot day. */
-  description?: string;
-}
-
-interface CFDStore {
-  columns: StatusColumn[];
-  entries: DataEntry[];
-  wipLimit: number | null;
-  addColumn: (name: string, description?: string) => void;
-  removeColumn: (id: string) => void;
-  renameColumn: (id: string, name: string) => void;
-  setColumnDescription: (id: string, description: string | undefined) => void;
-  addEntry: () => void;
-  removeEntry: (id: string) => void;
-  updateEntry: (id: string, updates: Partial<Omit<DataEntry, "id">>) => void;
-  updateEntryCount: (entryId: string, statusId: string, count: number) => void;
-  setWipLimit: (limit: number | null) => void;
-  reset: () => void;
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Constants                                                                 */
-/* -------------------------------------------------------------------------- */
-
-const DEFAULT_COLORS = [
-  "#64748b",
-  "#00f0ff",
-  "#ff00aa",
-  "#00ff88",
-  "#f59e0b",
-  "#a855f7",
-  "#f97316",
-  "#3b82f6",
-];
-
-const DEFAULT_COLUMNS: StatusColumn[] = [
-  { id: "col-1", name: "To Do", color: "#64748b" },
-  { id: "col-2", name: "In Progress", color: "#00f0ff" },
-  { id: "col-3", name: "In Review", color: "#ff00aa" },
-  { id: "col-4", name: "Done", color: "#00ff88" },
-];
-
-const createEntry = (columns: StatusColumn[]): DataEntry => ({
-  id: crypto.randomUUID(),
-  date: todayLocalISO(),
-  counts: Object.fromEntries(columns.map((c) => [c.id, 0])),
-});
-
-/* -------------------------------------------------------------------------- */
-/*  Store                                                                     */
-/* -------------------------------------------------------------------------- */
-
-const useCFDStore = create<CFDStore>()(
-  persist(
-    (set) => ({
-      columns: DEFAULT_COLUMNS,
-      entries: [],
-      wipLimit: null,
-
-      addColumn: (name, description) =>
-        set((s) => {
-          const id = crypto.randomUUID();
-          const color = DEFAULT_COLORS[s.columns.length % DEFAULT_COLORS.length];
-          const newCol: StatusColumn = { id, name, color, description };
-          return {
-            columns: [...s.columns, newCol],
-            entries: s.entries.map((e) => ({
-              ...e,
-              counts: { ...e.counts, [id]: 0 },
-            })),
-          };
-        }),
-
-      removeColumn: (id) =>
-        set((s) => ({
-          columns: s.columns.filter((c) => c.id !== id),
-          entries: s.entries.map((e) => {
-            const counts = { ...e.counts };
-            delete counts[id];
-            return { ...e, counts };
-          }),
-        })),
-
-      renameColumn: (id, name) =>
-        set((s) => {
-          // Reject rename to a name that already exists on another
-          // column. Recharts uses the column name as the chart
-          // `dataKey` (cfd-client.tsx render line ~590), and two Area
-          // series sharing the same dataKey collapse to one, silently
-          // hiding the renamed column's data. The add-form rejects
-          // duplicate names; rename used to allow them.
-          // BUG-RD3-cfd-1: case-INSENSITIVE collide check so the rename
-          // path matches the add path (which uses .toLowerCase()
-          // equality). Without this, "To Do" → "TO DO" was accepted
-          // and produced two visually-identical column headers with
-          // distinct Recharts dataKeys — confusing the user but not
-          // technically colliding.
-          const trimmed = name.trim();
-          if (trimmed.length === 0) return s;
-          const want = trimmed.toLowerCase();
-          const collides = s.columns.some((c) => c.id !== id && c.name.toLowerCase() === want);
-          if (collides) return s;
-          return {
-            columns: s.columns.map((c) => (c.id === id ? { ...c, name: trimmed } : c)),
-          };
-        }),
-
-      setColumnDescription: (id, description) =>
-        set((s) => ({
-          columns: s.columns.map((c) => (c.id === id ? { ...c, description } : c)),
-        })),
-
-      addEntry: () =>
-        set((s) => {
-          // R11-fix: move the duplicate-check INSIDE the set updater
-          // so read + write are atomic. Previously the same-day guard
-          // lived in the client wrapper (a getState read followed by
-          // an addEntryRaw write) — a double-click could fire both
-          // calls before either's getState saw the other's append,
-          // bypassing the dedupe and creating two snapshots for the
-          // same day. Now the check happens inside Zustand's reducer
-          // where state.entries is the live array at write-time.
-          const today = createEntry(s.columns);
-          if (s.entries.some((e) => e.date === today.date)) return s;
-          return { entries: [...s.entries, today] };
-        }),
-
-      removeEntry: (id) => set((s) => ({ entries: s.entries.filter((e) => e.id !== id) })),
-
-      updateEntry: (id, updates) =>
-        set((s) => ({
-          entries: s.entries.map((e) => (e.id === id ? { ...e, ...updates } : e)),
-        })),
-
-      updateEntryCount: (entryId, statusId, count) =>
-        set((s) => ({
-          entries: s.entries.map((e) =>
-            e.id === entryId ? { ...e, counts: { ...e.counts, [statusId]: Math.max(0, count) } } : e
-          ),
-        })),
-
-      setWipLimit: (limit) => set({ wipLimit: limit }),
-
-      reset: () => set({ columns: DEFAULT_COLUMNS, entries: [], wipLimit: null }),
-    }),
-    { name: "agile-toolkit:cumulative-flow", storage: safeJSONStorage("cumulative-flow") }
-  )
-);
-
-/* -------------------------------------------------------------------------- */
-/*  Tooltip                                                                   */
-/* -------------------------------------------------------------------------- */
-
-function CFDTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: Array<{ name: string; value: number; color: string }>;
-  label?: string;
-}) {
-  if (!active || !payload?.length) return null;
-  const total = payload.reduce((s, p) => s + (p.value ?? 0), 0);
-  return (
-    <div className="bg-surface border border-border rounded-lg p-3 shadow-xl text-sm">
-      <p className="text-sub font-medium mb-2">{label}</p>
-      {[...payload].reverse().map((p) => (
-        <div key={p.name} className="flex items-center justify-between gap-6 mb-1">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-sm" style={{ background: p.color }} />
-            <span className="text-sub">{p.name}</span>
-          </div>
-          <span className="font-data font-semibold text-text">{p.value}</span>
-        </div>
-      ))}
-      <div className="mt-2 pt-2 border-t border-border flex justify-between">
-        <span className="text-sub">Total</span>
-        <span className="font-data font-bold text-accent">{total}</span>
-      </div>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Stat Card                                                                 */
-/* -------------------------------------------------------------------------- */
-
-function StatCard({
-  label,
-  value,
-  unit,
-  accent = false,
-  warning = false,
-  trailing,
-}: {
-  label: string;
-  value: string | number;
-  unit?: string;
-  accent?: boolean;
-  warning?: boolean;
-  /** Inline trailing element next to the value (e.g. trend chip). */
-  trailing?: React.ReactNode;
-}) {
-  return (
-    <Card className="bg-surface border-border">
-      <CardContent className="p-5">
-        <p className="text-xs text-sub mb-2">{label}</p>
-        <div className="flex items-baseline gap-1.5 flex-wrap">
-          <span
-            className={`text-2xl font-data font-bold ${
-              warning ? "text-amber-400" : accent ? "text-accent" : "text-text"
-            }`}
-          >
-            {value}
-          </span>
-          {unit && <span className="text-sm text-sub">{unit}</span>}
-          {trailing}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Main Client Component                                                     */
-/* -------------------------------------------------------------------------- */
+import { MIN_XMR_SAMPLES } from "./constants";
+import { useCFDStore } from "./use-cfd-store";
+import { StatCard } from "./components/stat-card";
+import { FlowChart } from "./components/flow-chart";
+import { WipControlChart } from "./components/wip-control-chart";
+import { DataEntryTable } from "./components/data-entry-table";
 
 export function CFDClient() {
   const {
@@ -360,7 +105,7 @@ export function CFDClient() {
   );
 
   /* -- Chart data ---------------------------------------------------------- */
-  const chartData = useMemo(
+  const chartData = useMemo<Record<string, string | number>[]>(
     () =>
       sortedEntries.map((e) => ({
         date: e.date,
@@ -412,15 +157,6 @@ export function CFDClient() {
 
   const wipValues = useMemo(() => wipSeries.map((p) => p.value), [wipSeries]);
 
-  // XmR control limits require enough observations for the moving-range
-  // estimate of σ̂ to be statistically stable. Below ~8 samples the limits
-  // collapse toward the centerline (or expand wildly with a single
-  // outlier), producing false alarms — Wheeler's guidance is "at least
-  // 6-10 baseline observations before treating limits as real." We pick
-  // 8 as the floor and gate the entire rule evaluation on it; below the
-  // threshold the UI shows a "Need 8+ data points" chip instead of
-  // misleading UCL/LCL bands.
-  const MIN_XMR_SAMPLES = 8;
   const wipLimits = useMemo(
     // WIP is a non-negative count; clamp LCL at 0.
     () => (wipValues.length >= MIN_XMR_SAMPLES ? xmrLimits(wipValues, true) : null),
@@ -583,184 +319,20 @@ export function CFDClient() {
             </div>
           </CardHeader>
           <CardContent>
-            {chartData.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-64 text-sub gap-3">
-                <BarChart2 className="w-12 h-12 opacity-20" />
-                <p className="text-sm">Add date entries below to see the chart</p>
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={400}>
-                <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: "#94a3b8", fontSize: 12 }}
-                    axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fill: "#94a3b8", fontSize: 12 }}
-                    axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                    tickLine={false}
-                    allowDecimals={false}
-                  />
-                  <Tooltip content={<CFDTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12, color: "#94a3b8", paddingTop: 12 }} />
-                  {wipLimit !== null && (
-                    <ReferenceLine
-                      y={wipLimit}
-                      stroke="#ef4444"
-                      strokeDasharray="6 3"
-                      label={{ value: `WIP Limit: ${wipLimit}`, fill: "#ef4444", fontSize: 11 }}
-                    />
-                  )}
-                  {columns.map((col) => (
-                    <Area
-                      key={col.id}
-                      type="monotone"
-                      dataKey={col.name}
-                      stackId="1"
-                      stroke={col.color}
-                      fill={col.color}
-                      fillOpacity={0.55}
-                      strokeWidth={2}
-                    />
-                  ))}
-                </AreaChart>
-              </ResponsiveContainer>
-            )}
+            <FlowChart chartData={chartData} columns={columns} wipLimit={wipLimit} />
           </CardContent>
         </Card>
 
         {/* ---- WIP control chart (XmR + CUSUM) ---- */}
-        {/* Standalone view of in-progress (WIP) over time. Overlays UCL/LCL
-            from the XmR primitive and vertical CausalLines at CUSUM
-            changepoints. Hidden when the source series is too short to be
-            meaningful (the XmR primitive collapses to a point at <2). */}
+        {/* Standalone view of in-progress (WIP) over time. Hidden when the
+            source series is too short to be meaningful. */}
         {wipSeries.length >= 2 && (
-          <Card className="bg-surface border-border">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-base font-display text-text flex-wrap">
-                <Activity className="w-4 h-4 text-accent" />
-                WIP control chart
-                <span className="text-xs text-sub font-normal ml-1">
-                  · XmR limits + CUSUM regime shifts
-                </span>
-                {/* When the series is too short for statistically valid XmR
-                    limits (<8 samples), suppress the UCL/LCL bands and tell
-                    the user why — otherwise the chart shows misleading
-                    "control" lines that produce false alarms on every
-                    point. */}
-                {!wipLimits && (
-                  <Badge
-                    variant="outline"
-                    className="text-[10px] font-normal border-amber-500/40 text-amber-400 ml-auto"
-                  >
-                    Need {MIN_XMR_SAMPLES}+ data points for control limits
-                  </Badge>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="-mx-2" style={{ height: 240 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={wipSeries} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                    <XAxis
-                      dataKey="date"
-                      tick={{ fill: "#94a3b8", fontSize: 11 }}
-                      axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fill: "#94a3b8", fontSize: 11 }}
-                      axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                      tickLine={false}
-                      allowDecimals={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        background: "var(--surface)",
-                        border: "1px solid var(--border)",
-                        borderRadius: 8,
-                        fontSize: 12,
-                      }}
-                      labelStyle={{ color: "var(--sub)" }}
-                    />
-                    {wipLimits && (
-                      <>
-                        <ReferenceLine
-                          y={wipLimits.centerLine}
-                          stroke="var(--sub)"
-                          strokeDasharray="2 4"
-                          label={{
-                            value: `X̄ ${wipLimits.centerLine.toFixed(1)}`,
-                            fill: "var(--sub)",
-                            fontSize: 10,
-                            position: "right",
-                          }}
-                        />
-                        <ReferenceLine
-                          y={wipLimits.ucl}
-                          stroke="#ef4444"
-                          strokeDasharray="4 2"
-                          label={{
-                            value: `UCL ${wipLimits.ucl.toFixed(1)}`,
-                            fill: "#ef4444",
-                            fontSize: 10,
-                            position: "right",
-                          }}
-                        />
-                        <ReferenceLine
-                          y={wipLimits.lcl}
-                          stroke="#ef4444"
-                          strokeDasharray="4 2"
-                          label={{
-                            value: `LCL ${wipLimits.lcl.toFixed(1)}`,
-                            fill: "#ef4444",
-                            fontSize: 10,
-                            position: "right",
-                          }}
-                        />
-                      </>
-                    )}
-                    {wipCusumAnnotations.map((a, i) => (
-                      <CausalLine key={i} annotation={a} />
-                    ))}
-                    {/* Western Electric out-of-control markers — small red
-                        dots at the offending sample. Hover hint via the SVG
-                        title shows which rule fired. */}
-                    {wipSignals.map((sig) => {
-                      const point = wipSeries[sig.index];
-                      if (!point) return null;
-                      return (
-                        <ReferenceDot
-                          key={`we-${sig.index}-${sig.rule}`}
-                          x={point.date}
-                          y={point.value}
-                          r={4}
-                          fill="var(--destructive)"
-                          stroke="var(--destructive)"
-                          ifOverflow="extendDomain"
-                        >
-                          <title>{`${sig.rule}: ${sig.description}`}</title>
-                        </ReferenceDot>
-                      );
-                    })}
-                    <Line
-                      type="monotone"
-                      dataKey="value"
-                      stroke="#00f0ff"
-                      strokeWidth={2}
-                      dot={{ r: 3, fill: "#00f0ff" }}
-                      activeDot={{ r: 5 }}
-                      name="WIP"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
+          <WipControlChart
+            wipSeries={wipSeries}
+            wipLimits={wipLimits}
+            cusumAnnotations={wipCusumAnnotations}
+            signals={wipSignals}
+          />
         )}
 
         {/* ---- WIP Limit ---- */}
@@ -906,112 +478,15 @@ export function CFDClient() {
         </Card>
 
         {/* ---- Data Entry Table ---- */}
-        <Card className="bg-surface border-border">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2 text-base font-display text-text">
-                <BarChart2 className="w-4 h-4 text-accent" />
-                Data Entries
-              </CardTitle>
-              <Button size="sm" variant="toolkit" onClick={addEntry} className="gap-1.5">
-                <Plus className="w-4 h-4" />
-                Add Date
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {entries.length === 0 ? (
-              <p className="text-sm text-sub text-center py-6">
-                No entries yet. Click &ldquo;Add Date&rdquo; to start tracking.
-              </p>
-            ) : (
-              <div className="table-wrap-responsive">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-2 pr-4 text-xs text-sub font-medium uppercase tracking-wider">
-                        Date
-                      </th>
-                      {columns.map((col) => (
-                        <th
-                          key={col.id}
-                          className="text-center py-2 px-3 text-xs font-medium uppercase tracking-wider whitespace-nowrap"
-                          style={{ color: col.color }}
-                        >
-                          {col.name}
-                        </th>
-                      ))}
-                      <th className="text-left py-2 px-3 text-xs text-sub font-medium uppercase tracking-wider whitespace-nowrap">
-                        Note
-                      </th>
-                      <th className="w-8" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedEntries.map((entry) => (
-                      <tr key={entry.id} className="border-b border-border hover:bg-card">
-                        <td className="py-2 pr-4">
-                          <Input
-                            type="date"
-                            value={entry.date}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              // Reject blank — date is required for chart x-axis.
-                              if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
-                                updateEntry(entry.id, { date: v });
-                              }
-                            }}
-                            className="h-8 w-36 bg-surface-deep border-border text-text text-sm focus:border-accent/50"
-                            aria-label="Snapshot date"
-                          />
-                        </td>
-                        {columns.map((col) => (
-                          <td key={col.id} className="py-2 px-3 text-center">
-                            <Input
-                              type="number"
-                              min={0}
-                              value={entry.counts[col.id] ?? 0}
-                              onChange={(e) => {
-                                const n = Number(e.target.value);
-                                if (Number.isFinite(n)) {
-                                  updateEntryCount(entry.id, col.id, Math.max(0, n));
-                                }
-                              }}
-                              className="h-8 w-20 mx-auto bg-surface-deep border-border text-text font-data text-center focus:border-accent/50"
-                            />
-                          </td>
-                        ))}
-                        {/* Compact single-line note input — dense table row. */}
-                        <td className="py-2 px-3">
-                          <BlurInput
-                            placeholder="Optional note..."
-                            value={entry.description ?? ""}
-                            onCommit={(v) =>
-                              updateEntry(entry.id, {
-                                description: v.trim() ? v : undefined,
-                              })
-                            }
-                            className="h-8 min-w-[140px] bg-surface-deep border-border text-text text-xs focus:border-accent/50"
-                            aria-label={`Note for ${entry.date}`}
-                          />
-                        </td>
-                        <td className="py-2">
-                          <button
-                            onClick={() => removeEntry(entry.id)}
-                            aria-label={`Remove snapshot for ${entry.date}`}
-                            className="text-sub hover:text-red-400 transition-colors p-1"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <DataEntryTable
+          sortedEntries={sortedEntries}
+          columns={columns}
+          hasEntries={entries.length > 0}
+          onUpdateEntry={updateEntry}
+          onUpdateCount={updateEntryCount}
+          onRemoveEntry={removeEntry}
+          onAddEntry={addEntry}
+        />
       </div>
     </ToolPageWrapper>
   );
