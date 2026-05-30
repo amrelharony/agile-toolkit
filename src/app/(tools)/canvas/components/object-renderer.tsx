@@ -18,18 +18,15 @@ import type {
 } from "@/lib/stores/workspace-types";
 import { MindMapNode } from "./objects/mind-map-node";
 import { DiagramShape } from "./objects/diagram-shape";
-import { flatPointsToPath } from "@/lib/whiteboard/freehand";
-import {
-  safeImageSrc,
-  iframeSandboxFor,
-  embedIframeUrl,
-  arrowheadPoints,
-} from "../lib/object-render-utils";
-import { LockBadge } from "./objects/object-render-primitives";
 import { StickyObject } from "./objects/sticky-object";
 import { ShapeObject } from "./objects/shape-object";
 import { TextObject } from "./objects/text-object";
 import { FrameObject } from "./objects/frame-object";
+import { LineObject } from "./objects/line-object";
+import { FreehandObject } from "./objects/freehand-object";
+import { ImageObject } from "./objects/image-object";
+import { EmbedObject } from "./objects/embed-object";
+import { KanbanObject } from "./objects/kanban-object";
 
 /**
  * Render a rich-text content string for read-only display. Sanitizes
@@ -97,9 +94,6 @@ function ObjectRendererImpl({
   mindMapHasChildrenSet,
 }: ObjectRendererProps) {
   const handle = (e: React.PointerEvent) => onPointerDown?.(e, o.id);
-  const selectionStyle = selected
-    ? { boxShadow: "0 0 0 2px #00f0ff, 0 0 12px rgba(0,240,255,0.4)" }
-    : undefined;
 
   switch (o.type) {
     case "sticky":
@@ -155,266 +149,17 @@ function ObjectRendererImpl({
       );
 
     case "line":
-    case "arrow": {
-      // World coords: (x, y) start; (x+w, y+h) end. We render into a
-      // bounding-box SVG and align with absolute positioning.
-      const minX = Math.min(0, o.w);
-      const minY = Math.min(0, o.h);
-      const w = Math.abs(o.w);
-      const h = Math.abs(o.h);
-      const sx = -minX;
-      const sy = -minY;
-      const ex = sx + o.w;
-      const ey = sy + o.h;
-      return (
-        <div
-          onPointerDown={handle}
-          data-canvas-object-kind={o.type}
-          style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            transform: `translate3d(${o.x + minX}px, ${o.y + minY}px, 0)`,
-            width: w || 1,
-            height: h || 1,
-            cursor: o.locked ? "default" : "move",
-            zIndex: o.z,
-            opacity: o.locked ? 0.85 : 1,
-            ...selectionStyle,
-          }}
-        >
-          <svg width="100%" height="100%" overflow="visible">
-            <line
-              x1={sx}
-              y1={sy}
-              x2={ex}
-              y2={ey}
-              stroke={o.stroke}
-              strokeWidth={o.strokeWidth}
-              strokeDasharray={o.dashed ? "6 4" : undefined}
-            />
-            {o.type === "arrow" && (
-              <polygon
-                points={arrowheadPoints(
-                  { x: ex, y: ey },
-                  { x: o.w, y: o.h },
-                  Math.max(8, o.strokeWidth * 3)
-                )}
-                fill={o.stroke}
-              />
-            )}
-          </svg>
-          {o.locked && <LockBadge z={o.z} />}
-        </div>
-      );
-    }
+    case "arrow":
+      return <LineObject object={o} selected={selected} onPointerDown={onPointerDown} />;
 
-    case "freehand": {
-      // We draw freehand objects as their own SVG path inside a div that
-      // covers the object's bbox in world coords. Points are world-coords;
-      // shift them into the local svg coord system. Strokes without a
-      // `pressures` array (legacy / mouse / non-pressure touch) render
-      // as a polyline; strokes WITH `pressures` (stylus) go through
-      // perfect-freehand so the contour tapers with pen pressure.
-      const { points } = o;
-      if (points.length < 4) return null;
-      const pressures = o.pressures;
-      const hasPressures = Array.isArray(pressures) && pressures.length === points.length / 2;
+    case "freehand":
+      return <FreehandObject object={o} selected={selected} onPointerDown={onPointerDown} />;
 
-      let svgInner: React.ReactNode;
-      if (hasPressures) {
-        // Interleave the parallel pressures with x,y pairs to feed
-        // perfect-freehand's stride-3 expectation, translating into the
-        // object's local coord system in the same pass.
-        const local: number[] = [];
-        for (let i = 0, p = 0; i + 1 < points.length; i += 2, p += 1) {
-          local.push(points[i] - o.x, points[i + 1] - o.y, pressures![p]);
-        }
-        // perfect-freehand's `size` is the width at default pressure 0.5
-        // (with default thinning 0.5). So `size = strokeWidth` produces a
-        // committed path whose mid-pressure visual width matches the
-        // existing strokeWidth polyline — no jump on pointer-up.
-        const d = flatPointsToPath(local, { size: o.strokeWidth }, true);
-        svgInner = <path d={d} fill={o.stroke} stroke="none" />;
-      } else {
-        const d = points
-          .map((v, i) => (i % 2 === 0 ? `${i === 0 ? "M" : "L"}${v - o.x}` : ` ${v - o.y}`))
-          .join("");
-        svgInner = (
-          <path
-            d={d}
-            fill="none"
-            stroke={o.stroke}
-            strokeWidth={o.strokeWidth}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        );
-      }
+    case "image":
+      return <ImageObject object={o} selected={selected} onPointerDown={onPointerDown} />;
 
-      return (
-        <div
-          onPointerDown={handle}
-          data-canvas-object-kind="freehand"
-          style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            transform: `translate3d(${o.x}px, ${o.y}px, 0)`,
-            width: o.w || 1,
-            height: o.h || 1,
-            cursor: o.locked ? "default" : "move",
-            zIndex: o.z,
-            opacity: o.locked ? 0.85 : 1,
-            ...selectionStyle,
-          }}
-        >
-          <svg width="100%" height="100%" overflow="visible">
-            {svgInner}
-          </svg>
-          {o.locked && <LockBadge z={o.z} />}
-        </div>
-      );
-    }
-
-    case "image": {
-      // SECURITY: o.src is user-controlled (paste, cross-tool import,
-      // realtime patch). Block anything outside the http(s)/data:image
-      // whitelist. Modern browsers don't fire JS from `<img src>` for
-      // javascript: URLs, but stripping defensively guards against
-      // future renderer changes (iframe/object) reusing this code path.
-      const safeSrc = safeImageSrc(o.src);
-      return (
-        <div
-          onPointerDown={handle}
-          data-canvas-object-kind="image"
-          style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            transform: `translate3d(${o.x}px, ${o.y}px, 0)${o.rotation ? ` rotate(${o.rotation}deg)` : ""}`,
-            width: o.w,
-            height: o.h,
-            cursor: o.locked ? "default" : "move",
-            zIndex: o.z,
-            opacity: o.locked ? 0.85 : 1,
-            ...selectionStyle,
-          }}
-        >
-          <img
-            src={safeSrc}
-            alt={o.alt ?? ""}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: o.fit === "cover" ? "cover" : "contain",
-              display: "block",
-              pointerEvents: "none",
-            }}
-            draggable={false}
-          />
-          {o.locked && <LockBadge z={o.z} />}
-        </div>
-      );
-    }
-
-    case "embed": {
-      const iframeSrc = embedIframeUrl(o.src ?? "", o.kind);
-      // Compute per-host sandbox tier from the resolved iframe src
-      // (NOT the user-typed URL) — embedIframeUrl already normalises
-      // figma.com / youtube.com / loom.com to known embed endpoints,
-      // so we read the host off the result for accurate routing.
-      let iframeHost = "";
-      if (iframeSrc) {
-        try {
-          iframeHost = new URL(iframeSrc).hostname;
-        } catch {
-          iframeHost = "";
-        }
-      }
-      const sandboxAttr = iframeSandboxFor(iframeHost);
-      return (
-        <div
-          onPointerDown={handle}
-          data-canvas-object-kind="embed"
-          style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            transform: `translate3d(${o.x}px, ${o.y}px, 0)`,
-            width: o.w,
-            height: o.h,
-            background: "#1e293b",
-            border: "1px solid #475569",
-            color: "#94a3b8",
-            fontSize: 12,
-            cursor: o.locked ? "default" : "move",
-            zIndex: o.z,
-            opacity: o.locked ? 0.85 : 1,
-            overflow: "hidden",
-            ...selectionStyle,
-          }}
-        >
-          {iframeSrc ? (
-            <>
-              <iframe
-                src={iframeSrc}
-                title={`${o.kind} embed`}
-                // SECURITY: sandbox tier is resolved per-host via
-                // `iframeSandboxFor`. Most hosts (YouTube, Google Docs,
-                // generic embeds) get the strict tier. Figma + Loom
-                // need `allow-same-origin` to retain signed-in state;
-                // since those hosts run in their OWN third-party
-                // origin, the spec's "scripts + same-origin from the
-                // SAME origin lets the iframe drop its sandbox"
-                // footgun does NOT apply.
-                sandbox={sandboxAttr}
-                allow="autoplay; fullscreen; picture-in-picture"
-                referrerPolicy="no-referrer"
-                loading="lazy"
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  border: "none",
-                  // Block pointer events when locked or when this is
-                  // not the selected object — otherwise the iframe
-                  // steals every drag attempt.
-                  pointerEvents: selected ? "auto" : "none",
-                }}
-              />
-              {/* Click-shield overlay when not selected so the user
-                  can still drag/select the embed via its outer div
-                  without iframe-captured pointers. */}
-              {!selected && (
-                <div
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    cursor: o.locked ? "default" : "move",
-                  }}
-                />
-              )}
-            </>
-          ) : (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: "100%",
-                height: "100%",
-                padding: 8,
-                textAlign: "center",
-              }}
-            >
-              {o.kind}: {(o.src ?? "").slice(0, 60) || "(no source)"}
-            </div>
-          )}
-          {o.locked && <LockBadge z={o.z} />}
-        </div>
-      );
-    }
+    case "embed":
+      return <EmbedObject object={o} selected={selected} onPointerDown={onPointerDown} />;
 
     case "timer":
       return (
@@ -495,78 +240,7 @@ function ObjectRendererImpl({
       );
 
     case "kanban":
-      // Kanban frames render like Frame but with column dividers; we
-      // reuse the existing frame logic by short-circuiting here.
-      return (
-        <div
-          data-canvas-object-kind="kanban"
-          onPointerDown={handle}
-          style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            transform: `translate3d(${o.x}px, ${o.y}px, 0)`,
-            width: o.w,
-            height: o.h,
-            border: "1.5px dashed #60a5fa",
-            borderRadius: 8,
-            background: "rgba(96, 165, 250, 0.05)",
-            zIndex: o.z,
-            opacity: o.locked ? 0.85 : 1,
-            ...selectionStyle,
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              top: -22,
-              left: 6,
-              fontSize: 12,
-              color: "#60a5fa",
-              fontFamily: "ui-sans-serif, system-ui, sans-serif",
-              background: "#0b0f17",
-              padding: "1px 6px",
-              borderRadius: 3,
-            }}
-          >
-            ▣ {o.label}
-          </div>
-          {/* Column dividers — visual cue for users to drop cards into. */}
-          {o.columns.map((_col, i) => (
-            <React.Fragment key={i}>
-              {i > 0 && (
-                <div
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    left: (i / o.columns.length) * o.w,
-                    top: 0,
-                    width: 1,
-                    height: o.h,
-                    background: "rgba(96, 165, 250, 0.3)",
-                  }}
-                />
-              )}
-              <div
-                style={{
-                  position: "absolute",
-                  left: (i / o.columns.length) * o.w + 6,
-                  top: 8,
-                  fontSize: 10,
-                  color: "#60a5fa",
-                  fontFamily: "ui-sans-serif, system-ui, sans-serif",
-                  textTransform: "uppercase",
-                  letterSpacing: 0.5,
-                  pointerEvents: "none",
-                }}
-              >
-                {(o.columnLabels?.[i] ?? o.columns[i]).replace(/_/g, " ")}
-              </div>
-            </React.Fragment>
-          ))}
-          {o.locked && <LockBadge z={o.z} />}
-        </div>
-      );
+      return <KanbanObject object={o} selected={selected} onPointerDown={onPointerDown} />;
 
     default:
       // `connector` is rendered separately in a single SVG layer covering
