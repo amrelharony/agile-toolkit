@@ -55,3 +55,6 @@ next-env.d.ts
 # supabase CLI scratch dir (link state, edge functions, etc.)
 /supabase/.temp/
 /supabase/.branches/
+
+# one-off deep-test audit workflow scratch (kept locally, not part of the app)
+/audit-pass2.workflow.mjs
