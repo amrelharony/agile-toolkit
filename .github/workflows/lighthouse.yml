@@ -1,0 +1,54 @@
+name: Lighthouse
+
+# Captures Lighthouse baselines for the PUBLIC routes (the auth-walled tool
+# routes need an authenticated run, which this workflow does NOT do — see
+# lighthouserc.json + docs/LIGHTHOUSE.md). Runs on PRs and on demand; the
+# assertions in lighthouserc.json are warnings, so this reports scores without
+# failing the build until the baselines are tightened to errors.
+
+on:
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+concurrency:
+  group: lighthouse-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lhci:
+    name: Lighthouse CI (public routes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+        env:
+          # Same harmless placeholders as ci.yml — no real network calls.
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder.placeholder
+          AUTHORIZED_EMAILS: ci-placeholder@example.com
+
+      - name: Lighthouse CI
+        # lhci `autorun` boots `next start` (per lighthouserc.json's
+        # startServerCommand), collects 3 runs against the public routes,
+        # asserts the budgets, and uploads the report to temporary public
+        # storage (the run log prints the report URL).
+        run: npx --yes @lhci/cli@0.14.x autorun
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder.placeholder
+          AUTHORIZED_EMAILS: ci-placeholder@example.com
