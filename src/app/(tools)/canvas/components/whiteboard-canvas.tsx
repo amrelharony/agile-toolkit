@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import { rafThrottle } from "@/lib/utils/throttle";
@@ -24,7 +24,6 @@ import { PresentationMode } from "./presentation-mode";
 import { extractImageFiles } from "@/lib/whiteboard/image-import";
 import { extractPdfFiles } from "@/lib/whiteboard/pdf-import";
 import { ChatComposer } from "./chat-composer";
-import { AlignmentGuides } from "./alignment-guides";
 import { ClusterOverlay } from "./cluster-overlay";
 import { CommentPins } from "./comment-pins";
 import { clusterObjects } from "@/lib/whiteboard/cluster-bridge";
@@ -39,6 +38,8 @@ import {
   EmptyCanvasHint,
 } from "./canvas-overlays";
 import { CanvasWorldLayer } from "./canvas-world-layer";
+import { GridBackground } from "./grid-background";
+import { DragGuidesLayer } from "./drag-guides-layer";
 import { CanvasModals } from "./canvas-modals";
 import { useRemoteFocusReceiver } from "../hooks/use-remote-focus-receiver";
 import { useViewportSize } from "../hooks/use-viewport-size";
@@ -87,12 +88,6 @@ interface WhiteboardCanvasProps {
   isGuest?: boolean;
 }
 
-// Returns a fresh z that is strictly greater than every current object's z
-// so newly-created objects always land on top of existing ones. Computed
-// per-call from the live object list — the previous module-level counter
-// reset to 1 on every page reload, sandwiching new objects UNDER existing
-// ones with z > 2.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 /**
  * The whiteboard viewport.
  *
@@ -1425,61 +1420,3 @@ export function WhiteboardCanvas({
     </div>
   );
 }
-
-/* ─── Background grid ───────────────────────────────────────────────── */
-
-// Wrapped in React.memo so the grid only re-renders when camera or
-// viewport size *content* changes — not just because the parent
-// WhiteboardCanvas re-rendered (e.g. on a selection change). The grid
-// is cheap but the inline style object is large; saving the reconcile
-// is worth the memo.
-const GridBackground = memo(function GridBackgroundImpl({
-  camera,
-  viewportSize,
-}: {
-  camera: { x: number; y: number; zoom: number };
-  viewportSize: { w: number; h: number };
-}) {
-  // Major + minor grid, sized to current zoom. We draw via a CSS background
-  // so it's free in terms of React reconciliation cost.
-  const minor = 20 * camera.zoom;
-  const major = minor * 5;
-  const offsetX = (-camera.x * camera.zoom) % major;
-  const offsetY = (-camera.y * camera.zoom) % major;
-  if (viewportSize.w === 0) return null;
-  return (
-    <div
-      aria-hidden="true"
-      style={{
-        position: "absolute",
-        inset: 0,
-        pointerEvents: "none",
-        backgroundImage: `
-          linear-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(148, 163, 184, 0.06) 1px, transparent 1px),
-          linear-gradient(rgba(148, 163, 184, 0.12) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(148, 163, 184, 0.12) 1px, transparent 1px)
-        `,
-        backgroundSize: `${minor}px ${minor}px, ${minor}px ${minor}px, ${major}px ${major}px, ${major}px ${major}px`,
-        backgroundPosition: `${offsetX}px ${offsetY}px, ${offsetX}px ${offsetY}px, ${offsetX}px ${offsetY}px, ${offsetX}px ${offsetY}px`,
-      }}
-    />
-  );
-});
-
-/* ─── Alignment guides layer ─────────────────────────────────────────── */
-
-// Owns its own `dragGuides` subscription so the parent
-// WhiteboardCanvas doesn't re-render on every guide update during a
-// drag (~60 Hz). Only the SVG re-renders. Memoised on `camera` so a
-// parent re-render that didn't change the camera doesn't paint this
-// either.
-const DragGuidesLayer = memo(function DragGuidesLayerImpl({
-  camera,
-}: {
-  camera: { x: number; y: number; zoom: number };
-}) {
-  const dragGuides = useCanvasStore((s) => s.dragGuides);
-  if (dragGuides.length === 0) return null;
-  return <AlignmentGuides guides={dragGuides} camera={camera} />;
-});
