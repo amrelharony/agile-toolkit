@@ -18,21 +18,18 @@ import type {
 } from "@/lib/stores/workspace-types";
 import { MindMapNode } from "./objects/mind-map-node";
 import { DiagramShape } from "./objects/diagram-shape";
-import { TiptapInlineEditor } from "./tiptap-inline-editor";
 import { flatPointsToPath } from "@/lib/whiteboard/freehand";
 import {
-  isRichHtml,
   safeImageSrc,
   iframeSandboxFor,
   embedIframeUrl,
   arrowheadPoints,
 } from "../lib/object-render-utils";
-import {
-  RichContent,
-  InlineEditor,
-  LockBadge,
-  FramePresenterNotesAffordance,
-} from "./objects/object-render-primitives";
+import { LockBadge } from "./objects/object-render-primitives";
+import { StickyObject } from "./objects/sticky-object";
+import { ShapeObject } from "./objects/shape-object";
+import { TextObject } from "./objects/text-object";
+import { FrameObject } from "./objects/frame-object";
 
 /**
  * Render a rich-text content string for read-only display. Sanitizes
@@ -100,334 +97,61 @@ function ObjectRendererImpl({
   mindMapHasChildrenSet,
 }: ObjectRendererProps) {
   const handle = (e: React.PointerEvent) => onPointerDown?.(e, o.id);
-  const dblClick = () => onDoubleClick?.(o.id);
-  const commitEdit = (text: string) => onCommitEdit?.(o.id, text);
   const selectionStyle = selected
     ? { boxShadow: "0 0 0 2px #00f0ff, 0 0 12px rgba(0,240,255,0.4)" }
     : undefined;
 
   switch (o.type) {
-    case "sticky": {
-      // Sticky font scales with the SHORTER dimension so a tall-thin
-      // sticky still fits text horizontally and a stretched-wide sticky
-      // still keeps text vertically. Floor 16 (smallest legible body
-      // text), ceiling 64 (huge stickies read like posters — a 500×400
-      // sticky should have giant text, not tiny chrome-sized text).
-      // Divisor 7 keeps the scaling visually pleasant:
-      //
-      //   80×60 (thumbnail) → 60/7=8 → floor 16
-      //   200×160 (default) → 160/7=22 → 22 px
-      //   400×300           → 300/7=42 → 42 px
-      //   600×500           → 500/7=71 → ceiling 64
-      //
-      // Respects an explicitly-set `fontSize` if the user has
-      // customised it via the property panel — only the auto-default
-      // case is scaled.
-      const stickyFontSize =
-        o.fontSize ?? Math.max(16, Math.min(64, Math.floor(Math.min(o.w, o.h) / 7)));
+    case "sticky":
       return (
-        <div
-          data-canvas-object-kind="sticky"
-          onPointerDown={editing ? undefined : handle}
-          onDoubleClick={dblClick}
-          style={{
-            position: "absolute",
-            // `transform: translate3d` instead of left/top so the browser
-            // promotes each object to its own GPU layer; left/top mutations
-            // trigger layout, transform mutations only compositor work. At
-            // 500 objects with frequent drags this is the difference
-            // between a steady 60 fps and a stuttering 20 fps.
-            left: 0,
-            top: 0,
-            transform: `translate3d(${o.x}px, ${o.y}px, 0)${o.rotation ? ` rotate(${o.rotation}deg)` : ""}`,
-            width: o.w,
-            height: o.h,
-            background: o.color,
-            color: o.textColor ?? "#0b0f17",
-            padding: 10,
-            boxSizing: "border-box",
-            borderRadius: 6,
-            fontSize: stickyFontSize,
-            lineHeight: 1.2,
-            fontFamily: o.fontFamily ?? "ui-sans-serif, system-ui, sans-serif",
-            whiteSpace: "pre-wrap",
-            wordWrap: "break-word",
-            cursor: editing ? "text" : o.locked ? "default" : "move",
-            userSelect: editing ? "text" : "none",
-            boxShadow: selected ? selectionStyle?.boxShadow : "0 1px 3px rgba(0,0,0,0.3)",
-            zIndex: o.z,
-            opacity: o.locked ? 0.85 : 1,
-          }}
-        >
-          {editing ? (
-            <TiptapInlineEditor
-              initialText={o.content}
-              onCommit={commitEdit}
-              background="transparent"
-              color={o.textColor ?? "#0b0f17"}
-              fontSize={stickyFontSize}
-            />
-          ) : isRichHtml(o.content) ? (
-            <RichContent html={o.content} />
-          ) : (
-            o.content || <span style={{ opacity: 0.4 }}>Sticky note</span>
-          )}
-          {o.locked && !editing && <LockBadge z={o.z} />}
-        </div>
+        <StickyObject
+          object={o}
+          selected={selected}
+          editing={editing}
+          onPointerDown={onPointerDown}
+          onDoubleClick={onDoubleClick}
+          onCommitEdit={onCommitEdit}
+        />
       );
-    }
 
     case "rect":
     case "ellipse":
     case "diamond":
-    case "triangle": {
-      const fill = o.fill ?? "transparent";
-      const stroke = o.stroke ?? "#94a3b8";
-      const strokeWidth = o.strokeWidth ?? 1.5;
-      const strokeDasharray = o.dashed ? "6 4" : undefined;
-      let shape: React.ReactNode = null;
-      if (o.type === "rect") {
-        shape = (
-          <rect
-            x={strokeWidth / 2}
-            y={strokeWidth / 2}
-            width={o.w - strokeWidth}
-            height={o.h - strokeWidth}
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={strokeWidth}
-            strokeDasharray={strokeDasharray}
-            rx={4}
-          />
-        );
-      } else if (o.type === "ellipse") {
-        shape = (
-          <ellipse
-            cx={o.w / 2}
-            cy={o.h / 2}
-            rx={Math.max(0, o.w / 2 - strokeWidth / 2)}
-            ry={Math.max(0, o.h / 2 - strokeWidth / 2)}
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={strokeWidth}
-            strokeDasharray={strokeDasharray}
-          />
-        );
-      } else if (o.type === "diamond") {
-        shape = (
-          <polygon
-            points={`${o.w / 2},0 ${o.w},${o.h / 2} ${o.w / 2},${o.h} 0,${o.h / 2}`}
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={strokeWidth}
-            strokeDasharray={strokeDasharray}
-          />
-        );
-      } else {
-        shape = (
-          <polygon
-            points={`${o.w / 2},0 ${o.w},${o.h} 0,${o.h}`}
-            fill={fill}
-            stroke={stroke}
-            strokeWidth={strokeWidth}
-            strokeDasharray={strokeDasharray}
-          />
-        );
-      }
+    case "triangle":
       return (
-        <div
-          data-canvas-object-kind={o.type}
-          onPointerDown={editing ? undefined : handle}
-          onDoubleClick={dblClick}
-          style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            transform: `translate3d(${o.x}px, ${o.y}px, 0)${o.rotation ? ` rotate(${o.rotation}deg)` : ""}`,
-            width: o.w,
-            height: o.h,
-            cursor: editing ? "text" : o.locked ? "default" : "move",
-            opacity: o.locked ? 0.85 : 1,
-            ...selectionStyle,
-            zIndex: o.z,
-          }}
-        >
-          <svg width={o.w} height={o.h} style={{ display: "block" }}>
-            {shape}
-          </svg>
-          {/* Shape font scales with the smaller dimension. Floor 16
-              (matches sticky body text — smallest legible content) and
-              ceiling 64 (matches sticky — a huge shape gets poster-
-              sized text, not chrome-sized). Divisor 7 keeps the ramp
-              the same shape as sticky:
-                  80×60 thumbnail → 16 px floor
-                  160×120 default → 17 px
-                  400×300         → 42 px
-                  600×500+        → 64 px ceiling
-              Previously this was floor 14 / ceiling 32, which made
-              shape text noticeably smaller than sticky text on
-              identically-sized objects — inconsistent across types. */}
-          {(() => {
-            const shapeFontSize = Math.max(16, Math.min(64, Math.floor(Math.min(o.w, o.h) / 7)));
-            return editing ? (
-              <InlineEditor
-                initialText={o.content ?? ""}
-                onCommit={commitEdit}
-                color="#e5e7eb"
-                fontSize={shapeFontSize}
-                align="center"
-                padding={8}
-              />
-            ) : (
-              o.content && (
-                <div
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#e5e7eb",
-                    fontSize: shapeFontSize,
-                    fontFamily: "ui-sans-serif, system-ui, sans-serif",
-                    textAlign: "center",
-                    padding: 8,
-                    pointerEvents: "none",
-                    lineHeight: 1.2,
-                    wordBreak: "break-word",
-                  }}
-                >
-                  {o.content}
-                </div>
-              )
-            );
-          })()}
-          {o.locked && !editing && <LockBadge z={o.z} />}
-        </div>
+        <ShapeObject
+          object={o}
+          selected={selected}
+          editing={editing}
+          onPointerDown={onPointerDown}
+          onDoubleClick={onDoubleClick}
+          onCommitEdit={onCommitEdit}
+        />
       );
-    }
 
     case "text":
       return (
-        <div
-          data-canvas-object-kind="text"
-          onPointerDown={editing ? undefined : handle}
-          onDoubleClick={dblClick}
-          style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            transform: `translate3d(${o.x}px, ${o.y}px, 0)${o.rotation ? ` rotate(${o.rotation}deg)` : ""}`,
-            width: o.w,
-            minHeight: o.h,
-            color: o.color,
-            fontSize: o.fontSize,
-            fontWeight: o.fontWeight ?? 400,
-            textAlign: o.align ?? "left",
-            cursor: editing ? "text" : o.locked ? "default" : "move",
-            opacity: o.locked ? 0.85 : 1,
-            userSelect: editing ? "text" : "none",
-            fontFamily: o.fontFamily ?? "ui-sans-serif, system-ui, sans-serif",
-            whiteSpace: "pre-wrap",
-            wordWrap: "break-word",
-            ...selectionStyle,
-            zIndex: o.z,
-          }}
-        >
-          {editing ? (
-            <TiptapInlineEditor
-              initialText={o.content}
-              onCommit={commitEdit}
-              color={o.color}
-              fontSize={o.fontSize}
-              fontWeight={o.fontWeight ?? 400}
-              align={o.align ?? "left"}
-              padding={0}
-            />
-          ) : isRichHtml(o.content) ? (
-            <RichContent html={o.content} />
-          ) : (
-            o.content || <span style={{ opacity: 0.4 }}>Text</span>
-          )}
-          {o.locked && !editing && <LockBadge z={o.z} />}
-        </div>
+        <TextObject
+          object={o}
+          selected={selected}
+          editing={editing}
+          onPointerDown={onPointerDown}
+          onDoubleClick={onDoubleClick}
+          onCommitEdit={onCommitEdit}
+        />
       );
 
     case "frame":
       return (
-        <div
-          data-canvas-object-kind="frame"
-          onPointerDown={editing ? undefined : handle}
-          onDoubleClick={dblClick}
-          style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            transform: `translate3d(${o.x}px, ${o.y}px, 0)${o.rotation ? ` rotate(${o.rotation}deg)` : ""}`,
-            width: o.w,
-            height: o.h,
-            border: "1px dashed #475569",
-            borderRadius: 8,
-            background: o.fill ?? "transparent",
-            zIndex: o.z,
-            pointerEvents: "auto",
-            cursor: editing ? "text" : o.locked ? "default" : "move",
-            opacity: o.locked ? 0.85 : 1,
-            ...selectionStyle,
-          }}
-        >
-          {/* Label tab above the frame. Bumped from 12 → 14 px so it's
-              readable at a normal zoom level — the prior size matched
-              the toolbar font, blurring the line between frame chrome
-              and frame content. Double-click swaps the static label
-              for an InlineEditor; onCommitEdit routes the new text
-              into `frame.label` via the type-aware commit handler in
-              whiteboard-canvas.tsx. */}
-          <div
-            style={{
-              position: "absolute",
-              top: -26,
-              left: 6,
-              fontSize: 14,
-              fontWeight: 600,
-              color: "#cbd5e1",
-              fontFamily: "ui-sans-serif, system-ui, sans-serif",
-              background: "#0b0f17",
-              padding: "2px 8px",
-              borderRadius: 4,
-              minWidth: 60,
-              minHeight: 20,
-              display: "flex",
-              alignItems: "center",
-            }}
-            // Stop drag from starting when the user clicks the label tab
-            // to enter edit mode.
-            onPointerDown={editing ? (e) => e.stopPropagation() : undefined}
-          >
-            {editing ? (
-              <InlineEditor
-                initialText={o.label ?? ""}
-                onCommit={commitEdit}
-                background="transparent"
-                color="#e5e7eb"
-                fontSize={14}
-                fontWeight={600}
-                padding={0}
-              />
-            ) : (
-              o.label || <span style={{ opacity: 0.5 }}>Frame</span>
-            )}
-          </div>
-          {o.locked && !editing && <LockBadge z={o.z} />}
-          {selected && !editing && onMutate && (
-            <FramePresenterNotesAffordance
-              notes={o.presenterNotes ?? ""}
-              onCommit={(text) =>
-                onMutate(o.id, { presenterNotes: text } as Partial<WhiteboardObject>)
-              }
-            />
-          )}
-        </div>
+        <FrameObject
+          object={o}
+          selected={selected}
+          editing={editing}
+          onPointerDown={onPointerDown}
+          onDoubleClick={onDoubleClick}
+          onCommitEdit={onCommitEdit}
+          onMutate={onMutate}
+        />
       );
 
     case "line":
