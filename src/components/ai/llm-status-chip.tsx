@@ -3,7 +3,10 @@
 import { Sparkles, SparklesIcon } from "lucide-react";
 import { useMounted } from "@/hooks/use-mounted";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
+import { useAgentBackend } from "@/lib/agent/use-agent-backend";
 import { cn } from "@/lib/utils";
+
+const SERVER_PROVIDER_NAME: Record<string, string> = { openclaw: "OpenClaw", glm: "GLM" };
 
 /**
  * Header status chip mirroring `SonificationToggle` ergonomics — same
@@ -18,12 +21,28 @@ import { cn } from "@/lib/utils";
  */
 export function LlmStatusChip() {
   const mounted = useMounted();
-  const { isReady, providerName, model, openSettings } = useActiveLlm();
+  const byok = useActiveLlm();
+  const backend = useAgentBackend();
+
+  // The agent is "on" when either a BYOK key is configured OR the server has a
+  // backend (OpenClaw/GLM). BYOK takes precedence in the label since it's the
+  // user's explicit override.
+  const serverActive = backend?.mode === "server";
+  const isReady = byok.isReady || serverActive;
+  const providerName = byok.isReady
+    ? byok.providerName
+    : serverActive
+      ? (SERVER_PROVIDER_NAME[backend?.provider ?? ""] ?? "Server")
+      : null;
+  const model = byok.isReady ? byok.model : serverActive ? backend?.model : null;
+  const openSettings = byok.openSettings;
 
   const tooltip = !mounted
     ? undefined
     : isReady
-      ? `AI: ${providerName}${model ? ` (${model})` : ""} — click to manage`
+      ? `AI: ${providerName}${model ? ` (${model})` : ""}${
+          !byok.isReady && serverActive ? " (server-side)" : ""
+        } — click to manage`
       : "AI: Off — click to configure your own API key";
 
   return (
