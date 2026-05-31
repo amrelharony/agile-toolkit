@@ -2,21 +2,23 @@
 
 /**
  * 3D mascot — React/Three.js port of the vanilla mascot (Personal Website
- * Js/mascot-assistant.js initScene/onModelLoaded/animate).
+ * Js/mascot-assistant.js initScene/onModelLoaded/animate/playAnimation/
+ * runReaction).
  *
- * Phase 2a (this file): scene + lights + GLB + skeletal idle animation, driven
- * imperatively by useMascotStore, with full disposal on unmount (the vanilla
- * version relied on a page reload and leaked the renderer + GPU resources).
+ * Phase 2a: scene + lights + GLB + idle, with full disposal on unmount.
+ * Phase 2b (this revision): the mascot is driven by useMascotStore —
+ *   • `talking` crossfades the base loop between Talking and Idle,
+ *   • the reaction queue plays one-shot clips (Wave/Happy/Confused/Thinking)
+ *     for the source's durations, then returns to base.
  * Talking/blink shaders, mood expressions, and particles land in later phases.
  *
- * Mount lazily (next/dynamic, ssr:false) — it's a ~16MB GLB + WebGL, only worth
- * loading once the agent is opened.
+ * Mount lazily (next/dynamic, ssr:false) — ~16MB GLB + WebGL.
  */
 
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { useMascotStore } from "@/lib/agent/mascot/store";
+import { useMascotStore, type MascotReaction } from "@/lib/agent/mascot/store";
 
 interface Mascot3DProps {
   width?: number;
@@ -26,8 +28,20 @@ interface Mascot3DProps {
   src?: string;
 }
 
-/** Clip names that should loop rather than play once (from the source). */
+/** Clip names that loop rather than play once (from the source). */
 const LOOPING = new Set(["Idle", "Listening", "Talking", "Thinking"]);
+
+/** Reaction → {GLB clip, hold duration in seconds} — mirrors runReaction(). */
+const REACTION: Record<MascotReaction, { clip: string; dur: number }> = {
+  thinking: { clip: "Thinking", dur: 4.2 },
+  excited: { clip: "Happy", dur: 2.0 },
+  nod: { clip: "Happy", dur: 2.0 },
+  headShake: { clip: "Confused", dur: 1.5 },
+  wave: { clip: "Wave", dur: 2.5 },
+  dance: { clip: "Happy", dur: 2.5 },
+  confused: { clip: "Confused", dur: 1.5 },
+  surprised: { clip: "Happy", dur: 1.5 },
+};
 
 export default function Mascot3D({
   width = 160,
@@ -48,6 +62,12 @@ export default function Mascot3D({
     let model: THREE.Object3D | null = null;
     let baseY = 0;
 
+    const actions = new Map<string, THREE.AnimationAction>();
+    let currentName = "";
+    /** Seconds-timestamp the active reaction ends; 0 ⇒ no reaction (base loop). */
+    let reactionEnd = 0;
+    const talkingRef = { current: false };
+
     const scene = new THREE.Scene();
     const clock = new THREE.Clock();
 
@@ -65,8 +85,7 @@ export default function Mascot3D({
         powerPreference: "default",
       });
     } catch {
-      // No WebGL — render nothing rather than crashing the app shell.
-      return;
+      return; // No WebGL — render nothing rather than crashing the shell.
     }
     renderer.setSize(W, H);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -87,6 +106,19 @@ export default function Mascot3D({
     rim.position.set(0, 0.5, -2);
     scene.add(hemi, key, fill, accent, rim);
 
+    /** Crossfade to a clip (no-op if it's already the running clip). */
+    const crossfade = (name: string, fade = 0.3) => {
+      const next = actions.get(name);
+      if (!next) return;
+      if (name === currentName && next.isRunning()) return;
+      next.reset();
+      const cur = actions.get(currentName);
+      if (cur) cur.crossFadeTo(next, fade, true);
+      next.play();
+      currentName = name;
+    };
+    const baseClip = () => (talkingRef.current && actions.has("Talking") ? "Talking" : "Idle");
+
     // ── Load the model ──
     new GLTFLoader().load(
       src,
@@ -95,7 +127,7 @@ export default function Mascot3D({
         model = gltf.scene;
         scene.add(model);
 
-        // Fix GLB materials that export fully metallic with no envMap (→ invisible).
+        // Fix GLB materials exported fully metallic with no envMap (→ invisible).
         model.traverse((child) => {
           const mesh = child as THREE.Mesh;
           if (!mesh.isMesh) return;
@@ -107,7 +139,7 @@ export default function Mascot3D({
           }
         });
 
-        // Auto-center + scale to a stable size (1.4 world units tall).
+        // Auto-center + scale to ~1.4 world units tall.
         const box = new THREE.Box3().setFromObject(model);
         const center = box.getCenter(new THREE.Vector3());
         const size = box.getSize(new THREE.Vector3());
@@ -117,7 +149,6 @@ export default function Mascot3D({
         model.position.y -= box.min.y * scale;
         baseY = model.position.y;
 
-        // Skeletal animations: loop Idle-type clips, play others once.
         if (gltf.animations.length > 0) {
           mixer = new THREE.AnimationMixer(model);
           for (const clip of gltf.animations) {
@@ -128,17 +159,16 @@ export default function Mascot3D({
               action.setLoop(THREE.LoopOnce, 1);
               action.clampWhenFinished = true;
             }
+            actions.set(clip.name, action);
           }
-          // Play Enter (intro) then fall back to Idle on finish; else Idle.
-          const intro = mixer.clipAction(findClip(gltf.animations, "Enter"));
-          const idle = findClip(gltf.animations, "Idle");
-          if (intro && hasClip(gltf.animations, "Enter")) {
-            intro.play();
+          // Intro Enter → base (Idle) on finish; else start on base.
+          if (actions.has("Enter")) {
+            crossfade("Enter", 0);
             mixer.addEventListener("finished", () => {
-              if (idle && mixer) mixer.clipAction(idle).reset().fadeIn(0.4).play();
+              if (reactionEnd === 0) crossfade(baseClip(), 0.4);
             });
-          } else if (idle && mixer) {
-            mixer.clipAction(idle).play();
+          } else {
+            crossfade(baseClip(), 0);
           }
         }
 
@@ -146,9 +176,16 @@ export default function Mascot3D({
       },
       undefined,
       () => {
-        // Load error — leave the scene empty; the chat panel still works.
+        /* load error — leave the scene empty; the chat panel still works. */
       }
     );
+
+    // ── Drive the base loop from the store's `talking` flag ──
+    const unsub = useMascotStore.subscribe((s) => {
+      if (s.talking === talkingRef.current) return;
+      talkingRef.current = s.talking;
+      if (reactionEnd === 0) crossfade(baseClip());
+    });
 
     // ── Render loop ──
     const animate = () => {
@@ -157,8 +194,23 @@ export default function Mascot3D({
       const dt = Math.min(clock.getDelta(), 0.1);
       const t = clock.getElapsedTime();
       if (mixer) mixer.update(dt);
-      // Gentle idle breathing.
-      if (model) model.position.y = baseY + Math.sin(t * 1.6) * 0.012;
+
+      // Reaction timing: end the active one, else start the next queued one.
+      if (reactionEnd > 0) {
+        if (t >= reactionEnd) {
+          reactionEnd = 0;
+          crossfade(baseClip(), 0.3);
+        }
+      } else {
+        const r = useMascotStore.getState().dequeueReaction();
+        if (r) {
+          const { clip, dur } = REACTION[r];
+          crossfade(clip, 0.2);
+          reactionEnd = t + dur;
+        }
+      }
+
+      if (model) model.position.y = baseY + Math.sin(t * 1.6) * 0.012; // breathing
       renderer.render(scene, camera);
     };
     animate();
@@ -179,6 +231,7 @@ export default function Mascot3D({
       disposed = true;
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
+      unsub();
       mixer?.stopAllAction();
       scene.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
@@ -203,12 +256,6 @@ export default function Mascot3D({
   );
 }
 
-function findClip(clips: THREE.AnimationClip[], name: string): THREE.AnimationClip {
-  return clips.find((c) => c.name === name) ?? clips[0];
-}
-function hasClip(clips: THREE.AnimationClip[], name: string): boolean {
-  return clips.some((c) => c.name === name);
-}
 function disposeMaterial(m: THREE.Material): void {
   for (const key of Object.keys(m)) {
     const val = (m as unknown as Record<string, unknown>)[key];
