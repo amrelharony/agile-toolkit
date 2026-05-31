@@ -82,6 +82,52 @@ function moodFor(valence: number, energy: number): MoodName {
   return energy >= 0.6 ? "curious" : energy <= 0.35 ? "serene" : "neutral";
 }
 
+// ── Holographic shader injection (ported from injectShaderAnimations) ──
+// Patches the GLB's MeshStandardMaterial via onBeforeCompile: jaw drops while
+// talking, eyes compress on blink (vertex), and a fresnel rim glow + scanline +
+// emission pulse give the cyan holographic look (fragment). Masks key off the
+// vertex's object-space Y, which is identical for this GLB.
+const VERT_HEADER = `
+uniform float uTalkAmount;
+uniform float uBlinkAmount;
+varying float vScanUV;
+varying vec3 vWorldNormal;
+varying vec3 vWorldPosition;
+`;
+const VERT_TRANSFORM = `{
+  vec3 pos = transformed;
+  float ny = pos.y;
+  float eyeMask = smoothstep(0.55, 0.62, ny) * (1.0 - smoothstep(0.70, 0.78, ny))
+    * smoothstep(-0.25, -0.12, pos.x) * smoothstep(0.12, 0.25, -pos.x) * step(0.0, pos.z);
+  float jawMask = smoothstep(0.38, 0.46, ny) * (1.0 - smoothstep(0.50, 0.56, ny)) * step(0.0, pos.z);
+  pos.y -= eyeMask * uBlinkAmount * 0.02;
+  pos.z *= 1.0 - eyeMask * uBlinkAmount * 0.4;
+  pos.y -= jawMask * uTalkAmount * 0.015;
+  pos.z += jawMask * uTalkAmount * 0.006;
+  vScanUV = (ny + 1.0) * 0.5;
+  transformed = pos;
+  vWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
+  vWorldNormal = normalize((modelMatrix * vec4(objectNormal, 0.0)).xyz);
+}`;
+const FRAG_HEADER = `
+uniform float uScanLine;
+uniform vec3 uFresnelColor;
+uniform float uFresnelPower;
+uniform float uEmissionPulse;
+varying float vScanUV;
+varying vec3 vWorldNormal;
+varying vec3 vWorldPosition;
+`;
+const FRAG_INJECT = `{
+  float scanDist = abs(vScanUV - uScanLine);
+  float scanGlow = smoothstep(0.04, 0.0, scanDist) * 0.12;
+  gl_FragColor.rgb += vec3(0.0, 0.88, 1.0) * scanGlow;
+  vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+  float fresnel = pow(1.0 - max(dot(normalize(vWorldNormal), viewDir), 0.0), uFresnelPower);
+  gl_FragColor.rgb += uFresnelColor * fresnel * 0.15;
+  gl_FragColor.rgb += uFresnelColor * uEmissionPulse * 0.1;
+}`;
+
 export default function Mascot3D({
   width = 160,
   height = 280,
@@ -120,6 +166,19 @@ export default function Mascot3D({
     const targetColor = new THREE.Color(MOOD_COLOR.neutral);
     let moodSpeed = 1;
     let targetSpeed = 1;
+
+    // Shader state (holographic look + talk/blink vertex deforms).
+    const animUniforms = {
+      uTalkAmount: { value: 0 },
+      uBlinkAmount: { value: 0 },
+      uScanLine: { value: 0 },
+      uFresnelColor: { value: new THREE.Color(0x00e1ff) },
+      uFresnelPower: { value: 4.0 },
+      uEmissionPulse: { value: 0 },
+    };
+    let nextBlinkTime = 2 + Math.random() * 4;
+    let blinkPhase = -1;
+    let talkIntensity = 0;
 
     const scene = new THREE.Scene();
     const clock = new THREE.Clock();
@@ -181,6 +240,32 @@ export default function Mascot3D({
       targetSpeed = MOOD_SPEED[mood];
     };
 
+    /** Patch a GLB material with the holographic + talk/blink shader. */
+    const injectShader = (mat: THREE.Material) => {
+      mat.customProgramCacheKey = () => "mascot-holo-v1";
+      mat.onBeforeCompile = (shader) => {
+        shader.uniforms.uTalkAmount = animUniforms.uTalkAmount;
+        shader.uniforms.uBlinkAmount = animUniforms.uBlinkAmount;
+        shader.uniforms.uScanLine = animUniforms.uScanLine;
+        shader.uniforms.uFresnelColor = animUniforms.uFresnelColor;
+        shader.uniforms.uFresnelPower = animUniforms.uFresnelPower;
+        shader.uniforms.uEmissionPulse = animUniforms.uEmissionPulse;
+        shader.vertexShader = shader.vertexShader
+          .replace("#include <common>", `#include <common>\n${VERT_HEADER}`)
+          .replace(
+            "#include <morphtarget_vertex>",
+            `#include <morphtarget_vertex>\n${VERT_TRANSFORM}`
+          );
+        shader.fragmentShader = shader.fragmentShader
+          .replace("#include <common>", `#include <common>\n${FRAG_HEADER}`)
+          .replace(
+            "#include <dithering_fragment>",
+            `${FRAG_INJECT}\n#include <dithering_fragment>`
+          );
+      };
+      mat.needsUpdate = true;
+    };
+
     // ── Load the model ──
     new GLTFLoader().load(
       src,
@@ -198,6 +283,7 @@ export default function Mascot3D({
             const std = m as THREE.MeshStandardMaterial;
             if ("metalness" in std) std.metalness = 0;
             if ("roughness" in std) std.roughness = 1;
+            injectShader(m);
           }
           // Remember the mesh that carries the facial shape keys.
           if (!morphMesh && mesh.morphTargetDictionary) morphMesh = mesh;
@@ -296,6 +382,36 @@ export default function Mascot3D({
       accent.color.copy(moodColor);
       moodSpeed += (targetSpeed - moodSpeed) * dt * 3;
       if (mixer) mixer.timeScale = moodSpeed;
+
+      // Shader: scanline sweep, blink, jaw (talk), emission decay, fresnel colour.
+      animUniforms.uScanLine.value = (t * 0.15 * moodSpeed) % 1.0;
+      nextBlinkTime -= dt;
+      if (nextBlinkTime <= 0 && blinkPhase < 0) {
+        blinkPhase = 0;
+        nextBlinkTime = 2.5 + Math.random() * 5;
+      }
+      if (blinkPhase >= 0) {
+        blinkPhase += dt * 8;
+        if (blinkPhase < 1) animUniforms.uBlinkAmount.value = Math.sin(blinkPhase * Math.PI);
+        else {
+          animUniforms.uBlinkAmount.value = 0;
+          blinkPhase = -1;
+        }
+      }
+      if (talkingRef.current) {
+        talkIntensity += (1 - talkIntensity) * dt * 8;
+        const tv = Math.sin(t * 18) * 0.4 + Math.sin(t * 13.7) * 0.3 + Math.sin(t * 27.3) * 0.3;
+        animUniforms.uTalkAmount.value = Math.max(0, tv) * talkIntensity;
+      } else {
+        talkIntensity *= 1 - dt * 6;
+        animUniforms.uTalkAmount.value *= 1 - dt * 6;
+        if (talkIntensity < 0.01) talkIntensity = 0;
+      }
+      if (animUniforms.uEmissionPulse.value > 0) {
+        animUniforms.uEmissionPulse.value *= 1 - dt * 3;
+        if (animUniforms.uEmissionPulse.value < 0.01) animUniforms.uEmissionPulse.value = 0;
+      }
+      animUniforms.uFresnelColor.value.copy(moodColor);
 
       if (model) model.position.y = baseY + Math.sin(t * 1.6) * 0.012; // breathing
       renderer.render(scene, camera);
