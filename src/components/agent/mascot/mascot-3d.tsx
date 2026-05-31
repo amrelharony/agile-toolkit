@@ -93,6 +93,10 @@ export default function Mascot3D({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    // Idempotent (re)mount — React StrictMode/HMR runs the effect twice and the
+    // async GLB load races the cleanup; drop any canvas a prior run left behind
+    // so we never stack renderers.
+    while (container.firstChild) container.removeChild(container.firstChild);
 
     let disposed = false;
     let raf = 0;
