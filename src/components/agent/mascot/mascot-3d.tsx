@@ -2,15 +2,17 @@
 
 /**
  * 3D mascot — React/Three.js port of the vanilla mascot (Personal Website
- * Js/mascot-assistant.js initScene/onModelLoaded/animate/playAnimation/
- * runReaction).
+ * Js/mascot-assistant.js).
  *
- * Phase 2a: scene + lights + GLB + idle, with full disposal on unmount.
- * Phase 2b (this revision): the mascot is driven by useMascotStore —
- *   • `talking` crossfades the base loop between Talking and Idle,
- *   • the reaction queue plays one-shot clips (Wave/Happy/Confused/Thinking)
- *     for the source's durations, then returns to base.
- * Talking/blink shaders, mood expressions, and particles land in later phases.
+ * Phase 2a: scene + lights + GLB + idle, full disposal on unmount.
+ * Phase 2b: useMascotStore drives skeletal clips (talking → Talking/Idle;
+ *           reaction queue → Wave/Happy/Confused/Thinking one-shots).
+ * Phase 2c (this revision): sentiment MOOD — store.mood ({valence,energy})
+ *           maps to a mood that drives facial morph-target expressions
+ *           (MOOD_EXPRESSIONS), the accent-light colour (MOOD_COLORS), and the
+ *           animation speed (MOOD_SPEEDS), all eased per frame.
+ * Skin/texture material fidelity + the talk/blink shaders + particles are still
+ * to come (need an in-browser material inspection to get the look right).
  *
  * Mount lazily (next/dynamic, ssr:false) — ~16MB GLB + WebGL.
  */
@@ -43,6 +45,43 @@ const REACTION: Record<MascotReaction, { clip: string; dur: number }> = {
   surprised: { clip: "Happy", dur: 1.5 },
 };
 
+/** Mood → facial morph-target influences (from the source's MOOD_EXPRESSIONS). */
+const MOOD_EXPRESSIONS: Record<string, Record<string, number>> = {
+  serene: { smile: 0.3 },
+  playful: { smile: 0.8, eyebrow_raise: 0.3 },
+  intense: { eyebrow_furrow: 0.5 },
+  curious: { eyebrow_raise: 0.5, smile: 0.2 },
+  determined: { eyebrow_furrow: 0.3, squint: 0.2 },
+  neutral: {},
+  warm: { smile: 0.4 },
+};
+type MoodName = keyof typeof MOOD_EXPRESSIONS;
+const MOOD_COLOR: Record<MoodName, number> = {
+  serene: 0x94a3b8,
+  playful: 0xf472b6,
+  intense: 0xef4444,
+  curious: 0x34d399,
+  determined: 0xf59e0b,
+  neutral: 0x8a95a8,
+  warm: 0xfbbf24,
+};
+const MOOD_SPEED: Record<MoodName, number> = {
+  serene: 0.7,
+  playful: 1.3,
+  intense: 1.5,
+  curious: 1.1,
+  determined: 1.1,
+  neutral: 1.0,
+  warm: 1.0,
+};
+
+/** Map a sentiment {valence,energy} (0..1 each) to one of the morph moods. */
+function moodFor(valence: number, energy: number): MoodName {
+  if (valence >= 0.6) return energy >= 0.6 ? "playful" : "warm";
+  if (valence <= 0.4) return energy >= 0.6 ? "intense" : "determined";
+  return energy >= 0.6 ? "curious" : energy <= 0.35 ? "serene" : "neutral";
+}
+
 export default function Mascot3D({
   width = 160,
   height = 280,
@@ -62,11 +101,21 @@ export default function Mascot3D({
     let model: THREE.Object3D | null = null;
     let baseY = 0;
 
+    // Animation state.
     const actions = new Map<string, THREE.AnimationAction>();
     let currentName = "";
-    /** Seconds-timestamp the active reaction ends; 0 ⇒ no reaction (base loop). */
-    let reactionEnd = 0;
+    let reactionEnd = 0; // seconds-timestamp the active reaction ends; 0 ⇒ base loop
     const talkingRef = { current: false };
+
+    // Mood state.
+    let morphMesh: THREE.Mesh | null = null;
+    let morphIndex: Record<string, number> = {};
+    const targetMorphs: Record<string, number> = {};
+    let currentMood: MoodName = "neutral";
+    const moodColor = new THREE.Color(MOOD_COLOR.neutral);
+    const targetColor = new THREE.Color(MOOD_COLOR.neutral);
+    let moodSpeed = 1;
+    let targetSpeed = 1;
 
     const scene = new THREE.Scene();
     const clock = new THREE.Clock();
@@ -119,6 +168,15 @@ export default function Mascot3D({
     };
     const baseClip = () => (talkingRef.current && actions.has("Talking") ? "Talking" : "Idle");
 
+    /** Apply a mood: target morphs + accent colour + animation speed. */
+    const applyMood = (mood: MoodName) => {
+      for (const k of Object.keys(targetMorphs)) targetMorphs[k] = 0;
+      const expr = MOOD_EXPRESSIONS[mood] ?? {};
+      for (const k of Object.keys(expr)) if (k in targetMorphs) targetMorphs[k] = expr[k];
+      targetColor.set(MOOD_COLOR[mood]);
+      targetSpeed = MOOD_SPEED[mood];
+    };
+
     // ── Load the model ──
     new GLTFLoader().load(
       src,
@@ -127,16 +185,18 @@ export default function Mascot3D({
         model = gltf.scene;
         scene.add(model);
 
-        // Fix GLB materials exported fully metallic with no envMap (→ invisible).
         model.traverse((child) => {
           const mesh = child as THREE.Mesh;
           if (!mesh.isMesh) return;
+          // Fix GLB materials exported fully metallic with no envMap (→ invisible).
           const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
           for (const m of mats) {
             const std = m as THREE.MeshStandardMaterial;
             if ("metalness" in std) std.metalness = 0;
             if ("roughness" in std) std.roughness = 1;
           }
+          // Remember the mesh that carries the facial shape keys.
+          if (!morphMesh && mesh.morphTargetDictionary) morphMesh = mesh;
         });
 
         // Auto-center + scale to ~1.4 world units tall.
@@ -148,6 +208,11 @@ export default function Mascot3D({
         model.position.sub(center.multiplyScalar(scale));
         model.position.y -= box.min.y * scale;
         baseY = model.position.y;
+
+        if (morphMesh?.morphTargetDictionary) {
+          morphIndex = morphMesh.morphTargetDictionary;
+          for (const k of Object.keys(morphIndex)) targetMorphs[k] = 0;
+        }
 
         if (gltf.animations.length > 0) {
           mixer = new THREE.AnimationMixer(model);
@@ -161,7 +226,6 @@ export default function Mascot3D({
             }
             actions.set(clip.name, action);
           }
-          // Intro Enter → base (Idle) on finish; else start on base.
           if (actions.has("Enter")) {
             crossfade("Enter", 0);
             mixer.addEventListener("finished", () => {
@@ -180,11 +244,17 @@ export default function Mascot3D({
       }
     );
 
-    // ── Drive the base loop from the store's `talking` flag ──
+    // ── Drive base loop + mood from the store ──
     const unsub = useMascotStore.subscribe((s) => {
-      if (s.talking === talkingRef.current) return;
-      talkingRef.current = s.talking;
-      if (reactionEnd === 0) crossfade(baseClip());
+      if (s.talking !== talkingRef.current) {
+        talkingRef.current = s.talking;
+        if (reactionEnd === 0) crossfade(baseClip());
+      }
+      const mood = moodFor(s.mood.valence, s.mood.energy);
+      if (mood !== currentMood) {
+        currentMood = mood;
+        applyMood(mood);
+      }
     });
 
     // ── Render loop ──
@@ -209,6 +279,19 @@ export default function Mascot3D({
           reactionEnd = t + dur;
         }
       }
+
+      // Mood: ease facial morphs, accent colour, animation speed.
+      if (morphMesh?.morphTargetInfluences) {
+        const infl = morphMesh.morphTargetInfluences;
+        for (const k of Object.keys(targetMorphs)) {
+          const idx = morphIndex[k];
+          if (idx !== undefined) infl[idx] += (targetMorphs[k] - infl[idx]) * dt * 5;
+        }
+      }
+      moodColor.lerp(targetColor, dt * 3);
+      accent.color.copy(moodColor);
+      moodSpeed += (targetSpeed - moodSpeed) * dt * 3;
+      if (mixer) mixer.timeScale = moodSpeed;
 
       if (model) model.position.y = baseY + Math.sin(t * 1.6) * 0.012; // breathing
       renderer.render(scene, camera);
