@@ -68,6 +68,7 @@ import type {
   HealthCheck,
   SkillsMatrix,
   PokerEstimationLog,
+  PokerRound,
   // Phase 20
   PrioritizationItem,
   // Phase 21
@@ -223,6 +224,8 @@ interface WorkspaceActions {
   removeSkillsMatrix: (id: string) => void;
   upsertPokerEstimationLog: (x: PokerEstimationLog) => void;
   removePokerEstimationLog: (id: string) => void;
+  upsertPokerRound: (x: PokerRound) => void;
+  removePokerRound: (id: string) => void;
   // Phase 20 — Prioritization
   upsertPrioritization: (x: PrioritizationItem) => void;
   removePrioritization: (id: string) => void;
@@ -964,6 +967,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((s) => ({
           pokerEstimationLogs: (s.pokerEstimationLogs ?? []).filter((y) => y.id !== id),
         })),
+      upsertPokerRound: (x) =>
+        set((_st) => ({ pokerRounds: replaceById(_st.pokerRounds ?? [], x) })),
+      removePokerRound: (id) =>
+        set((s) => ({ pokerRounds: (s.pokerRounds ?? []).filter((y) => y.id !== id) })),
       // Phase 20 — Prioritization
       upsertPrioritization: (x) =>
         set((_st) => ({ prioritizations: replaceById(_st.prioritizations ?? [], x) })),
@@ -1406,6 +1413,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           healthChecks: s.healthChecks,
           skillsMatrices: s.skillsMatrices,
           pokerEstimationLogs: s.pokerEstimationLogs,
+          pokerRounds: s.pokerRounds,
           opportunityTrees: s.opportunityTrees,
           // Phase 20
           prioritizations: s.prioritizations,
@@ -1532,6 +1540,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           healthChecks: arr("healthChecks"),
           skillsMatrices: arr("skillsMatrices"),
           pokerEstimationLogs: arr("pokerEstimationLogs"),
+          pokerRounds: arr("pokerRounds"),
           opportunityTrees: arr("opportunityTrees"),
           // Phase 20
           prioritizations: arr("prioritizations"),
@@ -1862,6 +1871,7 @@ if (typeof window !== "undefined") {
     registerCollection("healthCheck", "healthChecks");
     registerCollection("skillsMatrix", "skillsMatrices");
     registerCollection("pokerEstimationLog", "pokerEstimationLogs");
+    registerCollection("pokerRound", "pokerRounds");
     // Phase 20 — Prioritization
     registerCollection("prioritization", "prioritizations");
     // Phase 21 — Decision frameworks
@@ -1997,6 +2007,7 @@ export function getWorkspaceSnapshot(): Workspace {
     healthChecks: state.healthChecks,
     skillsMatrices: state.skillsMatrices,
     pokerEstimationLogs: state.pokerEstimationLogs,
+    pokerRounds: state.pokerRounds,
     opportunityTrees: state.opportunityTrees,
     prioritizations: state.prioritizations,
     daciDecisions: state.daciDecisions,

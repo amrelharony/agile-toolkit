@@ -1814,6 +1814,28 @@ export interface PokerEstimationLog {
   estimates: PokerEstimate[];
 }
 
+/**
+ * Planning Poker — a single agent-drivable estimation ROUND (server-persisted),
+ * parallel to the realtime human session. One PokerRound singleton: when
+ * `storyTitle` is null the board is idle; start_round opens a round, cast_vote
+ * collects blind votes, reveal flips `revealed`, commit_round writes a
+ * PokerEstimate to the log and returns the board to idle.
+ */
+export interface PokerRoundVote {
+  participant: string;
+  card: string;
+  at: ISODateString;
+}
+
+export interface PokerRound {
+  id: string;
+  storyTitle: string | null; // null ⇒ no active round (idle board)
+  scaleType: string; // "fibonacci" | "tshirt" | "custom"
+  votes: PokerRoundVote[];
+  revealed: boolean;
+  startedAt: ISODateString | null;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -1880,6 +1902,7 @@ export interface Workspace {
   healthChecks?: HealthCheck[];
   skillsMatrices?: SkillsMatrix[];
   pokerEstimationLogs?: PokerEstimationLog[];
+  pokerRounds?: PokerRound[];
   // Phase 20 — Prioritization
   prioritizations?: PrioritizationItem[];
   // Phase 21 — Decision Frameworks
@@ -2115,6 +2138,7 @@ export const emptyWorkspace: Workspace = {
   healthChecks: [],
   skillsMatrices: [],
   pokerEstimationLogs: [],
+  pokerRounds: [],
   // Phase 20 — Prioritization
   prioritizations: [],
   // Phase 21 — Decision Frameworks

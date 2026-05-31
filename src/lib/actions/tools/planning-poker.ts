@@ -30,11 +30,13 @@ import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
-import type { PokerEstimationLog, PokerEstimate } from "@/lib/stores/workspace-types";
+import type { PokerEstimationLog, PokerEstimate, PokerRound } from "@/lib/stores/workspace-types";
 
 const KIND_PE = "workspace:pokerEstimationLog";
 // MUST match PE_ID in planning-poker-client.tsx.
 const PE_ID = "pokerEstimationLog:current";
+const KIND_PR = "workspace:pokerRound";
+const PR_ID = "pokerRound:current";
 
 // Mirrors types.ts SCALES/SCALE_LABELS (kept local so this server action stays
 // self-contained — the tool's types.ts is a client-tree module).
@@ -233,4 +235,272 @@ registry.register({
     "List the built-in estimation scales. Returns {scales: {fibonacci, tshirt, custom}, labels}. Pure reference data.",
   paramsSchema: z.object({}),
   handler: async () => ({ scales: SCALES, labels: SCALE_LABELS }),
+});
+
+/* ======================================================================== *
+ *  Server-side estimation ROUND (synced PokerRound singleton)
+ *
+ *  Parallel to the realtime human session: an agent can run a complete blind
+ *  estimation round end-to-end and the result persists.
+ *    start_round → cast_vote* → reveal → commit_round (→ appends to the log)
+ *  Votes stay hidden until reveal, mirroring the human UI's blind voting.
+ *  Each transition is a pure function over the current doc; the client + MCP
+ *  handlers only differ in where they read/write the doc (store vs server).
+ * ======================================================================== */
+
+function emptyRound(): PokerRound {
+  return {
+    id: PR_ID,
+    storyTitle: null,
+    scaleType: "custom",
+    votes: [],
+    revealed: false,
+    startedAt: null,
+  };
+}
+
+function isActive(r: PokerRound | null): boolean {
+  return !!r && r.storyTitle !== null;
+}
+
+function browserRound(): PokerRound | null {
+  return (ws().pokerRounds ?? []).find((d) => d.id === PR_ID) ?? null;
+}
+
+/** get_round response — cards hidden until reveal (blind estimation). */
+function roundView(r: PokerRound | null) {
+  if (!isActive(r)) {
+    return {
+      active: false,
+      storyTitle: null,
+      scaleType: r?.scaleType ?? "custom",
+      revealed: false,
+      voteCount: 0,
+      participants: [] as string[],
+      votes: null,
+      consensus: null,
+    };
+  }
+  const round = r as PokerRound;
+  const cards = round.votes.map((v) => v.card);
+  return {
+    active: true,
+    storyTitle: round.storyTitle,
+    scaleType: round.scaleType,
+    revealed: round.revealed,
+    voteCount: round.votes.length,
+    participants: round.votes.map((v) => v.participant),
+    votes: round.revealed
+      ? round.votes.map(({ participant, card }) => ({ participant, card }))
+      : null,
+    consensus: round.revealed ? computeConsensus(cards) : null,
+  };
+}
+
+interface RoundTx {
+  next?: PokerRound;
+  logAppend?: PokerEstimate;
+  result: unknown;
+}
+
+function txStart(
+  cur: PokerRound | null,
+  p: { storyTitle: string; scaleType?: string; force?: boolean }
+): RoundTx {
+  if (isActive(cur) && !p.force) {
+    return { result: { started: false, reason: "active_round_exists" } };
+  }
+  const next: PokerRound = {
+    id: PR_ID,
+    storyTitle: p.storyTitle,
+    scaleType: p.scaleType ?? "custom",
+    votes: [],
+    revealed: false,
+    startedAt: now(),
+  };
+  return { next, result: { started: true, storyTitle: p.storyTitle } };
+}
+
+function txVote(cur: PokerRound | null, p: { participant: string; card: string }): RoundTx {
+  if (!isActive(cur)) return { result: { voted: false, reason: "no_active_round" } };
+  const round = cur as PokerRound;
+  if (round.revealed) return { result: { voted: false, reason: "revealed" } };
+  const votes = [
+    ...round.votes.filter((v) => v.participant !== p.participant),
+    { participant: p.participant, card: p.card, at: now() },
+  ];
+  return {
+    next: { ...round, votes },
+    result: { voted: true, participant: p.participant, voteCount: votes.length },
+  };
+}
+
+function txReveal(cur: PokerRound | null): RoundTx {
+  if (!isActive(cur)) return { result: { revealed: false, reason: "no_active_round" } };
+  const round = cur as PokerRound;
+  const next: PokerRound = { ...round, revealed: true };
+  return {
+    next,
+    result: {
+      revealed: true,
+      votes: next.votes.map(({ participant, card }) => ({ participant, card })),
+      consensus: computeConsensus(next.votes.map((v) => v.card)),
+    },
+  };
+}
+
+function txCommit(cur: PokerRound | null, p: { finalEstimate?: string }): RoundTx {
+  if (!isActive(cur)) return { result: { committed: false, reason: "no_active_round" } };
+  const round = cur as PokerRound;
+  const cards = round.votes.map((v) => v.card);
+  const suggestion = round.revealed ? computeConsensus(cards).suggestion : null;
+  const finalEstimate = p.finalEstimate ?? suggestion ?? null;
+  if (!finalEstimate) {
+    return {
+      result: {
+        committed: false,
+        reason: round.revealed ? "no_consensus_pass_finalEstimate" : "not_revealed",
+      },
+    };
+  }
+  const estimate = newEstimate({
+    storyTitle: round.storyTitle as string,
+    finalEstimate,
+    scaleType: round.scaleType,
+    votes: cards.length ? cards : undefined,
+  });
+  return {
+    next: emptyRound(),
+    logAppend: estimate,
+    result: { committed: true, estimateId: estimate.id, finalEstimate },
+  };
+}
+
+function txCancel(cur: PokerRound | null): RoundTx {
+  if (!isActive(cur)) return { result: { cancelled: false } };
+  return { next: emptyRound(), result: { cancelled: true } };
+}
+
+function clientApply(tx: RoundTx): unknown {
+  if (tx.next) ws().upsertPokerRound(tx.next);
+  if (tx.logAppend) {
+    const base = browserDoc() ?? emptyDoc();
+    ws().upsertPokerEstimationLog({
+      ...base,
+      id: PE_ID,
+      estimates: [...base.estimates, tx.logAppend],
+    });
+  }
+  return tx.result;
+}
+
+async function serverApply(userId: string, tx: RoundTx): Promise<unknown> {
+  if (tx.next) await serverUpsertEntity<PokerRound>(userId, KIND_PR, tx.next);
+  if (tx.logAppend) {
+    const base = (await serverGetEntity<PokerEstimationLog>(userId, KIND_PE, PE_ID)) ?? emptyDoc();
+    await serverUpsertEntity<PokerEstimationLog>(userId, KIND_PE, {
+      ...base,
+      id: PE_ID,
+      estimates: [...base.estimates, tx.logAppend],
+    });
+  }
+  return tx.result;
+}
+
+const serverRound = async (userId: string): Promise<PokerRound | null> =>
+  (await serverGetEntity<PokerRound>(userId, KIND_PR, PR_ID)) ?? null;
+
+// ──────── tool.planning_poker.get_round ────────
+registry.register({
+  id: "tool.planning_poker.get_round",
+  toolId: "tool.planning_poker",
+  name: "get_round",
+  category: "read",
+  description:
+    "Inspect the current agent-driven estimation round. Cards stay hidden until reveal. Returns {active, storyTitle, scaleType, revealed, voteCount, participants[], votes (null until revealed), consensus (null until revealed)}.",
+  paramsSchema: z.object({}),
+  handler: async () => roundView(browserRound()),
+  mcpHandler: async (_params, ctx) => roundView(await serverRound(ctx.userId)),
+});
+
+// ──────── tool.planning_poker.start_round ────────
+registry.register({
+  id: "tool.planning_poker.start_round",
+  toolId: "tool.planning_poker",
+  name: "start_round",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Open a new estimation round for a story (resets votes, revealed=false). Refuses with {started:false, reason:'active_round_exists'} if a round is already open unless force=true. scaleType defaults to 'custom'. Returns {started:true, storyTitle}.",
+  paramsSchema: z.object({
+    storyTitle: z.string().min(1).max(500),
+    scaleType: z.string().max(32).optional(),
+    force: z.boolean().optional(),
+  }),
+  handler: async (params) => clientApply(txStart(browserRound(), params)),
+  mcpHandler: async (params, ctx) =>
+    serverApply(ctx.userId, txStart(await serverRound(ctx.userId), params)),
+});
+
+// ──────── tool.planning_poker.cast_vote ────────
+registry.register({
+  id: "tool.planning_poker.cast_vote",
+  toolId: "tool.planning_poker",
+  name: "cast_vote",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Record a participant's blind vote in the active round (re-voting the same participant replaces their card). Refuses with {voted:false, reason} when no round is active ('no_active_round') or after reveal ('revealed'). Returns {voted:true, participant, voteCount}.",
+  paramsSchema: z.object({
+    participant: z.string().min(1).max(120),
+    card: z.string().min(1).max(32),
+  }),
+  handler: async (params) => clientApply(txVote(browserRound(), params)),
+  mcpHandler: async (params, ctx) =>
+    serverApply(ctx.userId, txVote(await serverRound(ctx.userId), params)),
+});
+
+// ──────── tool.planning_poker.reveal ────────
+registry.register({
+  id: "tool.planning_poker.reveal",
+  toolId: "tool.planning_poker",
+  name: "reveal",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Reveal the active round's votes and compute consensus. Refuses with {revealed:false, reason:'no_active_round'} when idle. Returns {revealed:true, votes:{participant,card}[], consensus}.",
+  paramsSchema: z.object({}),
+  handler: async () => clientApply(txReveal(browserRound())),
+  mcpHandler: async (_params, ctx) =>
+    serverApply(ctx.userId, txReveal(await serverRound(ctx.userId))),
+});
+
+// ──────── tool.planning_poker.commit_round ────────
+registry.register({
+  id: "tool.planning_poker.commit_round",
+  toolId: "tool.planning_poker",
+  name: "commit_round",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Commit the active round's final estimate to the estimate log and return the board to idle. finalEstimate defaults to the revealed consensus suggestion (the mode); pass it explicitly to override or to commit a non-revealed round. Refuses with {committed:false, reason} for 'no_active_round' or 'not_revealed' (when no finalEstimate is given). Returns {committed:true, estimateId, finalEstimate}.",
+  paramsSchema: z.object({ finalEstimate: z.string().min(1).max(32).optional() }),
+  handler: async (params) => clientApply(txCommit(browserRound(), params)),
+  mcpHandler: async (params, ctx) =>
+    serverApply(ctx.userId, txCommit(await serverRound(ctx.userId), params)),
+});
+
+// ──────── tool.planning_poker.cancel_round ────────
+registry.register({
+  id: "tool.planning_poker.cancel_round",
+  toolId: "tool.planning_poker",
+  name: "cancel_round",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Discard the active round without committing (returns the board to idle). Returns {cancelled:true}, or {cancelled:false} when no round is active.",
+  paramsSchema: z.object({}),
+  handler: async () => clientApply(txCancel(browserRound())),
+  mcpHandler: async (_params, ctx) =>
+    serverApply(ctx.userId, txCancel(await serverRound(ctx.userId))),
 });
