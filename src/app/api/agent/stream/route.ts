@@ -2,7 +2,12 @@ import type { NextRequest } from "next/server";
 import { requireAuthorizedUser } from "@/lib/auth/require-user";
 
 /**
- * Agent streaming proxy — GLM (z.ai, OpenAI-compatible).
+ * Agent streaming proxy — OpenClaw (preferred) or GLM, both OpenAI-compatible.
+ *
+ * Preferred backend is the user's OpenClaw gateway (chat.amrelharony.com),
+ * which holds the GLM key server-side — so the toolkit needs NO separate
+ * GLM/ZAI key once OPENCLAW_API_KEY is set. Falls back to a direct GLM key
+ * (GLM_API_KEY / legacy ZAI_API_KEY) for back-compat.
  *
  * Runtime: Edge. GLM responses with function-calling routinely take
  * 5-20s per turn; 10s Node serverless cap on Vercel Hobby would cut
@@ -36,18 +41,45 @@ import { requireAuthorizedUser } from "@/lib/auth/require-user";
 
 export const runtime = "edge";
 
-// BUG-G3: point at the same GLM endpoint the BYOK client and LLM
-// Settings dialog use (open.bigmodel.cn), so the user's GLM key from
-// open.bigmodel.cn/usercenter/apikeys works against both. The legacy
-// ZAI_* env names are still honoured for back-compat.
+// OpenClaw (the user's own OpenAI-compatible gateway) is the preferred backend;
+// it proxies to GLM with the GLM key held server-side. Configure via
+// OPENCLAW_API_KEY (+ optional OPENCLAW_URL / OPENCLAW_MODEL). When absent we
+// fall back to a direct GLM key (open.bigmodel.cn) for back-compat; the legacy
+// ZAI_* env names are still honoured.
+const OPENCLAW_ENDPOINT =
+  process.env.OPENCLAW_URL ?? "https://chat.amrelharony.com/v1/chat/completions";
 const GLM_ENDPOINT = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
-const DEFAULT_MODEL = "glm-4.5-flash"; // free tier; override via GLM_AGENT_MODEL
 
-function serverKey(): string | undefined {
-  return process.env.GLM_API_KEY ?? process.env.ZAI_API_KEY;
+interface Backend {
+  key: string;
+  endpoint: string;
+  model: string;
+  provider: "openclaw" | "glm";
 }
-function serverModel(): string {
-  return process.env.GLM_AGENT_MODEL ?? process.env.ZAI_AGENT_MODEL ?? DEFAULT_MODEL;
+
+/** Resolve the active server backend, preferring OpenClaw. null ⇒ BYOK client. */
+function backend(): Backend | null {
+  const oc = process.env.OPENCLAW_API_KEY;
+  if (oc) {
+    return {
+      key: oc,
+      endpoint: OPENCLAW_ENDPOINT,
+      // OpenClaw exposes openclaw / openclaw-fast / openclaw-flash (it maps to
+      // z.ai GLM-5 server-side). NOT the raw "zai glm-5.1" model id.
+      model: process.env.OPENCLAW_MODEL ?? "openclaw",
+      provider: "openclaw",
+    };
+  }
+  const glm = process.env.GLM_API_KEY ?? process.env.ZAI_API_KEY;
+  if (glm) {
+    return {
+      key: glm,
+      endpoint: GLM_ENDPOINT,
+      model: process.env.GLM_AGENT_MODEL ?? process.env.ZAI_AGENT_MODEL ?? "glm-4.5-flash",
+      provider: "glm",
+    };
+  }
+  return null;
 }
 
 export async function GET() {
@@ -57,11 +89,11 @@ export async function GET() {
     if (resp instanceof Response) return resp;
     throw resp;
   }
-  const hasServerKey = !!serverKey();
+  const b = backend();
   return Response.json({
-    mode: hasServerKey ? "server" : "client",
-    model: hasServerKey ? serverModel() : null,
-    provider: "glm",
+    mode: b ? "server" : "client",
+    model: b?.model ?? null,
+    provider: b?.provider ?? "openclaw",
   });
 }
 
@@ -73,9 +105,9 @@ export async function POST(req: NextRequest) {
     throw resp;
   }
 
-  const key = serverKey();
-  if (!key) {
-    return Response.json({ mode: "client", provider: "glm" }, { status: 200 });
+  const be = backend();
+  if (!be) {
+    return Response.json({ mode: "client", provider: "openclaw" }, { status: 200 });
   }
 
   let body: unknown;
@@ -99,7 +131,7 @@ export async function POST(req: NextRequest) {
   // — but at minimum we validate the shape strictly.
   const b = body as Record<string, unknown>;
   const forward: Record<string, unknown> = {
-    model: serverModel(),
+    model: be.model,
     stream: true,
     // GLM defaults to 1024 if omitted — bump for tool-use chains.
     max_tokens:
@@ -138,11 +170,11 @@ export async function POST(req: NextRequest) {
 
   // Propagate the client abort signal: if the browser tab closes mid-stream
   // we want to stop billing GLM for tokens the client will never read.
-  const upstream = await fetch(GLM_ENDPOINT, {
+  const upstream = await fetch(be.endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${key}`,
+      authorization: `Bearer ${be.key}`,
     },
     body: JSON.stringify(forward),
     signal: req.signal,

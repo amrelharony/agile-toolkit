@@ -7,6 +7,11 @@ import { buildSystemPrompt } from "./system-prompt";
 import { executeToolUse } from "./execute-tool";
 import { appendMessages } from "./persist";
 import type { ChatMessage, ContentBlock, ToolResultBlock, ToolUseBlock } from "./types";
+import {
+  parseOpenClawToolCalls,
+  serializeOpenClawToolCall,
+  serializeOpenClawToolResult,
+} from "./openclaw-tools";
 
 /**
  * Agent client — drives the tool-use loop against GLM (z.ai) via the
@@ -105,7 +110,7 @@ export async function sendUserMessage(text: string, opts: StreamOptions): Promis
 }
 
 async function runToolUseLoop(opts: StreamOptions): Promise<void> {
-  const { mode, serverModel } = await detectMode();
+  const { mode, serverModel, provider } = await detectMode();
   const tools = registry.toOpenAiTools();
   const system = buildSystemPrompt({ toolId: opts.toolId ?? null });
   // BUG-G11: wedge guard. Track (actionId → consecutive-error-count) so a
@@ -114,7 +119,7 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
   const errorRepeats = new Map<string, number>();
 
   for (let round = 0; round < MAX_TOOL_USE_ROUNDS; round++) {
-    const messages = wireMessages(useAgentStore.getState().messages, system);
+    const messages = wireMessages(useAgentStore.getState().messages, system, provider);
     const body = {
       model: pickModel(mode, serverModel),
       stream: true,
@@ -124,7 +129,7 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
       messages,
     };
 
-    const stopReason = await openOneTurn(mode, body, opts.signal);
+    const stopReason = await openOneTurn(mode, body, opts.signal, provider);
 
     if (stopReason !== "tool_use") {
       // BUG-G6: persist the assistant message after the turn settles.
@@ -198,7 +203,8 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
   try {
     const messages = wireMessages(
       useAgentStore.getState().messages,
-      `${system}\n\nIMPORTANT: You have exhausted the tool-use round budget for this turn. Summarise what you accomplished, what failed, and what remains — do NOT request more tools.`
+      `${system}\n\nIMPORTANT: You have exhausted the tool-use round budget for this turn. Summarise what you accomplished, what failed, and what remains — do NOT request more tools.`,
+      provider
     );
     await openOneTurn(
       mode,
@@ -209,7 +215,8 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
         tool_choice: "none",
         messages,
       },
-      opts.signal
+      opts.signal,
+      provider
     );
   } catch {
     /* best-effort wrap-up */
@@ -227,7 +234,8 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
 async function openOneTurn(
   mode: AgentMode,
   body: Record<string, unknown>,
-  signal: AbortSignal | undefined
+  signal: AbortSignal | undefined,
+  provider: string | null
 ): Promise<string> {
   const response = await openStream(mode, body, signal);
   if (!response.ok || !response.body) {
@@ -281,7 +289,7 @@ async function openOneTurn(
         buf = buf.slice(nl + 2);
         const sr = handleSseChunk(chunk, wip);
         if (sr) stopReason = sr;
-        flushAssistant(wip);
+        flushAssistant(wip, provider);
       }
     }
     // Tail flush in case the server closed without a trailing \n\n.
@@ -289,7 +297,28 @@ async function openOneTurn(
       const sr = handleSseChunk(buf, wip);
       if (sr) stopReason = sr;
     }
-    flushAssistant(wip);
+    flushAssistant(wip, provider);
+    // OpenClaw is prompt-based: it never sends native tool_calls and always
+    // returns finish_reason "stop". Detect tool use by parsing the assistant's
+    // CONTENT for <invoke> blocks, convert them to tool_use blocks, and report
+    // "tool_use" so the loop continues.
+    if (provider === "openclaw") {
+      const { visibleText, invokes } = parseOpenClawToolCalls(wip.textParts.join(""));
+      if (invokes.length > 0) {
+        const content: ContentBlock[] = [];
+        if (visibleText) content.push({ type: "text", text: visibleText });
+        invokes.forEach((inv, i) => {
+          content.push({
+            type: "tool_use",
+            id: `oc_${Date.now().toString(36)}_${i}`,
+            name: inv.name,
+            input: inv.input,
+          });
+        });
+        useAgentStore.getState().patchLastAssistant(content);
+        return "tool_use";
+      }
+    }
     return stopReason;
   } finally {
     try {
@@ -393,9 +422,17 @@ function mapFinishReason(openAi: string): string {
   return "end_turn";
 }
 
-function flushAssistant(wip: WipState): void {
+function flushAssistant(wip: WipState, provider: string | null): void {
   const content: ContentBlock[] = [];
-  const text = wip.textParts.join("");
+  let text = wip.textParts.join("");
+  // OpenClaw renders tool calls as <tool_caller> XML inside the text stream.
+  // Hide everything from the first opening tag while streaming so the user sees
+  // only prose; the completed call is parsed into a tool_use block at the end
+  // of the turn (see openOneTurn).
+  if (provider === "openclaw") {
+    const i = text.indexOf("<tool_caller");
+    if (i !== -1) text = text.slice(0, i);
+  }
   if (text.length > 0) {
     content.push({ type: "text", text });
   }
@@ -463,6 +500,9 @@ type AgentMode = "server" | "client";
 interface ModeProbe {
   mode: AgentMode;
   serverModel: string | null;
+  /** Server backend provider: "openclaw" uses prompt-based XML tool-calling
+   *  (parsed from content); anything else uses native OpenAI tool_calls. */
+  provider: string | null;
 }
 
 /**
@@ -476,16 +516,21 @@ async function detectMode(): Promise<ModeProbe> {
   try {
     const res = await fetch("/api/agent/stream", { method: "GET" });
     if (res.ok) {
-      const json = (await res.json()) as { mode?: string; model?: string | null };
+      const json = (await res.json()) as {
+        mode?: string;
+        model?: string | null;
+        provider?: string | null;
+      };
       cachedProbe = {
         mode: json.mode === "server" ? "server" : "client",
         serverModel: typeof json.model === "string" ? json.model : null,
+        provider: typeof json.provider === "string" ? json.provider : null,
       };
     } else {
-      cachedProbe = { mode: "client", serverModel: null };
+      cachedProbe = { mode: "client", serverModel: null, provider: null };
     }
   } catch {
-    cachedProbe = { mode: "client", serverModel: null };
+    cachedProbe = { mode: "client", serverModel: null, provider: null };
   }
   return cachedProbe;
 }
@@ -511,8 +556,17 @@ function pickModel(mode: AgentMode, serverModel: string | null): string {
  * The system prompt becomes the first message (OpenAI doesn't have a
  * separate `system` field like Anthropic).
  */
-function wireMessages(messages: ChatMessage[], system: string): Array<Record<string, unknown>> {
+function wireMessages(
+  messages: ChatMessage[],
+  system: string,
+  provider: string | null
+): Array<Record<string, unknown>> {
+  const openclaw = provider === "openclaw";
   const out: Array<Record<string, unknown>> = [{ role: "system", content: system }];
+  // tool_use_id → tool name. A ToolResultBlock only carries the id, but
+  // OpenClaw needs results tagged `<tool_result name="…">`, so we remember the
+  // name from the assistant turn that issued the call (always earlier in order).
+  const toolName = new Map<string, string>();
 
   for (const m of messages) {
     if (m.role === "user") {
@@ -526,52 +580,64 @@ function wireMessages(messages: ChatMessage[], system: string): Array<Record<str
 
     if (m.role === "assistant") {
       const textParts: string[] = [];
-      const toolCalls: Array<{
-        id: string;
-        type: "function";
-        function: { name: string; arguments: string };
-      }> = [];
+      const toolUses: ToolUseBlock[] = [];
       for (const c of m.content) {
         if (c.type === "text") textParts.push(c.text);
         else if (c.type === "tool_use") {
           // BUG-G7: drop tool_use blocks whose `input` is `{_partial:"…"}`
-          // (length-truncated mid-stream). Re-serialising the partial JSON
-          // string as `arguments` causes the next turn to send an orphan
-          // tool_call that the API rejects with 400.
+          // (length-truncated mid-stream) — re-serialising them produces an
+          // orphan call the API rejects with 400.
           const input = (c.input ?? {}) as Record<string, unknown>;
-          if ("_partial" in input && Object.keys(input).length === 1) {
-            continue;
-          }
-          toolCalls.push({
-            id: c.id,
-            type: "function",
-            function: {
-              // Defensive: action ids stored in dots-format become
-              // OpenAI-format underscores. The streaming parser already
-              // emits OpenAI-format names; this is a no-op safeguard.
-              name: claudeNameFromId(c.name),
-              arguments: JSON.stringify(input),
-            },
-          });
+          if ("_partial" in input && Object.keys(input).length === 1) continue;
+          toolUses.push(c);
+          toolName.set(c.id, c.name);
         }
       }
-      const msg: Record<string, unknown> = { role: "assistant" };
-      msg.content = textParts.join("") || null;
-      if (toolCalls.length > 0) msg.tool_calls = toolCalls;
-      out.push(msg);
+
+      if (openclaw) {
+        // OpenClaw expects the call back as the <tool_caller> XML it emitted.
+        let content = textParts.join("");
+        for (const tu of toolUses) {
+          content +=
+            (content ? "\n" : "") +
+            serializeOpenClawToolCall(tu.name, (tu.input ?? {}) as Record<string, unknown>);
+        }
+        out.push({ role: "assistant", content: content || null });
+      } else {
+        const toolCalls = toolUses.map((tu) => ({
+          id: tu.id,
+          type: "function" as const,
+          function: {
+            // action ids stored dotted become OpenAI-format underscores; the
+            // streaming parser already emits OpenAI names — no-op safeguard.
+            name: claudeNameFromId(tu.name),
+            arguments: JSON.stringify((tu.input ?? {}) as Record<string, unknown>),
+          },
+        }));
+        const msg: Record<string, unknown> = {
+          role: "assistant",
+          content: textParts.join("") || null,
+        };
+        if (toolCalls.length > 0) msg.tool_calls = toolCalls;
+        out.push(msg);
+      }
       continue;
     }
 
-    // role "tool" — fan out one OpenAI tool message per result block.
+    // role "tool" — one wire message per result block.
     for (const c of m.content) {
       if (c.type !== "tool_result") continue;
       const content =
         typeof c.content === "string" ? c.content : c.content.map((b) => b.text).join("");
-      out.push({
-        role: "tool",
-        tool_call_id: c.tool_use_id,
-        content,
-      });
+      if (openclaw) {
+        // OpenClaw takes results as a user turn wrapping <tool_result>.
+        out.push({
+          role: "user",
+          content: serializeOpenClawToolResult(toolName.get(c.tool_use_id) ?? "tool", content),
+        });
+      } else {
+        out.push({ role: "tool", tool_call_id: c.tool_use_id, content });
+      }
     }
   }
 
