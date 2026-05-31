@@ -26,6 +26,8 @@ export function useMascotChatReactions(): void {
   useEffect(() => {
     const mascot = useMascotStore.getState();
     mascot.setTalking(streaming);
+    // Energise the particle aura while the agent is working.
+    mascot.setParticleSpeed(streaming ? 2.2 : 1);
 
     if (streaming && !wasStreaming.current) {
       mascot.queueReaction("thinking");

@@ -7,12 +7,13 @@
  * Phase 2a: scene + lights + GLB + idle, full disposal on unmount.
  * Phase 2b: useMascotStore drives skeletal clips (talking → Talking/Idle;
  *           reaction queue → Wave/Happy/Confused/Thinking one-shots).
- * Phase 2c (this revision): sentiment MOOD — store.mood ({valence,energy})
- *           maps to a mood that drives facial morph-target expressions
- *           (MOOD_EXPRESSIONS), the accent-light colour (MOOD_COLORS), and the
- *           animation speed (MOOD_SPEEDS), all eased per frame.
- * Skin/texture material fidelity + the talk/blink shaders + particles are still
- * to come (need an in-browser material inspection to get the look right).
+ * Phase 2c: sentiment MOOD — store.mood ({valence,energy}) maps to a mood that
+ *           drives facial morph-target expressions (MOOD_EXPRESSIONS), the
+ *           accent-light colour (MOOD_COLORS), and the animation speed
+ *           (MOOD_SPEEDS), all eased per frame.
+ * Phase 2 polish: holographic shader (onBeforeCompile — fresnel rim, scanline,
+ *           talk-jaw + blink vertex deforms) + an ambient mood-coloured particle
+ *           aura that speeds up while the agent streams.
  *
  * Mount lazily (next/dynamic, ssr:false) — ~16MB GLB + WebGL.
  */
@@ -218,6 +219,32 @@ export default function Mascot3D({
     rim.position.set(0, 0.5, -2);
     scene.add(hemi, key, fill, accent, rim);
 
+    // ── Ambient particle aura (simplified from initUltraParticles) ──
+    // A soft cloud of mood-coloured points orbiting + drifting up around the
+    // mascot; speeds with mood + the store's particleSpeed (streaming).
+    const PARTICLE_COUNT = 44;
+    const pPositions = new Float32Array(PARTICLE_COUNT * 3);
+    const pPhase = Array.from({ length: PARTICLE_COUNT }, () => ({
+      r: 0.35 + Math.random() * 0.55,
+      speed: 0.3 + Math.random() * 0.8,
+      angle: Math.random() * Math.PI * 2,
+      y: Math.random() * 1.4,
+      rise: 0.08 + Math.random() * 0.18,
+    }));
+    const pGeo = new THREE.BufferGeometry();
+    pGeo.setAttribute("position", new THREE.BufferAttribute(pPositions, 3));
+    const pMat = new THREE.PointsMaterial({
+      color: 0x00e1ff,
+      size: 0.045,
+      transparent: true,
+      opacity: 0.5,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      sizeAttenuation: true,
+    });
+    const particles = new THREE.Points(pGeo, pMat);
+    scene.add(particles);
+
     /** Crossfade to a clip (no-op if it's already the running clip). */
     const crossfade = (name: string, fade = 0.3) => {
       const next = actions.get(name);
@@ -412,6 +439,21 @@ export default function Mascot3D({
         if (animUniforms.uEmissionPulse.value < 0.01) animUniforms.uEmissionPulse.value = 0;
       }
       animUniforms.uFresnelColor.value.copy(moodColor);
+
+      // Particle aura: orbit + drift up, tinted by mood, sped by store.particleSpeed.
+      const pSpeed = useMascotStore.getState().particleSpeed;
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const p = pPhase[i];
+        p.angle += dt * p.speed * 0.4 * moodSpeed * pSpeed;
+        p.y += dt * p.rise * 0.6 * pSpeed;
+        if (p.y > 1.5) p.y = 0;
+        pPositions[i * 3] = Math.cos(p.angle) * p.r;
+        pPositions[i * 3 + 1] = p.y;
+        pPositions[i * 3 + 2] = Math.sin(p.angle) * p.r;
+      }
+      pGeo.attributes.position.needsUpdate = true;
+      pMat.color.copy(moodColor);
+      pMat.opacity = 0.35 + Math.sin(t * 2) * 0.12;
 
       if (model) model.position.y = baseY + Math.sin(t * 1.6) * 0.012; // breathing
       renderer.render(scene, camera);
