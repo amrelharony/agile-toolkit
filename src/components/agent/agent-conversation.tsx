@@ -7,7 +7,8 @@ import { useAuth } from "@/lib/auth/auth-provider";
 import { sendUserMessage } from "@/lib/agent/client";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "./confirm-action";
-import { Send, Wrench, AlertTriangle } from "lucide-react";
+import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
+import { Send, Wrench, AlertTriangle, Mic } from "lucide-react";
 import type { ChatMessage } from "@/lib/agent/types";
 
 /**
@@ -27,6 +28,8 @@ export function AgentConversation() {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
+  // Voice dictation fills the composer; the user reviews + sends.
+  const voice = useVoiceInput((text) => setInput(text));
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -89,12 +92,21 @@ export function AgentConversation() {
             disabled={streaming}
             aria-label="Message"
           />
-          <Button
-            type="submit"
-            disabled={streaming || !input.trim()}
-            size="icon"
-            aria-label="Send"
-          >
+          {voice.supported && (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              disabled={streaming}
+              onClick={() => (voice.listening ? voice.stop() : voice.start())}
+              aria-label={voice.listening ? "Stop dictation" : "Dictate"}
+              title={voice.listening ? "Stop" : "Speak"}
+              className={voice.listening ? "animate-pulse border-accent text-accent" : ""}
+            >
+              <Mic className="w-4 h-4" aria-hidden="true" />
+            </Button>
+          )}
+          <Button type="submit" disabled={streaming || !input.trim()} size="icon" aria-label="Send">
             <Send className="w-4 h-4" aria-hidden="true" />
           </Button>
         </form>
@@ -113,9 +125,14 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         {message.content.map((c, i) =>
           c.type === "tool_result" ? (
             <div key={i} className="flex gap-2 items-start">
-              <Wrench className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${c.is_error ? "text-destructive" : "text-accent"}`} aria-hidden="true" />
+              <Wrench
+                className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${c.is_error ? "text-destructive" : "text-accent"}`}
+                aria-hidden="true"
+              />
               <span className="font-mono break-all">
-                {typeof c.content === "string" ? c.content.slice(0, 400) : JSON.stringify(c.content).slice(0, 400)}
+                {typeof c.content === "string"
+                  ? c.content.slice(0, 400)
+                  : JSON.stringify(c.content).slice(0, 400)}
               </span>
             </div>
           ) : null
@@ -129,9 +146,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
         className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-          isUser
-            ? "bg-accent/20 text-text"
-            : "bg-card border border-border text-text"
+          isUser ? "bg-accent/20 text-text" : "bg-card border border-border text-text"
         }`}
       >
         {message.content.map((c, i) => {
