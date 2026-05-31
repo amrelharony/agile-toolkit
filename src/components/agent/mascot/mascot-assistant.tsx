@@ -15,7 +15,7 @@ import dynamic from "next/dynamic";
 import { X } from "lucide-react";
 import { useAgentStore } from "@/lib/agent/store";
 import { abortInFlight } from "@/lib/agent/client";
-import { useMascotStore } from "@/lib/agent/mascot/store";
+import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { AgentConversation } from "../agent-conversation";
 
 const Mascot3D = dynamic(() => import("./mascot-3d"), { ssr: false });
@@ -24,12 +24,10 @@ export function MascotAssistant() {
   const open = useAgentStore((s) => s.open);
   const toggleSheet = useAgentStore((s) => s.toggleSheet);
   const closeSheet = useAgentStore((s) => s.closeSheet);
-  const streaming = useAgentStore((s) => s.streaming);
 
-  // Mascot talks while the agent streams a reply.
-  useEffect(() => {
-    useMascotStore.getState().setTalking(streaming);
-  }, [streaming]);
+  // Drive the mascot from the conversation: talk while streaming, think on send,
+  // react to tool results, shift mood to the reply's sentiment.
+  useMascotChatReactions();
 
   // Abort any in-flight stream when the panel closes/unmounts (from agent-sheet).
   useEffect(() => {
