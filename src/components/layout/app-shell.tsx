@@ -25,10 +25,11 @@ const LlmSettingsDialog = dynamic(
   { ssr: false }
 );
 
-// Agent chat sheet — dynamic-imported so the agent runtime (SSE parser,
-// tool-execution machinery) only lands when the user actually opens it.
-const AgentSheet = dynamic(
-  () => import("@/components/agent/agent-sheet").then((m) => m.AgentSheet),
+// Floating 3D mascot + agent chat — dynamic-imported (ssr:false) so the WebGL
+// mascot + agent runtime (SSE parser, tool-execution machinery) only load
+// client-side. Replaces the old right-side agent sheet.
+const MascotAssistant = dynamic(
+  () => import("@/components/agent/mascot/mascot-assistant").then((m) => m.MascotAssistant),
   { ssr: false }
 );
 import { SonificationProvider } from "@/lib/sonification/provider";
@@ -170,7 +171,7 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
             so this single mount serves both header-chip and UserMenu
             entry points. Dynamic-imported so non-AI users never load it. */}
                         <LlmSettingsDialog />
-                        <AgentSheet />
+                        <MascotAssistant />
                       </HistorySyncProvider>
                     </CloudSyncProvider>
                   </OwnerPresenceProvider>
