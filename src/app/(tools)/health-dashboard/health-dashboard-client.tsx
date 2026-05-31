@@ -31,13 +31,9 @@ import {
   Network,
 } from "lucide-react";
 import type { DataSourceStatus, KPI, TrafficStatus, TrendDir } from "./types";
-import {
-  extractVelocityKPIs,
-  extractHealthCheckKPIs,
-  extractImpedimentKPIs,
-  extractStandupKPIs,
-  extractCycleTimeKPIs,
-} from "./extractors";
+import { extractCycleTimeKPIs } from "./extractors";
+import { velocityKPIs, healthCheckKPIs, impedimentKPIs, standupKPIs } from "./synced-kpis";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   predictabilityStatus,
   healthPctStatus,
@@ -84,34 +80,43 @@ export function HealthDashboardClient() {
   // SSR returns null defaults (no window); first client render must do
   // the same so the markup matches and React doesn't warn about a
   // hydration mismatch. Flip to real values once `hydrated` is set.
+  // Synced workspace entities — the authoritative source the agent's
+  // tool.health_dashboard.get_summary also reads. These selectors are
+  // reactive: an agent or cross-device write lands in the store and the
+  // dashboard recomputes automatically (no manual Refresh needed).
+  const sprints = useWorkspaceStore((s) => s.sprints);
+  const healthChecks = useWorkspaceStore((s) => s.healthChecks);
+  const impediments = useWorkspaceStore((s) => s.impediments);
+  const standupEntries = useWorkspaceStore((s) => s.standupEntries);
+  const teamMembers = useWorkspaceStore((s) => s.teamMembers);
+
   const velocityData = useMemo(
     () =>
       hydrated
-        ? extractVelocityKPIs()
+        ? velocityKPIs(sprints ?? [])
         : { avgVelocity: null, predictability: null, trend: "same" as TrendDir, series: [] },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hydrated, refreshKey, events]
+    [hydrated, sprints]
   );
   const healthCheckData = useMemo(
     () =>
       hydrated
-        ? extractHealthCheckKPIs()
+        ? healthCheckKPIs(healthChecks ?? [])
         : { healthPct: null, trend: "same" as TrendDir, series: [] as number[] },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hydrated, refreshKey, events]
+    [hydrated, healthChecks]
   );
   const impedimentData = useMemo(
     () =>
       hydrated
-        ? extractImpedimentKPIs()
+        ? impedimentKPIs(impediments ?? [])
         : { openCount: null, criticalCount: null, avgResolutionDays: null },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hydrated, refreshKey, events]
+    [hydrated, impediments]
   );
   const standupData = useMemo(
-    () => (hydrated ? extractStandupKPIs() : { openBlockers: null, participationRate: null }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hydrated, refreshKey, events]
+    () =>
+      hydrated
+        ? standupKPIs(standupEntries ?? [], (teamMembers ?? []).length)
+        : { openBlockers: null, participationRate: null },
+    [hydrated, standupEntries, teamMembers]
   );
   const cycleTimeData = useMemo(
     () => (hydrated ? extractCycleTimeKPIs() : { p85: null }),
