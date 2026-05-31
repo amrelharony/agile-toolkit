@@ -58,3 +58,7 @@ next-env.d.ts
 
 # one-off deep-test audit workflow scratch (kept locally, not part of the app)
 /audit-pass2.workflow.mjs
+
+# Mascot 3D model (~16MB) — too big to commit to git as-is; host via CDN/LFS
+# before shipping. Kept locally so the mascot renders in dev.
+/public/mascot/*.glb
