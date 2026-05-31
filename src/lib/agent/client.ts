@@ -4,9 +4,20 @@ import { registry, claudeNameFromId } from "@/lib/actions/registry";
 import { getActiveConfig } from "@/lib/stores/llm-store";
 import { useAgentStore } from "./store";
 import { buildSystemPrompt } from "./system-prompt";
+import { relevantActions as relevantActionsForQuery } from "./mascot/kb";
 import { executeToolUse } from "./execute-tool";
 import { appendMessages } from "./persist";
 import type { ChatMessage, ContentBlock, ToolResultBlock, ToolUseBlock } from "./types";
+
+/** Text of the most recent user message (joined text blocks), or "" if none. */
+function lastUserText(messages: ChatMessage[]): string {
+  const last = messages.filter((m) => m.role === "user").at(-1);
+  if (!last) return "";
+  return last.content
+    .map((c) => (c.type === "text" ? c.text : ""))
+    .join(" ")
+    .trim();
+}
 
 /**
  * Agent client — drives the tool-use loop against GLM (z.ai) via the
@@ -107,7 +118,11 @@ export async function sendUserMessage(text: string, opts: StreamOptions): Promis
 async function runToolUseLoop(opts: StreamOptions): Promise<void> {
   const { mode, serverModel } = await detectMode();
   const tools = registry.toOpenAiTools();
-  const system = buildSystemPrompt({ toolId: opts.toolId ?? null });
+  // KB help (RAG-lite): focus the model on the actions most relevant to the
+  // latest user message, picked from the registry index.
+  const latestUserText = lastUserText(useAgentStore.getState().messages);
+  const relevantActions = latestUserText ? relevantActionsForQuery(latestUserText) : [];
+  const system = buildSystemPrompt({ toolId: opts.toolId ?? null, relevantActions });
   // BUG-G11: wedge guard. Track (actionId → consecutive-error-count) so a
   // model that keeps retrying the same broken tool_use call doesn't burn
   // every round in the budget.
