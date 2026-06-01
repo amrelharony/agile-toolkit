@@ -244,7 +244,11 @@ export async function POST(req: NextRequest) {
     }
     return Response.json(
       { error: "upstream", status: upstream.status, detail },
-      { status: upstream.status }
+      // checkRate already recorded this turn's usage row before the upstream
+      // fetch, so surface the X-RateLimit-* headers here too — otherwise a
+      // failed turn (e.g. an OpenClaw 413) silently consumes quota without the
+      // bar ever reflecting it.
+      { status: upstream.status, headers: rate ? rateHeaders(rate) : undefined }
     );
   }
 
