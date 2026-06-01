@@ -220,7 +220,11 @@ function scoreEntry(
   for (const key of entry.keys) {
     if (key.length > 2 && q.includes(key)) score += 6;
   }
-  if (entry.category && q.includes(entry.category)) score += 2;
+  // NB: no category bonus. The website's scorer rewarded a topical category
+  // (career/cert/book…), but the toolkit's categories are structural —
+  // read/write/intent — which are common English words; matching them on the
+  // raw query would flatly boost a whole category whenever the user happened to
+  // type "read"/"write", which is noise, not relevance.
   return score;
 }
 

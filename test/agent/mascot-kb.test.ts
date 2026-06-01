@@ -112,4 +112,15 @@ describe("matchKb", () => {
     const r = matchKb("create add a new sprint board sticky kudos", index, { limit: 2 });
     expect(r.matches.length).toBeLessThanOrEqual(2);
   });
+
+  it("does not let the structural category word pollute results", () => {
+    // Every seed here is category 'write'. The literal word 'write' in the query
+    // must NOT boost topically-unrelated write actions (regression: the ported
+    // category bonus matched read/write/intent — common English words).
+    const r = matchKb("write a kudos to my teammate", index);
+    expect(r.matches[0].entry.id).toBe("workspace.kudos.give");
+    const ids = r.matches.map((m) => m.entry.id);
+    expect(ids).not.toContain("workspace.sprint.create");
+    expect(ids).not.toContain("tool.canvas.add_sticky");
+  });
 });

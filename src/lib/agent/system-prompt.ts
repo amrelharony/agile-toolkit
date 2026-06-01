@@ -28,7 +28,7 @@ export function buildSystemPrompt(
   const relevant =
     opts.relevantActions && opts.relevantActions.length > 0
       ? `\n\nFor this request, these actions look most relevant (prefer them if they fit; ignore if they don't):\n${opts.relevantActions
-          .map((a) => `- \`${a.id}\` — ${a.description}`)
+          .map((a) => `- \`${a.id}\` — ${a.description.replace(/\s+/g, " ").trim()}`)
           .join("\n")}\n`
       : "";
 
