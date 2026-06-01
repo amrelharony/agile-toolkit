@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireAuthorizedUser } from "@/lib/auth/require-user";
 
 /**
@@ -57,6 +58,44 @@ interface Backend {
   provider: "openclaw" | "glm";
 }
 
+interface RateLimit {
+  allowed: boolean;
+  daily_used: number;
+  daily_max: number;
+  weekly_used: number;
+  weekly_max: number;
+  monthly_used: number;
+  monthly_max: number;
+}
+
+/** X-RateLimit-* headers the client parses into the usage bar. */
+function rateHeaders(r: RateLimit): Record<string, string> {
+  return {
+    "x-ratelimit-daily": String(r.daily_used),
+    "x-ratelimit-daily-max": String(r.daily_max),
+    "x-ratelimit-weekly": String(r.weekly_used),
+    "x-ratelimit-weekly-max": String(r.weekly_max),
+    "x-ratelimit-monthly": String(r.monthly_used),
+    "x-ratelimit-monthly-max": String(r.monthly_max),
+  };
+}
+
+/**
+ * Atomic check-and-record against the per-user windows. Returns the usage
+ * snapshot, or null when rate limiting is unavailable (RPC missing / errored)
+ * — in which case we FAIL OPEN: the agent must never break because the
+ * usage table isn't migrated yet.
+ */
+async function checkRate(supabase: SupabaseClient): Promise<RateLimit | null> {
+  try {
+    const { data, error } = await supabase.rpc("check_chat_rate_limit");
+    if (error || !data) return null;
+    return data as RateLimit;
+  } catch {
+    return null;
+  }
+}
+
 /** Resolve the active server backend, preferring OpenClaw. null ⇒ BYOK client. */
 function backend(): Backend | null {
   const oc = process.env.OPENCLAW_API_KEY;
@@ -98,8 +137,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  let supabase: SupabaseClient;
   try {
-    await requireAuthorizedUser();
+    ({ supabase } = await requireAuthorizedUser());
   } catch (resp) {
     if (resp instanceof Response) return resp;
     throw resp;
@@ -108,6 +148,21 @@ export async function POST(req: NextRequest) {
   const be = backend();
   if (!be) {
     return Response.json({ mode: "client", provider: "openclaw" }, { status: 200 });
+  }
+
+  // Rate limit at TURN start only. The client flags round 0 with
+  // `x-agent-new-turn`; a turn's later tool-use rounds pass through unmetered,
+  // so one row ≈ one turn (not one POST). 429 short-circuits before we spend
+  // any gateway tokens. Fail-open if the check is unavailable.
+  let rate: RateLimit | null = null;
+  if (req.headers.get("x-agent-new-turn") === "1") {
+    rate = await checkRate(supabase);
+    if (rate && !rate.allowed) {
+      return Response.json(
+        { error: "rate_limited", limits: rate },
+        { status: 429, headers: { "retry-after": "3600", ...rateHeaders(rate) } }
+      );
+    }
   }
 
   let body: unknown;
@@ -199,6 +254,7 @@ export async function POST(req: NextRequest) {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-cache, no-transform",
       "x-accel-buffering": "no",
+      ...(rate ? rateHeaders(rate) : {}),
     },
   });
 }

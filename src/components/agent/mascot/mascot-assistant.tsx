@@ -16,6 +16,7 @@ import { X } from "lucide-react";
 import { useAgentStore } from "@/lib/agent/store";
 import { abortInFlight } from "@/lib/agent/client";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
+import { RateLimitBar } from "./rate-limit-bar";
 import { AgentConversation } from "../agent-conversation";
 
 const Mascot3D = dynamic(() => import("./mascot-3d"), { ssr: false });
@@ -80,6 +81,7 @@ export function MascotAssistant() {
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
+          <RateLimitBar />
           <div className="min-h-0 flex-1 px-3 py-2">
             <AgentConversation />
           </div>

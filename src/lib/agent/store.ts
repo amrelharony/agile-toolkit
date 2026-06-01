@@ -3,6 +3,18 @@
 import { create } from "zustand";
 import type { ChatMessage, ConversationMeta, PendingToolUse } from "./types";
 
+/** Usage snapshot parsed from the stream route's X-RateLimit-* headers. */
+export interface RateLimitInfo {
+  dailyUsed: number;
+  dailyMax: number;
+  weeklyUsed: number;
+  weeklyMax: number;
+  monthlyUsed: number;
+  monthlyMax: number;
+  /** True once a window cap was hit (the route returned 429). */
+  limited: boolean;
+}
+
 interface AgentState {
   open: boolean;
   /** Currently-loaded conversation, or null for a fresh draft. */
@@ -19,6 +31,8 @@ interface AgentState {
   autoApprove: boolean;
   /** Recent error message surfaced inline (cleared on next send). */
   error: string | null;
+  /** Latest agent usage vs. caps (null until the first metered turn). */
+  rateLimit: RateLimitInfo | null;
 }
 
 interface AgentActions {
@@ -32,6 +46,7 @@ interface AgentActions {
   setStreaming(v: boolean): void;
   setPendingToolUse(p: PendingToolUse | null): void;
   setError(e: string | null): void;
+  setRateLimit(r: RateLimitInfo | null): void;
   reset(): void;
 }
 
@@ -44,6 +59,7 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
   pendingToolUse: null,
   autoApprove: false,
   error: null,
+  rateLimit: null,
 
   openSheet: () => set({ open: true }),
   // BUG-G1: also reset autoApprove on close. The docstring promised
@@ -113,6 +129,7 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
     if (old && old !== p) old.resolve(false);
   },
   setError: (e) => set({ error: e }),
+  setRateLimit: (r) => set({ rateLimit: r }),
 
   reset: () => {
     const pending = get().pendingToolUse;

@@ -5,6 +5,7 @@ import { getActiveConfig } from "@/lib/stores/llm-store";
 import { useAgentStore } from "./store";
 import { buildSystemPrompt } from "./system-prompt";
 import { relevantActions as relevantActionsForQuery } from "./mascot/kb";
+import { parseRateLimitHeaders } from "./rate-limit";
 import { executeToolUse } from "./execute-tool";
 import { appendMessages } from "./persist";
 import type { ChatMessage, ContentBlock, ToolResultBlock, ToolUseBlock } from "./types";
@@ -139,7 +140,9 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
       messages,
     };
 
-    const stopReason = await openOneTurn(mode, body, opts.signal);
+    // Meter only the first round: a turn's later tool-use rounds are
+    // continuations of an already-allowed turn (see the route's x-agent-new-turn).
+    const stopReason = await openOneTurn(mode, body, opts.signal, round === 0);
 
     if (stopReason !== "tool_use") {
       // BUG-G6: persist the assistant message after the turn settles.
@@ -242,9 +245,23 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
 async function openOneTurn(
   mode: AgentMode,
   body: Record<string, unknown>,
-  signal: AbortSignal | undefined
+  signal: AbortSignal | undefined,
+  newTurn = false
 ): Promise<string> {
-  const response = await openStream(mode, body, signal);
+  const response = await openStream(mode, body, signal, newTurn);
+
+  // Update the usage bar from the route's X-RateLimit-* headers (server mode,
+  // turn start). A 429 means a window cap was hit — surface it gently and stop
+  // the loop instead of throwing the generic "stream failed" error.
+  const rl = parseRateLimitHeaders(response.headers, response.status === 429);
+  if (rl) useAgentStore.getState().setRateLimit(rl);
+  if (response.status === 429) {
+    useAgentStore
+      .getState()
+      .setError("You've reached the agent usage limit for now. Please try again later.");
+    return "end_turn";
+  }
+
   if (!response.ok || !response.body) {
     const detail = await response.text().catch(() => "");
     throw new Error(`agent stream failed (${response.status}): ${detail.slice(0, 200)}`);
@@ -441,12 +458,17 @@ function flushAssistant(wip: WipState): void {
 async function openStream(
   mode: AgentMode,
   body: Record<string, unknown>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  newTurn = false
 ): Promise<Response> {
   if (mode === "server") {
     return fetch("/api/agent/stream", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        // Flag turn start so the route meters per turn, not per tool-use round.
+        ...(newTurn ? { "x-agent-new-turn": "1" } : {}),
+      },
       body: JSON.stringify(body),
       signal,
     });
