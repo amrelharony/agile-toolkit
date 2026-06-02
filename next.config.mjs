@@ -24,6 +24,20 @@
 // never bind. Add the dev-only allowance back so `npm run dev` works.
 const isDev = process.env.NODE_ENV !== "production";
 
+// The mascot GLB (16 MB, gitignored) is served from a CDN/LFS host in prod via
+// NEXT_PUBLIC_MASCOT_GLB_URL. When that's an absolute URL, GLTFLoader fetches it
+// (connect-src) so its origin must be whitelisted; a relative/same-origin path
+// is already covered by 'self'. Returns " https://cdn.example" or "".
+function mascotGlbOrigin() {
+  const u = process.env.NEXT_PUBLIC_MASCOT_GLB_URL;
+  if (!u) return "";
+  try {
+    return ` ${new URL(u).origin}`;
+  } catch {
+    return ""; // relative path → covered by 'self'
+  }
+}
+
 const cspDirectives = [
   "default-src 'self'",
   // 'unsafe-inline' stays in both modes because Next still emits an inline
@@ -38,7 +52,7 @@ const cspDirectives = [
   // `fetch(blob:…)` — governed by connect-src. Without it the texture fails to
   // load ("THREE.GLTFLoader: Couldn't load texture blob:…") and the mascot
   // renders as an untextured white clay model.
-  "connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://accounts.google.com https://api.z.ai https://open.bigmodel.cn https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com",
+  `connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://accounts.google.com https://api.z.ai https://open.bigmodel.cn https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com${mascotGlbOrigin()}`,
   "frame-src 'self' https://accounts.google.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",

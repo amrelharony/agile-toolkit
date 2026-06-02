@@ -153,7 +153,10 @@ export default function Mascot3D({
   width = 160,
   height = 280,
   className,
-  src = "/mascot/mascot.glb",
+  // The 16 MB GLB is gitignored, so production serves it from a CDN/LFS host
+  // set via NEXT_PUBLIC_MASCOT_GLB_URL (its origin is whitelisted in the CSP
+  // connect-src by next.config.mjs). Falls back to the local dev copy.
+  src = process.env.NEXT_PUBLIC_MASCOT_GLB_URL || "/mascot/mascot.glb",
 }: Mascot3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const weatherSysRef = useRef<WeatherParticles | null>(null);
