@@ -413,6 +413,31 @@ const kudos: ToolPalette = {
   },
 };
 
+/**
+ * Mascot (ElharonyClaw) — lifecycle + reaction cues. The vanilla mascot plays
+ * literal-Hz chimes/sweeps; this engine is musical/pentatonic, so each event maps
+ * to an in-key voice that approximates the source's intent (rising = positive,
+ * dissonant = error/headshake). Plays in "full" mode.
+ */
+const mascot: ToolPalette = {
+  open: { voice: "chord", steps: [0, 4, 7], octave: 5, duration: 0.8, filter: "bright" },
+  close: { voice: "pad", step: -2, octave: 3, duration: 0.9 },
+  send: { voice: "pluck", step: 4, octave: 5 },
+  answer: { voice: "chord", steps: [0, 4], octave: 5, duration: 0.6, filter: "warm" },
+  mood: { voice: "pad", steps: [0, 4, 7], octave: 4, duration: 1.2, filter: "warm" },
+  error: { voice: "dissonant", steps: [0, 1], octave: 4 },
+  click: { voice: "blip", step: 5, octave: 6, velocity: 0.6 },
+  spin: { voice: "chord", steps: [0, 4, 7, 12], octave: 5, duration: 0.7, filter: "bright" },
+  wiggle: { voice: "blip", step: 3, octave: 6, jitterCents: 25 },
+  wave: { voice: "pluck", step: 4, octave: 5, filter: "bright" },
+  nod: { voice: "pluck", step: 2, octave: 4 },
+  excited: { voice: "chord", steps: [0, 4, 7], octave: 6, duration: 0.6, filter: "bright" },
+  headShake: { voice: "dissonant", steps: [0, -1], octave: 4 },
+  thinking: { voice: "pad", step: 0, octave: 4, duration: 0.5 },
+  listening: { voice: "blip", step: 1, octave: 5, velocity: 0.4 },
+  talking: { voice: "blip", step: 3, octave: 5, velocity: 0.4 },
+};
+
 export const palette: PaletteMap = {
   "planning-poker": planningPoker,
   retro,
@@ -457,6 +482,7 @@ export const palette: PaletteMap = {
   "nps-csat": npsCsat,
   "mood-tracker": moodTracker,
   kudos,
+  mascot,
   // pseudo-tools for universal surfaces
   ui,
   rt,

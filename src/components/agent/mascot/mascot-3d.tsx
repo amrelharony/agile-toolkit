@@ -27,6 +27,9 @@
  * Phase 10: reaction parity — procedural spin/wiggle (override head-track) +
  *           emission/squash side-effects, plus micro-expressions + rare idle
  *           personality quirks (engine/reactions.ts).
+ * Phase 11: audio — reaction/entrance/mood cues routed through the toolkit
+ *           sonification engine (engine/audio/mascot-audio.ts + a `mascot`
+ *           palette block); gated by the user's sound prefs.
  *
  * Mount lazily (next/dynamic, ssr:false) — ~16MB GLB + WebGL.
  */
@@ -46,6 +49,7 @@ import {
 import { playEntrance } from "./engine/entrance";
 import { createProceduralAnim } from "./engine/procedural-anim";
 import { createReactionFx } from "./engine/reactions";
+import { playMascotSound } from "./engine/audio/mascot-audio";
 import { useWeather } from "@/lib/weather/provider";
 
 interface Mascot3DProps {
@@ -352,8 +356,12 @@ export default function Mascot3D({
         });
         // Gate procedural scale (squash-stretch) until the entrance scale tween
         // finishes, so the two don't fight over model.scale.
-        if (entranceTl) entranceTl.eventCallback("onComplete", () => (entranceDone = true));
-        else entranceDone = true;
+        if (entranceTl) {
+          entranceTl.eventCallback("onComplete", () => (entranceDone = true));
+          playMascotSound("open"); // entrance chime (source plays 'open')
+        } else {
+          entranceDone = true;
+        }
       },
       undefined,
       () => {
@@ -371,6 +379,7 @@ export default function Mascot3D({
       if (mood !== currentMood) {
         currentMood = mood;
         applyMood(mood);
+        playMascotSound("mood"); // soft swell on mood change (source plays 'mood')
       }
     });
 
@@ -409,6 +418,7 @@ export default function Mascot3D({
           if (desc.clip) crossfade(desc.clip, 0.2);
           if (desc.emission) animUniforms.uEmissionPulse.value = desc.emission;
           if (r !== "wiggle") procedural.triggerSquashStretch("react");
+          playMascotSound(r); // reaction sound (no-op if not in the palette / muted)
         }
       }
 
