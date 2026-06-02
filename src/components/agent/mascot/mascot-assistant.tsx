@@ -10,7 +10,13 @@
  * shell is new. The mascot "talks" (Talking clip) while the agent streams.
  */
 
-import { useEffect, useRef } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import dynamic from "next/dynamic";
 import { X } from "lucide-react";
 import { useAgentStore } from "@/lib/agent/store";
@@ -27,6 +33,26 @@ import styles from "./mascot-assistant.module.css";
 /** Award XP via the gamification window bridge (no-op if unavailable). */
 function addXp(n: number): void {
   (window as unknown as { VDna?: { addXp?: (x: number) => void } }).VDna?.addXp?.(n);
+}
+
+/** Which corner the mascot is parked in (drag-to-reposition). */
+type Corner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
+
+/** Fixed-position style for the float button at a corner (default ≈ bottom-1 right-2). */
+function buttonPos(c: Corner): CSSProperties {
+  return {
+    position: "fixed",
+    ...(c.startsWith("top") ? { top: 4 } : { bottom: 4 }),
+    ...(c.endsWith("Left") ? { left: 8 } : { right: 8 }),
+  };
+}
+
+/** Chat-panel style for a corner — sits just inboard of the mascot. */
+function panelPos(c: Corner): CSSProperties {
+  return {
+    ...(c.startsWith("top") ? { top: 228 } : { bottom: 228 }),
+    ...(c.endsWith("Left") ? { left: 16 } : { right: 16 }),
+  };
 }
 
 const Mascot3D = dynamic(() => import("./mascot-3d"), { ssr: false });
@@ -48,7 +74,9 @@ export function MascotAssistant() {
     });
   }
   const lastToggleRef = useRef(0);
+  const draggedRef = useRef(false);
   const onMascotClick = () => {
+    if (draggedRef.current) return; // a drag-release, not a click
     clickRef.current?.onClick();
     const now = Date.now();
     if (now - lastToggleRef.current > 500) {
@@ -57,6 +85,54 @@ export function MascotAssistant() {
     }
   };
   useEffect(() => () => clickRef.current?.dispose(), []);
+
+  // Drag-to-reposition: free-drag past a threshold, then snap to the nearest
+  // corner (the chat panel follows via the corner state). Source initDragDrop.
+  const [corner, setCorner] = useState<Corner>("bottomRight");
+  const [dragPos, setDragPos] = useState<{ left: number; top: number } | null>(null);
+  const onPointerDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0) return;
+    const el = e.currentTarget;
+    const start = { x: e.clientX, y: e.clientY };
+    const rect = el.getBoundingClientRect();
+    const offset = { x: rect.left - e.clientX, y: rect.top - e.clientY };
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    let moved = false;
+    let last = { left: rect.left, top: rect.top };
+    const onMove = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - start.x) + Math.abs(ev.clientY - start.y) > 8) {
+        moved = true;
+      }
+      if (moved) {
+        last = {
+          left: Math.max(0, Math.min(window.innerWidth - w, ev.clientX + offset.x)),
+          top: Math.max(0, Math.min(window.innerHeight - h, ev.clientY + offset.y)),
+        };
+        setDragPos(last);
+      }
+    };
+    const onUp = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      if (moved) {
+        // Snap from the last DRAGGED position (React batches setDragPos, so the
+        // DOM rect may still read the start position here).
+        const cx = last.left + w / 2;
+        const cy = last.top + h / 2;
+        const next = `${cy < window.innerHeight / 2 ? "top" : "bottom"}${
+          cx < window.innerWidth / 2 ? "Left" : "Right"
+        }` as Corner;
+        setCorner(next);
+        setDragPos(null);
+        // Suppress the click that fires right after a drag-release.
+        draggedRef.current = true;
+        setTimeout(() => (draggedRef.current = false), 60);
+      }
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+  };
 
   // Konami easter egg (spin + rainbow + XP) + restore persisted appearance.
   useEffect(() => {
@@ -103,7 +179,8 @@ export function MascotAssistant() {
       {open && (
         <div
           data-agent-sheet-root
-          className="fixed bottom-[228px] right-4 z-50 flex h-[min(68vh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden rounded-2xl border border-border bg-surface-deep/95 shadow-2xl backdrop-blur"
+          style={panelPos(corner)}
+          className="fixed z-50 flex h-[min(68vh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden rounded-2xl border border-border bg-surface-deep/95 shadow-2xl backdrop-blur"
         >
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
             <div>
@@ -130,9 +207,15 @@ export function MascotAssistant() {
       <button
         type="button"
         onClick={onMascotClick}
+        onPointerDown={onPointerDown}
         aria-label={open ? "Close assistant" : "Open assistant"}
-        title="Ask ElharonyClaw"
-        className={`fixed bottom-1 right-2 z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${styles.float}`}
+        title="Ask ElharonyClaw · drag to reposition"
+        style={
+          dragPos ? { position: "fixed", left: dragPos.left, top: dragPos.top } : buttonPos(corner)
+        }
+        className={`z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+          dragPos ? "" : styles.float
+        }`}
       >
         <Mascot3D width={130} height={220} />
       </button>
