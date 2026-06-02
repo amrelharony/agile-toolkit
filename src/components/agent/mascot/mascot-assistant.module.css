@@ -1,0 +1,29 @@
+/* Floating mascot button — ported from the source .mascot-float: a cyan
+   drop-shadow glow, a gentle 4s float, and a hover lift. Honors reduced-motion. */
+
+@keyframes mascotFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.float {
+  filter: drop-shadow(0 8px 24px rgba(0, 225, 255, 0.18))
+    drop-shadow(0 20px 40px rgba(0, 0, 0, 0.25));
+  animation: mascotFloat 4s ease-in-out infinite;
+}
+
+.float:hover {
+  animation-play-state: paused;
+  transform: scale(1.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .float {
+    animation: none;
+  }
+}

@@ -22,6 +22,7 @@ import { installKonami } from "./engine/customization/commands";
 import { playMascotSound } from "./engine/audio/mascot-audio";
 import { RateLimitBar } from "./rate-limit-bar";
 import { AgentConversation } from "../agent-conversation";
+import styles from "./mascot-assistant.module.css";
 
 /** Award XP via the gamification window bridge (no-op if unavailable). */
 function addXp(n: number): void {
@@ -131,7 +132,7 @@ export function MascotAssistant() {
         onClick={onMascotClick}
         aria-label={open ? "Close assistant" : "Open assistant"}
         title="Ask ElharonyClaw"
-        className="fixed bottom-1 right-2 z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className={`fixed bottom-1 right-2 z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${styles.float}`}
       >
         <Mascot3D width={130} height={220} />
       </button>

@@ -608,12 +608,27 @@ export default function Mascot3D({
     };
     window.addEventListener("resize", onResize);
 
+    // ── Visibility gate: hard-pause the RAF when the tab is hidden (the browser
+    //    already throttles rAF, but this stops the loop + listeners entirely so
+    //    an always-mounted mascot costs nothing in a backgrounded tab).
+    const onVisibility = () => {
+      if (document.hidden) {
+        cancelAnimationFrame(raf);
+        raf = 0;
+      } else if (!disposed && raf === 0) {
+        clock.getDelta(); // discard the time gap so dt doesn't spike
+        animate();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
     // ── Cleanup (dispose everything; the vanilla version never did) ──
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
       window.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("visibilitychange", onVisibility);
       gestureTracker.dispose();
       unsub();
       entranceTl?.kill();
