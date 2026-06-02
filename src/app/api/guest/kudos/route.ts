@@ -132,10 +132,57 @@ export async function POST(req: NextRequest) {
     reactions: k.reactions ?? [],
   };
 
-  const { error } = await admin.from("kudos").upsert(row, { onConflict: "id" });
+  // Append-only integrity. Guests may only INSERT new kudos — never
+  // overwrite an existing row. The previous `upsert(row, {onConflict:"id"})`
+  // ran on the RLS-bypassing service-role client, so a client-supplied `id`
+  // that already existed turned the write into an UPDATE of THAT row. A
+  // guest could therefore rewrite any kudos whose id they knew — e.g. a
+  // peer's id learned from the owner-scoped realtime channel
+  // (`tool:kudos:room:workspace-${ownerId}` is shared across squads under
+  // one owner) — changing its message/author/squad, and it also bypassed
+  // the BEFORE INSERT fairness-window trigger entirely. Mirror /api/guest/log:
+  // pre-check by id, treat the guest's own id as an idempotent retry, reject
+  // a foreign id, and INSERT otherwise (handling the concurrent 23505 race).
+  const ownsRow = (row: { from_profile_id?: string | null } | null): boolean =>
+    !!row && row.from_profile_id === session.profileId;
+
+  const { data: existing, error: existErr } = await admin
+    .from("kudos")
+    .select("from_profile_id")
+    .eq("id", k.id)
+    .maybeSingle();
+  if (existErr) {
+    // eslint-disable-next-line no-console
+    console.error("[guest/kudos POST] existing lookup failed", existErr.code, existErr.message);
+    return Response.json({ error: "server_error" }, { status: 500 });
+  }
+  if (existing) {
+    // Same author re-submitting the same id → idempotent ack (append-only:
+    // we never mutate the stored row). A different author's id → conflict.
+    if (ownsRow(existing as { from_profile_id: string | null })) {
+      return Response.json({ ok: true, duplicate: true });
+    }
+    return Response.json({ error: "id_conflict" }, { status: 409 });
+  }
+
+  const { error } = await admin.from("kudos").insert(row);
   if (error) {
     if (error.message?.includes("kudos.fairness_window_exceeded")) {
       return Response.json({ error: "fairness_window_exceeded" }, { status: 429 });
+    }
+    if (error.code === "23505") {
+      // Race: a concurrent insert of the same id landed between our
+      // pre-check and this insert. Re-check ownership so the same author's
+      // concurrent retry stays idempotent; a foreign id is a hard conflict.
+      const { data: postRace } = await admin
+        .from("kudos")
+        .select("from_profile_id")
+        .eq("id", k.id)
+        .maybeSingle();
+      if (ownsRow((postRace as { from_profile_id: string | null } | null) ?? null)) {
+        return Response.json({ ok: true, duplicate: true });
+      }
+      return Response.json({ error: "id_conflict" }, { status: 409 });
     }
     // eslint-disable-next-line no-console
     console.error("[guest/kudos POST] supabase error", error.code, error.message);
