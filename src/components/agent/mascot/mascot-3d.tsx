@@ -335,7 +335,18 @@ export default function Mascot3D({
     new GLTFLoader().load(
       src,
       (gltf) => {
-        if (disposed || !renderer) return;
+        if (disposed || !renderer) {
+          // Unmounted before the ~16MB GLB finished — dispose the parsed scene
+          // so its geometries/textures don't leak (it was never added to ours).
+          gltf.scene.traverse((o) => {
+            const m = o as THREE.Mesh;
+            if (m.geometry) m.geometry.dispose();
+            const mat = m.material;
+            if (Array.isArray(mat)) mat.forEach(disposeMaterial);
+            else if (mat) disposeMaterial(mat);
+          });
+          return;
+        }
         model = gltf.scene;
         scene.add(model);
 
@@ -421,6 +432,9 @@ export default function Mascot3D({
         if (entranceTl) {
           entranceTl.eventCallback("onComplete", () => (entranceDone = true));
           playMascotSound("open"); // entrance chime (source plays 'open')
+          // Fallback: never leave the procedural scale gated off if onComplete
+          // never fires (e.g. the tab was backgrounded across the whole tween).
+          setTimeout(() => (entranceDone = true), 1500);
         } else {
           entranceDone = true;
         }
@@ -589,14 +603,14 @@ export default function Mascot3D({
         // Cursor head-tracking: rotate toward the pointer, kept upright. A
         // spin/wiggle reaction (procRotY) overrides the Y rotation while active.
         if (!reducedMotion) {
-          if (procRotY !== null) {
-            model.rotation.y = procRotY;
-          } else {
-            headCurrentX += (-mouseNDC.y * 0.06 - headCurrentX) * dt * 3;
-            headCurrentY += (mouseNDC.x * 0.15 - headCurrentY) * dt * 3;
-            model.rotation.x = Math.max(-0.06, Math.min(0.06, headCurrentX));
-            model.rotation.y = headCurrentY;
-          }
+          // Integrate head-tracking EVERY frame (even during a spin/wiggle) so
+          // rotation.y doesn't snap when the reaction hands back to head-follow.
+          headCurrentX += (-mouseNDC.y * 0.06 - headCurrentX) * dt * 3;
+          headCurrentY += (mouseNDC.x * 0.15 - headCurrentY) * dt * 3;
+          model.rotation.x = Math.max(-0.06, Math.min(0.06, headCurrentX));
+          model.rotation.y = procRotY !== null ? procRotY : headCurrentY;
+        } else if (procRotY !== null) {
+          model.rotation.y = procRotY;
         }
       }
 

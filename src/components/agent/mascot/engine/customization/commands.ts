@@ -82,14 +82,19 @@ export function installKonami(onActivate: () => void): () => void {
   return () => window.removeEventListener("keydown", onKey);
 }
 
+let rainbowIv: ReturnType<typeof setInterval> | null = null;
+
 function konamiAction(): void {
   const store = useMascotStore.getState();
   store.queueReaction("spin");
-  // Rainbow aura sweep, then revert to the mood colour.
+  // Rainbow aura sweep, then revert to the mood colour. Cancel any in-flight
+  // sweep first so a rapid second Konami doesn't race two intervals.
+  if (rainbowIv) clearInterval(rainbowIv);
   let i = 0;
-  const iv = setInterval(() => {
+  rainbowIv = setInterval(() => {
     if (i >= RAINBOW.length) {
-      clearInterval(iv);
+      if (rainbowIv) clearInterval(rainbowIv);
+      rainbowIv = null;
       store.setAuraColor(null);
       return;
     }

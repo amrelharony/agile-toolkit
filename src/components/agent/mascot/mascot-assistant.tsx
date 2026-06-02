@@ -90,8 +90,13 @@ export function MascotAssistant() {
   // corner (the chat panel follows via the corner state). Source initDragDrop.
   const [corner, setCorner] = useState<Corner>("bottomRight");
   const [dragPos, setDragPos] = useState<{ left: number; top: number } | null>(null);
+  // Removes the active drag's document listeners (called on pointerup, on a new
+  // drag, or on unmount) so they never leak past an in-progress drag.
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => dragCleanupRef.current?.(), []);
   const onPointerDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0) return;
+    dragCleanupRef.current?.(); // tidy any prior unfinished drag
     const el = e.currentTarget;
     const start = { x: e.clientX, y: e.clientY };
     const rect = el.getBoundingClientRect();
@@ -113,8 +118,7 @@ export function MascotAssistant() {
       }
     };
     const onUp = () => {
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUp);
+      dragCleanupRef.current?.(); // removes both listeners + nulls the ref
       if (moved) {
         // Snap from the last DRAGGED position (React batches setDragPos, so the
         // DOM rect may still read the start position here).
@@ -132,6 +136,11 @@ export function MascotAssistant() {
     };
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
+    dragCleanupRef.current = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      dragCleanupRef.current = null;
+    };
   };
 
   // Konami easter egg (spin + rainbow + XP) + restore persisted appearance.
