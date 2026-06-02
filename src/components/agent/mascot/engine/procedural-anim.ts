@@ -61,6 +61,8 @@ interface Fidget {
   name: string;
   duration: number;
   _puffed?: boolean;
+  /** weightShift's chosen lean direction, picked once per activation. */
+  _dir?: number;
   apply(pa: ProceduralState, t01: number, hooks: ProceduralHooks): void;
   reset(pa: ProceduralState): void;
 }
@@ -119,12 +121,18 @@ export function createProceduralAnim(): ProceduralAnim {
     {
       name: "weightShift",
       duration: 2.0,
+      _dir: undefined,
       apply(pa, t01) {
+        // Pick the lean direction once when the fidget begins; the source
+        // re-rolled the sign every frame, so the lean jittered instead of
+        // settling to one side.
+        if (this._dir === undefined) this._dir = Math.random() > 0.5 ? 1 : -1;
         const curve = Math.sin(t01 * Math.PI);
-        pa.springs.bodyLean.target = curve * 0.006 * (Math.random() > 0.5 ? 1 : -1);
+        pa.springs.bodyLean.target = curve * 0.006 * this._dir;
       },
       reset(pa) {
         pa.springs.bodyLean.target = 0;
+        this._dir = undefined;
       },
     },
     {

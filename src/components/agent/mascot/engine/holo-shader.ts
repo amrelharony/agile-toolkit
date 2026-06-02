@@ -34,8 +34,11 @@ export const VERT_TRANSFORM = `{
 
   float headMask   = smoothstep(0.30, 0.45, ny);
   float faceMask   = smoothstep(0.45, 0.55, ny) * (1.0 - smoothstep(0.85, 0.95, ny));
+  // Symmetric central band (covers both eyes) — the source's two X smoothsteps
+  // were mutually exclusive (always 0), so its blink never showed. abs(x) makes
+  // it light up the eye band for a real blink compression.
   float eyeMask    = smoothstep(0.55, 0.62, ny) * (1.0 - smoothstep(0.70, 0.78, ny))
-                   * smoothstep(-0.25, -0.12, pos.x) * smoothstep(0.12, 0.25, -pos.x)
+                   * (1.0 - smoothstep(0.18, 0.30, abs(pos.x)))
                    * step(0.0, pos.z);
   float jawMask    = smoothstep(0.38, 0.46, ny) * (1.0 - smoothstep(0.50, 0.56, ny))
                    * step(0.0, pos.z);
@@ -105,7 +108,7 @@ export function createHoloUniforms(): HoloUniforms {
 
 /** Patch a GLB material with the holographic + talk/blink shader. */
 export function injectHoloShader(mat: THREE.Material, u: HoloUniforms): void {
-  mat.customProgramCacheKey = () => "mascot-holo-v2";
+  mat.customProgramCacheKey = () => "mascot-holo-v3";
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTalkAmount = u.uTalkAmount;
     shader.uniforms.uBlinkAmount = u.uBlinkAmount;

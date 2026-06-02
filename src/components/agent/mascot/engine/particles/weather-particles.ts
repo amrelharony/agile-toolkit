@@ -88,6 +88,8 @@ export function createWeatherParticles(scene: THREE.Scene): WeatherParticles {
   scene.add(points);
 
   let type: WeatherType | null = null;
+  /** Pending thunder-flash restore — gates out overlapping strikes. */
+  let flashTimer: ReturnType<typeof setTimeout> | null = null;
 
   function setType(next: WeatherType | null): void {
     type = next;
@@ -134,18 +136,25 @@ export function createWeatherParticles(scene: THREE.Scene): WeatherParticles {
     }
     geo.attributes.position.needsUpdate = true;
 
-    // Thunder: occasional accent-light flash.
-    if (type === "thunder" && ctx.accent && Math.random() < 0.002) {
-      const orig = ctx.accent.intensity;
-      ctx.accent.intensity = 2.5;
+    // Thunder: occasional accent-light flash. The flashTimer guard blocks a
+    // second strike mid-flash — otherwise it would read the elevated 2.5 as the
+    // "original" and leave the accent stuck bright.
+    if (type === "thunder" && ctx.accent && flashTimer === null && Math.random() < 0.002) {
       const accent = ctx.accent;
-      setTimeout(() => {
+      const orig = accent.intensity; // always the resting value (no overlap)
+      accent.intensity = 2.5;
+      flashTimer = setTimeout(() => {
         accent.intensity = orig;
+        flashTimer = null;
       }, 100);
     }
   }
 
   function dispose(): void {
+    if (flashTimer !== null) {
+      clearTimeout(flashTimer); // don't fire a restore onto a disposed light
+      flashTimer = null;
+    }
     scene.remove(points);
     geo.dispose();
     mat.dispose();
