@@ -12,11 +12,14 @@
  *           accent-light colour (MOOD_COLORS), and the animation speed
  *           (MOOD_SPEEDS), all eased per frame.
  * Phase 2 polish: holographic shader (onBeforeCompile — fresnel rim, scanline,
- *           talk-jaw + blink vertex deforms) + an ambient mood-coloured particle
- *           aura that speeds up while the agent streams.
+ *           talk-jaw + blink vertex deforms).
  * Phase 7: visual parity with the source — skin retint (engine/retint-skin.ts)
  *           + the full 4-region (head/face/eye/jaw) holographic shader
  *           (engine/holo-shader.ts), both extracted into testable modules.
+ * Phase 8: weather particles (engine/particles/weather-particles.ts, fed from
+ *           useWeather) + GSAP entrance pop (engine/entrance.ts). The earlier
+ *           ad-hoc particle aura is removed — the source's 4-layer ultra
+ *           particles are disabled at source, so the live site shows only these.
  *
  * Mount lazily (next/dynamic, ssr:false) — ~16MB GLB + WebGL.
  */
@@ -27,6 +30,13 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { useMascotStore, type MascotReaction } from "@/lib/agent/mascot/store";
 import { createHoloUniforms, injectHoloShader } from "./engine/holo-shader";
 import { retintSkinTexture } from "./engine/retint-skin";
+import {
+  createWeatherParticles,
+  weatherCodeToType,
+  type WeatherParticles,
+} from "./engine/particles/weather-particles";
+import { playEntrance } from "./engine/entrance";
+import { useWeather } from "@/lib/weather/provider";
 
 interface Mascot3DProps {
   width?: number;
@@ -98,10 +108,21 @@ export default function Mascot3D({
   src = "/mascot/mascot.glb",
 }: Mascot3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const weatherSysRef = useRef<WeatherParticles | null>(null);
+
+  // Current weather → particle type (the source reads localStorage; we use the
+  // toolkit's weather hook). Fed into the live system by the effect below.
+  const weatherCode = useWeather().weather?.code ?? null;
+  useEffect(() => {
+    weatherSysRef.current?.setType(weatherCodeToType(weatherCode));
+  }, [weatherCode]);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    const reducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
     // Idempotent (re)mount — React StrictMode/HMR runs the effect twice and the
     // async GLB load races the cleanup; drop any canvas a prior run left behind
     // so we never stack renderers.
@@ -113,6 +134,7 @@ export default function Mascot3D({
     let mixer: THREE.AnimationMixer | null = null;
     let model: THREE.Object3D | null = null;
     let baseY = 0;
+    let entranceTl: ReturnType<typeof playEntrance> = null;
 
     // Animation state.
     const actions = new Map<string, THREE.AnimationAction>();
@@ -174,31 +196,12 @@ export default function Mascot3D({
     rim.position.set(0, 0.5, -2);
     scene.add(hemi, key, fill, accent, rim);
 
-    // ── Ambient particle aura (simplified from initUltraParticles) ──
-    // A soft cloud of mood-coloured points orbiting + drifting up around the
-    // mascot; speeds with mood + the store's particleSpeed (streaming).
-    const PARTICLE_COUNT = 44;
-    const pPositions = new Float32Array(PARTICLE_COUNT * 3);
-    const pPhase = Array.from({ length: PARTICLE_COUNT }, () => ({
-      r: 0.35 + Math.random() * 0.55,
-      speed: 0.3 + Math.random() * 0.8,
-      angle: Math.random() * Math.PI * 2,
-      y: Math.random() * 1.4,
-      rise: 0.08 + Math.random() * 0.18,
-    }));
-    const pGeo = new THREE.BufferGeometry();
-    pGeo.setAttribute("position", new THREE.BufferAttribute(pPositions, 3));
-    const pMat = new THREE.PointsMaterial({
-      color: 0x00e1ff,
-      size: 0.045,
-      transparent: true,
-      opacity: 0.5,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      sizeAttenuation: true,
-    });
-    const particles = new THREE.Points(pGeo, pMat);
-    scene.add(particles);
+    // ── Weather particles (8 points). The source's 4-layer ultra-particles are
+    //    DISABLED at source (all counts 0), so the live site shows only these +
+    //    the holographic shader. Type fed in below + by the [weatherCode] effect.
+    const weatherSys = createWeatherParticles(scene);
+    weatherSysRef.current = weatherSys;
+    weatherSys.setType(weatherCodeToType(weatherCode));
 
     /** Crossfade to a clip (no-op if it's already the running clip). */
     const crossfade = (name: string, fade = 0.3) => {
@@ -286,6 +289,16 @@ export default function Mascot3D({
         }
 
         useMascotStore.getState().setReady(true);
+
+        // Entrance: elastic pop-in + accent fade + emission flash (source
+        // createEntranceTimeline). Skips to final state under reduced-motion.
+        entranceTl = playEntrance({
+          model,
+          baseScale: scale,
+          uniforms: animUniforms,
+          accent,
+          reducedMotion,
+        });
       },
       undefined,
       () => {
@@ -372,22 +385,17 @@ export default function Mascot3D({
       }
       animUniforms.uFresnelColor.value.copy(moodColor);
 
-      // Particle aura: orbit + drift up, tinted by mood, sped by store.particleSpeed.
-      const pSpeed = useMascotStore.getState().particleSpeed;
-      for (let i = 0; i < PARTICLE_COUNT; i++) {
-        const p = pPhase[i];
-        p.angle += dt * p.speed * 0.4 * moodSpeed * pSpeed;
-        p.y += dt * p.rise * 0.6 * pSpeed;
-        if (p.y > 1.5) p.y = 0;
-        pPositions[i * 3] = Math.cos(p.angle) * p.r;
-        pPositions[i * 3 + 1] = p.y;
-        pPositions[i * 3 + 2] = Math.sin(p.angle) * p.r;
-      }
-      pGeo.attributes.position.needsUpdate = true;
-      pMat.color.copy(moodColor);
-      pMat.opacity = 0.35 + Math.sin(t * 2) * 0.12;
-
       if (model) model.position.y = baseY + Math.sin(t * 1.6) * 0.012; // breathing
+
+      // Weather particles drift, following the mascot's position.
+      weatherSys.update({
+        t,
+        offX: model?.position.x ?? 0,
+        offY: model ? model.position.y - baseY : 0,
+        accent,
+        reducedMotion,
+      });
+
       renderer.render(scene, camera);
     };
     animate();
@@ -409,6 +417,9 @@ export default function Mascot3D({
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
       unsub();
+      entranceTl?.kill();
+      weatherSys.dispose();
+      weatherSysRef.current = null;
       mixer?.stopAllAction();
       scene.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
