@@ -138,7 +138,12 @@ export async function handleJsonRpc(
       }
       let text: string;
       try {
-        text = typeof payload === "string" ? payload : JSON.stringify(payload);
+        // JSON.stringify returns `undefined` (NOT a string) for undefined,
+        // functions, and symbols. A handler that resolves to void would then
+        // emit `content: [{ type: "text", text: undefined }]`, which drops
+        // `text` on serialisation — an invalid MCP text-content block. Coerce
+        // such results to "null" so `text` is always a string.
+        text = typeof payload === "string" ? payload : (JSON.stringify(payload) ?? "null");
       } catch {
         // Circular reference or non-serialisable result.
         text = `[unserialisable result from ${name}]`;
