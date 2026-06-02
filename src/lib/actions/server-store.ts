@@ -17,10 +17,13 @@
  *
  * Entity collections live in `user_entities` keyed by
  * `(user_id, kind, entity_id)`. Workspace scalars (teamName,
- * maturityLevel) live in `user_state` keyed by
- * `(user_id, store_key='agile-toolkit:workspace')` and are merged into
- * a single JSON blob alongside whatever else the browser persist
- * middleware writes there.
+ * maturityLevel) cloud-sync as ONE flat JSON blob in `user_state` keyed
+ * by `(user_id, store_key='agile-toolkit:workspace:scalars')` — the same
+ * store_key the browser's scalars blob adapter registers (see
+ * `registerBlobStore({ storeKey: "agile-toolkit:workspace:scalars" })` in
+ * workspace-store.ts). It is NOT the localStorage persist `name`
+ * ("agile-toolkit:workspace"), which is browser-local and never written
+ * to Supabase.
  *
  * Echo suppression: rows written from here carry `client_id =
  * "server-mcp"` so the browser sync engine's per-tab id check won't
@@ -29,7 +32,15 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const WORKSPACE_STORE_KEY = "agile-toolkit:workspace";
+// Scalars (teamName, maturityLevel) cloud-sync as one flat blob. This key
+// MUST equal the storeKey the browser's scalars blob adapter registers
+// (registerBlobStore({ storeKey: "agile-toolkit:workspace:scalars" }) in
+// workspace-store.ts). Using the localStorage persist `name`
+// ("agile-toolkit:workspace") instead — as this did originally — points
+// every MCP scalar read/write at an orphaned user_state row the app never
+// syncs, so set_team_name / set_maturity_level silently never reach the UI
+// and `get` always reads back null.
+const WORKSPACE_SCALARS_STORE_KEY = "agile-toolkit:workspace:scalars";
 const SERVER_CLIENT_ID = "server-mcp";
 
 let cachedAdmin: SupabaseClient | null = null;
@@ -238,31 +249,29 @@ export async function serverBulkUpsertEntities<T extends { id: string }>(
 /**
  * Fetch the workspace scalar blob from user_state. Returns an empty
  * object when the user has never written anything (first-touch).
+ *
+ * The blob adapter stores a FLAT `{ teamName, maturityLevel }` payload
+ * (workspace-store.ts getSnapshot), so we return it as-is.
  */
 export async function serverGetWorkspaceBlob(userId: string): Promise<Record<string, unknown>> {
   const { data, error } = await admin()
     .from("user_state")
     .select("payload")
     .eq("user_id", userId)
-    .eq("store_key", WORKSPACE_STORE_KEY)
+    .eq("store_key", WORKSPACE_SCALARS_STORE_KEY)
     .maybeSingle();
   if (error) throw error;
   const payload = (data as { payload?: unknown } | null)?.payload;
   if (!payload || typeof payload !== "object") return {};
-  // The browser persist middleware nests state under `state`. Honour
-  // both shapes — older blobs may be raw, newer ones wrapped.
-  const raw = payload as Record<string, unknown>;
-  if (raw.state && typeof raw.state === "object") {
-    return raw.state as Record<string, unknown>;
-  }
-  return raw;
+  return payload as Record<string, unknown>;
 }
 
 /**
- * Patch fields into the workspace scalar blob. Reads → merges → writes.
- * Preserves the `state` wrapper if the existing blob was already
- * persist-middleware-shaped, so the browser hydration code still parses
- * it correctly on the user's next page load.
+ * Patch fields into the workspace scalar blob. Reads → merges → writes a
+ * flat `{ teamName, maturityLevel }` blob, matching the shape the browser
+ * scalars blob adapter reads (its setSnapshot pulls those keys directly).
+ * `client_id = "server-mcp"` so the browser sync engine applies the write
+ * rather than treating it as an echo of its own.
  */
 export async function serverPatchWorkspaceBlob(
   userId: string,
@@ -272,25 +281,17 @@ export async function serverPatchWorkspaceBlob(
     .from("user_state")
     .select("payload")
     .eq("user_id", userId)
-    .eq("store_key", WORKSPACE_STORE_KEY)
+    .eq("store_key", WORKSPACE_SCALARS_STORE_KEY)
     .maybeSingle();
   if (readErr) throw readErr;
-  const existing = (data as { payload?: unknown } | null)?.payload as Record<
-    string,
-    unknown
-  > | null;
-  const wrapped = existing && typeof existing === "object" && "state" in existing;
-  const innerCurrent: Record<string, unknown> = wrapped
-    ? ((existing as { state: Record<string, unknown> }).state ?? {})
-    : ((existing as Record<string, unknown>) ?? {});
-  const innerNext = { ...innerCurrent, ...patch };
-  const payload: Record<string, unknown> = wrapped
-    ? { ...(existing as Record<string, unknown>), state: innerNext }
-    : innerNext;
+  const existing = (data as { payload?: unknown } | null)?.payload;
+  const current: Record<string, unknown> =
+    existing && typeof existing === "object" ? (existing as Record<string, unknown>) : {};
+  const payload = { ...current, ...patch };
   const { error } = await admin().from("user_state").upsert(
     {
       user_id: userId,
-      store_key: WORKSPACE_STORE_KEY,
+      store_key: WORKSPACE_SCALARS_STORE_KEY,
       payload,
       client_id: SERVER_CLIENT_ID,
       updated_at: new Date().toISOString(),
@@ -323,4 +324,4 @@ export async function serverNextZForBoard(userId: string, boardId: string): Prom
   return max + 1;
 }
 
-export { WORKSPACE_STORE_KEY, SERVER_CLIENT_ID };
+export { WORKSPACE_SCALARS_STORE_KEY, SERVER_CLIENT_ID };
