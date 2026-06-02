@@ -48,7 +48,8 @@ import {
 } from "./engine/particles/weather-particles";
 import { playEntrance } from "./engine/entrance";
 import { createProceduralAnim } from "./engine/procedural-anim";
-import { createReactionFx } from "./engine/reactions";
+import { createReactionFx, type MicroName } from "./engine/reactions";
+import { createGestureTracker } from "./engine/interactions/gestures";
 import { playMascotSound } from "./engine/audio/mascot-audio";
 import { useWeather } from "@/lib/weather/provider";
 
@@ -248,12 +249,17 @@ export default function Mascot3D({
     const mouseNDC = { x: 0, y: 0 };
     let headCurrentX = 0;
     let headCurrentY = 0;
+    // Circle gesture → spin, zigzag → wiggle (tracked from the same mousemove).
+    const gestureTracker = createGestureTracker((g) =>
+      useMascotStore.getState().queueReaction(g === "circle" ? "spin" : "wiggle")
+    );
     const onMouseMove = (e: MouseEvent) => {
       const rect = container.getBoundingClientRect();
       const cx = rect.left + rect.width / 2;
       const cy = rect.top + rect.height / 2;
       mouseNDC.x = Math.max(-1, Math.min(1, (e.clientX - cx) / 250));
       mouseNDC.y = Math.max(-1, Math.min(1, -(e.clientY - cy) / 250));
+      gestureTracker.track(e.clientX, e.clientY, cx, cy, clock.getElapsedTime());
     };
     if (!reducedMotion) window.addEventListener("mousemove", onMouseMove);
 
@@ -438,6 +444,8 @@ export default function Mascot3D({
         isTalking: talkingRef.current,
         activeReaction: reactionEnd > 0,
       });
+      const queuedMicro = useMascotStore.getState().dequeueMicroExpression();
+      if (queuedMicro) reactionFx.triggerMicroExpression(queuedMicro as MicroName, t);
       const micro = reactionFx.activeMicroExpression(t);
       if (micro && morphMesh?.morphTargetInfluences) {
         const infl = morphMesh.morphTargetInfluences;
@@ -556,6 +564,7 @@ export default function Mascot3D({
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
       window.removeEventListener("mousemove", onMouseMove);
+      gestureTracker.dispose();
       unsub();
       entranceTl?.kill();
       weatherSys.dispose();

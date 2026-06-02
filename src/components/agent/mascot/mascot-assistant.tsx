@@ -10,14 +10,22 @@
  * shell is new. The mascot "talks" (Talking clip) while the agent streams.
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { X } from "lucide-react";
 import { useAgentStore } from "@/lib/agent/store";
+import { useMascotStore } from "@/lib/agent/mascot/store";
 import { abortInFlight } from "@/lib/agent/client";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
+import { createClickInteraction } from "./engine/interactions/clicks";
+import { playMascotSound } from "./engine/audio/mascot-audio";
 import { RateLimitBar } from "./rate-limit-bar";
 import { AgentConversation } from "../agent-conversation";
+
+/** Award XP via the gamification window bridge (no-op if unavailable). */
+function addXp(n: number): void {
+  (window as unknown as { VDna?: { addXp?: (x: number) => void } }).VDna?.addXp?.(n);
+}
 
 const Mascot3D = dynamic(() => import("./mascot-3d"), { ssr: false });
 
@@ -25,6 +33,28 @@ export function MascotAssistant() {
   const open = useAgentStore((s) => s.open);
   const toggleSheet = useAgentStore((s) => s.toggleSheet);
   const closeSheet = useAgentStore((s) => s.closeSheet);
+
+  // Click interaction: a flourish + multi-click escalations on top of the chat
+  // toggle (the toggle is debounced so rapid taps don't thrash the panel).
+  const clickRef = useRef<ReturnType<typeof createClickInteraction> | null>(null);
+  if (!clickRef.current) {
+    clickRef.current = createClickInteraction({
+      queueReaction: (r) => useMascotStore.getState().queueReaction(r),
+      queueMicro: (n) => useMascotStore.getState().queueMicroExpression(n),
+      sound: () => playMascotSound("click"),
+      addXp,
+    });
+  }
+  const lastToggleRef = useRef(0);
+  const onMascotClick = () => {
+    clickRef.current?.onClick();
+    const now = Date.now();
+    if (now - lastToggleRef.current > 500) {
+      lastToggleRef.current = now;
+      toggleSheet();
+    }
+  };
+  useEffect(() => () => clickRef.current?.dispose(), []);
 
   // Drive the mascot from the conversation: talk while streaming, think on send,
   // react to tool results, shift mood to the reply's sentiment.
@@ -91,7 +121,7 @@ export function MascotAssistant() {
       {/* Always-present floating mascot — click to toggle the chat. */}
       <button
         type="button"
-        onClick={toggleSheet}
+        onClick={onMascotClick}
         aria-label={open ? "Close assistant" : "Open assistant"}
         title="Ask ElharonyClaw"
         className="fixed bottom-1 right-2 z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"

@@ -52,6 +52,8 @@ interface MascotState {
   particleSpeed: number;
   /** FIFO of one-shot reactions the render loop consumes. */
   reactionQueue: MascotReaction[];
+  /** FIFO of micro-expression names (smirk/wideEyes/…) the render loop consumes. */
+  microQueue: string[];
 }
 
 interface MascotActions {
@@ -63,6 +65,10 @@ interface MascotActions {
   queueReaction(r: MascotReaction): void;
   /** Pop the next queued reaction, or undefined. Called by the render loop. */
   dequeueReaction(): MascotReaction | undefined;
+  /** Enqueue a micro-expression (smirk/wideEyes/…). */
+  queueMicroExpression(name: string): void;
+  /** Pop the next queued micro-expression, or undefined. */
+  dequeueMicroExpression(): string | undefined;
   reset(): void;
 }
 
@@ -72,6 +78,7 @@ const INITIAL: MascotState = {
   mood: NEUTRAL_MOOD,
   particleSpeed: 1,
   reactionQueue: [],
+  microQueue: [],
 };
 
 export const useMascotStore = create<MascotState & MascotActions>()((set, get) => ({
@@ -92,6 +99,13 @@ export const useMascotStore = create<MascotState & MascotActions>()((set, get) =
     const [next, ...rest] = get().reactionQueue;
     if (next === undefined) return undefined;
     set({ reactionQueue: rest });
+    return next;
+  },
+  queueMicroExpression: (name) => set((s) => ({ microQueue: [...s.microQueue, name] })),
+  dequeueMicroExpression: () => {
+    const [next, ...rest] = get().microQueue;
+    if (next === undefined) return undefined;
+    set({ microQueue: rest });
     return next;
   },
   reset: () => set({ ...INITIAL }),
