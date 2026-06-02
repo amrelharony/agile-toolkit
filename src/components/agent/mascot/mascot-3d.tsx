@@ -14,6 +14,9 @@
  * Phase 2 polish: holographic shader (onBeforeCompile — fresnel rim, scanline,
  *           talk-jaw + blink vertex deforms) + an ambient mood-coloured particle
  *           aura that speeds up while the agent streams.
+ * Phase 7: visual parity with the source — skin retint (engine/retint-skin.ts)
+ *           + the full 4-region (head/face/eye/jaw) holographic shader
+ *           (engine/holo-shader.ts), both extracted into testable modules.
  *
  * Mount lazily (next/dynamic, ssr:false) — ~16MB GLB + WebGL.
  */
@@ -22,6 +25,8 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { useMascotStore, type MascotReaction } from "@/lib/agent/mascot/store";
+import { createHoloUniforms, injectHoloShader } from "./engine/holo-shader";
+import { retintSkinTexture } from "./engine/retint-skin";
 
 interface Mascot3DProps {
   width?: number;
@@ -83,51 +88,8 @@ function moodFor(valence: number, energy: number): MoodName {
   return energy >= 0.6 ? "curious" : energy <= 0.35 ? "serene" : "neutral";
 }
 
-// ── Holographic shader injection (ported from injectShaderAnimations) ──
-// Patches the GLB's MeshStandardMaterial via onBeforeCompile: jaw drops while
-// talking, eyes compress on blink (vertex), and a fresnel rim glow + scanline +
-// emission pulse give the cyan holographic look (fragment). Masks key off the
-// vertex's object-space Y, which is identical for this GLB.
-const VERT_HEADER = `
-uniform float uTalkAmount;
-uniform float uBlinkAmount;
-varying float vScanUV;
-varying vec3 vWorldNormal;
-varying vec3 vWorldPosition;
-`;
-const VERT_TRANSFORM = `{
-  vec3 pos = transformed;
-  float ny = pos.y;
-  float eyeMask = smoothstep(0.55, 0.62, ny) * (1.0 - smoothstep(0.70, 0.78, ny))
-    * smoothstep(-0.25, -0.12, pos.x) * smoothstep(0.12, 0.25, -pos.x) * step(0.0, pos.z);
-  float jawMask = smoothstep(0.38, 0.46, ny) * (1.0 - smoothstep(0.50, 0.56, ny)) * step(0.0, pos.z);
-  pos.y -= eyeMask * uBlinkAmount * 0.02;
-  pos.z *= 1.0 - eyeMask * uBlinkAmount * 0.4;
-  pos.y -= jawMask * uTalkAmount * 0.015;
-  pos.z += jawMask * uTalkAmount * 0.006;
-  vScanUV = (ny + 1.0) * 0.5;
-  transformed = pos;
-  vWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
-  vWorldNormal = normalize((modelMatrix * vec4(objectNormal, 0.0)).xyz);
-}`;
-const FRAG_HEADER = `
-uniform float uScanLine;
-uniform vec3 uFresnelColor;
-uniform float uFresnelPower;
-uniform float uEmissionPulse;
-varying float vScanUV;
-varying vec3 vWorldNormal;
-varying vec3 vWorldPosition;
-`;
-const FRAG_INJECT = `{
-  float scanDist = abs(vScanUV - uScanLine);
-  float scanGlow = smoothstep(0.04, 0.0, scanDist) * 0.12;
-  gl_FragColor.rgb += vec3(0.0, 0.88, 1.0) * scanGlow;
-  vec3 viewDir = normalize(cameraPosition - vWorldPosition);
-  float fresnel = pow(1.0 - max(dot(normalize(vWorldNormal), viewDir), 0.0), uFresnelPower);
-  gl_FragColor.rgb += uFresnelColor * fresnel * 0.15;
-  gl_FragColor.rgb += uFresnelColor * uEmissionPulse * 0.1;
-}`;
+// Holographic shader (4-region masks + fresnel/scanline/emission) lives in
+// engine/holo-shader.ts; the skin retint in engine/retint-skin.ts.
 
 export default function Mascot3D({
   width = 160,
@@ -169,14 +131,7 @@ export default function Mascot3D({
     let targetSpeed = 1;
 
     // Shader state (holographic look + talk/blink vertex deforms).
-    const animUniforms = {
-      uTalkAmount: { value: 0 },
-      uBlinkAmount: { value: 0 },
-      uScanLine: { value: 0 },
-      uFresnelColor: { value: new THREE.Color(0x00e1ff) },
-      uFresnelPower: { value: 4.0 },
-      uEmissionPulse: { value: 0 },
-    };
+    const animUniforms = createHoloUniforms();
     let nextBlinkTime = 2 + Math.random() * 4;
     let blinkPhase = -1;
     let talkIntensity = 0;
@@ -267,32 +222,6 @@ export default function Mascot3D({
       targetSpeed = MOOD_SPEED[mood];
     };
 
-    /** Patch a GLB material with the holographic + talk/blink shader. */
-    const injectShader = (mat: THREE.Material) => {
-      mat.customProgramCacheKey = () => "mascot-holo-v1";
-      mat.onBeforeCompile = (shader) => {
-        shader.uniforms.uTalkAmount = animUniforms.uTalkAmount;
-        shader.uniforms.uBlinkAmount = animUniforms.uBlinkAmount;
-        shader.uniforms.uScanLine = animUniforms.uScanLine;
-        shader.uniforms.uFresnelColor = animUniforms.uFresnelColor;
-        shader.uniforms.uFresnelPower = animUniforms.uFresnelPower;
-        shader.uniforms.uEmissionPulse = animUniforms.uEmissionPulse;
-        shader.vertexShader = shader.vertexShader
-          .replace("#include <common>", `#include <common>\n${VERT_HEADER}`)
-          .replace(
-            "#include <morphtarget_vertex>",
-            `#include <morphtarget_vertex>\n${VERT_TRANSFORM}`
-          );
-        shader.fragmentShader = shader.fragmentShader
-          .replace("#include <common>", `#include <common>\n${FRAG_HEADER}`)
-          .replace(
-            "#include <dithering_fragment>",
-            `${FRAG_INJECT}\n#include <dithering_fragment>`
-          );
-      };
-      mat.needsUpdate = true;
-    };
-
     // ── Load the model ──
     new GLTFLoader().load(
       src,
@@ -310,7 +239,10 @@ export default function Mascot3D({
             const std = m as THREE.MeshStandardMaterial;
             if ("metalness" in std) std.metalness = 0;
             if ("roughness" in std) std.roughness = 1;
-            injectShader(m);
+            // Recolour the baked skin to the owner's tone (source retintSkin),
+            // then patch in the holographic shader.
+            retintSkinTexture(std.map);
+            injectHoloShader(m, animUniforms);
           }
           // Remember the mesh that carries the facial shape keys.
           if (!morphMesh && mesh.morphTargetDictionary) morphMesh = mesh;
