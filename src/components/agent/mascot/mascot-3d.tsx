@@ -20,6 +20,10 @@
  *           useWeather) + GSAP entrance pop (engine/entrance.ts). The earlier
  *           ad-hoc particle aura is removed — the source's 4-layer ultra
  *           particles are disabled at source, so the live site shows only these.
+ * Phase 9: procedural physics (engine/procedural-anim.ts — springs, idle
+ *           fidgets, squash-stretch; replaces the sine bob) + cursor head-
+ *           tracking (the mascot rotates toward the pointer). Both reduced-
+ *           motion gated.
  *
  * Mount lazily (next/dynamic, ssr:false) — ~16MB GLB + WebGL.
  */
@@ -28,6 +32,7 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { useMascotStore, type MascotReaction } from "@/lib/agent/mascot/store";
+import { useAgentStore } from "@/lib/agent/store";
 import { createHoloUniforms, injectHoloShader } from "./engine/holo-shader";
 import { retintSkinTexture } from "./engine/retint-skin";
 import {
@@ -36,6 +41,7 @@ import {
   type WeatherParticles,
 } from "./engine/particles/weather-particles";
 import { playEntrance } from "./engine/entrance";
+import { createProceduralAnim } from "./engine/procedural-anim";
 import { useWeather } from "@/lib/weather/provider";
 
 interface Mascot3DProps {
@@ -134,7 +140,9 @@ export default function Mascot3D({
     let mixer: THREE.AnimationMixer | null = null;
     let model: THREE.Object3D | null = null;
     let baseY = 0;
+    let baseScale = 1;
     let entranceTl: ReturnType<typeof playEntrance> = null;
+    let entranceDone = false;
 
     // Animation state.
     const actions = new Map<string, THREE.AnimationAction>();
@@ -203,6 +211,20 @@ export default function Mascot3D({
     weatherSysRef.current = weatherSys;
     weatherSys.setType(weatherCodeToType(weatherCode));
 
+    // Procedural physics (springs/fidgets/squash) + cursor head-tracking.
+    const procedural = createProceduralAnim();
+    const mouseNDC = { x: 0, y: 0 };
+    let headCurrentX = 0;
+    let headCurrentY = 0;
+    const onMouseMove = (e: MouseEvent) => {
+      const rect = container.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      mouseNDC.x = Math.max(-1, Math.min(1, (e.clientX - cx) / 250));
+      mouseNDC.y = Math.max(-1, Math.min(1, -(e.clientY - cy) / 250));
+    };
+    if (!reducedMotion) window.addEventListener("mousemove", onMouseMove);
+
     /** Crossfade to a clip (no-op if it's already the running clip). */
     const crossfade = (name: string, fade = 0.3) => {
       const next = actions.get(name);
@@ -260,6 +282,7 @@ export default function Mascot3D({
         model.position.sub(center.multiplyScalar(scale));
         model.position.y -= box.min.y * scale;
         baseY = model.position.y;
+        baseScale = scale;
 
         if (morphMesh?.morphTargetDictionary) {
           morphIndex = morphMesh.morphTargetDictionary;
@@ -299,6 +322,10 @@ export default function Mascot3D({
           accent,
           reducedMotion,
         });
+        // Gate procedural scale (squash-stretch) until the entrance scale tween
+        // finishes, so the two don't fight over model.scale.
+        if (entranceTl) entranceTl.eventCallback("onComplete", () => (entranceDone = true));
+        else entranceDone = true;
       },
       undefined,
       () => {
@@ -385,7 +412,42 @@ export default function Mascot3D({
       }
       animUniforms.uFresnelColor.value.copy(moodColor);
 
-      if (model) model.position.y = baseY + Math.sin(t * 1.6) * 0.012; // breathing
+      // Procedural physics: springs + idle fidgets + squash-stretch. Replaces
+      // the ad-hoc sine bob — the source rests the springs at 0 (the Idle clip
+      // carries base motion) and nudges them with fidgets every 8-20s.
+      const pa = procedural.update({
+        dt,
+        activeReaction: reactionEnd > 0,
+        isTalking: talkingRef.current,
+        isOpen: useAgentStore.getState().open,
+        reducedMotion,
+        hooks: {
+          requestBlink: () => {
+            if (blinkPhase < 0) {
+              blinkPhase = 0;
+              nextBlinkTime = 0.15;
+            }
+          },
+          emitSparkles: () => {
+            /* ultra-particles disabled at source — no-op */
+          },
+        },
+      });
+      if (model) {
+        model.position.x = pa.bodyLean;
+        model.position.y = baseY + pa.bobY + pa.breathScale;
+        if (entranceDone) {
+          model.scale.y = baseScale * pa.scaleY;
+          model.scale.x = model.scale.z = baseScale * pa.scaleXZ;
+        }
+        // Cursor head-tracking: rotate toward the pointer, kept upright.
+        if (!reducedMotion) {
+          headCurrentX += (-mouseNDC.y * 0.06 - headCurrentX) * dt * 3;
+          headCurrentY += (mouseNDC.x * 0.15 - headCurrentY) * dt * 3;
+          model.rotation.x = Math.max(-0.06, Math.min(0.06, headCurrentX));
+          model.rotation.y = headCurrentY;
+        }
+      }
 
       // Weather particles drift, following the mascot's position.
       weatherSys.update({
@@ -416,6 +478,7 @@ export default function Mascot3D({
       disposed = true;
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("mousemove", onMouseMove);
       unsub();
       entranceTl?.kill();
       weatherSys.dispose();
