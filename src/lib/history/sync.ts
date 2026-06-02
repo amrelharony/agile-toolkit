@@ -123,8 +123,18 @@ export async function pushEvents(events: HistoryEvent[], userId: string): Promis
   return Array.from(writtenIds);
 }
 
+export const PULL_LIMIT = 2000;
+
 /**
  * Pull history events newer than `since` (or all events if undefined).
+ *
+ * Ordered NEWEST-first (`created_at` descending). The cap matches the local
+ * EVENTS_CAP, so on the initial bootstrap (`since` null) of an account with
+ * more than `PULL_LIMIT` events we fetch the most recent ones the user can
+ * actually hold — the old ascending order fetched the OLDEST 2000 and, paired
+ * with the cursor advancing to "now", left everything newer permanently
+ * invisible. The store de-dupes + re-sorts on insert, so order doesn't affect
+ * the merged view.
  */
 export async function pullEvents(userId: string, since: string | null): Promise<HistoryEvent[]> {
   const supabase = getAuthBrowserClient();
@@ -134,12 +144,42 @@ export async function pullEvents(userId: string, since: string | null): Promise<
     .from("history_events")
     .select("*")
     .eq("user_id", userId)
-    .order("created_at", { ascending: true })
-    .limit(2000);
+    .order("created_at", { ascending: false })
+    .limit(PULL_LIMIT);
   if (since) query = query.gt("created_at", since);
   const { data, error } = await query;
   if (error) throw error;
   return (data ?? []).map((r) => fromRow(r as HistoryEventRow));
+}
+
+/**
+ * Compute the next pull cursor: the newest SERVER `created_at` among the
+ * pulled events (carried as `syncedAt`), never the client wall-clock.
+ *
+ * A wall-clock cursor is wrong under clock skew: if the client runs ahead of
+ * the Supabase server, setting the cursor to client-now makes the next
+ * `created_at > since` backfill skip every event whose server timestamp falls
+ * between server-now and the inflated client clock — exactly the reconnect
+ * window the backfill exists to cover. Returns `prev` unchanged when nothing
+ * was pulled, and never moves the cursor backward.
+ */
+export function nextPullCursor(events: HistoryEvent[], prev: string | null): string | null {
+  let maxMs = -Infinity;
+  let maxIso: string | null = null;
+  for (const e of events) {
+    if (!e.syncedAt) continue;
+    const ms = Date.parse(e.syncedAt);
+    if (Number.isFinite(ms) && ms > maxMs) {
+      maxMs = ms;
+      maxIso = e.syncedAt;
+    }
+  }
+  if (maxIso === null) return prev;
+  if (prev) {
+    const prevMs = Date.parse(prev);
+    if (Number.isFinite(prevMs) && prevMs >= maxMs) return prev;
+  }
+  return maxIso;
 }
 
 /**

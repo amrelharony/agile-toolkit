@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { useHistoryStore } from "./history-store";
-import { pushEvents, pullEvents, subscribeToHistory } from "./sync";
+import { pushEvents, pullEvents, nextPullCursor, subscribeToHistory } from "./sync";
 
 const PUSH_DEBOUNCE_MS = 800;
 const BACKOFF_BASE_MS = 1000;
@@ -89,7 +89,11 @@ export function HistorySyncProvider({ children }: { children: React.ReactNode })
         const pulled = await pullEvents(userId, since);
         if (cancelled) return;
         if (pulled.length > 0) addEvents(pulled);
-        setLastSyncAt(new Date().toISOString());
+        // Advance the cursor to the newest server `created_at` we actually
+        // pulled — NOT the client clock, which skips events under clock skew
+        // (see nextPullCursor). Unchanged when nothing was pulled.
+        const cursor = nextPullCursor(pulled, since);
+        if (cursor) setLastSyncAt(cursor);
         setSyncStatus("idle");
         failureCountRef.current = 0;
         backoffUntilRef.current = 0;
