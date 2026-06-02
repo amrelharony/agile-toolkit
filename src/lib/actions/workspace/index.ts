@@ -1384,6 +1384,13 @@ defineCrudActions<PsychSafetyLog>({
   upsert: (x) => ws().upsertPsychSafetyLog(x),
   remove: (id) => ws().removePsychSafetyLog(id),
   generateId: () => `psychSafetyLog_${nanoid(8)}`,
+  // kindFromToolId("workspace.psych_safety_log") → "workspace:psychSafetyLog",
+  // but the browser sync engine registers this collection — and the
+  // tool.psych_safety.* verbs write — under "workspace:psychSafety"
+  // (registerCollection("psychSafety", ...) in workspace-store.ts). Without
+  // this override the MCP CRUD writes/reads an orphaned kind the app never
+  // syncs, so create/update/delete vanish and list always returns [].
+  serverKind: "workspace:psychSafety",
 });
 
 defineCrudActions<MaturityAssessment>({

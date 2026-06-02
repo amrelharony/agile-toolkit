@@ -41,13 +41,27 @@ interface CrudOptions<T extends { id: string }> {
   remove: (id: string) => void;
   /** Optional id factory for `create` when params omit `id`. */
   generateId?: () => string;
+  /**
+   * Override the `user_entities.kind` the MCP handlers read/write.
+   * Defaults to `kindFromToolId(toolId)` (camelCases the dotted suffix).
+   * Supply this when the toolId's camelCased form does NOT equal the kind
+   * the browser sync engine registered the collection under — otherwise
+   * MCP writes land on an orphaned kind the app never reads (a silent
+   * round-trip break). See the `workspace.psych_safety_log` registration:
+   * its suffix camelCases to `psychSafetyLog`, but the collection is
+   * registered (and the tool.psych_safety.* verbs write) under
+   * `workspace:psychSafety`.
+   */
+  serverKind?: string;
 }
 
 export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>): void {
   const { toolId, schema, entityName, selectAll, upsert, remove } = opts;
   // C1: server-side counterpart key for MCP. e.g. "workspace.sprint"
-  // → "workspace:sprint" in user_entities.
-  const serverKind = kindFromToolId(toolId);
+  // → "workspace:sprint" in user_entities. An explicit `serverKind`
+  // overrides the derived value for collections whose registered sync
+  // kind doesn't equal the camelCased toolId suffix (see psych-safety).
+  const serverKind = opts.serverKind ?? kindFromToolId(toolId);
 
   // Defensive: typing safeParse via the wider z.ZodType<T> shape.
   type SafeParseFn = (v: unknown) => {
