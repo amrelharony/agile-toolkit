@@ -192,13 +192,32 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
     this.applyRemote(Array.from(merged.values()));
     // After a successful pull, rebuild lastPushed against the merged view
     // so the next push diff is accurate.
+    //
+    // BUG-S9: only record entities that actually have a server timestamp.
+    // A local-only entity (created in the dirty window, not yet pushed) has
+    // no `remoteUpdatedAt` entry. The old code still seeded `lastPushed` for
+    // it with `json` equal to its current serialisation — so the next push
+    // diff (`last.json === json`) treated it as already-synced and skipped
+    // it, and push() then cleared `dirty`. A pull racing that first push
+    // (realtime SUBSCRIBED, focus, and visibility all trigger pullAll())
+    // therefore dropped the brand-new entity from the cloud permanently —
+    // it lived only in this device's localStorage and never reached peers.
+    // Leaving unpushed locals OUT of lastPushed makes the next push detect
+    // them as new; re-arm a flush so that push actually runs.
     this.lastPushed.clear();
+    let hasUnpushedLocal = false;
     merged.forEach((e) => {
-      this.lastPushed.set(e.id, {
-        json: JSON.stringify(e),
-        updatedAt: this.remoteUpdatedAt.get(e.id) ?? null,
-      });
+      const remoteTs = this.remoteUpdatedAt.get(e.id);
+      if (remoteTs) {
+        this.lastPushed.set(e.id, { json: JSON.stringify(e), updatedAt: remoteTs });
+      } else {
+        hasUnpushedLocal = true;
+      }
     });
+    if (hasUnpushedLocal) {
+      this.dirty = true;
+      syncEngine.scheduleFlush(this.id);
+    }
   }
 
   async push(supabase: SupabaseClient, userId: string): Promise<void> {
