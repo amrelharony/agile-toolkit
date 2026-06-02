@@ -79,6 +79,8 @@ export interface ProceduralAnim {
   triggerSquashStretch(type: SquashType): void;
   triggerAnticipation(cb?: () => void): void;
   triggerRandomFidget(): void;
+  /** Set the breath spring target directly (used by the deepBreath quirk). */
+  setBreathTarget(v: number): void;
 }
 
 function mkSpring(stiffness: number, damping: number): Spring {
@@ -264,5 +266,15 @@ export function createProceduralAnim(): ProceduralAnim {
     fidget.elapsed = 0;
   }
 
-  return { update, triggerSquashStretch, triggerAnticipation, triggerRandomFidget };
+  function setBreathTarget(v: number): void {
+    state.springs.breathScale.target = v;
+  }
+
+  return {
+    update,
+    triggerSquashStretch,
+    triggerAnticipation,
+    triggerRandomFidget,
+    setBreathTarget,
+  };
 }

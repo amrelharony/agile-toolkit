@@ -12,13 +12,21 @@ import { create } from "zustand";
  * vanilla mascot's global state (mascot-assistant.js) into a typed store.
  */
 
-/** Named skeletal reactions the model can play once (see mascot-assistant.js). */
+/**
+ * One-shot reactions (source runReaction). Most map to a skeletal clip;
+ * `spin` + `wiggle` are procedural Y-rotations. `dance`/`confused`/`surprised`
+ * are toolkit extras kept for the chat bridge.
+ */
 export type MascotReaction =
   | "thinking"
+  | "listening"
+  | "talking"
   | "excited"
   | "nod"
   | "headShake"
   | "wave"
+  | "spin"
+  | "wiggle"
   | "dance"
   | "confused"
   | "surprised";

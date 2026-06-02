@@ -24,6 +24,9 @@
  *           fidgets, squash-stretch; replaces the sine bob) + cursor head-
  *           tracking (the mascot rotates toward the pointer). Both reduced-
  *           motion gated.
+ * Phase 10: reaction parity — procedural spin/wiggle (override head-track) +
+ *           emission/squash side-effects, plus micro-expressions + rare idle
+ *           personality quirks (engine/reactions.ts).
  *
  * Mount lazily (next/dynamic, ssr:false) — ~16MB GLB + WebGL.
  */
@@ -42,6 +45,7 @@ import {
 } from "./engine/particles/weather-particles";
 import { playEntrance } from "./engine/entrance";
 import { createProceduralAnim } from "./engine/procedural-anim";
+import { createReactionFx } from "./engine/reactions";
 import { useWeather } from "@/lib/weather/provider";
 
 interface Mascot3DProps {
@@ -55,17 +59,33 @@ interface Mascot3DProps {
 /** Clip names that loop rather than play once (from the source). */
 const LOOPING = new Set(["Idle", "Listening", "Talking", "Thinking"]);
 
-/** Reaction → {GLB clip, hold duration in seconds} — mirrors runReaction(). */
-const REACTION: Record<MascotReaction, { clip: string; dur: number }> = {
-  thinking: { clip: "Thinking", dur: 4.2 },
-  excited: { clip: "Happy", dur: 2.0 },
+/**
+ * Reaction descriptors (source runReaction). Clip reactions crossfade a skeletal
+ * clip; `proc` reactions (spin/wiggle) are procedural Y-rotations applied in the
+ * RAF. `emission` flashes the holographic pulse; durations mirror the source.
+ */
+const REACTION: Record<
+  MascotReaction,
+  { clip?: string; dur: number; emission?: number; proc?: "spin" | "wiggle" }
+> = {
+  thinking: { clip: "Thinking", dur: 4.2, emission: 0.3 },
+  listening: { clip: "Listening", dur: 3.75 },
+  talking: { clip: "Talking", dur: 2.5 },
+  excited: { clip: "Happy", dur: 2.0, emission: 0.5 },
   nod: { clip: "Happy", dur: 2.0 },
   headShake: { clip: "Confused", dur: 1.5 },
   wave: { clip: "Wave", dur: 2.5 },
+  spin: { dur: 0.7, emission: 0.3, proc: "spin" },
+  wiggle: { dur: 0.5, proc: "wiggle" },
   dance: { clip: "Happy", dur: 2.5 },
   confused: { clip: "Confused", dur: 1.5 },
   surprised: { clip: "Happy", dur: 1.5 },
 };
+
+/** Quadratic ease-in-out (source easeInOut) — used by the spin reaction. */
+function easeInOut(t: number): number {
+  return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+}
 
 /** Mood → facial morph-target influences (from the source's MOOD_EXPRESSIONS). */
 const MOOD_EXPRESSIONS: Record<string, Record<string, number>> = {
@@ -148,6 +168,9 @@ export default function Mascot3D({
     const actions = new Map<string, THREE.AnimationAction>();
     let currentName = "";
     let reactionEnd = 0; // seconds-timestamp the active reaction ends; 0 ⇒ base loop
+    let reactionName: MascotReaction = "thinking"; // the active reaction
+    let reactionStart = 0; // seconds-timestamp the active reaction began
+    let reactionBaseRotY = 0; // model rotation.y captured at reaction start
     const talkingRef = { current: false };
 
     // Mood state.
@@ -213,6 +236,11 @@ export default function Mascot3D({
 
     // Procedural physics (springs/fidgets/squash) + cursor head-tracking.
     const procedural = createProceduralAnim();
+    // Micro-expressions + personality quirks (idle "personality").
+    const reactionFx = createReactionFx({
+      queueReaction: (r) => useMascotStore.getState().queueReaction(r),
+      setBreathTarget: (v) => procedural.setBreathTarget(v),
+    });
     const mouseNDC = { x: 0, y: 0 };
     let headCurrentX = 0;
     let headCurrentY = 0;
@@ -354,8 +382,18 @@ export default function Mascot3D({
       const t = clock.getElapsedTime();
       if (mixer) mixer.update(dt);
 
-      // Reaction timing: end the active one, else start the next queued one.
+      // Reaction timing. spin/wiggle are PROCEDURAL Y-rotations (procRotY, applied
+      // in the head-track block so they win over head-follow); the rest crossfade
+      // a clip. On start: capture the base rotation, flash emission, squash.
+      let procRotY: number | null = null;
       if (reactionEnd > 0) {
+        const desc = REACTION[reactionName];
+        const elapsed = t - reactionStart;
+        if (desc.proc === "spin") {
+          procRotY = reactionBaseRotY + easeInOut(Math.min(elapsed / 0.7, 1)) * Math.PI * 2;
+        } else if (desc.proc === "wiggle") {
+          procRotY = reactionBaseRotY + Math.sin(elapsed * 16 * Math.PI) * 0.04 * (1 - elapsed * 2);
+        }
         if (t >= reactionEnd) {
           reactionEnd = 0;
           crossfade(baseClip(), 0.3);
@@ -363,9 +401,14 @@ export default function Mascot3D({
       } else {
         const r = useMascotStore.getState().dequeueReaction();
         if (r) {
-          const { clip, dur } = REACTION[r];
-          crossfade(clip, 0.2);
-          reactionEnd = t + dur;
+          const desc = REACTION[r];
+          reactionName = r;
+          reactionStart = t;
+          reactionEnd = t + desc.dur;
+          reactionBaseRotY = model ? model.rotation.y : 0;
+          if (desc.clip) crossfade(desc.clip, 0.2);
+          if (desc.emission) animUniforms.uEmissionPulse.value = desc.emission;
+          if (r !== "wiggle") procedural.triggerSquashStretch("react");
         }
       }
 
@@ -375,6 +418,25 @@ export default function Mascot3D({
         for (const k of Object.keys(targetMorphs)) {
           const idx = morphIndex[k];
           if (idx !== undefined) infl[idx] += (targetMorphs[k] - infl[idx]) * dt * 5;
+        }
+      }
+
+      // Personality: maybe fire a rare idle quirk; overlay any active
+      // micro-expression on top of the eased mood morphs.
+      reactionFx.updateQuirks(t, {
+        isOpen: useAgentStore.getState().open,
+        isTalking: talkingRef.current,
+        activeReaction: reactionEnd > 0,
+      });
+      const micro = reactionFx.activeMicroExpression(t);
+      if (micro && morphMesh?.morphTargetInfluences) {
+        const infl = morphMesh.morphTargetInfluences;
+        for (const name of Object.keys(micro.targets)) {
+          const idx = morphIndex[name];
+          if (idx !== undefined) {
+            const base = targetMorphs[name] ?? 0;
+            infl[idx] = base + (micro.targets[name] - base) * micro.intensity;
+          }
         }
       }
       moodColor.lerp(targetColor, dt * 3);
@@ -440,12 +502,17 @@ export default function Mascot3D({
           model.scale.y = baseScale * pa.scaleY;
           model.scale.x = model.scale.z = baseScale * pa.scaleXZ;
         }
-        // Cursor head-tracking: rotate toward the pointer, kept upright.
+        // Cursor head-tracking: rotate toward the pointer, kept upright. A
+        // spin/wiggle reaction (procRotY) overrides the Y rotation while active.
         if (!reducedMotion) {
-          headCurrentX += (-mouseNDC.y * 0.06 - headCurrentX) * dt * 3;
-          headCurrentY += (mouseNDC.x * 0.15 - headCurrentY) * dt * 3;
-          model.rotation.x = Math.max(-0.06, Math.min(0.06, headCurrentX));
-          model.rotation.y = headCurrentY;
+          if (procRotY !== null) {
+            model.rotation.y = procRotY;
+          } else {
+            headCurrentX += (-mouseNDC.y * 0.06 - headCurrentX) * dt * 3;
+            headCurrentY += (mouseNDC.x * 0.15 - headCurrentY) * dt * 3;
+            model.rotation.x = Math.max(-0.06, Math.min(0.06, headCurrentX));
+            model.rotation.y = headCurrentY;
+          }
         }
       }
 
