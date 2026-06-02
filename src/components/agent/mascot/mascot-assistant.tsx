@@ -18,6 +18,7 @@ import { useMascotStore } from "@/lib/agent/mascot/store";
 import { abortInFlight } from "@/lib/agent/client";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { createClickInteraction } from "./engine/interactions/clicks";
+import { installKonami } from "./engine/customization/commands";
 import { playMascotSound } from "./engine/audio/mascot-audio";
 import { RateLimitBar } from "./rate-limit-bar";
 import { AgentConversation } from "../agent-conversation";
@@ -55,6 +56,12 @@ export function MascotAssistant() {
     }
   };
   useEffect(() => () => clickRef.current?.dispose(), []);
+
+  // Konami easter egg (spin + rainbow + XP) + restore persisted appearance.
+  useEffect(() => {
+    useMascotStore.getState().hydrateAppearance();
+    return installKonami(() => addXp(10));
+  }, []);
 
   // Drive the mascot from the conversation: talk while streaming, think on send,
   // react to tool results, shift mood to the reply's sentiment.

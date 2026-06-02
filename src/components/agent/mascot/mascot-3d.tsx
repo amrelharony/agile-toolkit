@@ -30,6 +30,10 @@
  * Phase 11: audio — reaction/entrance/mood cues routed through the toolkit
  *           sonification engine (engine/audio/mascot-audio.ts + a `mascot`
  *           palette block); gated by the user's sound prefs.
+ * Phase 12a/13: click flourishes + gestures (engine/interactions/*) and
+ *           customisation — hats (engine/customization/hats.ts) + aura colour +
+ *           /mascot-* slash commands + Konami (engine/customization/commands.ts),
+ *           appearance persisted to localStorage.
  *
  * Mount lazily (next/dynamic, ssr:false) — ~16MB GLB + WebGL.
  */
@@ -37,7 +41,7 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { useMascotStore, type MascotReaction } from "@/lib/agent/mascot/store";
+import { useMascotStore, type MascotReaction, type HatId } from "@/lib/agent/mascot/store";
 import { useAgentStore } from "@/lib/agent/store";
 import { createHoloUniforms, injectHoloShader } from "./engine/holo-shader";
 import { retintSkinTexture } from "./engine/retint-skin";
@@ -50,6 +54,7 @@ import { playEntrance } from "./engine/entrance";
 import { createProceduralAnim } from "./engine/procedural-anim";
 import { createReactionFx, type MicroName } from "./engine/reactions";
 import { createGestureTracker } from "./engine/interactions/gestures";
+import { createHatMesh, hatYOffset } from "./engine/customization/hats";
 import { playMascotSound } from "./engine/audio/mascot-audio";
 import { useWeather } from "@/lib/weather/provider";
 
@@ -188,6 +193,11 @@ export default function Mascot3D({
     let moodSpeed = 1;
     let targetSpeed = 1;
 
+    // Customisation (hat + aura colour override).
+    let auraOverride: THREE.Color | null = null;
+    let currentHat: HatId | null = null;
+    let currentAuraColor: string | null = null;
+
     // Shader state (holographic look + talk/blink vertex deforms).
     const animUniforms = createHoloUniforms();
     let nextBlinkTime = 2 + Math.random() * 4;
@@ -281,8 +291,28 @@ export default function Mascot3D({
       for (const k of Object.keys(targetMorphs)) targetMorphs[k] = 0;
       const expr = MOOD_EXPRESSIONS[mood] ?? {};
       for (const k of Object.keys(expr)) if (k in targetMorphs) targetMorphs[k] = expr[k];
-      targetColor.set(MOOD_COLOR[mood]);
+      // An aura override pins the colour; otherwise the mood drives it.
+      if (!auraOverride) targetColor.set(MOOD_COLOR[mood]);
       targetSpeed = MOOD_SPEED[mood];
+    };
+
+    /** (Re)build the worn hat above the model's head (source setHat). */
+    const rebuildHat = () => {
+      if (!model) return;
+      const existing = model.getObjectByName("mascotHat") as THREE.Mesh | undefined;
+      if (existing) {
+        model.remove(existing);
+        existing.geometry.dispose();
+        (existing.material as THREE.Material).dispose();
+      }
+      const hat = useMascotStore.getState().hat;
+      if (!hat) return;
+      const box = new THREE.Box3().setFromObject(model);
+      const topY = (box.max.y - model.position.y) / baseScale;
+      const mesh = createHatMesh(hat);
+      mesh.position.y = topY + hatYOffset(hat);
+      mesh.name = "mascotHat";
+      model.add(mesh);
     };
 
     // ── Load the model ──
@@ -351,6 +381,16 @@ export default function Mascot3D({
 
         useMascotStore.getState().setReady(true);
 
+        // Apply any persisted/hydrated appearance now that the model exists.
+        currentHat = useMascotStore.getState().hat;
+        rebuildHat();
+        const persistedAura = useMascotStore.getState().auraColor;
+        if (persistedAura) {
+          currentAuraColor = persistedAura;
+          auraOverride = new THREE.Color(persistedAura);
+          targetColor.copy(auraOverride);
+        }
+
         // Entrance: elastic pop-in + accent fade + emission flash (source
         // createEntranceTimeline). Skips to final state under reduced-motion.
         entranceTl = playEntrance({
@@ -386,6 +426,16 @@ export default function Mascot3D({
         currentMood = mood;
         applyMood(mood);
         playMascotSound("mood"); // soft swell on mood change (source plays 'mood')
+      }
+      if (s.hat !== currentHat) {
+        currentHat = s.hat;
+        rebuildHat();
+      }
+      if (s.auraColor !== currentAuraColor) {
+        currentAuraColor = s.auraColor;
+        auraOverride = s.auraColor ? new THREE.Color(s.auraColor) : null;
+        if (auraOverride) targetColor.copy(auraOverride);
+        else targetColor.set(MOOD_COLOR[currentMood]);
       }
     });
 

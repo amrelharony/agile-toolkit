@@ -31,6 +31,9 @@ export type MascotReaction =
   | "confused"
   | "surprised";
 
+/** Wearable hats (source setHat 3707-3749). */
+export type HatId = "topHat" | "partyHat" | "crown";
+
 /** Sentiment vector that drives expression + lighting (0..1 each). */
 export interface MascotMood {
   /** negative ↔ positive */
@@ -54,6 +57,10 @@ interface MascotState {
   reactionQueue: MascotReaction[];
   /** FIFO of micro-expression names (smirk/wideEyes/…) the render loop consumes. */
   microQueue: string[];
+  /** Worn hat, or null. */
+  hat: HatId | null;
+  /** Aura colour override (hex), or null to follow the mood colour. */
+  auraColor: string | null;
 }
 
 interface MascotActions {
@@ -69,6 +76,12 @@ interface MascotActions {
   queueMicroExpression(name: string): void;
   /** Pop the next queued micro-expression, or undefined. */
   dequeueMicroExpression(): string | undefined;
+  /** Wear a hat (null to remove); persisted to localStorage. */
+  setHat(id: HatId | null): void;
+  /** Override the aura colour (hex, or null to follow mood); persisted. */
+  setAuraColor(hex: string | null): void;
+  /** Load persisted appearance (hat + aura) from localStorage. */
+  hydrateAppearance(): void;
   reset(): void;
 }
 
@@ -79,7 +92,19 @@ const INITIAL: MascotState = {
   particleSpeed: 1,
   reactionQueue: [],
   microQueue: [],
+  hat: null,
+  auraColor: null,
 };
+
+const APPEARANCE_KEY = "mascot_appearance";
+
+function saveAppearance(hat: HatId | null, auraColor: string | null): void {
+  try {
+    localStorage.setItem(APPEARANCE_KEY, JSON.stringify({ hat, auraColor }));
+  } catch {
+    /* storage unavailable — ignore */
+  }
+}
 
 export const useMascotStore = create<MascotState & MascotActions>()((set, get) => ({
   ...INITIAL,
@@ -107,6 +132,24 @@ export const useMascotStore = create<MascotState & MascotActions>()((set, get) =
     if (next === undefined) return undefined;
     set({ microQueue: rest });
     return next;
+  },
+  setHat: (id) => {
+    set({ hat: id });
+    saveAppearance(id, get().auraColor);
+  },
+  setAuraColor: (hex) => {
+    set({ auraColor: hex });
+    saveAppearance(get().hat, hex);
+  },
+  hydrateAppearance: () => {
+    try {
+      const raw = localStorage.getItem(APPEARANCE_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw) as { hat?: HatId | null; auraColor?: string | null };
+      set({ hat: data.hat ?? null, auraColor: data.auraColor ?? null });
+    } catch {
+      /* ignore */
+    }
   },
   reset: () => set({ ...INITIAL }),
 }));

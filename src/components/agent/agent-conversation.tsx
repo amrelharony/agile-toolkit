@@ -8,6 +8,7 @@ import { sendUserMessage } from "@/lib/agent/client";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "./confirm-action";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
+import { handleMascotCommand } from "./mascot/engine/customization/commands";
 import { Send, Wrench, AlertTriangle, Mic } from "lucide-react";
 import type { ChatMessage } from "@/lib/agent/types";
 
@@ -38,6 +39,11 @@ export function AgentConversation() {
   const onSend = () => {
     const text = input.trim();
     if (!text || streaming || !user) return;
+    // Mascot commands (/mascot-hat, /mascot-aura, /dance) run locally, not the agent.
+    if (handleMascotCommand(text)) {
+      setInput("");
+      return;
+    }
     setInput("");
     const toolId = inferToolId(pathname);
     void sendUserMessage(text, { userId: user.id, toolId });
