@@ -56,7 +56,9 @@ import { createReactionFx, type MicroName } from "./engine/reactions";
 import { createGestureTracker } from "./engine/interactions/gestures";
 import { createHatMesh, hatYOffset } from "./engine/customization/hats";
 import { playMascotSound } from "./engine/audio/mascot-audio";
+import { createMascotDrone, type DroneParams } from "./engine/audio/mascot-drone";
 import { useWeather } from "@/lib/weather/provider";
+import { useSonificationStore } from "@/lib/stores/sonification-store";
 
 interface Mascot3DProps {
   width?: number;
@@ -125,6 +127,16 @@ const MOOD_SPEED: Record<MoodName, number> = {
   determined: 1.1,
   neutral: 1.0,
   warm: 1.0,
+};
+/** Ambient drone per mood (source MascotAmbience). neutral = silent. */
+const MOOD_DRONE: Record<MoodName, DroneParams | null> = {
+  serene: { freq: 110, type: "sine", vol: 0.004, filter: 250 },
+  playful: { freq: 247, type: "triangle", vol: 0.006, filter: 650 },
+  intense: { freq: 262, type: "triangle", vol: 0.006, filter: 700 },
+  curious: { freq: 185, type: "triangle", vol: 0.005, filter: 550 },
+  determined: { freq: 196, type: "triangle", vol: 0.005, filter: 600 },
+  neutral: null,
+  warm: { freq: 165, type: "sine", vol: 0.005, filter: 400 },
 };
 
 /** Map a sentiment {valence,energy} (0..1 each) to one of the morph moods. */
@@ -256,6 +268,9 @@ export default function Mascot3D({
       queueReaction: (r) => useMascotStore.getState().queueReaction(r),
       setBreathTarget: (v) => procedural.setBreathTarget(v),
     });
+    // Ambient mood drone (piggybacks the sonification engine; silent unless sound
+    // is enabled + the context already exists from another mascot sound).
+    const drone = createMascotDrone();
     const mouseNDC = { x: 0, y: 0 };
     let headCurrentX = 0;
     let headCurrentY = 0;
@@ -294,6 +309,7 @@ export default function Mascot3D({
       // An aura override pins the colour; otherwise the mood drives it.
       if (!auraOverride) targetColor.set(MOOD_COLOR[mood]);
       targetSpeed = MOOD_SPEED[mood];
+      drone.setMood(MOOD_DRONE[mood]);
     };
 
     /** (Re)build the worn hat above the model's head (source setHat). */
@@ -584,6 +600,11 @@ export default function Mascot3D({
         }
       }
 
+      // Ambient drone: gated on the sound pref + reduced-motion, modulated by
+      // the procedural springs (breath = louder, lean = brighter, bob = wobble).
+      drone.setEnabled(useSonificationStore.getState().enabled && !reducedMotion);
+      drone.update({ breath: pa.breathScale, lean: pa.bodyLean, bob: pa.bobY });
+
       // Weather particles drift, following the mascot's position.
       weatherSys.update({
         t,
@@ -632,6 +653,7 @@ export default function Mascot3D({
       gestureTracker.dispose();
       unsub();
       entranceTl?.kill();
+      drone.dispose();
       weatherSys.dispose();
       weatherSysRef.current = null;
       mixer?.stopAllAction();
