@@ -33,7 +33,12 @@ const cspDirectives = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   "img-src 'self' data: blob: https://*.googleusercontent.com https://avatars.githubusercontent.com",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://accounts.google.com https://api.z.ai https://open.bigmodel.cn https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com",
+  // `blob:` is required by connect-src (not just img-src): three's GLTFLoader
+  // decodes the mascot's embedded texture via ImageBitmapLoader, which does
+  // `fetch(blob:…)` — governed by connect-src. Without it the texture fails to
+  // load ("THREE.GLTFLoader: Couldn't load texture blob:…") and the mascot
+  // renders as an untextured white clay model.
+  "connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://accounts.google.com https://api.z.ai https://open.bigmodel.cn https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com",
   "frame-src 'self' https://accounts.google.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
