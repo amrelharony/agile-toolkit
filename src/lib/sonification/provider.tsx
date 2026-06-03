@@ -62,8 +62,7 @@ export function SonificationProvider({ children }: { children: React.ReactNode }
     }
   }, []);
 
-  const gated =
-    prefs.enabled && !(prefs.respectReducedMotion && reducedMotion);
+  const gated = prefs.enabled && !(prefs.respectReducedMotion && reducedMotion);
 
   // Ambient listeners only need to run when audio is gated on.
   useMousePan(gated);
@@ -74,6 +73,18 @@ export function SonificationProvider({ children }: { children: React.ReactNode }
     if (!gated) return;
     getEngine().setMasterVolume(prefs.masterVolume);
   }, [gated, prefs.masterVolume]);
+
+  // Suspend the AudioContext when sound is gated OFF (frees the audio
+  // hardware thread the browser keeps alive for a "running" context);
+  // resume it when gated back on. The context is created lazily on the
+  // first user gesture, so both calls no-op until it exists. Without this,
+  // `SonificationEngine.suspend()` was dead code and a user who turned
+  // sound off left the context running for the life of the page.
+  useEffect(() => {
+    const engine = getEngine();
+    if (gated) void engine.resume();
+    else engine.suspend();
+  }, [gated]);
 
   // First-gesture unlocker: ensure the AudioContext exists the moment the user
   // interacts anywhere on the page — required by browsers' autoplay policies.

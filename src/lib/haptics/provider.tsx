@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useHapticsStore } from "@/lib/stores/haptics-store";
-import { registerSuppressionListeners } from "./gate";
+import { registerSuppressionListeners, unregisterSuppressionListeners } from "./gate";
 import { detectSupport, fire } from "./engine";
 import { toast } from "sonner";
 
@@ -45,6 +45,12 @@ export function HapticsProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
       if (toastTimer !== undefined) window.clearTimeout(toastTimer);
+      // Detach the global capture-phase scroll/input listeners registered
+      // above. The whole provider tree unmounts on bare routes (sign-out,
+      // /guest), so without this the listeners outlived the provider (and
+      // the `listenersRegistered` flag stayed stuck true). engine.fire()
+      // re-registers lazily on the next haptic, so this is safe.
+      unregisterSuppressionListeners();
     };
   }, []);
 
