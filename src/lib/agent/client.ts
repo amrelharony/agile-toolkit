@@ -5,6 +5,7 @@ import { getActiveConfig } from "@/lib/stores/llm-store";
 import { useAgentStore } from "./store";
 import { buildSystemPrompt } from "./system-prompt";
 import { relevantActions as relevantActionsForQuery, rankActionIds } from "./mascot/kb";
+import { recentUserText, toolNamesInHistory } from "./tool-selection";
 import { parseRateLimitHeaders } from "./rate-limit";
 import { executeToolUse } from "./execute-tool";
 import { appendMessages } from "./persist";
@@ -122,18 +123,28 @@ const MAX_TOOLS_PER_TURN = 64;
 const MIN_RANKED_TO_TRIM = 4;
 
 /**
- * Build the tool list for a turn. When the KB can rank the latest user message,
+ * Build the tool list for a turn. When the KB can rank the recent user context,
  * return just those top tools (capped at MAX_TOOLS_PER_TURN); otherwise return
- * the full registry so a vague request still has everything available. Tool
- * execution always resolves against the full registry, so trimming only narrows
- * what the model is offered — it can't break a call the model does make.
+ * the full registry so a vague request still has everything available.
+ *
+ * Two invariants beyond "rank the latest line":
+ *  - `rankText` is the recent user context (last couple of messages), so a
+ *    follow-up like "rename it" still ranks against the prior turn's nouns.
+ *  - The offered set is UNIONED with every tool the transcript already
+ *    references. An OpenAI-compatible endpoint rejects a request whose message
+ *    history contains an assistant tool_call not present in `tools`, so trimming
+ *    one away on a later turn would make the body invalid.
  */
-function buildTurnTools(latestUserText: string | null) {
+function buildTurnTools(rankText: string, messages: ChatMessage[]) {
   const all = registry.toOpenAiTools();
-  if (!latestUserText) return all;
-  const rankedIds = rankActionIds(latestUserText, MAX_TOOLS_PER_TURN);
+  const rankedIds = rankText ? rankActionIds(rankText, MAX_TOOLS_PER_TURN) : [];
   if (rankedIds.length < MIN_RANKED_TO_TRIM) return all;
   const wantedNames = new Set(rankedIds.map((id) => claudeNameFromId(id)));
+  // Keep every tool the conversation already references (normalise to the claude
+  // name, since the model may have emitted dotted or underscored forms).
+  for (const name of toolNamesInHistory(messages)) {
+    wantedNames.add(claudeNameFromId(registry.resolve(name)?.id ?? name));
+  }
   const trimmed = all.filter((t) => wantedNames.has(t.function.name));
   return trimmed.length >= MIN_RANKED_TO_TRIM ? trimmed : all;
 }
@@ -147,9 +158,11 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
   const system = buildSystemPrompt({ toolId: opts.toolId ?? null, relevantActions });
   // PERF: ship only the tools relevant to this turn, not all ~620 schemas.
   // Sending the whole registry every turn added ~30s of model latency on the
-  // free tier (and bloats the request toward the gateway's body limit). Vague
+  // free tier (and bloats the request toward the gateway's body limit). Rank
+  // against the recent user context so follow-ups keep their referents; vague
   // asks fall back to the full set; execution still uses the full registry.
-  const tools = buildTurnTools(latestUserText);
+  const turnMessages = useAgentStore.getState().messages;
+  const tools = buildTurnTools(recentUserText(turnMessages), turnMessages);
   // BUG-G11: wedge guard. Track (actionId → consecutive-error-count) so a
   // model that keeps retrying the same broken tool_use call doesn't burn
   // every round in the budget.
@@ -290,6 +303,21 @@ async function openOneTurn(
 
   if (!response.ok || !response.body) {
     const detail = await response.text().catch(() => "");
+    // Map the common upstream failures to a message a user can act on, instead
+    // of dumping the raw `agent stream failed (NNN): {json}` developer string
+    // into the chat's error banner.
+    const friendly =
+      response.status === 413
+        ? "That request was too large for the agent. Start a new conversation or shorten your message, then try again."
+        : response.status === 401 || response.status === 403
+          ? "The agent could not authenticate. Try signing out and back in."
+          : response.status >= 500
+            ? "The assistant is temporarily unavailable. Please try again in a moment."
+            : null;
+    if (friendly) {
+      useAgentStore.getState().setError(friendly);
+      return "end_turn";
+    }
     throw new Error(`agent stream failed (${response.status}): ${detail.slice(0, 200)}`);
   }
 

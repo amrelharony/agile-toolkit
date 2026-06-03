@@ -34,9 +34,15 @@ export function handleMascotCommand(text: string): boolean {
   const hat = t.match(/^\/mascot-hat\s+(\w+)/);
   if (hat) {
     const id = hat[1];
-    if (id === "none" || id === "off") store.setHat(null);
-    else if ((HATS as string[]).includes(id)) store.setHat(id as HatId);
-    return true;
+    if (id === "none" || id === "off") {
+      store.setHat(null);
+      return true;
+    }
+    if ((HATS as string[]).includes(id)) {
+      store.setHat(id as HatId);
+      return true;
+    }
+    return false; // unknown hat id → don't silently swallow; let it through
   }
 
   const aura = raw.match(/^\/mascot-aura\s+(#?[0-9a-fA-F]{6}|none|off)$/i);
