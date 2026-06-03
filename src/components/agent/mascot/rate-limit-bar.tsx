@@ -8,10 +8,28 @@
  * cap or once a 429 marks it limited.
  */
 
+import { useEffect } from "react";
 import { useAgentStore } from "@/lib/agent/store";
+import { fetchChatUsage } from "@/lib/agent/persist";
 
 export function RateLimitBar() {
   const rl = useAgentStore((s) => s.rateLimit);
+  const setRateLimit = useAgentStore((s) => s.setRateLimit);
+
+  // This bar only mounts while the panel is open, so refreshing on mount keeps
+  // the count live: it shows immediately on first open (instead of staying blank
+  // until the first send) and re-syncs to the DB on every reopen. Read-only —
+  // peek_chat_usage doesn't consume a turn.
+  useEffect(() => {
+    let alive = true;
+    void fetchChatUsage().then((u) => {
+      if (alive && u) setRateLimit(u);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [setRateLimit]);
+
   if (!rl) return null;
 
   const pct = rl.dailyMax > 0 ? Math.min(100, Math.round((rl.dailyUsed / rl.dailyMax) * 100)) : 0;

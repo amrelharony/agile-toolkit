@@ -2,6 +2,38 @@
 
 import { getAuthBrowserClient } from "@/lib/auth/supabase-browser";
 import type { ChatMessage, ConversationMeta } from "./types";
+import type { RateLimitInfo } from "./store";
+
+/**
+ * Read-only usage snapshot for the rate-limit bar via the peek_chat_usage RPC
+ * (migration 0021) — does NOT consume a turn, unlike check_chat_rate_limit.
+ * Returns null when Supabase is unavailable or the RPC isn't migrated yet, so
+ * the bar simply keeps whatever it last showed.
+ */
+export async function fetchChatUsage(): Promise<RateLimitInfo | null> {
+  const supabase = getAuthBrowserClient();
+  if (!supabase) return null;
+  const { data, error } = await supabase.rpc("peek_chat_usage");
+  if (error || !data) return null;
+  const d = data as {
+    allowed: boolean;
+    daily_used: number;
+    daily_max: number;
+    weekly_used: number;
+    weekly_max: number;
+    monthly_used: number;
+    monthly_max: number;
+  };
+  return {
+    dailyUsed: d.daily_used,
+    dailyMax: d.daily_max,
+    weeklyUsed: d.weekly_used,
+    weeklyMax: d.weekly_max,
+    monthlyUsed: d.monthly_used,
+    monthlyMax: d.monthly_max,
+    limited: !d.allowed,
+  };
+}
 
 /**
  * Supabase-backed conversation persistence. The agent route writes
