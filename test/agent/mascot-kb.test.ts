@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { tokenize, buildKbIndex, matchKb, type KbSeed } from "@/lib/agent/mascot/kb";
+import { tokenize, buildKbIndex, matchKb, rankIds, type KbSeed } from "@/lib/agent/mascot/kb";
 
 const SEEDS: KbSeed[] = [
   {
@@ -122,5 +122,30 @@ describe("matchKb", () => {
     const ids = r.matches.map((m) => m.entry.id);
     expect(ids).not.toContain("workspace.sprint.create");
     expect(ids).not.toContain("tool.canvas.add_sticky");
+  });
+});
+
+describe("rankIds (tool-trimming ranking)", () => {
+  const index = buildKbIndex(SEEDS);
+
+  it("returns ranked ids best-first, no confidence gate", () => {
+    const ids = rankIds("create a new sprint", index, 10);
+    expect(ids[0]).toBe("workspace.sprint.create");
+  });
+
+  it("returns [] for empty or unmatched queries", () => {
+    expect(rankIds("", index)).toEqual([]);
+    expect(rankIds("what is the weather today", index)).toEqual([]);
+  });
+
+  it("respects the limit", () => {
+    const ids = rankIds("create add a new sprint board sticky kudos", index, 2);
+    expect(ids.length).toBeLessThanOrEqual(2);
+  });
+
+  it("surfaces a soft single-keyword match (would feed the tool subset)", () => {
+    // 'sticky' alone is a weaker signal than a full sentence, but rankIds still
+    // returns it (relevantActions might gate it out) so the tool stays callable.
+    expect(rankIds("sticky", index, 10)).toContain("tool.canvas.add_sticky");
   });
 });

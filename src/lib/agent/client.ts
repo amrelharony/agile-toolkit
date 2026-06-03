@@ -4,7 +4,7 @@ import { registry, claudeNameFromId } from "@/lib/actions/registry";
 import { getActiveConfig } from "@/lib/stores/llm-store";
 import { useAgentStore } from "./store";
 import { buildSystemPrompt } from "./system-prompt";
-import { relevantActions as relevantActionsForQuery } from "./mascot/kb";
+import { relevantActions as relevantActionsForQuery, rankActionIds } from "./mascot/kb";
 import { parseRateLimitHeaders } from "./rate-limit";
 import { executeToolUse } from "./execute-tool";
 import { appendMessages } from "./persist";
@@ -116,14 +116,40 @@ export async function sendUserMessage(text: string, opts: StreamOptions): Promis
   }
 }
 
+/** Max tool schemas sent to the model per turn when the KB can focus the ask. */
+const MAX_TOOLS_PER_TURN = 64;
+/** Fewer ranked hits than this ⇒ the ask is too vague to trust; send them all. */
+const MIN_RANKED_TO_TRIM = 4;
+
+/**
+ * Build the tool list for a turn. When the KB can rank the latest user message,
+ * return just those top tools (capped at MAX_TOOLS_PER_TURN); otherwise return
+ * the full registry so a vague request still has everything available. Tool
+ * execution always resolves against the full registry, so trimming only narrows
+ * what the model is offered — it can't break a call the model does make.
+ */
+function buildTurnTools(latestUserText: string | null) {
+  const all = registry.toOpenAiTools();
+  if (!latestUserText) return all;
+  const rankedIds = rankActionIds(latestUserText, MAX_TOOLS_PER_TURN);
+  if (rankedIds.length < MIN_RANKED_TO_TRIM) return all;
+  const wantedNames = new Set(rankedIds.map((id) => claudeNameFromId(id)));
+  const trimmed = all.filter((t) => wantedNames.has(t.function.name));
+  return trimmed.length >= MIN_RANKED_TO_TRIM ? trimmed : all;
+}
+
 async function runToolUseLoop(opts: StreamOptions): Promise<void> {
   const { mode, serverModel } = await detectMode();
-  const tools = registry.toOpenAiTools();
   // KB help (RAG-lite): focus the model on the actions most relevant to the
   // latest user message, picked from the registry index.
   const latestUserText = lastUserText(useAgentStore.getState().messages);
   const relevantActions = latestUserText ? relevantActionsForQuery(latestUserText) : [];
   const system = buildSystemPrompt({ toolId: opts.toolId ?? null, relevantActions });
+  // PERF: ship only the tools relevant to this turn, not all ~620 schemas.
+  // Sending the whole registry every turn added ~30s of model latency on the
+  // free tier (and bloats the request toward the gateway's body limit). Vague
+  // asks fall back to the full set; execution still uses the full registry.
+  const tools = buildTurnTools(latestUserText);
   // BUG-G11: wedge guard. Track (actionId → consecutive-error-count) so a
   // model that keeps retrying the same broken tool_use call doesn't burn
   // every round in the budget.

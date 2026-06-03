@@ -297,3 +297,18 @@ export function relevantActions(
   if (res.confidence === "none" || res.confidence === "low") return [];
   return res.matches.map((m) => ({ id: m.entry.id, description: m.entry.description }));
 }
+
+/**
+ * Rank action IDs for `query` by raw score, best first, capped at `limit`.
+ * Unlike `relevantActions` there is NO confidence gate — this powers trimming
+ * the model's tool payload, where we want the best N candidates even on a softer
+ * match. Empty query / no matches → []. Pure variant for fixture tests.
+ */
+export function rankIds(query: string, index: KbIndex, limit = 50): string[] {
+  return matchKb(query, index, { limit }).matches.map((m) => m.entry.id);
+}
+
+/** `rankIds` over the live registry-seeded index (memoised). */
+export function rankActionIds(query: string, limit = 50): string[] {
+  return rankIds(query, getRegistryKbIndex(), limit);
+}
