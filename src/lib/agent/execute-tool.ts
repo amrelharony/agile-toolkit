@@ -8,6 +8,18 @@ interface ExecuteOptions {
   confirm: (summary: string) => Promise<boolean>;
   /** When true, skip confirm() for write/intent actions. Read still no-prompt. */
   autoApprove: boolean;
+  /** Turn abort signal — closing the panel cancels an in-flight handler so the
+   *  loop doesn't stay parked (and `streaming`) for up to the 30s timeout. */
+  signal?: AbortSignal;
+}
+
+/** A promise that rejects when `signal` aborts; never settles otherwise. */
+function rejectOnAbort(signal: AbortSignal | undefined): Promise<never> {
+  return new Promise<never>((_, reject) => {
+    if (!signal) return;
+    if (signal.aborted) return reject(new Error("cancelled"));
+    signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+  });
 }
 
 /**
@@ -32,6 +44,12 @@ export async function executeToolUse(
   block: ToolUseBlock,
   opts: ExecuteOptions
 ): Promise<ToolResultBlock> {
+  // The turn was aborted (panel closed) before we got to this tool — answer it
+  // with an error result rather than running it, so the tool_call isn't left
+  // orphaned in the transcript.
+  if (opts.signal?.aborted) {
+    return { type: "tool_result", tool_use_id: block.id, content: "Cancelled.", is_error: true };
+  }
   const action = registry.resolve(block.name);
   if (!action) {
     return {
@@ -109,6 +127,9 @@ export async function executeToolUse(
           HANDLER_TIMEOUT_MS
         )
       ),
+      // Abort wins if the user closes the panel mid-handler — the handler keeps
+      // running but we stop awaiting it so the loop can unwind immediately.
+      rejectOnAbort(opts.signal),
     ]);
     return {
       type: "tool_result",

@@ -127,6 +127,12 @@ export async function appendMessages(
     conversation_id: conversationId,
     role: m.role,
     content: truncateContentForStorage(m.content),
+    // Persist the append-time timestamp explicitly. These inserts are
+    // fire-and-forget (`void`), so relying on the DB `now()` default lets an
+    // assistant + its tool row land out of order on reload (orphan tool_result
+    // → invalid wire on the next send). m.createdAt is monotonic with append
+    // order, and loadMessages sorts by created_at.
+    created_at: m.createdAt,
   }));
   const { error } = await supabase.from("agent_messages").insert(rows);
   if (error) {

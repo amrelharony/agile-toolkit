@@ -61,20 +61,22 @@ function block(name: string, input: Record<string, unknown> = {}): ToolUseBlock 
 describe("executeToolUse — resolution", () => {
   it("resolves an Anthropic-format name (with underscores) via registry.resolve", async () => {
     const confirm = vi.fn().mockResolvedValue(true);
-    const res = await executeToolUse(
-      block("__agentexec_dotted_id_with_underscores", { n: 7 }),
-      { userId: TEST_USER, confirm, autoApprove: true }
-    );
+    const res = await executeToolUse(block("__agentexec_dotted_id_with_underscores", { n: 7 }), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: true,
+    });
     expect(res.is_error).toBeUndefined();
     expect(res.content).toContain('"value":7');
   });
 
   it("rejects unknown names with is_error=true", async () => {
     const confirm = vi.fn().mockResolvedValue(true);
-    const res = await executeToolUse(
-      block("not_a_real_tool"),
-      { userId: TEST_USER, confirm, autoApprove: true }
-    );
+    const res = await executeToolUse(block("not_a_real_tool"), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: true,
+    });
     expect(res.is_error).toBe(true);
     expect(res.content).toContain("Unknown tool: not_a_real_tool");
     expect(confirm).not.toHaveBeenCalled();
@@ -97,10 +99,11 @@ describe("executeToolUse — schema validation", () => {
 describe("executeToolUse — confirmation gating", () => {
   it("read actions skip the confirm prompt", async () => {
     const confirm = vi.fn().mockResolvedValue(true);
-    const res = await executeToolUse(
-      block("__agentexec.read_only"),
-      { userId: TEST_USER, confirm, autoApprove: false }
-    );
+    const res = await executeToolUse(block("__agentexec.read_only"), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: false,
+    });
     expect(confirm).not.toHaveBeenCalled();
     expect(res.is_error).toBeUndefined();
     expect(res.content).toContain('"data":"ok"');
@@ -108,10 +111,11 @@ describe("executeToolUse — confirmation gating", () => {
 
   it("write actions call confirm and respect approval", async () => {
     const confirm = vi.fn().mockResolvedValue(true);
-    const res = await executeToolUse(
-      block("__agentexec.do_write", { value: "hello" }),
-      { userId: TEST_USER, confirm, autoApprove: false }
-    );
+    const res = await executeToolUse(block("__agentexec.do_write", { value: "hello" }), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: false,
+    });
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(confirm.mock.calls[0][0]).toContain("__agentexec.do_write");
     expect(res.is_error).toBeUndefined();
@@ -120,10 +124,11 @@ describe("executeToolUse — confirmation gating", () => {
 
   it("write actions call confirm and respect denial", async () => {
     const confirm = vi.fn().mockResolvedValue(false);
-    const res = await executeToolUse(
-      block("__agentexec.do_write", { value: "hello" }),
-      { userId: TEST_USER, confirm, autoApprove: false }
-    );
+    const res = await executeToolUse(block("__agentexec.do_write", { value: "hello" }), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: false,
+    });
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(res.is_error).toBe(true);
     expect(res.content).toContain("User denied execution of __agentexec.do_write");
@@ -131,12 +136,58 @@ describe("executeToolUse — confirmation gating", () => {
 
   it("autoApprove bypasses confirm for writes", async () => {
     const confirm = vi.fn().mockResolvedValue(false);
-    const res = await executeToolUse(
-      block("__agentexec.do_write", { value: "auto" }),
-      { userId: TEST_USER, confirm, autoApprove: true }
-    );
+    const res = await executeToolUse(block("__agentexec.do_write", { value: "auto" }), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: true,
+    });
     expect(confirm).not.toHaveBeenCalled();
     expect(res.is_error).toBeUndefined();
     expect(res.content).toContain('"stored":"auto"');
+  });
+});
+
+describe("executeToolUse — abort", () => {
+  it("returns a Cancelled result without running when the signal is already aborted", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const confirm = vi.fn().mockResolvedValue(true);
+    const res = await executeToolUse(block("__agentexec.read_only"), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: true,
+      signal: ac.signal,
+    });
+    expect(res.is_error).toBe(true);
+    expect(res.content).toContain("Cancelled");
+    expect(res.tool_use_id).toBe("tu_test");
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("aborting a hung handler resolves fast with an error result (no orphan, no 30s wait)", async () => {
+    registry.register({
+      id: "__agentexec.hang",
+      toolId: "__agentexec",
+      name: "hang",
+      category: "read",
+      description: "Handler that never resolves.",
+      paramsSchema: z.object({}),
+      handler: () => new Promise(() => {}), // never settles
+    });
+    try {
+      const ac = new AbortController();
+      const p = executeToolUse(block("__agentexec.hang"), {
+        userId: TEST_USER,
+        confirm: vi.fn().mockResolvedValue(true),
+        autoApprove: true,
+        signal: ac.signal,
+      });
+      ac.abort(); // fire after the race is armed
+      const res = await p;
+      expect(res.is_error).toBe(true);
+      expect(String(res.content).toLowerCase()).toContain("cancel");
+    } finally {
+      registry.unregister("__agentexec.hang");
+    }
   });
 });

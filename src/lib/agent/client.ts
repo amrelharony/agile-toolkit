@@ -215,6 +215,7 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
         userId: opts.userId,
         confirm: makeConfirmHandler(tu),
         autoApprove: useAgentStore.getState().autoApprove,
+        signal: opts.signal,
       });
       results.push(result);
       // Track schema-failure repetition.
@@ -233,6 +234,10 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
     };
     useAgentStore.getState().appendMessage(toolMsg);
     if (opts.conversationId) void appendMessages(opts.conversationId, [toolMsg]);
+
+    // Panel closed mid-round: every tool_call now has a result (above), so the
+    // transcript is valid — just don't open another streaming round.
+    if (opts.signal?.aborted) return;
 
     // BUG-G11: bail if any action has wedged on repeated errors.
     let wedged = false;
