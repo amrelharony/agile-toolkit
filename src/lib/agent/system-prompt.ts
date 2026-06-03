@@ -1,6 +1,24 @@
 import { registry } from "@/lib/actions/registry";
 
 /**
+ * Format a date as `2026-06-03 (Wednesday, June 3, 2026)` using LOCAL calendar
+ * fields (the agent runs in the user's browser, so "today" is their local day,
+ * not UTC). Exposed for tests.
+ */
+export function formatToday(now: Date = new Date()): string {
+  const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
+    now.getDate()
+  ).padStart(2, "0")}`;
+  const pretty = now.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  return `${iso} (${pretty})`;
+}
+
+/**
  * Build the system prompt for the in-app agent.
  *
  * The list of tools is exposed separately via the API's `tools` field —
@@ -36,6 +54,8 @@ export function buildSystemPrompt(
 
 You have ${total} callable actions: ${readCount} read, ${writeCount} write, ${intentCount} intent.
 
+Today's date is ${formatToday()}. Resolve relative dates the user gives — "today", "tomorrow", "next Monday", "in 2 weeks", "end of the sprint" — from this. Never ask the user for a date you can compute yourself.
+
 Conventions:
 - Action ids look like \`workspace.sprint.create\` or \`tool.canvas.add_sticky\`. In the function-calling tool list they appear as \`workspace_sprint_create\` (dots → underscores; the runtime resolves either form).
 - Read actions execute immediately. Write actions are gated by per-call user confirmation in the UI (unless the user has flipped on auto-approve for this session). Intents compose multiple writes and follow the same confirmation rules.
@@ -45,7 +65,7 @@ Conventions:
 Current context: ${context}${relevant}
 
 Safety:
-- Never invent ids, dates, or state. List first, then act.
+- Never invent ids or state. List first, then act. Dates are not "invented" — compute them from today's date above.
 - Echo the planned action(s) to the user briefly before invoking, so confirmation cards have context.
 - If a write fails or the user denies a confirmation, summarise and offer alternatives.
 
