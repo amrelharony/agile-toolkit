@@ -64,6 +64,28 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return Response.json({ error: "invalid_emoji" }, { status: 400 });
   }
 
+  // Ownership gate BEFORE the SECURITY DEFINER RPC. `kudos_add_reaction`
+  // bypasses RLS and looks the row up by id alone, so without this an
+  // authorized owner could append a reaction to ANOTHER owner's kudos
+  // (cross-tenant write) — multiple owners can share one Supabase project
+  // via AUTHORIZED_EMAILS. This SELECT runs on the RLS-bound client, so a
+  // foreign id is invisible (returns null → 404); the explicit owner_id
+  // predicate is belt-and-braces over the RLS policy.
+  const { data: owned, error: ownErr } = await supabase
+    .from("kudos")
+    .select("id")
+    .eq("id", kudosId)
+    .eq("owner_id", user.id)
+    .maybeSingle();
+  if (ownErr) {
+    // eslint-disable-next-line no-console
+    console.error("[kudos reactions POST] ownership lookup failed", ownErr.code, ownErr.message);
+    return Response.json({ error: "server_error" }, { status: 500 });
+  }
+  if (!owned) {
+    return Response.json({ error: "not_found" }, { status: 404 });
+  }
+
   // Owners react as their auth identity; the RPC stores it under
   // `byProfileId`. Squad-profile attribution for owner reactions is a
   // Phase 5 polish item — for now the owner's auth uid is the
