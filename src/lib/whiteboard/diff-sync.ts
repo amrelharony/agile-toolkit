@@ -56,7 +56,7 @@ export interface WhiteboardRequest {
 export function computePatch(
   prev: readonly WhiteboardObject[],
   next: readonly WhiteboardObject[],
-  by: string,
+  by: string
 ): WhiteboardPatch {
   const prevById = new Map(prev.map((o) => [o.id, o]));
   const nextById = new Map(next.map((o) => [o.id, o]));
@@ -100,7 +100,10 @@ export interface Differ {
    * patch that just stamps `at` and `by`). Otherwise advances the
    * internal baseline to `next` automatically.
    */
-  diff(next: readonly WhiteboardObject[], by: string): { empty: true } | { empty: false; value: WhiteboardPatch };
+  diff(
+    next: readonly WhiteboardObject[],
+    by: string
+  ): { empty: true } | { empty: false; value: WhiteboardPatch };
   /** Reset the baseline — call on boardId change so the new board's
    *  initial state isn't diffed against the old board's. */
   reset(initial?: readonly WhiteboardObject[]): void;
@@ -169,7 +172,7 @@ export function createDiffer(initial: readonly WhiteboardObject[] = []): Differ 
  */
 export function applyPatch(
   local: readonly WhiteboardObject[],
-  patch: WhiteboardPatch,
+  patch: WhiteboardPatch
 ): WhiteboardObject[] {
   const map = new Map(local.map((o) => [o.id, o]));
   // SECURITY: stamp the local copy of every accepted upsert with
@@ -185,7 +188,22 @@ export function applyPatch(
   // stamping closes that 2-step exploit and lets the removal check
   // below remain permissive enough for legitimate flows where
   // production code never sets `createdBy`.
-  const stamp = (o: WhiteboardObject): WhiteboardObject => ({ ...o, updatedBy: patch.by });
+  // Anchor BOTH `updatedBy` (the carrier) and `createdBy` (the creator) on the
+  // local copy to `patch.by` — never the peer's own self-claim, matching the
+  // trust model the removal check below relies on. Recording `createdBy` is
+  // what lets the creator delete an object even after a DIFFERENT peer was the
+  // last to edit it: without it the receiver's copy carries
+  // `updatedBy = <last editor>` and `createdBy = undefined`, so the creator's
+  // removal patch is silently dropped by the ownership check and the object
+  // resurrects. We never let a later writer reassign an already-recorded
+  // `createdBy` (preserve `existing.createdBy` first), so this does NOT reopen
+  // the `updatedBy === undefined` removal exploit — the check still requires an
+  // explicit creator/updater match.
+  const stamp = (o: WhiteboardObject, existing?: WhiteboardObject): WhiteboardObject => ({
+    ...o,
+    updatedBy: patch.by,
+    createdBy: existing?.createdBy ?? o.createdBy ?? patch.by,
+  });
   for (const incoming of patch.upserted) {
     const existing = map.get(incoming.id);
     if (!existing) {
@@ -201,9 +219,9 @@ export function applyPatch(
     }
     if (incoming.version > existing.version) {
       if (incoming.type === "voting" && existing.type === "voting") {
-        map.set(incoming.id, stamp(mergeVoting(existing, incoming, patch.by)));
+        map.set(incoming.id, stamp(mergeVoting(existing, incoming, patch.by), existing));
       } else {
-        map.set(incoming.id, stamp(incoming));
+        map.set(incoming.id, stamp(incoming, existing));
       }
     } else if (incoming.version === existing.version) {
       // Tie-break: same-version concurrent edits. Without a
@@ -215,9 +233,9 @@ export function applyPatch(
       // the comparison is symmetric.
       if (incoming.type === "voting" && existing.type === "voting") {
         const merged = mergeVoting(existing, incoming, patch.by);
-        if (!sameVoting(existing, merged)) map.set(incoming.id, stamp(merged));
+        if (!sameVoting(existing, merged)) map.set(incoming.id, stamp(merged, existing));
       } else if (sameVersionWinnerIsIncoming(existing, incoming)) {
-        map.set(incoming.id, stamp(incoming));
+        map.set(incoming.id, stamp(incoming, existing));
       }
       // Otherwise keep existing — both sides reach the same conclusion.
     }
@@ -257,9 +275,7 @@ export function applyPatch(
     //     always delete their own creation).
     // NB: we do NOT accept on `existing.updatedBy === undefined` —
     // see the 2-step exploit description above.
-    const canRemove =
-      existing.updatedBy === patch.by ||
-      existing.createdBy === patch.by;
+    const canRemove = existing.updatedBy === patch.by || existing.createdBy === patch.by;
     if (canRemove) {
       map.delete(id);
     }
@@ -278,7 +294,7 @@ export function applyPatch(
  * is effectively impossible). */
 function sameVersionWinnerIsIncoming(
   existing: WhiteboardObject,
-  incoming: WhiteboardObject,
+  incoming: WhiteboardObject
 ): boolean {
   const exAt = existing.updatedAt ?? existing.createdAt ?? "";
   const inAt = incoming.updatedAt ?? incoming.createdAt ?? "";
@@ -295,7 +311,7 @@ function sameVersionWinnerIsIncoming(
 function mergeVoting(
   existing: WhiteboardObject & { type: "voting" },
   incoming: WhiteboardObject & { type: "voting" },
-  sender: string,
+  sender: string
 ): WhiteboardObject & { type: "voting" } {
   // R11-fix: defensive default for `votes`. A pre-Phase-25 voting
   // object imported from an older export may have `votes: undefined`
@@ -374,7 +390,7 @@ function mergeVoting(
  * remount the voting widget. */
 function sameVoting(
   a: WhiteboardObject & { type: "voting" },
-  b: WhiteboardObject & { type: "voting" },
+  b: WhiteboardObject & { type: "voting" }
 ): boolean {
   if (a.revealed !== b.revealed) return false;
   // Non-vote fields that the user can edit. Without comparing these,
@@ -415,7 +431,7 @@ function sameVoting(
  * mergeVoting's union branch reconstructs the correct tally. */
 function restrictVotesToSender(
   o: WhiteboardObject & { type: "voting" },
-  sender: string,
+  sender: string
 ): WhiteboardObject {
   const keys = Object.keys(o.votes);
   if (keys.length === 0) return o;
@@ -431,10 +447,7 @@ function restrictVotesToSender(
  * the peer claims to have at higher (or unknown-to-us) versions — the
  * receiver should then request those via `whiteboard:request`.
  */
-export function detectDrift(
-  local: readonly WhiteboardObject[],
-  hb: WhiteboardHeartbeat,
-): string[] {
+export function detectDrift(local: readonly WhiteboardObject[], hb: WhiteboardHeartbeat): string[] {
   const localVer = new Map(local.map((o) => [o.id, o.version]));
   const needed: string[] = [];
   for (const [id, ver] of Object.entries(hb.versions)) {
@@ -456,11 +469,15 @@ const HEARTBEAT_MAX_KEYS = 500;
  * than the cap will need additional patches — acceptable since older
  * un-touched objects rarely drift.
  */
-export function buildHeartbeat(local: readonly WhiteboardObject[], by: string): WhiteboardHeartbeat {
+export function buildHeartbeat(
+  local: readonly WhiteboardObject[],
+  by: string
+): WhiteboardHeartbeat {
   const versions: Record<string, number> = {};
-  const sample = local.length <= HEARTBEAT_MAX_KEYS
-    ? local
-    : [...local].sort((a, b) => b.version - a.version).slice(0, HEARTBEAT_MAX_KEYS);
+  const sample =
+    local.length <= HEARTBEAT_MAX_KEYS
+      ? local
+      : [...local].sort((a, b) => b.version - a.version).slice(0, HEARTBEAT_MAX_KEYS);
   for (const o of sample) versions[o.id] = o.version;
   return { versions, by, at: new Date().toISOString() };
 }
