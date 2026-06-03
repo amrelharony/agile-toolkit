@@ -60,9 +60,19 @@ function TimerObjectImpl({ object: o, selected, onPointerDown, onMutate }: Timer
   // but the math said 0). Fire only when transitioning to finished
   // (running + remaining<=0) to avoid an infinite mutation loop.
   useEffect(() => {
-    if (finished) {
-      onMutate({ running: false, startedAt: undefined, remainingSec: 0 });
-    }
+    if (!finished) return;
+    // In a shared board, EVERY visible peer reaches 0 at ~the same instant and
+    // would each persist running=false → N redundant store writes + broadcasts
+    // at the finish boundary. Stagger by a small random delay and cancel if the
+    // timer flips to stopped meanwhile: the first peer to persist broadcasts
+    // running=false → o.running becomes false → `finished` turns false → this
+    // effect's cleanup clears every other peer's pending write. The display
+    // already reads 0:00 from `remaining`, so the deferral is invisible.
+    const t = setTimeout(
+      () => onMutate({ running: false, startedAt: undefined, remainingSec: 0 }),
+      Math.floor(Math.random() * 400)
+    );
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finished]);
 
