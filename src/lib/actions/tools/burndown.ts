@@ -39,7 +39,7 @@ registry.register({
   name: "compute",
   category: "read",
   description:
-    "Compute burndown status. Given totalPoints and remaining[] (remaining points per elapsed day, day 0 first), returns {sprintDays, currentDay, currentRemaining, idealRemainingNow, gap (actual−ideal; +behind/−ahead), onTrack, slopePerDay, projectedCompletionDay (fractional day index, null if not burning down), willFinishOnTime}. Pure.",
+    "Compute burndown status. Given totalPoints and remaining[] (one remaining-points reading per elapsed day, oldest first as 0-based day indices), returns {sprintDays, currentDay, currentRemaining, idealRemainingNow, gap (actual−ideal; +behind/−ahead), onTrack, slopePerDay, projectedCompletionDay (fractional day index, null if not burning down), willFinishOnTime}. CONVENTION: the ideal line burns from totalPoints at day index 0 down to 0 at the LAST day index (sprintDays−1) — so pass one `remaining` entry per day with `sprintDays` = that count for a clean burn-to-zero. This is a 0-based day-index model; it differs from a calendar where the ideal would reach 0 at day == sprintDays. Pure.",
   paramsSchema: z.object({
     totalPoints: z.number().min(0),
     remaining: z
@@ -51,7 +51,9 @@ registry.register({
       .int()
       .min(1)
       .optional()
-      .describe("Total sprint length in days. Defaults to remaining.length."),
+      .describe(
+        "Number of day-indices the ideal line spans (the ideal reaches 0 at index sprintDays−1). Defaults to remaining.length, which makes the ideal burn to 0 exactly at the last reading."
+      ),
   }),
   handler: async (params) => {
     const { totalPoints, remaining } = params;
