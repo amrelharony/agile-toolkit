@@ -21,8 +21,7 @@ const EMPTY: TimeTravelStatus = Object.freeze({
 
 // Module-scope subscribe — stable across all hook calls so React doesn't
 // re-subscribe on every render of every consumer.
-const subscribeRegistry = (cb: () => void): (() => void) =>
-  timeTravelRegistry.subscribe(cb);
+const subscribeRegistry = (cb: () => void): (() => void) => timeTravelRegistry.subscribe(cb);
 
 /**
  * React hook that subscribes to the time-travel controls for a given tool.
@@ -44,15 +43,25 @@ export function useTimeTravel(toolId: string | undefined): TimeTravelStatus {
   const getSnapshot = useCallback(() => {
     if (!toolId) return "empty";
     const controls = timeTravelRegistry.get(toolId);
-    if (!controls) return `${toolId}|none|${timeTravelRegistry.getVersion()}`;
-    return `${toolId}|${controls.canUndo()}|${controls.canRedo()}|${controls.pastLength()}|${timeTravelRegistry.getVersion()}`;
+    // Deliberately EXCLUDE the global version counter. The registry bumps it
+    // on every snapshot/undo/redo in ANY registered tool, so embedding it made
+    // every useTimeTravel consumer re-render on unrelated tools' history
+    // changes (e.g. a canvas edit re-rendering a workspace tool's undo chips).
+    // This tool's own affordance is fully captured by canUndo|canRedo|
+    // pastLength (which change whenever ITS stack changes) and by the
+    // registered⇄none transition. The subscription still fires on every
+    // version bump and re-reads this snapshot; returning a stable string when
+    // nothing relevant to this tool changed lets useSyncExternalStore skip the
+    // re-render.
+    if (!controls) return `${toolId}|none`;
+    return `${toolId}|${controls.canUndo()}|${controls.canRedo()}|${controls.pastLength()}`;
   }, [toolId]);
 
   // Match the not-registered shape so SSR and the first client render produce
   // the same string when controls haven't been registered yet.
   const getServerSnapshot = useCallback(() => {
     if (!toolId) return "empty";
-    return `${toolId}|none|0`;
+    return `${toolId}|none`;
   }, [toolId]);
 
   const snapshot = useSyncExternalStore(subscribeRegistry, getSnapshot, getServerSnapshot);
