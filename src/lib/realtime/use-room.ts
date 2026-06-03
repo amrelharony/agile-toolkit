@@ -223,15 +223,15 @@ export function useRoom<T>(
         handlers.delete(handler);
         if (handlers.size === 0) {
           // Drop the empty Set so dispatch's `set.size === 0` early-return
-          // in bindEventToChannel never even looks it up, and clear the
-          // bound flag so a future subscribeToEvent for the same name
-          // re-binds via bindEventToChannel (current supabase-js doesn't
-          // expose a per-listener disposer from `channel.on`, so we can't
-          // remove the underlying broadcast listener — the cheapest
-          // alternative is to keep dispatch O(1) and re-use the binding
-          // on resubscribe).
+          // in bindEventToChannel makes it a no-op. Do NOT clear
+          // `boundEventsRef`: supabase-js exposes no per-listener disposer,
+          // so the underlying `channel.on(...)` binding stays attached to
+          // the live channel. Clearing the bound flag made a later
+          // subscribeToEvent for the same name add a SECOND binding →
+          // duplicate dispatch (each handler fired 2×, 3×, …) and leaked
+          // bindings. The binding is idempotent and reused on resubscribe;
+          // it's cleared only on channel teardown (boundEvents.clear()).
           eventHandlersRef.current.delete(event);
-          boundEventsRef.current.delete(event);
         }
       };
     },

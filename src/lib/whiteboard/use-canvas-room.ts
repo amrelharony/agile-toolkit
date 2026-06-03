@@ -381,15 +381,21 @@ export function useCanvasRoom({
       const toRemoveSet = new Set(localById.keys());
       for (const o of merged) toRemoveSet.delete(o.id);
       const toRemove = Array.from(toRemoveSet);
-      // CRITICAL: update the broadcast baseline BEFORE the store
-      // mutation. The local-broadcast listener fires on the resulting
-      // state change and would otherwise compute a delta that mirrors
-      // the incoming patches back to peers (echo loop). reset(merged)
-      // primes the differ so its next diff against the freshly-written
-      // workspace state returns empty.
-      differRef.current?.reset(merged);
+      // Suppress the echo: prime the differ baseline so the outbound
+      // listener's next diff against the freshly-written store is empty.
+      // `removeWhiteboardObjects` CASCADES (drops connectors pointing at a
+      // removed id, version-bumps + clears frameId on a removed frame's
+      // children), so the post-mutation store state is NOT `merged`.
+      // Baselining on `merged` here let the outbound diff see those cascade
+      // effects and re-broadcast them — defeating echo suppression and, for
+      // a connector the local peer doesn't "own", diverging state when the
+      // re-broadcast removal is dropped by peers' ownership check. Re-prime
+      // from the ACTUAL post-mutation board slice instead.
       if (toUpsert.length > 0) upsertMany(toUpsert);
       if (toRemove.length > 0) removeMany(toRemove);
+      differRef.current?.reset(
+        (useWorkspaceStore.getState().whiteboardObjects ?? []).filter((o) => o.boardId === boardId)
+      );
     };
 
     const offPatch = roomRef.current.subscribeToEvent("whiteboard:patch", (raw) => {
