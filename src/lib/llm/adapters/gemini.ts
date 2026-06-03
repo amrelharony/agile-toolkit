@@ -3,9 +3,9 @@
  *
  * Endpoint: https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent
  *
- * Auth is via API key in the query string (`?key=…`), which Google's Gemini
- * docs describe as the supported way to call directly from a browser. CORS
- * is permissive on this host.
+ * Auth is via the `x-goog-api-key` request header (see `buildHeaders`) — the
+ * older `?key=…` query-param form leaked the key into browser history, fetch
+ * logs, and Referer headers. CORS is permissive on this host.
  *
  * The `?alt=sse` query param flips the response format from concatenated
  * JSON arrays (the default) to standard SSE so we can reuse the shared
@@ -13,6 +13,9 @@
  *
  * SSE payload per event:
  *   data: {"candidates":[{"content":{"parts":[{"text":"..."}]},"finishReason":...}],"usageMetadata":{...}}
+ * A chunk's `parts` array can hold MORE than one entry (e.g. a `thought`
+ * part alongside the answer on thinking-enabled 2.5/3 models), so we walk
+ * every visible (non-thought) text part — see `geminiPartsText`.
  */
 
 import {
@@ -53,6 +56,25 @@ function parseRetryAfter(h: Headers): number | null {
   if (!raw) return null;
   const n = Number(raw);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Concatenate the visible answer text across a Gemini chunk's `parts`.
+ *
+ * Gemini can emit multiple parts per streamed chunk; reading only `parts[0]`
+ * (the prior behaviour) dropped text carried in later parts and could surface
+ * a `thought` part's text as if it were the answer. We join every part whose
+ * `thought` flag is unset, in order.
+ */
+export function geminiPartsText(
+  parts: Array<{ text?: string; thought?: boolean }> | undefined
+): string {
+  if (!Array.isArray(parts)) return "";
+  let out = "";
+  for (const p of parts) {
+    if (p && typeof p.text === "string" && p.text.length > 0 && !p.thought) out += p.text;
+  }
+  return out;
 }
 
 async function raiseHttpError(response: Response): Promise<never> {
@@ -121,11 +143,13 @@ export const geminiAdapter: LlmAdapter = {
       }
       if (!payload || typeof payload !== "object") return;
       const obj = payload as {
-        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        candidates?: Array<{
+          content?: { parts?: Array<{ text?: string; thought?: boolean }> };
+        }>;
         usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
       };
-      const text = obj.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (typeof text === "string" && text.length > 0) {
+      const text = geminiPartsText(obj.candidates?.[0]?.content?.parts);
+      if (text.length > 0) {
         params.onChunk(text);
       }
       if (obj.usageMetadata) {
