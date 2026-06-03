@@ -105,6 +105,21 @@ export const useKudosSettingsStore = create<KudosSettings & Actions>()(
           },
         };
       }),
+      // Defer the localStorage read so SSR and the first client render both
+      // start from `initial` — without this, auto-hydration reads persisted
+      // values during store creation on the client while the server rendered
+      // defaults, risking a React hydration mismatch for any consumer that
+      // reads these on first paint (e.g. a future header beacon). Matches
+      // every other persisted store in the app.
+      skipHydration: true,
     }
   )
 );
+
+if (typeof window !== "undefined") {
+  // Kick the deferred rehydrate once on the client so persisted preferences
+  // load promptly after first paint. Mirrors the workspace store.
+  void Promise.resolve(useKudosSettingsStore.persist.rehydrate()).catch(() => {
+    /* corrupt persisted state — keep defaults */
+  });
+}
