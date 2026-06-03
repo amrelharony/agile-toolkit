@@ -2,7 +2,12 @@
 
 import { useEffect, type RefObject, type MutableRefObject } from "react";
 import { defaultCanvasShortcuts, makeShortcutHandler } from "@/lib/whiteboard/keyboard";
-import { copyObjects, duplicateObjects, readClipboardObjects, wbId } from "@/lib/whiteboard/clipboard";
+import {
+  copyObjects,
+  duplicateObjects,
+  readClipboardObjects,
+  wbId,
+} from "@/lib/whiteboard/clipboard";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
@@ -83,15 +88,36 @@ export function useCanvasShortcuts(params: {
   readOnly: boolean;
 }) {
   const {
-    objectsRef, objectsByIdRef, topZRef,
-    lassoRafRef, lassoPointsRef, lastLassoWorldRef,
-    drag, resize, rotation, marquee, drawing, pendingConnectorFromId,
-    selection, setSelection, clearSelection,
-    setDrag, setResize, setRotation, setMarquee, setDrawing, setPendingConnectorFromId,
+    objectsRef,
+    objectsByIdRef,
+    topZRef,
+    lassoRafRef,
+    lassoPointsRef,
+    lastLassoWorldRef,
+    drag,
+    resize,
+    rotation,
+    marquee,
+    drawing,
+    pendingConnectorFromId,
+    selection,
+    setSelection,
+    clearSelection,
+    setDrag,
+    setResize,
+    setRotation,
+    setMarquee,
+    setDrawing,
+    setPendingConnectorFromId,
     setTool,
-    boardId, removeMany, upsertMany,
-    pushSnapshot, undo, redo,
-    log, logActivity,
+    boardId,
+    removeMany,
+    upsertMany,
+    pushSnapshot,
+    undo,
+    redo,
+    log,
+    logActivity,
     readOnly,
   } = params;
 
@@ -114,14 +140,22 @@ export function useCanvasShortcuts(params: {
       }
       if (!Number.isFinite(topZ)) topZ = 0;
       if (!Number.isFinite(bottomZ)) bottomZ = 0;
+      // version MUST bump on z/lock/group changes: the undo stack's
+      // snapshotsEqual heuristic (use-undo-stack.ts) treats two snapshots
+      // with equal length + equal Σversion as identical and DROPS the newer
+      // one — so a group→ungroup (or lock toggle, or z-shuffle) that left
+      // version untouched silently collapsed an undo step. (It also lets the
+      // realtime LWW diff detect the change.)
       const updates = sel.map((o, i) => ({
         ...o,
-        z: step > 0
-          ? topZ + i + 1
-          // Allow z to go negative — easier to reason about than clamping
-          // at 0 (clamping caused stacking-order collisions when multiple
-          // objects already sat at z=0).
-          : bottomZ - sel.length + i,
+        z:
+          step > 0
+            ? topZ + i + 1
+            : // Allow z to go negative — easier to reason about than clamping
+              // at 0 (clamping caused stacking-order collisions when multiple
+              // objects already sat at z=0).
+              bottomZ - sel.length + i,
+        version: o.version + 1,
         updatedAt: new Date().toISOString(),
       }));
       upsertMany(updates);
@@ -132,7 +166,12 @@ export function useCanvasShortcuts(params: {
       if (sel.length === 0) return;
       pushSnapshot();
       const allLocked = sel.every((o) => o.locked);
-      const updates = sel.map((o) => ({ ...o, locked: !allLocked, updatedAt: new Date().toISOString() }));
+      const updates = sel.map((o) => ({
+        ...o,
+        locked: !allLocked,
+        version: o.version + 1,
+        updatedAt: new Date().toISOString(),
+      }));
       upsertMany(updates);
     };
     const groupSelection = () => {
@@ -141,7 +180,12 @@ export function useCanvasShortcuts(params: {
       if (sel.length < 2) return;
       pushSnapshot();
       const gid = wbId("wbg");
-      const updates = sel.map((o) => ({ ...o, groupId: gid, updatedAt: new Date().toISOString() }));
+      const updates = sel.map((o) => ({
+        ...o,
+        groupId: gid,
+        version: o.version + 1,
+        updatedAt: new Date().toISOString(),
+      }));
       upsertMany(updates);
     };
     const ungroupSelection = () => {
@@ -149,7 +193,12 @@ export function useCanvasShortcuts(params: {
       const sel = liveObjects.filter((o) => selection.includes(o.id) && o.groupId);
       if (sel.length === 0) return;
       pushSnapshot();
-      const updates = sel.map((o) => ({ ...o, groupId: undefined, updatedAt: new Date().toISOString() }));
+      const updates = sel.map((o) => ({
+        ...o,
+        groupId: undefined,
+        version: o.version + 1,
+        updatedAt: new Date().toISOString(),
+      }));
       upsertMany(updates);
     };
 
@@ -158,8 +207,11 @@ export function useCanvasShortcuts(params: {
     // the handler, the mutation is silenced. Non-mutating shortcuts
     // (selectAll, copy, cancel) stay live so viewers can still
     // navigate and inspect.
-    const guardMut = <Args extends unknown[]>(fn: (...args: Args) => void) =>
-      (...args: Args) => { if (!readOnly) fn(...args); };
+    const guardMut =
+      <Args extends unknown[]>(fn: (...args: Args) => void) =>
+      (...args: Args) => {
+        if (!readOnly) fn(...args);
+      };
     const handler = makeShortcutHandler(
       defaultCanvasShortcuts({
         setTool: (t) => setTool(t as CanvasTool),
@@ -167,9 +219,10 @@ export function useCanvasShortcuts(params: {
           if (selection.length === 0) return;
           pushSnapshot();
           // Capture types BEFORE the remove for a sane activity summary.
-          const summary = selection.length === 1
-            ? `Deleted ${objectsByIdRef.current?.get(selection[0])?.type ?? "object"}`
-            : `Deleted ${selection.length} objects`;
+          const summary =
+            selection.length === 1
+              ? `Deleted ${objectsByIdRef.current?.get(selection[0])?.type ?? "object"}`
+              : `Deleted ${selection.length} objects`;
           removeMany([...selection]);
           log(CANVAS_ACTIONS.OBJECT_REMOVED, { count: selection.length, ids: selection });
           logActivity("deleted", summary);
@@ -186,11 +239,12 @@ export function useCanvasShortcuts(params: {
           pushSnapshot();
           void copyObjects(sel);
           removeMany([...selection]);
-          log(CANVAS_ACTIONS.OBJECT_REMOVED, { count: selection.length, ids: selection, action: "cut" });
-          logActivity(
-            "cut",
-            sel.length === 1 ? `Cut ${sel[0].type}` : `Cut ${sel.length} objects`,
-          );
+          log(CANVAS_ACTIONS.OBJECT_REMOVED, {
+            count: selection.length,
+            ids: selection,
+            action: "cut",
+          });
+          logActivity("cut", sel.length === 1 ? `Cut ${sel[0].type}` : `Cut ${sel.length} objects`);
           clearSelection();
         }),
         paste: guardMut(() => {
@@ -244,11 +298,26 @@ export function useCanvasShortcuts(params: {
         cancel: () => {
           // Single Esc: end whatever interaction is in progress; if none,
           // clear selection. Keeps the gesture chain predictable.
-          if (drawing) { setDrawing(null); return; }
-          if (pendingConnectorFromId) { setPendingConnectorFromId(null); return; }
-          if (drag) { setDrag(null); return; }
-          if (resize) { setResize(null); return; }
-          if (rotation) { setRotation(null); return; }
+          if (drawing) {
+            setDrawing(null);
+            return;
+          }
+          if (pendingConnectorFromId) {
+            setPendingConnectorFromId(null);
+            return;
+          }
+          if (drag) {
+            setDrag(null);
+            return;
+          }
+          if (resize) {
+            setResize(null);
+            return;
+          }
+          if (rotation) {
+            setRotation(null);
+            return;
+          }
           if (marquee) {
             if (lassoRafRef.current != null) {
               cancelAnimationFrame(lassoRafRef.current);
@@ -262,7 +331,7 @@ export function useCanvasShortcuts(params: {
           }
           if (selection.length > 0) clearSelection();
         },
-      }),
+      })
     );
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -273,9 +342,30 @@ export function useCanvasShortcuts(params: {
     // behaviourally but would clutter the warning surface.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    setTool, selection, removeMany, upsertMany, clearSelection, setSelection,
-    boardId, drag, resize, rotation, marquee, drawing, pendingConnectorFromId,
-    setDrag, setResize, setRotation, setMarquee, setDrawing, setPendingConnectorFromId,
-    log, logActivity, pushSnapshot, undo, redo, readOnly,
+    setTool,
+    selection,
+    removeMany,
+    upsertMany,
+    clearSelection,
+    setSelection,
+    boardId,
+    drag,
+    resize,
+    rotation,
+    marquee,
+    drawing,
+    pendingConnectorFromId,
+    setDrag,
+    setResize,
+    setRotation,
+    setMarquee,
+    setDrawing,
+    setPendingConnectorFromId,
+    log,
+    logActivity,
+    pushSnapshot,
+    undo,
+    redo,
+    readOnly,
   ]);
 }
