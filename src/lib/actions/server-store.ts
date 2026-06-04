@@ -183,13 +183,23 @@ export async function serverVersionedUpdate<T extends { id: string; version?: nu
     const row = data as { payload: T; updated_at: string };
     const baseVersion = row.payload.version ?? 0;
     const next = { ...mutate(row.payload), version: baseVersion + 1 };
+    // The CAS token (updated_at) must be STRICTLY greater than the value we
+    // read. We set it from a millisecond-precision JS clock, so two writes
+    // landing in the same millisecond as the row's prior write would both
+    // satisfy `.eq("updated_at", row.updated_at)` (new === old) and silently
+    // overwrite each other — a lost update the guard is meant to catch. Clamp
+    // to read+1ms so the written token always differs from the read token.
+    const prevMs = Date.parse(row.updated_at);
+    const nextUpdatedAt = new Date(
+      Number.isFinite(prevMs) ? Math.max(Date.now(), prevMs + 1) : Date.now()
+    ).toISOString();
     const { data: updated, error: upErr } = await c
       .from("user_entities")
       .update({
         payload: next,
         client_id: SERVER_CLIENT_ID,
         deleted: false,
-        updated_at: new Date().toISOString(),
+        updated_at: nextUpdatedAt,
       })
       .eq("user_id", userId)
       .eq("kind", kind)

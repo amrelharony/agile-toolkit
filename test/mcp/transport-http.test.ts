@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { registry } from "@/lib/actions/registry";
 import { handleJsonRpc, type JsonRpcRequest, type JsonRpcResponse } from "@/lib/mcp/transport-http";
@@ -12,10 +12,7 @@ import { handleJsonRpc, type JsonRpcRequest, type JsonRpcResponse } from "@/lib/
  */
 
 const TEST_USER = "test-user-id";
-const TEST_IDS = [
-  "__mcptest.add",
-  "__mcptest.read_state",
-] as const;
+const TEST_IDS = ["__mcptest.add", "__mcptest.read_state"] as const;
 
 beforeEach(() => {
   registry.register({
@@ -61,10 +58,7 @@ async function handleBatch(
 
 describe("handleJsonRpc — initialize", () => {
   it("returns protocol version + serverInfo", async () => {
-    const res = await handleJsonRpc(
-      { jsonrpc: "2.0", id: 1, method: "initialize" },
-      TEST_USER
-    );
+    const res = await handleJsonRpc({ jsonrpc: "2.0", id: 1, method: "initialize" }, TEST_USER);
     expect(res).not.toBeNull();
     expect(res?.id).toBe(1);
     const result = res?.result as {
@@ -81,12 +75,11 @@ describe("handleJsonRpc — initialize", () => {
 
 describe("handleJsonRpc — tools/list", () => {
   it("returns the populated registry as MCP tools", async () => {
-    const res = await handleJsonRpc(
-      { jsonrpc: "2.0", id: 2, method: "tools/list" },
-      TEST_USER
-    );
+    const res = await handleJsonRpc({ jsonrpc: "2.0", id: 2, method: "tools/list" }, TEST_USER);
     expect(res?.error).toBeUndefined();
-    const result = res?.result as { tools: Array<{ name: string; description: string; inputSchema: unknown }> };
+    const result = res?.result as {
+      tools: Array<{ name: string; description: string; inputSchema: unknown }>;
+    };
     expect(Array.isArray(result.tools)).toBe(true);
     const names = result.tools.map((t) => t.name);
     expect(names).toContain("__mcptest.add");
@@ -106,7 +99,10 @@ describe("handleJsonRpc — tools/call", () => {
       TEST_USER
     );
     expect(res?.error).toBeUndefined();
-    const result = res?.result as { content: Array<{ type: string; text: string }>; isError: boolean };
+    const result = res?.result as {
+      content: Array<{ type: string; text: string }>;
+      isError: boolean;
+    };
     expect(result.isError).toBe(false);
     expect(result.content[0].type).toBe("text");
     expect(result.content[0].text).toContain('"sum":5');
@@ -154,12 +150,78 @@ describe("handleJsonRpc — tools/call", () => {
   });
 });
 
-describe("handleJsonRpc — error cases", () => {
-  it("method not found returns -32601", async () => {
+describe("handleJsonRpc — tools/call error scrubbing", () => {
+  const ERR_IDS = ["__mcptest.throw_error", "__mcptest.throw_object"] as const;
+  beforeEach(() => {
+    registry.register({
+      id: "__mcptest.throw_error",
+      toolId: "__mcptest",
+      name: "throw_error",
+      category: "read",
+      description: "Throws a plain Error (intentional semantic failure).",
+      paramsSchema: z.object({}),
+      handler: async () => {
+        throw new Error("risk r1 not found");
+      },
+    });
+    registry.register({
+      id: "__mcptest.throw_object",
+      toolId: "__mcptest",
+      name: "throw_object",
+      category: "read",
+      description: "Throws a non-Error object (mimics a raw Supabase error).",
+      paramsSchema: z.object({}),
+      handler: async () => {
+        // PostgrestError is a plain object, NOT an Error instance.
+        throw { code: "42P01", message: 'relation "secret_table" does not exist', hint: "x" };
+      },
+    });
+  });
+  afterEach(() => {
+    for (const id of ERR_IDS) registry.unregister(id);
+  });
+
+  it("surfaces an intentional Error message in the content block", async () => {
     const res = await handleJsonRpc(
-      { jsonrpc: "2.0", id: 7, method: "foo/bar" },
+      {
+        jsonrpc: "2.0",
+        id: 20,
+        method: "tools/call",
+        params: { name: "__mcptest.throw_error", arguments: {} },
+      },
       TEST_USER
     );
+    const result = res?.result as { content: Array<{ text: string }>; isError: boolean };
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("risk r1 not found");
+  });
+
+  it("does NOT leak a non-Error throw (raw Supabase error) to the client", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 21,
+        method: "tools/call",
+        params: { name: "__mcptest.throw_object", arguments: {} },
+      },
+      TEST_USER
+    );
+    const result = res?.result as { content: Array<{ text: string }>; isError: boolean };
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("internal tool error");
+    // Schema details / SQLSTATE never reach the client…
+    expect(result.content[0].text).not.toContain("secret_table");
+    expect(result.content[0].text).not.toContain("42P01");
+    // …but they ARE logged server-side for debugging.
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+
+describe("handleJsonRpc — error cases", () => {
+  it("method not found returns -32601", async () => {
+    const res = await handleJsonRpc({ jsonrpc: "2.0", id: 7, method: "foo/bar" }, TEST_USER);
     expect(res?.error?.code).toBe(-32601);
     expect(res?.error?.message).toContain("foo/bar");
   });

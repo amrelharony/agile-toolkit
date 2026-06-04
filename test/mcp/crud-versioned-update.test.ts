@@ -89,6 +89,44 @@ describe("workspace.model.update — optimistic concurrency (versioned)", () => 
   });
 });
 
+describe("workspace.*.create — duplicate explicit-id guard", () => {
+  const sprint = (over: Record<string, unknown> = {}) => ({
+    name: "Sprint",
+    startDate: "2026-01-01",
+    endDate: "2026-01-14",
+    pointsPlanned: 10,
+    status: "planned",
+    ...over,
+  });
+
+  it("rejects an explicit id that already exists (never overwrites)", async () => {
+    get.mockResolvedValueOnce({ id: "s1", ...sprint() } as never);
+    const action = registry.resolve("workspace.sprint.create");
+    await expect(
+      action!.mcpHandler!({ entity: sprint({ id: "s1" }) } as never, ctx())
+    ).rejects.toThrow(/already exists/);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("allows an explicit id that is free", async () => {
+    get.mockResolvedValue(null);
+    const action = registry.resolve("workspace.sprint.create");
+    const res = (await action!.mcpHandler!({ entity: sprint({ id: "s2" }) } as never, ctx())) as {
+      id: string;
+    };
+    expect(res.id).toBe("s2");
+    expect(upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it("auto-generates an id with NO existence probe (single write)", async () => {
+    const action = registry.resolve("workspace.sprint.create");
+    const res = (await action!.mcpHandler!({ entity: sprint() } as never, ctx())) as { id: string };
+    expect(res.id).toMatch(/^sprint_/);
+    expect(get).not.toHaveBeenCalled();
+    expect(upsert).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("workspace.sprint.update — blind write (not versioned)", () => {
   it("uses serverGetEntity + serverUpsertEntity, never serverVersionedUpdate", async () => {
     get.mockResolvedValueOnce({

@@ -54,6 +54,11 @@ interface JsonRpcResponse {
 }
 
 async function forward(request: JsonRpcRequest): Promise<JsonRpcResponse | null> {
+  // Notifications (no id) must never receive a response per JSON-RPC. If the
+  // upstream call fails we log to stderr but emit nothing to stdout, otherwise
+  // we'd write an unsolicited `{id:null,error}` the client never asked for and
+  // strict MCP clients reject.
+  const isNotification = request.id === undefined || request.id === null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -79,12 +84,24 @@ async function forward(request: JsonRpcRequest): Promise<JsonRpcResponse | null>
       } catch {
         /* fall through */
       }
+      if (isNotification) {
+        process.stderr.write(
+          `[agile-toolkit-mcp] notification ${request.method} got HTTP ${response.status}; suppressing response\n`
+        );
+        return null;
+      }
       return rpcError(request.id ?? null, -32000, `HTTP ${response.status}: ${text.slice(0, 200)}`);
     }
 
     return (await response.json()) as JsonRpcResponse;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (isNotification) {
+      process.stderr.write(
+        `[agile-toolkit-mcp] notification ${request.method} failed (${msg}); suppressing response\n`
+      );
+      return null;
+    }
     if (controller.signal.aborted) {
       return rpcError(request.id ?? null, -32000, `Request timed out after ${FETCH_TIMEOUT_MS}ms`);
     }

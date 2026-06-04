@@ -6,6 +6,7 @@ import {
   serverListEntities,
   serverGetEntity,
   serverUpsertEntity,
+  serverVersionedUpdate,
   serverDeleteEntity,
   serverNextZForBoard,
 } from "../server-store";
@@ -60,6 +61,44 @@ function nextZ(boardId: string): number {
     if (o.z > max) max = o.z;
   }
   return max + 1;
+}
+
+/**
+ * Apply new text to a whiteboard object's type-appropriate slot, returning a
+ * version-bumped copy — or `null` when the object's type has no text slot
+ * (line / arrow / image / table / timer / embed / freehand). Pure; shared by
+ * the in-app and MCP `set_object_text` handlers so the type→field mapping
+ * lives in exactly one place.
+ */
+function applyObjectText(
+  obj: WhiteboardObject,
+  text: string,
+  now: string
+): WhiteboardObject | null {
+  const bump = { version: obj.version + 1, updatedAt: now } as const;
+  switch (obj.type) {
+    case "sticky":
+    case "text":
+    case "rect":
+    case "ellipse":
+    case "diamond":
+    case "triangle":
+      return { ...obj, content: text, ...bump };
+    case "frame":
+    case "kanban":
+    case "diagramShape":
+    case "connector":
+      return { ...obj, label: text, ...bump };
+    case "card":
+      return { ...obj, title: text, ...bump };
+    case "voting":
+      return { ...obj, question: text, ...bump };
+    case "mindMapNode":
+      return { ...obj, text, ...bump };
+    default:
+      // freehand / line / arrow / image / table / timer / embed: no text slot.
+      return null;
+  }
 }
 
 // ──────── tool.canvas.add_sticky ────────
@@ -152,20 +191,18 @@ registry.register({
     return { moved: true };
   },
   mcpHandler: async (params, ctx) => {
-    const target = await serverGetEntity<WhiteboardObject>(
+    // WhiteboardObject carries a monotonic `version` and is edited by both the
+    // browser canvas (version-guarded multiplayer upserts) and the agent, so a
+    // blind read-modify-write here would clobber a concurrent edit to a
+    // different field (e.g. someone renaming the sticky while the agent moves
+    // it). Compare-and-set re-reads and re-applies on a lost race.
+    const result = await serverVersionedUpdate<WhiteboardObject>(
       ctx.userId,
       KIND_WHITEBOARD_OBJECT,
-      params.id
+      params.id,
+      (target) => ({ ...target, x: params.x, y: params.y, updatedAt: nowIso() })
     );
-    if (!target) return { moved: false };
-    await serverUpsertEntity(ctx.userId, KIND_WHITEBOARD_OBJECT, {
-      ...target,
-      x: params.x,
-      y: params.y,
-      version: target.version + 1,
-      updatedAt: nowIso(),
-    });
-    return { moved: true };
+    return { moved: result !== null };
   },
 });
 
@@ -396,96 +433,36 @@ registry.register({
   }),
   handler: async (params: { id: string; text: string }) => {
     const current = ws().whiteboardObjects ?? [];
-    const idx = current.findIndex((o) => o.id === params.id);
-    if (idx === -1) return { updated: false };
-    const obj = current[idx];
-    const now = nowIso();
-    const baseBump = { version: obj.version + 1, updatedAt: now } as const;
-
-    let next: WhiteboardObject;
-    switch (obj.type) {
-      case "sticky":
-      case "text":
-        next = { ...obj, content: params.text, ...baseBump };
-        break;
-      case "freehand":
-        // Freehand has no text slot in the type def; skip.
-        return { updated: false };
-      case "rect":
-      case "ellipse":
-      case "diamond":
-      case "triangle":
-        next = { ...obj, content: params.text, ...baseBump };
-        break;
-      case "frame":
-      case "kanban":
-        next = { ...obj, label: params.text, ...baseBump };
-        break;
-      case "card":
-        next = { ...obj, title: params.text, ...baseBump };
-        break;
-      case "voting":
-        next = { ...obj, question: params.text, ...baseBump };
-        break;
-      case "mindMapNode":
-        next = { ...obj, text: params.text, ...baseBump };
-        break;
-      case "diagramShape":
-        next = { ...obj, label: params.text, ...baseBump };
-        break;
-      case "connector":
-        next = { ...obj, label: params.text, ...baseBump };
-        break;
-      // line / arrow / image / table / timer / embed have no text slot.
-      default:
-        return { updated: false };
-    }
+    const obj = current.find((o) => o.id === params.id);
+    if (!obj) return { updated: false };
+    const next = applyObjectText(obj, params.text, nowIso());
+    if (!next) return { updated: false }; // object type has no text slot
     ws().upsertWhiteboardObject(next);
     return { updated: true };
   },
   mcpHandler: async (params, ctx) => {
-    const obj = await serverGetEntity<WhiteboardObject>(
+    // Decide the text slot from the object's (immutable) type up front: if it
+    // has none, there's nothing to write.
+    const existing = await serverGetEntity<WhiteboardObject>(
       ctx.userId,
       KIND_WHITEBOARD_OBJECT,
       params.id
     );
-    if (!obj) return { updated: false };
-    const now = nowIso();
-    const baseBump = { version: obj.version + 1, updatedAt: now } as const;
-    let next: WhiteboardObject;
-    switch (obj.type) {
-      case "sticky":
-      case "text":
-      case "rect":
-      case "ellipse":
-      case "diamond":
-      case "triangle":
-        next = { ...obj, content: params.text, ...baseBump };
-        break;
-      case "freehand":
-        return { updated: false };
-      case "frame":
-      case "kanban":
-        next = { ...obj, label: params.text, ...baseBump };
-        break;
-      case "card":
-        next = { ...obj, title: params.text, ...baseBump };
-        break;
-      case "voting":
-        next = { ...obj, question: params.text, ...baseBump };
-        break;
-      case "mindMapNode":
-        next = { ...obj, text: params.text, ...baseBump };
-        break;
-      case "diagramShape":
-      case "connector":
-        next = { ...obj, label: params.text, ...baseBump };
-        break;
-      default:
-        return { updated: false };
+    if (!existing) return { updated: false };
+    if (applyObjectText(existing, params.text, nowIso()) === null) {
+      return { updated: false }; // object type has no text slot
     }
-    await serverUpsertEntity(ctx.userId, KIND_WHITEBOARD_OBJECT, next);
-    return { updated: true };
+    // Compare-and-set write: re-reads the row and re-applies, so a concurrent
+    // edit to a DIFFERENT field of the same object (browser or another agent
+    // call) is preserved rather than clobbered. `type` is immutable, so the
+    // re-read always has the same text slot the pre-check found.
+    const result = await serverVersionedUpdate<WhiteboardObject>(
+      ctx.userId,
+      KIND_WHITEBOARD_OBJECT,
+      params.id,
+      (obj) => applyObjectText(obj, params.text, nowIso()) ?? obj
+    );
+    return { updated: result !== null };
   },
 });
 

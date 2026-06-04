@@ -17,7 +17,15 @@ export interface ActionContext {
   source: ActionSource;
   /** Resolves true if approved, false if denied. Only the agent runtime
    *  supplies this; MCP and UI callers leave it undefined and the
-   *  handler must assume approval. */
+   *  handler must assume approval.
+   *
+   *  SECURITY NOTE: over MCP there is no interactive channel, so
+   *  `requiresConfirmation` / `ctx.confirm` gates are NOT enforced — a valid
+   *  PAT can invoke destructive/terminal actions with no out-of-band
+   *  approval. `requiresConfirmation` is therefore a UI affordance, not a
+   *  server-side authorization control. If you need to restrict what a PAT
+   *  can do (e.g. a read-only or no-destructive token), gate it at the
+   *  transport/route on the action's `category` — do not rely on this hook. */
   confirm?: (summary: string) => Promise<boolean>;
   /** Squad-profile scope for this call. Empty array = unscoped (the
    *  caller has full workspace reach, equivalent to the workspace

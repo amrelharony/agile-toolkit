@@ -134,7 +134,17 @@ export async function handleJsonRpc(
         payload = await fn(parsed.data, ctx);
       } catch (err) {
         isError = true;
-        payload = { error: err instanceof Error ? err.message : String(err) };
+        // Surface the message of intentional handler errors (a plain Error,
+        // e.g. "risk … not found") — these are semantic and help the agent.
+        // Anything else (notably raw Supabase/Postgrest error objects, which
+        // are NOT Error instances and carry schema details / constraint codes)
+        // is logged server-side and replaced with a generic message, matching
+        // the scrubbing policy the access-tokens route already enforces.
+        if (!(err instanceof Error)) {
+          // eslint-disable-next-line no-console
+          console.error(`[mcp/tools-call] ${name} threw a non-Error:`, err);
+        }
+        payload = { error: err instanceof Error ? err.message : "internal tool error" };
       }
       let text: string;
       try {
@@ -170,7 +180,12 @@ export async function handleJsonRpc(
 
     return jsonRpcError(id, -32601, `Method not found: ${method}`);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    // Unexpected failure in dispatch itself (not a handler-thrown error, which
+    // is caught above). Log the full detail server-side; return a bounded
+    // message so internal/DB details never leak to the client.
+    // eslint-disable-next-line no-console
+    console.error(`[mcp/transport] ${method} failed:`, err);
+    const msg = err instanceof Error ? err.message : "internal error";
     return jsonRpcError(id, -32603, `Internal error: ${msg}`);
   }
 }

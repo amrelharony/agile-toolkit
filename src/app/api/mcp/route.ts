@@ -168,6 +168,10 @@ export async function POST(req: NextRequest) {
   // its limit (nothing is charged in that case).
   const counts: Partial<Record<RateCategory, number>> = {};
   for (const r of requests) {
+    // Notifications (no id) get no response and do no real work — don't charge
+    // them against the budget, or a chatty client's notifications/initialized
+    // would needlessly erode the read ceiling.
+    if (r.id === undefined || r.id === null) continue;
     const cat = categoryForRequest(r);
     counts[cat] = (counts[cat] ?? 0) + 1;
   }

@@ -130,8 +130,22 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
     },
     mcpHandler: async (params: { entity: T }, ctx) => {
       const entity = params.entity;
-      if (!entity.id && opts.generateId) {
+      const hadExplicitId = typeof entity.id === "string" && entity.id.length > 0;
+      if (!hadExplicitId && opts.generateId) {
         (entity as { id: string }).id = opts.generateId();
+      }
+      // `create` must not silently overwrite an existing record. Auto-generated
+      // ids can't collide, but a caller-supplied id can — reject the duplicate
+      // so a create can never clobber data (callers wanting overwrite semantics
+      // use `update`). The check is scoped to explicit ids, so the common
+      // generate-an-id path stays a single write.
+      if (hadExplicitId) {
+        const existing = await serverGetEntity<T>(ctx.userId, serverKind, entity.id);
+        if (existing) {
+          throw new Error(
+            `${entityName} with id "${entity.id}" already exists — use update to modify it.`
+          );
+        }
       }
       await serverUpsertEntity<T>(ctx.userId, serverKind, entity);
       return { id: entity.id };
