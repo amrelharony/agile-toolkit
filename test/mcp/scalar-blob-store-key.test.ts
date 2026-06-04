@@ -18,11 +18,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const EXPECTED_KEY = "agile-toolkit:workspace:scalars";
 
-// Capture every .eq() filter and .upsert() row the helpers issue.
-const captured: { eqs: Array<[string, unknown]>; upserts: Array<Record<string, unknown>> } = {
-  eqs: [],
-  upserts: [],
-};
+// Capture every .eq() filter and write row the helpers issue. Writes now go
+// through a compare-and-set (update on an existing row, insert on first touch),
+// not a blind upsert — see audit M-3.
+const captured: {
+  eqs: Array<[string, unknown]>;
+  updates: Array<Record<string, unknown>>;
+  inserts: Array<Record<string, unknown>>;
+} = { eqs: [], updates: [], inserts: [] };
 // What the next .maybeSingle() read should resolve to.
 let nextReadPayload: unknown = null;
 
@@ -34,10 +37,18 @@ function makeBuilder() {
       return b;
     },
     maybeSingle: async () => ({ data: nextReadPayload, error: null }),
-    upsert: async (row: Record<string, unknown>) => {
-      captured.upserts.push(row);
-      return { data: null, error: null };
+    update: (row: Record<string, unknown>) => {
+      captured.updates.push(row);
+      return b;
     },
+    insert: async (row: Record<string, unknown>) => {
+      captured.inserts.push(row);
+      return { error: null };
+    },
+    // The update path ends `.update().eq()….select("store_key")` and awaits the
+    // builder — resolve a 1-row success (CAS hit).
+    then: (resolve: (v: unknown) => unknown) =>
+      resolve({ data: [{ store_key: EXPECTED_KEY }], error: null }),
   };
   return b;
 }
@@ -58,7 +69,8 @@ import {
 
 beforeEach(() => {
   captured.eqs = [];
-  captured.upserts = [];
+  captured.updates = [];
+  captured.inserts = [];
   nextReadPayload = null;
 });
 
@@ -76,21 +88,26 @@ describe("workspace scalar blob store_key", () => {
     expect(captured.eqs).not.toContainEqual(["store_key", "agile-toolkit:workspace"]);
   });
 
-  it("serverPatchWorkspaceBlob upserts a flat blob under the scalars store_key", async () => {
-    nextReadPayload = { payload: { maturityLevel: 4 } };
+  it("serverPatchWorkspaceBlob CAS-updates a flat blob under the scalars store_key", async () => {
+    nextReadPayload = { payload: { maturityLevel: 4 }, updated_at: "2026-01-01T00:00:00.000Z" };
     await serverPatchWorkspaceBlob("user-1", { teamName: "Falcons" });
-    expect(captured.upserts).toHaveLength(1);
-    const row = captured.upserts[0];
-    expect(row.store_key).toBe(EXPECTED_KEY);
+    expect(captured.updates).toHaveLength(1);
+    const row = captured.updates[0];
     // Merge preserves the sibling scalar, writes flat (no `state` wrapper).
     expect(row.payload).toEqual({ maturityLevel: 4, teamName: "Falcons" });
     expect(row.client_id).toBe("server-mcp");
+    // CAS filters on store_key and on the read updated_at token.
+    expect(captured.eqs).toContainEqual(["store_key", EXPECTED_KEY]);
+    expect(captured.eqs).toContainEqual(["updated_at", "2026-01-01T00:00:00.000Z"]);
   });
 
-  it("serverPatchWorkspaceBlob handles first-touch (no existing row)", async () => {
+  it("serverPatchWorkspaceBlob inserts on first-touch (no existing row)", async () => {
     nextReadPayload = null;
     await serverPatchWorkspaceBlob("user-1", { maturityLevel: 2 });
-    expect(captured.upserts[0].store_key).toBe(EXPECTED_KEY);
-    expect(captured.upserts[0].payload).toEqual({ maturityLevel: 2 });
+    expect(captured.updates).toHaveLength(0);
+    expect(captured.inserts).toHaveLength(1);
+    expect(captured.inserts[0].store_key).toBe(EXPECTED_KEY);
+    expect(captured.inserts[0].payload).toEqual({ maturityLevel: 2 });
+    expect(captured.inserts[0].client_id).toBe("server-mcp");
   });
 });

@@ -183,23 +183,20 @@ export async function serverVersionedUpdate<T extends { id: string; version?: nu
     const row = data as { payload: T; updated_at: string };
     const baseVersion = row.payload.version ?? 0;
     const next = { ...mutate(row.payload), version: baseVersion + 1 };
-    // The CAS token (updated_at) must be STRICTLY greater than the value we
-    // read. We set it from a millisecond-precision JS clock, so two writes
-    // landing in the same millisecond as the row's prior write would both
-    // satisfy `.eq("updated_at", row.updated_at)` (new === old) and silently
-    // overwrite each other — a lost update the guard is meant to catch. Clamp
-    // to read+1ms so the written token always differs from the read token.
-    const prevMs = Date.parse(row.updated_at);
-    const nextUpdatedAt = new Date(
-      Number.isFinite(prevMs) ? Math.max(Date.now(), prevMs + 1) : Date.now()
-    ).toISOString();
     const { data: updated, error: upErr } = await c
       .from("user_entities")
       .update({
         payload: next,
         client_id: SERVER_CLIENT_ID,
         deleted: false,
-        updated_at: nextUpdatedAt,
+        // The `touch_sync_updated_at` BEFORE-UPDATE trigger (migration 0005)
+        // re-stamps updated_at := now() server-side, so this value is a no-op
+        // placeholder — the DB owns the token. That server now() (microsecond,
+        // monotonic) + row-level locking is what makes the CAS sound: under
+        // READ COMMITTED a second concurrent writer's `.eq("updated_at", …)`
+        // below is re-evaluated against the first writer's committed value and
+        // misses, so it re-reads and retries rather than clobbering.
+        updated_at: new Date().toISOString(),
       })
       .eq("user_id", userId)
       .eq("kind", kind)
@@ -282,33 +279,70 @@ export async function serverGetWorkspaceBlob(userId: string): Promise<Record<str
  * scalars blob adapter reads (its setSnapshot pulls those keys directly).
  * `client_id = "server-mcp"` so the browser sync engine applies the write
  * rather than treating it as an echo of its own.
+ *
+ * Compare-and-set (audit M-3): the blob holds multiple independent fields,
+ * so a plain read-merge-write loses data under concurrency — a single MCP
+ * batch `[set_team_name, set_maturity_level]` dispatches both handlers in
+ * parallel; each reads the same base, merges only its own field, and the
+ * later write drops the other field. The CAS guard (`.eq("updated_at", …)` on
+ * the value we read, re-stamped server-side by the touch trigger) makes the
+ * losing writer re-read the winner's blob and merge onto it instead.
  */
 export async function serverPatchWorkspaceBlob(
   userId: string,
-  patch: Record<string, unknown>
+  patch: Record<string, unknown>,
+  maxAttempts = 5
 ): Promise<void> {
-  const { data, error: readErr } = await admin()
-    .from("user_state")
-    .select("payload")
-    .eq("user_id", userId)
-    .eq("store_key", WORKSPACE_SCALARS_STORE_KEY)
-    .maybeSingle();
-  if (readErr) throw readErr;
-  const existing = (data as { payload?: unknown } | null)?.payload;
-  const current: Record<string, unknown> =
-    existing && typeof existing === "object" ? (existing as Record<string, unknown>) : {};
-  const payload = { ...current, ...patch };
-  const { error } = await admin().from("user_state").upsert(
-    {
-      user_id: userId,
-      store_key: WORKSPACE_SCALARS_STORE_KEY,
-      payload,
-      client_id: SERVER_CLIENT_ID,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id,store_key" }
+  const c = admin();
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const { data, error: readErr } = await c
+      .from("user_state")
+      .select("payload, updated_at")
+      .eq("user_id", userId)
+      .eq("store_key", WORKSPACE_SCALARS_STORE_KEY)
+      .maybeSingle();
+    if (readErr) throw readErr;
+
+    if (!data) {
+      // First touch — no row yet. Insert. If a concurrent writer beats us to
+      // it, the (user_id, store_key) unique constraint rejects our insert
+      // (23505) and we loop to take the update/CAS path instead.
+      const { error: insErr } = await c.from("user_state").insert({
+        user_id: userId,
+        store_key: WORKSPACE_SCALARS_STORE_KEY,
+        payload: { ...patch },
+        client_id: SERVER_CLIENT_ID,
+      });
+      if (!insErr) return;
+      if ((insErr as { code?: string }).code !== "23505") throw insErr;
+      continue;
+    }
+
+    const row = data as { payload?: unknown; updated_at: string };
+    const current: Record<string, unknown> =
+      row.payload && typeof row.payload === "object"
+        ? (row.payload as Record<string, unknown>)
+        : {};
+    const merged = { ...current, ...patch };
+    const { data: updated, error: upErr } = await c
+      .from("user_state")
+      .update({
+        payload: merged,
+        client_id: SERVER_CLIENT_ID,
+        // Re-stamped server-side by the touch_sync_updated_at trigger.
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", userId)
+      .eq("store_key", WORKSPACE_SCALARS_STORE_KEY)
+      .eq("updated_at", row.updated_at) // CAS: only if no one wrote since our read
+      .select("store_key");
+    if (upErr) throw upErr;
+    if (updated && updated.length === 1) return;
+    // Lost the race — another writer advanced updated_at. Re-read & merge.
+  }
+  throw new Error(
+    `[server-store] workspace blob patch did not converge after ${maxAttempts} attempts`
   );
-  if (error) throw error;
 }
 
 /**

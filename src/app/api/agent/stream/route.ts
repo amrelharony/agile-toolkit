@@ -189,10 +189,11 @@ export async function POST(req: NextRequest) {
     model: be.model,
     stream: true,
     // GLM defaults to 1024 if omitted — bump for tool-use chains.
-    max_tokens:
-      typeof b.max_tokens === "number"
-        ? Math.min(8192, Math.max(64, Math.floor(b.max_tokens)))
-        : 4096,
+    // Number.isFinite rejects NaN/±Infinity (which `typeof === "number"`
+    // alone lets through, forwarding `null` to the gateway).
+    max_tokens: Number.isFinite(b.max_tokens)
+      ? Math.min(8192, Math.max(64, Math.floor(b.max_tokens as number)))
+      : 4096,
   };
   if (Array.isArray(b.messages)) forward.messages = b.messages;
   if (Array.isArray(b.tools)) {
