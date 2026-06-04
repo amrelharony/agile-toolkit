@@ -4,8 +4,9 @@ import { createClient } from "@supabase/supabase-js";
 /**
  * Personal Access Tokens for the MCP HTTP transport.
  *
- * Token format: `pat_` + 32 random bytes encoded as base64url (44 chars
- * after the prefix → 48 total). Stored as scrypt(rawToken, salt) base64.
+ * Token format: `pat_` + 24 random bytes encoded as base64url (32 chars
+ * after the prefix → 36 total; 192 bits of entropy). Stored as
+ * scrypt(rawToken, salt) base64.
  * Prefix (`pat_xxxx` first 8 chars) is also stored plaintext for UI
  * display (recognise tokens in lists without revealing the full value).
  *

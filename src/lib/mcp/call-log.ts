@@ -13,9 +13,9 @@
  *     swallowed (console.error only) so observability never affects the
  *     request path or surfaces to the agent.
  *
- * The route awaits `logMcpCalls` via Promise.allSettled before returning so
- * the write flushes in a serverless function, but a failed write can never
- * fail the response.
+ * The route plainly `await`s `logMcpCalls` before returning so the write
+ * flushes before a serverless function freezes; `logMcpCalls` swallows its
+ * own errors (never throws), so a failed write can never fail the response.
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";

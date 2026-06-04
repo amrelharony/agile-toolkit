@@ -55,7 +55,7 @@ How authorized AI agents call the 110-tool Agile Toolkit via the Model Context P
 
 Bearer-only. Mint a Personal Access Token at `/settings/access-tokens` (or via the owner UI). PATs:
 
-- Are `pat_…` prefixed (48 chars total)
+- Are `pat_…` prefixed (36 chars total: the `pat_` prefix + 32 base64url chars = 192 bits)
 - Are shown ONCE on creation, then stored as `scrypt(token, per_token_salt)`
 - Default to 90-day expiry; can be revoked at any time
 - Carry an optional `squad_profile_ids` scope (see §4)

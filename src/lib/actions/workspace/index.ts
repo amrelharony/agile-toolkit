@@ -436,6 +436,12 @@ defineCrudActions<ModelEntry>({
   upsert: (x) => ws().upsertModel(x),
   remove: (id) => ws().removeModel(id),
   generateId: () => `model_${nanoid(8)}`,
+  // ModelEntry carries a monotonic `version` and is edited by both the user
+  // (the /model-comparison UI's version-guarded upsertModel) and agents
+  // (tool.model_registry.* writes server-side via serverVersionedUpdate). The
+  // generic workspace.model.update must use the same compare-and-set or it's a
+  // lost-update back-door that clobbers a concurrent field change in the DB.
+  versioned: true,
 });
 
 // workspace.model_card.* → kind "workspace:modelCard", matching

@@ -4,6 +4,7 @@ import {
   serverListEntities,
   serverGetEntity,
   serverUpsertEntity,
+  serverVersionedUpdate,
   serverDeleteEntity,
   kindFromToolId,
 } from "./server-store";
@@ -53,6 +54,22 @@ interface CrudOptions<T extends { id: string }> {
    * `workspace:psychSafety`.
    */
   serverKind?: string;
+  /**
+   * Opt the MCP `update` handler into optimistic-concurrency
+   * (compare-and-set via {@link serverVersionedUpdate}) instead of a blind
+   * read-modify-write. Set this for entities that carry a monotonic
+   * `version` and are edited by BOTH the user's browser and an agent —
+   * `workspace.model` (ModelEntry) is the case in point: its browser
+   * `upsertModel` is a version-guarded CAS, and `tool.model_registry.*`
+   * already writes server-side via `serverVersionedUpdate`, so the generic
+   * `workspace.model.update` must too or it becomes a lost-update back-door
+   * (a stale blind write silently clobbers a concurrent field change in the
+   * DB). The mutate still validates the merged entity against the schema;
+   * `serverVersionedUpdate` bumps `version` so the browser LWW accepts the
+   * write and the next stale writer is detected. Default (false) keeps the
+   * blind write — fine for entities without a version field.
+   */
+  versioned?: boolean;
 }
 
 export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>): void {
@@ -170,16 +187,34 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
       return { updated: true };
     },
     mcpHandler: async (params, ctx) => {
+      // Validate the merged result against the entity schema — reject if a
+      // malformed patch would produce an invalid entity. Shared by both the
+      // versioned (CAS) and blind write paths below.
+      const applyPatch = (current: T): T => {
+        const merged = { ...current, ...params.patch, id: params.id };
+        const parsed = safeParseSchema(merged);
+        if (!parsed.success) {
+          throw new Error(
+            `Patch produces invalid ${entityName}: ${parsed.error?.message ?? "validation failed"}`
+          );
+        }
+        return parsed.data as T;
+      };
+      if (opts.versioned) {
+        // Compare-and-set: re-reads + re-applies on a lost race and bumps
+        // `version`, so a concurrent writer touching a different field is
+        // never clobbered. Returns null when the row is missing/deleted.
+        const result = await serverVersionedUpdate<T>(
+          ctx.userId,
+          serverKind,
+          params.id,
+          applyPatch
+        );
+        return { updated: result !== null };
+      }
       const current = await serverGetEntity<T>(ctx.userId, serverKind, params.id);
       if (!current) return { updated: false };
-      const merged = { ...current, ...params.patch, id: params.id };
-      const parsed = safeParseSchema(merged);
-      if (!parsed.success) {
-        throw new Error(
-          `Patch produces invalid ${entityName}: ${parsed.error?.message ?? "validation failed"}`
-        );
-      }
-      await serverUpsertEntity<T>(ctx.userId, serverKind, parsed.data as T);
+      await serverUpsertEntity<T>(ctx.userId, serverKind, applyPatch(current));
       return { updated: true };
     },
   });
