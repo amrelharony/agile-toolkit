@@ -71,6 +71,20 @@ export function abortInFlight(): void {
   useAgentStore.getState().setPendingToolUse(null);
 }
 
+/**
+ * Whether the finishing send (whose controller is `mine`) still owns the shared
+ * `streaming` flag and may reset it. A newer send that superseded this one will
+ * have set `currentController` to its OWN controller — in that case this send
+ * must NOT clear streaming, or it would flip the flag off mid-stream for the new
+ * send. `null` means we finished/aborted cleanly with no successor, so reset.
+ */
+export function ownsStreamingReset(
+  current: AbortController | null,
+  mine: AbortController
+): boolean {
+  return current === mine || current === null;
+}
+
 export async function sendUserMessage(text: string, opts: StreamOptions): Promise<void> {
   const store = useAgentStore.getState();
 
@@ -112,7 +126,11 @@ export async function sendUserMessage(text: string, opts: StreamOptions): Promis
       store.setError(msg);
     }
   } finally {
-    useAgentStore.getState().setStreaming(false);
+    // Only clear streaming if no newer send has taken over (otherwise we'd flip
+    // the flag off mid-stream for that send — see ownsStreamingReset).
+    if (ownsStreamingReset(currentController, controller)) {
+      useAgentStore.getState().setStreaming(false);
+    }
     if (currentController === controller) currentController = null;
   }
 }
