@@ -107,4 +107,30 @@ describe("tryConsume — lazy refill", () => {
     for (let i = 0; i < 15; i++) expect(tryConsume(tok, { intent: 1 }, half).ok).toBe(true);
     expect(tryConsume(tok, { intent: 1 }, half).ok).toBe(false);
   });
+
+  it("banks fractional refill across consumes (no floor truncation)", () => {
+    // Regression for the floored-refill starvation: every consume resets the
+    // bucket's `updated` to `now`, so any sub-token refill earned between
+    // consumes used to be truncated to 0 and lost forever. Two 150ms steps
+    // each earn (150/60000)*600 = 1.5 read tokens; the 0.5 left after the
+    // first consume MUST survive so the second step can serve a 2-read burst.
+    const tok = "pat_burst";
+    expect(tryConsume(tok, { read: RATE_LIMITS.read }, T0).ok).toBe(true); // drain → 0
+    // Step 1 @ +150ms: refill 1.5, consume 1 → 0.5 banked.
+    expect(tryConsume(tok, { read: 1 }, T0 + 150).ok).toBe(true);
+    // Step 2 @ +300ms: refill 1.5 on top of the 0.5 bank = 2.0 available.
+    // Under the old Math.floor logic only 1 token was available here, so a
+    // 2-read burst failed; with fractional banking it now fits.
+    expect(tryConsume(tok, { read: 2 }, T0 + 300).ok).toBe(true);
+  });
+
+  it("never lets a token exceed its per-category ceiling in a burst", () => {
+    // Fractional refill must still cap at `max` — a long idle then a flood
+    // cannot exceed the bucket size in one shot.
+    const tok = "pat_cap";
+    expect(tryConsume(tok, { intent: RATE_LIMITS.intent }, T0).ok).toBe(true);
+    // Way past a full window: bucket is full (30), not more.
+    expect(tryConsume(tok, { intent: RATE_LIMITS.intent }, T0 + 10 * 60_000).ok).toBe(true);
+    expect(tryConsume(tok, { intent: 1 }, T0 + 10 * 60_000).ok).toBe(false);
+  });
 });

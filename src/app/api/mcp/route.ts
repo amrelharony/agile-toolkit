@@ -8,6 +8,7 @@ import { verifyBearer } from "@/lib/mcp/pat";
 import { registry } from "@/lib/actions/registry";
 import { tryConsume, rateCategoryForAction, type RateCategory } from "@/lib/mcp/rate-limit";
 import { buildCallLogRow, logMcpCalls } from "@/lib/mcp/call-log";
+import { readBoundedText, PayloadTooLargeError } from "@/lib/mcp/read-bounded";
 
 // Ensure register-all runs in this runtime so the registry is populated
 // when an MCP request lands here without ever rendering the client.
@@ -87,6 +88,10 @@ export async function POST(req: NextRequest) {
   // holder with a buggy or malicious client can stream multi-MB JSON at
   // a serverless function, forcing it to buffer the body before parsing.
   const MAX_BODY_BYTES = 1_048_576; // 1 MiB
+  // Cheap fast-path: reject early when the client advertises an oversize
+  // body. This is only a hint — a client can lie or omit Content-Length
+  // (chunked transfer-encoding), so the authoritative cap is enforced while
+  // streaming the body below via readBoundedText.
   const lenHeader = req.headers.get("content-length");
   if (lenHeader) {
     const len = Number(lenHeader);
@@ -103,8 +108,16 @@ export async function POST(req: NextRequest) {
   }
   let body: unknown;
   try {
-    body = await req.json();
-  } catch {
+    // Enforce the byte cap WHILE reading, independent of Content-Length, so a
+    // header-less/chunked oversize payload can't force unbounded buffering.
+    body = JSON.parse(await readBoundedText(req, MAX_BODY_BYTES));
+  } catch (err) {
+    if (err instanceof PayloadTooLargeError) {
+      return Response.json(
+        { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Request body too large" } },
+        { status: 413 }
+      );
+    }
     return Response.json(
       { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } },
       { status: 400 }

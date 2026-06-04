@@ -31,6 +31,8 @@ const REFILL_INTERVAL_MS = 60_000;
 const MAX_BUCKET_ENTRIES = 3000; // ~1000 tokens × 3 categories
 
 interface BucketEntry {
+  /** Available tokens, stored as a FLOAT. Fractional refill earned between
+   *  consumes is banked here rather than truncated — see availableTokens. */
   tokens: number;
   updated: number;
 }
@@ -59,12 +61,17 @@ function availableTokens(tokenId: string, category: RateCategory, now: number): 
   const max = RATE_LIMITS[category];
   const entry = bucket.get(`${tokenId}:${category}`);
   if (!entry) return max;
-  const elapsed = now - entry.updated;
+  const elapsed = Math.max(0, now - entry.updated);
   if (elapsed >= REFILL_INTERVAL_MS) return max;
-  // Partial refill proportional to elapsed time — smoother than a hard
-  // reset-at-window-end, which would let a client burn the full quota in a
-  // sub-second burst right after the window rolls over.
-  const refill = Math.floor((elapsed / REFILL_INTERVAL_MS) * max);
+  // Continuous (FRACTIONAL) refill proportional to elapsed time. The earlier
+  // version floored this, which — because `tryConsume` resets `updated` to
+  // `now` on every consume — permanently discarded any sub-token refill. Under
+  // a tight burst (inter-arrival < interval/max: <100ms for reads, <2s for
+  // intents) that meant ZERO refill was ever credited, so the limiter blocked
+  // far earlier than its advertised "X/min". Keeping the fraction (and banking
+  // it into `tokens`) credits refill at exactly the intended rate without
+  // letting a client exceed `max` in any window (Math.min caps the ceiling).
+  const refill = (elapsed / REFILL_INTERVAL_MS) * max;
   return Math.min(max, entry.tokens + refill);
 }
 
