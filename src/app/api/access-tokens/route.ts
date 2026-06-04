@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { requireAuthorizedUser } from "@/lib/auth/require-user";
 import { generateRawToken, generateSalt, hashTokenWithSalt, prefixOf } from "@/lib/mcp/pat";
+import { isAccessLevel, type AccessLevel } from "@/lib/mcp/capability";
 
 /**
  * Personal access token CRUD (list + create). Delete lives at /[id].
@@ -20,7 +21,9 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("access_tokens")
-    .select("id, name, prefix, created_at, last_used_at, expires_at, revoked_at, squad_profile_ids")
+    .select(
+      "id, name, prefix, created_at, last_used_at, expires_at, revoked_at, squad_profile_ids, access_level"
+    )
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
   if (error) {
@@ -53,11 +56,17 @@ export async function POST(req: NextRequest) {
     name?: unknown;
     expiresAt?: unknown;
     squadProfileIds?: unknown;
+    accessLevel?: unknown;
   };
   const name = typeof b.name === "string" ? b.name.trim().slice(0, 80) : "";
   if (!name) {
     return Response.json({ error: "name_required" }, { status: 400 });
   }
+
+  // Operation ceiling (migration 0022). Defaults to 'full' (read+write+intent)
+  // — the pre-0022 behaviour. 'write' blocks intents; 'read' blocks all
+  // mutation. Enforced server-side by the MCP route, not just advisory.
+  const accessLevel: AccessLevel = isAccessLevel(b.accessLevel) ? b.accessLevel : "full";
   // Default expiration: 90 days. A token with `expires_at = null` lives
   // forever; if it leaks, the only mitigation is manual revocation. A
   // 90-day default means a forgotten/leaked token self-expires within a
@@ -111,8 +120,11 @@ export async function POST(req: NextRequest) {
       prefix,
       expires_at: expiresAt,
       squad_profile_ids: squadProfileIds,
+      access_level: accessLevel,
     })
-    .select("id, name, prefix, created_at, last_used_at, expires_at, revoked_at, squad_profile_ids")
+    .select(
+      "id, name, prefix, created_at, last_used_at, expires_at, revoked_at, squad_profile_ids, access_level"
+    )
     .single();
   if (error) {
     // eslint-disable-next-line no-console

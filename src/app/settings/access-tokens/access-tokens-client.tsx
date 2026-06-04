@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { KeyRound, Trash2, Copy, Check, Eye, EyeOff } from "lucide-react";
 
+type AccessLevel = "full" | "write" | "read";
+
 interface TokenRow {
   id: string;
   name: string;
@@ -12,7 +14,16 @@ interface TokenRow {
   last_used_at: string | null;
   expires_at: string | null;
   revoked_at: string | null;
+  // Operation ceiling (migration 0022). Optional for back-compat with token
+  // rows minted/returned before the column existed.
+  access_level?: AccessLevel;
 }
+
+const ACCESS_LEVEL_LABEL: Record<AccessLevel, string> = {
+  full: "Full access",
+  write: "Read + write",
+  read: "Read-only",
+};
 
 interface CreatedToken {
   token: TokenRow;
@@ -25,6 +36,7 @@ export function AccessTokensClient() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newAccessLevel, setNewAccessLevel] = useState<AccessLevel>("full");
   const [revealed, setRevealed] = useState<CreatedToken | null>(null);
   const [copied, setCopied] = useState(false);
   // BUG-X4: default the freshly-minted token display to masked, with an
@@ -65,7 +77,7 @@ export function AccessTokensClient() {
       const res = await fetch("/api/access-tokens", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, accessLevel: newAccessLevel }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -81,6 +93,7 @@ export function AccessTokensClient() {
       // prior token's reveal state.
       setRevealVisible(false);
       setNewName("");
+      setNewAccessLevel("full");
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Create failed");
@@ -135,6 +148,18 @@ export function AccessTokensClient() {
             maxLength={80}
             disabled={creating}
           />
+          <select
+            value={newAccessLevel}
+            onChange={(e) => setNewAccessLevel(e.target.value as AccessLevel)}
+            disabled={creating}
+            aria-label="Token access level"
+            title="What this token is allowed to do. Enforced server-side on every MCP call."
+            className="rounded-md border border-border bg-bg px-3 py-2 text-sm text-text shrink-0"
+          >
+            <option value="full">Full access</option>
+            <option value="write">Read + write (no intents)</option>
+            <option value="read">Read-only</option>
+          </select>
           <Button
             type="submit"
             // BUG-X3: block Create while an un-dismissed reveal panel
@@ -221,6 +246,11 @@ export function AccessTokensClient() {
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-text truncate flex items-center gap-2">
                     {t.name}
+                    {t.access_level && t.access_level !== "full" && (
+                      <span className="text-[10px] uppercase tracking-wide text-accent bg-accent/10 px-1.5 py-0.5 rounded">
+                        {ACCESS_LEVEL_LABEL[t.access_level]}
+                      </span>
+                    )}
                     {t.revoked_at && (
                       <span className="text-[10px] uppercase tracking-wide text-destructive bg-destructive/10 px-1.5 py-0.5 rounded">
                         revoked

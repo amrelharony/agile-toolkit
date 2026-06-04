@@ -1,5 +1,6 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import { isAccessLevel, type AccessLevel } from "./capability";
 
 /**
  * Personal Access Tokens for the MCP HTTP transport.
@@ -78,9 +79,12 @@ export function constantTimeEqual(a: string, b: string): boolean {
  *   - Token doesn't match any row
  *   - Token is revoked or expired
  */
-export async function verifyBearer(
-  bearer: string
-): Promise<{ userId: string; tokenId: string; squadProfileIds: string[] } | null> {
+export async function verifyBearer(bearer: string): Promise<{
+  userId: string;
+  tokenId: string;
+  squadProfileIds: string[];
+  accessLevel: AccessLevel;
+} | null> {
   if (!bearer.startsWith(TOKEN_PREFIX)) return null;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -147,6 +151,7 @@ export async function verifyBearer(
       token_id: string;
       user_id: string;
       squad_profile_ids: string[] | null;
+      access_level: string | null;
     };
     return {
       userId: resolved.user_id,
@@ -155,6 +160,12 @@ export async function verifyBearer(
       // RPC return from a pre-0018 deploy can still surface null. Coerce
       // to empty so handlers always receive an array.
       squadProfileIds: resolved.squad_profile_ids ?? [],
+      // Post-0022 the column is NOT NULL with default 'full'. A stale RPC
+      // return from a pre-0022 deploy surfaces undefined/null — fail SAFE to
+      // 'full' only because the route's category check is the authority; any
+      // unexpected value also falls back here. (Failing to a lower privilege
+      // would lock out legitimate writers on a half-applied deploy.)
+      accessLevel: isAccessLevel(resolved.access_level) ? resolved.access_level : "full",
     };
   }
   return null;

@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import {
   handleJsonRpc,
   type JsonRpcRequest,
+  type JsonRpcResponse,
   type McpCallObservation,
 } from "@/lib/mcp/transport-http";
 import { verifyBearer } from "@/lib/mcp/pat";
@@ -9,6 +10,7 @@ import { registry } from "@/lib/actions/registry";
 import { tryConsume, rateCategoryForAction, type RateCategory } from "@/lib/mcp/rate-limit";
 import { buildCallLogRow, logMcpCalls } from "@/lib/mcp/call-log";
 import { readBoundedText, PayloadTooLargeError } from "@/lib/mcp/read-bounded";
+import { levelAllowsCategory, type AccessLevel } from "@/lib/mcp/capability";
 
 // Ensure register-all runs in this runtime so the registry is populated
 // when an MCP request lands here without ever rendering the client.
@@ -28,6 +30,23 @@ function categoryForRequest(req: JsonRpcRequest): RateCategory {
   if (typeof name !== "string") return "read";
   const action = registry.resolve(name);
   return action ? rateCategoryForAction(action) : "read";
+}
+
+/**
+ * If this request is a `tools/call` the token's access level forbids, return
+ * the offending category; otherwise null. Handshake/discovery methods and
+ * unknown tools are never denied here (the latter 404s in the handler). A
+ * `full` token is never denied.
+ */
+function capabilityDenial(req: JsonRpcRequest, level: AccessLevel): RateCategory | null {
+  if (level === "full") return null;
+  if (req.method !== "tools/call") return null;
+  const name = (req.params as { name?: string } | undefined)?.name;
+  if (typeof name !== "string") return null;
+  const action = registry.resolve(name);
+  if (!action) return null;
+  const cat = rateCategoryForAction(action);
+  return levelAllowsCategory(level, cat) ? null : cat;
 }
 
 /**
@@ -162,12 +181,23 @@ export async function POST(req: NextRequest) {
     ? (body as unknown as JsonRpcRequest[])
     : [body as unknown as JsonRpcRequest];
 
+  // Capability check (access_level): a `read` token can't call write/intent
+  // actions, a `write` token can't call intents. Computed per-request up front
+  // so a denied call is neither rate-charged nor dispatched — it gets a -32003
+  // error in its place (and a denied notification simply produces nothing).
+  const denials: Array<RateCategory | null> = requests.map((r) =>
+    capabilityDenial(r, auth.accessLevel)
+  );
+
   // Per-category rate limit: tally how many reads / writes / intents this
   // request (or batch) consumes, then atomically charge each category's
   // bucket. A batch is rejected as a whole if any single category is over
   // its limit (nothing is charged in that case).
   const counts: Partial<Record<RateCategory, number>> = {};
-  for (const r of requests) {
+  for (let i = 0; i < requests.length; i++) {
+    const r = requests[i];
+    // Denied calls do no work — don't charge them.
+    if (denials[i] !== null) continue;
     // Notifications (no id) get no response and do no real work — don't charge
     // them against the budget, or a chatty client's notifications/initialized
     // would needlessly erode the read ceiling.
@@ -196,9 +226,22 @@ export async function POST(req: NextRequest) {
   // Collect per-call observations during dispatch, then persist them.
   const observations: McpCallObservation[] = [];
   const responses = await Promise.all(
-    requests.map((r) =>
-      handleJsonRpc(r, auth.userId, auth.squadProfileIds, (obs) => observations.push(obs))
-    )
+    requests.map((r, i): Promise<JsonRpcResponse | null> => {
+      const deniedCategory = denials[i];
+      if (deniedCategory !== null) {
+        // A denied notification (no id) gets no response per JSON-RPC.
+        if (r.id === undefined || r.id === null) return Promise.resolve(null);
+        return Promise.resolve({
+          jsonrpc: "2.0",
+          id: r.id,
+          error: {
+            code: -32003,
+            message: `This token is ${auth.accessLevel}-only and cannot invoke ${deniedCategory} actions.`,
+          },
+        });
+      }
+      return handleJsonRpc(r, auth.userId, auth.squadProfileIds, (obs) => observations.push(obs));
+    })
   );
 
   // Observability: best-effort write to mcp_call_log. logMcpCalls never

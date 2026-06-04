@@ -59,6 +59,12 @@ async function checkColumn0018() {
   record("0018 access_tokens.squad_profile_ids", FAIL, error.message);
 }
 
+async function checkColumn0022() {
+  const { error } = await sb.from("access_tokens").select("access_level").limit(0);
+  if (!error) return record("0022 access_tokens.access_level", PASS);
+  record("0022 access_tokens.access_level", FAIL, error.message);
+}
+
 async function checkResolvePat(args, label) {
   const { error } = await sb.rpc("resolve_pat", args);
   // A non-matching hash yields zero rows + no error when the function exists.
@@ -124,6 +130,7 @@ async function checkRoundTrip0019() {
 async function main() {
   console.log(`Verifying MCP migrations against ${url}\n`);
   await checkColumn0018();
+  await checkColumn0022();
   await checkResolvePat(
     { p_hash: "__verify_no_match__", p_salt: "__verify__" },
     "0018 resolve_pat(text,text)"
