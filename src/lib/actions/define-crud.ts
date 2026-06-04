@@ -74,9 +74,27 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
   ).safeParse.bind(schema);
 
   // ──────── create ────────
-  // Accept the same schema with `id` optional; auto-generate if absent.
+  // Accept the entity with `id` OPTIONAL so a caller can omit it and let
+  // `generateId` mint one (the documented contract). The entity schemas are
+  // `z.object(...)` cast to z.ZodType<T>, so at runtime we override just the
+  // `id` field to optional via `.extend` — keeping every other field (and
+  // its advertised JSON Schema) intact. Previously `createSchema` used the
+  // entity schema verbatim, whose `id` is required, so the transport's
+  // safeParse rejected an id-less create with -32602 BEFORE the handler ran:
+  // the `generateId` fallback below (and every collection's id factory) was
+  // unreachable. We only relax `id` when a `generateId` exists to fill it;
+  // without one, `id` stays required so an id-less create is still rejected
+  // rather than upserting an id-less row. A non-object schema (no `.extend`)
+  // falls back to the original behaviour.
+  const objectSchema = schema as unknown as {
+    extend?: (shape: Record<string, z.ZodType<unknown>>) => z.ZodType<T>;
+  };
+  const createEntitySchema: z.ZodType<T> =
+    opts.generateId && typeof objectSchema.extend === "function"
+      ? objectSchema.extend({ id: z.string().optional() })
+      : schema;
   const createSchema = z.object({
-    entity: schema,
+    entity: createEntitySchema,
   });
   registry.register({
     id: `${toolId}.create`,
