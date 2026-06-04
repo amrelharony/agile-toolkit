@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireAuthorizedUser } from "@/lib/auth/require-user";
+import { readBoundedText, PayloadTooLargeError } from "@/lib/mcp/read-bounded";
 
 /**
  * Agent streaming proxy — OpenClaw (preferred) or GLM, both OpenAI-compatible.
@@ -167,8 +168,16 @@ export async function POST(req: NextRequest) {
 
   let body: unknown;
   try {
-    body = await req.json();
-  } catch {
+    // Bound the body while streaming (independent of Content-Length), so a
+    // header-less/chunked oversize payload can't force unbounded buffering on
+    // this Edge function. 4 MiB is generous for multi-turn message history +
+    // tool results while still capping the DoS surface.
+    const MAX_BODY_BYTES = 4 * 1_048_576; // 4 MiB
+    body = JSON.parse(await readBoundedText(req, MAX_BODY_BYTES));
+  } catch (err) {
+    if (err instanceof PayloadTooLargeError) {
+      return Response.json({ error: "payload_too_large" }, { status: 413 });
+    }
     return Response.json({ error: "invalid_json" }, { status: 400 });
   }
 

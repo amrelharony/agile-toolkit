@@ -31,6 +31,22 @@ function streamRequest(chunks: string[]): Request {
   });
 }
 
+/** A stream of raw byte slices — lets us split a multibyte char across a
+ *  chunk boundary. */
+function byteStreamRequest(slices: Uint8Array[]): Request {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const s of slices) controller.enqueue(s);
+      controller.close();
+    },
+  });
+  return new Request("http://x/api/mcp", {
+    method: "POST",
+    body: stream,
+    ...({ duplex: "half" } as Record<string, unknown>),
+  });
+}
+
 describe("readBoundedText", () => {
   it("returns the full body when under the cap (string body)", async () => {
     const req = new Request("http://x/api/mcp", { method: "POST", body: '{"a":1}' });
@@ -58,5 +74,14 @@ describe("readBoundedText", () => {
   it("accepts a body exactly at the cap", async () => {
     const req = streamRequest(["a".repeat(10)]);
     expect(await readBoundedText(req, 10)).toBe("a".repeat(10));
+  });
+
+  it("decodes a multibyte char split across chunk boundaries", async () => {
+    // "😀" (U+1F600) encodes to 4 bytes; split it 2+2 across two chunks. A
+    // per-chunk decode would corrupt it — concatenate-then-decode must not.
+    const bytes = new TextEncoder().encode("hi 😀");
+    const splitAt = bytes.length - 2; // mid-emoji
+    const req = byteStreamRequest([bytes.slice(0, splitAt), bytes.slice(splitAt)]);
+    expect(await readBoundedText(req, 1024)).toBe("hi 😀");
   });
 });
