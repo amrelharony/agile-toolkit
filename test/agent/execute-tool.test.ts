@@ -147,6 +147,32 @@ describe("executeToolUse — confirmation gating", () => {
   });
 });
 
+describe("executeToolUse — result coercion", () => {
+  it('coerces a void/undefined handler result to "null" content (valid block)', async () => {
+    registry.register({
+      id: "__agentexec.returns_void",
+      toolId: "__agentexec",
+      name: "returns_void",
+      category: "read",
+      description: "Returns undefined.",
+      paramsSchema: z.object({}),
+      handler: async () => undefined,
+    });
+    try {
+      const res = await executeToolUse(block("__agentexec.returns_void"), {
+        userId: TEST_USER,
+        confirm: vi.fn().mockResolvedValue(true),
+        autoApprove: true,
+      });
+      expect(res.is_error).toBeUndefined();
+      // Must be the string "null", never an undefined content.
+      expect(res.content).toBe("null");
+    } finally {
+      registry.unregister("__agentexec.returns_void");
+    }
+  });
+});
+
 describe("executeToolUse — abort", () => {
   it("returns a Cancelled result without running when the signal is already aborted", async () => {
     const ac = new AbortController();

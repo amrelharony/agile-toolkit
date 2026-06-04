@@ -13,13 +13,31 @@ interface ExecuteOptions {
   signal?: AbortSignal;
 }
 
-/** A promise that rejects when `signal` aborts; never settles otherwise. */
-function rejectOnAbort(signal: AbortSignal | undefined): Promise<never> {
-  return new Promise<never>((_, reject) => {
+/**
+ * A promise that rejects when `signal` aborts OR after `timeoutMs`, plus a
+ * `cleanup` to call once the race settles. Without the cleanup, the timeout
+ * timer keeps running (and fires) up to `timeoutMs` after the handler already
+ * returned, and the abort listener stays attached — every tool call would leak
+ * a dangling timer + listener across a multi-tool turn.
+ */
+function raceGuards(
+  signal: AbortSignal | undefined,
+  timeoutMs: number
+): { promise: Promise<never>; cleanup: () => void } {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const promise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Handler timeout after ${timeoutMs}ms`)), timeoutMs);
     if (!signal) return;
     if (signal.aborted) return reject(new Error("cancelled"));
-    signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+    onAbort = () => reject(new Error("cancelled"));
+    signal.addEventListener("abort", onAbort, { once: true });
   });
+  const cleanup = () => {
+    if (timer) clearTimeout(timer);
+    if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+  };
+  return { promise, cleanup };
 }
 
 /**
@@ -113,28 +131,24 @@ export async function executeToolUse(
     }
   }
 
+  const ctx = makeContext(opts.userId, "agent");
+  // Race the handler against a 30 s timeout and the abort signal. Without the
+  // timeout a hung/looping handler would wedge the whole agent turn (the
+  // streaming loop awaits this result); abort wins if the user closes the panel
+  // mid-handler so the loop unwinds immediately. guards.cleanup tears down the
+  // timer + listener once the race settles.
+  const HANDLER_TIMEOUT_MS = 30_000;
+  const guards = raceGuards(opts.signal, HANDLER_TIMEOUT_MS);
   try {
-    const ctx = makeContext(opts.userId, "agent");
-    // Race the handler against a 30 s timeout. Without this a handler
-    // that hangs on a network call or accidentally loops would wedge the
-    // whole agent turn — the streaming loop is `await`ing this result.
-    const HANDLER_TIMEOUT_MS = 30_000;
-    const result = await Promise.race([
-      action.handler(parsed.data, ctx),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`Handler timeout after ${HANDLER_TIMEOUT_MS}ms`)),
-          HANDLER_TIMEOUT_MS
-        )
-      ),
-      // Abort wins if the user closes the panel mid-handler — the handler keeps
-      // running but we stop awaiting it so the loop can unwind immediately.
-      rejectOnAbort(opts.signal),
-    ]);
+    const result = await Promise.race([action.handler(parsed.data, ctx), guards.promise]);
     return {
       type: "tool_result",
       tool_use_id: block.id,
-      content: JSON.stringify(result),
+      // JSON.stringify returns `undefined` (not a string) for a void/undefined
+      // handler result; coerce to "null" so the tool_result content is always a
+      // string — an undefined content drops the field and yields an invalid
+      // block in the next API turn. (Mirrors the MCP transport's coercion.)
+      content: JSON.stringify(result) ?? "null",
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -144,6 +158,8 @@ export async function executeToolUse(
       content: `Handler error: ${msg}`,
       is_error: true,
     };
+  } finally {
+    guards.cleanup();
   }
 }
 
