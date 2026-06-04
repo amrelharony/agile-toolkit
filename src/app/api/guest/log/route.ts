@@ -21,6 +21,7 @@ import { resolveGuestInvite } from "@/lib/squads/invites";
 import { getSquadAdminClient, touchProfileLastSeen } from "@/lib/squads/server";
 import { GuestPayloadError, sanitizeGuestPayload } from "@/lib/history/sanitize";
 import { consumeGuestRateToken } from "../_rate-limit";
+import { readBoundedText, PayloadTooLargeError } from "@/lib/mcp/read-bounded";
 
 const TOOL_ID_RE = /^[a-z0-9_-]{1,64}$/;
 const ACTION_RE = /^[a-z0-9_]{1,64}$/;
@@ -69,21 +70,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Bound the incoming body BEFORE `req.json()` materialises it; without
-  // this, a guest can stream multi-MB JSON at the function and force the
-  // parser to buffer it before any validation runs.
-  const lenHeader = req.headers.get("content-length");
-  if (lenHeader) {
-    const len = Number(lenHeader);
-    if (Number.isFinite(len) && len > MAX_BODY_BYTES) {
-      return Response.json({ error: "body_too_large" }, { status: 413 });
-    }
-  }
-
+  // Bound the incoming body WHILE streaming, independent of Content-Length —
+  // a chunked/header-less client otherwise streams multi-MB JSON at the
+  // function and forces the parser to buffer it before any validation runs.
   let body: unknown;
   try {
-    body = await req.json();
-  } catch {
+    body = JSON.parse(await readBoundedText(req, MAX_BODY_BYTES));
+  } catch (err) {
+    if (err instanceof PayloadTooLargeError) {
+      return Response.json({ error: "body_too_large" }, { status: 413 });
+    }
     return Response.json({ error: "invalid_json" }, { status: 400 });
   }
   const b = (body ?? {}) as {

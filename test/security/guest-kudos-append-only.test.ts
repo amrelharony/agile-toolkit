@@ -61,11 +61,15 @@ vi.mock("@/app/api/guest/_rate-limit", () => ({ consumeGuestRateToken: () => tru
 
 import { POST } from "@/app/api/guest/kudos/route";
 
+// A real Request — the route reads the body via the streaming readBoundedText
+// (req.body), not req.json(), so a stub that only implements json() no longer
+// suffices.
 function req(body: unknown): Request {
-  return {
-    headers: { get: () => null },
-    json: async () => body,
-  } as unknown as Request;
+  return new Request("http://localhost/api/guest/kudos", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 function kudosBody(id: string) {

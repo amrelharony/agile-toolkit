@@ -31,6 +31,7 @@ import {
 } from "@/lib/squads/server";
 import { setGuestSessionCookie } from "@/lib/auth/guest-session";
 import { consumeGuestRateToken, consumeRedeemAttempt } from "../_rate-limit";
+import { readBoundedText, PayloadTooLargeError } from "@/lib/mcp/read-bounded";
 
 const MAX_BODY_BYTES = 65_536; // 64 KiB — redeem body is ~150 bytes; cap is generous.
 
@@ -40,11 +41,16 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "service_unavailable" }, { status: 503 });
   }
 
-  // The caller has no profile id yet — key the bucket on the remote IP
-  // so a single host can't spam profile creation. `x-forwarded-for` is
-  // honoured because the deployment sits behind Vercel/Cloudflare.
+  // The caller has no profile id yet — key the bucket on the remote IP so a
+  // single host can't spam profile creation. Prefer `x-real-ip`, which the
+  // fronting proxy (Vercel/Cloudflare) sets from the verified client IP and
+  // overwrites if a client tries to supply it. Fall back to the first
+  // `x-forwarded-for` entry only when x-real-ip is absent. Keying on a
+  // client-controllable value would hand an attacker a fresh rate-limit
+  // bucket per request, defeating both the per-IP and per-(IP,code) limits.
+  const realIp = req.headers.get("x-real-ip")?.trim();
   const fwd = req.headers.get("x-forwarded-for");
-  const ip = (fwd?.split(",")[0]?.trim() ?? "unknown").slice(0, 64);
+  const ip = (realIp || fwd?.split(",")[0]?.trim() || "unknown").slice(0, 64);
   if (!consumeGuestRateToken(`ip:${ip}`)) {
     return Response.json(
       { error: "rate_limited" },
@@ -52,18 +58,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const lenHeader = req.headers.get("content-length");
-  if (lenHeader) {
-    const len = Number(lenHeader);
-    if (Number.isFinite(len) && len > MAX_BODY_BYTES) {
-      return Response.json({ error: "body_too_large" }, { status: 413 });
-    }
-  }
-
   let body: unknown;
   try {
-    body = await req.json();
-  } catch {
+    // Enforce the cap WHILE streaming, independent of Content-Length — a
+    // chunked/header-less client otherwise bypasses the size guard entirely
+    // (this route is unauthenticated, so the body cap is the front-line
+    // protection against a buffer-the-stream DoS).
+    body = JSON.parse(await readBoundedText(req, MAX_BODY_BYTES));
+  } catch (err) {
+    if (err instanceof PayloadTooLargeError) {
+      return Response.json({ error: "body_too_large" }, { status: 413 });
+    }
     return Response.json({ error: "invalid_json" }, { status: 400 });
   }
   const b = (body ?? {}) as { code?: unknown; displayName?: unknown; color?: unknown };

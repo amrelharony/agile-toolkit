@@ -20,6 +20,7 @@ import { resolveGuestInvite } from "@/lib/squads/invites";
 import { getSquadAdminClient, touchProfileLastSeen } from "@/lib/squads/server";
 import { parseKudos } from "@/lib/kudos/parse";
 import { consumeGuestRateToken } from "../_rate-limit";
+import { readBoundedText, PayloadTooLargeError } from "@/lib/mcp/read-bounded";
 
 const MAX_BODY_BYTES = 65_536;
 const KUDOS_TOOL_ID = "kudos";
@@ -42,18 +43,15 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const lenHeader = req.headers.get("content-length");
-  if (lenHeader) {
-    const len = Number(lenHeader);
-    if (Number.isFinite(len) && len > MAX_BODY_BYTES) {
-      return Response.json({ error: "body_too_large" }, { status: 413 });
-    }
-  }
-
+  // Cap the body WHILE streaming, independent of Content-Length (a
+  // chunked/header-less client otherwise bypasses the size guard).
   let raw: unknown;
   try {
-    raw = await req.json();
-  } catch {
+    raw = JSON.parse(await readBoundedText(req, MAX_BODY_BYTES));
+  } catch (err) {
+    if (err instanceof PayloadTooLargeError) {
+      return Response.json({ error: "body_too_large" }, { status: 413 });
+    }
     return Response.json({ error: "invalid_json" }, { status: 400 });
   }
 
