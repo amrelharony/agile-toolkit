@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAgentStore } from "@/lib/agent/store";
 import { useAuth } from "@/lib/auth/auth-provider";
-import { sendUserMessage } from "@/lib/agent/client";
+import { sendUserMessage, abortInFlight } from "@/lib/agent/client";
 import {
   createConversation,
   listConversations,
@@ -13,9 +13,10 @@ import {
 } from "@/lib/agent/persist";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "./confirm-action";
+import { Markdown } from "./markdown";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
 import { handleMascotCommand } from "./mascot/engine/customization/commands";
-import { Send, Wrench, AlertTriangle, Mic } from "lucide-react";
+import { Send, Wrench, AlertTriangle, Mic, Square } from "lucide-react";
 import type { ChatMessage } from "@/lib/agent/types";
 
 /** Resume the most recent thread at most once per page load (not on every
@@ -90,6 +91,11 @@ export function AgentConversation() {
     void sendUserMessage(text, { userId: user.id, toolId, conversationId: convId ?? undefined });
   };
 
+  // Show a "thinking" row while a turn is streaming but the assistant hasn't
+  // produced visible content yet (just sent, between tool rounds, or pre-token).
+  const last = messages[messages.length - 1];
+  const awaiting = streaming && (!last || last.role !== "assistant" || last.content.length === 0);
+
   return (
     <div className="flex flex-col h-full">
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 py-2 space-y-3">
@@ -107,6 +113,16 @@ export function AgentConversation() {
         {messages.map((m) => (
           <MessageBubble key={m.id} message={m} />
         ))}
+        {awaiting && (
+          <div className="flex items-center gap-2 px-1 text-xs text-sub" aria-live="polite">
+            <span className="inline-flex gap-1" aria-hidden="true">
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.3s]" />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.15s]" />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" />
+            </span>
+            ElharonyClaw is thinking…
+          </div>
+        )}
         <ConfirmAction />
         {error && (
           <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 rounded-md px-3 py-2">
@@ -153,9 +169,23 @@ export function AgentConversation() {
               <Mic className="w-4 h-4" aria-hidden="true" />
             </Button>
           )}
-          <Button type="submit" disabled={streaming || !input.trim()} size="icon" aria-label="Send">
-            <Send className="w-4 h-4" aria-hidden="true" />
-          </Button>
+          {streaming ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => abortInFlight()}
+              aria-label="Stop generating"
+              title="Stop"
+              className="border-destructive text-destructive hover:bg-destructive/10"
+            >
+              <Square className="w-4 h-4" aria-hidden="true" />
+            </Button>
+          ) : (
+            <Button type="submit" disabled={!input.trim()} size="icon" aria-label="Send">
+              <Send className="w-4 h-4" aria-hidden="true" />
+            </Button>
+          )}
         </form>
         <p className="text-[10px] text-sub mt-1.5">
           Enter to send · Shift+Enter for newline · Write actions ask for confirmation
@@ -198,10 +228,13 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       >
         {message.content.map((c, i) => {
           if (c.type === "text") {
-            return (
+            // Agent replies are markdown; user messages are shown verbatim.
+            return isUser ? (
               <p key={i} className="whitespace-pre-wrap break-words">
                 {c.text}
               </p>
+            ) : (
+              <Markdown key={i} source={c.text} />
             );
           }
           if (c.type === "tool_use") {
