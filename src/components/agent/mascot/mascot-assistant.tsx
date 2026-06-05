@@ -18,7 +18,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import dynamic from "next/dynamic";
-import { X } from "lucide-react";
+import { X, Plus, History } from "lucide-react";
 import { useAgentStore } from "@/lib/agent/store";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import { abortInFlight } from "@/lib/agent/client";
@@ -28,6 +28,7 @@ import { installKonami } from "./engine/customization/commands";
 import { playMascotSound } from "./engine/audio/mascot-audio";
 import { RateLimitBar } from "./rate-limit-bar";
 import { AgentConversation } from "../agent-conversation";
+import { ConversationList } from "../conversation-list";
 import styles from "./mascot-assistant.module.css";
 
 /** Award XP via the gamification window bridge (no-op if unavailable). */
@@ -61,6 +62,7 @@ export function MascotAssistant() {
   const open = useAgentStore((s) => s.open);
   const toggleSheet = useAgentStore((s) => s.toggleSheet);
   const closeSheet = useAgentStore((s) => s.closeSheet);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Click interaction: a flourish + multi-click escalations on top of the chat
   // toggle (the toggle is debounced so rapid taps don't thrash the panel).
@@ -196,19 +198,53 @@ export function MascotAssistant() {
               <p className="text-sm font-semibold text-text">✦ ElharonyClaw</p>
               <p className="text-[11px] text-sub">Drive every tool · Cmd/Ctrl+J to toggle</p>
             </div>
-            <button
-              type="button"
-              onClick={closeSheet}
-              aria-label="Close assistant"
-              className="rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </button>
+            <div className="flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  useAgentStore.getState().reset();
+                  setShowHistory(false);
+                }}
+                aria-label="New chat"
+                title="New chat"
+                className="rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowHistory((v) => !v)}
+                aria-label="Conversation history"
+                title="History"
+                aria-pressed={showHistory}
+                className={`rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text ${
+                  showHistory ? "text-accent" : "text-sub"
+                }`}
+              >
+                <History className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={closeSheet}
+                aria-label="Close assistant"
+                className="rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
           </div>
-          <RateLimitBar />
-          <div className="min-h-0 flex-1 px-3 py-2">
-            <AgentConversation />
-          </div>
+          {showHistory ? (
+            <div className="min-h-0 flex-1">
+              <ConversationList onClose={() => setShowHistory(false)} />
+            </div>
+          ) : (
+            <>
+              <RateLimitBar />
+              <div className="min-h-0 flex-1 px-3 py-2">
+                <AgentConversation />
+              </div>
+            </>
+          )}
         </div>
       )}
 

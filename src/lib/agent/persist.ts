@@ -184,3 +184,19 @@ export async function deleteConversation(conversationId: string): Promise<void> 
   if (!supabase) return;
   await supabase.from("agent_conversations").delete().eq("id", conversationId);
 }
+
+export async function renameConversation(conversationId: string, title: string): Promise<void> {
+  const supabase = getAuthBrowserClient();
+  if (!supabase) return;
+  await supabase
+    .from("agent_conversations")
+    .update({ title: conversationTitle(title), updated_at: new Date().toISOString() })
+    .eq("id", conversationId);
+}
+
+/** Derive a conversation title from the first user message (trimmed, capped). */
+export function conversationTitle(text: string): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (!t) return "New conversation";
+  return t.length > 60 ? `${t.slice(0, 57)}…` : t;
+}

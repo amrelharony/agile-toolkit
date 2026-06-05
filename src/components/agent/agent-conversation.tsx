@@ -5,6 +5,12 @@ import { usePathname } from "next/navigation";
 import { useAgentStore } from "@/lib/agent/store";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { sendUserMessage } from "@/lib/agent/client";
+import {
+  createConversation,
+  listConversations,
+  loadMessages,
+  conversationTitle,
+} from "@/lib/agent/persist";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "./confirm-action";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
@@ -12,14 +18,17 @@ import { handleMascotCommand } from "./mascot/engine/customization/commands";
 import { Send, Wrench, AlertTriangle, Mic } from "lucide-react";
 import type { ChatMessage } from "@/lib/agent/types";
 
+/** Resume the most recent thread at most once per page load (not on every
+ *  panel reopen — that would override an intentional "New chat"). */
+let resumedThisLoad = false;
+
 /**
  * Active conversation view: message list + composer + confirmation card.
  *
- * The conversation lives entirely in `useAgentStore` for now — Supabase
- * persistence happens in the background via `appendMessages` calls
- * inside the client orchestrator. Conversation switching is wired but
- * the UI to pick a different conversation isn't built yet (a list panel
- * is straightforward; tracked as follow-up).
+ * The conversation is created in Supabase on the first message and every
+ * message is persisted (via the client orchestrator's conversationId path), so
+ * the thread survives reload; the most recent thread auto-resumes on open. The
+ * conversation list (switch / rename / delete) lives in ConversationList.
  */
 export function AgentConversation() {
   const { user } = useAuth();
@@ -36,7 +45,29 @@ export function AgentConversation() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages.length, streaming]);
 
-  const onSend = () => {
+  // On the first open after a page load, resume the most recent conversation if
+  // we're sitting on a blank draft. Guarded so it never clobbers an in-progress
+  // thread or a deliberate New chat.
+  useEffect(() => {
+    if (resumedThisLoad) return;
+    resumedThisLoad = true;
+    const blank = () => {
+      const s = useAgentStore.getState();
+      return !s.activeConversationId && s.messages.length === 0;
+    };
+    if (!blank()) return;
+    let alive = true;
+    void listConversations().then(async (list) => {
+      if (!alive || list.length === 0 || !blank()) return;
+      const msgs = await loadMessages(list[0].id);
+      if (alive && blank()) useAgentStore.getState().setActiveConversation(list[0], msgs);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const onSend = async () => {
     const text = input.trim();
     if (!text || streaming || !user) return;
     // Mascot commands (/mascot-hat, /mascot-aura, /dance) run locally, not the agent.
@@ -46,7 +77,16 @@ export function AgentConversation() {
     }
     setInput("");
     const toolId = inferToolId(pathname);
-    void sendUserMessage(text, { userId: user.id, toolId });
+    // Ensure a persisted conversation exists so the thread survives reload.
+    let convId = useAgentStore.getState().activeConversationId;
+    if (!convId) {
+      const meta = await createConversation({ title: conversationTitle(text), toolId });
+      if (meta) {
+        useAgentStore.getState().setActiveConversation(meta, useAgentStore.getState().messages);
+        convId = meta.id;
+      }
+    }
+    void sendUserMessage(text, { userId: user.id, toolId, conversationId: convId ?? undefined });
   };
 
   return (
@@ -79,7 +119,7 @@ export function AgentConversation() {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            onSend();
+            void onSend();
           }}
           className="flex gap-2 items-end"
         >
@@ -89,7 +129,7 @@ export function AgentConversation() {
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                onSend();
+                void onSend();
               }
             }}
             placeholder="Ask the agent…"
