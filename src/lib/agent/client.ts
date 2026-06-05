@@ -806,7 +806,11 @@ export async function generateTitle(
     const body = {
       model: pickModel(mode, serverModel),
       stream: true,
-      max_tokens: 24,
+      // GLM "flash" is a thinking model: it streams its chain-of-thought as
+      // reasoning_content (which we ignore) and the title only lands in `content`
+      // afterward. Too small a budget is spent entirely on reasoning and never
+      // emits the title — give it room to finish thinking, then answer.
+      max_tokens: 320,
       temperature: 0.2,
       messages: [
         {
