@@ -66,7 +66,11 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  // microphone=(self): the agent composer's voice dictation (Web Speech API)
+  // needs the mic for our OWN origin. An empty allowlist `microphone=()` forbids
+  // it everywhere — including us — so clicking Dictate fails with no permission
+  // prompt at all. camera + geolocation stay fully disabled (unused).
+  { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
   // HSTS: 2 years, include subdomains, preload-eligible. Vercel terminates
   // TLS so HTTPS is the only entry point in production.
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
