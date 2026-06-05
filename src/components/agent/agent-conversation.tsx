@@ -56,15 +56,16 @@ export function AgentConversation() {
       return !s.activeConversationId && s.messages.length === 0;
     };
     if (!blank()) return;
-    let alive = true;
+    // No alive-guard abort here: React StrictMode (dev) mounts → unmounts →
+    // mounts, so an abort-on-cleanup would kill the in-flight resume while the
+    // flag blocks the retry. setActiveConversation targets a zustand store (not
+    // local state), so completing after unmount is safe; the blank() re-checks
+    // prevent clobbering a chat the user started while it loaded.
     void listConversations().then(async (list) => {
-      if (!alive || list.length === 0 || !blank()) return;
+      if (list.length === 0 || !blank()) return;
       const msgs = await loadMessages(list[0].id);
-      if (alive && blank()) useAgentStore.getState().setActiveConversation(list[0], msgs);
+      if (blank()) useAgentStore.getState().setActiveConversation(list[0], msgs);
     });
-    return () => {
-      alive = false;
-    };
   }, []);
 
   const onSend = async () => {
