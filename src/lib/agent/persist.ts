@@ -179,6 +179,20 @@ export async function appendMessages(
     .eq("id", conversationId);
 }
 
+/** Record token spend onto the current turn's usage row (best-effort). */
+export async function recordChatUsage(tokens: number, model = "openclaw"): Promise<void> {
+  const supabase = getAuthBrowserClient();
+  if (!supabase) return;
+  try {
+    await supabase.rpc("record_chat_usage", {
+      p_tokens: Math.max(0, Math.round(tokens)),
+      p_model: model,
+    });
+  } catch {
+    /* best-effort metering; never break the turn */
+  }
+}
+
 export async function deleteConversation(conversationId: string): Promise<void> {
   const supabase = getAuthBrowserClient();
   if (!supabase) return;

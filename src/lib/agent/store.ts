@@ -33,6 +33,8 @@ interface AgentState {
   error: string | null;
   /** Latest agent usage vs. caps (null until the first metered turn). */
   rateLimit: RateLimitInfo | null;
+  /** total_tokens for the most recent turn (null until one reports usage). */
+  lastTurnTokens: number | null;
 }
 
 interface AgentActions {
@@ -47,6 +49,7 @@ interface AgentActions {
   setPendingToolUse(p: PendingToolUse | null): void;
   setError(e: string | null): void;
   setRateLimit(r: RateLimitInfo | null): void;
+  setLastTurnTokens(n: number | null): void;
   reset(): void;
 }
 
@@ -60,6 +63,7 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
   autoApprove: false,
   error: null,
   rateLimit: null,
+  lastTurnTokens: null,
 
   openSheet: () => set({ open: true }),
   // BUG-G1: also reset autoApprove on close. The docstring promised
@@ -130,6 +134,7 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
   },
   setError: (e) => set({ error: e }),
   setRateLimit: (r) => set({ rateLimit: r }),
+  setLastTurnTokens: (n) => set({ lastTurnTokens: n }),
 
   reset: () => {
     const pending = get().pendingToolUse;

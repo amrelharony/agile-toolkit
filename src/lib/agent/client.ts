@@ -8,7 +8,7 @@ import { relevantActions as relevantActionsForQuery, rankActionIds } from "./mas
 import { recentUserText, toolNamesInHistory } from "./tool-selection";
 import { parseRateLimitHeaders } from "./rate-limit";
 import { executeToolUse } from "./execute-tool";
-import { appendMessages } from "./persist";
+import { appendMessages, recordChatUsage } from "./persist";
 import type { ChatMessage, ContentBlock, ToolResultBlock, ToolUseBlock } from "./types";
 
 /** Text of the most recent user message (joined text blocks), or "" if none. */
@@ -186,12 +186,23 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
   // every round in the budget.
   const errorRepeats = new Map<string, number>();
 
+  // Token usage accumulates across the turn's rounds; record_chat_usage SETS the
+  // (turn's) row to the running total, so the last write carries the full turn.
+  let turnTokens = 0;
+  const onUsage = (t: number) => {
+    turnTokens += t;
+    useAgentStore.getState().setLastTurnTokens(turnTokens);
+    void recordChatUsage(turnTokens);
+  };
+
   for (let round = 0; round < MAX_TOOL_USE_ROUNDS; round++) {
     const messages = wireMessages(useAgentStore.getState().messages, system);
     const body = {
       model: pickModel(mode, serverModel),
       stream: true,
       max_tokens: 4096,
+      // Ask the upstream to emit a usage chunk so we can record real token spend.
+      stream_options: { include_usage: true },
       tools,
       tool_choice: "auto",
       messages,
@@ -199,7 +210,7 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
 
     // Meter only the first round: a turn's later tool-use rounds are
     // continuations of an already-allowed turn (see the route's x-agent-new-turn).
-    const stopReason = await openOneTurn(mode, body, opts.signal, round === 0);
+    const stopReason = await openOneTurn(mode, body, opts.signal, round === 0, onUsage);
 
     if (stopReason !== "tool_use") {
       // BUG-G6: persist the assistant message after the turn settles.
@@ -308,7 +319,8 @@ async function openOneTurn(
   mode: AgentMode,
   body: Record<string, unknown>,
   signal: AbortSignal | undefined,
-  newTurn = false
+  newTurn = false,
+  onUsage?: (totalTokens: number) => void
 ): Promise<string> {
   const response = await openStream(mode, body, signal, newTurn);
 
@@ -399,6 +411,7 @@ async function openOneTurn(
       if (sr) stopReason = sr;
     }
     flushAssistant(wip);
+    if (wip.usage) onUsage?.(wip.usage);
     return stopReason;
   } finally {
     try {
@@ -421,6 +434,8 @@ interface WipState {
    *  tool_calls in sparse order — each chunk targets an index that
    *  refers back to the same call as previous chunks. */
   toolCalls: Map<number, WipToolCall>;
+  /** total_tokens from the stream's usage chunk (stream_options.include_usage). */
+  usage?: number;
 }
 
 /**
@@ -449,6 +464,11 @@ function handleSseChunk(raw: string, wip: WipState): string | null {
   } catch {
     return null;
   }
+
+  // Usage chunk (stream_options.include_usage) — typically a trailing chunk with
+  // empty choices, so capture it before the choices guard below.
+  const usage = payload.usage as { total_tokens?: number } | null | undefined;
+  if (usage && typeof usage.total_tokens === "number") wip.usage = usage.total_tokens;
 
   const choices = payload.choices as
     | Array<{
