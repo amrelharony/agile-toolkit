@@ -1,7 +1,14 @@
 import type { NextRequest } from "next/server";
 import { requireAuthorizedUser } from "@/lib/auth/require-user";
-import { generateRawToken, generateSalt, hashTokenWithSalt, prefixOf } from "@/lib/mcp/pat";
+import {
+  generateRawToken,
+  generateSalt,
+  hashTokenWithSalt,
+  prefixOf,
+  resolveRequestedExpiry,
+} from "@/lib/mcp/pat";
 import { parseRequestedAccessLevel } from "@/lib/mcp/capability";
+import { consumeMintToken } from "./_rate-limit";
 
 /**
  * Personal access token CRUD (list + create). Delete lives at /[id].
@@ -46,6 +53,16 @@ export async function POST(req: NextRequest) {
     throw resp;
   }
 
+  // Per-user mint ceiling — caps a buggy/looping client from exhausting the
+  // access_tokens table. Owner-only endpoint, so this is a guardrail, not a
+  // trust boundary.
+  if (!consumeMintToken(user.id)) {
+    return Response.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "retry-after": "60" } }
+    );
+  }
+
   let body: unknown;
   try {
     body = await req.json();
@@ -73,20 +90,23 @@ export async function POST(req: NextRequest) {
   if (accessLevel === null) {
     return Response.json({ error: "invalid_access_level" }, { status: 400 });
   }
-  // Default expiration: 90 days. A token with `expires_at = null` lives
-  // forever; if it leaks, the only mitigation is manual revocation. A
-  // 90-day default means a forgotten/leaked token self-expires within a
-  // quarter. Callers who genuinely want a long-lived token can pass an
-  // explicit ISO date.
+  // Expiration. Omitted → a 90-day default so a forgotten/leaked token
+  // self-expires within a quarter. A caller-supplied value is validated:
+  // it must be a parseable ISO date strictly in the future and no further
+  // out than a 5-year hard ceiling (an unbounded expiry would defeat the
+  // whole point of the default). Malformed/past/too-far → 400, rather than
+  // the prior behaviour of storing it verbatim (generic 500 on a bad string,
+  // or a born-expired / effectively-immortal token).
   const DEFAULT_TTL_DAYS = 90;
-  let expiresAt: string | null = null;
-  if (typeof b.expiresAt === "string") {
-    expiresAt = b.expiresAt;
-  } else {
-    const d = new Date();
-    d.setUTCDate(d.getUTCDate() + DEFAULT_TTL_DAYS);
-    expiresAt = d.toISOString();
+  const MAX_TTL_DAYS = 365 * 5;
+  const expiry = resolveRequestedExpiry(b.expiresAt, Date.now(), {
+    defaultTtlDays: DEFAULT_TTL_DAYS,
+    maxTtlDays: MAX_TTL_DAYS,
+  });
+  if (!expiry.ok) {
+    return Response.json({ error: expiry.error }, { status: 400 });
   }
+  const expiresAt = expiry.iso;
 
   // Squad scope (added in migration 0018). Optional — empty array means
   // unscoped (full workspace reach, owner-equivalent). When non-empty
