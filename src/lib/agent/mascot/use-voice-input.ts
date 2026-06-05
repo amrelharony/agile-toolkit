@@ -47,6 +47,26 @@ function getRecognitionCtor(): (new () => SpeechRec) | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
+/**
+ * Map a SpeechRecognition error code to an actionable user message, or null to
+ * stay silent (e.g. `no-speech` / `aborted` are benign — the user just paused or
+ * we stopped it). Exported for tests.
+ */
+export function voiceErrorMessage(code: string | undefined): string | null {
+  switch (code) {
+    case "not-allowed":
+      return "Microphone access was blocked — allow it for this site in your browser to dictate.";
+    case "service-not-allowed":
+      return "Speech recognition is unavailable — it may be turned off in your browser, or you're offline.";
+    case "audio-capture":
+      return "No microphone was found — check that one is connected and enabled.";
+    case "network":
+      return "Speech recognition couldn't reach the network. Check your connection and try again.";
+    default:
+      return null;
+  }
+}
+
 export interface VoiceInput {
   supported: boolean;
   listening: boolean;
@@ -100,10 +120,8 @@ export function useVoiceInput(onResult: (text: string, isFinal: boolean) => void
     rec.onend = finish;
     rec.onerror = (e) => {
       finish();
-      const code = e?.error;
-      if (code === "not-allowed" || code === "service-not-allowed") {
-        setError("Microphone access was blocked — enable it in your browser to dictate.");
-      }
+      const msg = voiceErrorMessage(e?.error);
+      if (msg) setError(msg);
     };
     recRef.current = rec;
     setError(null);
