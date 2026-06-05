@@ -27,8 +27,13 @@ function classify(el: HTMLElement): HoverKind {
   return "interactive";
 }
 
-function isSuppressed(el: HTMLElement | null): boolean {
-  let cur: HTMLElement | null = el;
+/**
+ * True if `el` (or any ancestor) opts out of sound via `data-no-sound="true"`.
+ * Accepts any EventTarget and walks only real Elements — a keydown can target
+ * `document`/`window`, which have no getAttribute/parentElement. (exported for tests)
+ */
+export function isSuppressed(el: EventTarget | null): boolean {
+  let cur: Element | null = el instanceof Element ? el : null;
   while (cur) {
     if (cur.getAttribute("data-no-sound") === "true") return true;
     cur = cur.parentElement;
@@ -112,7 +117,9 @@ export function SonificationEventRouter({ enabled }: { enabled: boolean }) {
     const KEYSTROKE_FLOOR_MS = 25;
 
     const onKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
+      // A keydown can target document/window (nothing focused, or synthetic
+      // dispatch); bail unless it's a real element so .tagName/.closest are safe.
+      const target = e.target instanceof HTMLElement ? e.target : null;
       if (!target || isSuppressed(target)) return;
       const tag = target.tagName.toLowerCase();
       const insideInput = tag === "input" || tag === "textarea" || target.isContentEditable;
