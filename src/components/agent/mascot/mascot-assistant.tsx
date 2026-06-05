@@ -185,11 +185,30 @@ export function MascotAssistant() {
     return () => window.removeEventListener("keydown", handler);
   }, [toggleSheet]);
 
+  // Escape closes the panel — unless a confirm card is up (it owns Escape to
+  // deny) or focus is in the rename field (it stops propagation to cancel edit).
+  useEffect(() => {
+    if (!open) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (useAgentStore.getState().pendingToolUse) return;
+      // Renaming a thread: Escape cancels that edit, not the whole panel.
+      const ae = document.activeElement;
+      if (ae?.getAttribute("aria-label") === "Rename conversation") return;
+      closeSheet();
+    };
+    document.addEventListener("keydown", onEsc);
+    return () => document.removeEventListener("keydown", onEsc);
+  }, [open, closeSheet]);
+
   return (
     <>
       {open && (
         <div
           data-agent-sheet-root
+          role="dialog"
+          aria-label="ElharonyClaw assistant"
+          aria-modal={false}
           style={panelPos(corner)}
           className="fixed z-50 flex h-[min(68vh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden rounded-2xl border border-border bg-surface-deep/95 shadow-2xl backdrop-blur"
         >

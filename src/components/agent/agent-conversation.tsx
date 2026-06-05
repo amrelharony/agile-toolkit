@@ -43,7 +43,13 @@ export function AgentConversation() {
   const error = useAgentStore((s) => s.error);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const pathname = usePathname();
+
+  // Focus the composer when the panel opens (this component mounts on open).
+  useEffect(() => {
+    composerRef.current?.focus();
+  }, []);
   // Voice dictation fills the composer; the user reviews + sends.
   const voice = useVoiceInput((text) => setInput(text));
 
@@ -128,7 +134,13 @@ export function AgentConversation() {
 
   return (
     <div className="flex flex-col h-full">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-1 py-2 space-y-3">
+      <div
+        ref={scrollRef}
+        role="log"
+        aria-live="polite"
+        aria-label="Conversation"
+        className="flex-1 overflow-y-auto px-1 py-2 space-y-3"
+      >
         {messages.length === 0 && (
           <div className="text-sm text-sub py-12 text-center space-y-2">
             <p>Ask me to drive any tool: planning, retros, canvas, OKRs.</p>
@@ -144,7 +156,7 @@ export function AgentConversation() {
           <MessageBubble key={m.id} message={m} />
         ))}
         {awaiting && (
-          <div className="flex items-center gap-2 px-1 text-xs text-sub" aria-live="polite">
+          <div className="flex items-center gap-2 px-1 text-xs text-sub">
             <span className="inline-flex gap-1" aria-hidden="true">
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.3s]" />
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.15s]" />
@@ -171,6 +183,7 @@ export function AgentConversation() {
           className="flex gap-2 items-end"
         >
           <textarea
+            ref={composerRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -217,6 +230,7 @@ export function AgentConversation() {
             </Button>
           )}
         </form>
+        {voice.error && <p className="mt-1.5 text-[10px] text-destructive">{voice.error}</p>}
         <p className="text-[10px] text-sub mt-1.5">
           Enter to send · Shift+Enter for newline · Write actions ask for confirmation
         </p>

@@ -35,7 +35,7 @@ interface SpeechRec {
   abort(): void;
   onresult: ((e: SREvent) => void) | null;
   onend: (() => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((e: { error?: string }) => void) | null;
 }
 
 function getRecognitionCtor(): (new () => SpeechRec) | null {
@@ -50,12 +50,15 @@ function getRecognitionCtor(): (new () => SpeechRec) | null {
 export interface VoiceInput {
   supported: boolean;
   listening: boolean;
+  /** Set when recognition fails (e.g. mic permission blocked); null otherwise. */
+  error: string | null;
   start(): void;
   stop(): void;
 }
 
 export function useVoiceInput(onResult: (text: string, isFinal: boolean) => void): VoiceInput {
   const [listening, setListening] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const recRef = useRef<SpeechRec | null>(null);
   const onResultRef = useRef(onResult);
   onResultRef.current = onResult;
@@ -95,8 +98,15 @@ export function useVoiceInput(onResult: (text: string, isFinal: boolean) => void
       recRef.current = null;
     };
     rec.onend = finish;
-    rec.onerror = finish;
+    rec.onerror = (e) => {
+      finish();
+      const code = e?.error;
+      if (code === "not-allowed" || code === "service-not-allowed") {
+        setError("Microphone access was blocked — enable it in your browser to dictate.");
+      }
+    };
     recRef.current = rec;
+    setError(null);
     setListening(true);
     try {
       rec.start();
@@ -113,5 +123,5 @@ export function useVoiceInput(onResult: (text: string, isFinal: boolean) => void
     }
   }, []);
 
-  return { supported, listening, start, stop };
+  return { supported, listening, error, start, stop };
 }

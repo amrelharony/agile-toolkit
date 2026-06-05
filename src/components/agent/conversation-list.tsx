@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2, Pencil, Check, X, MessageSquare, Search, Download } from "lucide-react";
+import { getAuthBrowserClient } from "@/lib/auth/supabase-browser";
 import { useAgentStore } from "@/lib/agent/store";
 import {
   listConversations,
@@ -50,6 +51,28 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
     void listConversations().then(setItems);
   }, []);
   useEffect(() => refresh(), [refresh]);
+
+  // Multi-tab/device live sync: re-fetch when agent_conversations changes
+  // (insert/rename/delete from another tab), plus on tab focus as a fallback
+  // where realtime isn't enabled. The refetch is RLS-filtered, so the realtime
+  // event is only a "something changed" trigger.
+  useEffect(() => {
+    const supabase = getAuthBrowserClient();
+    const onVisible = () => {
+      if (!document.hidden) refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    const channel = supabase
+      ?.channel("agent-conversations-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "agent_conversations" }, () =>
+        refresh()
+      )
+      .subscribe();
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      if (channel) void supabase?.removeChannel(channel);
+    };
+  }, [refresh]);
 
   const openThread = async (meta: ConversationMeta) => {
     const msgs = await loadMessages(meta.id);
