@@ -39,3 +39,19 @@ const LEVEL_MAX_RANK: Record<AccessLevel, number> = { read: 0, write: 1, full: 2
 export function levelAllowsCategory(level: AccessLevel, category: RateCategory): boolean {
   return CATEGORY_RANK[category] <= LEVEL_MAX_RANK[level];
 }
+
+/**
+ * Coerce a raw `access_level` (as returned by `resolve_pat`) into a usable
+ * AccessLevel. Two DISTINCT fallbacks, by intent:
+ *
+ *   • null / undefined — a stale RPC return from a pre-0022 deploy, before the
+ *     column existed — resolves to 'full'. Preserves legacy behaviour so a
+ *     half-applied deploy doesn't lock out legitimate writers.
+ *   • any NON-null value we don't recognise (e.g. a typo'd 'writ') — fails
+ *     CLOSED to 'read'. A malformed level must restrict, never silently
+ *     escalate to full privilege.
+ */
+export function coerceAccessLevel(value: string | null | undefined): AccessLevel {
+  if (isAccessLevel(value)) return value;
+  return value == null ? "full" : "read";
+}

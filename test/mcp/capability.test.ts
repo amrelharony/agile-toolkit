@@ -6,7 +6,12 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { isAccessLevel, levelAllowsCategory, ACCESS_LEVELS } from "@/lib/mcp/capability";
+import {
+  isAccessLevel,
+  levelAllowsCategory,
+  coerceAccessLevel,
+  ACCESS_LEVELS,
+} from "@/lib/mcp/capability";
 
 describe("isAccessLevel", () => {
   it("accepts the three valid levels", () => {
@@ -36,5 +41,23 @@ describe("levelAllowsCategory", () => {
     expect(levelAllowsCategory("read", "read")).toBe(true);
     expect(levelAllowsCategory("read", "write")).toBe(false);
     expect(levelAllowsCategory("read", "intent")).toBe(false);
+  });
+});
+
+describe("coerceAccessLevel", () => {
+  it("passes through the three valid levels unchanged", () => {
+    for (const l of ACCESS_LEVELS) expect(coerceAccessLevel(l)).toBe(l);
+  });
+
+  it("defaults null/undefined to 'full' (pre-0022 back-compat)", () => {
+    expect(coerceAccessLevel(null)).toBe("full");
+    expect(coerceAccessLevel(undefined)).toBe("full");
+  });
+
+  it("fails CLOSED to 'read' for any unrecognised non-null value", () => {
+    // A malformed level must restrict, never escalate to full privilege.
+    for (const v of ["", "writ", "admin", "READ", "Full", "intent "]) {
+      expect(coerceAccessLevel(v)).toBe("read");
+    }
   });
 });

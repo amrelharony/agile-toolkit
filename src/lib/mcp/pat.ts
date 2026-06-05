@@ -1,6 +1,6 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import { isAccessLevel, type AccessLevel } from "./capability";
+import { coerceAccessLevel, type AccessLevel } from "./capability";
 
 /**
  * Personal Access Tokens for the MCP HTTP transport.
@@ -160,12 +160,11 @@ export async function verifyBearer(bearer: string): Promise<{
       // RPC return from a pre-0018 deploy can still surface null. Coerce
       // to empty so handlers always receive an array.
       squadProfileIds: resolved.squad_profile_ids ?? [],
-      // Post-0022 the column is NOT NULL with default 'full'. A stale RPC
-      // return from a pre-0022 deploy surfaces undefined/null — fail SAFE to
-      // 'full' only because the route's category check is the authority; any
-      // unexpected value also falls back here. (Failing to a lower privilege
-      // would lock out legitimate writers on a half-applied deploy.)
-      accessLevel: isAccessLevel(resolved.access_level) ? resolved.access_level : "full",
+      // Post-0022 the column is NOT NULL with default 'full'. coerceAccessLevel
+      // splits the fallback: a null (stale pre-0022 RPC return) stays 'full' so
+      // a half-applied deploy doesn't lock out writers, but any non-null value
+      // we don't recognise fails CLOSED to 'read' rather than escalating.
+      accessLevel: coerceAccessLevel(resolved.access_level),
     };
   }
   return null;
