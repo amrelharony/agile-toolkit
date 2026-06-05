@@ -4,11 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAgentStore } from "@/lib/agent/store";
 import { useAuth } from "@/lib/auth/auth-provider";
-import { sendUserMessage, abortInFlight } from "@/lib/agent/client";
+import { sendUserMessage, abortInFlight, generateTitle } from "@/lib/agent/client";
 import {
   createConversation,
   listConversations,
   loadMessages,
+  renameConversation,
   conversationTitle,
 } from "@/lib/agent/persist";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,10 @@ import type { ChatMessage } from "@/lib/agent/types";
 /** Resume the most recent thread at most once per page load (not on every
  *  panel reopen — that would override an intentional "New chat"). */
 let resumedThisLoad = false;
+
+/** Conversations created this page-load that are awaiting a model-generated
+ *  title (resumed threads are never re-titled). */
+const freshConvos = new Set<string>();
 
 /**
  * Active conversation view: message list + composer + confirmation card.
@@ -69,6 +74,30 @@ export function AgentConversation() {
     });
   }, []);
 
+  // After a freshly-created conversation's first turn settles, upgrade its
+  // first-message title to a concise model-generated one (best-effort, unmetered;
+  // resumed threads are never in freshConvos so they're left alone).
+  useEffect(() => {
+    if (streaming) return;
+    const s = useAgentStore.getState();
+    const cid = s.activeConversationId;
+    if (!cid || !freshConvos.has(cid)) return;
+    if (!s.messages.some((m) => m.role === "assistant")) return;
+    freshConvos.delete(cid);
+    const textOf = (role: ChatMessage["role"]) =>
+      (s.messages.find((m) => m.role === role)?.content ?? [])
+        .map((c) => (c.type === "text" ? c.text : ""))
+        .join(" ")
+        .trim();
+    const userText = textOf("user");
+    if (!userText) return;
+    void generateTitle(userText, textOf("assistant")).then((title) => {
+      if (title && useAgentStore.getState().activeConversationId === cid) {
+        void renameConversation(cid, title);
+      }
+    });
+  }, [streaming]);
+
   const onSend = async () => {
     const text = input.trim();
     if (!text || streaming || !user) return;
@@ -86,6 +115,7 @@ export function AgentConversation() {
       if (meta) {
         useAgentStore.getState().setActiveConversation(meta, useAgentStore.getState().messages);
         convId = meta.id;
+        freshConvos.add(meta.id); // upgrade to a model-generated title after turn 1
       }
     }
     void sendUserMessage(text, { userId: user.id, toolId, conversationId: convId ?? undefined });

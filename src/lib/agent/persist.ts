@@ -200,3 +200,39 @@ export function conversationTitle(text: string): string {
   if (!t) return "New conversation";
   return t.length > 60 ? `${t.slice(0, 57)}…` : t;
 }
+
+/** Render a conversation as portable markdown for export/download. */
+export function conversationToMarkdown(title: string, messages: ChatMessage[]): string {
+  const out: string[] = [`# ${title}`, ""];
+  for (const m of messages) {
+    if (m.role === "user") {
+      out.push("**You:**", "");
+      for (const c of m.content) if (c.type === "text") out.push(c.text, "");
+    } else if (m.role === "assistant") {
+      out.push("**ElharonyClaw:**", "");
+      for (const c of m.content) {
+        if (c.type === "text") out.push(c.text, "");
+        else if (c.type === "tool_use")
+          out.push("```", `${c.name}(${JSON.stringify(c.input)})`, "```", "");
+      }
+    } else if (m.role === "tool") {
+      for (const c of m.content) {
+        if (c.type === "tool_result") {
+          const body = typeof c.content === "string" ? c.content : JSON.stringify(c.content);
+          out.push(`> ${body.slice(0, 800).replace(/\n/g, "\n> ")}`, "");
+        }
+      }
+    }
+  }
+  return `${out.join("\n").trim()}\n`;
+}
+
+/** Filesystem-safe slug for an export filename. */
+export function titleSlug(title: string): string {
+  const s = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return s || "conversation";
+}

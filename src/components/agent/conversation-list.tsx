@@ -7,15 +7,28 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2, Pencil, Check, X, MessageSquare } from "lucide-react";
+import { Plus, Trash2, Pencil, Check, X, MessageSquare, Search, Download } from "lucide-react";
 import { useAgentStore } from "@/lib/agent/store";
 import {
   listConversations,
   loadMessages,
   deleteConversation,
   renameConversation,
+  conversationToMarkdown,
+  titleSlug,
 } from "@/lib/agent/persist";
 import type { ConversationMeta } from "@/lib/agent/types";
+
+function downloadText(filename: string, text: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 function relativeTime(iso: string): string {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -31,6 +44,7 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
   const [items, setItems] = useState<ConversationMeta[] | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [query, setQuery] = useState("");
 
   const refresh = useCallback(() => {
     void listConversations().then(setItems);
@@ -63,6 +77,14 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const exportThread = async (meta: ConversationMeta) => {
+    const msgs = await loadMessages(meta.id);
+    downloadText(`${titleSlug(meta.title)}.md`, conversationToMarkdown(meta.title, msgs));
+  };
+
+  const q = query.trim().toLowerCase();
+  const filtered = (items ?? []).filter((c) => !q || c.title.toLowerCase().includes(q));
+
   return (
     <div className="flex h-full flex-col">
       <button
@@ -72,10 +94,25 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
       >
         <Plus className="h-4 w-4" aria-hidden="true" /> New chat
       </button>
+      {(items?.length ?? 0) > 3 && (
+        <div className="mx-2 mb-1 flex items-center gap-2 rounded-md border border-border px-2">
+          <Search className="h-3.5 w-3.5 shrink-0 text-sub" aria-hidden="true" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search conversations…"
+            aria-label="Search conversations"
+            className="min-w-0 flex-1 bg-transparent py-1.5 text-xs text-text placeholder:text-sub focus:outline-none"
+          />
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {items === null && <p className="px-2 py-4 text-xs text-sub">Loading…</p>}
         {items?.length === 0 && <p className="px-2 py-4 text-xs text-sub">No conversations yet.</p>}
-        {items?.map((c) => (
+        {items && items.length > 0 && filtered.length === 0 && (
+          <p className="px-2 py-4 text-xs text-sub">No matches.</p>
+        )}
+        {filtered.map((c) => (
           <div
             key={c.id}
             className={`group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm ${
@@ -126,6 +163,14 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
                   <span className="ml-auto shrink-0 text-[10px] text-sub">
                     {relativeTime(c.lastMessageAt)}
                   </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void exportThread(c)}
+                  aria-label="Export conversation"
+                  className="p-1 text-sub opacity-0 transition-opacity hover:text-text group-hover:opacity-100"
+                >
+                  <Download className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
                 <button
                   type="button"

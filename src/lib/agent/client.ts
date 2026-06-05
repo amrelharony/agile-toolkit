@@ -738,3 +738,92 @@ function maybePersistLastAssistant(conversationId: string | null | undefined): v
 function msgId(): string {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
+
+/** Read a non-tool completion stream to its end and return the concatenated text. */
+async function collectStreamText(res: Response): Promise<string> {
+  if (!res.ok || !res.body) return "";
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  let text = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      let nl: number;
+      while ((nl = buf.indexOf("\n\n")) !== -1) {
+        const chunk = buf.slice(0, nl);
+        buf = buf.slice(nl + 2);
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data:")) continue;
+          const d = line.slice(5).trim();
+          if (!d || d === "[DONE]") continue;
+          try {
+            const j = JSON.parse(d) as { choices?: Array<{ delta?: { content?: string } }> };
+            const c = j.choices?.[0]?.delta?.content;
+            if (typeof c === "string") text += c;
+          } catch {
+            /* skip keepalives / non-JSON */
+          }
+        }
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      /* already released */
+    }
+  }
+  return text;
+}
+
+/** Strip a raw model title down to a clean short string (exported for tests). */
+export function cleanTitle(raw: string): string {
+  const first = raw.split("\n")[0] ?? "";
+  const cleaned = first
+    .replace(/^\s*(title:?\s*)/i, "")
+    .replace(/^["'`*]+|["'`*]+$/g, "")
+    .replace(/[.!?,;:]+$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.length > 60 ? `${cleaned.slice(0, 57)}…` : cleaned;
+}
+
+/**
+ * Generate a short conversation title from the first exchange via a minimal,
+ * tool-free completion. NOT metered (no x-agent-new-turn header) so it doesn't
+ * spend the user's daily turn budget. Returns null on any failure so the caller
+ * keeps the first-message fallback title.
+ */
+export async function generateTitle(
+  userText: string,
+  assistantText: string
+): Promise<string | null> {
+  try {
+    const { mode, serverModel } = await detectMode();
+    const body = {
+      model: pickModel(mode, serverModel),
+      stream: true,
+      max_tokens: 24,
+      temperature: 0.2,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You title conversations. Reply with ONLY a 3-6 word title — no quotes, no preamble, no trailing punctuation.",
+        },
+        {
+          role: "user",
+          content: `User: ${userText.slice(0, 400)}\nAssistant: ${assistantText.slice(0, 400)}\n\nTitle:`,
+        },
+      ],
+    };
+    const res = await openStream(mode, body, undefined, false);
+    const title = cleanTitle(await collectStreamText(res));
+    return title || null;
+  } catch {
+    return null;
+  }
+}
