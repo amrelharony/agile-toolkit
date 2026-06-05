@@ -55,3 +55,22 @@ export function coerceAccessLevel(value: string | null | undefined): AccessLevel
   if (isAccessLevel(value)) return value;
   return value == null ? "full" : "read";
 }
+
+/**
+ * Parse a CALLER-REQUESTED access_level at PAT-mint time. Distinct from
+ * {@link coerceAccessLevel}, which resolves a value read back FROM the DB:
+ *
+ *   • undefined (field omitted) → 'full', preserving pre-0023 mint behaviour.
+ *   • a recognised level → used as-is.
+ *   • anything else (null, a malformed string, a non-string) → REJECTED
+ *     (returns null) so the route can answer 400 instead of silently minting
+ *     a BROADER token than the caller asked for.
+ *
+ * access_level is the only enforced authorization-granularity ceiling over
+ * MCP (requiresConfirmation is not enforced there — see actions/context.ts),
+ * so failing OPEN to 'full' on malformed mint input is unsafe.
+ */
+export function parseRequestedAccessLevel(value: unknown): AccessLevel | null {
+  if (value === undefined) return "full";
+  return isAccessLevel(value) ? value : null;
+}

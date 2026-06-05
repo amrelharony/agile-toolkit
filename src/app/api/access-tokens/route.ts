@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { requireAuthorizedUser } from "@/lib/auth/require-user";
 import { generateRawToken, generateSalt, hashTokenWithSalt, prefixOf } from "@/lib/mcp/pat";
-import { isAccessLevel, type AccessLevel } from "@/lib/mcp/capability";
+import { parseRequestedAccessLevel } from "@/lib/mcp/capability";
 
 /**
  * Personal access token CRUD (list + create). Delete lives at /[id].
@@ -63,10 +63,16 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "name_required" }, { status: 400 });
   }
 
-  // Operation ceiling (migration 0022). Defaults to 'full' (read+write+intent)
-  // — the pre-0022 behaviour. 'write' blocks intents; 'read' blocks all
-  // mutation. Enforced server-side by the MCP route, not just advisory.
-  const accessLevel: AccessLevel = isAccessLevel(b.accessLevel) ? b.accessLevel : "full";
+  // Operation ceiling (migration 0023). Omitted → 'full' (read+write+intent,
+  // the pre-0023 default); 'write' blocks intents; 'read' blocks all mutation.
+  // Enforced server-side by the MCP route. A PRESENT-but-malformed value is
+  // rejected rather than silently coerced to 'full': over MCP this is the only
+  // authorization ceiling (requiresConfirmation isn't enforced there), so a
+  // typo'd level must not quietly mint a broader token than the caller asked.
+  const accessLevel = parseRequestedAccessLevel(b.accessLevel);
+  if (accessLevel === null) {
+    return Response.json({ error: "invalid_access_level" }, { status: 400 });
+  }
   // Default expiration: 90 days. A token with `expires_at = null` lives
   // forever; if it leaks, the only mitigation is manual revocation. A
   // 90-day default means a forgotten/leaked token self-expires within a

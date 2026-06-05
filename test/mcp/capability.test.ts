@@ -10,6 +10,7 @@ import {
   isAccessLevel,
   levelAllowsCategory,
   coerceAccessLevel,
+  parseRequestedAccessLevel,
   ACCESS_LEVELS,
 } from "@/lib/mcp/capability";
 
@@ -58,6 +59,24 @@ describe("coerceAccessLevel", () => {
     // A malformed level must restrict, never escalate to full privilege.
     for (const v of ["", "writ", "admin", "READ", "Full", "intent "]) {
       expect(coerceAccessLevel(v)).toBe("read");
+    }
+  });
+});
+
+describe("parseRequestedAccessLevel (mint-time)", () => {
+  it("defaults an omitted (undefined) level to 'full'", () => {
+    expect(parseRequestedAccessLevel(undefined)).toBe("full");
+  });
+
+  it("passes through the three valid levels", () => {
+    for (const l of ACCESS_LEVELS) expect(parseRequestedAccessLevel(l)).toBe(l);
+  });
+
+  it("REJECTS (null) a present-but-malformed value rather than minting 'full'", () => {
+    // null is an explicit value here (not 'omitted'), so it must be rejected —
+    // only `undefined` means "field absent → default full".
+    for (const v of [null, "", "readonly", "read-only", "RO", "admin", "Full", 1, {}, []]) {
+      expect(parseRequestedAccessLevel(v)).toBeNull();
     }
   });
 });
