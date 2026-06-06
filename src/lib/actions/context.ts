@@ -30,10 +30,16 @@ export interface ActionContext {
   /** Squad-profile scope for this call. Empty array = unscoped (the
    *  caller has full workspace reach, equivalent to the workspace
    *  owner). Non-empty = the caller is acting as one or more of these
-   *  squad profiles; handlers may use this to filter reads and to
-   *  attribute writes via history_events.squad_profile_id. Always
-   *  defined (an array, possibly empty) so handlers can read it
-   *  without null-checks. */
+   *  squad profiles. Always defined (an array, possibly empty) so
+   *  handlers can read it without null-checks.
+   *
+   *  Handlers do NOT need to filter on this themselves: over MCP the
+   *  transport mirrors it into AsyncLocalStorage (scope-context.ts) and
+   *  server-store enforces the hybrid read/write model centrally
+   *  (migration 0024) — a scoped call only sees/writes untagged + own-squad
+   *  rows. This field is exposed for handlers that want to branch on scope
+   *  (e.g. attribution in a custom payload), not for them to re-implement
+   *  the isolation. */
   squadProfileIds: string[];
 }
 

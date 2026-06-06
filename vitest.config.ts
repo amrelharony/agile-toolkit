@@ -29,6 +29,11 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // `server-only` throws unless imported under the bundler's react-server
+      // condition (absent in vitest), so stub it to an empty module — this lets
+      // server modules that guard themselves with `import "server-only"` be
+      // unit-tested. The real guard still applies in the Next build.
+      "server-only": path.resolve(__dirname, "./test/stubs/server-only.ts"),
     },
   },
 });

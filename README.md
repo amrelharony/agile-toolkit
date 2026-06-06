@@ -130,6 +130,11 @@ Rate limit: 120 requests/minute per PAT.
 - All routes gated by middleware on a valid Supabase session + email allowlist.
 - All Supabase tables enforce `auth.uid() = user_id` via RLS.
 - PATs stored as scrypt hashes; lookup via SECURITY DEFINER Postgres function.
+- PATs carry an operation ceiling (`access_level`: read / write / full) and an
+  optional squad scope. A squad-scoped PAT is data-isolated (hybrid model,
+  migration 0024): it reads shared + its own squad's rows and writes only its
+  own squad's rows, never a peer squad's — containing the blast radius of a
+  stolen or prompt-injected agent token.
 - CSP locked to first-party + the LLM provider endpoints the app actually uses.
 - HSTS, COOP, X-Frame-Options DENY, frame-ancestors 'none'.
 - security.txt at `/.well-known/security.txt`.

@@ -17,27 +17,31 @@
 --
 -- Enforcement landing site:
 --   - src/lib/mcp/pat.ts          verifyBearer returns the scope
---   - src/lib/mcp/transport-http  passes scope into ActionContext
+--   - src/lib/mcp/transport-http  sets the scope in AsyncLocalStorage around
+--                                 the handler (src/lib/actions/scope-context.ts)
 --   - src/lib/actions/context.ts  ctx.squadProfileIds available to handlers
---   - Individual handlers opt in to scope-aware reads / writes during
---     Phase 1 squad work (see docs/MCP-AGENTS.md §4)
+--   - src/lib/actions/server-store.ts  ENFORCES it centrally (migration 0024)
 --
 -- ══════════════════════════════════════════════════════════════════════
 -- Threat model
 -- ══════════════════════════════════════════════════════════════════════
--- The scope is informational at the transport layer: a PAT with scope
--- [profile_A] does not magically prevent a handler from reading data
+-- NOTE (superseded by migration 0024): when this migration shipped, scope
+-- was ADVISORY — only stored on the token, with no handler filtering on it,
+-- so a scoped PAT had the same data reach as an unscoped one. As of 0024 it
+-- is ENFORCED centrally in server-store (the single module that touches
+-- user_entities on the MCP path), via a per-entity squad_profile_id tag and a
+-- hybrid model: a scoped PAT reads untagged/shared + its own squad's rows and
+-- writes only its own squad's rows; it never sees or mutates a peer squad's
+-- data. The text below is retained for historical context.
+--
+-- [historical] The scope is informational at the transport layer: a PAT with
+-- scope [profile_A] does not magically prevent a handler from reading data
 -- attributable to profile_B if the handler ignores ctx.squadProfileIds.
--- This is intentional — handlers know their own data shapes and choose
--- the right filter. Failing closed at the transport would break every
--- existing handler. The contract is: "scope is a request to the
--- handler, not a guarantee from the transport".
 --
 -- Squad-PAT minting is still owner-only (`requireAuthorizedUser`).
--- An attacker who steals a scoped PAT gets that scope's reach. An
--- attacker who steals an unscoped (legacy) PAT gets full workspace
--- reach — same as today. Recommend re-minting unscoped PATs with
--- scopes once Phase 1 lands.
+-- An attacker who steals a scoped PAT now gets only that scope's slice
+-- (shared + own squad). An attacker who steals an unscoped (legacy) PAT still
+-- gets full workspace reach — recommend re-minting unscoped PATs with scopes.
 
 -- ══════════════════════════════════════════════════════════════════════
 -- Column

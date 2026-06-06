@@ -1,6 +1,6 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import { isAccessLevel, type AccessLevel } from "./capability";
+import { coerceAccessLevel, type AccessLevel } from "./capability";
 
 /**
  * Personal Access Tokens for the MCP HTTP transport.
@@ -160,12 +160,11 @@ export async function verifyBearer(bearer: string): Promise<{
       // RPC return from a pre-0018 deploy can still surface null. Coerce
       // to empty so handlers always receive an array.
       squadProfileIds: resolved.squad_profile_ids ?? [],
-      // Post-0022 the column is NOT NULL with default 'full'. A stale RPC
-      // return from a pre-0022 deploy surfaces undefined/null — fail SAFE to
-      // 'full' only because the route's category check is the authority; any
-      // unexpected value also falls back here. (Failing to a lower privilege
-      // would lock out legitimate writers on a half-applied deploy.)
-      accessLevel: isAccessLevel(resolved.access_level) ? resolved.access_level : "full",
+      // Post-0022 the column is NOT NULL with default 'full'. coerceAccessLevel
+      // splits the fallback: a null (stale pre-0022 RPC return) stays 'full' so
+      // a half-applied deploy doesn't lock out writers, but any non-null value
+      // we don't recognise fails CLOSED to 'read' rather than escalating.
+      accessLevel: coerceAccessLevel(resolved.access_level),
     };
   }
   return null;
@@ -173,4 +172,40 @@ export async function verifyBearer(bearer: string): Promise<{
 
 export function prefixOf(rawToken: string): string {
   return rawToken.slice(0, 8);
+}
+
+export type ExpiryResult =
+  | { ok: true; iso: string }
+  | { ok: false; error: "invalid_expires_at" | "expires_at_in_past" | "expires_at_too_far" };
+
+/**
+ * Resolve a caller-requested PAT expiry at mint time.
+ *
+ *   • omitted (undefined/null) → default TTL from `now` (preserves the
+ *     pre-existing 90-day default; the UI never sends this field).
+ *   • a valid ISO string in (now, now + maxTtl] → normalised to ISO.
+ *   • a non-string, an unparseable string, a past/now date, or a date
+ *     beyond the hard ceiling → rejected, so the route can answer 400.
+ *
+ * Previously the route stored `expires_at` verbatim with no validation:
+ * a malformed string surfaced as a generic 500 (Postgres timestamptz
+ * reject), a past date minted a born-expired token, and there was no
+ * upper bound — a client could pass year-9999 and defeat the TTL default
+ * the feature exists to provide.
+ */
+export function resolveRequestedExpiry(
+  value: unknown,
+  now: number,
+  opts: { defaultTtlDays: number; maxTtlDays: number }
+): ExpiryResult {
+  const DAY_MS = 86_400_000;
+  if (value === undefined || value === null) {
+    return { ok: true, iso: new Date(now + opts.defaultTtlDays * DAY_MS).toISOString() };
+  }
+  if (typeof value !== "string") return { ok: false, error: "invalid_expires_at" };
+  const t = Date.parse(value);
+  if (!Number.isFinite(t)) return { ok: false, error: "invalid_expires_at" };
+  if (t <= now) return { ok: false, error: "expires_at_in_past" };
+  if (t > now + opts.maxTtlDays * DAY_MS) return { ok: false, error: "expires_at_too_far" };
+  return { ok: true, iso: new Date(t).toISOString() };
 }

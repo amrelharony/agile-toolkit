@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 /** @type {import('next').NextConfig} */
 
 /**
@@ -81,6 +83,16 @@ const securityHeaders = [
   { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
 ];
 
+// AsyncLocalStorage (node:async_hooks) carries the MCP squad scope on the
+// server (src/lib/actions/scope-context.ts). server-store imports it and is
+// reachable from the browser via the action registry, so the client/edge
+// bundles would otherwise try to bundle a Node builtin and fail. Replace it
+// with a no-op shim everywhere EXCEPT the Node server runtime, where the real
+// enforcement runs. The browser/edge never open a scope frame.
+const asyncHooksShim = fileURLToPath(
+  new URL("./src/lib/actions/async-local-storage-shim.ts", import.meta.url)
+);
+
 const nextConfig = {
   async headers() {
     return [
@@ -89,6 +101,15 @@ const nextConfig = {
         headers: securityHeaders,
       },
     ];
+  },
+  webpack: (config, { isServer, nextRuntime, webpack }) => {
+    const isNodeServer = isServer && nextRuntime === "nodejs";
+    if (!isNodeServer) {
+      config.plugins.push(
+        new webpack.NormalModuleReplacementPlugin(/^node:async_hooks$/, asyncHooksShim)
+      );
+    }
+    return config;
   },
 };
 
