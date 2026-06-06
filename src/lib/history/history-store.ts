@@ -161,18 +161,17 @@ export const useHistoryStore = create<HistoryStore>()(
           // BUG-HX1: a pure `occurredAt` sort breaks across devices with
           // skewed clocks — a device 30s slow stamps "earlier" events
           // that ought to interleave AFTER faster-device events. Prefer
-          // the server-stamped `syncedAt` when both sides carry it
-          // (cloud-pulled events always do). Tie-break on clientEventId
-          // (a nanoid) for full determinism instead of leaving sort
-          // stability to the engine.
+          // the server-stamped `syncedAt` when an event carries it
+          // (cloud-pulled events always do), else fall back to
+          // `occurredAt`. Each event contributes ONE sort key — comparing
+          // `syncedAt` for some pairs and `occurredAt` for others made the
+          // comparator intransitive (A<B, B<C yet A>C), which yields an
+          // engine-defined, effectively random order. Tie-break on
+          // clientEventId (a nanoid) for full determinism.
+          const sortKey = (e: HistoryEvent) => e.syncedAt ?? e.occurredAt;
           const merged = [...s.events, ...fresh].sort((a, b) => {
-            if (a.syncedAt && b.syncedAt) {
-              const cmp = a.syncedAt.localeCompare(b.syncedAt);
-              if (cmp !== 0) return cmp;
-            } else {
-              const cmp = a.occurredAt.localeCompare(b.occurredAt);
-              if (cmp !== 0) return cmp;
-            }
+            const cmp = sortKey(a).localeCompare(sortKey(b));
+            if (cmp !== 0) return cmp;
             return a.clientEventId.localeCompare(b.clientEventId);
           });
           if (merged.length > EVENTS_CAP) {

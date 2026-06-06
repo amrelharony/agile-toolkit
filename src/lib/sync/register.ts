@@ -28,7 +28,19 @@ interface RegisterBlobOptions {
 }
 
 export function registerBlobStore(opts: RegisterBlobOptions): void {
-  if (blobAdapters.has(opts.storeKey)) return;
+  const existing = blobAdapters.get(opts.storeKey);
+  if (existing) {
+    // The adapter lives for the process lifetime, but `useCloudPersisted`'s
+    // hook-side registry (registered + adapterDirty) is wiped on sign-out /
+    // user-switch (resetCloudPersistedRegistry). When a hook re-mounts after
+    // that wipe it calls registerBlobStore again to re-establish the
+    // local-change wiring. Re-running `subscribe` re-populates the hook's
+    // `adapterDirty` map (idempotent — its Map.set just overwrites). Without
+    // this, edits after a re-sign-in silently stopped scheduling pushes.
+    // (The engine registration itself must NOT be repeated.)
+    opts.subscribe(() => existing.markDirty());
+    return;
+  }
   const adapter = makeBlobAdapter({
     storeKey: opts.storeKey,
     getSnapshot: opts.getSnapshot,

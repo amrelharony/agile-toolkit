@@ -304,7 +304,15 @@ export function exportCsv(
   const escapeCsv = (s: string) => {
     const guarded = s
       .split(/(\r\n|\r|\n)/)
-      .map((part) => (/^[=+\-@\t\r]/.test(part) ? `'${part}` : part))
+      .map((part) => {
+        // The capturing split keeps the line separators as their own
+        // elements. They must pass through untouched — the dangerous-char
+        // class includes `\r`, so prefixing here would insert a stray `'`
+        // before every CR (e.g. a Windows-pasted "\r\n" cell). Only guard
+        // actual content lines.
+        if (part === "\r\n" || part === "\r" || part === "\n") return part;
+        return /^[=+\-@\t\r]/.test(part) ? `'${part}` : part;
+      })
       .join("");
     return `"${guarded.replace(/"/g, '""')}"`;
   };

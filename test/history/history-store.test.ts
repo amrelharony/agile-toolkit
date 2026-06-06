@@ -87,6 +87,40 @@ describe("useHistoryStore.addEvents", () => {
     expect(order).toEqual(["evt-aaaa", "evt-bbbb"]);
   });
 
+  it("uses a consistent (transitive) order for a mix of synced and unsynced events", () => {
+    // Mixed set: some events carry syncedAt (cloud-pulled), some don't
+    // (local-only). The old comparator compared syncedAt for synced/synced
+    // pairs but occurredAt for any pair involving an unsynced event, making
+    // it intransitive (A<B, B<C yet A>C) — JS sort then produced an
+    // engine-defined, input-order-dependent result. Each event now yields a
+    // single sort key (syncedAt ?? occurredAt), so the order is independent
+    // of insertion order.
+    const synced1 = evt({
+      clientEventId: "evt-s1",
+      occurredAt: "2026-05-24T01:00:00Z",
+      syncedAt: "2026-05-24T09:00:00Z",
+    });
+    const local = evt({
+      clientEventId: "evt-local",
+      occurredAt: "2026-05-24T05:00:00Z",
+    });
+    const synced2 = evt({
+      clientEventId: "evt-s2",
+      occurredAt: "2026-05-24T20:00:00Z",
+      syncedAt: "2026-05-24T02:00:00Z",
+    });
+    // sort keys: s1→09:00, local→05:00, s2→02:00  ⇒  [s2, local, s1]
+    const expected = ["evt-s2", "evt-local", "evt-s1"];
+
+    useHistoryStore.getState().addEvents([synced1, local, synced2]);
+    expect(useHistoryStore.getState().events.map((e) => e.clientEventId)).toEqual(expected);
+
+    // A different insertion order must yield the SAME result.
+    useHistoryStore.setState({ events: [] });
+    useHistoryStore.getState().addEvents([synced2, synced1, local]);
+    expect(useHistoryStore.getState().events.map((e) => e.clientEventId)).toEqual(expected);
+  });
+
   it("deduplicates by clientEventId across calls", () => {
     const a = evt({
       clientEventId: "evt-A",
