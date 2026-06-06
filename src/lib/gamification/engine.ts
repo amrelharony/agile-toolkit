@@ -134,7 +134,9 @@ const rules: Partial<Record<string, Rule>> = {
   "sync-first": (evt) => evt === "rt:sync-remote",
   "party-of-four": (_e, m) => typeof m?.memberCount === "number" && m.memberCount >= 4,
   "workspace-share": (evt) => evt === "workspace-push",
-  "combo-3": (_e, m) => typeof m?.comboDepth === "number" && m.comboDepth >= 2,
+  // depth→multiplier: COMBO_MULTIPLIERS[depth] = [1, 1.5, 2, 3, 5]. "On A
+  // Roll" promises a x3 combo (depth 3); "Unstoppable" a x5 combo (depth 4).
+  "combo-3": (_e, m) => typeof m?.comboDepth === "number" && m.comboDepth >= 3,
   "combo-5": (_e, m) => typeof m?.comboDepth === "number" && m.comboDepth >= 4,
   "marathon-30": (_e, _m, s) => (s.counters["session-minutes"] ?? 0) >= 30,
   "marathon-60": (_e, _m, s) => (s.counters["session-minutes"] ?? 0) >= 60,
@@ -168,7 +170,11 @@ const rules: Partial<Record<string, Rule>> = {
   "reduce-motion": (evt) => evt === "reduce-motion-on",
   "level-ten": (_e, _m, s) => s.level >= 10,
   konami: (evt) => evt === "secret:konami",
-  "logo-whisperer": (_e, _m, s) => (s.counters["logo-hover"] ?? 0) >= 10,
+  // secrets.ts dispatches `logo-whispered` exactly when the hover count
+  // reaches 10. The old rule read counters["logo-hover"], which dispatch()
+  // never bumps (only tool:* / click / hover / export-* events bump
+  // counters), so it could never unlock.
+  "logo-whisperer": (evt) => evt === "logo-whispered",
   "triple-tap": (evt) => evt === "secret:triple-tap",
   "footer-click": (evt) => evt === "secret:footer-click",
   "type-agile": (evt) => evt === "secret:typed-agile",
@@ -181,9 +187,11 @@ const rules: Partial<Record<string, Rule>> = {
   "prestige-one": (_e, _m, s) => s.prestige >= 1,
   // ─── Recognition (Phase 2 kudos redesign) ────────────────────────────
   // Counters are bumped by the `tool:kudos:*` events forwarded from
-  // emit(). `kudos-combo-5` reads the combo state directly so 5 rapid
-  // sends inside the 3 s window unlock it; the multi-recipient gate
-  // lives in the dispatch site that emits `tool:kudos:squad-complete`.
+  // emit(). `kudos-combo-5` reads `meta.comboDepth` (injected from the live
+  // combo state in dispatch); `tool:kudos:sent` is a combo event, so rapid
+  // sends inside the 3 s window build depth to the x5 cap (4) and unlock it.
+  // The multi-recipient gate lives in the dispatch site that emits
+  // `tool:kudos:squad-complete`.
   "generous-spirit-25": (_e, _m, s) => (s.counters["tool:kudos:sent"] ?? 0) >= 25,
   "receiver-10": (_e, _m, s) => (s.counters["tool:kudos:received"] ?? 0) >= 10,
   "squad-booster-all": (evt) => evt === "tool:kudos:squad-complete",
@@ -489,8 +497,13 @@ export function dispatch(event: GamificationEvent) {
     // Challenge advancement.
     advanceChallenges(name, meta);
 
-    // Achievement evaluation.
-    evaluateAchievements(name, meta);
+    // Achievement evaluation. Inject the LIVE combo depth: the combo-based
+    // rules (combo-3 / combo-5 / kudos-combo-5) read `meta.comboDepth`, but
+    // the depth lives in the module-level combo state and is never present
+    // on the raw event meta — so without this those achievements could never
+    // unlock. getCombo() returns the depth just bumped above (or 0 if the
+    // combo window has lapsed for a non-combo event).
+    evaluateAchievements(name, { ...meta, comboDepth: getCombo().depth });
   } finally {
     emitDepth--;
   }

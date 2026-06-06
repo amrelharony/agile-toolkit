@@ -59,7 +59,7 @@ export interface ParsedDiagram {
 export function parseCsv(text: string): string[][] {
   if (text.length > 5_000_000) throw new Error("CSV too large (>5MB)");
   // Strip UTF-8 BOM (Excel exports include it, breaks header sniff).
-  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   const out: string[][] = [];
   let row: string[] = [];
   // Array buffering avoids O(n^2) string concat on adversarial input.
@@ -81,8 +81,15 @@ export function parseCsv(text: string): string[][] {
       }
       continue;
     }
-    if (ch === '"') { inQuotes = true; continue; }
-    if (ch === ",") { row.push(fieldBuf.join("")); fieldBuf = []; continue; }
+    if (ch === '"') {
+      inQuotes = true;
+      continue;
+    }
+    if (ch === ",") {
+      row.push(fieldBuf.join(""));
+      fieldBuf = [];
+      continue;
+    }
     if (ch === "\n" || ch === "\r") {
       // CR-LF: consume the LF.
       if (ch === "\r" && text[i + 1] === "\n") i++;
@@ -132,7 +139,9 @@ function detectShape(rows: DiagramRow[]): DiagramShape {
     if (!adj.has(r.b)) adj.set(r.b, []);
     adj.get(r.b)!.push(r.a);
   }
-  const WHITE = 0, GRAY = 1, BLACK = 2;
+  const WHITE = 0,
+    GRAY = 1,
+    BLACK = 2;
   const color = new Map<string, number>();
   const allNodes = new Set<string>();
   for (const r of rows) {
@@ -208,8 +217,13 @@ export function parseDiagramCsv(text: string): ParsedDiagram {
   const sameAs = (h: string[]) => h.length <= first.length && h.every((v, i) => v === first[i]);
   let dataStart = 0;
   let forcedShape: DiagramShape | null = null;
-  if (TREE_HEADERS.some(sameAs)) { dataStart = 1; forcedShape = "tree"; }
-  else if (FLOW_HEADERS.some(sameAs)) { dataStart = 1; forcedShape = "flowchart"; }
+  if (TREE_HEADERS.some(sameAs)) {
+    dataStart = 1;
+    forcedShape = "tree";
+  } else if (FLOW_HEADERS.some(sameAs)) {
+    dataStart = 1;
+    forcedShape = "flowchart";
+  }
   const rows: DiagramRow[] = [];
   for (let i = dataStart; i < tokens.length; i++) {
     const t = tokens[i];
@@ -226,7 +240,11 @@ export function parseDiagramCsv(text: string): ParsedDiagram {
   // could still produce ~500k rows / 500k cards and freeze the canvas.
   // Reject with a helpful message before layout/render is attempted.
   if (rows.length > 1000) {
-    return { shape: "unknown", rows: [], error: `Too many rows (${rows.length}, max 1000). Split into smaller imports.` };
+    return {
+      shape: "unknown",
+      rows: [],
+      error: `Too many rows (${rows.length}, max 1000). Split into smaller imports.`,
+    };
   }
   // Single-column CSV: no parent/target info available, can't infer shape.
   if (!rows.some((r) => r.b)) {
@@ -264,7 +282,7 @@ export function diagramToObjects(
   boardId: string,
   parsed: ParsedDiagram,
   /** Top-left world origin where the diagram should land. */
-  origin: { x: number; y: number },
+  origin: { x: number; y: number }
 ): WhiteboardObject[] {
   if (parsed.rows.length === 0) return [];
   const now = new Date().toISOString();
@@ -284,8 +302,7 @@ export function diagramToObjects(
   // via upsert. Append a short random suffix so concurrent same-ms calls
   // get distinct id spaces.
   const epoch = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`;
-  const idFor = (label: string) =>
-    `wb_${epoch}_${hashLabel(label)}`;
+  const idFor = (label: string) => `wb_${epoch}_${hashLabel(label)}`;
 
   const objects: WhiteboardObject[] = [];
 
@@ -305,7 +322,10 @@ export function diagramToObjects(
       const p = parentOf.get(l);
       parentsForLayout[idFor(l)] = p ? idFor(p) : null;
     }
-    const positions = treeLayout(layoutNodes, parentsForLayout, { rowGap: ROW_GAP, colGap: COL_GAP });
+    const positions = treeLayout(layoutNodes, parentsForLayout, {
+      rowGap: ROW_GAP,
+      colGap: COL_GAP,
+    });
 
     let zCursor = 1;
     for (const l of labelsArr) {
@@ -335,7 +355,10 @@ export function diagramToObjects(
         id: `wbc_${epoch}_${edgeIdx++}_${hashLabel(parent + ">" + child)}`,
         boardId,
         type: "connector",
-        x: 0, y: 0, w: 0, h: 0,
+        x: 0,
+        y: 0,
+        w: 0,
+        h: 0,
         z: zCursor++,
         version: 1,
         fromId: idFor(parent),
@@ -355,9 +378,14 @@ export function diagramToObjects(
   // Flowchart shape — force-layout the graph.
   const labelsArr2 = Array.from(labels);
   const layoutNodes = labelsArr2.map((l) => ({ id: idFor(l), w: CARD_W, h: CARD_H }));
+  // Flowchart columns are `from,to` (source,target): col 0 → r.a (source),
+  // col 1 → r.b (target). The arrow must point source → target, i.e.
+  // a → b — NOT the b → a used by the tree branch (where col 0 is the
+  // child and col 1 the parent). Emitting b → a here drew every arrow
+  // backwards (pointing at the source).
   const layoutEdges = parsed.rows
     .filter((r) => r.b)
-    .map((r) => ({ from: idFor(r.b), to: idFor(r.a) }));
+    .map((r) => ({ from: idFor(r.a), to: idFor(r.b) }));
   // Cap force-layout iterations based on node count — N=1000 × 100 iters
   // froze the tab. Tunes the work budget to ~8000 ops independent of N.
   const iters = Math.max(40, Math.min(100, Math.floor(8000 / Math.max(1, labelsArr2.length))));
@@ -394,18 +422,22 @@ export function diagramToObjects(
   let edgeIdx = 0;
   for (const r of parsed.rows) {
     if (!r.b) continue;
-    const key = idFor(r.b) + ">" + idFor(r.a);
+    // source → target (a → b); arrowEnd renders the arrowhead at `toId`.
+    const key = idFor(r.a) + ">" + idFor(r.b);
     if (edgeKeys.has(key)) continue;
     edgeKeys.add(key);
     const connector: WhiteboardConnector = {
-      id: `wbc_${epoch}_${edgeIdx++}_${hashLabel(r.b + ">" + r.a)}`,
+      id: `wbc_${epoch}_${edgeIdx++}_${hashLabel(r.a + ">" + r.b)}`,
       boardId,
       type: "connector",
-      x: 0, y: 0, w: 0, h: 0,
+      x: 0,
+      y: 0,
+      w: 0,
+      h: 0,
       z: zCursor++,
       version: 1,
-      fromId: idFor(r.b),
-      toId: idFor(r.a),
+      fromId: idFor(r.a),
+      toId: idFor(r.b),
       stroke: "#94a3b8",
       strokeWidth: 1.5,
       routing: "curved",

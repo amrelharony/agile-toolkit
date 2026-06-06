@@ -28,18 +28,25 @@ const PATTERNS: Array<{ re: RegExp; label: string }> = [
     re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
     label: "[redacted:email]",
   },
+  // 13–19 digit numbers that look like credit cards (with optional
+  // dashes/spaces). Conservative — won't match plain UUIDs.
+  //
+  // MUST run before the phone pattern: a formatted card like
+  // "4111 1111 1111 1111" is longer than the phone pattern's max span,
+  // so if phone ran first it would consume the leading groups and stop
+  // at a separator, leaving the final 4-digit group exposed (the phone
+  // lookahead `(?=…|[^\d])` is satisfied by the space/dash between
+  // groups). "Longest patterns first" — see the header comment.
+  {
+    re: /\b(?:\d[ -]?){13,18}\d\b/g,
+    label: "[redacted:cc]",
+  },
   // International-ish phone numbers: optional + and country code, then
   // 7–14 digits possibly with spaces/dashes/parens. Anchored to word
   // boundaries to avoid eating digits inside identifiers.
   {
     re: /(?:(?<=\s)|^)\+?\d{1,3}[\s.-]?\(?\d{1,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}(?=\s|$|[^\d])/g,
     label: "[redacted:phone]",
-  },
-  // 13–19 digit numbers that look like credit cards (with optional
-  // dashes/spaces). Conservative — won't match plain UUIDs.
-  {
-    re: /\b(?:\d[ -]?){13,18}\d\b/g,
-    label: "[redacted:cc]",
   },
 ];
 
