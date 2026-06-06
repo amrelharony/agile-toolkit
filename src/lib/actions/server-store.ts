@@ -31,6 +31,34 @@
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { currentScopeIds } from "./scope-context";
+
+/**
+ * Hybrid squad-scope enforcement (migration 0024). The active scope is read
+ * from AsyncLocalStorage (set by the MCP transport from the PAT). Two derived
+ * rules:
+ *
+ *   READ visibility  — a scoped call sees rows that are untagged
+ *     (squad_profile_id IS NULL = shared/owner) OR tagged with one of its own
+ *     squad profiles. PostgREST `.or()` filter string built here.
+ *   WRITE ownership  — a scoped call may mutate ONLY its own squad's rows
+ *     (squad_profile_id IN scope); new rows are stamped with the acting squad
+ *     (scope[0]). Shared rows are read-only to it; peer rows invisible.
+ *
+ * An empty scope (unscoped PAT / owner / outside any scope frame) disables
+ * both — every helper then behaves exactly as it did pre-0024.
+ *
+ * The acting squad for a write is the FIRST profile in scope: a squad PAT is
+ * normally scoped to one profile (0018), and a multi-profile token is a read
+ * union with a single write identity.
+ */
+
+/** PostgREST `.or()` predicate for read visibility, or null when unscoped. */
+function readVisibilityOr(scope: readonly string[]): string | null {
+  if (scope.length === 0) return null;
+  // squad_profile_id.is.null OR squad_profile_id.in.(id1,id2,…)
+  return `squad_profile_id.is.null,squad_profile_id.in.(${scope.join(",")})`;
+}
 
 // Scalars (teamName, maturityLevel) cloud-sync as one flat blob. This key
 // MUST equal the storeKey the browser's scalars blob adapter registers
@@ -82,6 +110,7 @@ export async function serverListEntities<T extends { id: string }>(
   kind: string
 ): Promise<T[]> {
   const c = admin();
+  const visibility = readVisibilityOr(currentScopeIds());
   const out: T[] = [];
   const PAGE = 1000;
   let lastSeenId: string | null = null;
@@ -90,9 +119,9 @@ export async function serverListEntities<T extends { id: string }>(
       .from("user_entities")
       .select("entity_id, payload, deleted")
       .eq("user_id", userId)
-      .eq("kind", kind)
-      .order("entity_id", { ascending: true })
-      .limit(PAGE);
+      .eq("kind", kind);
+    if (visibility) q = q.or(visibility);
+    q = q.order("entity_id", { ascending: true }).limit(PAGE);
     if (lastSeenId !== null) q = q.gt("entity_id", lastSeenId);
     const { data, error } = await q;
     if (error) throw error;
@@ -112,13 +141,15 @@ export async function serverGetEntity<T extends { id: string }>(
   kind: string,
   id: string
 ): Promise<T | null> {
-  const { data, error } = await admin()
+  let q = admin()
     .from("user_entities")
     .select("payload, deleted")
     .eq("user_id", userId)
     .eq("kind", kind)
-    .eq("entity_id", id)
-    .maybeSingle();
+    .eq("entity_id", id);
+  const visibility = readVisibilityOr(currentScopeIds());
+  if (visibility) q = q.or(visibility);
+  const { data, error } = await q.maybeSingle();
   if (error) throw error;
   if (!data || (data as { deleted: boolean }).deleted) return null;
   return (data as { payload: T }).payload;
@@ -129,19 +160,63 @@ export async function serverUpsertEntity<T extends { id: string }>(
   kind: string,
   entity: T
 ): Promise<void> {
-  const { error } = await admin().from("user_entities").upsert(
-    {
-      user_id: userId,
-      kind,
-      entity_id: entity.id,
+  const c = admin();
+  const scope = currentScopeIds();
+  const base = {
+    user_id: userId,
+    kind,
+    entity_id: entity.id,
+    payload: entity,
+    client_id: SERVER_CLIENT_ID,
+    deleted: false,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (scope.length === 0) {
+    // Unscoped / owner — single upsert that omits squad_profile_id, so an
+    // existing row's tag is preserved (not in the update set) and a new row
+    // defaults to NULL/shared. Identical to pre-0024 behaviour.
+    const { error } = await c
+      .from("user_entities")
+      .upsert(base, { onConflict: "user_id,kind,entity_id" });
+    if (error) throw error;
+    return;
+  }
+
+  // Scoped — own-squad only. Try to UPDATE an existing own-squad row (never
+  // touching squad_profile_id, so the tag is preserved). If none matches,
+  // INSERT a new row stamped with the acting squad. A shared (NULL) or peer
+  // row with this id is NOT own-squad, so the UPDATE misses and the INSERT
+  // hits the (user_id,kind,entity_id) unique constraint → 23505, surfaced as
+  // a not-writable error. This makes shared rows read-only and prevents a
+  // scoped token from capturing a row out of another scope.
+  const { data: updated, error: upErr } = await c
+    .from("user_entities")
+    .update({
       payload: entity,
       client_id: SERVER_CLIENT_ID,
       deleted: false,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id,kind,entity_id" }
-  );
-  if (error) throw error;
+      updated_at: base.updated_at,
+    })
+    .eq("user_id", userId)
+    .eq("kind", kind)
+    .eq("entity_id", entity.id)
+    .in("squad_profile_id", scope as string[])
+    .select("entity_id");
+  if (upErr) throw upErr;
+  if (updated && updated.length === 1) return;
+
+  const { error: insErr } = await c
+    .from("user_entities")
+    .insert({ ...base, squad_profile_id: scope[0] });
+  if (insErr) {
+    if ((insErr as { code?: string }).code === "23505") {
+      throw new Error(
+        `Entity "${entity.id}" exists outside this squad's scope and is not writable by this token.`
+      );
+    }
+    throw insErr;
+  }
 }
 
 /**
@@ -170,20 +245,27 @@ export async function serverVersionedUpdate<T extends { id: string; version?: nu
   maxAttempts = 5
 ): Promise<T | null> {
   const c = admin();
+  // A versioned update is a MUTATION, so it is gated by WRITE ownership, not
+  // read visibility: a scoped token may only update its OWN squad's rows
+  // (squad_profile_id IN scope), never a shared (NULL) or peer row. Empty
+  // scope (owner) applies no filter. squad_profile_id is left out of the
+  // UPDATE set so the existing tag is preserved.
+  const scope = currentScopeIds();
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const { data, error } = await c
+    let sel = c
       .from("user_entities")
       .select("payload, updated_at, deleted")
       .eq("user_id", userId)
       .eq("kind", kind)
-      .eq("entity_id", id)
-      .maybeSingle();
+      .eq("entity_id", id);
+    if (scope.length > 0) sel = sel.in("squad_profile_id", scope as string[]);
+    const { data, error } = await sel.maybeSingle();
     if (error) throw error;
     if (!data || (data as { deleted: boolean }).deleted) return null;
     const row = data as { payload: T; updated_at: string };
     const baseVersion = row.payload.version ?? 0;
     const next = { ...mutate(row.payload), version: baseVersion + 1 };
-    const { data: updated, error: upErr } = await c
+    let upd = c
       .from("user_entities")
       .update({
         payload: next,
@@ -201,8 +283,9 @@ export async function serverVersionedUpdate<T extends { id: string; version?: nu
       .eq("user_id", userId)
       .eq("kind", kind)
       .eq("entity_id", id)
-      .eq("updated_at", row.updated_at) // CAS: only if no one wrote since our read
-      .select("entity_id");
+      .eq("updated_at", row.updated_at); // CAS: only if no one wrote since our read
+    if (scope.length > 0) upd = upd.in("squad_profile_id", scope as string[]);
+    const { data: updated, error: upErr } = await upd.select("entity_id");
     if (upErr) throw upErr;
     if (updated && updated.length === 1) return next;
     // Lost the race — another writer advanced updated_at. Re-read & retry.
@@ -215,28 +298,58 @@ export async function serverVersionedUpdate<T extends { id: string; version?: nu
 /** Soft-delete (tombstone) so other devices reconcile correctly via the
  *  same sync engine path browser writes go through. */
 export async function serverDeleteEntity(userId: string, kind: string, id: string): Promise<void> {
-  const { error } = await admin().from("user_entities").upsert(
-    {
-      user_id: userId,
-      kind,
-      entity_id: id,
-      payload: {},
-      client_id: SERVER_CLIENT_ID,
-      deleted: true,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id,kind,entity_id" }
-  );
+  const c = admin();
+  const scope = currentScopeIds();
+  const now = new Date().toISOString();
+
+  if (scope.length === 0) {
+    // Owner — upsert a tombstone (creates one if absent, matching prior
+    // behaviour so other devices reconcile a delete even for a never-synced id).
+    const { error } = await c.from("user_entities").upsert(
+      {
+        user_id: userId,
+        kind,
+        entity_id: id,
+        payload: {},
+        client_id: SERVER_CLIENT_ID,
+        deleted: true,
+        updated_at: now,
+      },
+      { onConflict: "user_id,kind,entity_id" }
+    );
+    if (error) throw error;
+    return;
+  }
+
+  // Scoped — only tombstone an existing OWN-squad row (UPDATE, not upsert, so
+  // a shared/peer/absent row is a no-op rather than a captured tombstone).
+  const { error } = await c
+    .from("user_entities")
+    .update({ payload: {}, client_id: SERVER_CLIENT_ID, deleted: true, updated_at: now })
+    .eq("user_id", userId)
+    .eq("kind", kind)
+    .eq("entity_id", id)
+    .in("squad_profile_id", scope as string[]);
   if (error) throw error;
 }
 
-/** Upsert many entities in one network round-trip. */
+/** Upsert many entities. Owner: one round-trip bulk upsert. Scoped: per-row
+ *  own-squad upsert (correctness over the single round-trip — MCP bulk sizes
+ *  are modest; reuses serverUpsertEntity's scoped create/update rules). */
 export async function serverBulkUpsertEntities<T extends { id: string }>(
   userId: string,
   kind: string,
   entities: T[]
 ): Promise<void> {
   if (entities.length === 0) return;
+
+  if (currentScopeIds().length > 0) {
+    for (const e of entities) {
+      await serverUpsertEntity(userId, kind, e);
+    }
+    return;
+  }
+
   const now = new Date().toISOString();
   const rows = entities.map((e) => ({
     user_id: userId,
@@ -259,6 +372,10 @@ export async function serverBulkUpsertEntities<T extends { id: string }>(
  *
  * The blob adapter stores a FLAT `{ teamName, maturityLevel }` payload
  * (workspace-store.ts getSnapshot), so we return it as-is.
+ *
+ * NOT squad-scoped (migration 0024): scalars are single, workspace-global
+ * values (one team name, one maturity level), so every scope reads/writes the
+ * same row. user_state has no squad_profile_id column.
  */
 export async function serverGetWorkspaceBlob(userId: string): Promise<Record<string, unknown>> {
   const { data, error } = await admin()

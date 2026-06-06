@@ -1,5 +1,6 @@
 import { registry } from "@/lib/actions/registry";
 import { makeContext } from "@/lib/actions/context";
+import { runWithScope } from "@/lib/actions/scope-context";
 
 /**
  * Minimal MCP HTTP transport — implements the subset of JSON-RPC 2.0
@@ -131,7 +132,11 @@ export async function handleJsonRpc(
       let payload: unknown;
       let isError = false;
       try {
-        payload = await fn(parsed.data, ctx);
+        // Run the handler inside the squad-scope frame so server-store's
+        // read/write helpers enforce the PAT's scope (migration 0024) across
+        // every Supabase call the handler makes. An empty scope (unscoped PAT /
+        // owner) is a no-op — server-store behaves exactly as before.
+        payload = await runWithScope(ctx.squadProfileIds, () => fn(parsed.data, ctx));
       } catch (err) {
         isError = true;
         // Surface the message of intentional handler errors (a plain Error,
