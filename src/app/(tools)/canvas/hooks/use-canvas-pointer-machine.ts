@@ -394,12 +394,17 @@ export function useCanvasPointerMachine(params: {
             target === viewportRef.current?.firstChild ||
             target?.hasAttribute?.("data-canvas-empty")
           ) {
-            const rect = viewportRectRef.current;
-            if (!rect) return;
-            const world = {
-              x: (e.clientX - rect.left - camera.x) / camera.zoom,
-              y: (e.clientY - rect.top - camera.y) / camera.zoom,
-            };
+            if (!viewportRectRef.current) return;
+            // Use the shared screen→world transform so a panned/zoomed
+            // camera still drops the comment pin under the cursor. The
+            // prior inline math computed `(client - rect - camera) / zoom`,
+            // subtracting camera.x (a WORLD coordinate) from screen pixels
+            // before dividing by zoom — correct only at the origin. Once
+            // the camera panned or zoomed away from {x:0,y:0,zoom:1}, the
+            // pin landed far from the click. clientToWorld is the same
+            // helper every other drop path in this file uses, and it
+            // guards zoom=0/NaN frames too.
+            const world = clientToWorld(e.clientX, e.clientY);
             const threadId = wbId("wbc");
             upsertCommentThread({
               id: threadId,
@@ -624,9 +629,6 @@ export function useCanvasPointerMachine(params: {
       setTool,
       readOnly,
       canComment,
-      camera.x,
-      camera.y,
-      camera.zoom,
       setActiveCommentThreadId,
       stickyColor,
       viewportRef,

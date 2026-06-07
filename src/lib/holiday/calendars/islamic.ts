@@ -58,8 +58,20 @@ function findGregorianRangeForHijri(
   fromDate: Date = new Date()
 ): HolidayWindow | null {
   const dayMs = 86_400_000;
-  const rangeStartTs = fromDate.getTime() - 45 * dayMs;
-  const rangeEndTs = fromDate.getTime() + 45 * dayMs;
+  // Anchor the scan at NOON UTC rather than `fromDate`'s wall-clock time.
+  // Each step adds a fixed 24h of UTC, but every instant is mapped to a
+  // *Cairo calendar date* (todayInCairo / getHijriDate). Cairo observes DST,
+  // so stepping from an instant that sits near Cairo midnight makes the
+  // spring-forward day advance the Cairo date by TWO days in a single step —
+  // skipping a calendar day. A single-day Hijri holiday landing on the
+  // skipped day would then go undetected (and a multi-day window's start
+  // would be reported a day late). Noon UTC is 14:00–15:00 in Cairo
+  // year-round (UTC+2/+3), nowhere near a midnight boundary, so consecutive
+  // 24h-UTC steps always advance the Cairo date by exactly one — DST-safe.
+  const base = new Date(fromDate);
+  base.setUTCHours(12, 0, 0, 0);
+  const rangeStartTs = base.getTime() - 45 * dayMs;
+  const rangeEndTs = base.getTime() + 45 * dayMs;
 
   let startIso: string | null = null;
   let endIso: string | null = null;

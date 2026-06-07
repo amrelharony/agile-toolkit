@@ -142,7 +142,17 @@ function consumedMinutes(slo: SloDefinition, burns: SloBurn[]): number {
   // depending on what time the page was loaded.
   const start = new Date();
   start.setHours(0, 0, 0, 0);
-  const cutoff = start.getTime() - slo.windowDays * 24 * 60 * 60 * 1000;
+  // Step back N calendar days via setDate(), not by subtracting
+  // `windowDays * 86_400_000` ms. Over a multi-week window the ms path
+  // crosses a DST transition and lands the cutoff an hour off local
+  // midnight — so a burn dated EXACTLY windowDays ago (at local midnight)
+  // falls just outside the cutoff across a spring-forward and is dropped,
+  // reintroducing the very "in or out depending on page-load time" drift
+  // BUG-T8-slo-builder-2 set out to fix. setDate() is DST-immune, so the
+  // window edge lands on true local midnight every time.
+  const cutoffDate = new Date(start);
+  cutoffDate.setDate(start.getDate() - slo.windowDays);
+  const cutoff = cutoffDate.getTime();
   // BUG-T8-slo-builder-3: also bound the upper edge so future-dated
   // burns (typos / wrong-locale imports) don't inflate the window.
   // Allow a small +1d slack to tolerate timezone-edge near-midnight

@@ -89,4 +89,29 @@ describe("getIslamicHolidays", () => {
     // (this date is during Ramadan 1445 → Eid al-Fitr in early April 2024)
     expect(ids.length).toBeGreaterThanOrEqual(0);
   });
+
+  // Regression: the ±45-day scan stepped from `now`'s wall-clock instant in
+  // fixed 24h-UTC increments while mapping each instant to a *Cairo calendar
+  // date*. Cairo is UTC+2/+3 and observes DST, so an evening-UTC `now` (past
+  // Cairo midnight) rolled the scan boundary into the next Cairo day, and the
+  // last-Friday-of-April spring-forward additionally skipped a Cairo day —
+  // both reporting holiday window starts a day late. The scan now anchors each
+  // step at noon UTC (mid-afternoon Cairo year-round), so the result depends
+  // only on the Cairo day, not the UTC time-of-day. (islamic.ts findGregorianRangeForHijri)
+  it("reports holiday windows independent of now's UTC time-of-day (DST-safe)", () => {
+    // 2024-04-25 is within ±45 days of Ramadan 1445 AND straddles Egypt's
+    // spring-forward (last Friday of April 2024 = Apr 26).
+    const noon = getIslamicHolidays(new Date("2024-04-25T12:00:00Z"));
+    const evening = getIslamicHolidays(new Date("2024-04-25T22:00:00Z"));
+    const rNoon = noon.find((h) => h.id === "ramadan");
+    const rEvening = evening.find((h) => h.id === "ramadan");
+    expect(rNoon).toBeDefined();
+    expect(rEvening).toBeDefined();
+    // Time-of-day must not move a fixed calendar window.
+    expect(rEvening!.window).toEqual(rNoon!.window);
+    // Ramadan 1445 (Umm al-Qura) ran 2024-03-11 → 2024-04-09 in Cairo. The
+    // pre-fix evening-UTC scan reported a start of 2024-03-12 (a day late).
+    expect(rEvening!.window.startISO).toBe("2024-03-11");
+    expect(rEvening!.window.endISO).toBe("2024-04-09");
+  });
 });

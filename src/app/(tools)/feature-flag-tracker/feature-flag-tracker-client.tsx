@@ -292,7 +292,18 @@ export function FeatureFlagTrackerClient() {
     // matches the user's calendar.
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const anchor = new Date(today.getTime() - WEEKS * 7 * 86_400_000);
+    // Step back 26 weeks by CALENDAR days, not by fixed milliseconds. A
+    // `today.getTime() - WEEKS*7*86_400_000` subtraction crosses a DST
+    // transition over a half-year span: in DST-observing zones it lands the
+    // anchor at 23:00 (or 01:00) of the prior day, so `anchor.getDate()`/
+    // `getDay()` then snap `weekStart` to the WRONG week — a full week early.
+    // That shifts every bucket and silently drops the most recent week off
+    // the right edge (e.g. America/New_York, today = Sun 2026-05-10 →
+    // weekStart 2025-11-02 instead of 2025-11-09), the exact "recent surge
+    // drops off" failure this anchor was added to prevent. setDate() is
+    // local-calendar arithmetic and is immune to DST offset changes.
+    const anchor = new Date(today);
+    anchor.setDate(today.getDate() - WEEKS * 7);
     const weekStart = new Date(anchor);
     weekStart.setDate(anchor.getDate() - anchor.getDay());
     weekStart.setHours(0, 0, 0, 0);
