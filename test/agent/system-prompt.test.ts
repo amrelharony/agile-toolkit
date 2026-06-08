@@ -36,3 +36,14 @@ describe("buildSystemPrompt date wiring", () => {
     expect(p).not.toContain("Never invent ids, dates, or state");
   });
 });
+
+describe("buildSystemPrompt formatting guidance", () => {
+  it("tells the model it can use bold, italic, and emojis", () => {
+    const p = buildSystemPrompt();
+    expect(p).toMatch(/Formatting:/);
+    expect(p).toMatch(/\bMarkdown\b/);
+    expect(p).toContain("**bold**");
+    expect(p).toContain("*italic*");
+    expect(p).toMatch(/emoji/i);
+  });
+});
