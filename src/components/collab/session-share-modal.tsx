@@ -125,6 +125,17 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
     [toolId, entityId]
   );
 
+  // Tracks unmount so async reloads kicked off by user actions (onCreate)
+  // don't setState on an unmounted component — mirrors the mount effect's
+  // per-run cancellation, but lives for the component's whole lifetime.
+  const unmountedRef = useRef(false);
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+    };
+  }, []);
+
   useEffect(() => {
     const cancelledRef = { current: false };
     void load(cancelledRef);
@@ -185,8 +196,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
       } else {
         toast.success("Invite created");
       }
-      const cancelledRef = { current: false };
-      await load(cancelledRef);
+      await load(unmountedRef);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't create invite");
     } finally {
