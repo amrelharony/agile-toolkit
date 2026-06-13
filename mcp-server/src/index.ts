@@ -35,6 +35,29 @@ if (!PAT) {
   process.exit(1);
 }
 
+// Refuse to send the bearer PAT over plaintext HTTP. The default is HTTPS, but
+// a misconfigured AGILE_TOOLKIT_URL would otherwise leak the token in the
+// Authorization header to any network observer. localhost dev URLs are exempt.
+function parseBaseUrl(raw: string): URL {
+  try {
+    return new URL(raw);
+  } catch {
+    process.stderr.write(`[agile-toolkit-mcp] invalid AGILE_TOOLKIT_URL: ${raw}\n`);
+    process.exit(1);
+  }
+}
+const PARSED_URL = parseBaseUrl(URL_BASE);
+if (
+  PARSED_URL.protocol !== "https:" &&
+  PARSED_URL.hostname !== "localhost" &&
+  PARSED_URL.hostname !== "127.0.0.1"
+) {
+  process.stderr.write(
+    `[agile-toolkit-mcp] refusing to send the PAT to a non-HTTPS URL (${URL_BASE}). Use https:// or a localhost dev URL.\n`
+  );
+  process.exit(1);
+}
+
 const ENDPOINT = `${URL_BASE}/api/mcp`;
 const FETCH_TIMEOUT_MS = 30_000;
 const MAX_BUFFER_BYTES = 1_048_576; // 1 MiB — generous for any sane JSON-RPC line
@@ -54,11 +77,11 @@ interface JsonRpcResponse {
 }
 
 async function forward(request: JsonRpcRequest): Promise<JsonRpcResponse | null> {
-  // Notifications (no id) must never receive a response per JSON-RPC. If the
-  // upstream call fails we log to stderr but emit nothing to stdout, otherwise
-  // we'd write an unsolicited `{id:null,error}` the client never asked for and
-  // strict MCP clients reject.
-  const isNotification = request.id === undefined || request.id === null;
+  // Notifications must never receive a response per JSON-RPC. A notification is
+  // a request with NO `id` member — `"id": null` is a *real* request the server
+  // must answer (echoing id:null). Detect by member presence, not value, so an
+  // id:null request isn't silently dropped (which would hang the client).
+  const isNotification = !("id" in request);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -124,16 +147,6 @@ let buffer = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk: string) => {
   buffer += chunk;
-  // Cap the buffer to prevent unbounded growth if upstream sends a single
-  // huge line without newlines. Anything past the cap is dropped and we
-  // emit a stderr warning.
-  if (buffer.length > MAX_BUFFER_BYTES) {
-    process.stderr.write(
-      `[agile-toolkit-mcp] dropped ${buffer.length} bytes (no newline within ${MAX_BUFFER_BYTES})\n`
-    );
-    buffer = "";
-    return;
-  }
   let idx: number;
   while ((idx = buffer.indexOf("\n")) !== -1) {
     const line = buffer.slice(0, idx).trim();
@@ -158,6 +171,15 @@ process.stdin.on("data", (chunk: string) => {
           `[agile-toolkit-mcp] forward rejected: ${err instanceof Error ? err.message : String(err)}\n`
         );
       });
+  }
+  // Cap only the UNTERMINATED remainder (a single huge line with no newline).
+  // This runs AFTER draining complete lines so a chunk that both completes a
+  // line and starts a long tail can't discard the complete, parseable message.
+  if (buffer.length > MAX_BUFFER_BYTES) {
+    process.stderr.write(
+      `[agile-toolkit-mcp] dropped ${buffer.length} bytes (no newline within ${MAX_BUFFER_BYTES})\n`
+    );
+    buffer = "";
   }
 });
 

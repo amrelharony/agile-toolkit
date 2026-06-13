@@ -103,7 +103,11 @@ const rules: Partial<Record<string, Rule>> = {
   "tool-hop-20": (_e, _m, s) => s.toolsVisited.length >= 20,
   "tool-hop-42": (_e, _m, s) => s.toolsVisited.length >= 42,
   "scroll-floor": (evt) => evt === "scroll-floor",
-  "hover-hundred": (_e, _m, s) => (s.counters["hover-total"] ?? 0) >= 100,
+  // dispatch() bumps counters under the raw event name, i.e. counters["hover"]
+  // (engine bumps `name` for hover/click/export-*/tool:*). The old rule read
+  // counters["hover-total"], which nothing ever writes — same bug class as the
+  // logo-whisperer fix below — so this could never unlock.
+  "hover-hundred": (_e, _m, s) => (s.counters["hover"] ?? 0) >= 100,
   "night-owl": () => {
     const h = new Date().getHours();
     return h >= 0 && h < 5;
@@ -268,7 +272,11 @@ function refreshChallengesIfStale() {
   }
 }
 
-function advanceChallenges(eventName: string, meta: Record<string, unknown> | undefined) {
+function advanceChallenges(
+  eventName: string,
+  meta: Record<string, unknown> | undefined,
+  increment = 1
+) {
   const state = useVDnaStore.getState();
   const mutate = (
     list: typeof state.dailyChallenges,
@@ -281,7 +289,7 @@ function advanceChallenges(eventName: string, meta: Record<string, unknown> | un
       if (!def) return c;
       if (def.trigger !== eventName) return c;
       if (def.match && !def.match(meta)) return c;
-      const newProgress = Math.min(c.goal, c.progress + 1);
+      const newProgress = Math.min(c.goal, c.progress + increment);
       const justCompleted = newProgress >= c.goal && !c.completed;
       if (newProgress !== c.progress) mutated = true;
       return {
@@ -333,12 +341,20 @@ function touchDailyActivity() {
     streak: newStreak,
     longestStreak: longest,
   });
+  // Wire w-streak-7 ("use the toolkit every day this week"): one tick the
+  // first time we register activity on a given local day. The early-return
+  // above guarantees this fires at most once per day.
+  advanceChallenges("daily-active", undefined);
 }
 
 function registerToolVisit(toolId: string) {
   const s = useVDnaStore.getState();
   if (s.toolsVisited.includes(toolId)) return;
   useVDnaStore.getState().setToolsVisited([...s.toolsVisited, toolId]);
+  // Wire w-sprint-cycle ("Full Cycle" — visit sprint-goal + burndown + retro):
+  // fire once per first-ever visit to a tool. The challenge's `match` gate
+  // restricts which toolIds actually count.
+  advanceChallenges("tool-visit-unique", { toolId });
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -399,6 +415,11 @@ function awardXp(
         payload: { level: nextLevel, xp: nextXp, prestige: prestigeAtTime },
       });
     }
+    // Wire w-xp-2000 ("Earn N XP this week"): advance by the XP actually
+    // awarded (not +1). Safe against the mutual advanceChallenges→awardXp
+    // recursion: a challenge short-circuits once `completed`, and awardXp's
+    // emitDepth circuit-breaker caps nesting.
+    advanceChallenges("xp-earned", undefined, effectiveAmount);
   } finally {
     emitDepth--;
   }
@@ -426,6 +447,8 @@ function evaluateAchievements(eventName: string, meta: Record<string, unknown> |
     for (const ach of newlyUnlocked) {
       notify({ kind: "achievement", payload: { id: ach.id, title: ach.title, xp: ach.xp } });
       awardXp(ach.xp, "achievement", { achievementId: ach.id });
+      // Wire w-achievements-5 ("Unlock 5 achievements"): one tick per unlock.
+      advanceChallenges("achievement-unlocked", { achievementId: ach.id });
     }
   }
 }
@@ -481,9 +504,16 @@ export function dispatch(event: GamificationEvent) {
     const now = Date.now();
     if (name === "click" || name.startsWith("tool:") || name === "key") {
       const prevMultiplier = combo.multiplier;
+      const prevDepth = combo.depth;
       const c = bumpCombo(now);
       if (c.multiplier === 5 && prevMultiplier < 5) {
         notify({ kind: "combo-peak", payload: { depth: c.depth, multiplier: c.multiplier } });
+      }
+      // Wire d-combo-3 / w-combos-10: fire once each time a *fresh* chain
+      // crosses into x3 (depth 3). Sustained events at depth 3+ don't re-fire;
+      // a lapsed-then-rebuilt chain does.
+      if (c.depth >= 3 && prevDepth < 3) {
+        advanceChallenges("combo-reached-3", meta);
       }
     }
 
@@ -496,6 +526,12 @@ export function dispatch(event: GamificationEvent) {
 
     // Challenge advancement.
     advanceChallenges(name, meta);
+    // Wire d-secret ("Find a secret"): every secret easter-egg dispatches a
+    // `secret:*` event (or `logo-whispered`), none of which equals the bare
+    // `secret-found` trigger — so bridge them here.
+    if (name.startsWith("secret:") || name === "logo-whispered") {
+      advanceChallenges("secret-found", meta);
+    }
 
     // Achievement evaluation. Inject the LIVE combo depth: the combo-based
     // rules (combo-3 / combo-5 / kudos-combo-5) read `meta.comboDepth`, but

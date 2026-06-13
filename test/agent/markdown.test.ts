@@ -40,6 +40,23 @@ describe("tokenizeInline", () => {
     expect(tokenizeInline("`**not bold**`")).toEqual([{ type: "code", value: "**not bold**" }]);
   });
 
+  it("does not italicize intraword underscores in snake_case ids", () => {
+    // The model is told action ids look like `workspace_sprint_create`; in
+    // prose those must not be split/italicized by the `_..._` rule.
+    expect(tokenizeInline("workspace_sprint_create")).toEqual([
+      { type: "text", value: "workspace_sprint_create" },
+    ]);
+    expect(tokenizeInline("call foo_bar now")).toEqual([
+      { type: "text", value: "call foo_bar now" },
+    ]);
+    // Standalone underscore emphasis at word boundaries still works.
+    expect(tokenizeInline("an _emphasized_ word")).toEqual([
+      { type: "text", value: "an " },
+      { type: "italic", value: "emphasized" },
+      { type: "text", value: " word" },
+    ]);
+  });
+
   it("treats raw HTML as plain text", () => {
     expect(tokenizeInline("<script>x</script>")).toEqual([
       { type: "text", value: "<script>x</script>" },

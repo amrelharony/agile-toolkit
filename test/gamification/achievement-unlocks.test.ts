@@ -56,6 +56,13 @@ describe("gamification achievement unlocks (regression)", () => {
     expect(useVDnaStore.getState().unlocked).toContain("logo-whisperer");
   });
 
+  it("unlocks hover-hundred after 100 hover events (counter key is 'hover', not 'hover-total')", () => {
+    for (let i = 0; i < 99; i++) dispatch({ name: "hover" });
+    expect(useVDnaStore.getState().unlocked).not.toContain("hover-hundred");
+    dispatch({ name: "hover" }); // 100th
+    expect(useVDnaStore.getState().unlocked).toContain("hover-hundred");
+  });
+
   it("does not unlock logo-whisperer for an unrelated event", () => {
     dispatch({ name: "logo-hover", meta: { count: 3 } });
     expect(useVDnaStore.getState().unlocked).not.toContain("logo-whisperer");

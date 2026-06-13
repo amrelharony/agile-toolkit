@@ -34,7 +34,16 @@ const isMac = (() => {
 })();
 
 function normalize(combo: string): string {
-  const parts = combo.split("+").map((s) => s.trim());
+  // A literal "+" key collides with the "+" separator (e.g. the zoom-in chord
+  // "Mod++"). Strip a trailing "+" key before splitting and restore it after,
+  // otherwise `split("+")` swallows it and the binding can never match.
+  let work = combo;
+  let literalPlus = false;
+  if (work.endsWith("+")) {
+    literalPlus = true;
+    work = work.slice(0, -1);
+  }
+  const parts = work.split("+").map((s) => s.trim());
   const mods: string[] = [];
   let key = "";
   for (const part of parts) {
@@ -44,8 +53,9 @@ function normalize(combo: string): string {
     else if (lower === "shift") mods.push("shift");
     else if (lower === "alt" || lower === "option") mods.push("alt");
     else if (lower === "meta" || lower === "cmd") mods.push("meta");
-    else key = part.length === 1 ? part.toLowerCase() : part;
+    else if (part) key = part.length === 1 ? part.toLowerCase() : part;
   }
+  if (literalPlus) key = "+";
   mods.sort();
   return [...mods, key].join("+");
 }
@@ -104,19 +114,19 @@ export function defaultCanvasShortcuts(a: Partial<CanvasShortcutActions>): Bindi
   const get = <K extends keyof CanvasShortcutActions>(k: K): CanvasShortcutActions[K] =>
     (a[k] ?? noop) as CanvasShortcutActions[K];
   return {
-    "v": () => get("setTool")("select"),
-    "n": () => get("setTool")("sticky"),
-    "k": () => get("setTool")("card"),
-    "r": () => get("setTool")("rect"),
-    "o": () => get("setTool")("ellipse"),
-    "l": () => get("setTool")("line"),
-    "a": () => get("setTool")("arrow"),
-    "t": () => get("setTool")("text"),
-    "p": () => get("setTool")("freehand"),
-    "c": () => get("setTool")("connector"),
-    "f": () => get("setTool")("frame"),
-    "Delete": () => get("deleteSelected")(),
-    "Backspace": () => get("deleteSelected")(),
+    v: () => get("setTool")("select"),
+    n: () => get("setTool")("sticky"),
+    k: () => get("setTool")("card"),
+    r: () => get("setTool")("rect"),
+    o: () => get("setTool")("ellipse"),
+    l: () => get("setTool")("line"),
+    a: () => get("setTool")("arrow"),
+    t: () => get("setTool")("text"),
+    p: () => get("setTool")("freehand"),
+    c: () => get("setTool")("connector"),
+    f: () => get("setTool")("frame"),
+    Delete: () => get("deleteSelected")(),
+    Backspace: () => get("deleteSelected")(),
     "Mod+a": () => get("selectAll")(),
     "Mod+c": () => get("copy")(),
     "Mod+x": () => get("cut")(),
@@ -129,9 +139,14 @@ export function defaultCanvasShortcuts(a: Partial<CanvasShortcutActions>): Bindi
     "Mod+]": () => get("bringForward")(),
     "Mod+[": () => get("sendBackward")(),
     "Mod+l": () => get("toggleLock")(),
-    "Escape": () => get("cancel")(),
+    Escape: () => get("cancel")(),
+    // Zoom-in chords vary by keyboard/layout: Ctrl/Cmd with "=" (no shift),
+    // with the numpad "+" (→ "Mod++"), or with Shift+"=" which browsers report
+    // as the "+" key (→ "Mod+Shift++"). Bind them all so zoom-in always works.
     "Mod+=": () => get("zoomIn")(),
     "Mod++": () => get("zoomIn")(),
+    "Mod+Shift+=": () => get("zoomIn")(),
+    "Mod+Shift++": () => get("zoomIn")(),
     "Mod+-": () => get("zoomOut")(),
     "Mod+0": () => get("resetZoom")(),
     "Mod+1": () => get("fitToContent")(),

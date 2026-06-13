@@ -274,27 +274,37 @@ export function IncidentCommanderClient() {
   // Mann-Kendall on weekly incident count (monotonic-trend chip).
   const weeklyIncidentCount = useMemo(() => {
     if (state.incidents.length === 0) return [];
-    // Build week buckets from the earliest incident through current week.
+    // Build weekly buckets covering the MOST RECENT 26 weeks (or fewer if the
+    // history is shorter). The previous code anchored weekStart at the EARLIEST
+    // incident and kept the FIRST 26 weeks, so once history exceeded 26 weeks
+    // every recent incident landed at index >= 26 and was dropped — the
+    // Mann-Kendall chip then analyzed stale history instead of current activity.
     const opens = state.incidents
       .map((i) => new Date(i.openedAt).getTime())
       .filter((t) => Number.isFinite(t));
     if (opens.length === 0) return [];
+    const WEEKS = 26;
     // R5: spread-Math.min RangeError on lists >~100k. Use reduce.
-    const earliest = new Date(opens.reduce((m, t) => Math.min(m, t), Infinity));
-    const dayOfWeek = earliest.getUTCDay();
-    const weekStart = new Date(earliest);
-    weekStart.setUTCDate(earliest.getUTCDate() - dayOfWeek);
-    weekStart.setUTCHours(0, 0, 0, 0);
-    const today = new Date(nowHourBucket * 3600000);
+    const earliestWeekStart = new Date(opens.reduce((m, t) => Math.min(m, t), Infinity));
+    earliestWeekStart.setUTCDate(earliestWeekStart.getUTCDate() - earliestWeekStart.getUTCDay());
+    earliestWeekStart.setUTCHours(0, 0, 0, 0);
+    // Current week's Sunday (UTC), then the trailing 26-week window start.
+    const curWeekStart = new Date(nowHourBucket * 3600000);
+    curWeekStart.setUTCDate(curWeekStart.getUTCDate() - curWeekStart.getUTCDay());
+    curWeekStart.setUTCHours(0, 0, 0, 0);
+    const windowStart = new Date(curWeekStart);
+    windowStart.setUTCDate(curWeekStart.getUTCDate() - (WEEKS - 1) * 7);
+    // Don't start before the first incident — keeps the series short for sparse
+    // histories so the Mann-Kendall length<5 guard still suppresses noise.
+    const weekStart = new Date(Math.max(earliestWeekStart.getTime(), windowStart.getTime()));
     const totalWeeks = Math.max(
       1,
-      Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1
+      Math.round((curWeekStart.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1
     );
-    const cappedWeeks = Math.min(totalWeeks, 26);
-    const series = new Array(cappedWeeks).fill(0) as number[];
+    const series = new Array(totalWeeks).fill(0) as number[];
     for (const ts of opens) {
       const w = Math.floor((ts - weekStart.getTime()) / (7 * 86_400_000));
-      if (w >= 0 && w < cappedWeeks) series[w] += 1;
+      if (w >= 0 && w < totalWeeks) series[w] += 1;
     }
     return series;
   }, [state.incidents, nowHourBucket]);

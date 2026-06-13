@@ -370,6 +370,15 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
       if (idx === -1) {
         next = [...current, payload];
       } else {
+        // Mirror pull()'s unpushed-local-edit guard (BUG-S8 neighbourhood):
+        // if the local copy has edits we haven't pushed yet (its JSON differs
+        // from lastPushed, or we've never pushed it), keep local — a realtime
+        // row arriving mid-debounce must not clobber the user's in-flight edit.
+        // remoteUpdatedAt is already advanced above for LWW; the pending flush
+        // will push local and the server resolves the conflict by timestamp.
+        const localJson = JSON.stringify(current[idx]);
+        const last = this.lastPushed.get(entityId);
+        if (last?.json !== localJson) return;
         next = current.slice();
         next[idx] = payload;
       }

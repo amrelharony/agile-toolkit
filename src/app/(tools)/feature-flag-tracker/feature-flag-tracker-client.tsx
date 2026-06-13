@@ -292,7 +292,16 @@ export function FeatureFlagTrackerClient() {
     // matches the user's calendar.
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const anchor = new Date(today.getTime() - WEEKS * 7 * 86_400_000);
+    // Step back via setDate() and bucket against explicit per-week boundaries,
+    // mirroring oncall-roster (BUG-T5-oncall-roster-4/5). The previous
+    // `floor((t - weekStart) / (7*86_400_000))` divided by a fixed week-in-ms:
+    // across a DST transition the ms-distance between two local midnights is no
+    // longer an exact week multiple, AND the window boundary pushed the most
+    // recent days into bucket 26 (>= WEEKS) which the `w < WEEKS` guard dropped
+    // — so the latest flags silently vanished from the chart and skewed the
+    // Mann-Kendall trend. A linear scan over setDate()-built boundaries fixes both.
+    const anchor = new Date(today);
+    anchor.setDate(today.getDate() - WEEKS * 7);
     const weekStart = new Date(anchor);
     weekStart.setDate(anchor.getDate() - anchor.getDay());
     weekStart.setHours(0, 0, 0, 0);
@@ -300,10 +309,23 @@ export function FeatureFlagTrackerClient() {
       .map((f) => parseLocalDate(f.createdAt)?.getTime() ?? new Date(f.createdAt).getTime())
       .filter((t) => Number.isFinite(t) && t >= weekStart.getTime());
     if (ts.length === 0) return [];
+    const bucketStarts: number[] = [];
+    for (let w = 0; w < WEEKS; w++) {
+      const start = new Date(weekStart);
+      start.setDate(weekStart.getDate() + w * 7);
+      start.setHours(0, 0, 0, 0);
+      bucketStarts.push(start.getTime());
+    }
     const counts = new Array(WEEKS).fill(0) as number[];
     for (const t of ts) {
-      const w = Math.floor((t - weekStart.getTime()) / (7 * 86_400_000));
-      if (w >= 0 && w < WEEKS) counts[w] += 1;
+      // Linear scan over 26 buckets — assign to the latest bucket that started
+      // on or before t. Every t >= weekStart lands in a bucket (never dropped).
+      for (let w = WEEKS - 1; w >= 0; w--) {
+        if (t >= bucketStarts[w]) {
+          counts[w] += 1;
+          break;
+        }
+      }
     }
     return counts;
   }, [flags]);
