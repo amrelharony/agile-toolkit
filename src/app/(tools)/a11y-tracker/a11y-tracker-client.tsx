@@ -183,7 +183,13 @@ export function A11yTrackerClient() {
           ? {
               ...i,
               status,
-              resolvedAt: status === "resolved" ? (i.resolvedAt ?? todayLocalISO()) : undefined,
+              // Preserve the original resolvedAt across non-resolved
+              // transitions (mirrors vuln-burndown BUG-T9-1). The prior
+              // `undefined` reset wiped the first-resolution date when a user
+              // clicked Open→Resolved right after misclicking Resolved→Open,
+              // corrupting ageDays + the burn-down chart (issue appeared to
+              // resolve today instead of N days ago).
+              resolvedAt: status === "resolved" ? (i.resolvedAt ?? todayLocalISO()) : i.resolvedAt,
             }
           : i
       ),

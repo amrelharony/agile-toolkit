@@ -415,7 +415,10 @@ export function PiPlanningClient() {
                   const planned = items
                     .filter((i) => i.kind === "feature")
                     .reduce((a, b) => a + b.points, 0);
-                  const over = planned > team.velocity * 1.15;
+                  // Mirror the `overloads` memo's guard: a velocity-0 team has
+                  // no capacity to compare against, so it must never render as
+                  // overloaded (else red cells contradict the "0 overloads" KPI).
+                  const over = team.velocity > 0 && planned > team.velocity * 1.15;
                   return (
                     <td key={it} className="align-top">
                       <div
