@@ -144,7 +144,22 @@ function truncateContentForStorage(content: ChatMessage["content"]): ChatMessage
       } else {
         for (const tb of block.content) tb.text = tb.text.slice(0, 4000) + sentinel;
       }
+    } else if (block.type === "tool_use") {
+      // tool_use.input is arbitrary caller data and can dominate the payload
+      // (e.g. a bulk create). Trimming only text/tool_result left this path
+      // able to return content STILL over the cap → the whole insert batch
+      // (this message and its siblings) was rejected and lost.
+      const inputJson = JSON.stringify(block.input ?? null);
+      if (inputJson.length > 8000) {
+        block.input = { _truncated: inputJson.slice(0, 8000) + sentinel };
+      }
     }
+  }
+  // Re-measure. If still over (e.g. hundreds of trimmed blocks), hard-clamp to
+  // a single notice block so the result can NEVER exceed the column cap — the
+  // function's entire contract is to return storable content.
+  if (new TextEncoder().encode(JSON.stringify(clone)).length > CONTENT_OCTET_LIMIT) {
+    return [{ type: "text" as const, text: "[message too large to store]" + sentinel }];
   }
   return clone;
 }

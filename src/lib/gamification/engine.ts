@@ -103,7 +103,11 @@ const rules: Partial<Record<string, Rule>> = {
   "tool-hop-20": (_e, _m, s) => s.toolsVisited.length >= 20,
   "tool-hop-42": (_e, _m, s) => s.toolsVisited.length >= 42,
   "scroll-floor": (evt) => evt === "scroll-floor",
-  "hover-hundred": (_e, _m, s) => (s.counters["hover-total"] ?? 0) >= 100,
+  // dispatch() bumps counters under the raw event name, i.e. counters["hover"]
+  // (engine bumps `name` for hover/click/export-*/tool:*). The old rule read
+  // counters["hover-total"], which nothing ever writes — same bug class as the
+  // logo-whisperer fix below — so this could never unlock.
+  "hover-hundred": (_e, _m, s) => (s.counters["hover"] ?? 0) >= 100,
   "night-owl": () => {
     const h = new Date().getHours();
     return h >= 0 && h < 5;

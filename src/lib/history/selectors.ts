@@ -9,7 +9,7 @@ export interface EventQuery {
   action?: string;
   actions?: string[];
   sinceDays?: number;
-  until?: string;          // ISO timestamp upper bound
+  until?: string; // ISO timestamp upper bound
   isMilestone?: boolean;
   limit?: number;
 }
@@ -33,12 +33,18 @@ function rebuildIndexes(events: HistoryEvent[]): void {
   byAction = new Map();
   for (const e of events) {
     let t = byTool.get(e.toolId);
-    if (!t) { t = []; byTool.set(e.toolId, t); }
+    if (!t) {
+      t = [];
+      byTool.set(e.toolId, t);
+    }
     t.push(e);
 
     const actionKey = `${e.toolId}:${e.action}`;
     let a = byAction.get(actionKey);
-    if (!a) { a = []; byAction.set(actionKey, a); }
+    if (!a) {
+      a = [];
+      byAction.set(actionKey, a);
+    }
     a.push(e);
   }
 }
@@ -50,9 +56,9 @@ function getEvents(): HistoryEvent[] {
   // The store may expose events under different field names depending on
   // its evolution. Try common shapes; fall back to empty array.
   const events: HistoryEvent[] =
-    (state as unknown as { events?: HistoryEvent[]; entries?: HistoryEvent[] }).events
-    ?? (state as unknown as { events?: HistoryEvent[]; entries?: HistoryEvent[] }).entries
-    ?? [];
+    (state as unknown as { events?: HistoryEvent[]; entries?: HistoryEvent[] }).events ??
+    (state as unknown as { events?: HistoryEvent[]; entries?: HistoryEvent[] }).entries ??
+    [];
   rebuildIndexes(events);
   return events;
 }
@@ -64,8 +70,16 @@ function getEvents(): HistoryEvent[] {
 export function selectEvents(opts: EventQuery): HistoryEvent[] {
   const all = getEvents();
   const limit = opts.limit ?? 1000;
-  const toolSet = opts.toolIds ? new Set(opts.toolIds) : opts.toolId ? new Set([opts.toolId]) : null;
-  const actionSet = opts.actions ? new Set(opts.actions) : opts.action ? new Set([opts.action]) : null;
+  const toolSet = opts.toolIds
+    ? new Set(opts.toolIds)
+    : opts.toolId
+      ? new Set([opts.toolId])
+      : null;
+  const actionSet = opts.actions
+    ? new Set(opts.actions)
+    : opts.action
+      ? new Set([opts.action])
+      : null;
   const sinceMs = opts.sinceDays ? Date.now() - opts.sinceDays * 86_400_000 : -Infinity;
   const untilMs = opts.until ? new Date(opts.until).getTime() : Infinity;
 
@@ -100,8 +114,16 @@ function localDateKey(date: Date): string {
  * Daily counts of an action over the last `days`. Returns dense series
  * (zero-filled) ordered ascending by date.
  */
-export function eventCountByDay(toolId: string, action: string, days: number): { date: string; count: number }[] {
-  const events = selectEvents({ toolId, action, sinceDays: days });
+export function eventCountByDay(
+  toolId: string,
+  action: string,
+  days: number
+): { date: string; count: number }[] {
+  // Aggregation must see EVERY event in the window. selectEvents otherwise
+  // applies its default 1000 cap, which silently undercounts the oldest days
+  // once a high-frequency action logs >1000 events inside the window. The walk
+  // is still bounded by the history store's own size cap.
+  const events = selectEvents({ toolId, action, sinceDays: days, limit: Infinity });
   const counts = new Map<string, number>();
   for (const e of events) {
     // CONSISTENCY: event date keys use the UTC slice of `occurredAt` (the
@@ -137,7 +159,11 @@ export function lastEventOf(toolId: string, action: string): HistoryEvent | unde
  * Used by causal annotation logic — for each event in A, check if any
  * event in B occurred within ±lagDays.
  */
-export function correlateEventStreams(a: EventQuery, b: EventQuery, lagDays: number): CorrelationSummary {
+export function correlateEventStreams(
+  a: EventQuery,
+  b: EventQuery,
+  lagDays: number
+): CorrelationSummary {
   const aEvents = selectEvents(a);
   const bEvents = selectEvents(b);
   if (aEvents.length === 0 || bEvents.length === 0) {

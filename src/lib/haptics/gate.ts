@@ -1,6 +1,12 @@
 "use client";
 
-import type { HapticPatternSpec, PerCategoryOverrides, HapticsMode, HapticCategory, HapticPatternName } from "./types";
+import type {
+  HapticPatternSpec,
+  PerCategoryOverrides,
+  HapticsMode,
+  HapticCategory,
+  HapticPatternName,
+} from "./types";
 import { isEssential } from "./patterns";
 
 /**
@@ -45,8 +51,12 @@ const PER_ELEMENT_COOLDOWN = 50;
 // listeners were inline arrow functions → impossible to removeEventListener
 // → leak forever on HMR / SPA navigation.
 let listenersRegistered = false;
-const onScroll = () => { scrollingUntil = performance.now() + 250; };
-const onInput = () => { typingUntil = performance.now() + 150; };
+const onScroll = () => {
+  scrollingUntil = performance.now() + 250;
+};
+const onInput = () => {
+  typingUntil = performance.now() + 150;
+};
 
 export function registerSuppressionListeners() {
   if (typeof window === "undefined" || listenersRegistered) return;
@@ -131,5 +141,12 @@ export function shouldFire(ctx: GateContext): GateDecision {
 export function recordFire(now: number, targetEl?: HTMLElement | null) {
   lastFireAt = now;
   if (targetEl) perElementLast.set(targetEl, now);
+  // Prune before appending. shouldFire() only prunes inside its non-keystroke
+  // branch, so a keystroke-only fire stream (a user typing into a haptic field,
+  // which bypasses the rate limit) would otherwise push to rollingWindow on
+  // every keystroke and never shift — an unbounded leak for the page's life.
+  while (rollingWindow.length && now - rollingWindow[0] > ROLLING_WINDOW_MS) {
+    rollingWindow.shift();
+  }
   rollingWindow.push(now);
 }

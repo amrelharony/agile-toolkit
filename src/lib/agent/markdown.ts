@@ -27,7 +27,12 @@ export type Block =
 const SAFE_HREF = /^(https?:|mailto:)/i;
 
 // Order matters: code first so `**` inside a code span isn't treated as bold.
-const INLINE_RE = /(`[^`]+`)|(\*\*[^*]+?\*\*)|(\*[^*\n]+?\*|_[^_\n]+?_)|(\[[^\]]+\]\([^)\s]+\))/;
+// Underscore italics are gated to word boundaries (CommonMark forbids
+// intraword `_emphasis_`) so snake_case ids the model emits in prose — e.g.
+// `workspace_sprint_create` (see system-prompt) — aren't split and italicized.
+// `*italic*` is unaffected.
+const INLINE_RE =
+  /(`[^`]+`)|(\*\*[^*]+?\*\*)|(\*[^*\n]+?\*|(?<![A-Za-z0-9])_[^_\n]+?_(?![A-Za-z0-9]))|(\[[^\]]+\]\([^)\s]+\))/;
 
 /** Split a line of text into inline tokens (bold/italic/code/link/text). */
 export function tokenizeInline(text: string): InlineToken[] {
