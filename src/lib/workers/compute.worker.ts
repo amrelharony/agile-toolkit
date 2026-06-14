@@ -23,13 +23,25 @@ function dispatch(task: string, input: unknown): unknown {
       return runMonteCarlo(i);
     }
     case "bootstrap": {
-      const i = input as { series: number[]; statistic: "mean" | "p50" | "p85"; iterations?: number };
+      const i = input as {
+        series: number[];
+        statistic: "mean" | "p50" | "p85";
+        iterations?: number;
+      };
       const fn =
         i.statistic === "mean"
           ? (s: number[]) => s.reduce((a, b) => a + b, 0) / Math.max(1, s.length)
           : i.statistic === "p50"
-            ? (s: number[]) => quantile(s.slice().sort((a, b) => a - b), 0.5)
-            : (s: number[]) => quantile(s.slice().sort((a, b) => a - b), 0.85);
+            ? (s: number[]) =>
+                quantile(
+                  s.slice().sort((a, b) => a - b),
+                  0.5
+                )
+            : (s: number[]) =>
+                quantile(
+                  s.slice().sort((a, b) => a - b),
+                  0.85
+                );
       return bootstrapCI(i.series, fn, i.iterations ?? 1000);
     }
     case "changepoint": {
@@ -57,9 +69,18 @@ function quantile(sorted: number[], q: number): number {
 // Worker code path. The `self` reference is only valid inside a Worker
 // context; the import above is plain TS so `runFallback` can also be
 // called from the main thread.
-declare const self: { onmessage: ((e: MessageEvent<IncomingMessage>) => void) | null; postMessage: (data: unknown) => void };
+declare const self: {
+  onmessage: ((e: MessageEvent<IncomingMessage>) => void) | null;
+  postMessage: (data: unknown) => void;
+};
 
-if (typeof self !== "undefined" && typeof (self as { onmessage?: unknown }).onmessage !== "undefined") {
+// Install the message handler ONLY inside a real Worker. `self` also exists on
+// the browser main thread (self === window), where `window.onmessage` is `null`
+// — and `typeof null === "object"`, so the old `typeof self.onmessage !==
+// "undefined"` check passed on the window and clobbered `window.onmessage` when
+// this module was imported for the `runFallback` path (no-Worker environments).
+// Workers (including module workers) have no `window`; the main thread does.
+if (typeof self !== "undefined" && typeof window === "undefined") {
   self.onmessage = (e: MessageEvent<IncomingMessage>) => {
     const { id, task, input } = e.data ?? ({} as IncomingMessage);
     try {
