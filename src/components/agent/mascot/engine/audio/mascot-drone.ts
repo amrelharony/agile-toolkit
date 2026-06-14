@@ -45,6 +45,7 @@ export function createMascotDrone(): MascotDrone {
   let filter: BiquadFilterNode | null = null;
   let enabled = false;
   let params: DroneParams | null = null;
+  let teardownTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Build the oscillator chain off the engine's existing context (never forces one). */
   function ensureNodes(): boolean {
@@ -86,24 +87,15 @@ export function createMascotDrone(): MascotDrone {
     applyParams();
   }
 
-  function setEnabled(on: boolean): void {
-    if (on === enabled) return;
-    enabled = on;
-    if (on && params) ensureNodes();
-    applyParams();
+  function clearTeardown(): void {
+    if (teardownTimer !== null) {
+      clearTimeout(teardownTimer);
+      teardownTimer = null;
+    }
   }
 
-  function update(mod: DroneModulation): void {
-    if (!enabled || !params) return;
-    const ctx = getEngine().context;
-    if (!osc || !gain || !filter || !ctx) return;
-    const now = ctx.currentTime;
-    gain.gain.setTargetAtTime(params.vol * (1 + mod.breath * 20), now, 0.1);
-    filter.frequency.setTargetAtTime(params.filter * (1 + Math.abs(mod.lean) * 30), now, 0.1);
-    osc.detune.setTargetAtTime(mod.bob * 600, now, 0.05);
-  }
-
-  function dispose(): void {
+  /** Stop + disconnect the oscillator chain so it isn't left running. */
+  function teardownNodes(): void {
     try {
       osc?.stop();
     } catch {
@@ -119,6 +111,44 @@ export function createMascotDrone(): MascotDrone {
     osc = null;
     gain = null;
     filter = null;
+  }
+
+  function setEnabled(on: boolean): void {
+    if (on === enabled) return;
+    enabled = on;
+    if (on) {
+      // Re-enabled before a pending teardown fired → keep the live nodes.
+      clearTeardown();
+      if (params) ensureNodes();
+      applyParams();
+    } else {
+      // Fade to silence, then actually STOP the oscillator. Previously
+      // setEnabled(false) only ramped gain toward 0, leaving the oscillator
+      // running on the shared AudioContext for the whole session (it was only
+      // stopped in dispose()). Defer the stop so the gain fade isn't cut off
+      // with a click; cancel it if the drone is re-enabled within the window.
+      applyParams();
+      clearTeardown();
+      teardownTimer = setTimeout(() => {
+        teardownTimer = null;
+        if (!enabled) teardownNodes();
+      }, 600);
+    }
+  }
+
+  function update(mod: DroneModulation): void {
+    if (!enabled || !params) return;
+    const ctx = getEngine().context;
+    if (!osc || !gain || !filter || !ctx) return;
+    const now = ctx.currentTime;
+    gain.gain.setTargetAtTime(params.vol * (1 + mod.breath * 20), now, 0.1);
+    filter.frequency.setTargetAtTime(params.filter * (1 + Math.abs(mod.lean) * 30), now, 0.1);
+    osc.detune.setTargetAtTime(mod.bob * 600, now, 0.05);
+  }
+
+  function dispose(): void {
+    clearTeardown();
+    teardownNodes();
   }
 
   return { setMood, update, setEnabled, dispose };
