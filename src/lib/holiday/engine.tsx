@@ -156,15 +156,22 @@ export function HolidayEngine() {
     }
 
     let cancelled = false;
+    // Key of the theme currently applied by THIS effect run. The periodic
+    // re-checks below re-run loadActive; without this guard every re-check
+    // would setTheme(new object) for the same holiday, restarting the
+    // particles + GSAP overlay timelines for no visual reason.
+    let appliedKey: string | null = null;
 
     const loadActive = async () => {
       // Preview overrides — dev param, then store-level preview
       const forcedId = previewParam ?? previewThemeId;
       if (forcedId && HOLIDAY_IDS.includes(forcedId)) {
+        if (appliedKey === `preview:${forcedId}`) return;
         const mod = await loadTheme(forcedId);
         // Cancellation guard protects both setTheme and the synchronous
         // injectThemeStyle below — do not remove without restructuring.
         if (cancelled) return;
+        appliedKey = `preview:${forcedId}`;
         // Use a synthetic window so dismissal is distinct from real windows.
         // Anchor the synthetic date to Cairo so preview dismissal keys line up
         // with real-window dismissal keys (which are Cairo-anchored).
@@ -177,28 +184,50 @@ export function HolidayEngine() {
       if (!enabled) return;
       const detection = getActiveHolidayIds();
       if (!detection.active) {
+        appliedKey = null;
         setTheme(null);
         removeThemeStyle();
         return;
       }
       const key = windowKey(detection.active.id, detection.active.window);
       if (dismissedWindows[key]) {
+        appliedKey = null;
         setTheme(null);
         removeThemeStyle();
         return;
       }
+      if (appliedKey === key) return;
       const mod = await loadTheme(detection.active.id);
       // Cancellation guard protects both setTheme and the synchronous
       // injectThemeStyle below — do not remove without restructuring.
       if (cancelled) return;
+      appliedKey = key;
       setTheme({ ...mod, window: detection.active.window });
       injectThemeStyle(detection.active.id, mod.cssTokens);
     };
 
     void loadActive();
 
+    // R11: nothing re-evaluated the Cairo-day holiday windows on a
+    // long-lived tab — a theme neither appeared at its window start nor
+    // disappeared past endISO until a reload or a pref change. Re-check
+    // on a slow cadence and when the tab returns to the foreground; the
+    // appliedKey guard above makes repeat checks no-ops.
+    const recheckId = window.setInterval(
+      () => {
+        void loadActive();
+      },
+      60 * 60 * 1000
+    );
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void loadActive();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
       cancelled = true;
+      window.clearInterval(recheckId);
+      document.removeEventListener("visibilitychange", onVisibility);
       // R9: full unmount (SPA navigation away from where HolidayEngine
       // mounts) previously left the `<style id="holiday-theme-tokens">`
       // element on `:root`, persistently overriding the global theme.
