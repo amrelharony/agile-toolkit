@@ -1,0 +1,48 @@
+# Keep the free-tier Supabase project from auto-pausing (it pauses after
+# ~7 days without database activity; it bit us on 2026-07-06 when a
+# migration push found the project paused).
+#
+# The ping is `lookup_share_token` with a dummy token: it is the one RPC
+# EXECUTE-granted to `anon` (the guest share-link flow depends on it), it
+# performs a real Postgres round-trip (SECURITY DEFINER select), and a
+# miss returns `[]` with HTTP 200 — no side effects, no rows leaked.
+# A plain table select won't work here: table-level grants for `anon`
+# are deliberately revoked (default-deny), which returns 401/42501.
+#
+# NOTE: GitHub disables scheduled workflows after 60 days without repo
+# activity — any commit re-enables them.
+name: Supabase keepalive
+
+on:
+  schedule:
+    # Every 3 days, well inside the ~7-day pause window. Odd minute to
+    # dodge GitHub's top-of-hour scheduler congestion.
+    - cron: "17 6 */3 * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping Supabase with a harmless anon RPC
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          code=$(curl -sS -o /tmp/body -w "%{http_code}" \
+            -X POST "$SUPABASE_URL/rest/v1/rpc/lookup_share_token" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"p_token":"keepalive-ping-dummy"}')
+          echo "HTTP $code"
+          cat /tmp/body
+          echo
+          # 200 = query executed (dummy token → empty result set).
+          # Anything else means the project is paused, the key was
+          # rotated without updating the SUPABASE_ANON_KEY secret, or
+          # the RPC's anon grant changed — all worth a red X.
+          [ "$code" = "200" ]
