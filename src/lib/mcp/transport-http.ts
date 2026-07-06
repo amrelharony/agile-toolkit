@@ -46,8 +46,15 @@ export async function handleJsonRpc(
   squadProfileIds: readonly string[] = [],
   onCall?: (obs: McpCallObservation) => void
 ): Promise<JsonRpcResponse | null> {
-  // Notifications (no id, no response).
-  if (request.id === undefined || request.id === null) {
+  // Notifications (no `id` MEMBER) get no response. BUG-H7: `id: null` is a
+  // *real* request per JSON-RPC 2.0 (the id "MUST contain a String, Number,
+  // or NULL value" when included) and MUST be answered echoing id:null. The
+  // stdio relay (mcp-server/src/index.ts) already detects notifications by
+  // member presence and waits for a response to an id:null request — the old
+  // `id === null` check here 204'd it, hanging that client forever.
+  // JSON.parse never yields `undefined` for a present member, so
+  // `undefined ⇔ member absent` holds for every wire-parsed body.
+  if (request.id === undefined) {
     // notifications/initialized is the only one we care about — silently
     // ack. Other notifications (cancelled, progress) are ignored.
     return null;
@@ -95,7 +102,11 @@ export async function handleJsonRpc(
       const name = params.name;
       const action = registry.resolve(name);
       if (!action) {
-        return jsonRpcError(id, -32601, `Unknown tool: ${name}`);
+        // BUG-H8: -32602 (Invalid params) per the MCP spec. -32601 means the
+        // *method* (tools/call) doesn't exist — a conforming client may read
+        // that as "server has no tool support" and disable tools entirely,
+        // instead of reporting one bad tool name.
+        return jsonRpcError(id, -32602, `Unknown tool: ${name}`);
       }
       const safeParse = (
         action.paramsSchema as {

@@ -198,10 +198,12 @@ export async function POST(req: NextRequest) {
     const r = requests[i];
     // Denied calls do no work — don't charge them.
     if (denials[i] !== null) continue;
-    // Notifications (no id) get no response and do no real work — don't charge
-    // them against the budget, or a chatty client's notifications/initialized
-    // would needlessly erode the read ceiling.
-    if (r.id === undefined || r.id === null) continue;
+    // Notifications (no id MEMBER) get no response and do no real work —
+    // don't charge them against the budget, or a chatty client's
+    // notifications/initialized would needlessly erode the read ceiling.
+    // BUG-H7: an `id: null` request IS answered (and dispatched) per
+    // JSON-RPC 2.0 — see transport-http.ts — so it IS charged.
+    if (r.id === undefined) continue;
     const cat = categoryForRequest(r);
     counts[cat] = (counts[cat] ?? 0) + 1;
   }
@@ -229,8 +231,10 @@ export async function POST(req: NextRequest) {
     requests.map((r, i): Promise<JsonRpcResponse | null> => {
       const deniedCategory = denials[i];
       if (deniedCategory !== null) {
-        // A denied notification (no id) gets no response per JSON-RPC.
-        if (r.id === undefined || r.id === null) return Promise.resolve(null);
+        // A denied notification (no id MEMBER) gets no response per JSON-RPC.
+        // BUG-H7: `id: null` is a real request — it gets the error response
+        // below, echoing id:null.
+        if (r.id === undefined) return Promise.resolve(null);
         return Promise.resolve({
           jsonrpc: "2.0",
           id: r.id,
