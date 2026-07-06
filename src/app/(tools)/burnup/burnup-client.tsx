@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo } from "react";
+import { useRef, useMemo, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
@@ -24,6 +24,7 @@ import { CausalLine } from "@/components/charts/causal-annotation";
 import { generateBurnupPrompts } from "@/lib/ai-prompts/burnup";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { BURNUP_ACTIONS } from "@/lib/history/event-actions";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
 import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
@@ -160,7 +161,11 @@ const useBurnupStore = create<BurnupStore>()(
         removeEntry: (id) => set((s) => ({ entries: s.entries.filter((e) => e.id !== id) })),
 
         reset: () => {
-          const cfg = makeDefaultConfig();
+          // Use today's local date when resetting — `makeDefaultConfig`
+          // returns a STATIC date (for hydration safety on first paint), but
+          // a user clicking Reset expects "today" not "January 1st 2026".
+          // Sibling burndown does the same.
+          const cfg = { ...makeDefaultConfig(), sprintStartDate: todayLocalISO() };
           set({
             config: cfg,
             entries: createDefaultEntries(cfg.sprintDays),
@@ -299,6 +304,15 @@ export function BurnupClient() {
 
   const chartRef = useRef<HTMLDivElement>(null);
 
+  // Draft buffer for the sprint-length field. Committing on every keystroke
+  // is destructive: updateConfig resizes `entries` when sprintDays changes,
+  // so a transient intermediate value (typing "21" passes through 2, clearing
+  // the field passes through Number("") === 0 → clamped to 1) permanently
+  // drops the logged days past the transient length. Keystrokes stay local;
+  // commit once on blur (which also keeps CONFIG_UPDATED out of the audit
+  // log for every keystroke).
+  const [sprintDaysDraft, setSprintDaysDraft] = useState<string | null>(null);
+
   /* -- Sorted entries ------------------------------------------------------ */
 
   const sortedEntries = useMemo(() => [...entries].sort((a, b) => a.day - b.day), [entries]);
@@ -338,10 +352,21 @@ export function BurnupClient() {
   }, [sortedEntries, config.sprintDays]);
 
   const forecast = useMemo(() => {
-    if (completedSeries.length < 2) return [];
+    // Fit Holt on the SAME contiguous prefix the forecast is plotted from —
+    // Holt extrapolates from the last element of its input, so feeding the
+    // full filled series (which may contain post-hole samples) while plotting
+    // from contiguousLastFilledDay drew a projection that contradicted real
+    // datapoints sitting to its right.
+    const series = sortedEntries
+      .filter(
+        (e) =>
+          e.completed !== null && Number.isFinite(e.completed) && e.day <= contiguousLastFilledDay
+      )
+      .map((e) => e.completed as number);
+    if (series.length < 2) return [];
     const horizon = Math.max(1, config.sprintDays - contiguousLastFilledDay);
-    return forecastBayesianHolt(completedSeries, horizon);
-  }, [completedSeries, contiguousLastFilledDay, config.sprintDays]);
+    return forecastBayesianHolt(series, horizon);
+  }, [sortedEntries, contiguousLastFilledDay, config.sprintDays]);
 
   // Forecast lookup keyed by sprint-day.
   const forecastByDay = useMemo(() => {
@@ -585,11 +610,16 @@ export function BurnupClient() {
                 type="number"
                 min={1}
                 max={60}
-                value={config.sprintDays}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  if (Number.isFinite(n))
-                    updateConfig({ sprintDays: Math.max(1, Math.min(60, n)) });
+                value={sprintDaysDraft ?? config.sprintDays}
+                // Draft-buffered: committing mid-type resizes `entries` and
+                // drops days past the transient value (see draft state above).
+                onChange={(e) => setSprintDaysDraft(e.target.value)}
+                onBlur={() => {
+                  if (sprintDaysDraft === null) return;
+                  const n = Number(sprintDaysDraft);
+                  setSprintDaysDraft(null);
+                  if (sprintDaysDraft.trim() === "" || !Number.isFinite(n)) return;
+                  updateConfig({ sprintDays: Math.max(1, Math.min(60, Math.round(n))) });
                 }}
                 className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
               />

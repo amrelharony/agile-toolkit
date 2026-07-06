@@ -297,19 +297,12 @@ const storyMapApi: Omit<StoryMapState, "steps" | "slices"> = {
 
   moveCard: (fromSliceId, fromStepId, toSliceId, toStepId, cardId, toIndex) =>
     set((s) => {
-      // For same-cell reordering we have to decrement toIndex by one
-      // when the source position precedes the target — otherwise the
-      // splice after removal lands one slot past the intended spot.
-      let adjustedToIndex = toIndex;
-      if (fromSliceId === toSliceId && fromStepId === toStepId && adjustedToIndex !== undefined) {
-        const sourceSlice = s.slices.find((sl) => sl.id === fromSliceId);
-        const sourceCards = sourceSlice?.cards[fromStepId] ?? [];
-        const fromIdx = sourceCards.findIndex((c) => c.id === cardId);
-        if (fromIdx !== -1 && fromIdx < adjustedToIndex) {
-          adjustedToIndex -= 1;
-        }
-      }
-
+      // Same-cell reorders need NO index adjustment: removing the card first
+      // already shifts everything after it left by one, so splicing at the
+      // raw over-index reproduces dnd-kit's arrayMove semantics — i.e. the
+      // exact ordering the sortable preview showed during the drag. A prior
+      // "decrement when source precedes target" correction here made every
+      // downward drop land one slot above the preview.
       let movedCard: StoryCard | null = null;
       const slices = s.slices.map((sl) => {
         if (sl.id !== fromSliceId) return sl;
@@ -333,7 +326,7 @@ const storyMapApi: Omit<StoryMapState, "steps" | "slices"> = {
         slices: slices.map((sl) => {
           if (sl.id !== toSliceId) return sl;
           const toCards = [...(sl.cards[toStepId] ?? [])];
-          const insertAt = adjustedToIndex !== undefined ? adjustedToIndex : toCards.length;
+          const insertAt = toIndex !== undefined ? toIndex : toCards.length;
           toCards.splice(insertAt, 0, card);
           return {
             ...sl,

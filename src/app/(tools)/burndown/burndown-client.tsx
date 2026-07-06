@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo } from "react";
+import { useRef, useMemo, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
@@ -360,6 +360,15 @@ export function BurndownClient() {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartHeight = useChartHeight({ min: 260, max: 420 });
 
+  // Draft buffers for the config number fields. Committing on every keystroke
+  // is destructive here: updateConfig resizes `entries` when sprintDays
+  // changes, so a transient intermediate value (typing "21" passes through 2,
+  // clearing the field passes through Number("") === 0 → clamped to 1)
+  // permanently drops the logged days past the transient length. Keep
+  // keystrokes local and commit once on blur.
+  const [totalPointsDraft, setTotalPointsDraft] = useState<string | null>(null);
+  const [sprintDaysDraft, setSprintDaysDraft] = useState<string | null>(null);
+
   /* -- Smart-default for Total Story Points (sprint scope) ----------------- */
   // Uses the velocity:nextSprintPlan predictor (registered globally at
   // boot) — Bayesian Holt over completed sprints in the workspace store.
@@ -388,48 +397,46 @@ export function BurndownClient() {
     [sortedEntries]
   );
 
+  // Contiguous run of filled days starting at the first filled day. Holt
+  // assumes evenly-spaced samples and extrapolates from the LAST element of
+  // its input, so both the fitted series and the day the forecast is plotted
+  // from must stop at the same place: the first hole. Feeding the full filled
+  // series while plotting from the contiguous-prefix day (the previous
+  // behavior) drew a forecast that contradicted real datapoints sitting to
+  // its right when days were filled out of order (e.g. 0, 1, 5).
+  const contiguous = useMemo(() => {
+    const filled = sortedEntries.filter(
+      (e) => e.remaining !== null && Number.isFinite(e.remaining)
+    );
+    if (filled.length === 0) return { series: [] as number[], lastDay: 0 };
+    const series = [filled[0].remaining as number];
+    let lastDay = filled[0].day;
+    for (let i = 1; i < filled.length; i++) {
+      if (filled[i].day !== lastDay + 1) break;
+      series.push(filled[i].remaining as number);
+      lastDay = filled[i].day;
+    }
+    return { series, lastDay };
+  }, [sortedEntries]);
+
   // Bayesian forecast for the days remaining in the sprint after the last
-  // logged day. Returns [] when remainingSeries is too short (n<2 means we
-  // can't fit a slope) — that disables the band cleanly.
+  // contiguously-logged day. Returns [] when the series is too short (n<2
+  // means we can't fit a slope) — that disables the band cleanly.
   const forecast = useMemo(() => {
-    if (remainingSeries.length < 2) return [];
-    const filledDays = sortedEntries
-      .filter((e) => e.remaining !== null && Number.isFinite(e.remaining))
-      .map((e) => e.day);
-    // Use the last *contiguous* filled day (not Math.max) so the forecast does
-    // not bridge over a hole that already has data when the user fills days
-    // out of order (e.g. day 0, day 5, day 3 → contiguous prefix ends at day 0).
-    const sortedFilled = [...filledDays].sort((a, b) => a - b);
-    const lastFilledDay =
-      sortedFilled.length > 0
-        ? (sortedFilled.find((d, i, arr) => arr[i + 1] !== d + 1) ??
-          sortedFilled[sortedFilled.length - 1])
-        : 0;
-    const horizon = Math.max(1, config.sprintDays - lastFilledDay);
-    return forecastBayesianHolt(remainingSeries, horizon);
-  }, [remainingSeries, sortedEntries, config.sprintDays]);
+    if (contiguous.series.length < 2) return [];
+    const horizon = Math.max(1, config.sprintDays - contiguous.lastDay);
+    return forecastBayesianHolt(contiguous.series, horizon);
+  }, [contiguous, config.sprintDays]);
 
   // Map forecast horizon-index → sprint-day so we can merge into chartData
   // without scanning twice.
   const forecastByDay = useMemo(() => {
-    if (forecast.length === 0) return new Map<number, (typeof forecast)[number]>();
-    const filledDays = sortedEntries
-      .filter((e) => e.remaining !== null && Number.isFinite(e.remaining))
-      .map((e) => e.day);
-    // Match the contiguous-prefix logic in `forecast` so the horizon-day
-    // mapping does not skip over a real datapoint.
-    const sortedFilled = [...filledDays].sort((a, b) => a - b);
-    const lastFilledDay =
-      sortedFilled.length > 0
-        ? (sortedFilled.find((d, i, arr) => arr[i + 1] !== d + 1) ??
-          sortedFilled[sortedFilled.length - 1])
-        : 0;
     const m = new Map<number, (typeof forecast)[number]>();
     forecast.forEach((fp, i) => {
-      m.set(lastFilledDay + i + 1, fp);
+      m.set(contiguous.lastDay + i + 1, fp);
     });
     return m;
-  }, [forecast, sortedEntries]);
+  }, [forecast, contiguous.lastDay]);
 
   // CUSUM regime-shift detection on the remaining-points series. cusum() is
   // a no-op when n<4 so this stays safe with sparse mid-sprint logs.
@@ -497,9 +504,13 @@ export function BurndownClient() {
     const completed = config.totalPoints - (last.remaining ?? config.totalPoints);
     // BUG-T1-burndown-1: zero-guard before division. The Input has min={1}
     // but a corrupted persisted state or hand-edited JSON can land 0 here,
-    // which would render "Infinity%" in the KPI tile.
+    // which would render "Infinity%" in the KPI tile. Clamped to 0..100:
+    // remaining can legitimately exceed totalPoints after a mid-sprint scope
+    // add, which would otherwise show a negative completion rate.
     const completionRate =
-      config.totalPoints > 0 ? Math.round((completed / config.totalPoints) * 100) : 0;
+      config.totalPoints > 0
+        ? Math.max(0, Math.min(100, Math.round((completed / config.totalPoints) * 100)))
+        : 0;
     return { variance, trend, completionRate, lastDay: last.day };
   }, [sortedEntries, config]);
 
@@ -590,35 +601,37 @@ export function BurndownClient() {
                   every change (we don't gate the manual flow). */}
               <SmartInput<number>
                 predicted={totalPointsPrediction}
-                onAccept={(v) => updateConfig({ totalPoints: Math.max(1, Math.round(v)) })}
+                onAccept={(v) => {
+                  setTotalPointsDraft(null);
+                  updateConfig({ totalPoints: Math.max(1, Math.round(v)) });
+                }}
                 render={({ ghost, accept, chip }) => (
                   <>
                     <Input
                       type="number"
                       min={1}
-                      value={config.totalPoints}
+                      value={totalPointsDraft ?? config.totalPoints}
                       placeholder={ghost}
                       onKeyDown={(e) => {
-                        // Tab-to-accept only when the user hasn't already
-                        // committed a value (avoids stomping on intent).
-                        if (
-                          e.key === "Tab" &&
-                          (config.totalPoints === 0 || Number.isNaN(config.totalPoints))
-                        ) {
+                        // Tab-to-accept only while the field is cleared (the
+                        // ghost suggestion is visible) — avoids stomping on
+                        // a value the user typed.
+                        if (e.key === "Tab" && totalPointsDraft === "") {
                           e.preventDefault();
                           accept();
                         }
                       }}
-                      // State-only mid-type so the audit log doesn't fire
-                      // CONFIG_UPDATED for every keystroke ("1", "12", "123"
-                      // each become an event). Commit on blur via the logged
-                      // path so the final value still records cleanly.
-                      onChange={(e) =>
-                        updateConfigRaw({ totalPoints: Math.max(1, Number(e.target.value)) })
-                      }
-                      onBlur={(e) =>
-                        updateConfig({ totalPoints: Math.max(1, Number(e.target.value)) })
-                      }
+                      // Keystrokes stay in the draft buffer; commit once on
+                      // blur so the audit log doesn't fire CONFIG_UPDATED for
+                      // every keystroke ("1", "12", "123").
+                      onChange={(e) => setTotalPointsDraft(e.target.value)}
+                      onBlur={() => {
+                        if (totalPointsDraft === null) return;
+                        const n = Number(totalPointsDraft);
+                        setTotalPointsDraft(null);
+                        if (totalPointsDraft.trim() === "" || !Number.isFinite(n)) return;
+                        updateConfig({ totalPoints: Math.max(1, Math.round(n)) });
+                      }}
                       className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
                       aria-label="Total story points for the sprint"
                     />
@@ -633,19 +646,17 @@ export function BurndownClient() {
                 type="number"
                 min={1}
                 max={60}
-                value={config.sprintDays}
-                // Same quiet-on-change / logged-on-blur split as
-                // totalPoints above.
-                onChange={(e) =>
-                  updateConfigRaw({
-                    sprintDays: Math.max(1, Math.min(60, Number(e.target.value))),
-                  })
-                }
-                onBlur={(e) =>
-                  updateConfig({
-                    sprintDays: Math.max(1, Math.min(60, Number(e.target.value))),
-                  })
-                }
+                value={sprintDaysDraft ?? config.sprintDays}
+                // Draft-buffered: committing mid-type resizes `entries` and
+                // drops days past the transient value (see draft state above).
+                onChange={(e) => setSprintDaysDraft(e.target.value)}
+                onBlur={() => {
+                  if (sprintDaysDraft === null) return;
+                  const n = Number(sprintDaysDraft);
+                  setSprintDaysDraft(null);
+                  if (sprintDaysDraft.trim() === "" || !Number.isFinite(n)) return;
+                  updateConfig({ sprintDays: Math.max(1, Math.min(60, Math.round(n))) });
+                }}
                 className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
               />
             </div>

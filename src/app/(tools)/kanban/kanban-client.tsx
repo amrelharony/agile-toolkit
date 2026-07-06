@@ -345,20 +345,40 @@ export function KanbanClient() {
   // series (for the analytics primitives that take number[]).
   const weeklyThroughputSeries = useMemo(() => {
     const byWeek = new Map<string, number>();
+    let minTs = Infinity;
+    let maxTs = -Infinity;
     for (const c of state.cards) {
       if (!c.completedAt) continue;
-      const { year, week } = isoWeek(new Date(c.completedAt));
+      const d = new Date(c.completedAt);
+      const t = d.getTime();
+      if (!Number.isFinite(t)) continue;
+      if (t < minTs) minTs = t;
+      if (t > maxTs) maxTs = t;
+      const { year, week } = isoWeek(d);
       const key = `${year}-W${String(week).padStart(2, "0")}`;
       byWeek.set(key, (byWeek.get(key) ?? 0) + 1);
     }
-    // Byte-order compare instead of localeCompare — the keys are
-    // strict ISO week strings ("2026-W20"); locale-aware sorting can
-    // pick up unexpected orderings in some locales (Turkish dotless-i,
-    // etc.). Plain `<` comparison is faster and locale-stable for this
-    // restricted character set.
-    return Array.from(byWeek.entries())
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([label, value]) => ({ label, value }));
+    if (byWeek.size === 0) return [];
+    // Fill zero-completion weeks between the first and last completion.
+    // XmR limits, CUSUM, Mann-Kendall, and the next-week forecast all treat
+    // the series as consecutive weekly samples — emitting only weeks that
+    // had a completion made a stalled team (5 done, four silent weeks,
+    // 5 done) read as a flat in-control [5, 5]. Step 7 days from a
+    // noon-anchored start so a ±1h DST shift can never cross a local day
+    // boundary (isoWeek keys off the local calendar day).
+    const lastWk = isoWeek(new Date(maxTs));
+    const lastKey = `${lastWk.year}-W${String(lastWk.week).padStart(2, "0")}`;
+    const anchor = new Date(minTs);
+    anchor.setHours(12, 0, 0, 0);
+    const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+    const out: Array<{ label: string; value: number }> = [];
+    for (let t = anchor.getTime(); out.length < 1000; t += WEEK_MS) {
+      const { year, week } = isoWeek(new Date(t));
+      const key = `${year}-W${String(week).padStart(2, "0")}`;
+      out.push({ label: key, value: byWeek.get(key) ?? 0 });
+      if (key === lastKey) break;
+    }
+    return out;
   }, [state.cards]);
 
   const weeklyThroughput = useMemo(

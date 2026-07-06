@@ -527,14 +527,18 @@ export function StandupClient() {
     upsertStandupEntry({ ...entry, id: crypto.randomUUID(), timestamp: Date.now() });
   const upsertEntry = (entry: Omit<StandupEntry, "id" | "timestamp">) => {
     const existing = entries.find((e) => e.member === entry.member && e.date === entry.date);
-    // Preserve the original id + raise timestamp + resolved flag on edit.
+    // Preserve the original id + raise timestamp on edit. The resolved flag
+    // carries over ONLY while the blocker text is unchanged — a re-submit
+    // that reports a NEW blocker must not be born "resolved" (it would be
+    // struck through and vanish from Open Blockers / the KPI / the badge).
     upsertStandupEntry(
       existing
         ? {
             ...entry,
             id: existing.id,
             timestamp: existing.timestamp,
-            blockerResolved: existing.blockerResolved,
+            blockerResolved:
+              entry.blockers.trim() === existing.blockers.trim() ? existing.blockerResolved : false,
           }
         : { ...entry, id: crypto.randomUUID(), timestamp: Date.now() }
     );
@@ -565,8 +569,8 @@ export function StandupClient() {
     // Require explicit selection; surface a console hint in dev so the
     // empty-submit path is debuggable without changing the (deliberately
     // minimal) toast surface area.
-    const member = customMemberDraft.trim() || formMember.trim();
-    if (!member) {
+    const typed = customMemberDraft.trim() || formMember.trim();
+    if (!typed) {
       if (process.env.NODE_ENV !== "production") {
         // eslint-disable-next-line no-console
         console.warn("[standup] submit ignored — no member selected/typed");
@@ -578,8 +582,16 @@ export function StandupClient() {
     // the entry but left the right-column roster empty of this person,
     // so `missingMembers` didn't include them and the green-dot
     // "submitted today" indicator never appeared.
-    const norm = member.toLowerCase();
-    if (!members.some((m) => m.trim().toLowerCase() === norm)) {
+    //
+    // Canonicalize to the ROSTER's casing when a case-insensitive match
+    // exists: `addMember` dedupes case-insensitively but everything else
+    // (hasEntry, submittedMembers, digests, history filter) matches
+    // exactly, so typing "alice" against a roster "Alice" used to split
+    // one person into two identities (double entries, wrong green dot).
+    const norm = typed.toLowerCase();
+    const rosterMatch = teamMembers.find((m) => m.name.trim().toLowerCase() === norm);
+    const member = rosterMatch ? rosterMatch.name.trim() : typed;
+    if (!rosterMatch) {
       addMember(member);
     }
     const date = todayStr();
