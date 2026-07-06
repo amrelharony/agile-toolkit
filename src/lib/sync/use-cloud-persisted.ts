@@ -169,9 +169,8 @@ export function useCloudPersisted<T>(key: string, initial: T): [T, Dispatch<SetS
     }
 
     // Register the sync adapter once per key. The setSnapshot path stores
-    // the new value into the module snapshot map and fans it to every
-    // mounted hook — but does NOT write localStorage here; each receiving
-    // hook's write effect writes localStorage exactly once.
+    // the new value into the module snapshot map, persists it to
+    // localStorage, and fans it to every mounted hook.
     if (!registered.has(key)) {
       registered.add(key);
       registerBlobStore({
@@ -179,6 +178,30 @@ export function useCloudPersisted<T>(key: string, initial: T): [T, Dispatch<SetS
         getSnapshot: () => snapshots.get(key) ?? null,
         setSnapshot: (next) => {
           snapshots.set(key, next);
+          // BUG-S18: persist the remote value HERE. notifySubs reaches
+          // EVERY mounted hook, and each one arms its own remoteAppliedRef
+          // sentinel — so every hook's write effect skipped the
+          // localStorage write and nobody stored the pulled value. A
+          // reload before the next successful pull then resurrected the
+          // stale local value, and the post-hydration write effect marked
+          // it dirty, pushing the stale value back to Supabase with a
+          // fresh LWW timestamp (undoing the remote edit).
+          try {
+            if (next === undefined) {
+              // Blob DELETE clears the snapshot — remove the key instead
+              // of writing the literal string "undefined"
+              // (JSON.stringify(undefined)), which would poison the next
+              // hydration parse.
+              localStorage.removeItem(key);
+            } else {
+              localStorage.setItem(key, JSON.stringify(next));
+            }
+          } catch (e) {
+            if (process.env.NODE_ENV !== "production") {
+              // eslint-disable-next-line no-console
+              console.warn(`[useCloudPersisted] failed to persist remote key=${key}`, e);
+            }
+          }
           notifySubs(key, next);
         },
         subscribe: (onChange) => {
@@ -204,9 +227,9 @@ export function useCloudPersisted<T>(key: string, initial: T): [T, Dispatch<SetS
     if (hydratedKey !== key) return;
     if (typeof window === "undefined") return;
     if (state === remoteAppliedRef.current) {
-      // This state arrived via the remote-apply sub. setSnapshot stored
-      // it in the module snapshot map already; another mounted hook's
-      // write effect will handle the localStorage write. Reset the
+      // This state arrived via the remote-apply sub. setSnapshot already
+      // stored it in the module snapshot map AND localStorage (BUG-S18);
+      // skipping here only suppresses the markDirty echo. Reset the
       // sentinel so a SUBSEQUENT local edit isn't mistakenly skipped.
       remoteAppliedRef.current = NO_REMOTE;
       return;

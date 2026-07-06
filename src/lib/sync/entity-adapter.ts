@@ -108,6 +108,21 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
     return this.dirty || this.pendingDeletes.size > 0;
   }
 
+  /** Clear all cross-session LWW/diff state. Called by the engine on
+   *  stop() so a different user signing in on the same tab can't inherit
+   *  the previous user's timestamps and snapshots (BUG-S13): stale
+   *  lastPushed ids would tombstone the new user's rows via the
+   *  belt-and-braces delete detection, and stale timestamps suppress the
+   *  new user's initial pull. */
+  resetSyncState(): void {
+    this.lastPushed.clear();
+    this.pendingDeletes.clear();
+    this.remoteUpdatedAt.clear();
+    this.lastSeenLiveIds = new Set();
+    this.dirty = false;
+    this.pendingFlushAfter = false;
+  }
+
   async pull(supabase: SupabaseClient, userId: string): Promise<void> {
     // BUG-S2: keyset pagination, not OFFSET. With OFFSET, a peer device
     // INSERT'ing an entity that sorts BEFORE the current page boundary
@@ -137,8 +152,15 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
     // local writes survive) overlaid with any remote rows that are newer.
     const localById = new Map(this.getEntities().map((e) => [e.id, e]));
     const merged = new Map<string, T>(localById);
+    // Remember each live remote row's serialisation — the lastPushed rebuild
+    // below must be seeded from what the SERVER holds, not from the merged
+    // (possibly locally-edited) entity. See BUG-S10 below.
+    const remoteJsonById = new Map<string, string>();
     for (const row of rows) {
       this.remoteUpdatedAt.set(row.entity_id, row.updated_at);
+      if (!row.deleted) {
+        remoteJsonById.set(row.entity_id, JSON.stringify(row.payload));
+      }
       if (row.deleted) {
         // Honour remote deletion only if our local copy isn't newer
         // (we tracked local writes via lastPushed.updatedAt).
@@ -204,12 +226,24 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
     // it lived only in this device's localStorage and never reached peers.
     // Leaving unpushed locals OUT of lastPushed makes the next push detect
     // them as new; re-arm a flush so that push actually runs.
+    //
+    // BUG-S10: seed lastPushed from the REMOTE row's JSON, never from the
+    // merged entity. The merge loop above deliberately keeps a locally-
+    // edited copy (unpushed-edit guard); pairing that LOCAL json with the
+    // REMOTE timestamp marked the edit as already-on-server — the push diff
+    // skipped it forever, and the next remote UPDATE clobbered it (the
+    // onRemote guard saw local as "clean"). Every offline edit was lost at
+    // sign-in this way, since start() pulls before the first push. Seeding
+    // the server's own serialisation makes the diff see the edit; re-arm a
+    // flush whenever local and remote disagree.
     this.lastPushed.clear();
     let hasUnpushedLocal = false;
     merged.forEach((e) => {
       const remoteTs = this.remoteUpdatedAt.get(e.id);
-      if (remoteTs) {
-        this.lastPushed.set(e.id, { json: JSON.stringify(e), updatedAt: remoteTs });
+      const remoteJson = remoteJsonById.get(e.id);
+      if (remoteTs && remoteJson !== undefined) {
+        this.lastPushed.set(e.id, { json: remoteJson, updatedAt: remoteTs });
+        if (remoteJson !== JSON.stringify(e)) hasUnpushedLocal = true;
       } else {
         hasUnpushedLocal = true;
       }
@@ -246,6 +280,14 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
     this.lastPushed.forEach((_, id) => {
       if (!liveIds.has(id)) this.pendingDeletes.add(id);
     });
+    // BUG-S11: a pending delete whose entity is live again (delete + undo
+    // inside the debounce window) must be cancelled — a live id must never
+    // be tombstoned. The upsert skipped it (unchanged JSON), so the
+    // tombstone would win: the next pull sees deleted=true with no
+    // lastPushed entry and removes the entity on every device.
+    this.pendingDeletes.forEach((id) => {
+      if (liveIds.has(id)) this.pendingDeletes.delete(id);
+    });
 
     // ──────── upserts: changed or new entities ────────
     const upserts: Array<{
@@ -272,6 +314,11 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
       });
     }
 
+    // BUG-S12: drop the dirty flag BEFORE the awaits (restored on failure).
+    // Clearing it after the RPCs erased a `dirty = true` set by a markDirty
+    // that landed mid-await — the follow-up flush then saw a clean adapter
+    // and pushed nothing, stranding that edit until some later mutation.
+    this.dirty = false;
     try {
       if (upserts.length > 0) {
         const { data, error } = await supabase
@@ -316,13 +363,20 @@ class EntitySyncAdapter<T extends { id: string }> implements SyncAdapter {
           this.lastPushed.delete(row.entity_id);
           this.remoteUpdatedAt.set(row.entity_id, row.updated_at);
         }
-        this.pendingDeletes.clear();
+        // BUG-S12 (cont.): only remove the ids this batch actually sent — a
+        // markDirty during the RPC awaits may have queued NEW deletions that
+        // must survive for the follow-up flush. A blanket clear() dropped
+        // them unsent, and a later pull resurrected the "deleted" entities.
+        tombstones.forEach((t) => this.pendingDeletes.delete(t.entity_id));
       }
 
-      this.dirty = false;
       // Refresh the live-id snapshot so the next markDirty diffs against
       // the post-push view.
       this.lastSeenLiveIds = new Set(this.getEntities().map((e) => e.id));
+    } catch (err) {
+      // Push failed — re-arm dirty so the retry path actually retries.
+      this.dirty = true;
+      throw err;
     } finally {
       this.pushInFlight = false;
       // BUG-S1 (cont.): if a markDirty arrived while we were awaiting
