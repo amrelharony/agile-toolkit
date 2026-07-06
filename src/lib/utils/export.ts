@@ -18,11 +18,31 @@ function sanitizeFilename(name: string): string {
 // leading-CR escapes that some imports flag-check. Prefix with `'` to defang.
 const FORMULA_PREFIX = /^[=+\-@\t\r]/;
 
-export function exportToCSV(
-  headers: string[],
-  rows: (string | number)[][],
-  filename: string
-) {
+// Forward completed exports into the gamification engine. The engine's
+// counter allowlist, xpForEvent, the `export-master` achievement, and the
+// d-export daily challenge all key on these names, but no call site ever
+// dispatched them — exports were invisible to gamification. Lazy import
+// mirrors sonification/emit.ts's forwardToGamification: this module is
+// imported by nearly every tool page, and a static import would drag the
+// whole engine (plus its zustand store) into each of those chunks — and
+// keeps the module graph acyclic.
+let gamifyDispatch: ((name: string) => void) | null = null;
+function trackExport(format: "png" | "csv" | "json") {
+  if (typeof window === "undefined") return;
+  void (async () => {
+    try {
+      if (!gamifyDispatch) {
+        const mod = await import("@/lib/gamification/engine");
+        gamifyDispatch = (name) => mod.dispatch({ name });
+      }
+      gamifyDispatch(`export-${format}`);
+    } catch {
+      /* engine not loadable — exports still work without gamification */
+    }
+  })();
+}
+
+export function exportToCSV(headers: string[], rows: (string | number)[][], filename: string) {
   // Excel opens UTF-8 files incorrectly without a BOM; emoji, accents, and
   // Arabic characters come out as mojibake.  The ﻿ BOM makes it render
   // correctly while staying valid CSV for every other consumer.
@@ -48,19 +68,20 @@ export function exportToCSV(
 
   const csvContent =
     "﻿" +
-    [
-      headers.map(escapeCell).join(","),
-      ...rows.map((row) => row.map(escapeCell).join(",")),
-    ].join("\r\n");
+    [headers.map(escapeCell).join(","), ...rows.map((row) => row.map(escapeCell).join(","))].join(
+      "\r\n"
+    );
 
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
   saveAs(blob, `${sanitizeFilename(filename)}.csv`);
+  trackExport("csv");
 }
 
 export function exportToJSON(data: unknown, filename: string) {
   const json = JSON.stringify(data, null, 2);
   const blob = new Blob([json], { type: "application/json;charset=utf-8" });
   saveAs(blob, `${sanitizeFilename(filename)}.json`);
+  trackExport("json");
 }
 
 function detectIsLightTheme(): boolean {
@@ -116,6 +137,7 @@ export async function exportToPNG(
     ),
   ]);
   saveAs(dataUrl, `${sanitizeFilename(filename)}.png`);
+  trackExport("png");
 }
 
 export async function copyToClipboard(text: string): Promise<boolean> {

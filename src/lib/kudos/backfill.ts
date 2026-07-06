@@ -49,9 +49,14 @@ export async function runKudosBackfillIfNeeded(): Promise<void> {
   inFlight = true;
   try {
     const kudos = useWorkspaceStore.getState().kudos ?? [];
+    // Owner-authored rows only. Guest-authored rows (fromProfileId set)
+    // were written server-side via /api/guest/kudos with squad_id pinned
+    // from the guest cookie; re-POSTing them to /api/kudos would full-row
+    // upsert squad_id back to null (and clobber reactions with our local
+    // snapshot). Mirrors the same gate in cloud-sync.ts.
     // Reverse so newest goes first — fastest convergence for the
     // owner's wall on the secondary device the backfill is targeting.
-    const batch = kudos.slice().reverse();
+    const batch = kudos.filter((k) => !k.fromProfileId).reverse();
     // Cap batched concurrency at 4 — the typical workspace has at most
     // a few hundred kudos, so we accept ~50 sequential rounds rather
     // than overwhelming the function.

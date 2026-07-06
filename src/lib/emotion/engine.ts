@@ -38,14 +38,7 @@ let current: MoodResolution = {
 };
 const listeners = new Set<MoodListener>();
 
-const SOURCE_PRIORITY: MoodSource[] = [
-  "user",
-  "webcam",
-  "weather",
-  "time",
-  "activity",
-  "default",
-];
+const SOURCE_PRIORITY: MoodSource[] = ["user", "webcam", "weather", "time", "activity", "default"];
 
 function prefersReducedMotionSync(): boolean {
   if (typeof window === "undefined") return false;
@@ -171,6 +164,26 @@ function applyCssVars(mood: Mood) {
 // Public API
 // ---------------------------------------------------------------------------
 
+// Signals otherwise expire lazily — `isSignalFresh` is only consulted
+// inside resolve(), which only runs on fanout(). Without a scheduled
+// re-resolve, a short-TTL signal (e.g. the kudos receive-bridge's 30 s
+// "Playful" lift) kept governing the active mood until some unrelated
+// event happened to fire. One timer per source, replaced on re-push,
+// cleared when the source is dropped.
+const expiryTimers: Partial<Record<MoodSource, ReturnType<typeof setTimeout>>> = {};
+
+function scheduleExpiryReresolve(source: MoodSource, ttlMs: number | undefined) {
+  const prev = expiryTimers[source];
+  if (prev !== undefined) clearTimeout(prev);
+  expiryTimers[source] = setTimeout(
+    () => {
+      delete expiryTimers[source];
+      fanout();
+    },
+    (ttlMs ?? DEFAULT_TTL_MS) + 50
+  );
+}
+
 /**
  * Push a mood signal from a source.  The engine keeps one slot per source
  * and re-resolves the active mood.  Stale signals automatically fall out.
@@ -178,7 +191,7 @@ function applyCssVars(mood: Mood) {
 export function pushMoodSignal(
   source: MoodSource,
   mood: Mood,
-  opts: { confidence?: number; ttlMs?: number } = {},
+  opts: { confidence?: number; ttlMs?: number } = {}
 ) {
   signals[source] = {
     mood,
@@ -187,12 +200,18 @@ export function pushMoodSignal(
     ttlMs: opts.ttlMs,
     at: Date.now(),
   };
+  scheduleExpiryReresolve(source, opts.ttlMs);
   fanout();
 }
 
 /** Drop a signal from a given source — useful when a sensor disconnects. */
 export function clearMoodSignal(source: MoodSource) {
   delete signals[source];
+  const timer = expiryTimers[source];
+  if (timer !== undefined) {
+    clearTimeout(timer);
+    delete expiryTimers[source];
+  }
   fanout();
 }
 

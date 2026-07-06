@@ -1,6 +1,9 @@
 "use client";
 
 import { dispatch } from "./engine";
+import { useVDnaStore } from "@/lib/stores/vdna-store";
+import { useSonificationStore } from "@/lib/stores/sonification-store";
+import { useHistoryStore } from "@/lib/history/history-store";
 
 /**
  * Bridges existing app events into the gamification engine.  Uses global
@@ -110,6 +113,54 @@ export function installEventBridge(): () => void {
     dispatch({ name: "session-minute" });
   }, 60_000);
 
+  // --- sonification modes tried --------------------------------------------
+  // `audio-modes` reads counters["audio-modes-used"], which nothing ever
+  // wrote (same dead-counter class as the hover-hundred fix in engine.ts).
+  // No event fires on a mode change, so watch the sonification store
+  // directly and count DISTINCT modes via a per-mode marker counter.
+  // Subscription-only (no synchronous seed): the store uses skipHydration,
+  // so getState() at install time still holds defaults — rehydrate itself
+  // notifies subscribers, at which point we mark the user's real mode.
+  const markAudioMode = () => {
+    const prefs = useSonificationStore.getState();
+    if (!prefs.enabled) return; // "trying" a mode requires audio on
+    const key = `audio-mode:${prefs.mode}`;
+    const counters = useVDnaStore.getState().counters;
+    if ((counters[key] ?? 0) > 0) return;
+    useVDnaStore.getState().bumpCounter(key, 1);
+    useVDnaStore.getState().bumpCounter("audio-modes-used", 1);
+    // Nudge the engine so the achievement unlocks now rather than on the
+    // next unrelated interaction.
+    dispatch({ name: "audio-mode-used", meta: { mode: prefs.mode } });
+  };
+  const unsubSonification = useSonificationStore.subscribe(markAudioMode);
+
+  // --- retro formats used ---------------------------------------------------
+  // `retro-all-formats` reads counters["retro-formats-used"], also never
+  // written. Format switches don't emit a sonification event — the only
+  // record is the history log (retro-client logs FORMAT_CHANGED with
+  // { format }). Derive the distinct-format count from there. Replayed
+  // cloud events are safe here: a distinct-format SET is idempotent under
+  // replay, unlike XP, so counting from synced history can't double-award.
+  const syncRetroFormats = () => {
+    const events = useHistoryStore.getState().events;
+    const distinct = new Set<string>();
+    for (const e of events) {
+      if (e.toolId !== "retro" || e.action !== "format_changed") continue;
+      const format = (e.payload as { format?: unknown } | undefined)?.format;
+      if (typeof format === "string" && format) distinct.add(format);
+    }
+    const seen = useVDnaStore.getState().counters["retro-formats-used"] ?? 0;
+    if (distinct.size > seen) {
+      useVDnaStore.getState().bumpCounter("retro-formats-used", distinct.size - seen);
+      dispatch({ name: "retro-format-used" });
+    }
+  };
+  const unsubHistory = useHistoryStore.subscribe((s, prev) => {
+    if (s.events !== prev.events) syncRetroFormats();
+  });
+  syncRetroFormats();
+
   window.addEventListener("click", onClick, { passive: true });
   window.addEventListener("pointerover", onPointerOver, { passive: true });
   window.addEventListener("keydown", onKeyDown);
@@ -124,6 +175,8 @@ export function installEventBridge(): () => void {
     window.history.pushState = origPush;
     window.history.replaceState = origReplace;
     window.clearInterval(minuteTimer);
+    unsubSonification();
+    unsubHistory();
     // Cancel pending RAF/timeout so they don't dispatch after the bridge is
     // torn down (HMR + provider remount used to leak duplicate handlers).
     if (rafId) window.cancelAnimationFrame(rafId);
@@ -138,7 +191,7 @@ function extractToolId(pathname: string): string | null {
   const match = pathname.match(/^\/([a-z0-9-]+)\/?$/);
   if (!match) return null;
   const id = match[1];
-  if (id === "" || id === "/" ) return null;
+  if (id === "" || id === "/") return null;
   // Ignore non-tool routes (only one-segment paths used by this app).
   return id;
 }

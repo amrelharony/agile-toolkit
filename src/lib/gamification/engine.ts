@@ -208,6 +208,26 @@ function evtFlag(meta: Record<string, unknown> | undefined, key: string): boolea
   return Boolean(meta?.[key]);
 }
 
+/**
+ * Local-calendar day ordinal (days since epoch in the user's timezone).
+ * Built from Y/M/D parts via Date.UTC so a DST shift can't produce the
+ * off-by-one days that flooring a raw epoch-ms value would — consecutive
+ * local days always differ by exactly 1.
+ */
+function localDayOrdinal(d: Date = new Date()): number {
+  return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86_400_000);
+}
+
+/**
+ * Set a counter to an absolute value via bumpCounter's functional updater
+ * (the store exposes no setter, and `apply({ counters })` would reintroduce
+ * the read-then-clobber race bumpCounter's R5 fix closed).
+ */
+function setCounter(key: string, value: number) {
+  const cur = useVDnaStore.getState().counters[key] ?? 0;
+  if (cur !== value) useVDnaStore.getState().bumpCounter(key, value - cur);
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // XP source mapping for event names
 // ──────────────────────────────────────────────────────────────────────────
@@ -222,7 +242,11 @@ function xpForEvent(name: string): { amount: number; source: XpSource } {
   if (name === "theme-toggle") return { amount: 10, source: "theme-toggle" };
   if (name === "sonification-on") return { amount: 10, source: "sonification-toggle" };
   if (name === "workspace-push") return { amount: 10, source: "entity-added" };
-  if (name === "export") return { amount: 5, source: "click" };
+  // The export helpers (utils/export.ts) dispatch the format-specific
+  // names so `export-master` can count per-format; all of them are worth
+  // the same 5 XP as the legacy bare "export".
+  if (name === "export" || name === "export-png" || name === "export-csv" || name === "export-json")
+    return { amount: 5, source: "click" };
   if (name === "prompt-copied") return { amount: 10, source: "click" };
   if (name.startsWith("secret:")) return { amount: 100, source: "secret" };
   // Kudos redesign Phase 2 — recognition events have higher XP than
@@ -531,6 +555,33 @@ export function dispatch(event: GamificationEvent) {
     // `secret-found` trigger — so bridge them here.
     if (name.startsWith("secret:") || name === "logo-whispered") {
       advanceChallenges("secret-found", meta);
+    }
+    // Wire d-export ("Export anything"): utils/export.ts dispatches the
+    // format-specific names (so `export-master` can count per-format), but
+    // the challenge trigger is the bare `export` — bridge it, same pattern
+    // as secret-found above.
+    if (name === "export-png" || name === "export-csv" || name === "export-json") {
+      advanceChallenges("export", meta);
+    }
+    // Wire the mood-log day streak: `mood-streak` reads
+    // counters["mood-streak-days"], which nothing ever wrote (same
+    // dead-counter class as the hover-hundred fix above). The mood tool
+    // emits per-score events (tool:mood-tracker:mood-great etc.), never a
+    // bare "logged" — derive the consecutive-day streak here, at most one
+    // step per local day. The same once-per-day gate also bridges the
+    // d-mood / w-mood-5 challenge trigger `tool:mood-tracker:logged`,
+    // which no emit site fires either — and gating it here makes w-mood-5
+    // ("log mood 5 DAYS this week") count days, not raw logs.
+    if (name.startsWith("tool:mood-tracker:mood-")) {
+      const s = useVDnaStore.getState();
+      const today = localDayOrdinal();
+      const lastDay = s.counters["mood-last-log-day"] ?? 0;
+      if (lastDay !== today) {
+        const streak = lastDay === today - 1 ? (s.counters["mood-streak-days"] ?? 0) + 1 : 1;
+        setCounter("mood-last-log-day", today);
+        setCounter("mood-streak-days", streak);
+        advanceChallenges("tool:mood-tracker:logged", meta);
+      }
     }
 
     // Achievement evaluation. Inject the LIVE combo depth: the combo-based

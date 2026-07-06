@@ -58,8 +58,19 @@ function findGregorianRangeForHijri(
   fromDate: Date = new Date()
 ): HolidayWindow | null {
   const dayMs = 86_400_000;
-  const rangeStartTs = fromDate.getTime() - 45 * dayMs;
-  const rangeEndTs = fromDate.getTime() + 45 * dayMs;
+  // Anchor the scan at 12:00 UTC (14:00/15:00 Cairo) before stepping in
+  // fixed 24 h increments. Africa/Cairo observes DST again since 2023
+  // (last Friday of April → last Thursday of October): stepping raw
+  // wall-clock ms from a near-midnight anchor SKIPS the Cairo calendar
+  // day the spring-forward lands on (23:30 EET + 24 h = 00:30 EEST two
+  // dates later), which silently missed single-day Hijri windows (Hijri
+  // New Year, Mawlid) and shifted Eid boundaries by a day. A noon-UTC
+  // anchor keeps every step hours clear of the Cairo date line under a
+  // ±1 h DST shift, so no date can be skipped or visited twice.
+  const anchor = new Date(fromDate);
+  anchor.setUTCHours(12, 0, 0, 0);
+  const rangeStartTs = anchor.getTime() - 45 * dayMs;
+  const rangeEndTs = anchor.getTime() + 45 * dayMs;
 
   let startIso: string | null = null;
   let endIso: string | null = null;
