@@ -31,7 +31,15 @@ export function PresenceIdentityProvider({
   identity,
   children,
 }: {
-  identity: PresenceIdentity;
+  /**
+   * `null` means "no override" — identical to not mounting the provider at
+   * all, since the context default is null. Accepting null lets always-on
+   * wrappers (owner-presence-provider) keep a CONSTANT tree shape across
+   * auth transitions: swapping between a Fragment and this provider changes
+   * the root element type, which makes React unmount + remount the entire
+   * children subtree (wiping all component state) every time auth resolves.
+   */
+  identity: PresenceIdentity | null;
   children: React.ReactNode;
 }) {
   return (

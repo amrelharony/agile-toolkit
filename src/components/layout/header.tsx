@@ -60,6 +60,18 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
   }, []);
 
   useEffect(() => {
+    // Skip the entire effect on its very first (mount) run. At that point
+    // `theme` still holds the "dark" default — the localStorage-reading
+    // effect above runs in the same effect phase, so its setTheme hasn't
+    // re-rendered yet. Applying classes here clobbered the boot script's
+    // .light/.hc classes with .dark for a frame (wrong-theme flash) and
+    // fired every documentElement MutationObserver (sonner Toaster,
+    // ParticleBackground) twice on every load. The boot script + SSR
+    // markup already have the correct classes before React runs, so the
+    // mount pass has nothing to do; this effect only needs to act on
+    // user-initiated theme changes (and the post-hydration re-run, which
+    // is idempotent).
+    if (!mounted) return;
     // Class-based selectors (.light / .hc) and data-theme attribute
     // are both honoured by globals.css — set both for compatibility
     // with any inline test snippets that check classList.
@@ -67,11 +79,6 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
     document.documentElement.classList.toggle("dark", theme === "dark");
     document.documentElement.classList.toggle("hc", theme === "hc");
     document.documentElement.setAttribute("data-theme", theme);
-    // Skip the redundant localStorage write on the very first effect run —
-    // the inline boot script in layout.tsx already wrote this value before
-    // React hydrated. Without this guard we issue a setItem on every cold
-    // load even when nothing changed.
-    if (!mounted) return;
     // Wrap setItem — Safari Private Browsing throws SecurityError on every
     // localStorage write, and a full workspace store can push the origin
     // over quota. Either case would crash the theme effect (which renders

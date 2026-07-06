@@ -88,12 +88,40 @@ export function ForecastBandChart({
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart data={data} margin={{ top: 12, right: 24, bottom: 24, left: 12 }}>
         <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-        <XAxis dataKey="x" stroke={chartTheme.axisColor} label={xLabel ? { value: xLabel, position: "insideBottom", offset: -6, fill: chartTheme.axisColor } : undefined} />
-        <YAxis stroke={chartTheme.axisColor} label={yLabel ? { value: yLabel, angle: -90, position: "insideLeft", fill: chartTheme.axisColor } : undefined} />
+        <XAxis
+          dataKey="x"
+          stroke={chartTheme.axisColor}
+          label={
+            xLabel
+              ? { value: xLabel, position: "insideBottom", offset: -6, fill: chartTheme.axisColor }
+              : undefined
+          }
+        />
+        <YAxis
+          stroke={chartTheme.axisColor}
+          label={
+            yLabel
+              ? { value: yLabel, angle: -90, position: "insideLeft", fill: chartTheme.axisColor }
+              : undefined
+          }
+        />
         <Tooltip contentStyle={chartTheme.tooltipStyle} />
         <Legend wrapperStyle={chartTheme.legendStyle} />
+        {/*
+         * True range areas: the dataKey returns [lower, upper] so Recharts
+         * fills only between the two bounds. The previous approach painted
+         * baseline-filled areas and "erased" below each lower bound with an
+         * opaque background-coloured Area — but the 80%-band mask (drawn
+         * last) also erased the [lower95, lower80] slice of the 95% band,
+         * so the fan chart showed an upper 95% whisker with no lower one,
+         * the 80% region rendered as compounded 0.08+0.18 opacity, and the
+         * two unnamed mask series leaked into the Tooltip. Range areas need
+         * no masks, so grid lines also stay visible under the bands.
+         */}
         <Area
-          dataKey="band95Upper"
+          dataKey={(d: (typeof data)[number]) =>
+            d.band95Lower != null && d.band95Upper != null ? [d.band95Lower, d.band95Upper] : null
+          }
           stroke="none"
           fill={chartTheme.colors.cyan}
           fillOpacity={0.08}
@@ -101,27 +129,13 @@ export function ForecastBandChart({
           connectNulls
         />
         <Area
-          dataKey="band95Lower"
-          stroke="none"
-          fill={chartTheme.background}
-          fillOpacity={1}
-          legendType="none"
-          connectNulls
-        />
-        <Area
-          dataKey="band80Upper"
+          dataKey={(d: (typeof data)[number]) =>
+            d.band80Lower != null && d.band80Upper != null ? [d.band80Lower, d.band80Upper] : null
+          }
           stroke="none"
           fill={chartTheme.colors.cyan}
           fillOpacity={0.18}
           name="80% band"
-          connectNulls
-        />
-        <Area
-          dataKey="band80Lower"
-          stroke="none"
-          fill={chartTheme.background}
-          fillOpacity={1}
-          legendType="none"
           connectNulls
         />
         <Line
