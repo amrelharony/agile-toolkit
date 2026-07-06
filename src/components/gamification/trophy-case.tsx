@@ -378,6 +378,15 @@ function LeaderboardTab() {
       aliveRef.current = false;
     };
   }, []);
+  // Reflect env availability as soon as the tab renders. `available`
+  // previously stayed at its `false` default until the first Load click,
+  // so fully-configured deployments showed the "Set NEXT_PUBLIC_SUPABASE_URL
+  // …" setup instructions to every user who opened the tab. Read it in an
+  // effect (not a lazy initializer) so the SSR pass and first client render
+  // stay identical.
+  useEffect(() => {
+    setAvailable(isRealtimeAvailable());
+  }, []);
 
   const load = async () => {
     if (!aliveRef.current) return;

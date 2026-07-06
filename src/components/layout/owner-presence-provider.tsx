@@ -15,11 +15,17 @@ import { PresenceIdentityProvider, type PresenceIdentity } from "@/lib/realtime/
  * caused by unrelated context churn doesn't push a fresh object through the
  * presence context (which would re-trigger useRoom's identity-keyed effect).
  *
- * The provider accepts a non-null identity; when auth is loading, anonymous,
- * disabled, or errored we pass null via the (presence-identity-internal)
- * context default by not wrapping at all — useRoom's contextIdentity selector
- * falls through to `getOrCreateUser()` in that case, matching the legacy path
- * for solo tools that work without an account.
+ * When auth is loading, anonymous, disabled, or errored we pass identity=null
+ * — semantically identical to the context default, so useRoom's
+ * contextIdentity selector falls through to `getOrCreateUser()`, matching the
+ * legacy path for solo tools that work without an account.
+ *
+ * ALWAYS render the provider, even with a null identity. Switching the
+ * returned root element between a Fragment (unwrapped) and the provider
+ * changes the element type at this tree position, so React unmounted and
+ * remounted the ENTIRE app subtree the moment auth resolved (~every signed-in
+ * page load): local input state wiped, WebGL mascot re-initialised, sync
+ * channels torn down and resubscribed. A constant tree shape avoids all that.
  */
 export function OwnerPresenceProvider({ children }: { children: React.ReactNode }) {
   const auth = useAuthOptional();
@@ -35,6 +41,5 @@ export function OwnerPresenceProvider({ children }: { children: React.ReactNode 
     return { id: auth.user.id, name };
   }, [auth]);
 
-  if (!identity) return <>{children}</>;
   return <PresenceIdentityProvider identity={identity}>{children}</PresenceIdentityProvider>;
 }

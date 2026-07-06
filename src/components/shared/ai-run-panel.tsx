@@ -6,12 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useLlmStore } from "@/lib/stores/llm-store";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
 import { getAdapter, PROVIDER_META } from "@/lib/llm/registry";
-import {
-  estimateCostUsd,
-  estimateInputTokens,
-  findModel,
-  formatCostUsd,
-} from "@/lib/llm/pricing";
+import { estimateCostUsd, estimateInputTokens, findModel, formatCostUsd } from "@/lib/llm/pricing";
 import type { ProviderId } from "@/lib/llm/types";
 import { isLlmError } from "@/lib/llm/types";
 import { withRetry } from "@/lib/llm/retry";
@@ -59,7 +54,10 @@ interface AiRunPanelProps {
    * useCallback's dep list (a fresh closure each render would tear down
    * the streaming run mid-flight).
    */
-  onResult?: (result: { text: string; usage: { inputTokens: number; outputTokens: number } }) => void;
+  onResult?: (result: {
+    text: string;
+    usage: { inputTokens: number; outputTokens: number };
+  }) => void;
 }
 
 /**
@@ -123,12 +121,9 @@ export default function AiRunPanel({
   // user switches model in settings without closing the drawer.
   const inputTokens = estimateInputTokens(prompt);
   const modelInfo = providerId && modelId ? findModel(providerId, modelId) : undefined;
-  const estIn = providerId && modelId
-    ? estimateCostUsd(providerId, modelId, inputTokens, 0)
-    : 0;
-  const estMaxOut = providerId && modelId
-    ? estimateCostUsd(providerId, modelId, 0, maxOutputTokens)
-    : 0;
+  const estIn = providerId && modelId ? estimateCostUsd(providerId, modelId, inputTokens, 0) : 0;
+  const estMaxOut =
+    providerId && modelId ? estimateCostUsd(providerId, modelId, 0, maxOutputTokens) : 0;
 
   const run = useCallback(async () => {
     if (!providerId || !modelId) {
@@ -180,7 +175,11 @@ export default function AiRunPanel({
       // BYOK key. Stripping quotes, newlines, and CR collapses the
       // interpolation to a single safe label.
       const safeToolName = toolName
-        ? toolName.replace(/["\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 200)
+        ? toolName
+            .replace(/["\r\n]+/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 200)
         : undefined;
       // Wrap the adapter call in withRetry so transient 429s (provider
       // bucket exhaustion) auto-recover without surfacing as a hard
@@ -216,10 +215,10 @@ export default function AiRunPanel({
               },
             },
             cfg,
-            maxOutputTokens,
+            maxOutputTokens
           );
         },
-        { signal: controller.signal },
+        { signal: controller.signal }
       );
       setUsage(result);
       setTotalMs(Math.round(performance.now() - startedAt));
@@ -250,11 +249,9 @@ export default function AiRunPanel({
         const outputTokens = Math.max(0, result.outputTokens);
         const actualCost = Math.max(
           0,
-          estimateCostUsd(providerId, modelId, inputTokens, outputTokens),
+          estimateCostUsd(providerId, modelId, inputTokens, outputTokens)
         );
-        const feature = toolName?.trim()
-          ? `BYOK: ${toolName.trim()}`
-          : "BYOK: AI Run";
+        const feature = toolName?.trim() ? `BYOK: ${toolName.trim()}` : "BYOK: AI Run";
         useWorkspaceStore.getState().upsertTokenSpend({
           id: crypto.randomUUID(),
           feature,
@@ -271,8 +268,11 @@ export default function AiRunPanel({
       }
     } catch (err) {
       // AbortError is expected when the user hits Stop — don't surface it
-      // as a red error toast.
-      if (isLlmError(err) && err.code === "abort") {
+      // as a red error toast. Also check the signal directly: an aborted
+      // run can reject with a provider/DOM error that isn't tagged as an
+      // LlmError "abort", and a SUPERSEDED run (aborted because a fresh
+      // run() replaced it) must never paint an error over the live run.
+      if ((isLlmError(err) && err.code === "abort") || controller.signal.aborted) {
         // already torn down via the abort signal
       } else {
         const message = describeError(err);
@@ -280,8 +280,17 @@ export default function AiRunPanel({
         toast.error(`AI run failed: ${message}`);
       }
     } finally {
-      setRunning(false);
-      abortRef.current = null;
+      // Owner-checked cleanup. When run() aborts a prior run and installs a
+      // fresh controller (line ~145), the OLD run's finally fires a microtask
+      // later — after abortRef already points at the NEW controller. Blindly
+      // clearing here flipped `running` to false mid-stream (Stop button
+      // vanished, "Run again" appeared while tokens were still billing) and
+      // nulled the ref so Stop couldn't cancel the live run. Only the run
+      // that still owns the ref may tear the shared state down.
+      if (abortRef.current === controller) {
+        setRunning(false);
+        abortRef.current = null;
+      }
     }
   }, [providerId, modelId, providerOverride, prompt, toolName, maxOutputTokens]);
 
@@ -327,12 +336,16 @@ export default function AiRunPanel({
       <div className="flex items-center justify-between gap-2 text-[11px]">
         <div className="flex items-center gap-2 text-accent font-mono uppercase tracking-wider">
           <span>{providerName ?? "AI"}</span>
-          {modelInfo && <span className="text-sub normal-case font-normal">· {modelInfo.label}</span>}
-          {!modelInfo && modelId && <span className="text-sub normal-case font-normal">· {modelId}</span>}
+          {modelInfo && (
+            <span className="text-sub normal-case font-normal">· {modelInfo.label}</span>
+          )}
+          {!modelInfo && modelId && (
+            <span className="text-sub normal-case font-normal">· {modelId}</span>
+          )}
         </div>
         <div className="text-sub font-mono">
-          ~{inputTokens.toLocaleString()} in · {formatCostUsd(estIn)} +{" "}
-          {formatCostUsd(estMaxOut)} max out
+          ~{inputTokens.toLocaleString()} in · {formatCostUsd(estIn)} + {formatCostUsd(estMaxOut)}{" "}
+          max out
         </div>
       </div>
 
@@ -370,12 +383,7 @@ export default function AiRunPanel({
               {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
               {copied ? "Copied" : "Copy result"}
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={run}
-              className="gap-1.5 border-border"
-            >
+            <Button size="sm" variant="outline" onClick={run} className="gap-1.5 border-border">
               <RotateCcw className="w-3.5 h-3.5" />
               Run again
             </Button>
@@ -413,11 +421,15 @@ export default function AiRunPanel({
 
       {usage && usage.inputTokens >= 0 && usage.outputTokens >= 0 && providerId && modelId && (
         <div className="text-[10px] text-sub font-mono text-right">
-          Used {usage.inputTokens.toLocaleString()} in /{" "}
-          {usage.outputTokens.toLocaleString()} out ·{" "}
-          {formatCostUsd(estimateCostUsd(providerId, modelId, usage.inputTokens, usage.outputTokens))}
+          Used {usage.inputTokens.toLocaleString()} in / {usage.outputTokens.toLocaleString()} out ·{" "}
+          {formatCostUsd(
+            estimateCostUsd(providerId, modelId, usage.inputTokens, usage.outputTokens)
+          )}
           {ttftMs !== null && totalMs !== null && (
-            <> · TTFT {ttftMs}ms · total {totalMs}ms</>
+            <>
+              {" "}
+              · TTFT {ttftMs}ms · total {totalMs}ms
+            </>
           )}
         </div>
       )}
