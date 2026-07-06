@@ -72,6 +72,14 @@ class BlobSyncAdapter implements SyncAdapter {
   }
 
   async pull(supabase: SupabaseClient, userId: string): Promise<void> {
+    // BUG-S14: never apply a pull over unpushed local edits. The timestamp
+    // guard below only protects edits that were already PUSHED — a dirty
+    // in-debounce edit has no timestamp yet, so any remote row newer than
+    // our last push would overwrite it mid-typing, and applyRemote's
+    // `dirty = false` then dropped the edit from sync permanently. Keep
+    // local; the pending flush pushes it and the server resolves by
+    // timestamp (same policy as the entity adapter's unpushed-edit guard).
+    if (this.dirty) return;
     const { data, error } = await supabase
       .from("user_state")
       .select("payload, updated_at, client_id")
@@ -146,7 +154,21 @@ class BlobSyncAdapter implements SyncAdapter {
     // is unreliable. Apply the clear unconditionally — the local default
     // will repopulate naturally on next user edit.
     if (eventType === "DELETE") {
-      this.applyRemote(undefined, new Date().toISOString());
+      // BUG-S15: reset the LWW trackers instead of stamping a CLIENT
+      // timestamp into a field that is otherwise only compared against
+      // server-stamped timestamptz values — a fast local clock silently
+      // dropped every remote update for this key until the skew elapsed.
+      // With the trackers null, the next pull/push re-establishes
+      // server-stamped state.
+      this.suppressLocalChange = true;
+      try {
+        this.setSnapshot(undefined);
+      } finally {
+        this.suppressLocalChange = false;
+      }
+      this.lastPushedUpdatedAt = null;
+      this.lastPushedPayloadJson = null;
+      this.dirty = false;
       return;
     }
     // Echo suppression: ignore rows we wrote ourselves.
@@ -162,7 +184,21 @@ class BlobSyncAdapter implements SyncAdapter {
     if (this.lastPushedUpdatedAt && compareIso(this.lastPushedUpdatedAt, updatedAt) >= 0) {
       return;
     }
+    // BUG-S14 (cont.): same unpushed-edit guard as pull() — a realtime row
+    // arriving mid-debounce must not clobber the user's in-flight edit.
+    if (this.dirty) return;
     this.applyRemote(row.payload, updatedAt);
+  }
+
+  /** Clear all cross-session LWW state. Called by the engine on stop() so
+   *  a different user signing in on the same tab can't inherit the previous
+   *  user's timestamps (which would suppress the new user's initial pull)
+   *  or payload snapshot. (BUG-S13) */
+  resetSyncState(): void {
+    this.lastPushedUpdatedAt = null;
+    this.lastPushedPayloadJson = null;
+    this.dirty = false;
+    this.pendingFlushAfter = false;
   }
 
   private applyRemote(payload: unknown, updatedAt: string): void {

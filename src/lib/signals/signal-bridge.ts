@@ -64,49 +64,15 @@ export function installSignalBridge(): void {
   // declared in INVALIDATION_MATRIX never fired its signal — derived
   // caches keyed on `llmEval:`, `prompt:`, `prioritization:`, etc.
   // stayed stale until TTL.
-  let prev: Workspace | undefined;
+  // BUG-SB1: capture the baseline EAGERLY from the current store state.
+  // Zustand only invokes subscribers on mutations, so the previous
+  // lazily-captured baseline ("first callback seeds prev and returns")
+  // silently swallowed the FIRST real mutation of every session — no
+  // signal fired for it, derived caches stayed stale, gamification/kudos
+  // consumers missed the event.
+  let prev: Workspace | undefined = projectWorkspace(useWorkspaceStore.getState());
   unsubscribeStore = useWorkspaceStore.subscribe((state) => {
-    const next: Workspace = {
-      teamMembers: state.teamMembers,
-      sprints: state.sprints,
-      stories: state.stories,
-      impediments: state.impediments,
-      risks: state.risks,
-      okrs: state.okrs,
-      decisions: state.decisions,
-      techDebt: state.techDebt,
-      maturityLevel: state.maturityLevel,
-      teamName: state.teamName,
-      llmEvals: state.llmEvals,
-      prompts: state.prompts,
-      hallucinations: state.hallucinations,
-      prioritizations: state.prioritizations,
-      daciDecisions: state.daciDecisions,
-      rapidDecisions: state.rapidDecisions,
-      weightedOptions: state.weightedOptions,
-      // R11-batch-14: round out Phase 19+ coverage. The remaining
-      // declared signal kinds (model.upgraded, redTeam.*, agentWorkflow.*,
-      // hitl.*, rlhf.*, vector.*, modelCard.published, six-hats,
-      // OODA, cynefin) had INVALIDATION_MATRIX entries but no emit
-      // sites. After this projection extension the entire Phase 19+
-      // surface flows through the bridge.
-      models: state.models,
-      redTeamFindings: state.redTeamFindings,
-      agentWorkflows: state.agentWorkflows,
-      hitlReviews: state.hitlReviews,
-      rlhfPairs: state.rlhfPairs,
-      vectorCollections: state.vectorCollections,
-      modelCards: state.modelCards,
-      sixHatsThoughts: state.sixHatsThoughts,
-      oodaCycles: state.oodaCycles,
-      cynefinItems: state.cynefinItems,
-      staceyItems: state.staceyItems,
-      polarities: state.polarities,
-      // Phase 0 kudos redesign — diff kudos to emit kudos.sent on adds
-      // and kudos.received when the local viewer's profile id matches
-      // the new row's toProfileId.
-      kudos: state.kudos,
-    };
+    const next = projectWorkspace(state);
     if (!prev) {
       prev = next;
       return;
@@ -114,6 +80,52 @@ export function installSignalBridge(): void {
     diffAndEmit(prev, next);
     prev = next;
   });
+}
+
+type WorkspaceStoreState = ReturnType<typeof useWorkspaceStore.getState>;
+
+function projectWorkspace(state: WorkspaceStoreState): Workspace {
+  return {
+    teamMembers: state.teamMembers,
+    sprints: state.sprints,
+    stories: state.stories,
+    impediments: state.impediments,
+    risks: state.risks,
+    okrs: state.okrs,
+    decisions: state.decisions,
+    techDebt: state.techDebt,
+    maturityLevel: state.maturityLevel,
+    teamName: state.teamName,
+    llmEvals: state.llmEvals,
+    prompts: state.prompts,
+    hallucinations: state.hallucinations,
+    prioritizations: state.prioritizations,
+    daciDecisions: state.daciDecisions,
+    rapidDecisions: state.rapidDecisions,
+    weightedOptions: state.weightedOptions,
+    // R11-batch-14: round out Phase 19+ coverage. The remaining
+    // declared signal kinds (model.upgraded, redTeam.*, agentWorkflow.*,
+    // hitl.*, rlhf.*, vector.*, modelCard.published, six-hats,
+    // OODA, cynefin) had INVALIDATION_MATRIX entries but no emit
+    // sites. After this projection extension the entire Phase 19+
+    // surface flows through the bridge.
+    models: state.models,
+    redTeamFindings: state.redTeamFindings,
+    agentWorkflows: state.agentWorkflows,
+    hitlReviews: state.hitlReviews,
+    rlhfPairs: state.rlhfPairs,
+    vectorCollections: state.vectorCollections,
+    modelCards: state.modelCards,
+    sixHatsThoughts: state.sixHatsThoughts,
+    oodaCycles: state.oodaCycles,
+    cynefinItems: state.cynefinItems,
+    staceyItems: state.staceyItems,
+    polarities: state.polarities,
+    // Phase 0 kudos redesign — diff kudos to emit kudos.sent on adds
+    // and kudos.received when the local viewer's profile id matches
+    // the new row's toProfileId.
+    kudos: state.kudos,
+  };
 }
 
 export function uninstallSignalBridge(): void {

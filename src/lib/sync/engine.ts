@@ -76,6 +76,11 @@ export interface SyncAdapter {
   onRemote(row: Record<string, unknown>, eventType: "INSERT" | "UPDATE" | "DELETE"): void;
   /** Mark adapter dirty: schedule a push. */
   hasPendingWrites(): boolean;
+  /** Clear all cross-session LWW/diff state (lastPushed snapshots,
+   *  timestamps, pending deletes). Called by the engine on stop() so a
+   *  different user signing in on the same tab can't inherit the previous
+   *  user's sync state. (BUG-S13) */
+  resetSyncState?(): void;
 }
 
 type EngineState =
@@ -157,7 +162,7 @@ class SyncEngine {
     } finally {
       this.starting = false;
     }
-    this.subscribeRealtime();
+    void this.subscribeRealtime();
     this.attachWakeHandlers();
     // After start completes, flush any adapters that piled up dirty work
     // during the pull window (their flushes were blocked by the guard).
@@ -190,6 +195,12 @@ class SyncEngine {
     this.awaitingInitialPull.clear();
     this.starting = false;
     this.detachWakeHandlers();
+    // BUG-S13: wipe per-adapter LWW/diff state. The adapter singletons
+    // outlive the engine session; carrying the previous user's lastPushed
+    // timestamps suppresses the next user's initial pull, and their stale
+    // lastPushed ids would be tombstoned into the next user's rows by the
+    // push-time delete detection.
+    this.adapters.forEach((a) => a.resetSyncState?.());
     // BUG-S5: reset the per-tab client id so the next sign-in (potentially
     // a different user) starts with a fresh echo-suppression identity.
     resetClientId();
@@ -222,7 +233,16 @@ class SyncEngine {
     if (this.state.kind !== "running") return;
     this.pushTimers.forEach((t) => clearTimeout(t));
     this.pushTimers.clear();
-    await Promise.all(Array.from(this.adapters.values()).map((a) => this.runOne(a, "push")));
+    // Honour the initial-pull guard here too (BUG-S17): an adapter still
+    // awaiting its first pull holds the local DEFAULT state — force-pushing
+    // it (e.g. tab closed right after a lazy tool mount) would overwrite
+    // newer cloud data with that default. scheduleFlush already blocks
+    // these; flushAllNow must not sidestep the same protection.
+    await Promise.all(
+      Array.from(this.adapters.values())
+        .filter((a) => !this.awaitingInitialPull.has(a.id))
+        .map((a) => this.runOne(a, "push"))
+    );
   }
 
   isRunning(): boolean {
@@ -282,7 +302,7 @@ class SyncEngine {
     }
   }
 
-  private subscribeRealtime(): void {
+  private async subscribeRealtime(): Promise<void> {
     if (this.state.kind !== "running") return;
     const { supabase, userId } = this.state;
     const channelName = `user-sync:${userId}`;
@@ -307,8 +327,21 @@ class SyncEngine {
           typeof ch.topic === "string" &&
           (ch.topic === `realtime:${channelName}` || ch.topic.startsWith("realtime:user-sync:"))
       );
-    for (const ch of existing) {
-      void supabase.removeChannel(ch);
+    // BUG-S16: AWAIT the removals. realtime-js only deletes the topic from
+    // the client's internal channel map after the async unsubscribe
+    // round-trip resolves, and `supabase.channel()` is getOrCreate by topic
+    // — firing-and-forgetting here could hand us the mid-teardown channel,
+    // whose `subscribe()` is a silent no-op once the pending teardown
+    // closes it: no SUBSCRIBED callback, no postgres_changes, and sync
+    // quietly degrades to focus-triggered pulls only.
+    if (existing.length > 0) {
+      await Promise.all(existing.map((ch) => supabase.removeChannel(ch).catch(() => undefined)));
+    }
+    // The engine may have been stopped or restarted while we awaited —
+    // don't attach a channel to a stale session (a newer subscribeRealtime
+    // call owns the current one if `channel` is already set).
+    if (this.state.kind !== "running" || this.state.userId !== userId || this.state.channel) {
+      return;
     }
     const channel = supabase
       .channel(channelName)
