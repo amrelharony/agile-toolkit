@@ -401,13 +401,20 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       removeTeamMember: (id) =>
         set((s) => {
           // Stories whose `owner` pointed at this member, OKRs whose
-          // `owner` did, and canvas cards whose `assignee` referenced
-          // this member id should all clear the reference. The data
-          // model uses `owner` / `assignee` fields as opaque strings —
-          // they might be display names OR ids — so we only strip when
-          // the field exactly matches the deleted member's id.
+          // `owner` did, impediments whose `owner` did, and canvas cards
+          // whose `assignee` referenced this member id should all clear
+          // the reference. The data model uses `owner` / `assignee`
+          // fields as opaque strings — they might be display names OR
+          // ids — so we only strip when the field exactly matches the
+          // deleted member's id.
           const storiesAffected = s.stories.some((st) => st.owner === id);
           const okrsAffected = (s.okrs ?? []).some((o) => o.owner === id);
+          // R12-fix: impediments were skipped here even though
+          // Impediment.owner has the identical shape and semantics as
+          // Story.owner — a deleted member's id survived on impediments
+          // and a recreated member reusing the id would silently
+          // inherit them.
+          const impedimentsAffected = s.impediments.some((i) => i.owner === id);
           const cardsAffected = (s.whiteboardObjects ?? []).some(
             (o) => o.type === "card" && o.assignee === id
           );
@@ -421,6 +428,11 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           }
           if (okrsAffected) {
             next.okrs = s.okrs.map((o) => (o.owner === id ? { ...o, owner: undefined } : o));
+          }
+          if (impedimentsAffected) {
+            next.impediments = s.impediments.map((i) =>
+              i.owner === id ? { ...i, owner: undefined } : i
+            );
           }
           if (cardsAffected) {
             const now = new Date().toISOString();
@@ -1115,35 +1127,18 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           const others = (s.whiteboardObjects ?? []).filter((o) => o.boardId !== boardId);
           return { whiteboardObjects: [...others, ...next] };
         }),
-      removeWhiteboardObject: (id) =>
-        set((s) => {
-          // Cascade in one pass: drop the object AND any connector pinned to
-          // it, AND clear `frameId` on any object that was contained in this
-          // frame (so the contained objects don't keep a dangling reference
-          // that would resurface if the id were ever reused).
-          const objects = s.whiteboardObjects ?? [];
-          const nextObjects: WhiteboardObject[] = [];
-          for (const y of objects) {
-            if (y.id === id) continue; // drop the target itself
-            if (y.type === "connector" && (y.fromId === id || y.toId === id)) continue; // drop dangling connectors
-            if (y.frameId === id) {
-              nextObjects.push({ ...y, frameId: undefined });
-              continue;
-            }
-            nextObjects.push(y);
-          }
-          return {
-            whiteboardObjects: nextObjects,
-            // Also drop comment threads pinned to the deleted object —
-            // orphaned threads would otherwise pile up invisibly
-            // (CommentPins filters by objectId so the UI doesn't render
-            // them, but the store keeps growing indefinitely and they'd
-            // resurface if the object id were ever reused).
-            whiteboardCommentThreads: (s.whiteboardCommentThreads ?? []).filter(
-              (t) => t.objectId !== id
-            ),
-          };
-        }),
+      // R12-fix: delegate to the bulk remove so the cascade logic lives in
+      // ONE place. The previous inline copy (a) cleared `frameId` WITHOUT
+      // bumping version/updatedAt — the diff-sync layer detects changes by
+      // version inequality (computeWhiteboardDiff), so the clear never
+      // broadcast and peers kept a dangling reference to the deleted frame
+      // forever (heartbeat drift-recovery compares versions too, so it
+      // could never heal) — and (b) dropped only first-level connectors,
+      // leaving a labelling connector pinned to a dropped connector
+      // dangling. The plural action handles both (version bump +
+      // fixed-point connector cascade), and its comment-thread cleanup is
+      // a strict superset of the old single-id filter.
+      removeWhiteboardObject: (id) => get().removeWhiteboardObjects([id]),
       removeWhiteboardObjects: (ids) => {
         const removeSet = new Set(ids);
         set((s) => {
@@ -1453,6 +1448,12 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           // per-board activity log. Include them so backups are faithful.
           whiteboardSavedTemplates: s.whiteboardSavedTemplates,
           whiteboardActivityLog: s.whiteboardActivityLog,
+          // R12-fix: kudos had the same omission — importJSON resets
+          // missing keys to emptyWorkspace defaults ([]), so importing
+          // your own export erased the entire kudos wall (and the sync
+          // engine then propagated the wipe cloud-wide). importJSON
+          // already validates entries via parseKudos on the way back in.
+          kudos: s.kudos,
         };
         return JSON.stringify(data, null, 2);
       },
@@ -1931,11 +1932,20 @@ if (typeof window !== "undefined") {
         return { teamName: s.teamName, maturityLevel: s.maturityLevel };
       },
       setSnapshot: (next) => {
+        // R12-fix: apply only keys PRESENT in the blob. The server-side
+        // serverPatchWorkspaceBlob (MCP set_team_name / set_maturity_level)
+        // first-touch-INSERTS a partial blob (e.g. only maturityLevel);
+        // unconditionally writing both keys here set the missing one to
+        // undefined — wiping the local teamName, which the subscribe below
+        // then pushed back to the cloud, making the wipe permanent. Mirrors
+        // the whitelist-merge in create-persisted-store's setSnapshot.
         const v = (next ?? {}) as WorkspaceScalars;
-        registry.setState({
-          teamName: v.teamName,
-          maturityLevel: v.maturityLevel as Workspace["maturityLevel"],
-        });
+        const patch: Partial<Workspace> = {};
+        if ("teamName" in v) patch.teamName = v.teamName;
+        if ("maturityLevel" in v) {
+          patch.maturityLevel = v.maturityLevel as Workspace["maturityLevel"];
+        }
+        if (Object.keys(patch).length > 0) registry.setState(patch);
       },
       subscribe: (onChange) =>
         registry.subscribe((curr, prev) => {
