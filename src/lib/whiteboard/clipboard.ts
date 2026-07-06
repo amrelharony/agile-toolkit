@@ -12,6 +12,7 @@
 
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import { isValidObject } from "./object-validator";
+import { translateFlatPoints } from "./freehand";
 
 const SCHEMA = "agile-toolkit/canvas-clipboard/v1";
 const PASTE_OFFSET = 24;
@@ -120,7 +121,7 @@ export async function copyObjects(objects: readonly WhiteboardObject[]): Promise
  */
 export async function readClipboardObjects(
   targetBoardId: string,
-  options: { offsetIndex?: number; pasteAt?: { x: number; y: number } } = {},
+  options: { offsetIndex?: number; pasteAt?: { x: number; y: number } } = {}
 ): Promise<WhiteboardObject[]> {
   let env: ClipboardEnvelope | null = null;
   if (typeof navigator !== "undefined" && navigator.clipboard?.readText) {
@@ -156,7 +157,10 @@ export async function readClipboardObjects(
   let dy = PASTE_OFFSET * offsetMult;
   if (options.pasteAt) {
     // Compute bbox center of source then derive dx/dy to land it on target.
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
     for (const o of env.objects) {
       if (o.x < minX) minX = o.x;
       if (o.y < minY) minY = o.y;
@@ -175,40 +179,49 @@ export async function readClipboardObjects(
   for (const o of env.objects) idMap.set(o.id, wbId());
 
   const now = new Date().toISOString();
-  return env.objects.map((o) => {
-    const next: WhiteboardObject = {
-      ...o,
-      id: idMap.get(o.id)!,
-      boardId: targetBoardId,
-      x: o.x + dx,
-      y: o.y + dy,
-      version: 1,
-      createdAt: now,
-      updatedAt: now,
-    };
-    if (next.type === "connector") {
-      const mappedFrom = idMap.get(next.fromId);
-      const mappedTo = idMap.get(next.toId);
-      if (mappedFrom) next.fromId = mappedFrom;
-      if (mappedTo) next.toId = mappedTo;
-      // If the endpoint wasn't in the paste set, drop the connector.
-      if (!mappedFrom || !mappedTo) return null;
-    }
-    return next;
-  }).filter((x): x is WhiteboardObject => x !== null);
+  return env.objects
+    .map((o) => {
+      const stamp = {
+        id: idMap.get(o.id)!,
+        boardId: targetBoardId,
+        x: o.x + dx,
+        y: o.y + dy,
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      // Freehand ink lives in world-absolute `points` — without this the
+      // pasted copy's ink renders exactly on top of the original while
+      // its bbox sits at the offset position. Branched ternary (not a
+      // conditional spread) so TS keeps the per-type narrowing — `card`
+      // has a numeric `points` field.
+      const next: WhiteboardObject =
+        o.type === "freehand"
+          ? { ...o, ...stamp, points: translateFlatPoints(o.points, dx, dy) }
+          : { ...o, ...stamp };
+      if (next.type === "connector") {
+        const mappedFrom = idMap.get(next.fromId);
+        const mappedTo = idMap.get(next.toId);
+        if (mappedFrom) next.fromId = mappedFrom;
+        if (mappedTo) next.toId = mappedTo;
+        // If the endpoint wasn't in the paste set, drop the connector.
+        if (!mappedFrom || !mappedTo) return null;
+      }
+      return next;
+    })
+    .filter((x): x is WhiteboardObject => x !== null);
 }
 
 /** Synchronous duplicate — used by Cmd+D. Bypasses the system clipboard. */
 export function duplicateObjects(
   objects: readonly WhiteboardObject[],
-  targetBoardId: string,
+  targetBoardId: string
 ): WhiteboardObject[] {
   const idMap = new Map<string, string>();
   for (const o of objects) idMap.set(o.id, wbId());
   const now = new Date().toISOString();
   return objects.map((o) => {
-    const next: WhiteboardObject = {
-      ...o,
+    const stamp = {
       id: idMap.get(o.id)!,
       boardId: targetBoardId,
       x: o.x + PASTE_OFFSET,
@@ -217,6 +230,12 @@ export function duplicateObjects(
       createdAt: now,
       updatedAt: now,
     };
+    // Same world-absolute freehand `points` translation as paste — see
+    // readClipboardObjects above.
+    const next: WhiteboardObject =
+      o.type === "freehand"
+        ? { ...o, ...stamp, points: translateFlatPoints(o.points, PASTE_OFFSET, PASTE_OFFSET) }
+        : { ...o, ...stamp };
     if (next.type === "connector") {
       const mappedFrom = idMap.get(next.fromId) ?? next.fromId;
       const mappedTo = idMap.get(next.toId) ?? next.toId;

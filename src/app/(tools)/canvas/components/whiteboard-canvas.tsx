@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import { rafThrottle } from "@/lib/utils/throttle";
-import { rectUnion } from "@/lib/geometry/bbox";
+import { normalizedRect, rectUnion } from "@/lib/geometry/bbox";
 import type { Rect } from "@/lib/geometry/bbox";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { wbId } from "@/lib/whiteboard/clipboard";
@@ -398,15 +398,17 @@ export function WhiteboardCanvas({
     [commentThreads, activeCommentThreadId]
   );
   // Selection bounding box — used by the resize handles.
+  // normalizedRect: line/arrow store SIGNED endpoint deltas in w/h; a
+  // raw union with negative extents collapses the selection outline to
+  // a point and feeds a negative width into the handle layout.
   const selectionBbox = useMemo<Rect | null>(() => {
     const selected = selection
       .map((id) => objectsById.get(id))
       .filter((o): o is WhiteboardObject => !!o);
     if (selected.length === 0) return null;
-    let bbox: Rect = { x: selected[0].x, y: selected[0].y, w: selected[0].w, h: selected[0].h };
+    let bbox: Rect = normalizedRect(selected[0]);
     for (let i = 1; i < selected.length; i++) {
-      const o = selected[i];
-      bbox = rectUnion(bbox, { x: o.x, y: o.y, w: o.w, h: o.h });
+      bbox = rectUnion(bbox, normalizedRect(selected[i]));
     }
     return bbox;
   }, [selection, objectsById]);
@@ -993,6 +995,7 @@ export function WhiteboardCanvas({
     lassoRafRef,
     lassoPointsRef,
     lastLassoWorldRef,
+    wetInkApiRef,
     drag,
     resize,
     rotation,
@@ -1152,13 +1155,19 @@ export function WhiteboardCanvas({
     return sortedObjects.filter((o) => {
       if (selectionSet.has(o.id)) return true;
       if (editingObjectId === o.id) return true;
-      // AABB intersection vs viewport.
-      const right = o.x + o.w;
-      const bottom = o.y + o.h;
+      // AABB intersection vs viewport. Inline min/max normalisation
+      // (allocation-free — this runs per object per camera tick):
+      // line/arrow carry SIGNED w/h, and treating them as extents
+      // culled an up-left line the moment its START corner left the
+      // viewport, vanishing a line that was still visibly on screen.
+      const left = o.w < 0 ? o.x + o.w : o.x;
+      const top = o.h < 0 ? o.y + o.h : o.y;
+      const right = left + Math.abs(o.w);
+      const bottom = top + Math.abs(o.h);
       if (right < vw.x) return false;
       if (bottom < vw.y) return false;
-      if (o.x > vw.x + vw.w) return false;
-      if (o.y > vw.y + vw.h) return false;
+      if (left > vw.x + vw.w) return false;
+      if (top > vw.y + vw.h) return false;
       return true;
     });
   }, [sortedObjects, viewportWorld, selectionSet, editingObjectId]);

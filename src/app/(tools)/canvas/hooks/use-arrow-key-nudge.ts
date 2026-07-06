@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { translateFlatPoints } from "@/lib/whiteboard/freehand";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 
 /**
@@ -31,7 +32,8 @@ export function useArrowKeyNudge(params: {
   readOnly: boolean;
   presentationFrameIndex: number | null;
 }) {
-  const { selection, objectsById, upsertMany, pushSnapshot, readOnly, presentationFrameIndex } = params;
+  const { selection, objectsById, upsertMany, pushSnapshot, readOnly, presentationFrameIndex } =
+    params;
   // Track gesture state via refs so the keydown handler stays stable.
   // `gesturePushedRef` flips on the first arrow-down of a gesture; the
   // keyup handler resets it so the NEXT gesture pushes a fresh snapshot.
@@ -53,7 +55,28 @@ export function useArrowKeyNudge(params: {
         const o = objectsById.get(id);
         if (!o) continue;
         // Bump version so peers receive the nudge — see C14.
-        updates.push({ ...o, x: o.x + dx, y: o.y + dy, version: o.version + 1, updatedAt: new Date().toISOString() });
+        // Freehand ink lives in world-absolute `points` — translate
+        // them with the bbox or the nudge moves the box, not the ink.
+        // Branched ternary (not a conditional spread) so TS keeps the
+        // per-type narrowing — `card` has a numeric `points` field.
+        updates.push(
+          o.type === "freehand"
+            ? {
+                ...o,
+                x: o.x + dx,
+                y: o.y + dy,
+                points: translateFlatPoints(o.points, dx, dy),
+                version: o.version + 1,
+                updatedAt: new Date().toISOString(),
+              }
+            : {
+                ...o,
+                x: o.x + dx,
+                y: o.y + dy,
+                version: o.version + 1,
+                updatedAt: new Date().toISOString(),
+              }
+        );
       }
       if (updates.length > 0) upsertMany(updates);
     };
@@ -68,7 +91,8 @@ export function useArrowKeyNudge(params: {
       // of nudging selection.
       if (presentationFrameIndex !== null) return;
       const step = e.shiftKey ? 10 : 1;
-      let dx = 0, dy = 0;
+      let dx = 0,
+        dy = 0;
       if (e.key === "ArrowLeft") dx = -step;
       else if (e.key === "ArrowRight") dx = step;
       else if (e.key === "ArrowUp") dy = -step;
@@ -91,8 +115,10 @@ export function useArrowKeyNudge(params: {
       // OS auto-repeat fires keydown without keyup, so a single keyup
       // marks the end of the burst.
       if (
-        e.key === "ArrowLeft" || e.key === "ArrowRight" ||
-        e.key === "ArrowUp"   || e.key === "ArrowDown"
+        e.key === "ArrowLeft" ||
+        e.key === "ArrowRight" ||
+        e.key === "ArrowUp" ||
+        e.key === "ArrowDown"
       ) {
         gesturePushedRef.current = false;
       }
