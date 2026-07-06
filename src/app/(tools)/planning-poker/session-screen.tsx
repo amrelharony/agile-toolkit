@@ -108,8 +108,13 @@ function calcStats(votes: string[]): {
 }
 
 type Consensus = "agree" | "close" | "spread";
-function consensusLevel(votes: string[]): Consensus {
+function consensusLevel(votes: string[]): Consensus | null {
   const nums = votes.filter(isNumeric).map(Number);
+  // No numeric votes at all (everyone played "?" / "∞"): there is no
+  // basis for a consensus verdict. Returning null suppresses the banner
+  // — the old `< 2 → "agree"` path proclaimed "Full consensus" over a
+  // round where nobody could estimate, the opposite of what it means.
+  if (nums.length === 0) return null;
   if (nums.length < 2) return "agree";
   const spread = Math.max(...nums) - Math.min(...nums);
   if (spread === 0) return "agree";

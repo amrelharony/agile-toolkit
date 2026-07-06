@@ -79,9 +79,7 @@ describe("healthCheckKPIs (synced healthChecks singleton)", () => {
 
   it("derives an upward trend from history", () => {
     // The prior entry scores 50% (one green, one red). Going 50% → 100% is a
-    // real "up". (Note: a prior entry at a literal 0% is treated as "same" —
-    // the original extractor can't distinguish a legit all-red sprint from a
-    // malformed/zero row, so it skips the trend; that behaviour is preserved.)
+    // real "up".
     const hc: HealthCheck = {
       id: "healthCheck:current",
       current: { sprintName: "S2", scores: { a: light("green"), b: light("green") } as never },
@@ -98,6 +96,29 @@ describe("healthCheckKPIs (synced healthChecks singleton)", () => {
     expect(r.healthPct).toBe(100);
     expect(r.trend).toBe("up"); // prev 50% → now 100%
     expect(r.series).toEqual([50, 100]);
+  });
+
+  it("treats an all-red (0%) prior entry as a valid baseline for the trend", () => {
+    // Recovery from an all-red check is exactly the "up" the dashboard
+    // should surface. The trend diff is a subtraction, so a 0% baseline is
+    // well-defined; malformed/empty rows yield null from healthPctOf and
+    // are skipped separately.
+    const hc: HealthCheck = {
+      id: "healthCheck:current",
+      current: { sprintName: "S2", scores: { a: light("green"), b: light("green") } as never },
+      history: [
+        {
+          id: "h1",
+          sprintName: "S1",
+          date: "2026-01-01",
+          scores: { a: light("red"), b: light("red") } as never,
+        },
+      ],
+    };
+    const r = healthCheckKPIs([hc]);
+    expect(r.healthPct).toBe(100);
+    expect(r.trend).toBe("up"); // prev 0% → now 100%
+    expect(r.series).toEqual([0, 100]);
   });
 });
 

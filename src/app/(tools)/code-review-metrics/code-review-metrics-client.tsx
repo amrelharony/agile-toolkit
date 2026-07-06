@@ -153,7 +153,18 @@ function parseCsv(csv: string): ParseResult {
   let bodyStart = 0;
   let useHeader = false;
   const headerIndex: Record<string, number> = {};
-  if (firstCells.length >= 7 && firstCells.some((c) => /author|opened|merged|review/i.test(c))) {
+  // Header detection matches a WHOLE (normalized) cell against the known
+  // column names. A substring test (/author|opened|merged|review/i) here
+  // misclassified headerless data rows whose description mentioned e.g.
+  // "review" as a header row, then threw "CSV header missing required
+  // column: author" on perfectly valid positional input. Normalization
+  // (lowercase, strip spaces) mirrors the headerIndex keys below.
+  const HEADER_CELL =
+    /^(prnumber|author|openedat|mergedat|reviewercount|commentcount|lineschanged|description)$/;
+  if (
+    firstCells.length >= 7 &&
+    firstCells.some((c) => HEADER_CELL.test(c.toLowerCase().replace(/\s+/g, "")))
+  ) {
     firstCells.forEach((cell, i) => {
       headerIndex[cell.toLowerCase().replace(/\s+/g, "")] = i;
     });
