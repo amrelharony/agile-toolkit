@@ -41,6 +41,19 @@ function safeNext(raw: string | null): string {
   }
 }
 
+/**
+ * Redirect to `path` on `origin` with `?auth_error=<slug>` appended via the
+ * URL API. `path` may already carry a query and/or hash (safeNext preserves
+ * them), so naive `${path}?auth_error=…` string concatenation would emit a
+ * second `?` (folding the slug into the previous param's value) or bury it
+ * in the fragment where the consuming page never reads it.
+ */
+function redirectWithAuthError(origin: string, path: string, slug: string): NextResponse {
+  const u = new URL(path, origin);
+  u.searchParams.set("auth_error", slug);
+  return NextResponse.redirect(u);
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
@@ -60,12 +73,12 @@ export async function GET(request: NextRequest) {
   }
 
   if (!code) {
-    return NextResponse.redirect(`${origin}${next}?auth_error=missing_code`);
+    return redirectWithAuthError(origin, next, "missing_code");
   }
 
   const supabase = getAuthServerClient();
   if (!supabase) {
-    return NextResponse.redirect(`${origin}${next}?auth_error=auth_disabled`);
+    return redirectWithAuthError(origin, next, "auth_disabled");
   }
 
   // PKCE state verification: Supabase's `exchangeCodeForSession` requires

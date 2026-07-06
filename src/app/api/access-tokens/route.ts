@@ -73,9 +73,19 @@ export async function POST(req: NextRequest) {
   // quarter. Callers who genuinely want a long-lived token can pass an
   // explicit ISO date.
   const DEFAULT_TTL_DAYS = 90;
+  const MAX_TTL_DAYS = 365;
   let expiresAt: string | null = null;
   if (typeof b.expiresAt === "string") {
-    expiresAt = b.expiresAt;
+    // Validate + clamp. An unparseable string would otherwise reach the
+    // timestamptz column and surface as a generic 500 (should be a 400),
+    // and an arbitrarily far-future date would silently defeat the
+    // self-expiry mitigation documented above — cap at 365 days out.
+    const ms = Date.parse(b.expiresAt);
+    if (!Number.isFinite(ms)) {
+      return Response.json({ error: "invalid_expires_at" }, { status: 400 });
+    }
+    const maxMs = Date.now() + MAX_TTL_DAYS * 24 * 60 * 60 * 1000;
+    expiresAt = new Date(Math.min(ms, maxMs)).toISOString();
   } else {
     const d = new Date();
     d.setUTCDate(d.getUTCDate() + DEFAULT_TTL_DAYS);

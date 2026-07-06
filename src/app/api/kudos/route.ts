@@ -49,7 +49,15 @@ function kudosToRow(k: Kudos, ownerId: string): Record<string, unknown> {
     fairness_score_at_send: k.fairnessScoreAtSend ?? null,
     llm_dedup_group: k.llmDedupGroup ?? null,
     reply_to: k.replyTo ?? null,
-    reactions: k.reactions ?? [],
+    // `reactions` is intentionally NOT included. Reactions are appended
+    // exclusively through the cap-enforcing, idempotent `kudos_add_reaction`
+    // RPC — accepting them here would let a client pre-seed forged
+    // reactions on create. Omitting the key ALSO matters for the upsert
+    // below: PostgREST only updates columns present in the payload, so an
+    // idempotent re-POST of an existing row (cloud-sync retry / backfill)
+    // leaves reactions accumulated via the RPC untouched instead of
+    // overwriting them; on fresh insert the column default ('[]'::jsonb)
+    // applies.
   };
 }
 
@@ -80,6 +88,21 @@ export async function POST(req: NextRequest) {
   const parsed = parseKudos(raw);
   if (!parsed.ok) {
     return Response.json({ error: parsed.error }, { status: 400 });
+  }
+
+  // UUID-shape validation for fields that land in uuid columns.
+  // parseKudos only enforces "string ≤ 64/128 chars", so a malformed id
+  // would otherwise reach Postgres and surface as 22P02 → a generic 500
+  // (should be a clean 400).
+  const k = parsed.kudos;
+  if (k.toProfileId && !UUID_RE.test(k.toProfileId)) {
+    return Response.json({ error: "invalid_to_profile_id" }, { status: 400 });
+  }
+  if (k.fromProfileId && !UUID_RE.test(k.fromProfileId)) {
+    return Response.json({ error: "invalid_from_profile_id" }, { status: 400 });
+  }
+  if (k.llmDedupGroup && !UUID_RE.test(k.llmDedupGroup)) {
+    return Response.json({ error: "invalid_llm_dedup_group" }, { status: 400 });
   }
 
   const row = kudosToRow(parsed.kudos, user.id);

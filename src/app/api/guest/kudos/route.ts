@@ -25,6 +25,7 @@ import { readBoundedText, PayloadTooLargeError } from "@/lib/mcp/read-bounded";
 const MAX_BODY_BYTES = 65_536;
 const KUDOS_TOOL_ID = "kudos";
 const KUDOS_ENTITY_ID = "workspace";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(req: NextRequest) {
   const session = await getGuestSession();
@@ -80,6 +81,17 @@ export async function POST(req: NextRequest) {
 
   const k = parsed.kudos;
 
+  // UUID-shape validation for fields that land in uuid columns.
+  // parseKudos only enforces "string ≤ 64/128 chars", so a malformed id
+  // would otherwise reach Postgres and surface as 22P02 → a generic 500
+  // (should be a clean 400).
+  if (k.toProfileId && !UUID_RE.test(k.toProfileId)) {
+    return Response.json({ error: "invalid_to_profile_id" }, { status: 400 });
+  }
+  if (k.llmDedupGroup && !UUID_RE.test(k.llmDedupGroup)) {
+    return Response.json({ error: "invalid_llm_dedup_group" }, { status: 400 });
+  }
+
   // Override the from-identity from the verified cookie so a guest
   // cannot author kudos as another guest by tampering with the
   // payload's `fromProfileId` / `fromName`. The recipient side stays
@@ -127,7 +139,12 @@ export async function POST(req: NextRequest) {
     fairness_score_at_send: k.fairnessScoreAtSend ?? null,
     llm_dedup_group: k.llmDedupGroup ?? null,
     reply_to: k.replyTo ?? null,
-    reactions: k.reactions ?? [],
+    // `reactions` is intentionally NOT taken from the payload. Reactions
+    // are appended exclusively through the cap-enforcing, idempotent
+    // `kudos_add_reaction` RPC — letting the author pre-seed the array on
+    // create would allow forging reactions attributed to other guests'
+    // profile ids. Omitting the key lets the column default ('[]'::jsonb)
+    // apply on insert.
   };
 
   // Append-only integrity. Guests may only INSERT new kudos — never
