@@ -151,21 +151,6 @@ export async function POST(req: NextRequest) {
     return Response.json({ mode: "client", provider: "openclaw" }, { status: 200 });
   }
 
-  // Rate limit at TURN start only. The client flags round 0 with
-  // `x-agent-new-turn`; a turn's later tool-use rounds pass through unmetered,
-  // so one row ≈ one turn (not one POST). 429 short-circuits before we spend
-  // any gateway tokens. Fail-open if the check is unavailable.
-  let rate: RateLimit | null = null;
-  if (req.headers.get("x-agent-new-turn") === "1") {
-    rate = await checkRate(supabase);
-    if (rate && !rate.allowed) {
-      return Response.json(
-        { error: "rate_limited", limits: rate },
-        { status: 429, headers: { "retry-after": "3600", ...rateHeaders(rate) } }
-      );
-    }
-  }
-
   let body: unknown;
   try {
     // Bound the body while streaming (independent of Content-Length), so a
@@ -185,6 +170,35 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "invalid_body" }, { status: 400 });
   }
 
+  // Rate limit at TURN start only — but decide "turn start" SERVER-side.
+  // The previous gate trusted the client's `x-agent-new-turn` header, so a
+  // client that simply omitted it was never metered at all — defeating the
+  // cost-protection ceiling (migration 0020) for exactly the runaway-client
+  // scenario it exists for. A turn's later tool-use rounds are recognisable
+  // from the payload itself: they return tool results to the model, so the
+  // trailing message has role "tool"; round 0 of a turn ends with the user's
+  // message. Metering on that shape keeps "one row ≈ one turn" without
+  // letting the client opt out. The header is still honoured in the
+  // metering-ON direction only (belt and braces — it can add a check, never
+  // skip one). 429 short-circuits before we spend any gateway tokens.
+  // Fail-open if the check is unavailable (RPC missing / errored).
+  let rate: RateLimit | null = null;
+  const bodyMessages = (body as Record<string, unknown>).messages;
+  const lastMessage =
+    Array.isArray(bodyMessages) && bodyMessages.length > 0
+      ? (bodyMessages[bodyMessages.length - 1] as { role?: unknown } | null)
+      : null;
+  const isToolRound = lastMessage?.role === "tool";
+  if (!isToolRound || req.headers.get("x-agent-new-turn") === "1") {
+    rate = await checkRate(supabase);
+    if (rate && !rate.allowed) {
+      return Response.json(
+        { error: "rate_limited", limits: rate },
+        { status: 429, headers: { "retry-after": "3600", ...rateHeaders(rate) } }
+      );
+    }
+  }
+
   // Whitelist fields we forward — drop anything the client tried to
   // slip in (custom headers, model override beyond our env, etc.).
   // BUG-G12: don't forward `tools` from the client verbatim. A
@@ -197,6 +211,13 @@ export async function POST(req: NextRequest) {
   const forward: Record<string, unknown> = {
     model: be.model,
     stream: true,
+    // BUG-H3: ask the upstream for the trailing usage chunk. The whitelist
+    // previously dropped the client's `stream_options`, so strictly OpenAI-
+    // compatible backends (OpenClaw) never emitted usage and token metering
+    // (record_chat_usage / lastTurnTokens) was a silent no-op in server
+    // mode. Hardcoded server-side — never copied from the client, matching
+    // the BUG-G12 posture.
+    stream_options: { include_usage: true },
     // GLM defaults to 1024 if omitted — bump for tool-use chains.
     // Number.isFinite rejects NaN/±Infinity (which `typeof === "number"`
     // alone lets through, forwarding `null` to the gateway).
@@ -204,6 +225,12 @@ export async function POST(req: NextRequest) {
       ? Math.min(8192, Math.max(64, Math.floor(b.max_tokens as number)))
       : 4096,
   };
+  // BUG-H3 (follow-on): generateTitle sends temperature 0.2 for stable
+  // titles; the whitelist silently discarded it. Forward validated + clamped
+  // to the OpenAI-compatible [0, 2] range.
+  if (typeof b.temperature === "number" && Number.isFinite(b.temperature)) {
+    forward.temperature = Math.min(2, Math.max(0, b.temperature));
+  }
   if (Array.isArray(b.messages)) forward.messages = b.messages;
   if (Array.isArray(b.tools)) {
     // Defensive shape check: each entry must be {type:"function", function:{name:string,...}}.

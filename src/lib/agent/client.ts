@@ -210,29 +210,41 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
 
     // Meter only the first round: a turn's later tool-use rounds are
     // continuations of an already-allowed turn (see the route's x-agent-new-turn).
-    const stopReason = await openOneTurn(mode, body, opts.signal, round === 0, onUsage);
+    const { stopReason, assistantId } = await openOneTurn(
+      mode,
+      body,
+      opts.signal,
+      round === 0,
+      onUsage
+    );
 
     if (stopReason !== "tool_use") {
       // BUG-G6: persist the assistant message after the turn settles.
       // Without this, reload yields invalid wire format (orphan tool_result
       // blocks referencing tool_call_ids that don't exist in any preceding
       // assistant message).
-      maybePersistLastAssistant(opts.conversationId);
+      persistAssistant(opts.conversationId, assistantId);
       return;
     }
 
     // BUG-G6: persist the assistant message so its tool_call_ids are
     // recoverable on reload, before we append the tool-role response.
-    maybePersistLastAssistant(opts.conversationId);
+    persistAssistant(opts.conversationId, assistantId);
 
-    // Collect the tool_use blocks the streaming parser captured.
-    const lastAssistant = useAgentStore
-      .getState()
-      .messages.slice()
-      .reverse()
-      .find((m) => m.role === "assistant");
+    // Collect the tool_use blocks the streaming parser captured — from THIS
+    // round's assistant message (looked up by id, not a reverse role scan).
+    const lastAssistant = useAgentStore.getState().messages.find((m) => m.id === assistantId);
     if (!lastAssistant) return;
-    const toolUses = lastAssistant.content.filter((c): c is ToolUseBlock => c.type === "tool_use");
+    // BUG-H1: never execute a `_partial` tool_use (arguments JSON that never
+    // parsed). wireMessages drops such blocks from `tool_calls`, so answering
+    // one would emit an orphan tool_result the endpoint rejects with 400 —
+    // and once the pair is persisted, every later turn replays it and
+    // re-rejects, bricking the conversation. Skipping preserves the invariant
+    // documented on isWireValidAssistant: a tool_result exists IFF its
+    // tool_call is wired.
+    const toolUses = lastAssistant.content.filter(
+      (c): c is ToolUseBlock => c.type === "tool_use" && !isPartialInput(c.input)
+    );
     if (toolUses.length === 0) return;
 
     // Execute each tool_use in order, accumulating results as a single
@@ -291,17 +303,28 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
       useAgentStore.getState().messages,
       `${system}\n\nIMPORTANT: You have exhausted the tool-use round budget for this turn. Summarise what you accomplished, what failed, and what remains — do NOT request more tools.`
     );
-    await openOneTurn(
+    const wrapUp = await openOneTurn(
       mode,
       {
         model: pickModel(mode, serverModel),
         stream: true,
         max_tokens: 1024,
+        stream_options: { include_usage: true },
+        // BUG-H5: the history necessarily references this turn's tool_calls,
+        // and an OpenAI-compatible endpoint rejects a body whose history
+        // names a function absent from `tools` (the buildTurnTools
+        // invariant). Omitting `tools` made this summary turn 400 every
+        // time — swallowed by the catch below, so the promised wrap-up
+        // never appeared. Re-offer the same list, gated by tool_choice:none.
+        tools,
         tool_choice: "none",
         messages,
       },
-      opts.signal
+      opts.signal,
+      false,
+      onUsage
     );
+    persistAssistant(opts.conversationId, wrapUp.assistantId);
   } catch {
     /* best-effort wrap-up */
   }
@@ -310,10 +333,22 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
     .setError("Reached tool-use round limit (10). Send a follow-up if more is needed.");
 }
 
+/** Outcome of one streaming round. `assistantId` is the id of the assistant
+ *  message this round appended to the store, or null when the round exited
+ *  BEFORE creating one (429 / friendly-error paths). BUG-H2: the caller
+ *  persists by this id — the previous reverse-scan re-persisted the PRIOR
+ *  round's (already-persisted) assistant on those early exits, duplicating
+ *  rows in agent_messages (and, when that message carried tool_calls,
+ *  corrupting the wire pairing after reload). */
+interface TurnOutcome {
+  stopReason: string;
+  assistantId: string | null;
+}
+
 /**
  * Open one chat-completion turn over SSE, accumulate text + tool_calls
  * into an assistant message in the store, and return our internal
- * stop_reason ("tool_use" or "end_turn").
+ * stop_reason ("tool_use" or "end_turn") plus that message's id.
  */
 async function openOneTurn(
   mode: AgentMode,
@@ -321,7 +356,7 @@ async function openOneTurn(
   signal: AbortSignal | undefined,
   newTurn = false,
   onUsage?: (totalTokens: number) => void
-): Promise<string> {
+): Promise<TurnOutcome> {
   const response = await openStream(mode, body, signal, newTurn);
 
   // Update the usage bar from the route's X-RateLimit-* headers (server mode,
@@ -333,7 +368,7 @@ async function openOneTurn(
     useAgentStore
       .getState()
       .setError("You've reached the agent usage limit for now. Please try again later.");
-    return "end_turn";
+    return { stopReason: "end_turn", assistantId: null };
   }
 
   if (!response.ok || !response.body) {
@@ -351,7 +386,7 @@ async function openOneTurn(
             : null;
     if (friendly) {
       useAgentStore.getState().setError(friendly);
-      return "end_turn";
+      return { stopReason: "end_turn", assistantId: null };
     }
     throw new Error(`agent stream failed (${response.status}): ${detail.slice(0, 200)}`);
   }
@@ -395,7 +430,13 @@ async function openOneTurn(
       const { value, done } = await reader.read();
       if (done) break;
       // Normalise CRLF → LF: some HTTP proxies rewrite the SSE separator.
-      buf += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      // BUG-H6: normalise AFTER concatenating into the buffer (mirrors
+      // stream-sse.ts) — replacing only the new chunk leaves a stray `\r`
+      // glued into the buffer when a network chunk boundary splits a CR-LF
+      // pair, hiding the `\n\n` separator so two events merge and both get
+      // silently dropped by the JSON parse below.
+      buf += decoder.decode(value, { stream: true });
+      buf = buf.replace(/\r\n/g, "\n");
       let nl: number;
       while ((nl = buf.indexOf("\n\n")) !== -1) {
         const chunk = buf.slice(0, nl);
@@ -412,7 +453,7 @@ async function openOneTurn(
     }
     flushAssistant(wip);
     if (wip.usage) onUsage?.(wip.usage);
-    return stopReason;
+    return { stopReason, assistantId: assistantMsg.id };
   } finally {
     try {
       reader.releaseLock();
@@ -520,6 +561,32 @@ function mapFinishReason(openAi: string): string {
   if (openAi === "tool_calls") return "tool_use";
   // "stop", "length", "content_filter" all terminate the loop.
   return "end_turn";
+}
+
+/** True when a tool_use `input` is the streaming parser's mid-stream
+ *  placeholder `{_partial:"…"}` (the arguments JSON never parsed). */
+function isPartialInput(input: Record<string, unknown> | null | undefined): boolean {
+  const i = (input ?? {}) as Record<string, unknown>;
+  return "_partial" in i && Object.keys(i).length === 1;
+}
+
+/**
+ * INVARIANT (BUG-H1/H2/H4): an assistant message is persisted — and replayed
+ * on the wire — IFF it is wire-valid: it carries non-empty text or at least
+ * one COMPLETE (non-`_partial`) tool_use. OpenAI-compatible endpoints reject
+ * an assistant message with neither `content` nor `tool_calls`, and reject a
+ * tool_result whose tool_call was never sent — so:
+ *   - tool_results are only ever produced for complete tool_uses (BUG-H1),
+ *   - wire-invalid assistants are skipped by wireMessages (BUG-H4) and never
+ *     written to agent_messages (persistAssistant below),
+ * which together guarantee a stored transcript can always be replayed.
+ */
+function isWireValidAssistant(m: ChatMessage): boolean {
+  for (const c of m.content) {
+    if (c.type === "text" && c.text.length > 0) return true;
+    if (c.type === "tool_use" && !isPartialInput(c.input)) return true;
+  }
+  return false;
 }
 
 function flushAssistant(wip: WipState): void {
@@ -671,11 +738,12 @@ function wireMessages(messages: ChatMessage[], system: string): Array<Record<str
           // BUG-G7: drop tool_use blocks whose `input` is `{_partial:"…"}`
           // (length-truncated mid-stream). Re-serialising the partial JSON
           // string as `arguments` causes the next turn to send an orphan
-          // tool_call that the API rejects with 400.
-          const input = (c.input ?? {}) as Record<string, unknown>;
-          if ("_partial" in input && Object.keys(input).length === 1) {
+          // tool_call that the API rejects with 400. (Their tool_results are
+          // never produced either — see BUG-H1 in runToolUseLoop.)
+          if (isPartialInput(c.input)) {
             continue;
           }
+          const input = (c.input ?? {}) as Record<string, unknown>;
           toolCalls.push({
             id: c.id,
             type: "function",
@@ -692,6 +760,12 @@ function wireMessages(messages: ChatMessage[], system: string): Array<Record<str
       const msg: Record<string, unknown> = { role: "assistant" };
       msg.content = textParts.join("") || null;
       if (toolCalls.length > 0) msg.tool_calls = toolCalls;
+      // BUG-H4: skip assistant messages that wire to NOTHING (content null,
+      // zero tool_calls) — e.g. a stream aborted before the first delta, or
+      // one whose only tool_use was `_partial`. OpenAI-compatible endpoints
+      // reject such messages with 400, and one poison message in the history
+      // would fail every later turn. See isWireValidAssistant.
+      if (msg.content === null && toolCalls.length === 0) continue;
       out.push(msg);
       continue;
     }
@@ -740,19 +814,25 @@ function makeConfirmHandler(block: ToolUseBlock): (summary: string) => Promise<b
   };
 }
 
-/** Persist the most-recent assistant message to Supabase if a
- *  conversation is active. Called between turns so the tool_call_id
- *  references in subsequent tool-role messages are recoverable on
- *  reload. (BUG-G6) */
-function maybePersistLastAssistant(conversationId: string | null | undefined): void {
-  if (!conversationId) return;
-  const msgs = useAgentStore.getState().messages;
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    if (msgs[i].role === "assistant") {
-      void appendMessages(conversationId, [msgs[i]]);
-      return;
-    }
-  }
+/** Persist ONE assistant message (by id) to Supabase if a conversation is
+ *  active. Called between rounds so the tool_call_id references in
+ *  subsequent tool-role messages are recoverable on reload. (BUG-G6)
+ *
+ *  BUG-H2: persist by id, not by scanning for the last assistant — a round
+ *  that exited before appending one (429 / friendly-error) passes null and
+ *  persists nothing, instead of re-inserting the previous round's
+ *  already-persisted message as a duplicate row.
+ *  BUG-H4: wire-invalid assistants (empty content, only-`_partial`
+ *  tool_uses) are never persisted, so a reload can't resurrect a message
+ *  the endpoint would reject. See isWireValidAssistant. */
+function persistAssistant(
+  conversationId: string | null | undefined,
+  assistantId: string | null
+): void {
+  if (!conversationId || !assistantId) return;
+  const msg = useAgentStore.getState().messages.find((m) => m.id === assistantId);
+  if (!msg || !isWireValidAssistant(msg)) return;
+  void appendMessages(conversationId, [msg]);
 }
 
 function msgId(): string {
@@ -770,7 +850,9 @@ async function collectStreamText(res: Response): Promise<string> {
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
-      buf += dec.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      // BUG-H6: normalise CRLF AFTER concat — see the note in openOneTurn.
+      buf += dec.decode(value, { stream: true });
+      buf = buf.replace(/\r\n/g, "\n");
       let nl: number;
       while ((nl = buf.indexOf("\n\n")) !== -1) {
         const chunk = buf.slice(0, nl);

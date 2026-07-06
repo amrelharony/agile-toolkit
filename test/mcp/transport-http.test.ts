@@ -123,7 +123,9 @@ describe("handleJsonRpc — tools/call", () => {
     expect(result.content[0].text).toContain('"sum":9');
   });
 
-  it("returns -32601 for an unknown tool name", async () => {
+  it("returns -32602 (Invalid params, per the MCP spec) for an unknown tool name", async () => {
+    // BUG-H8: -32601 means the tools/call METHOD is missing — a conforming
+    // client may disable tool support entirely on seeing it.
     const res = await handleJsonRpc(
       {
         jsonrpc: "2.0",
@@ -133,7 +135,8 @@ describe("handleJsonRpc — tools/call", () => {
       },
       TEST_USER
     );
-    expect(res?.error?.code).toBe(-32601);
+    expect(res?.error?.code).toBe(-32602);
+    expect(res?.error?.message).toContain("Unknown tool");
   });
 
   it("returns -32602 when arguments fail schema validation", async () => {
@@ -234,12 +237,15 @@ describe("handleJsonRpc — error cases", () => {
     expect(res).toBeNull();
   });
 
-  it("notification (null id) returns null", async () => {
-    const res = await handleJsonRpc(
-      { jsonrpc: "2.0", id: null, method: "notifications/initialized" },
-      TEST_USER
-    );
-    expect(res).toBeNull();
+  it("id:null is a REAL request (JSON-RPC 2.0) — answered echoing id:null, not dropped", async () => {
+    // BUG-H7: notifications are detected by MEMBER PRESENCE, not value. The
+    // stdio relay (mcp-server/src/index.ts) forwards an id:null request and
+    // waits for its response; the old `id === null → null` behaviour 204'd
+    // it and hung that client forever.
+    const res = await handleJsonRpc({ jsonrpc: "2.0", id: null, method: "tools/list" }, TEST_USER);
+    expect(res).not.toBeNull();
+    expect(res?.id).toBeNull();
+    expect(res?.error).toBeUndefined();
   });
 });
 
