@@ -78,6 +78,22 @@ function buildDefaultSprints(): Sprint[] {
   ];
 }
 
+// A row still carrying the exact demo-seed values (and no description) is
+// presentation-only: it must never be bridged into the workspace store as
+// real velocity history. Editing any field makes it "real". Matching by
+// value (not just the `default:` id prefix) means an edited seed row IS
+// bridged — updateSprint keeps the original id.
+function isUntouchedSeedSprint(s: Sprint): boolean {
+  return buildDefaultSprints().some(
+    (d) =>
+      d.id === s.id &&
+      d.name === s.name &&
+      d.committed === s.committed &&
+      d.completed === s.completed &&
+      !s.description
+  );
+}
+
 function createSprint(existing: Sprint[]): Sprint {
   // Pick the first unused integer suffix so deleting "Sprint 2" then adding
   // a new one doesn't produce "Sprint 4" — the user expects gaps to fill.
@@ -265,10 +281,11 @@ export function VelocityClient() {
   //   - anti-pattern detector ignores velocity drops
   //
   // Strategy: on every velocity-store change, diff against the
-  // workspace and upsert/remove to converge. We only emit sprints
-  // that have at least one of (completed > 0, committed > 0) so the
-  // initial default 3-sprint seed (all zeros) doesn't pollute the
-  // workspace with empty rows.
+  // workspace and upsert/remove to converge. We skip empty rows
+  // (committed 0 AND completed 0) and rows still carrying the exact
+  // demo-seed values — the seed (34/28, 30/32, 36/35) is
+  // presentation-only and must not become fake completed-sprint
+  // history for predictions, dashboards, and AI context.
   useEffect(() => {
     if (typeof window === "undefined") return;
     // R11-fix: track ids the bridge has ever upserted. The previous
@@ -299,10 +316,17 @@ export function VelocityClient() {
       // Anchor at 2020-01-01 + index days; stable across renders.
       const SYNTH_EPOCH_MS = Date.UTC(2020, 0, 1);
       snapshot.forEach((local, index) => {
-        if (local.committed === 0 && local.completed === 0) {
+        if ((local.committed === 0 && local.completed === 0) || isUntouchedSeedSprint(local)) {
           // Even un-upserted local sprints are claimed as "ours" so a
-          // later removal doesn't see them as foreign rows.
+          // later removal doesn't see them as foreign rows. If an earlier
+          // session already bridged this row (seed edited, then reset — the
+          // id is reused), drop the stale workspace copy: these ids belong
+          // to the velocity bridge, nothing else writes them.
           ownedIds.add(local.id);
+          if (wsById.has(local.id)) {
+            ownedIds.delete(local.id);
+            workspace.removeSprint(local.id);
+          }
           return;
         }
         const existing = wsById.get(local.id);
@@ -404,7 +428,14 @@ export function VelocityClient() {
 
   /* -- Derived chart data -------------------------------------------------- */
 
-  const completedSeries = useMemo(() => sprints.map((s) => s.completed), [sprints]);
+  // Only sprints that actually finished feed the analytics. A "Plan next
+  // sprint" row is committed-only (completed: 0) — including it dragged the
+  // average/std-dev/forecast/trend toward zero the moment a sprint was
+  // planned. Matches the workspace bridge's status mapping above
+  // (completed > 0 ? "completed" : "planned").
+  const finishedSprints = useMemo(() => sprints.filter((s) => s.completed > 0), [sprints]);
+
+  const completedSeries = useMemo(() => finishedSprints.map((s) => s.completed), [finishedSprints]);
 
   // Bayesian forecast for the NEXT sprint. Wrapped in useMemo so we don't
   // re-allocate on unrelated re-renders. Returns [] when the series is empty,
@@ -443,49 +474,66 @@ export function VelocityClient() {
       band80Upper?: number;
     };
 
-    const data: Row[] = sprints.map((sp, i) => ({
-      name: sp.name,
-      committed: sp.committed,
-      completed: sp.completed,
-      rollingAvg: rolling[i] !== null ? round(rolling[i]!, 1) : undefined,
-      trend: round(trendLine[i], 1),
-    }));
+    // rolling/trendLine are indexed over the FINISHED series — map each
+    // sprint row back through its finished-index (planned/empty rows get no
+    // rolling-average or trend point).
+    const finishedIndexById = new Map(finishedSprints.map((s, i) => [s.id, i]));
+    const data: Row[] = sprints.map((sp) => {
+      const fi = finishedIndexById.get(sp.id);
+      return {
+        name: sp.name,
+        committed: sp.committed,
+        completed: sp.completed,
+        rollingAvg: fi !== undefined && rolling[fi] !== null ? round(rolling[fi]!, 1) : undefined,
+        trend: fi !== undefined ? round(trendLine[fi], 1) : undefined,
+      };
+    });
 
     // Append a synthetic "next" row carrying the Bayesian forecast band so
     // Recharts has a single dataset to draw from. Lower-bound is clamped at 0
     // — negative velocity is meaningless for the chart axis.
     if (forecast.length > 0 && data.length > 0) {
       const fc = forecast[0];
-      // Bridge the band onto the last actual point so the area starts where
-      // history ends rather than floating in mid-air.
-      const last = data[data.length - 1];
-      data[data.length - 1] = {
-        ...last,
-        forecast: last.completed ?? undefined,
-        // Set bridge band lower to 0 instead of collapsing to last.completed —
-        // with `connectNulls` Recharts v2.x can render a stray fill triangle
-        // from the second-to-last sprint anchor when both bounds collapse.
-        band80Lower: 0,
-        band80Upper: last.completed ?? undefined,
-      };
-      data.push({
-        name: "Next",
-        committed: 0,
-        completed: null,
-        forecast: round(fc.yHat, 1),
-        band80Lower: round(Math.max(0, fc.lower80), 1),
-        band80Upper: round(Math.max(0, fc.upper80), 1),
-      });
+      // Bridge the band onto the last FINISHED point so the area starts where
+      // history ends rather than floating in mid-air — a trailing planned row
+      // (completed 0) is not part of the forecast series.
+      let anchorIdx = -1;
+      for (let i = sprints.length - 1; i >= 0; i--) {
+        if (sprints[i].completed > 0) {
+          anchorIdx = i;
+          break;
+        }
+      }
+      if (anchorIdx >= 0) {
+        const last = data[anchorIdx];
+        data[anchorIdx] = {
+          ...last,
+          forecast: last.completed ?? undefined,
+          // Set bridge band lower to 0 instead of collapsing to last.completed —
+          // with `connectNulls` Recharts v2.x can render a stray fill triangle
+          // from the second-to-last sprint anchor when both bounds collapse.
+          band80Lower: 0,
+          band80Upper: last.completed ?? undefined,
+        };
+        data.push({
+          name: "Next",
+          committed: 0,
+          completed: null,
+          forecast: round(fc.yHat, 1),
+          band80Lower: round(Math.max(0, fc.lower80), 1),
+          band80Upper: round(Math.max(0, fc.upper80), 1),
+        });
+      }
     }
 
-    const n = sprints.length;
+    const n = completedValues.length;
     const avgVelocity = n > 0 ? completedValues.reduce((a, b) => a + b, 0) / n : 0;
-    // R11-fix: skip n=0 sprints in predictability. Previously a fresh
+    // R11-fix: skip empty rows in predictability. Previously a fresh
     // sprint row with `committed: 0, completed: 0` satisfied `0 >= 0`
-    // and counted toward predictability — adding empty rows
-    // artificially inflated the % because each empty addition
-    // incremented both numerator and denominator.
-    const completedSprints = sprints.filter((s) => s.committed > 0 || s.completed > 0);
+    // and counted toward predictability. Planned rows (committed > 0,
+    // completed 0) are likewise excluded — they haven't run yet, so they
+    // can't have "missed" their commitment.
+    const completedSprints = sprints.filter((s) => s.completed > 0);
     const predictable = completedSprints.filter((s) => s.completed >= s.committed).length;
     const predictability =
       completedSprints.length > 0 ? (predictable / completedSprints.length) * 100 : 0;
@@ -508,7 +556,7 @@ export function VelocityClient() {
       chartData: data,
       stats: { avgVelocity, predictability, sd, trendDir },
     };
-  }, [sprints, completedSeries, forecast]);
+  }, [sprints, finishedSprints, completedSeries, forecast]);
 
   /* -- Export data --------------------------------------------------------- */
 
