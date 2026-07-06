@@ -101,9 +101,9 @@ function addDaysISO(iso: string, days: number): string {
 
 /**
  * Bucket a series of risk timestamps into weekly counts and open-counts.
- * Buckets are ISO weeks anchored on the Monday of the earliest event;
- * we cap the series at 26 weeks so short histories don't disappear behind
- * a long tail of empty weeks and forecast quality stays useful.
+ * Buckets are Sunday-anchored UTC weeks; the series is capped to the most
+ * recent 26 weeks (ending at today's week) so long histories don't dilute
+ * the trend/forecast and short histories still show every week they have.
  */
 function buildWeeklyRiskSeries(risks: Risk[]): {
   raisedPerWeek: number[];
@@ -135,6 +135,16 @@ function buildWeeklyRiskSeries(risks: Risk[]): {
     Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1
   );
   const cappedWeeks = Math.min(totalWeeks, 26);
+  // The cap must keep the MOST RECENT 26 weeks. Anchoring at the earliest
+  // event and truncating the loop kept the OLDEST 26 weeks instead — once a
+  // register was older than half a year, the chart, the Mann-Kendall trend
+  // chip, and the open-risk forecast silently froze on stale data while
+  // newly raised risks fell outside every bucket. Shift the anchor forward
+  // by whole weeks so Sunday alignment is preserved and the window ends at
+  // today's week.
+  if (totalWeeks > cappedWeeks) {
+    weekStart.setUTCDate(weekStart.getUTCDate() + (totalWeeks - cappedWeeks) * 7);
+  }
 
   const raisedPerWeek = new Array(cappedWeeks).fill(0) as number[];
   const openAtWeek = new Array(cappedWeeks).fill(0) as number[];

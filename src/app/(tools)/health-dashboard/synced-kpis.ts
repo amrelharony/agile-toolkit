@@ -87,12 +87,17 @@ export function healthCheckKPIs(healthChecks: HealthCheck[]): {
   }
   series.push(pct);
 
-  // Trend: compare current to the most recent history entry (±5pt band),
-  // matching the original extractor's behaviour.
+  // Trend: compare current to the most recent history entry (±5pt band).
+  // A prior entry at a literal 0% (all-red check) is a valid baseline: the
+  // comparison is a subtraction, not a ratio, so no `> 0` guard is needed
+  // — that guard suppressed the "up" arrow on exactly the all-red → green
+  // recovery it should highlight. Malformed/empty rows are what the guard
+  // was defending against, and `healthPctOf` already returns null for
+  // those.
   let trend: TrendDir = "same";
   if (history.length > 0) {
     const lastPct = healthPctOf(history[history.length - 1].scores ?? {});
-    if (lastPct !== null && lastPct > 0) {
+    if (lastPct !== null) {
       const diff = pct - lastPct;
       if (diff > 5) trend = "up";
       else if (diff < -5) trend = "down";

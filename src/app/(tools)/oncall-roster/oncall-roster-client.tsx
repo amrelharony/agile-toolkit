@@ -397,8 +397,8 @@ export function OncallRosterClient() {
   const topPagedPerson = personStats[0]?.person ?? null;
 
   // ── Tier-2: weekly paging trend + CUSUM changepoints ──────────────
-  // Bucket pages into the most recent 26 weeks (anchor weekStart at
-  // today - 26 weeks, aligned to the start of that week). Older pages are
+  // Bucket pages into the most recent 26 calendar weeks: 25 full weeks
+  // plus the current (partial) week as the final bucket. Older pages are
   // dropped so the chart stays focused on current paging behaviour.
   const weeklyPageSeries = useMemo<{
     counts: number[];
@@ -418,8 +418,15 @@ export function OncallRosterClient() {
     // transitions — across a spring-forward / fall-back boundary the
     // anchor lands 1h off the local midnight and `setHours(0,0,0,0)`
     // can pull it back to the *previous* day, shifting all 26 buckets.
+    // Anchor at today - (WEEKS-1) weeks so bucket WEEKS-1 starts on the
+    // Sunday of the CURRENT week. The prior `- WEEKS * 7` anchor left the
+    // current partial week without a bucket of its own — the scan-down
+    // catch-all below then merged it into the last full week's bucket, so
+    // the final chart point held up to ~13 days of pages. That inflated
+    // point skewed Mann-Kendall toward "trending up" and could fabricate
+    // a CUSUM "regime up" at the window's end on every render.
     const anchor = new Date(today);
-    anchor.setDate(today.getDate() - WEEKS * 7);
+    anchor.setDate(today.getDate() - (WEEKS - 1) * 7);
     const weekStart = new Date(anchor);
     weekStart.setDate(anchor.getDate() - anchor.getDay());
     weekStart.setHours(0, 0, 0, 0);

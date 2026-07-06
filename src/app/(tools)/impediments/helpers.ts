@@ -54,7 +54,8 @@ function parseISODateUTC(iso: string): Date | null {
 
 /**
  * Bucket impediments into weekly raised-counts and open-counts. Capped at
- * 26 weeks to keep the trend window meaningful and forecast cost bounded.
+ * the most recent 26 weeks (ending at today's week) to keep the trend
+ * window meaningful and forecast cost bounded.
  */
 export function buildWeeklyImpedimentSeries(impediments: Impediment[]): {
   raisedPerWeek: number[];
@@ -83,6 +84,16 @@ export function buildWeeklyImpedimentSeries(impediments: Impediment[]): {
     Math.ceil((today.getTime() - weekStart.getTime()) / (7 * 86_400_000)) + 1
   );
   const cappedWeeks = Math.min(totalWeeks, 26);
+  // The cap must keep the MOST RECENT 26 weeks. Anchoring at the earliest
+  // event and truncating the loop kept the OLDEST 26 weeks instead — once a
+  // tracker was older than half a year, the weekly chart and the trend /
+  // changepoint chips silently froze on stale data while newly raised
+  // impediments fell outside every bucket. Shift the anchor forward by
+  // whole weeks so Sunday alignment is preserved and the window ends at
+  // today's week.
+  if (totalWeeks > cappedWeeks) {
+    weekStart.setUTCDate(weekStart.getUTCDate() + (totalWeeks - cappedWeeks) * 7);
+  }
 
   const raisedPerWeek = new Array(cappedWeeks).fill(0) as number[];
   const openAtWeek = new Array(cappedWeeks).fill(0) as number[];
