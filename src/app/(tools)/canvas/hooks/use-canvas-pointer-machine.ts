@@ -5,9 +5,11 @@ import { panBy } from "@/lib/whiteboard/canvas-transform";
 import {
   aabbIntersect,
   boundingBoxOfFlatPoints,
+  normalizedRect,
   rectFromCorners,
   rectOverlapsPolygon,
 } from "@/lib/geometry/bbox";
+import { translateFlatPoints } from "@/lib/whiteboard/freehand";
 import type { Camera } from "@/lib/geometry/bbox";
 import {
   snapToGrid as snapToGridFn,
@@ -328,7 +330,14 @@ export function useCanvasPointerMachine(params: {
         lastLassoWorldRef.current = null;
         setMarquee(null);
       }
-      if (drawing) setDrawing(null);
+      if (drawing) {
+        setDrawing(null);
+        // Clear the wet-ink preview too — cancelling a mid-flight
+        // stylus stroke otherwise leaves the half-drawn ink painted on
+        // the overlay canvas (screen-space, so it also stops tracking
+        // pan/zoom) until the next completed stroke resets it.
+        wetInkApiRef.current?.reset();
+      }
       // Read guides via the ref instead of a subscribed selector so
       // this effect doesn't re-mount on every drag-frame guide update.
       if ((dragGuidesRef.current?.length ?? 0) > 0) setDragGuides([]);
@@ -353,6 +362,7 @@ export function useCanvasPointerMachine(params: {
     setDragGuides,
     dragGuidesRef,
     spaceHeldRef,
+    wetInkApiRef,
   ]);
 
   // ─── Pointer down on empty canvas ────────────────────────────────────
@@ -396,10 +406,13 @@ export function useCanvasPointerMachine(params: {
           ) {
             const rect = viewportRectRef.current;
             if (!rect) return;
-            const world = {
-              x: (e.clientX - rect.left - camera.x) / camera.zoom,
-              y: (e.clientY - rect.top - camera.y) / camera.zoom,
-            };
+            // BUG: previously inlined `(client − rect − camera) / zoom`,
+            // which INVERTS the camera convention (screen = (world −
+            // cam)·zoom, so world = screen/zoom + cam). Any pan/zoom
+            // away from the origin dropped the commenter's pin at a
+            // mirrored/offset world point. Route through the shared
+            // converter so this path can't drift again.
+            const world = clientToWorld(e.clientX, e.clientY);
             const threadId = wbId("wbc");
             upsertCommentThread({
               id: threadId,
@@ -624,9 +637,6 @@ export function useCanvasPointerMachine(params: {
       setTool,
       readOnly,
       canComment,
-      camera.x,
-      camera.y,
-      camera.zoom,
       setActiveCommentThreadId,
       stickyColor,
       viewportRef,
@@ -779,7 +789,9 @@ export function useCanvasPointerMachine(params: {
               if (cur.length >= 6) {
                 const hit: string[] = [];
                 for (const o of objects) {
-                  if (rectOverlapsPolygon({ x: o.x, y: o.y, w: o.w, h: o.h }, cur)) hit.push(o.id);
+                  // normalizedRect: line/arrow carry signed w/h — the
+                  // polygon-overlap test needs positive extents.
+                  if (rectOverlapsPolygon(normalizedRect(o), cur)) hit.push(o.id);
                 }
                 const next = liveMarquee.additive
                   ? Array.from(new Set([...liveMarquee.initialSelection, ...hit]))
@@ -802,7 +814,10 @@ export function useCanvasPointerMachine(params: {
           const hit: string[] = [];
           const rect = rectFromCorners(marquee.startWorld, world);
           for (const o of objects) {
-            if (aabbIntersect(rect, { x: o.x, y: o.y, w: o.w, h: o.h })) hit.push(o.id);
+            // normalizedRect: an up-left line has negative w/h, which
+            // made aabbIntersect treat it as an empty interval — the
+            // marquee could never select it.
+            if (aabbIntersect(rect, normalizedRect(o))) hit.push(o.id);
           }
           const next = marquee.additive
             ? Array.from(new Set([...marquee.initialSelection, ...hit]))
@@ -820,19 +835,24 @@ export function useCanvasPointerMachine(params: {
         let dy = world.y - drag.startWorld.y;
         const ids = Object.keys(drag.initialRects);
 
+        // Union of the proposed (post-delta) rects. Inline min/max
+        // normalisation (allocation-free on this hot path): line/arrow
+        // rects carry SIGNED w/h, and treating those as extents skewed
+        // the union that feeds grid/object snapping whenever the drag
+        // included a line drawn toward the top-left.
         const first = drag.initialRects[ids[0]];
-        let minX = first.x + dx,
-          minY = first.y + dy;
-        let maxX = minX + first.w,
-          maxY = minY + first.h;
+        let minX = (first.w < 0 ? first.x + first.w : first.x) + dx,
+          minY = (first.h < 0 ? first.y + first.h : first.y) + dy;
+        let maxX = minX + Math.abs(first.w),
+          maxY = minY + Math.abs(first.h);
         for (let i = 1; i < ids.length; i++) {
           const r = drag.initialRects[ids[i]];
-          const nx = r.x + dx;
-          const ny = r.y + dy;
+          const nx = (r.w < 0 ? r.x + r.w : r.x) + dx;
+          const ny = (r.h < 0 ? r.y + r.h : r.y) + dy;
           if (nx < minX) minX = nx;
           if (ny < minY) minY = ny;
-          if (nx + r.w > maxX) maxX = nx + r.w;
-          if (ny + r.h > maxY) maxY = ny + r.h;
+          if (nx + Math.abs(r.w) > maxX) maxX = nx + Math.abs(r.w);
+          if (ny + Math.abs(r.h) > maxY) maxY = ny + Math.abs(r.h);
         }
         const proposedUnion = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 
@@ -878,13 +898,27 @@ export function useCanvasPointerMachine(params: {
           const initial = drag.initialRects[id];
           const obj = objectsById.get(id);
           if (!obj) continue;
-          updates.push({
-            ...obj,
-            x: initial.x + dx,
-            y: initial.y + dy,
-            version: obj.version + 1,
-            updatedAt: now,
-          });
+          const nx = initial.x + dx;
+          const ny = initial.y + dy;
+          // Freehand ink lives in world-absolute `points`; translate
+          // them by the same delta or the bbox moves while the ink
+          // stays put. Delta is taken vs the CURRENT position (not the
+          // initial rect) because points were already shifted by the
+          // previous drag frames. Branched ternary (not a conditional
+          // spread) so TS keeps the per-type narrowing — `card` has an
+          // unrelated numeric `points` field.
+          updates.push(
+            obj.type === "freehand"
+              ? {
+                  ...obj,
+                  x: nx,
+                  y: ny,
+                  points: translateFlatPoints(obj.points, nx - obj.x, ny - obj.y),
+                  version: obj.version + 1,
+                  updatedAt: now,
+                }
+              : { ...obj, x: nx, y: ny, version: obj.version + 1, updatedAt: now }
+          );
         }
         if (updates.length > 0) upsertMany(updates);
         return;
@@ -967,14 +1001,37 @@ export function useCanvasPointerMachine(params: {
           const offY = ir.y - union.y;
           const nx = unx + offX * sx;
           const ny = uny + offY * sy;
-          const nw = Math.max(20, ir.w * sx);
-          const nh = Math.max(20, ir.h * sy);
+          // Line/arrow store SIGNED endpoint deltas in w/h — scale them
+          // with the sign preserved and WITHOUT the 20-px floor (which
+          // would flip an up-left line's direction, relocating an
+          // arrowhead to the wrong end).
+          const isDelta = obj.type === "line" || obj.type === "arrow";
+          const nw = isDelta ? ir.w * sx : Math.max(20, ir.w * sx);
+          const nh = isDelta ? ir.h * sy : Math.max(20, ir.h * sy);
+          // Freehand ink is world-absolute `points`; apply the same
+          // affine map the bbox gets. Anchoring on the CURRENT x/w (not
+          // the initial rect) keeps points and bbox consistent across
+          // frames — each frame maps the previous frame's state.
+          let nextPoints: number[] | undefined;
+          if (obj.type === "freehand" && obj.w > 0 && obj.h > 0) {
+            const kx = nw / obj.w;
+            const ky = nh / obj.h;
+            const pts = obj.points;
+            nextPoints = new Array<number>(pts.length);
+            const n = (pts.length >> 1) * 2;
+            for (let i = 0; i < n; i += 2) {
+              nextPoints[i] = nx + (pts[i] - obj.x) * kx;
+              nextPoints[i + 1] = ny + (pts[i + 1] - obj.y) * ky;
+            }
+            if (pts.length > n) nextPoints[n] = pts[n];
+          }
           updates.push({
             ...obj,
             x: nx,
             y: ny,
             w: nw,
             h: nh,
+            ...(nextPoints ? { points: nextPoints } : {}),
             version: obj.version + 1,
             updatedAt: now,
           } as WhiteboardObject);

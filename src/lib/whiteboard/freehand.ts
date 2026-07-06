@@ -34,7 +34,11 @@ const DEFAULTS: Required<FreehandOptions> = {
  * - `[x0, y0, x1, y1, …]` — no pressure (pressure = 0.5)
  * - `[x0, y0, p0, x1, y1, p1, …]` — explicit pressure (`pressure` flag = true)
  */
-export function flatPointsToPath(flat: readonly number[], opts: FreehandOptions = {}, withPressure = false): string {
+export function flatPointsToPath(
+  flat: readonly number[],
+  opts: FreehandOptions = {},
+  withPressure = false
+): string {
   // Single tap (one sample) — render a dot rather than nothing. A single
   // click on the pen tool is a valid user gesture and "nothing happens"
   // is unexpected. perfect-freehand's `last` flag draws a tapered dot
@@ -66,6 +70,30 @@ export function flatPointsToPath(flat: readonly number[], opts: FreehandOptions 
   const outline = getStroke(points, o);
   if (outline.length < 2) return "";
   return svgPathFromStroke(outline);
+}
+
+/**
+ * Translate a flat [x0,y0,x1,y1,…] freehand points array by (dx, dy).
+ *
+ * Freehand `points` are stored in WORLD coordinates (the renderer and
+ * SVG export both treat them as absolute), so every code path that
+ * moves a freehand object's x/y MUST translate the points by the same
+ * delta — otherwise the bbox moves while the visible ink stays put.
+ * Used by the drag loop, arrow-key nudge, align/distribute, and
+ * clipboard paste/duplicate.
+ *
+ * Defensive against odd-length input (orphan trailing x): the trailing
+ * coord is copied verbatim rather than read past the end.
+ */
+export function translateFlatPoints(flat: readonly number[], dx: number, dy: number): number[] {
+  const out = new Array<number>(flat.length);
+  const n = (flat.length >> 1) * 2;
+  for (let i = 0; i < n; i += 2) {
+    out[i] = flat[i] + dx;
+    out[i + 1] = flat[i + 1] + dy;
+  }
+  if (flat.length > n) out[n] = flat[n];
+  return out;
 }
 
 /** Average two points (perfect-freehand quadratic-curve trick). */

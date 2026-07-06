@@ -17,6 +17,7 @@ import type {
   WhiteboardMindMapNode,
   WhiteboardConnector,
 } from "@/lib/stores/workspace-types";
+import { translateFlatPoints } from "@/lib/whiteboard/freehand";
 
 /** Entity kinds used in user_entities for the cloud-synced collections
  *  this file operates against. Matches the registrations in
@@ -165,6 +166,17 @@ registry.register({
   },
 });
 
+/** Reposition an object to absolute world coords. Freehand ink is stored as
+ *  world-absolute `points` (stride-2, pressures parallel), so they must be
+ *  translated with the move or only the bbox moves and the visible stroke
+ *  stays behind — same fix as the canvas drag/nudge/align movers. Branched
+ *  ternary (not a conditional spread) so TS keeps the per-type narrowing. */
+function moveObjectTo(target: WhiteboardObject, x: number, y: number): WhiteboardObject {
+  return target.type === "freehand"
+    ? { ...target, x, y, points: translateFlatPoints(target.points, x - target.x, y - target.y) }
+    : { ...target, x, y };
+}
+
 // ──────── tool.canvas.move_object ────────
 registry.register({
   id: "tool.canvas.move_object",
@@ -182,9 +194,7 @@ registry.register({
     const target = current.find((o) => o.id === params.id);
     if (!target) return { moved: false };
     ws().upsertWhiteboardObject({
-      ...target,
-      x: params.x,
-      y: params.y,
+      ...moveObjectTo(target, params.x, params.y),
       version: target.version + 1,
       updatedAt: nowIso(),
     });
@@ -200,7 +210,7 @@ registry.register({
       ctx.userId,
       KIND_WHITEBOARD_OBJECT,
       params.id,
-      (target) => ({ ...target, x: params.x, y: params.y, updatedAt: nowIso() })
+      (target) => ({ ...moveObjectTo(target, params.x, params.y), updatedAt: nowIso() })
     );
     return { moved: result !== null };
   },

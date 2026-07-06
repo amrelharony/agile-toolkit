@@ -6,6 +6,7 @@ import { buildSpatialIndex, type SpatialIndex } from "@/lib/whiteboard/snap";
 import { claimNextZ } from "@/lib/whiteboard/z-order";
 import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { normalizedRect } from "@/lib/geometry/bbox";
 import type { Rect } from "@/lib/geometry/bbox";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import type { CanvasTool, ResizeHandle } from "../use-canvas-store";
@@ -99,13 +100,30 @@ export function useObjectInteractions(params: {
   readOnly: boolean;
 }) {
   const {
-    boardId, objects, objectsById, upsert, upsertMany,
-    tool, setTool, selection, setSelection, toggleSelection,
-    pendingConnectorFromId, setPendingConnectorFromId,
-    setDrag, setMarquee, setResize, setRotation, setEditingObjectId,
-    viewportRef, dragSnapIndexRef, topZRef,
+    boardId,
+    objects,
+    objectsById,
+    upsert,
+    upsertMany,
+    tool,
+    setTool,
+    selection,
+    setSelection,
+    toggleSelection,
+    pendingConnectorFromId,
+    setPendingConnectorFromId,
+    setDrag,
+    setMarquee,
+    setResize,
+    setRotation,
+    setEditingObjectId,
+    viewportRef,
+    dragSnapIndexRef,
+    topZRef,
     clientToWorld,
-    pushSnapshot, log, logActivity,
+    pushSnapshot,
+    log,
+    logActivity,
     readOnly,
   } = params;
 
@@ -130,10 +148,20 @@ export function useObjectInteractions(params: {
         // one of those object types (no cursor change, no toast, just
         // dead click). Keep in sync with WhiteboardObjectKind.
         const valid = [
-          "sticky", "rect", "ellipse", "diamond", "triangle",
-          "frame", "image",
-          "card", "kanban", "timer", "voting",
-          "table", "mindMapNode", "diagramShape",
+          "sticky",
+          "rect",
+          "ellipse",
+          "diamond",
+          "triangle",
+          "frame",
+          "image",
+          "card",
+          "kanban",
+          "timer",
+          "voting",
+          "table",
+          "mindMapNode",
+          "diagramShape",
         ];
         if (!valid.includes(target.type)) return;
         if (!pendingConnectorFromId) {
@@ -159,7 +187,10 @@ export function useObjectInteractions(params: {
           id: newId,
           boardId,
           type: "connector",
-          x: 0, y: 0, w: 0, h: 0,
+          x: 0,
+          y: 0,
+          w: 0,
+          h: 0,
           z: claimNextZ(topZRef),
           fromId: pendingConnectorFromId,
           toId: id,
@@ -194,7 +225,9 @@ export function useObjectInteractions(params: {
       // dragging immediately without waiting for state to flush.
       let nextSelection: string[];
       if (additive) {
-        nextSelection = selection.includes(id) ? selection.filter((x) => x !== id) : [...selection, id];
+        nextSelection = selection.includes(id)
+          ? selection.filter((x) => x !== id)
+          : [...selection, id];
       } else if (groupMembers && groupMembers.length > 1) {
         nextSelection = groupMembers;
       } else if (!selection.includes(id)) {
@@ -235,7 +268,26 @@ export function useObjectInteractions(params: {
       setDrag({ startWorld: world, initialRects });
       viewportRef.current?.setPointerCapture(e.pointerId);
     },
-    [tool, selection, setSelection, clientToWorld, objectsById, setDrag, pendingConnectorFromId, setPendingConnectorFromId, upsert, boardId, objects, log, setTool, pushSnapshot, readOnly, viewportRef, dragSnapIndexRef, topZRef],
+    [
+      tool,
+      selection,
+      setSelection,
+      clientToWorld,
+      objectsById,
+      setDrag,
+      pendingConnectorFromId,
+      setPendingConnectorFromId,
+      upsert,
+      boardId,
+      objects,
+      log,
+      setTool,
+      pushSnapshot,
+      readOnly,
+      viewportRef,
+      dragSnapIndexRef,
+      topZRef,
+    ]
   );
 
   const onObjectDoubleClick = useCallback(
@@ -243,17 +295,21 @@ export function useObjectInteractions(params: {
       if (readOnly) return;
       const obj = objectsById.get(id);
       if (!obj) return;
-      const editable = obj.type === "sticky" || obj.type === "text"
-        || obj.type === "rect" || obj.type === "ellipse"
-        || obj.type === "diamond" || obj.type === "triangle"
+      const editable =
+        obj.type === "sticky" ||
+        obj.type === "text" ||
+        obj.type === "rect" ||
+        obj.type === "ellipse" ||
+        obj.type === "diamond" ||
+        obj.type === "triangle" ||
         // Connectors: double-click anywhere on the path opens label edit.
         // Frame/kanban/timer/card already have their own edit paths
         // (label tab / detail modal) so they're handled elsewhere.
-        || obj.type === "connector"
+        obj.type === "connector" ||
         // Mind-map nodes: double-click opens the node's text editor.
-        || obj.type === "mindMapNode"
+        obj.type === "mindMapNode" ||
         // Diagram shapes: double-click edits the label.
-        || obj.type === "diagramShape";
+        obj.type === "diagramShape";
       if (!editable) return;
       if (obj.locked) return;
       // Bail out of any pre-edit gestures so the textarea isn't
@@ -267,7 +323,7 @@ export function useObjectInteractions(params: {
         setSelection([id]);
       }
     },
-    [readOnly, objectsById, selection, setSelection, setDrag, setMarquee, setEditingObjectId],
+    [readOnly, objectsById, selection, setSelection, setDrag, setMarquee, setEditingObjectId]
   );
 
   const onCommitObjectEdit = useCallback(
@@ -276,9 +332,15 @@ export function useObjectInteractions(params: {
       // gated, if an InlineEditor somehow surfaces (e.g. DOM hack),
       // refuse to commit. Still clear the edit flag so the UI doesn't
       // get stuck.
-      if (readOnly) { setEditingObjectId(null); return; }
+      if (readOnly) {
+        setEditingObjectId(null);
+        return;
+      }
       const obj = objectsById.get(id);
-      if (!obj) { setEditingObjectId(null); return; }
+      if (!obj) {
+        setEditingObjectId(null);
+        return;
+      }
       // Pick the right field by type. Sticky/text/shape store editable
       // text in `content`; frame/kanban/timer use `label`; card uses
       // `title`; voting uses `question`. Previously this always wrote
@@ -320,12 +382,12 @@ export function useObjectInteractions(params: {
           "edited",
           preview
             ? `Edited ${obj.type}: "${preview}${text.length > 40 ? "…" : ""}"`
-            : `Edited ${obj.type} (cleared text)`,
+            : `Edited ${obj.type} (cleared text)`
         );
       }
       setEditingObjectId(null);
     },
-    [objectsById, upsert, log, logActivity, pushSnapshot, setEditingObjectId, readOnly],
+    [objectsById, upsert, log, logActivity, pushSnapshot, setEditingObjectId, readOnly]
   );
 
   const onPatchStyles = useCallback(
@@ -350,7 +412,7 @@ export function useObjectInteractions(params: {
       upsertMany(updates);
       log(CANVAS_ACTIONS.OBJECT_UPDATED, { count: updates.length, action: "style" });
     },
-    [objectsById, upsertMany, log, pushSnapshot, readOnly],
+    [objectsById, upsertMany, log, pushSnapshot, readOnly]
   );
 
   // Stable per-object onMutate adapter — passed to every
@@ -362,7 +424,7 @@ export function useObjectInteractions(params: {
   // actually changed each frame.
   const onObjectMutate = useCallback(
     (id: string, patch: Partial<WhiteboardObject>) => onPatchStyles([{ id, patch }]),
-    [onPatchStyles],
+    [onPatchStyles]
   );
 
   const onConnectorPointerDown = useCallback(
@@ -376,7 +438,7 @@ export function useObjectInteractions(params: {
         setSelection([id]);
       }
     },
-    [tool, selection, setSelection, toggleSelection],
+    [tool, selection, setSelection, toggleSelection]
   );
 
   const onResizeHandlePointerDown = useCallback(
@@ -390,14 +452,22 @@ export function useObjectInteractions(params: {
         .map((id) => objectsById.get(id))
         .filter((o): o is WhiteboardObject => !!o && !o.locked);
       if (objs.length === 0) return;
+      // initialRects keep the RAW (possibly signed line/arrow) rects —
+      // the resize loop scales the signed deltas so arrow direction
+      // survives. Only the UNION needs normalized extents, otherwise a
+      // negative-w line poisons the scale-factor math.
       const initialRects: Record<string, Rect> = {};
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
       for (const o of objs) {
         initialRects[o.id] = { x: o.x, y: o.y, w: o.w, h: o.h };
-        if (o.x < minX) minX = o.x;
-        if (o.y < minY) minY = o.y;
-        if (o.x + o.w > maxX) maxX = o.x + o.w;
-        if (o.y + o.h > maxY) maxY = o.y + o.h;
+        const n = normalizedRect(o);
+        if (n.x < minX) minX = n.x;
+        if (n.y < minY) minY = n.y;
+        if (n.x + n.w > maxX) maxX = n.x + n.w;
+        if (n.y + n.h > maxY) maxY = n.y + n.h;
       }
       const initialUnion: Rect = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
       const world = clientToWorld(e.clientX, e.clientY);
@@ -415,7 +485,7 @@ export function useObjectInteractions(params: {
       });
       viewportRef.current?.setPointerCapture(e.pointerId);
     },
-    [selection, objectsById, clientToWorld, setResize, pushSnapshot, viewportRef],
+    [selection, objectsById, clientToWorld, setResize, pushSnapshot, viewportRef]
   );
 
   const onRotateByDelta = useCallback(
@@ -429,16 +499,21 @@ export function useObjectInteractions(params: {
       const now = new Date().toISOString();
       for (const o of objs) {
         let r = (o.rotation ?? 0) + deltaDeg;
-        r = ((r + 180) % 360 + 360) % 360 - 180;
+        r = ((((r + 180) % 360) + 360) % 360) - 180;
         if (r === -180) r = 180;
         // Bump `version` so peers honour the LWW comparison. Without it,
         // peers see an unchanged version and treat the rotation as an
         // out-of-date echo, silently rejecting the rotate-button click.
-        updates.push({ ...o, rotation: r, version: o.version + 1, updatedAt: now } as WhiteboardObject);
+        updates.push({
+          ...o,
+          rotation: r,
+          version: o.version + 1,
+          updatedAt: now,
+        } as WhiteboardObject);
       }
       if (updates.length > 0) upsertMany(updates);
     },
-    [selection, objectsById, upsertMany, pushSnapshot],
+    [selection, objectsById, upsertMany, pushSnapshot]
   );
 
   const onRotateStart = useCallback(
@@ -448,7 +523,10 @@ export function useObjectInteractions(params: {
         .filter((o): o is WhiteboardObject => !!o && !o.locked);
       if (objs.length === 0) return;
       // Union centre in world coords.
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
       const initialRotations: Record<string, number> = {};
       for (const o of objs) {
         initialRotations[o.id] = o.rotation ?? 0;
@@ -470,7 +548,7 @@ export function useObjectInteractions(params: {
       });
       viewportRef.current?.setPointerCapture(e.pointerId);
     },
-    [selection, objectsById, clientToWorld, setRotation, pushSnapshot, viewportRef],
+    [selection, objectsById, clientToWorld, setRotation, pushSnapshot, viewportRef]
   );
 
   return {

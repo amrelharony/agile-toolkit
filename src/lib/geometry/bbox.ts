@@ -163,6 +163,23 @@ export function rectFromCorners(a: Vec2, b: Vec2): Rect {
   return { x: minX, y: minY, w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
 }
 
+/**
+ * Normalize a possibly negative-extent rect into min-corner + positive
+ * size form. Line/arrow objects store SIGNED endpoint deltas in w/h
+ * (a line dragged up-left has negative w/h — see object-validator's
+ * ZERO_SIZE_OK), but AABB consumers (marquee hit-test, viewport
+ * culling, selection bbox, resize union) assume non-negative extents.
+ * Run those inputs through this first; keep the stored object signed.
+ */
+export function normalizedRect(r: Rect): Rect {
+  return {
+    x: r.w < 0 ? r.x + r.w : r.x,
+    y: r.h < 0 ? r.y + r.h : r.y,
+    w: Math.abs(r.w),
+    h: Math.abs(r.h),
+  };
+}
+
 export function rectUnion(a: Rect, b: Rect): Rect {
   const minX = Math.min(a.x, b.x);
   const minY = Math.min(a.y, b.y);

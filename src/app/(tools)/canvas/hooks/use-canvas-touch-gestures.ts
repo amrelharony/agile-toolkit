@@ -89,10 +89,14 @@ export function useCanvasTouchGestures(params: {
           x: origin[0] - rect.left,
           y: origin[1] - rect.top,
         };
-        // `offset[0]` from `@use-gesture/react` is the cumulative scale
-        // since the gesture started (initialised to 1, multiplicatively
-        // accumulated per event). On the first event we capture the
-        // starting zoom; subsequent events apply the cumulative factor.
+        // `offset[0]` is the cumulative scale since the gesture started
+        // (reset to 1 per gesture via `pinch.from` below — WITHOUT the
+        // reset, @use-gesture carries offset across gestures, and
+        // `startZoom * scale` re-applied the previous pinch's total on
+        // the first event of every NEW pinch: zoom 2 jumped straight to
+        // 4 the moment a second pinch registered). On the first event
+        // we capture the starting zoom; subsequent events apply the
+        // per-gesture cumulative factor.
         const startZoom = first
           ? cameraRef.current.zoom
           : (memo?.startZoom ?? cameraRef.current.zoom);
@@ -112,7 +116,17 @@ export function useCanvasTouchGestures(params: {
     {
       target: viewportRef as unknown as RefObject<EventTarget>,
       eventOptions: { passive: false },
-      pinch: { scaleBounds: { min: 0.1, max: 8 }, rubberband: true },
+      // `from` resets the pinch offset to 1 at every gesture start so
+      // `offset[0]` is the scale ratio of THIS pinch only. The library
+      // default carries offset across gestures (and even across wheel
+      // zooms in between), which both double-applied old pinches and —
+      // once the cumulative offset hit scaleBounds.max — froze pinch
+      // zoom entirely. scaleBounds now bounds the per-gesture ratio.
+      pinch: {
+        from: () => [1, 0] as [number, number],
+        scaleBounds: { min: 0.1, max: 8 },
+        rubberband: true,
+      },
       drag: { filterTaps: true, threshold: 4 },
     }
   );

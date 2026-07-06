@@ -52,6 +52,10 @@ export function useCanvasShortcuts(params: {
   lassoRafRef: MutableRefObject<number | null>;
   lassoPointsRef: MutableRefObject<number[] | null>;
   lastLassoWorldRef: MutableRefObject<{ x: number; y: number } | null>;
+  // Wet-ink preview layer — the Esc-cancel of an in-flight freehand
+  // stroke must clear it or the half-drawn ink stays painted on the
+  // overlay canvas until the next completed stroke resets it.
+  wetInkApiRef: MutableRefObject<{ reset(): void } | null>;
   // Ephemeral interaction state (closure values — drive when the
   // handler should suppress / cancel itself)
   drag: unknown;
@@ -94,6 +98,7 @@ export function useCanvasShortcuts(params: {
     lassoRafRef,
     lassoPointsRef,
     lastLassoWorldRef,
+    wetInkApiRef,
     drag,
     resize,
     rotation,
@@ -300,6 +305,11 @@ export function useCanvasShortcuts(params: {
           // clear selection. Keeps the gesture chain predictable.
           if (drawing) {
             setDrawing(null);
+            // Clear the wet-ink preview too — without this, Esc mid-
+            // stylus-stroke leaves the half-drawn ink painted on the
+            // overlay canvas (screen-space, so it also stops tracking
+            // pan/zoom) until the next completed stroke resets it.
+            wetInkApiRef.current?.reset();
             return;
           }
           if (pendingConnectorFromId) {
