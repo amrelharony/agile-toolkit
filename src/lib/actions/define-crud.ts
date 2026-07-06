@@ -122,8 +122,21 @@ export function defineCrudActions<T extends { id: string }>(opts: CrudOptions<T>
     paramsSchema: createSchema,
     handler: async (params: { entity: T }): Promise<{ id: string }> => {
       const entity = params.entity;
-      if (!entity.id && opts.generateId) {
+      const hadExplicitId = typeof entity.id === "string" && entity.id.length > 0;
+      if (!hadExplicitId && opts.generateId) {
         (entity as { id: string }).id = opts.generateId();
+      }
+      // R12-fix: same duplicate guard as the mcpHandler below. `create`
+      // must not silently overwrite an existing record, but this local
+      // (in-tab agent) path previously upserted blindly — the two
+      // transports of the SAME action id had opposite duplicate
+      // semantics, and a create echoing an id from a prior `list`
+      // clobbered the entity wholesale. Scoped to explicit ids so the
+      // common generate-an-id path stays a single write.
+      if (hadExplicitId && selectAll().some((e) => e.id === entity.id)) {
+        throw new Error(
+          `${entityName} with id "${entity.id}" already exists — use update to modify it.`
+        );
       }
       upsert(entity);
       return { id: entity.id };

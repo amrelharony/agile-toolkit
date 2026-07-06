@@ -2067,7 +2067,7 @@ export interface WhiteboardActivityEvent {
   by?: string;
 }
 
-export const emptyWorkspace: Workspace = {
+export const emptyWorkspace = {
   teamMembers: [],
   sprints: [],
   stories: [],
@@ -2161,4 +2161,41 @@ export const emptyWorkspace: Workspace = {
   whiteboardSavedTemplates: [],
   whiteboardActivityLog: [],
   kudos: [],
-};
+  // R12-fix: Ceremonies (S3), Sprint Planning (S1), and Outcomes/Flow (S6)
+  // collections were missing entirely, so `set({ ...emptyWorkspace })` in
+  // resetWorkspace / replaceWorkspace / importJSON silently RETAINED the
+  // prior workspace's data for these 15 collections (zustand set() is a
+  // shallow merge — a key absent here has no default to stand in). The
+  // CompleteWorkspace `satisfies` guard below now makes that a compile
+  // error instead of a silent data leak.
+  sosEntries: [],
+  asyncUpdates: [],
+  standupEntries: [],
+  sprintReviews: [],
+  retroBoards: [],
+  sprintGoals: [],
+  jobStories: [],
+  capacityPlans: [],
+  storyMaps: [],
+  backlogItems: [],
+  npsResponses: [],
+  moodEntries: [],
+  kanbanBoards: [],
+  dependencyMaps: [],
+  valueStreamStages: [],
+} satisfies Workspace;
+
+/**
+ * R12-fix: compile-time completeness guard for emptyWorkspace. The const
+ * uses `satisfies Workspace` (not a `: Workspace` annotation) so
+ * `typeof emptyWorkspace` keeps the literal's ACTUAL keys — letting the
+ * assignment below fail to compile, naming the missing keys, whenever a
+ * future Workspace collection is added but forgotten above. That matters
+ * because `resetWorkspace`, `replaceWorkspace`, and `importJSON` all rely
+ * on `{ ...emptyWorkspace, ... }` supplying a default for EVERY key —
+ * zustand's set() is a shallow merge, so a key missing from this object
+ * silently retains the prior workspace's data.
+ */
+type MissingEmptyWorkspaceKeys = Exclude<keyof Workspace, keyof typeof emptyWorkspace>;
+const emptyWorkspaceIsComplete: MissingEmptyWorkspaceKeys extends never ? true : never = true;
+void emptyWorkspaceIsComplete;
