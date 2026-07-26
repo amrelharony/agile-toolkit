@@ -39,19 +39,40 @@ function addXp(n: number): void {
 /** Which corner the mascot is parked in (drag-to-reposition). */
 type Corner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 
+/** Inset of the float button from its corner. */
+const BUTTON_INSET = 4;
+/** Height of the Mascot3D canvas inside that button (see <Mascot3D height>). */
+const MASCOT_BOX_H = 220;
+/**
+ * Where the figure actually lands inside that 220px canvas. The 3D framing
+ * (fov 62, camera at z 2.5 — mascot-3d.tsx) renders the model across rows
+ * 50…154, so the visible mascot is only ~105px tall: 50px of transparent
+ * headroom above its head and 65px below its feet. Anchoring the chat panel to
+ * the canvas edge instead of the figure left it floating ~54px off the mascot's
+ * head, which read as a detached, unrelated panel.
+ */
+const MODEL_TOP = 50;
+const MODEL_BOTTOM = 155;
+/** Breathing room between the mascot's silhouette and the panel. */
+const PANEL_GAP = 6;
+
 /** Fixed-position style for the float button at a corner (default ≈ bottom-1 right-2). */
 function buttonPos(c: Corner): CSSProperties {
   return {
     position: "fixed",
-    ...(c.startsWith("top") ? { top: 4 } : { bottom: 4 }),
+    ...(c.startsWith("top") ? { top: BUTTON_INSET } : { bottom: BUTTON_INSET }),
     ...(c.endsWith("Left") ? { left: 8 } : { right: 8 }),
   };
 }
 
-/** Chat-panel style for a corner — sits just inboard of the mascot. */
+/** Chat-panel style for a corner — hugs the mascot's silhouette, not its canvas. */
 function panelPos(c: Corner): CSSProperties {
   return {
-    ...(c.startsWith("top") ? { top: 228 } : { bottom: 228 }),
+    ...(c.startsWith("top")
+      ? // Parked up top: clear the model's feet (row 155 of the canvas).
+        { top: BUTTON_INSET + MODEL_BOTTOM + PANEL_GAP }
+      : // Parked at the bottom: clear its head (row 50 from the canvas top).
+        { bottom: BUTTON_INSET + (MASCOT_BOX_H - MODEL_TOP) + PANEL_GAP }),
     ...(c.endsWith("Left") ? { left: 16 } : { right: 16 }),
   };
 }
