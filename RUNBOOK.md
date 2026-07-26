@@ -174,11 +174,12 @@ so they're documented here rather than automated.
 
 ### 1. Host the mascot GLB off a CDN
 
-The model (`/public/mascot/mascot.glb`, ~16 MB) is **gitignored** — it is not in
-the repo and won't be on Vercel. Serve it from any static host and point the app
-at it with one variable; the loader **and** the Content-Security-Policy both
-follow it (`next.config.mjs` whitelists the URL's origin in `connect-src`
-automatically — no manual CSP edit).
+The model (`/public/mascot/mascot.glb`, ~2.7 MB after
+[optimisation](#optimising-the-mascot-glb) — 16.3 MB straight out of Blender) is
+**gitignored** — it is not in the repo and won't be on Vercel. Serve it from any
+static host and point the app at it with one variable; the loader **and** the
+Content-Security-Policy both follow it (`next.config.mjs` whitelists the URL's
+origin in `connect-src` automatically — no manual CSP edit).
 
 1. Upload `mascot.glb` to a CDN / object store (Cloudflare R2, S3+CloudFront,
    Vercel Blob, Supabase Storage public bucket, or even a GitHub Release asset).
@@ -199,8 +200,38 @@ automatically — no manual CSP edit).
 > Alternative — **Git LFS**: `git lfs track "*.glb"`, remove the `.gitignore`
 > entry, commit, push to an LFS-enabled remote, then set
 > `NEXT_PUBLIC_MASCOT_GLB_URL` to the LFS raw URL (or just serve `/mascot/…`
-> from `public/` if the LFS file lands there at build). CDN is preferred: it
-> keeps the 16 MB binary out of git history entirely and off the Vercel bundle.
+> from `public/` if the LFS file lands there at build). At the optimised 2.7 MB
+> the file is also small enough to simply commit (drop the `.gitignore` line and
+> leave `NEXT_PUBLIC_MASCOT_GLB_URL` unset) — a CDN still wins on cache headers
+> and on keeping binaries out of git history, but it is no longer forced.
+
+### Optimising the mascot GLB
+
+Blender exports the baseColor map as a 4096×4096 PNG: 13.9 MB of the 16.3 MB
+file, 89 MB of GPU memory, and 16.7 M pixels for the synchronous `retintSkin`
+pass in `engine/retint-skin.ts` to walk on the main thread. The mascot renders at
+~160×280 CSS px, so that resolution is unreachable on screen.
+
+```bash
+npm run optimize:mascot
+```
+
+Downscales every embedded texture to 1024 px and transcodes the colour maps to
+JPEG q90 with **4:4:4** chroma (no subsampling — `retintSkin` thresholds on
+per-pixel R/G/B differences, and 4:2:0 would smear exactly the signal its skin
+detection keys off). Geometry, skin, morph targets and all 16 animations are
+relocated byte-for-byte; only the image bufferViews change.
+
+- Result: **16.33 MB → 2.66 MB**, GPU texture memory 89.5 MB → 5.6 MB, GLTFLoader
+  parse ~1000 ms → ~150 ms, the retint pass ~590 ms → ~74 ms.
+- `--size 2048` keeps more detail (~2.8 MB); `--dry-run` reports without writing;
+  `--in`/`--out` work on a copy. Normal/occlusion/metallicRoughness maps and any
+  texture on a non-opaque material are resized but deliberately kept as PNG.
+- Needs one raster encoder — `sharp` (`npm i -D sharp`) or Python + Pillow
+  (`pip install Pillow`), whichever is present.
+- Re-upload to the CDN afterwards and bump the `?v=N` on
+  `NEXT_PUBLIC_MASCOT_GLB_URL`, or year-long `immutable` caching will keep
+  serving the old file to anyone who already visited.
 
 ### 2. Raise the OpenClaw gateway upload limit (nginx → 413 fix)
 

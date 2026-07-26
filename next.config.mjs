@@ -24,7 +24,7 @@
 // never bind. Add the dev-only allowance back so `npm run dev` works.
 const isDev = process.env.NODE_ENV !== "production";
 
-// The mascot GLB (16 MB, gitignored) is served from a CDN/LFS host in prod via
+// The mascot GLB (~2.7 MB, gitignored) is served from a CDN/LFS host in prod via
 // NEXT_PUBLIC_MASCOT_GLB_URL. When that's an absolute URL, GLTFLoader fetches it
 // (connect-src) so its origin must be whitelisted; a relative/same-origin path
 // is already covered by 'self'. Returns " https://cdn.example" or "".

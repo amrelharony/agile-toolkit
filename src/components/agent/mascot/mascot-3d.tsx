@@ -153,9 +153,10 @@ export default function Mascot3D({
   width = 160,
   height = 280,
   className,
-  // The 16 MB GLB is gitignored, so production serves it from a CDN/LFS host
-  // set via NEXT_PUBLIC_MASCOT_GLB_URL (its origin is whitelisted in the CSP
-  // connect-src by next.config.mjs). Falls back to the local dev copy.
+  // The GLB (~2.7 MB after `npm run optimize:mascot`) is gitignored, so
+  // production serves it from a CDN/LFS host set via NEXT_PUBLIC_MASCOT_GLB_URL
+  // (its origin is whitelisted in the CSP connect-src by next.config.mjs).
+  // Falls back to the local dev copy.
   src = process.env.NEXT_PUBLIC_MASCOT_GLB_URL || "/mascot/mascot.glb",
 }: Mascot3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -339,7 +340,7 @@ export default function Mascot3D({
       src,
       (gltf) => {
         if (disposed || !renderer) {
-          // Unmounted before the ~16MB GLB finished — dispose the parsed scene
+          // Unmounted before the GLB finished — dispose the parsed scene
           // so its geometries/textures don't leak (it was never added to ours).
           gltf.scene.traverse((o) => {
             const m = o as THREE.Mesh;
