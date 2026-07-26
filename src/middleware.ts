@@ -3,6 +3,76 @@ import { createServerClient } from "@supabase/ssr";
 import { isEmailAuthorized } from "@/lib/auth/authorize";
 
 /**
+ * How long the session check may take before we give up and treat the request
+ * as signed out.
+ *
+ * A healthy getUser() round-trip is tens of milliseconds; 3s is far outside
+ * normal and still leaves room under Vercel's middleware budget for the
+ * redirect itself. The value is a ceiling on user-visible latency for EVERY
+ * gated request when the auth backend is sick, so it should stay small.
+ */
+export const AUTH_TIMEOUT_MS = 3_000;
+
+/** Outcome of the session check. All non-`ok` outcomes fail closed. */
+type SessionProbe =
+  | { status: "ok"; user: { email?: string | null } }
+  | { status: "anonymous" }
+  | { status: "unreachable" };
+
+/**
+ * Just the slice of the Supabase client probeSession touches. Structural, so
+ * tests can hand it a two-line fake and so we don't inherit createServerClient's
+ * database generics (which erase to `any` when instantiated without a schema).
+ */
+type SessionVerifier = {
+  auth: {
+    getUser(): Promise<{
+      data: { user: { email?: string | null } | null };
+      error: { name?: string } | null;
+    }>;
+  };
+};
+
+/**
+ * Run getUser() under a hard deadline.
+ *
+ * Two independent guards, because they cover different failures:
+ *  - the `signal` on the client's fetch aborts the in-flight HTTP request, so
+ *    a slow-but-alive backend doesn't leak a socket for the rest of the
+ *    invocation;
+ *  - this race is the actual guarantee. It bounds the middleware even if the
+ *    call never reaches fetch at all — a hanging DNS lookup, an abort the
+ *    runtime declines to honour — which is exactly the shape of the outage
+ *    that motivated this.
+ */
+export async function probeSession(supabase: SessionVerifier): Promise<SessionProbe> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<SessionProbe>((resolve) => {
+    timer = setTimeout(() => resolve({ status: "unreachable" }), AUTH_TIMEOUT_MS);
+  });
+
+  const verify = supabase.auth
+    .getUser()
+    .then(({ data, error }): SessionProbe => {
+      if (!error && data.user) return { status: "ok", user: data.user };
+      // Best-effort split for the logs only: supabase-js raises
+      // AuthRetryableFetchError when the request itself failed (DNS, abort,
+      // 5xx) as opposed to "this cookie carries no valid session". Both fail
+      // closed to the same place, so a misclassification costs nothing.
+      return error?.name === "AuthRetryableFetchError"
+        ? { status: "unreachable" }
+        : { status: "anonymous" };
+    })
+    .catch((): SessionProbe => ({ status: "unreachable" }));
+
+  try {
+    return await Promise.race([verify, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Edge middleware — single-user auth gate.
  *
  * Every page route and API route runs through this. Allows only requests
@@ -11,6 +81,15 @@ import { isEmailAuthorized } from "@/lib/auth/authorize";
  * Fail-closed: if Supabase env vars or AUTHORIZED_EMAILS are unset, every
  * request is redirected to /not-authorized. That's the desired behaviour
  * — the toolkit should not boot in an unconfigured state.
+ *
+ * Fail-FAST too: the session check is the only outbound call this middleware
+ * makes, and it is bounded (see AUTH_TIMEOUT_MS). An unreachable auth backend
+ * must degrade to the sign-in page, never hang. When the Supabase project's
+ * DNS record disappeared in July 2026, the unbounded call meant every
+ * signed-in request sat until Vercel killed the invocation — a site-wide
+ * 504 MIDDLEWARE_INVOCATION_TIMEOUT — while signed-out visitors saw a
+ * perfectly healthy site, because with no session cookie supabase-js answers
+ * locally and never touches the network.
  *
  * Bypass list (see `config.matcher` at the bottom):
  *   /auth/*           — sign-in, callback, sign-out flows
@@ -89,6 +168,12 @@ export async function middleware(request: NextRequest) {
 
   const supabase = createServerClient(url, anon, {
     auth: { flowType: "pkce" },
+    // Abort the underlying request at the same deadline probeSession races
+    // against. Respects a caller-supplied signal if supabase-js ever sets one.
+    global: {
+      fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+        fetch(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(AUTH_TIMEOUT_MS) }),
+    },
     cookies: {
       get(name) {
         return request.cookies.get(name)?.value;
@@ -110,8 +195,8 @@ export async function middleware(request: NextRequest) {
   // getUser() verifies the JWT with Supabase rather than trusting the
   // cookie blindly. The extra round-trip is worth it: a forged cookie
   // would otherwise pass straight through to the app and only fail at
-  // the RLS layer.
-  const { data, error } = await supabase.auth.getUser();
+  // the RLS layer — and it is why this call must be bounded.
+  const probe = await probeSession(supabase);
 
   const buildResponse = (resp: NextResponse): NextResponse => {
     // Apply every cookie set during getUser() to whatever response the
@@ -125,11 +210,21 @@ export async function middleware(request: NextRequest) {
     return resp;
   };
 
-  if (error || !data.user) {
+  if (probe.status === "unreachable") {
+    // The one case worth a log line: the site looks "fine" to signed-out
+    // visitors while every signed-in request lands here, so without this the
+    // outage is invisible in the platform logs.
+    console.warn(
+      `[middleware] auth backend unreachable within ${AUTH_TIMEOUT_MS}ms — treating request as signed out`
+    );
+    return buildResponse(redirectTo(request, "/auth/sign-in", "auth_unreachable"));
+  }
+
+  if (probe.status === "anonymous") {
     return buildResponse(redirectTo(request, "/auth/sign-in", "unauthenticated"));
   }
 
-  if (!isEmailAuthorized(data.user.email)) {
+  if (!isEmailAuthorized(probe.user.email)) {
     // Privacy: do NOT log the rejected email. The denial event is enough.
     return buildResponse(redirectTo(request, "/not-authorized", "denied"));
   }
@@ -140,15 +235,17 @@ export async function middleware(request: NextRequest) {
 function redirectTo(
   request: NextRequest,
   destination: string,
-  reason: "config" | "unauthenticated" | "denied"
+  reason: "config" | "unauthenticated" | "denied" | "auth_unreachable"
 ): NextResponse {
   // Preserve the originally-requested URL as `?next=…` so the sign-in
   // page can bounce the user back after a successful auth. Skip for the
   // `denied` and `config` cases — those land users on a terminal page.
+  // `auth_unreachable` keeps it: the session may well still be valid, so
+  // once the backend recovers the retry should land where they were going.
   const url = request.nextUrl.clone();
   url.pathname = destination;
   url.search = "";
-  if (reason === "unauthenticated") {
+  if (reason === "unauthenticated" || reason === "auth_unreachable") {
     const original = request.nextUrl.pathname + request.nextUrl.search;
     if (safeRelativeUrl(original)) {
       url.searchParams.set("next", original);
