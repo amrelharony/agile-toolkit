@@ -119,7 +119,6 @@ export async function middleware(request: NextRequest) {
     pathname === "/api/agent/stream" ||
     isGuestPath
   ) {
-    const resp = NextResponse.next();
     // Dual-cookie disambiguation: when an authenticated owner navigates
     // into the /guest/* tree carrying both an `sb-*` Supabase session
     // AND a leftover `agile-toolkit:guest` cookie (e.g. they tested the
@@ -127,11 +126,18 @@ export async function middleware(request: NextRequest) {
     // on the way through. Otherwise `useCollaborativeSession` reads
     // guest-first and downgrades the owner into a guest identity,
     // attributing their edits to a squad_profile_id instead of user_id.
-    if (
-      isGuestPath &&
-      hasOwnerSessionCookie(request) &&
-      request.cookies.has("agile-toolkit:guest")
-    ) {
+    const stripGuestCookie =
+      isGuestPath && hasOwnerSessionCookie(request) && request.cookies.has("agile-toolkit:guest");
+    // The strip has to happen on the REQUEST as well, not just the response.
+    // Deleting it only on the response expires it in the browser but leaves
+    // the incoming cookie header intact, so the very render this fires on
+    // still resolves a guest session in `(guest)/layout.tsx` — the owner got
+    // a page mounted in guest mode whose writes then 401'd, because the
+    // browser had already dropped the cookie the client fetches needed.
+    // `NextResponse.next({ request })` forwards the mutated headers.
+    if (stripGuestCookie) request.cookies.delete("agile-toolkit:guest");
+    const resp = stripGuestCookie ? NextResponse.next({ request }) : NextResponse.next();
+    if (stripGuestCookie) {
       resp.cookies.set({
         name: "agile-toolkit:guest",
         value: "",
@@ -259,9 +265,16 @@ function redirectTo(
 // round-trip), just notice that one of the `sb-*-auth-token` cookies
 // exists. Used only to disambiguate the dual-cookie case on /guest/*
 // — verification on the owner-side path remains in the main flow.
+// `@supabase/ssr` splits any session over 3180 bytes into numbered chunks
+// named `sb-<ref>-auth-token.0`, `.1`, … and in that case the un-suffixed
+// cookie does not exist at all. A plain `endsWith("-auth-token")` therefore
+// missed every chunked session — which is the common case for Google OAuth,
+// where the `identities[].identity_data` payload pushes the cookie past the
+// chunk threshold — so the strip above never fired for those users.
+const AUTH_TOKEN_COOKIE = /-auth-token(\.\d+)?$/;
 function hasOwnerSessionCookie(request: NextRequest): boolean {
   for (const c of request.cookies.getAll()) {
-    if (c.name.startsWith("sb-") && c.name.endsWith("-auth-token")) return true;
+    if (c.name.startsWith("sb-") && AUTH_TOKEN_COOKIE.test(c.name)) return true;
   }
   return false;
 }

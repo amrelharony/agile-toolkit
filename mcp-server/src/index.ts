@@ -99,19 +99,26 @@ async function forward(request: JsonRpcRequest): Promise<JsonRpcResponse | null>
     if (response.status === 204) return null;
 
     if (!response.ok) {
-      // Try to parse a JSON-RPC error body; otherwise synthesise one.
       const text = await response.text().catch(() => "");
-      try {
-        const parsed = JSON.parse(text) as JsonRpcResponse;
-        if (parsed && parsed.jsonrpc === "2.0") return parsed;
-      } catch {
-        /* fall through */
-      }
+      // Notifications carry no `id`, so they must never produce stdout —
+      // this check has to come BEFORE the parse-and-return below. The route
+      // answers every non-2xx with a well-formed JSON-RPC envelope carrying
+      // `id: null` (401 on a revoked/expired PAT, 413, 429), so the parse
+      // branch always succeeded first and relayed that envelope: the client
+      // got an unsolicited response for an id it never issued, and the
+      // diagnostic naming the failing notification was never written.
       if (isNotification) {
         process.stderr.write(
           `[agile-toolkit-mcp] notification ${request.method} got HTTP ${response.status}; suppressing response\n`
         );
         return null;
+      }
+      // Try to parse a JSON-RPC error body; otherwise synthesise one.
+      try {
+        const parsed = JSON.parse(text) as JsonRpcResponse;
+        if (parsed && parsed.jsonrpc === "2.0") return parsed;
+      } catch {
+        /* fall through */
       }
       return rpcError(request.id ?? null, -32000, `HTTP ${response.status}: ${text.slice(0, 200)}`);
     }

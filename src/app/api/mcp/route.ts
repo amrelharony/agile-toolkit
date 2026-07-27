@@ -7,7 +7,12 @@ import {
 } from "@/lib/mcp/transport-http";
 import { verifyBearer } from "@/lib/mcp/pat";
 import { registry } from "@/lib/actions/registry";
-import { tryConsume, rateCategoryForAction, type RateCategory } from "@/lib/mcp/rate-limit";
+import {
+  tryConsume,
+  rateCategoryForAction,
+  capabilityCategoryForAction,
+  type RateCategory,
+} from "@/lib/mcp/rate-limit";
 import { buildCallLogRow, logMcpCalls } from "@/lib/mcp/call-log";
 import { readBoundedText, PayloadTooLargeError } from "@/lib/mcp/read-bounded";
 import { levelAllowsCategory, type AccessLevel } from "@/lib/mcp/capability";
@@ -45,7 +50,10 @@ function capabilityDenial(req: JsonRpcRequest, level: AccessLevel): RateCategory
   if (typeof name !== "string") return null;
   const action = registry.resolve(name);
   if (!action) return null;
-  const cat = rateCategoryForAction(action);
+  // Authorization asks "does this MUTATE?", not "what does this cost?" —
+  // so it keys off the action's declared category, not the `intent.*` id
+  // prefix that the rate-limit bucket uses.
+  const cat = capabilityCategoryForAction(action);
   return levelAllowsCategory(level, cat) ? null : cat;
 }
 

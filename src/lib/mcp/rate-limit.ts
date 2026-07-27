@@ -111,9 +111,11 @@ export function tryConsume(
   return { ok: true };
 }
 
-/** Map an action to its rate-limit category. Intents (`intent.*`) are the
- *  most expensive (each fans out to several writes); otherwise fall back to
- *  the action's read/write category. */
+/** Map an action to its rate-limit category — a COST question. Intents
+ *  (`intent.*`) are the most expensive (each fans out to several reads or
+ *  writes), so the id prefix deliberately wins here regardless of what the
+ *  action declares. Do NOT reuse this for authorization; see
+ *  `capabilityCategoryForAction`. */
 export function rateCategoryForAction(action: {
   id?: string;
   toolId?: string;
@@ -123,4 +125,29 @@ export function rateCategoryForAction(action: {
     return "intent";
   }
   return action.category === "write" ? "write" : "read";
+}
+
+/** Map an action to the category its PAT access level is checked against — a
+ *  MUTATION question, which is not the same question as cost.
+ *
+ *  These were the same function, and the `intent.*` prefix winning meant
+ *  `intent.summarize_workspace` — which declares `category: "read"` because
+ *  it only reads — was treated as an intent for authorization too. A
+ *  read-only PAT, whose entire purpose is "read everything, mutate nothing",
+ *  was therefore denied the one intent that mutates nothing, with
+ *  "This token is read-only and cannot invoke intent actions."
+ *
+ *  Capability keys off the action's OWN declared category; the prefix stays
+ *  as a conservative fallback for actions that declare nothing. The other
+ *  four intents declare `category: "intent"` explicitly, so they are
+ *  unaffected and still require a `full` token. */
+export function capabilityCategoryForAction(action: {
+  id?: string;
+  toolId?: string;
+  category?: string;
+}): RateCategory {
+  if (action.category === "read" || action.category === "write" || action.category === "intent") {
+    return action.category;
+  }
+  return rateCategoryForAction(action);
 }
