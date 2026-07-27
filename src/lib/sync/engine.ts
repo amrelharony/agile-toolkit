@@ -91,6 +91,10 @@ class SyncEngine {
   private state: EngineState = { kind: "idle" };
   private adapters = new Map<string, SyncAdapter>();
   private pushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Last user this engine ran for; survives `stop()` so `start()` can tell a
+   *  same-user restart (token refresh, sign-out/in) from a real user switch
+   *  and only wipe per-adapter LWW state for the latter. See BUG-S25. */
+  private lastUserId: string | null = null;
   private pulling = false;
   /** Set while a `start()` call is awaiting the initial `pullAll()`.
    *  Subsequent `register()` calls during this window mark adapters as
@@ -134,6 +138,20 @@ class SyncEngine {
   async start(supabase: SupabaseClient, userId: string): Promise<void> {
     if (this.state.kind === "running" && this.state.userId === userId) return;
     if (this.state.kind === "running") this.stop();
+    // BUG-S25: reset per-adapter LWW/diff state HERE, and only on an actual
+    // user CHANGE — not unconditionally in `stop()`. BUG-S13's rationale
+    // (don't carry the previous user's lastPushed timestamps into the next
+    // user's session) only ever applied to a user switch, but `stop()` also
+    // runs on sign-out and on every auth-state change including the roughly
+    // hourly TOKEN_REFRESHED. Wiping `dirty`/`pendingDeletes` there threw
+    // away any edit still inside its 1s push debounce: the next `start()`
+    // saw a clean adapter, pulled the older cloud row over it, and the edit
+    // was gone locally too. A deleted entity's tombstone was lost the same
+    // way, resurrecting it on every device.
+    if (this.lastUserId !== null && this.lastUserId !== userId) {
+      this.adapters.forEach((a) => a.resetSyncState?.());
+    }
+    this.lastUserId = userId;
     this.state = { kind: "running", supabase, userId, channel: null };
     this.starting = true;
     // Mark every currently-registered adapter as awaiting initial pull —
@@ -180,7 +198,7 @@ class SyncEngine {
 
   stop(): void {
     if (this.state.kind === "idle") return;
-    const { supabase, channel } = this.state;
+    const { supabase, channel, userId } = this.state;
     if (channel) void supabase.removeChannel(channel);
     // BUG-S3 (broader cleanup): also drop any leaked user-sync channels
     // under a DIFFERENT user-id from a previous session that hasn't
@@ -190,17 +208,25 @@ class SyncEngine {
         void supabase.removeChannel(ch);
       }
     }
+    // Best-effort flush of anything still inside its push debounce, using
+    // the credentials we're about to drop. Fire-and-forget: `push` takes
+    // supabase/userId directly, so it doesn't depend on engine state, and
+    // the dirty flags survive below if it doesn't land in time.
+    this.adapters.forEach((a) => {
+      if (a.hasPendingWrites()) {
+        void a.push(supabase, userId).catch(() => {
+          /* keep the dirty flag; the next start() re-flushes */
+        });
+      }
+    });
     this.pushTimers.forEach((t) => clearTimeout(t));
     this.pushTimers.clear();
     this.awaitingInitialPull.clear();
     this.starting = false;
     this.detachWakeHandlers();
-    // BUG-S13: wipe per-adapter LWW/diff state. The adapter singletons
-    // outlive the engine session; carrying the previous user's lastPushed
-    // timestamps suppresses the next user's initial pull, and their stale
-    // lastPushed ids would be tombstoned into the next user's rows by the
-    // push-time delete detection.
-    this.adapters.forEach((a) => a.resetSyncState?.());
+    // NOTE: `resetSyncState()` deliberately does NOT run here — see BUG-S25
+    // in `start()`, which runs it only when the user actually changes so a
+    // same-user stop/start can't discard an in-debounce edit.
     // BUG-S5: reset the per-tab client id so the next sign-in (potentially
     // a different user) starts with a fresh echo-suppression identity.
     resetClientId();

@@ -129,43 +129,46 @@ export function useCloudPersisted<T>(key: string, initial: T): [T, Dispatch<SetS
     subs.add(sub);
 
     // Hydrate from localStorage.
+    //
+    // BUG-S24: every hydration branch MUST arm `remoteAppliedRef` before
+    // `setState`. Hydration is not a user edit, but the write effect below
+    // can't tell the difference — it saw `state !== NO_REMOTE`, fell through,
+    // and called `markDirty()`. Merely MOUNTING a component therefore set
+    // `dirty` on its blob adapter, and `BlobAdapter.pull()` early-returns
+    // when dirty. So on every cold page load the initial pull was skipped and
+    // `start()`'s tail flush pushed the LOCAL value over the cloud row:
+    // device B's edit was destroyed by device A simply reloading, and a
+    // fresh device with no localStorage pushed `initial` (e.g. `[]`) over the
+    // real data. `lastPushedUpdatedAt` then matched our own push, so later
+    // pulls short-circuited and the value never came back. This is the same
+    // hazard BUG-S18 documents for the remote-apply path — that fix armed
+    // the sentinel there but left the hydration path exposed.
+    const hydrate = (value: T) => {
+      if (cancelled) return;
+      remoteAppliedRef.current = value;
+      setState(value);
+      snapshots.set(key, value);
+      setHydratedKey(key);
+    };
     try {
       const raw = localStorage.getItem(key);
       if (raw !== null) {
         if (raw.length > 5 * 1024 * 1024) {
           localStorage.removeItem(key);
-          if (!cancelled) {
-            setState(initialRef.current);
-            snapshots.set(key, initialRef.current);
-            setHydratedKey(key);
-          }
+          hydrate(initialRef.current);
         } else {
           const parsed = JSON.parse(raw) as T | null;
           if (parsed === null && initialRef.current !== null) {
-            if (!cancelled) {
-              setState(initialRef.current);
-              snapshots.set(key, initialRef.current);
-              setHydratedKey(key);
-            }
-          } else if (!cancelled) {
-            setState(parsed as T);
-            snapshots.set(key, parsed);
-            setHydratedKey(key);
+            hydrate(initialRef.current);
+          } else {
+            hydrate(parsed as T);
           }
         }
       } else {
-        if (!cancelled) {
-          setState(initialRef.current);
-          snapshots.set(key, initialRef.current);
-          setHydratedKey(key);
-        }
+        hydrate(initialRef.current);
       }
     } catch {
-      if (!cancelled) {
-        setState(initialRef.current);
-        snapshots.set(key, initialRef.current);
-        setHydratedKey(key);
-      }
+      hydrate(initialRef.current);
     }
 
     // Register the sync adapter once per key. The setSnapshot path stores
