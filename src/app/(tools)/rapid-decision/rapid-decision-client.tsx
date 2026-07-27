@@ -46,9 +46,15 @@ export function RapidDecisionClient() {
   // inputs (agree/perform/input). The previous per-keystroke split-and-
   // filter pattern made it impossible to type names that include commas
   // or to add a second entry without trickery.
-  const [agreeDraft, setAgreeDraft] = useState("");
-  const [performDraft, setPerformDraft] = useState("");
-  const [inputDraft, setInputDraft] = useState("");
+  //
+  // `null` means "no raw buffer — display the committed array"; it is NOT the
+  // same as `""`, which means "the user has deliberately emptied the field".
+  // With a plain `""` sentinel the field could never be cleared: `"" || "Alice,
+  // Bob"` falls through to the committed join, so the deleted names reappeared
+  // the moment the buffer went empty.
+  const [agreeDraft, setAgreeDraft] = useState<string | null>(null);
+  const [performDraft, setPerformDraft] = useState<string | null>(null);
+  const [inputDraft, setInputDraft] = useState<string | null>(null);
   const splitList = (raw: string): string[] =>
     raw
       .split(",")
@@ -58,9 +64,12 @@ export function RapidDecisionClient() {
   function add() {
     if (!draft.title.trim()) return;
     // Apply any in-progress list drafts so trailing characters still land.
-    const agree = agreeDraft.trim() ? splitList(agreeDraft) : (draft.agree ?? []);
-    const perform = performDraft.trim() ? splitList(performDraft) : (draft.perform ?? []);
-    const input = inputDraft.trim() ? splitList(inputDraft) : (draft.input ?? []);
+    // Gate on `!== null`, not on truthiness: an empty buffer is a real edit
+    // ("I cleared this"), and falling back to the committed array there
+    // re-added the very names the user had just deleted.
+    const agree = agreeDraft !== null ? splitList(agreeDraft) : (draft.agree ?? []);
+    const perform = performDraft !== null ? splitList(performDraft) : (draft.perform ?? []);
+    const input = inputDraft !== null ? splitList(inputDraft) : (draft.input ?? []);
     const item: RAPIDDecision = {
       id: crypto.randomUUID(),
       date: new Date().toISOString(),
@@ -84,9 +93,9 @@ export function RapidDecisionClient() {
       decide: "",
       status: "open",
     });
-    setAgreeDraft("");
-    setPerformDraft("");
-    setInputDraft("");
+    setAgreeDraft(null);
+    setPerformDraft(null);
+    setInputDraft(null);
   }
 
   function decide(d: RAPIDDecision) {
@@ -188,30 +197,35 @@ export function RapidDecisionClient() {
             />
             <Input
               placeholder="Agree (A) — must agree, comma-sep"
-              value={agreeDraft || (draft.agree ?? []).join(", ")}
+              value={agreeDraft ?? (draft.agree ?? []).join(", ")}
               onChange={(e) => setAgreeDraft(e.target.value)}
               onBlur={() => {
+                // Nothing typed since the last commit — leave the committed
+                // array alone rather than re-splitting a stale buffer.
+                if (agreeDraft === null) return;
                 setDraft({ ...draft, agree: splitList(agreeDraft) });
-                setAgreeDraft("");
+                setAgreeDraft(null);
               }}
             />
             <Input
               placeholder="Perform (P) — execute, comma-sep"
-              value={performDraft || (draft.perform ?? []).join(", ")}
+              value={performDraft ?? (draft.perform ?? []).join(", ")}
               onChange={(e) => setPerformDraft(e.target.value)}
               onBlur={() => {
+                if (performDraft === null) return;
                 setDraft({ ...draft, perform: splitList(performDraft) });
-                setPerformDraft("");
+                setPerformDraft(null);
               }}
             />
             <Input
               className="sm:col-span-2"
               placeholder="Input (I) — give input, comma-sep"
-              value={inputDraft || (draft.input ?? []).join(", ")}
+              value={inputDraft ?? (draft.input ?? []).join(", ")}
               onChange={(e) => setInputDraft(e.target.value)}
               onBlur={() => {
+                if (inputDraft === null) return;
                 setDraft({ ...draft, input: splitList(inputDraft) });
-                setInputDraft("");
+                setInputDraft(null);
               }}
             />
           </div>

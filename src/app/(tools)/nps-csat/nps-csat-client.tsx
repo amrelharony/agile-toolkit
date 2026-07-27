@@ -314,7 +314,19 @@ export function NpsCsatClient() {
           <div className="grid grid-cols-1 md:grid-cols-[minmax(100px,1fr)_minmax(120px,1fr)_minmax(100px,1fr)_2fr_auto] gap-2">
             <Select
               value={draft.kind}
-              onValueChange={(v) => setDraft((d) => ({ ...d, kind: v as Kind }))}
+              // Re-clamp on kind change: clamping otherwise only happens in
+              // `commitScore` (score input blur/Enter). Switching to CSAT and
+              // hitting Add without ever focusing the score field would save
+              // the NPS default of 8 as a CSAT score, rendering "8.0" under a
+              // "(1-5)" hint. The [draft.score] effect resyncs `scoreDraft`.
+              onValueChange={(v) =>
+                setDraft((d) => {
+                  const kind = v as Kind;
+                  const min = kind === "nps" ? 0 : 1;
+                  const max = kind === "nps" ? 10 : 5;
+                  return { ...d, kind, score: Math.max(min, Math.min(max, d.score)) };
+                })
+              }
             >
               <SelectTrigger className="bg-bg border-border">
                 <SelectValue />

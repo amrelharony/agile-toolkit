@@ -8,6 +8,7 @@ import { ActionRow } from "@/components/shared/action-row";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { EmptyState } from "@/components/shared/empty-state";
+import { BlurTextarea } from "@/components/shared/blur-fields";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -641,9 +642,15 @@ export function RfcTrackerClient() {
                   {r.status === "decided" && (
                     <div>
                       <Label className="text-xs text-sub mb-1">Decision</Label>
-                      <Textarea
+                      {/* Commit on blur, not per keystroke: `setDecision` trims,
+                          so a keystroke that only adds whitespace produced an
+                          identical state object, React bailed out of the
+                          re-render, and its controlled-input restore wrote the
+                          old value back — every space typed was swallowed
+                          ("We will use SSE" became "WewilluseSSE"). */}
+                      <BlurTextarea
                         value={r.decision ?? ""}
-                        onChange={(e) => setDecision(r.id, e.target.value)}
+                        onCommit={(next) => setDecision(r.id, next)}
                         placeholder="What was decided and why..."
                         rows={3}
                         className="bg-bg border-border text-sm min-h-[80px]"

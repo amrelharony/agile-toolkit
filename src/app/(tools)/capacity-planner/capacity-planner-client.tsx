@@ -217,7 +217,12 @@ function ConfigField({
 
   const commit = () => {
     const n = Number(draft);
-    if (!Number.isFinite(n)) {
+    // `Number("")` is 0, not NaN, so an emptied field slips past the
+    // isFinite guard and commits 0 — zeroing the focus factor (and with it
+    // every member's effective hours and Total Capacity) straight into the
+    // synced workspace. Treat blank as invalid, like the burndown/burnup
+    // drafts do.
+    if (draft.trim() === "" || !Number.isFinite(n)) {
       // Invalid input — revert the draft to the live value rather than zeroing
       // a critical multiplier.
       setDraft(String(value));

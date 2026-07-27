@@ -13,9 +13,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RACI_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { BlurInput } from "@/components/shared/blur-fields";
-import { Textarea } from "@/components/ui/textarea";
+import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import { SectionCard } from "@/components/shared/section-card";
 import {
   Select,
@@ -657,10 +655,14 @@ export function RACIClient() {
                     )}
                   </div>
                   {/* Optional description for this activity. Empty trims to
-                        undefined in the store updater. */}
-                  <Textarea
+                        undefined in the store updater — which is exactly why
+                        this commits on blur like the desktop cell does: a
+                        per-keystroke onChange fed the trimmed value straight
+                        back, React skipped the re-render and restored the old
+                        DOM value, so spaces could never be typed here. */}
+                  <BlurTextarea
                     value={activity.description ?? ""}
-                    onChange={(e) => updateActivityDescription(activity.id, e.target.value)}
+                    onCommit={(v) => updateActivityDescription(activity.id, v)}
                     placeholder="Description (optional)..."
                     rows={2}
                     className="bg-surface border-border resize-none text-xs"
@@ -722,10 +724,14 @@ export function RACIClient() {
                         </button>
                       </div>
                       {/* Compact single-line description input — keeps the
-                            roles list dense; empty trims to undefined. */}
-                      <Input
+                            roles list dense; empty trims to undefined. Commits
+                            on blur (as the desktop header does) because the
+                            store trims: an unchanged trimmed value made React
+                            bail out and restore the previous DOM text, eating
+                            every space the user typed. */}
+                      <BlurInput
                         value={role.description ?? ""}
-                        onChange={(e) => updateRoleDescription(role.id, e.target.value)}
+                        onCommit={(v) => updateRoleDescription(role.id, v)}
                         placeholder="Description (optional)..."
                         className="h-7 text-xs bg-surface border-border"
                         aria-label={`Description for role ${role.name}`}

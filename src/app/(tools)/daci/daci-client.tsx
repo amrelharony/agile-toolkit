@@ -49,9 +49,16 @@ export function DaciClient() {
   // (the old onChange immediately stripped trailing commas/whitespace,
   // making the inputs effectively unusable). Commit to the structured
   // array shape only on blur or just-before-add.
-  const [contribDraft, setContribDraft] = useState("");
-  const [informedDraft, setInformedDraft] = useState("");
-  const [optionsDraft, setOptionsDraft] = useState("");
+  //
+  // `null` means "no raw buffer — display the committed array"; it is NOT the
+  // same as `""`, which means "the user has deliberately emptied the field".
+  // With a plain `""` sentinel the field could never be cleared: onChange set
+  // the buffer to `""`, the state was already `""` so React bailed out of the
+  // re-render, and React's controlled-input restore wrote the old joined value
+  // straight back into the DOM node.
+  const [contribDraft, setContribDraft] = useState<string | null>(null);
+  const [informedDraft, setInformedDraft] = useState<string | null>(null);
+  const [optionsDraft, setOptionsDraft] = useState<string | null>(null);
   // splitList: trim + drop empty entries from a separator-delimited string.
   const splitList = (raw: string, sep: string | RegExp): string[] =>
     raw
@@ -62,12 +69,15 @@ export function DaciClient() {
   function add() {
     if (!draft.title.trim()) return;
     // Apply any in-progress list drafts so trailing characters the user
-    // hasn't blurred yet still make it into the record.
-    const contributors = contribDraft.trim()
-      ? splitList(contribDraft, ",")
-      : (draft.contributors ?? []);
-    const informed = informedDraft.trim() ? splitList(informedDraft, ",") : (draft.informed ?? []);
-    const options = optionsDraft.trim() ? splitList(optionsDraft, /\n/) : (draft.options ?? []);
+    // hasn't blurred yet still make it into the record. Gate on `!== null`,
+    // not on truthiness: an empty buffer is a real edit ("I cleared this"),
+    // and falling back to the committed array there re-added the very names
+    // the user had just deleted.
+    const contributors =
+      contribDraft !== null ? splitList(contribDraft, ",") : (draft.contributors ?? []);
+    const informed =
+      informedDraft !== null ? splitList(informedDraft, ",") : (draft.informed ?? []);
+    const options = optionsDraft !== null ? splitList(optionsDraft, /\n/) : (draft.options ?? []);
     const item: DACIDecision = {
       id: crypto.randomUUID(),
       date: new Date().toISOString(),
@@ -90,9 +100,9 @@ export function DaciClient() {
       recommendation: "",
       status: "open",
     });
-    setContribDraft("");
-    setInformedDraft("");
-    setOptionsDraft("");
+    setContribDraft(null);
+    setInformedDraft(null);
+    setOptionsDraft(null);
   }
 
   function decide(d: DACIDecision) {
@@ -215,30 +225,33 @@ export function DaciClient() {
             />
             <Input
               placeholder="Contributors (comma-separated)"
-              value={contribDraft || (draft.contributors ?? []).join(", ")}
+              value={contribDraft ?? (draft.contributors ?? []).join(", ")}
               onChange={(e) => setContribDraft(e.target.value)}
               onBlur={() => {
+                if (contribDraft === null) return;
                 setDraft({ ...draft, contributors: splitList(contribDraft, ",") });
-                setContribDraft("");
+                setContribDraft(null);
               }}
             />
             <Input
               placeholder="Informed (comma-separated)"
-              value={informedDraft || (draft.informed ?? []).join(", ")}
+              value={informedDraft ?? (draft.informed ?? []).join(", ")}
               onChange={(e) => setInformedDraft(e.target.value)}
               onBlur={() => {
+                if (informedDraft === null) return;
                 setDraft({ ...draft, informed: splitList(informedDraft, ",") });
-                setInformedDraft("");
+                setInformedDraft(null);
               }}
             />
           </div>
           <Textarea
             placeholder="Options considered (one per line)"
-            value={optionsDraft || (draft.options ?? []).join("\n")}
+            value={optionsDraft ?? (draft.options ?? []).join("\n")}
             onChange={(e) => setOptionsDraft(e.target.value)}
             onBlur={() => {
+              if (optionsDraft === null) return;
               setDraft({ ...draft, options: splitList(optionsDraft, /\n/) });
-              setOptionsDraft("");
+              setOptionsDraft(null);
             }}
             className="mt-2"
             rows={3}

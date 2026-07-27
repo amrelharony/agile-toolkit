@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { BlurTextarea } from "@/components/shared/blur-fields";
+import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, Layers, Settings2, AlertTriangle } from "lucide-react";
@@ -404,9 +404,15 @@ export function CFDClient() {
                       className="w-3 h-3 rounded-full flex-shrink-0"
                       style={{ background: col.color }}
                     />
-                    <Input
+                    {/* Commit on blur, like the description field below.
+                        `renameColumn` trims and rejects empty/duplicate names,
+                        so the committed name often equals the current one —
+                        React then bails out of the re-render and restores the
+                        old text into the DOM node, making a trailing space (or
+                        any in-progress edit) impossible to type. */}
+                    <BlurInput
                       value={col.name}
-                      onChange={(e) => renameColumn(col.id, e.target.value)}
+                      onCommit={(v) => renameColumn(col.id, v)}
                       className="h-7 w-32 bg-transparent border-none p-0 text-sm text-text focus:ring-0 focus:outline-none"
                     />
                     {columns.length > 2 && (
