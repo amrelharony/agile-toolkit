@@ -669,7 +669,8 @@ interface ModeProbe {
 /**
  * Probe the server route to learn which transport to use AND which
  * model the server is configured for (so the client doesn't have to
- * second-guess). Cached for the session.
+ * second-guess). Cached for the session — on SUCCESS only, so a single
+ * failed probe can't permanently force BYOK.
  */
 let cachedProbe: ModeProbe | null = null;
 async function detectMode(): Promise<ModeProbe> {
@@ -682,13 +683,16 @@ async function detectMode(): Promise<ModeProbe> {
         mode: json.mode === "server" ? "server" : "client",
         serverModel: typeof json.model === "string" ? json.model : null,
       };
-    } else {
-      cachedProbe = { mode: "client", serverModel: null };
+      return cachedProbe;
     }
   } catch {
-    cachedProbe = { mode: "client", serverModel: null };
+    /* fall through to the un-memoised client fallback below */
   }
-  return cachedProbe;
+  // Only a SUCCESSFUL probe is memoised. Caching the failure path pinned the
+  // whole page session to BYOK after one cold-start 502 / transient offline /
+  // expired session, throwing "No GLM key available…" on every send until a
+  // reload. `use-agent-backend.ts` caches on success only for the same reason.
+  return { mode: "client", serverModel: null };
 }
 
 function pickModel(mode: AgentMode, serverModel: string | null): string {

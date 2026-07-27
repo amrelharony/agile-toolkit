@@ -1,12 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -78,12 +73,17 @@ function summarisePayload(payload: Record<string, unknown> | unknown): string {
   const entries = Object.entries(payload as Record<string, unknown>).slice(0, 2);
   return entries
     .map(([k, v]) => {
+      // `JSON.stringify(undefined)` returns `undefined`, not a string —
+      // reading `.length` off it throws TypeError DURING RENDER and takes
+      // out the whole drawer. Payloads legitimately carry `undefined`
+      // values (a blank optional field logs `{owner: undefined}`), so
+      // coerce whatever stringify hands back.
       const str =
         typeof v === "string"
           ? v
           : typeof v === "number" || typeof v === "boolean"
-          ? String(v)
-          : JSON.stringify(v);
+            ? String(v)
+            : String(JSON.stringify(v) ?? v);
       const trimmed = str.length > 30 ? `${str.slice(0, 30)}…` : str;
       return `${k}: ${trimmed}`;
     })
@@ -145,9 +145,7 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
     if (typeof event.undoIndex === "number") {
       stepsBack = currentPast - event.undoIndex;
     } else {
-      const idx = events.findIndex(
-        (e) => e.clientEventId === event.clientEventId
-      );
+      const idx = events.findIndex((e) => e.clientEventId === event.clientEventId);
       if (idx < 0) return;
       stepsBack = idx;
     }
@@ -161,9 +159,7 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
       undone += 1;
     }
     if (undone > 0) {
-      toast.success(
-        `Restored — stepped back ${undone} action${undone === 1 ? "" : "s"}.`
-      );
+      toast.success(`Restored — stepped back ${undone} action${undone === 1 ? "" : "s"}.`);
       onClose();
     } else {
       toast.error("Nothing to restore (undo stack empty).");
@@ -187,14 +183,9 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
       <ScrollArea className="flex-1">
         {events.length === 0 ? (
           <div className="p-8 text-center text-sub text-sm">
-            <Sparkles
-              className="w-8 h-8 mx-auto mb-3 text-accent/40"
-              aria-hidden="true"
-            />
+            <Sparkles className="w-8 h-8 mx-auto mb-3 text-accent/40" aria-hidden="true" />
             <p>Your actions will be tracked here.</p>
-            <p className="text-xs mt-1">
-              Sign in for cross-device history and AI insights.
-            </p>
+            <p className="text-xs mt-1">Sign in for cross-device history and AI insights.</p>
           </div>
         ) : (
           <div className="divide-y divide-border">
@@ -204,15 +195,12 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
                   {dayLabel(dayEvents[0].occurredAt)}
                 </div>
                 {dayEvents.map((event) => {
-                  const isSelected =
-                    selected?.clientEventId === event.clientEventId;
+                  const isSelected = selected?.clientEventId === event.clientEventId;
                   return (
                     <button
                       key={event.clientEventId}
                       type="button"
-                      onClick={() =>
-                        setSelected(isSelected ? null : event)
-                      }
+                      onClick={() => setSelected(isSelected ? null : event)}
                       className={cn(
                         "w-full text-left px-4 py-2.5 hover:bg-accent/5 transition",
                         isSelected && "bg-accent/5"
@@ -224,10 +212,7 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
                             {formatActionLabel(event.action)}
                           </span>
                           {event.isMilestone && (
-                            <Badge
-                              variant="outline"
-                              className="text-[9px] px-1 py-0 h-4"
-                            >
+                            <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">
                               milestone
                             </Badge>
                           )}
@@ -257,10 +242,7 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
                               disabled={!timeTravel.canUndo}
                               className="w-full gap-1.5 text-xs"
                             >
-                              <RotateCcw
-                                className="w-3 h-3"
-                                aria-hidden="true"
-                              />
+                              <RotateCcw className="w-3 h-3" aria-hidden="true" />
                               Restore to here
                             </Button>
                           )}

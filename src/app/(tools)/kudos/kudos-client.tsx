@@ -24,6 +24,7 @@ import {
   type FairnessResult,
 } from "@/lib/kudos/llm";
 import { dispatch as dispatchGamification } from "@/lib/gamification/engine";
+import { useKudosSettingsStore } from "@/lib/stores/kudos-settings-store";
 import type { Kudos, Workspace } from "@/lib/stores/workspace-types";
 import { KudosForm, type RecipientOption } from "./components/kudos-form";
 import { KudosWall } from "./components/kudos-wall";
@@ -209,7 +210,16 @@ export function KudosClient() {
   const [fairness, setFairness] = useState<FairnessResult | null>(null);
   const recentKudos = room.kudos;
   const events = useHistoryStore((s) => s.events);
+  // Phase 5 — device-local "Fairness suggestions" toggle. Subscribed
+  // (not read via getState) because flipping it must re-run this effect.
+  const aiFairness = useKudosSettingsStore((s) => s.aiFairness);
   useEffect(() => {
+    // Feature off → no redacted recognition history leaves the device,
+    // and any hint already on screen is dropped.
+    if (!aiFairness) {
+      setFairness(null);
+      return;
+    }
     if (squadProfiles.length === 0) return;
     const controller = new AbortController();
     const now = Date.now();
@@ -266,7 +276,7 @@ export function KudosClient() {
     return () => {
       controller.abort();
     };
-  }, [squadProfiles, recentKudos, events]);
+  }, [squadProfiles, recentKudos, events, aiFairness]);
 
   // Prime the LLM-based recipient suggestion. Populates the cache the
   // predictor reads from — once it lands `usePredictedDefault` returns
@@ -395,9 +405,16 @@ export function KudosClient() {
         k.toProfileId === kudos.toProfileId &&
         k.fromProfileId === kudos.fromProfileId
     );
+    // Phase 5 — honour the device-local AI toggles. Read via getState so
+    // the handler isn't re-created on every settings change; a disabled
+    // feature resolves to `null`, which is the same value both helpers
+    // return when there's no BYOK key, so everything downstream already
+    // copes. Without this gate the message body was shipped to the
+    // user's LLM provider even with the switches off.
+    const { aiSentiment, aiDedup } = useKudosSettingsStore.getState();
     const [sentiment, dup] = await Promise.all([
-      analyseSentiment({ message: kudos.message, theme: kudos.theme }),
-      detectDuplicate({ candidate: kudos, recent: recentForPair }),
+      aiSentiment ? analyseSentiment({ message: kudos.message, theme: kudos.theme }) : null,
+      aiDedup ? detectDuplicate({ candidate: kudos, recent: recentForPair }) : null,
     ]);
     const stamped: Kudos = { ...kudos };
     if (sentiment) stamped.sentiment = sentiment;
@@ -434,6 +451,8 @@ export function KudosClient() {
   };
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Subscribed: this one gates render, so it must re-render on change.
+  const beaconAmbient = useKudosSettingsStore((s) => s.beaconAmbient);
   const { addReaction } = useKudosReactions();
 
   // Reply path piggybacks on the same realtime room — a reply is just
@@ -528,7 +547,10 @@ export function KudosClient() {
       </div>
 
       <KudosSettings open={settingsOpen} onOpenChange={setSettingsOpen} />
-      <KudosBeacon />
+      {/* Ambient beacon — the settings dialog's "Ambient beacon" switch
+          is the only thing that hides it; before this it rendered
+          unconditionally and the toggle did nothing. */}
+      {beaconAmbient && <KudosBeacon />}
     </ToolPageWrapper>
   );
 }

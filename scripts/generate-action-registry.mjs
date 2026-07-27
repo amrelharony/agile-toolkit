@@ -69,8 +69,15 @@ function toImportPath(abs) {
 }
 
 function shouldSkip(absPath) {
-  const norm = absPath.replaceAll("\\", "/");
-  return SKIP_PATTERNS.some((re) => re.test(norm));
+  // Match against the path RELATIVE to ACTIONS_DIR, never the absolute one.
+  // `/\/_/` tested against an absolute path matches any checkout living
+  // under a directory that starts with an underscore (Azure Pipelines'
+  // default `C:\agent\_work\…`), which skipped EVERY module and emitted a
+  // registry with zero imports — build green, agent toolless, MCP
+  // `tools/list` empty. Leading "/" so the pattern can still anchor on the
+  // first segment.
+  const rel = relative(ACTIONS_DIR, absPath).replaceAll("\\", "/");
+  return SKIP_PATTERNS.some((re) => re.test(`/${rel}`));
 }
 
 const collected = [];
@@ -87,6 +94,19 @@ for (const dirName of SCAN_DIRS) {
   }
   files.sort(); // deterministic order
   for (const f of files) collected.push(f);
+}
+
+// Fail loudly rather than writing an empty manifest. A zero-module registry
+// still type-checks and builds clean — the breakage only surfaces at runtime
+// as an agent with no tools and an empty MCP `tools/list`. Anything that can
+// empty the scan (a bad skip pattern, a moved ACTIONS_DIR, an incomplete
+// checkout) must break the build here instead.
+if (collected.length === 0) {
+  console.error(
+    `[generate-action-registry] FATAL: collected 0 action modules from ${relative(ROOT, ACTIONS_DIR)} ` +
+      `(scanned: ${SCAN_DIRS.join(", ")}). Refusing to write an empty registry.`
+  );
+  process.exit(1);
 }
 
 const imports = collected.map((f) => `import "${toImportPath(f)}";`).join("\n");

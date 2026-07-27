@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { WhiteboardTable, WhiteboardObject } from "@/lib/stores/workspace-types";
+import { useCanvasStore } from "../../use-canvas-store";
 
 /**
  * Renderer for the WhiteboardTable object.
@@ -152,6 +153,8 @@ export function TableObject({
     startX: number;
     startFractions: number[];
     width: number;
+    /** Camera zoom captured at drag start — see `onResizePointerMove`. */
+    zoom: number;
   } | null>(null);
 
   const onResizePointerDown = (colIdx: number, e: React.PointerEvent) => {
@@ -159,18 +162,28 @@ export function TableObject({
     e.stopPropagation();
     e.preventDefault();
     (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+    // Snapshot the zoom alongside startX/startFractions so the whole
+    // gesture is measured against one consistent frame of reference.
+    const z = useCanvasStore.getState().camera.zoom;
     resizeRef.current = {
       colIdx,
       startX: e.clientX,
       startFractions: [...fractions],
       width: object.w,
+      zoom: z > 0 && Number.isFinite(z) ? z : 1,
     };
   };
   const onResizePointerMove = (e: React.PointerEvent) => {
     const r = resizeRef.current;
     if (!r) return;
     const dxPx = e.clientX - r.startX;
-    const dxFrac = dxPx / Math.max(1, r.width);
+    // `dxPx` is a SCREEN delta but `r.width` is `object.w` in WORLD
+    // units, and canvas-world-layer applies `scale(camera.zoom)` — the
+    // table is `object.w * zoom` px wide on screen. Dividing by the raw
+    // world width made the divider lag the cursor at zoom < 1 and
+    // overshoot into the 5% clamp at zoom > 1; only zoom 1 was correct.
+    const widthPx = Math.max(1, r.width * r.zoom);
+    const dxFrac = dxPx / widthPx;
     // Move width between colIdx and colIdx+1 so total stays at 1.
     // Both sides are clamped to a 5% minimum; whichever side hit the
     // floor first determines the snap, so we compute the constrained

@@ -28,7 +28,10 @@ function downloadText(filename: string, text: string): void {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // Defer the revoke — revoking synchronously after click() races the
+  // download in Firefox/Safari and can cancel it outright. Matches the
+  // other download sites (retro/components/board.tsx, whiteboard/export.ts).
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function relativeTime(iso: string): string {

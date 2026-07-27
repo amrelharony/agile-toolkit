@@ -133,6 +133,20 @@ export function TemplateGallery({ boardId, onClose }: Props) {
       const remap: Record<string, string> = {};
       const freshId = () => wbId("wb");
       for (const o of saved.objects) remap[o.id] = freshId();
+      // `groupId` / `mindMapId` are grouping keys, not always object
+      // ids (a group id is minted as `wbg_…`; a mindMapId is normally
+      // the root node's id, which IS in `remap`). Mint one fresh value
+      // per distinct old key so members of the same group/map stay
+      // together within this apply, while a SECOND apply of the same
+      // template gets its own keys — otherwise both copies shared one
+      // groupId and selecting a member of one selected the other too.
+      const keyRemap: Record<string, string> = {};
+      const remapKey = (old: string): string => {
+        const mapped = remap[old];
+        if (mapped) return mapped;
+        keyRemap[old] ??= wbId("wbg");
+        return keyRemap[old];
+      };
       const now = new Date().toISOString();
       seeded = saved.objects
         .map((o) => {
@@ -154,6 +168,21 @@ export function TemplateGallery({ boardId, onClose }: Props) {
             if (!remap[(o as { fromId: string }).fromId] || !remap[(o as { toId: string }).toId]) {
               return null;
             }
+          }
+          // Every OTHER structural back-reference needs the same
+          // treatment — remapping connectors alone left these pointing
+          // at ids that no longer exist, so a saved mind map re-applied
+          // as disconnected bubbles (`mind-map-edges` skips a child
+          // whose parent id is missing) and frame membership dangled.
+          if (next.groupId) next.groupId = remapKey(next.groupId);
+          // A frame that wasn't part of the saved set can't be cloned —
+          // drop the membership rather than leave a dangling id.
+          if (next.frameId) next.frameId = remap[next.frameId];
+          if (next.type === "mindMapNode") {
+            next.mindMapId = remapKey(next.mindMapId);
+            // Undefined parent = root node, which is the correct
+            // fallback when the parent wasn't saved with the template.
+            if (next.parentNodeId) next.parentNodeId = remap[next.parentNodeId];
           }
           return next;
         })

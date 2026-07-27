@@ -28,6 +28,7 @@ import type { Kudos, KudosSentiment, KudosTheme } from "@/lib/stores/workspace-t
 import { KUDOS_THEMES, KUDOS_WORD_LIMITS, countWords } from "../types";
 import { KudosCard } from "./kudos-card";
 import { analyseSentiment } from "@/lib/kudos/llm/sentiment";
+import { useKudosSettingsStore } from "@/lib/stores/kudos-settings-store";
 
 export interface RecipientOption {
   /** Stable id — squad profile id or workspace team-member id, or
@@ -168,14 +169,22 @@ export function KudosForm({
   // gate the Send button. Send-on-failure means a missing BYOK key or a
   // model error simply leaves `sentiment` as null and the warning never
   // shows.
+  //
+  // Phase 5 — gated on the device-local "Sentiment analysis" toggle. The
+  // settings dialog promises "turn off any feature you don't want sent to
+  // the LLM"; before this gate the full message body still went to the
+  // user's BYOK provider on every debounce tick with the switch off.
+  const aiSentiment = useKudosSettingsStore((s) => s.aiSentiment);
   const [sentiment, setSentiment] = useState<KudosSentiment | null>(null);
   const sentimentAbortRef = useRef<AbortController | null>(null);
   useEffect(() => {
     // Reset on every keystroke; only the final call after the debounce
     // window actually issues. Clearing here also wipes a stale warning
-    // when the user edits past the sarcasm.
+    // when the user edits past the sarcasm — and clears the inline
+    // warning the moment the feature is switched off.
     setSentiment(null);
     sentimentAbortRef.current?.abort();
+    if (!aiSentiment) return;
     const trimmed = message.trim();
     // Don't bill the LLM for short text — sarcasm needs context. Aligns
     // with the form's "needs >= 1 word" gate so we skip the no-op call
@@ -198,7 +207,40 @@ export function KudosForm({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [message, theme]);
+  }, [message, theme, aiSentiment]);
+
+  // Phase 5 — the picker used to map only the seven built-in
+  // KUDOS_THEMES, so a custom theme created in the settings dialog was
+  // impossible to actually select. Merge the device-local catalog in;
+  // custom entries carry the inline `KudosCustomTheme` object as their
+  // value (which is exactly what the wire + card renderer accept).
+  const customThemes = useKudosSettingsStore((s) => s.customThemes);
+  const themeOptions = useMemo(() => {
+    const builtIns = KUDOS_THEMES.map((t) => ({
+      key: t.id as string,
+      value: t.id as KudosTheme,
+      title: t.title,
+      emoji: t.emoji,
+      accent: t.accent,
+      hex: t.hex,
+      custom: false,
+    }));
+    const custom = customThemes.map((t) => ({
+      // Namespaced so a custom theme that reuses a built-in id can't
+      // collide with it in the selected-state comparison.
+      key: `custom:${t.id}`,
+      value: { id: t.id, title: t.title, emoji: t.emoji, hex: t.hex } as KudosTheme,
+      title: t.title,
+      emoji: t.emoji,
+      // Custom themes ship a hex, not Tailwind classes — the selected
+      // ring is applied inline below.
+      accent: "border-border/60 text-text",
+      hex: t.hex,
+      custom: true,
+    }));
+    return [...builtIns, ...custom];
+  }, [customThemes]);
+  const selectedThemeKey = typeof theme === "string" ? theme : `custom:${theme.id}`;
 
   const selectedRecipient = useMemo<RecipientOption | null>(() => {
     if (recipientId === "free") {
@@ -295,24 +337,28 @@ export function KudosForm({
         <div className="flex flex-col gap-2">
           <Label className="text-sub text-sm">Kudos type</Label>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-            {KUDOS_THEMES.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setTheme(t.id)}
-                aria-pressed={theme === t.id}
-                className={[
-                  "min-touch-coarse rounded-lg border px-2 py-2 text-xs font-medium transition-colors",
-                  "flex items-center gap-1.5 justify-center",
-                  theme === t.id
-                    ? `${t.accent} bg-accent/5`
-                    : "border-border/40 bg-surface-deep text-sub hover:border-border hover:text-text",
-                ].join(" ")}
-              >
-                <span aria-hidden="true">{t.emoji}</span>
-                <span>{t.title}</span>
-              </button>
-            ))}
+            {themeOptions.map((t) => {
+              const isSelected = selectedThemeKey === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setTheme(t.value)}
+                  aria-pressed={isSelected}
+                  style={t.custom && isSelected ? { borderColor: t.hex, color: t.hex } : undefined}
+                  className={[
+                    "min-touch-coarse rounded-lg border px-2 py-2 text-xs font-medium transition-colors",
+                    "flex items-center gap-1.5 justify-center",
+                    isSelected
+                      ? `${t.accent} bg-accent/5`
+                      : "border-border/40 bg-surface-deep text-sub hover:border-border hover:text-text",
+                  ].join(" ")}
+                >
+                  <span aria-hidden="true">{t.emoji}</span>
+                  <span>{t.title}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 

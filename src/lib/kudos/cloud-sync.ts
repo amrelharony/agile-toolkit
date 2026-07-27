@@ -43,6 +43,14 @@ let unsubscribe: (() => void) | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let broadcastChannel: BroadcastChannel | null = null;
 const pending = new Map<string, PendingPost>();
+// Ids with a POST currently awaiting its response. `notBefore` only
+// moves AFTER the fetch settles, so without an in-flight claim every
+// 250 ms tick re-selects the same row and fires another POST (8
+// concurrent POSTs for a 2 s response). Their settle callbacks then
+// run back-to-back on the same object, burning all 4 attempts in one
+// round-trip and dropping the kudos — the 0.5/1/2/4 s backoff never
+// happens. Claimed here, released in the `finally` below.
+const inFlight = new Set<string>();
 
 function backoffMs(attempt: number): number {
   // 0.5s, 1s, 2s, 4s — bounded by MAX_ATTEMPTS so the queue can't grow
@@ -136,14 +144,26 @@ async function tick(): Promise<void> {
   const batch: PendingPost[] = [];
   pending.forEach((p) => {
     if (p.notBefore > now) return;
+    // Skip rows whose POST hasn't come back yet — see `inFlight`.
+    if (inFlight.has(p.kudos.id)) return;
     if (batch.length >= 8) return;
     batch.push(p);
   });
   if (batch.length === 0) return;
+  // Claim BEFORE awaiting: ticks that land while these are outstanding
+  // must not re-select them.
+  for (const post of batch) inFlight.add(post.kudos.id);
 
   await Promise.all(
     batch.map(async (post) => {
-      const result = await attemptOne(post);
+      let result: "ok" | "retry" | "drop";
+      try {
+        result = await attemptOne(post);
+      } finally {
+        // Release the claim in every path (including an unexpected
+        // throw) so a row can never be stranded un-retryable.
+        inFlight.delete(post.kudos.id);
+      }
       if (result === "ok" || result === "drop") {
         pending.delete(post.kudos.id);
         if (result === "ok") {
@@ -253,6 +273,9 @@ export function uninstallKudosCloudSync(): void {
 /** Test-only: drain the queue + reset state. */
 export function __resetKudosCloudSync(): void {
   pending.clear();
+  // Drop any claims too — a leftover id would block the next install
+  // from ever re-selecting that row.
+  inFlight.clear();
   if (typeof window !== "undefined") {
     try {
       window.localStorage.removeItem(STORAGE_KEY);

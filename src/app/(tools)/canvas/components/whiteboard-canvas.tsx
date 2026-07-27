@@ -879,6 +879,9 @@ export function WhiteboardCanvas({
     setTool,
     setSelection,
     setEditingObjectId,
+    // Click-created widgets need their own undo entry — without it Cmd+Z
+    // after creating one reverted the previous edit too.
+    pushSnapshot,
     logActivity,
   });
 

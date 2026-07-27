@@ -141,7 +141,7 @@ export function MascotAssistant() {
       }
     };
     const onUp = () => {
-      dragCleanupRef.current?.(); // removes both listeners + nulls the ref
+      dragCleanupRef.current?.(); // removes all three listeners + nulls the ref
       if (moved) {
         // Snap from the last DRAGGED position (React batches setDragPos, so the
         // DOM rect may still read the start position here).
@@ -151,17 +151,26 @@ export function MascotAssistant() {
           cx < window.innerWidth / 2 ? "Left" : "Right"
         }` as Corner;
         setCorner(next);
-        setDragPos(null);
         // Suppress the click that fires right after a drag-release.
         draggedRef.current = true;
         setTimeout(() => (draggedRef.current = false), 60);
       }
+      // Always clear the free-drag offset — NOT only when `moved`. On touch,
+      // dragging the fixed-position mascot reads as a scroll gesture and the
+      // browser fires `pointercancel` instead of `pointerup`; with the reset
+      // inside `if (moved)` the mascot stayed pinned at its last dragPos with
+      // its float animation dead, and `panelPos(corner)` anchored the chat
+      // panel to the stale corner. A later tap never cleared it either.
+      setDragPos(null);
     };
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
+    // `pointercancel` is the touch-scroll / capture-loss path — same teardown.
+    document.addEventListener("pointercancel", onUp);
     dragCleanupRef.current = () => {
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
       dragCleanupRef.current = null;
     };
   };

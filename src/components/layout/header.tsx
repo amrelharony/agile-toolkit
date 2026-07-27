@@ -19,6 +19,7 @@ import { XpBar } from "@/components/gamification/xp-bar";
 import { WeatherWidget } from "@/lib/weather/widget";
 import { UserMenu } from "@/components/auth/user-menu";
 import { KudosHeaderBeacon } from "@/lib/kudos/beacon/header-beacon";
+import { useKudosSettingsStore } from "@/lib/stores/kudos-settings-store";
 import { cn } from "@/lib/utils";
 
 interface HeaderProps {
@@ -31,6 +32,10 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
   const pathname = usePathname();
   const tool = getToolByPath(pathname);
   const openAgent = useAgentStore((s) => s.openSheet);
+  // Kudos settings → "Header beacon". The store defers its localStorage
+  // read (skipHydration), so SSR and the first client render both see
+  // the `true` default and the gate can't cause a hydration mismatch.
+  const beaconHeader = useKudosSettingsStore((s) => s.beaconHeader);
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
   // Theme cycle: dark → light → hc (high-contrast) → dark.
@@ -238,9 +243,12 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
         {/* Phase 4 kudos beacon — global pulse + count for incoming kudos.
             Visible for guests too (they receive kudos as well). The
             FlyingCard portal uses this element's rect as a fallback when
-            sender / recipient identity ids aren't resolvable, so it must
-            mount on every authenticated and guest page. */}
-        <KudosHeaderBeacon />
+            sender / recipient identity ids aren't resolvable, so it
+            mounts on every authenticated and guest page — unless the
+            owner switched "Header beacon" off in kudos settings, which
+            until now was an inert toggle (the FlyingCard simply falls
+            back to its other anchors when the beacon is hidden). */}
+        {beaconHeader && <KudosHeaderBeacon />}
         {/* Agent chat button. Visible from xs+ — keyboard users can also
             hit Cmd/Ctrl+J to toggle (matches ChatGPT / Claude.ai). */}
         <button

@@ -1,6 +1,7 @@
 "use client";
 
 import { dispatch } from "./engine";
+import { getToolByPath } from "@/lib/constants/tools";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { useSonificationStore } from "@/lib/stores/sonification-store";
 import { useHistoryStore } from "@/lib/history/history-store";
@@ -190,10 +191,13 @@ function extractToolId(pathname: string): string | null {
   // Paths look like `/planning-poker`, `/burndown`, `/` (home), etc.
   const match = pathname.match(/^\/([a-z0-9-]+)\/?$/);
   if (!match) return null;
-  const id = match[1];
-  if (id === "" || id === "/") return null;
-  // Ignore non-tool routes (only one-segment paths used by this app).
-  return id;
+  // Validate against the tool registry — mirroring RecentToolTracker in
+  // tool-prefs.ts. The shape test alone accepted EVERY single-segment route,
+  // so /history, /insights, /guest and /not-authorized counted as tool
+  // visits: 5 XP each, plus inflated `tool-hop-5/20/42` ("Visit all 42
+  // tools") progress from pages that aren't tools.
+  const tool = getToolByPath(`/${match[1]}`);
+  return tool ? tool.id : null;
 }
 
 /**

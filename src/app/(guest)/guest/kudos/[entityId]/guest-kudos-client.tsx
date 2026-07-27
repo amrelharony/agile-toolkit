@@ -75,6 +75,13 @@ export function GuestKudosClient({ role, profile }: Props) {
   // expose other squads' profiles.
   const [squadProfiles, setSquadProfiles] = useState<SquadProfileSummary[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Explicit loading flag — an empty `squadProfiles` is NOT a "still
+  // fetching" signal. /api/guest/squad-profiles filters the caller out
+  // server-side (`.neq("id", session.profileId)`), so the first guest in
+  // a squad legitimately gets `[]`. Branching the render on emptiness
+  // pinned them on "Loading squad…" forever, unable to send or read
+  // kudos.
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +99,8 @@ export function GuestKudosClient({ role, profile }: Props) {
         if (!cancelled) {
           setLoadError(err instanceof Error ? err.message : "Failed to load squad");
         }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
@@ -220,7 +229,7 @@ export function GuestKudosClient({ role, profile }: Props) {
             </div>
             <KudosWall kudos={room.kudos} highlightToProfileId={profile.id} />
           </div>
-        ) : squadProfiles.length === 0 && !loadError ? (
+        ) : loading ? (
           <div className="flex items-center justify-center gap-2 py-12 text-sub text-sm">
             <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
             Loading squad…

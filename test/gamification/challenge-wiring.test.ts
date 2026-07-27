@@ -106,6 +106,38 @@ describe("gamification challenge wiring (regression: previously-dead triggers)",
     expect(weeklyById("w-achievements-5")?.progress ?? 0).toBeGreaterThanOrEqual(1);
   });
 
+  it("d-tool-3 counts DISTINCT tools, not pathname bounces", () => {
+    useVDnaStore.getState().setDailyChallenges([daily("d-tool-3", 3)]);
+    // /velocity → /kanban → /velocity → /kanban: two distinct tools, four
+    // raw `tool-visit` events. Must NOT complete a "3 different tools" goal.
+    dispatch({ name: "tool-visit", meta: { toolId: "velocity" } });
+    dispatch({ name: "tool-visit", meta: { toolId: "kanban" } });
+    dispatch({ name: "tool-visit", meta: { toolId: "velocity" } });
+    dispatch({ name: "tool-visit", meta: { toolId: "kanban" } });
+    expect(dailyById("d-tool-3")?.progress).toBe(2);
+    dispatch({ name: "tool-visit", meta: { toolId: "retro" } });
+    expect(dailyById("d-tool-3")?.completed).toBe(true);
+  });
+
+  it("w-explore-10 counts one tick per tool per week, and re-counts next week", () => {
+    useVDnaStore.getState().setWeeklyChallenges([weekly("w-explore-10", 10)]);
+    dispatch({ name: "tool-visit", meta: { toolId: "velocity" } });
+    dispatch({ name: "tool-visit", meta: { toolId: "velocity" } });
+    dispatch({ name: "tool-visit", meta: { toolId: "kanban" } });
+    expect(weeklyById("w-explore-10")?.progress).toBe(2);
+    // Next week the same tools count again (unlike `tool-visit-unique`,
+    // which is first-ever-only and would leave this uncompletable).
+    vi.setSystemTime(new Date("2026-06-23T12:00:00Z"));
+    useVDnaStore.getState().setWeeklyChallenges([weekly("w-explore-10", 10)]);
+    dispatch({ name: "tool-visit", meta: { toolId: "velocity" } });
+    expect(weeklyById("w-explore-10")?.progress).toBe(1);
+    // Last week's per-tool markers are pruned, not accumulated forever.
+    const stale = Object.keys(useVDnaStore.getState().counters).filter((k) =>
+      k.startsWith("week-tool:2026-W25:")
+    );
+    expect(stale).toEqual([]);
+  });
+
   it("combo-reached-3 fires once when a fresh chain reaches x3", () => {
     // Warm up, then jump >3s so the next chain starts fresh (combo depth → 1).
     dispatch({ name: "click" });

@@ -381,6 +381,34 @@ function registerToolVisit(toolId: string) {
   advanceChallenges("tool-visit-unique", { toolId });
 }
 
+/**
+ * Per-ISO-week distinct-tool tracking for w-explore-10 ("Visit 10 different
+ * tools this week"). Neither existing event fits it: raw `tool-visit` fires
+ * on every pathname CHANGE, so bouncing /velocity ↔ /kanban used to finish
+ * a "10 different tools" challenge with two; `tool-visit-unique` is
+ * first-ever-only, so an established user could never complete it again.
+ * Mark one counter per (week, tool) and tick only on a tool's first sighting
+ * within the current week.
+ */
+function registerWeeklyToolVisit(toolId: string) {
+  const prefix = `week-tool:${weekSeedKey()}:`;
+  const key = `${prefix}${toolId}`;
+  if ((useVDnaStore.getState().counters[key] ?? 0) > 0) return;
+  // Mark + prune in ONE functional update: the marker write must not race
+  // (same reason bumpCounter is functional), and last week's markers have
+  // to be dropped or the persisted counters map grows without bound.
+  useVDnaStore.setState((s) => {
+    const counters: Record<string, number> = {};
+    for (const [k, v] of Object.entries(s.counters)) {
+      if (k.startsWith("week-tool:") && !k.startsWith(prefix)) continue;
+      counters[k] = v;
+    }
+    counters[key] = 1;
+    return { counters };
+  });
+  advanceChallenges("tool-visit-week-unique", { toolId });
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // XP award + level handling
 // ──────────────────────────────────────────────────────────────────────────
@@ -494,6 +522,7 @@ export function dispatch(event: GamificationEvent) {
     // Tool-visit bookkeeping.
     if (name === "tool-visit" && typeof meta?.toolId === "string") {
       registerToolVisit(meta.toolId);
+      registerWeeklyToolVisit(meta.toolId);
     }
 
     // Counter bumps for any tool:* or named event.

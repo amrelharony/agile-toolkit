@@ -37,27 +37,48 @@ export function useAddObjectAt(params: {
   setTool: (t: CanvasTool) => void;
   setSelection: (ids: string[]) => void;
   setEditingObjectId: (id: string | null) => void;
+  /** Snapshots the board slice for undo — see the call below. */
+  pushSnapshot: () => void;
   logActivity: (kind: string, summary: string) => void;
 }) {
   const {
-    boardId, stickyColor, tool, topZRef, pickedDiagramShape,
-    upsert, setTool, setSelection, setEditingObjectId, logActivity,
+    boardId,
+    stickyColor,
+    tool,
+    topZRef,
+    pickedDiagramShape,
+    upsert,
+    setTool,
+    setSelection,
+    setEditingObjectId,
+    pushSnapshot,
+    logActivity,
   } = params;
 
   return useCallback(
     (worldX: number, worldY: number) => {
       const id = wbId("wb");
       const now = new Date().toISOString();
-      const base = { id, boardId, version: 1, z: (topZRef.current ?? 0) + 1, createdAt: now, updatedAt: now };
+      const base = {
+        id,
+        boardId,
+        version: 1,
+        z: (topZRef.current ?? 0) + 1,
+        createdAt: now,
+        updatedAt: now,
+      };
       let obj: WhiteboardObject | null = null;
       switch (tool) {
         case "sticky":
           obj = {
-            ...base, type: "sticky",
+            ...base,
+            type: "sticky",
             x: worldX - STICKY_DEFAULT.w / 2,
             y: worldY - STICKY_DEFAULT.h / 2,
-            w: STICKY_DEFAULT.w, h: STICKY_DEFAULT.h,
-            content: "", color: stickyColor,
+            w: STICKY_DEFAULT.w,
+            h: STICKY_DEFAULT.h,
+            content: "",
+            color: stickyColor,
           };
           break;
         case "rect":
@@ -65,11 +86,14 @@ export function useAddObjectAt(params: {
         case "diamond":
         case "triangle":
           obj = {
-            ...base, type: tool,
+            ...base,
+            type: tool,
             x: worldX - SHAPE_DEFAULT.w / 2,
             y: worldY - SHAPE_DEFAULT.h / 2,
-            w: SHAPE_DEFAULT.w, h: SHAPE_DEFAULT.h,
-            stroke: "#94a3b8", strokeWidth: 1.5,
+            w: SHAPE_DEFAULT.w,
+            h: SHAPE_DEFAULT.h,
+            stroke: "#94a3b8",
+            strokeWidth: 1.5,
             // Soft translucent fill so the shape has visual presence
             // when created. Previously shapes shipped as a thin gray
             // outline only — visually indistinguishable from background
@@ -82,35 +106,49 @@ export function useAddObjectAt(params: {
           break;
         case "text":
           obj = {
-            ...base, type: "text",
+            ...base,
+            type: "text",
             x: worldX - TEXT_DEFAULT.w / 2,
             y: worldY,
-            w: TEXT_DEFAULT.w, h: TEXT_DEFAULT.h,
-            content: "Text", fontSize: 18, color: "#e5e7eb", align: "left",
+            w: TEXT_DEFAULT.w,
+            h: TEXT_DEFAULT.h,
+            content: "Text",
+            fontSize: 18,
+            color: "#e5e7eb",
+            align: "left",
           };
           break;
         case "frame":
           obj = {
-            ...base, type: "frame",
-            x: worldX - 320, y: worldY - 200,
-            w: 640, h: 400,
+            ...base,
+            type: "frame",
+            x: worldX - 320,
+            y: worldY - 200,
+            w: 640,
+            h: 400,
             label: "Frame",
           };
           break;
         case "card":
           obj = {
-            ...base, type: "card",
-            x: worldX - 100, y: worldY - 60,
-            w: 200, h: 120,
+            ...base,
+            type: "card",
+            x: worldX - 100,
+            y: worldY - 60,
+            w: 200,
+            h: 120,
             title: "New card",
             color: "#00f0ff",
           };
           break;
         case "kanban":
           obj = {
-            ...base, type: "kanban",
-            x: worldX - 360, y: worldY - 200,
-            w: 720, h: 400,
+            ...base,
+            type: "kanban",
+            x: worldX - 360,
+            y: worldY - 200,
+            w: 720,
+            h: 400,
             label: "Kanban",
             columns: ["todo", "in_progress", "done"],
             columnLabels: ["To Do", "In Progress", "Done"],
@@ -118,9 +156,12 @@ export function useAddObjectAt(params: {
           break;
         case "timer":
           obj = {
-            ...base, type: "timer",
-            x: worldX - 70, y: worldY - 50,
-            w: 140, h: 100,
+            ...base,
+            type: "timer",
+            x: worldX - 70,
+            y: worldY - 50,
+            w: 140,
+            h: 100,
             durationSec: 300, // 5-minute default
             running: false,
             remainingSec: 300,
@@ -129,9 +170,12 @@ export function useAddObjectAt(params: {
           break;
         case "voting":
           obj = {
-            ...base, type: "voting",
-            x: worldX - 140, y: worldY - 90,
-            w: 280, h: 180,
+            ...base,
+            type: "voting",
+            x: worldX - 140,
+            y: worldY - 90,
+            w: 280,
+            h: 180,
             question: "How would you estimate this?",
             options: ["1", "2", "3", "5", "8", "13", "?", "☕"],
             votes: {},
@@ -142,9 +186,12 @@ export function useAddObjectAt(params: {
           // 3-column × 3-row starter (header + 2 data rows). Empty
           // cells are fine — double-clicking starts editing.
           obj = {
-            ...base, type: "table",
-            x: worldX - 240, y: worldY - 60,
-            w: 480, h: 120,
+            ...base,
+            type: "table",
+            x: worldX - 240,
+            y: worldY - 60,
+            w: 480,
+            h: 120,
             rows: [
               ["Column A", "Column B", "Column C"],
               ["", "", ""],
@@ -159,7 +206,8 @@ export function useAddObjectAt(params: {
           // run yet (first-time tool selection).
           const kind = DIAGRAM_SHAPE_KINDS[pickedDiagramShape] ? pickedDiagramShape : "database";
           obj = {
-            ...base, type: "diagramShape",
+            ...base,
+            type: "diagramShape",
             x: worldX - DIAGRAM_SHAPE_DEFAULT.w / 2,
             y: worldY - DIAGRAM_SHAPE_DEFAULT.h / 2,
             w: DIAGRAM_SHAPE_DEFAULT.w,
@@ -176,7 +224,8 @@ export function useAddObjectAt(params: {
           // even if the user later reparents.
           const mindMapId = id;
           obj = {
-            ...base, type: "mindMapNode",
+            ...base,
+            type: "mindMapNode",
             x: worldX - MIND_MAP_NODE_DEFAULT.w / 2,
             y: worldY - MIND_MAP_NODE_DEFAULT.h / 2,
             w: MIND_MAP_NODE_DEFAULT.w,
@@ -190,13 +239,23 @@ export function useAddObjectAt(params: {
           break;
       }
       if (obj) {
+        // Snapshot the PRE-creation slice, like every sibling mutation
+        // hook does. `undo()` restores the whole board slice, so a
+        // click-created widget with no snapshot of its own meant Cmd+Z
+        // rolled the board back past the previous edit as well.
+        pushSnapshot();
         upsert(obj);
         logActivity("added", `Created ${obj.type}`);
         // Revert to select so we don't keep spawning more.
         setTool("select");
         // Auto-enter edit mode for text-bearing objects so the user
         // can type immediately after creation (Miro/Figma convention).
-        if (obj.type === "sticky" || obj.type === "text" || obj.type === "card" || obj.type === "mindMapNode") {
+        if (
+          obj.type === "sticky" ||
+          obj.type === "text" ||
+          obj.type === "card" ||
+          obj.type === "mindMapNode"
+        ) {
           setSelection([obj.id]);
           setEditingObjectId(obj.id);
         }
@@ -205,6 +264,18 @@ export function useAddObjectAt(params: {
     // `topZRef` is identity-stable; reading `.current` doesn't need it
     // in deps but include it so react-hooks/exhaustive-deps doesn't
     // grumble about the destructured-ref access.
-    [boardId, stickyColor, tool, upsert, setTool, setSelection, setEditingObjectId, logActivity, topZRef, pickedDiagramShape],
+    [
+      boardId,
+      stickyColor,
+      tool,
+      upsert,
+      setTool,
+      setSelection,
+      setEditingObjectId,
+      pushSnapshot,
+      logActivity,
+      topZRef,
+      pickedDiagramShape,
+    ]
   );
 }

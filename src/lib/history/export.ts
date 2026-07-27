@@ -87,12 +87,17 @@ function summarisePayload(payload: unknown): string {
   return Object.entries(payload as Record<string, unknown>)
     .slice(0, 3)
     .map(([k, v]) => {
+      // `JSON.stringify(undefined)` returns `undefined`, not a string, so a
+      // bare `s.length` throws TypeError and the whole Markdown export
+      // silently produces no file. `sanitizePayload` keeps `undefined`
+      // values (e.g. adkar logs `{owner: undefined}` for a blank Owner
+      // field), so coerce whatever stringify hands back.
       const s =
         typeof v === "string"
           ? v
           : typeof v === "number" || typeof v === "boolean"
             ? String(v)
-            : JSON.stringify(v);
+            : String(JSON.stringify(v) ?? v);
       return `${k}: ${s.length > 40 ? `${s.slice(0, 40)}…` : s}`;
     })
     .join(" · ");
