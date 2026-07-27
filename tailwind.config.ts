@@ -6,6 +6,15 @@ const config: Config = {
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+    // `src/lib` is NOT just logic — it holds three components mounted app-wide
+    // (WeatherWidget, KudosHeaderBeacon from header.tsx; HolidayEngine from
+    // app-shell.tsx). Without this glob, JIT never emitted the utilities they
+    // use exclusively (`min-w-[16px]`, `leading-[16px]`, `max-h-80`, `w-80`,
+    // `top-24`/`bottom-40`/`md:bottom-36`, `bg-card/80`, `bg-card/70`, …), so
+    // the kudos unread badge rendered unpositioned, the kudos popover had no
+    // width or scroll cap, and every holiday overlay ignored its fixed offsets
+    // and landed in flow position on top of the header.
+    "./src/lib/**/*.{js,ts,jsx,tsx,mdx}",
   ],
   theme: {
     // ── Breakpoint system ──
@@ -28,17 +37,17 @@ const config: Config = {
       // Padding scales mobile-first: 12 → 16 → 24 → 32 → 40px.
       padding: {
         DEFAULT: "0.75rem", // 12px (mobile)
-        xs: "1rem",         // 16px
-        sm: "1.5rem",       // 24px
-        lg: "2rem",         // 32px
-        xl: "2.5rem",       // 40px
+        xs: "1rem", // 16px
+        sm: "1.5rem", // 24px
+        lg: "2rem", // 32px
+        xl: "2.5rem", // 40px
       },
       screens: {
         sm: "640px",
         md: "768px",
         lg: "1024px",
         xl: "1280px",
-        "2xl": "1440px",   // cap the container before the 1536/1920 breakpoints
+        "2xl": "1440px", // cap the container before the 1536/1920 breakpoints
       },
     },
     extend: {
@@ -59,6 +68,18 @@ const config: Config = {
           muted: "var(--sub)",
         },
         sub: "var(--sub)",
+        // `danger` was never a defined color, so all ~169 `text-danger`,
+        // `bg-danger/5`, `border-danger/40` utilities across the app emitted
+        // NOTHING: critical insights rendered flatter than the amber warnings
+        // below them, `<CalloutAlert tone="danger">` lost its red band, and
+        // the AI run panel's error state was chrome-identical to success.
+        // `stat-card.tsx` hit this once and worked around it locally by
+        // switching to `destructive`; aliasing here fixes every remaining
+        // call site at once and keeps both spellings theme-aware.
+        danger: {
+          DEFAULT: "var(--destructive)",
+          foreground: "var(--destructive-foreground)",
+        },
         accent: {
           DEFAULT: "var(--accent)",
           2: "var(--accent2)",
@@ -149,19 +170,22 @@ const config: Config = {
         // that should scale smoothly between 320px and ~1440px viewports.
         // The "ideal" middle term is sized so the text reaches its max
         // around the 1024px breakpoint and stays static beyond.
-        "fluid-display": ["clamp(2.5rem, 1.6rem + 4.5vw, 4.5rem)", { lineHeight: "1.05", letterSpacing: "-0.5px" }],
-        "fluid-h1":      ["clamp(1.75rem, 1.25rem + 2.5vw, 3rem)",  { lineHeight: "1.15" }],
-        "fluid-h2":      ["clamp(1.5rem, 1.15rem + 1.75vw, 2.25rem)", { lineHeight: "1.2" }],
-        "fluid-h3":      ["clamp(1.25rem, 1rem + 1.25vw, 1.75rem)",   { lineHeight: "1.25" }],
-        "fluid-h4":      ["clamp(1.125rem, 0.95rem + 0.85vw, 1.5rem)", { lineHeight: "1.3" }],
-        "fluid-body":    ["clamp(0.875rem, 0.83rem + 0.2vw, 1rem)",   { lineHeight: "1.55" }],
+        "fluid-display": [
+          "clamp(2.5rem, 1.6rem + 4.5vw, 4.5rem)",
+          { lineHeight: "1.05", letterSpacing: "-0.5px" },
+        ],
+        "fluid-h1": ["clamp(1.75rem, 1.25rem + 2.5vw, 3rem)", { lineHeight: "1.15" }],
+        "fluid-h2": ["clamp(1.5rem, 1.15rem + 1.75vw, 2.25rem)", { lineHeight: "1.2" }],
+        "fluid-h3": ["clamp(1.25rem, 1rem + 1.25vw, 1.75rem)", { lineHeight: "1.25" }],
+        "fluid-h4": ["clamp(1.125rem, 0.95rem + 0.85vw, 1.5rem)", { lineHeight: "1.3" }],
+        "fluid-body": ["clamp(0.875rem, 0.83rem + 0.2vw, 1rem)", { lineHeight: "1.55" }],
       },
       spacing: {
         // ── WCAG 2.2 minimum touch target ──
         // Use as `min-w-touch min-h-touch` (or `size-touch`) on any
         // tap-target. 44px = 11 in Tailwind's 4px scale.
-        touch: "2.75rem",        // 44px
-        "touch-sm": "2.25rem",   // 36px — for desktop-only secondary controls
+        touch: "2.75rem", // 44px
+        "touch-sm": "2.25rem", // 36px — for desktop-only secondary controls
         // Common content widths
         "screen-90": "90vw",
         "screen-80": "80vw",
@@ -169,8 +193,8 @@ const config: Config = {
       maxWidth: {
         // Reading-width helpers, in addition to Tailwind defaults.
         prose: "65ch",
-        "tool-content": "80rem",  // 1280px
-        "tool-narrow": "48rem",   // 768px
+        "tool-content": "80rem", // 1280px
+        "tool-narrow": "48rem", // 768px
       },
       borderRadius: {
         xs: "4px",
@@ -202,8 +226,7 @@ const config: Config = {
       },
       backgroundImage: {
         "gradient-accent": "linear-gradient(90deg, #00e1ff, #6366f1)",
-        "gradient-spectrum":
-          "linear-gradient(90deg, #00e1ff, #6366f1, #a855f7)",
+        "gradient-spectrum": "linear-gradient(90deg, #00e1ff, #6366f1, #a855f7)",
         "gradient-diagonal": "linear-gradient(135deg, #00e1ff, #6366f1)",
         "gradient-shimmer":
           "linear-gradient(105deg, transparent 40%, var(--glow) 50%, transparent 60%)",
@@ -313,6 +336,11 @@ const config: Config = {
       },
     },
   },
+  // Tailwind resolves plugins synchronously at config load, so `require` is
+  // the idiomatic form here and ESM `import` is not equivalent. These two
+  // lines predate the `no-require-imports` rule; they only surface now
+  // because this file hadn't been touched in a commit since it was enabled.
+  /* eslint-disable @typescript-eslint/no-require-imports */
   plugins: [
     require("tailwindcss-animate"),
     // Container-query support: enables `@container` on a parent element
@@ -322,5 +350,6 @@ const config: Config = {
     // crossing a viewport breakpoint.
     require("@tailwindcss/container-queries"),
   ],
+  /* eslint-enable @typescript-eslint/no-require-imports */
 };
 export default config;
