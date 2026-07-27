@@ -5,6 +5,13 @@ export interface ControlLimits {
   ucl: number; // upper control limit
   lcl: number; // lower control limit
   type: "xmr" | "p-chart";
+  /**
+   * True (unclamped) 1σ half-width, when the chart knows it. p-chart limits
+   * are clamped into [0,1], so `(ucl - centerLine) / 3` under-reports σ
+   * whenever the clamp bites; consumers that need the real σ (the ±2σ zone
+   * tests in `westernElectricRules`) must prefer this field.
+   */
+  sigma?: number;
 }
 
 export interface OutOfControlSignal {
@@ -60,13 +67,19 @@ export function pChartLimits(successes: number[], trials: number[]): ControlLimi
   const totTrial = trials.reduce((a, b) => a + b, 0);
   const pBar = totTrial === 0 ? 0 : totSucc / totTrial;
   const nBar = totTrial / trials.length;
-  if (nBar === 0) return { centerLine: pBar, ucl: pBar, lcl: pBar, type: "p-chart" };
+  if (nBar === 0) return { centerLine: pBar, ucl: pBar, lcl: pBar, type: "p-chart", sigma: 0 };
   const sd = Math.sqrt((pBar * (1 - pBar)) / nBar);
   return {
     centerLine: pBar,
     ucl: Math.min(1, pBar + 3 * sd),
     lcl: Math.max(0, pBar - 3 * sd),
     type: "p-chart",
+    // Publish the UNCLAMPED σ. UCL/LCL are clamped into [0,1] — routine on
+    // pass-rate charts where pBar + 3σ > 1 — and back-deriving σ from the
+    // clamped UCL collapses it (measured 0.019 against a true 0.081). That
+    // fake σ folds the ±2σ zone onto the centre line, so Rule 5 fires on
+    // every point and (because the rule loop `continue`s) masks Rule 2.
+    sigma: sd,
   };
 }
 
@@ -77,15 +90,22 @@ export function pChartLimits(successes: number[], trials: number[]): ControlLimi
  *  - Rule 3: 6 consecutive points monotonic
  *  - Rule 5: 2 of 3 consecutive points beyond ±2σ on the same side
  *
- * For p-chart we approximate ±2σ as the midpoint between centerLine and the
- * UCL/LCL since p-chart limits are already at ±3σ.
+ * The ±2σ zone needs the chart's TRUE σ. Prefer `limits.sigma` when the
+ * chart publishes it (p-chart does) and only fall back to deriving it from
+ * the limit width for charts that don't (xmR): p-chart UCL is clamped at 1,
+ * so on any high pass-rate series the derived σ is a small fraction of the
+ * real one, the ±2σ band lands inside the noise, and Rule 5 fires on every
+ * point — which also suppresses Rule 2/3 because the loop `continue`s.
  */
 export function westernElectricRules(
   series: number[],
   limits: ControlLimits
 ): OutOfControlSignal[] {
   const out: OutOfControlSignal[] = [];
-  const sigma = (limits.ucl - limits.centerLine) / 3;
+  const sigma =
+    limits.sigma !== undefined && Number.isFinite(limits.sigma)
+      ? limits.sigma
+      : (limits.ucl - limits.centerLine) / 3;
   if (sigma <= 0) return out;
 
   for (let i = 0; i < series.length; i++) {

@@ -26,6 +26,13 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { STACEY_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
 
+/** Parse a 0–1 scale field, clamping into range. Falls back to 0.5 only when
+ *  the input is not a number at all — never for a legitimate `0`. */
+function clamp01(raw: string, fallback = 0.5): number {
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback;
+}
+
 function regionOf(agreement: number, certainty: number): StaceyItem["region"] {
   // BUG-T8-stacey-matrix-1: classic Stacey "complicated" is "ONE axis
   // high AND the other LOW". The prior `<= 0.66` band was too wide —
@@ -61,8 +68,12 @@ export function StaceyMatrixClient() {
 
   function add() {
     if (!title.trim()) return;
-    const a = Math.max(0, Math.min(1, parseFloat(agreement) || 0.5));
-    const c = Math.max(0, Math.min(1, parseFloat(certainty) || 0.5));
+    // `parseFloat("0") || 0.5` yields 0.5 — 0 is falsy but is a perfectly
+    // valid end of the documented 0–1 scale. That silently relocated the
+    // textbook chaotic case (agreement 0, certainty 0) to the dead centre of
+    // the matrix and classified it "complex". Test for finiteness, not truth.
+    const a = clamp01(agreement);
+    const c = clamp01(certainty);
     const item: StaceyItem = {
       id: crypto.randomUUID(),
       title: title.trim(),

@@ -761,20 +761,24 @@ export function StoryMapperClient() {
   };
 
   /* -- Export data ---- */
+  // Emit an ordered array keyed by step position, NOT an object keyed by
+  // step name. The board is keyed by step ID and `addStep` hardcodes the
+  // name "New Step" with no uniqueness check, so `Object.fromEntries` used
+  // to collapse two same-named columns into one key and silently drop an
+  // entire column's cards — disagreeing with the clipboard export, which
+  // iterates `steps` directly. Nothing imports this JSON back.
   const jsonData = useMemo(
     () => ({
       steps: steps.map((s) => s.name),
       slices: slices.map((sl) => ({
         name: sl.name,
-        stories: Object.fromEntries(
-          steps.map((st) => [
-            st.name,
-            (sl.cards[st.id] ?? []).map((c) => ({
-              title: c.title,
-              description: c.description,
-            })),
-          ])
-        ),
+        stories: steps.map((st) => ({
+          step: st.name,
+          cards: (sl.cards[st.id] ?? []).map((c) => ({
+            title: c.title,
+            description: c.description,
+          })),
+        })),
       })),
     }),
     [steps, slices]

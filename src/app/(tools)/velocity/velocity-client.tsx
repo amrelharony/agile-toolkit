@@ -928,16 +928,15 @@ export function VelocityClient() {
             <span className="text-sm text-sub">
               Sprints meeting commitment:{" "}
               <span className="text-accent font-data font-semibold">
-                {/* Match the predictability KPI math: skip empty rows
-                    (committed=0 AND completed=0) so an unfilled default
-                    sprint doesn't count as "met commitment" (0 >= 0). */}
-                {
-                  sprints.filter(
-                    (s) => (s.committed > 0 || s.completed > 0) && s.completed >= s.committed
-                  ).length
-                }
+                {/* Use the SAME predicate as the predictability KPI —
+                    `completed > 0`, i.e. sprints that actually ran. The old
+                    `committed > 0 || completed > 0` denominator also counted
+                    PLANNED sprints, which by definition cannot have met a
+                    commitment yet, so committing a next sprint rendered
+                    "1 / 2" directly beside "100% predictable". */}
+                {sprints.filter((s) => s.completed > 0 && s.completed >= s.committed).length}
               </span>{" "}
-              / {sprints.filter((s) => s.committed > 0 || s.completed > 0).length}
+              / {sprints.filter((s) => s.completed > 0).length}
             </span>
             <div className="flex items-baseline gap-1.5">
               <span className="text-xl sm:text-2xl font-data font-bold text-accent">

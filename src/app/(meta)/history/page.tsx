@@ -88,8 +88,12 @@ export default function HistoryPage() {
 
   const PAGE_SIZE = 50;
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const visible = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  // Slice with the CLAMPED page, not the raw one. When `filtered` shrinks
+  // without user input — the nightly `purge_old_history_events` cron trimming
+  // >90-day rows while the user sits on page 3 — the footer clamped to "Page
+  // 2 of 2" but the list still sliced at [100,150) and rendered empty.
   const safePage = Math.min(page, pageCount - 1);
+  const visible = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   const toolName = (toolId: string) => ALL_TOOLS.find((t) => t.id === toolId)?.name ?? toolId;
 

@@ -76,18 +76,31 @@ export function healthCheckKPIs(healthChecks: HealthCheck[]): {
   series: number[];
 } {
   const hc = healthChecks.find((h) => h.id === HEALTH_CHECK_ID) ?? healthChecks[0];
-  const pct = hc ? healthPctOf(hc.current?.scores ?? {}) : null;
-  if (pct === null) return { healthPct: null, trend: "same", series: [] };
-
   const history = hc?.history ?? [];
+
+  // Read SAVED checks, not `current`. The Squad Health Check tool's
+  // `saveCheck()` archives the scored snapshot into `history` and resets
+  // `current` to a pristine all-green form. Sourcing the headline from
+  // `current` therefore reported 100% / "On Track" the instant a user saved
+  // an all-red check, pinned the sparkline's last point at 100, and made the
+  // trend arrow always point up. `current` is a draft, never a measurement —
+  // fall back to it only when nothing has been saved yet.
   const series: number[] = [];
   for (const h of history) {
     const hPct = healthPctOf(h.scores ?? {});
     if (hPct !== null) series.push(hPct);
   }
-  series.push(pct);
 
-  // Trend: compare current to the most recent history entry (±5pt band).
+  let pct: number | null;
+  if (series.length > 0) {
+    pct = series[series.length - 1];
+  } else {
+    pct = hc ? healthPctOf(hc.current?.scores ?? {}) : null;
+    if (pct !== null) series.push(pct);
+  }
+  if (pct === null) return { healthPct: null, trend: "same", series: [] };
+
+  // Trend: compare the latest saved check to the one before it (±5pt band).
   // A prior entry at a literal 0% (all-red check) is a valid baseline: the
   // comparison is a subtraction, not a ratio, so no `> 0` guard is needed
   // — that guard suppressed the "up" arrow on exactly the all-red → green
@@ -95,13 +108,10 @@ export function healthCheckKPIs(healthChecks: HealthCheck[]): {
   // was defending against, and `healthPctOf` already returns null for
   // those.
   let trend: TrendDir = "same";
-  if (history.length > 0) {
-    const lastPct = healthPctOf(history[history.length - 1].scores ?? {});
-    if (lastPct !== null) {
-      const diff = pct - lastPct;
-      if (diff > 5) trend = "up";
-      else if (diff < -5) trend = "down";
-    }
+  if (series.length > 1) {
+    const diff = pct - series[series.length - 2];
+    if (diff > 5) trend = "up";
+    else if (diff < -5) trend = "down";
   }
   return { healthPct: pct, trend, series };
 }

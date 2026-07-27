@@ -460,6 +460,20 @@ export function OncallRosterClient() {
       }
       if (bucket >= 0 && bucket < WEEKS) counts[bucket] += 1;
     }
+    // Trim buckets BEFORE the first recorded page. They are "we weren't
+    // using the tool yet", not "zero pages happened" — but the fixed
+    // 26-entry array emitted them as genuine observations. Two consequences:
+    // the `counts.length < 5` / `< 4` guards below could never fire (length
+    // was only ever 0 or 26), and Mann-Kendall over ~21 structural zeros
+    // followed by real data reported a significant UPWARD trend even when
+    // paging was perfectly flat — a brand-new roster at a constant 2
+    // pages/week rendered the red "trending up significantly · p=0.022"
+    // chip. CUSUM likewise fired a "regime up" at the adoption point.
+    // `kanban-client.tsx` anchors its weekly series the same way.
+    const firstIdx = counts.findIndex((c) => c > 0);
+    if (firstIdx > 0) {
+      return { counts: counts.slice(firstIdx), weekLabels: labels.slice(firstIdx) };
+    }
     return { counts, weekLabels: labels };
   }, [state.pages, now]);
 

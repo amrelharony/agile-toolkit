@@ -119,8 +119,19 @@ function dayDiff(fromIso: string, toIso?: string): number {
   return Math.max(0, Math.round((to - from) / (1000 * 60 * 60 * 24)));
 }
 
+// `resolvedAt` is deliberately PRESERVED across a resolved→open transition
+// (see `setStatus`) so a misclick doesn't destroy the original resolution
+// date. That makes `status` — not the presence of `resolvedAt` — the only
+// valid "is this closed?" test. Keying off the timestamp froze a re-opened
+// vuln's age at the old resolution date, so it never counted as an SLA
+// breach and vanished from the burn-down chart while the "Open" KPI still
+// counted it.
+function isResolved(v: Vuln): boolean {
+  return v.status === "resolved";
+}
+
 function ageDays(v: Vuln): number {
-  return dayDiff(v.openedAt, v.resolvedAt);
+  return dayDiff(v.openedAt, isResolved(v) ? v.resolvedAt : undefined);
 }
 
 /* ── Main client ────────────────────────────────────────────────────────── */
@@ -288,7 +299,9 @@ export function VulnBurndownClient() {
       for (const v of state.vulns) {
         if (v.status === "accepted") continue;
         const opened = v.openedAt <= d;
-        const resolved = v.resolvedAt ? v.resolvedAt <= d : false;
+        // Gate on status, not on the preserved timestamp — a re-opened vuln
+        // still carries its old `resolvedAt` and was dropping off the chart.
+        const resolved = isResolved(v) && v.resolvedAt ? v.resolvedAt <= d : false;
         if (opened && !resolved) counts[v.severity]++;
       }
       const total = counts.critical + counts.high + counts.medium + counts.low;

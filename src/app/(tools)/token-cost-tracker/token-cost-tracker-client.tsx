@@ -262,9 +262,16 @@ export function TokenCostTrackerClient() {
     // clock.
     const [ey, em, ed] = earliestStr.split("-").map(Number);
     const earliestMs = new Date(ey, em - 1, ed).getTime();
+    // `earliestMs` is local MIDNIGHT of the earliest entry, so the elapsed
+    // span is already a partial day. `Math.ceil` rounded that partial up to 1
+    // and the `+ 1` then added a second day, overstating days-observed by one
+    // at every moment except exactly midnight — which HALVES the projection on
+    // day one. A user who logs $50 today against a $1000 budget should project
+    // $1500 and trip the over-budget banner; instead they saw $750 and no
+    // warning. Inclusive day count is `floor(elapsed) + 1`.
     const daysObserved = Math.min(
       30,
-      Math.max(1, Math.ceil((Date.now() - earliestMs) / (1000 * 60 * 60 * 24)) + 1)
+      Math.max(1, Math.floor((Date.now() - earliestMs) / (1000 * 60 * 60 * 24)) + 1)
     );
     return (last30Spend / daysObserved) * 30;
   }, [last30Spend, list]);

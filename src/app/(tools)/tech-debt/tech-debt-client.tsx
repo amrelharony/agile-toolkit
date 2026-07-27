@@ -278,10 +278,19 @@ export function TechDebtClient() {
     // Clamp impact/effort into [1,5] before indexing — corrupted persisted
     // values (e.g. 0, 6, NaN) would otherwise reach `grid[-1][...]` or
     // `grid[5][...]` and throw at runtime.
+    //
+    // ROUND as well as clamp: clamping alone bounds the range but not the
+    // domain, so a fractional 2.5 yielded `grid[1.5]` → `undefined[c]++` →
+    // TypeError inside a useMemo during render, unmounting the whole Tech
+    // Debt route on every mount thereafter (the value is persisted). The
+    // UI's Select only ever writes 1-5, but the agent action
+    // `workspace.tech_debt` declares `impact: z.number()` with no `.int()`,
+    // and "Import from Workspace" copies it verbatim. Mirrors the guard in
+    // threat-model-client.tsx.
+    const bucket = (v: number) =>
+      (Number.isFinite(v) ? Math.min(5, Math.max(1, Math.round(v))) : 3) - 1;
     for (const item of items.filter((x) => !x.resolvedAt)) {
-      const r = Math.min(5, Math.max(1, item.impact)) - 1;
-      const c = Math.min(5, Math.max(1, item.effort)) - 1;
-      grid[r][c]++;
+      grid[bucket(item.impact)][bucket(item.effort)]++;
     }
     return grid;
   }, [items]);

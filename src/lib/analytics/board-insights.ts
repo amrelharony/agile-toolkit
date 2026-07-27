@@ -15,9 +15,9 @@ export type BoardInsightKind =
   | "color-scrambled"
   | "overcrowded"
   // Phase 28 additions:
-  | "card-disconnected"   // card with sourceRef.tool === "backlog" whose Story no longer exists
-  | "tag-mismatch"        // tags on canvas objects that don't appear in any workspace entity
-  | "abandoned-cluster"   // cluster with no edits + no connectors for 14d
+  | "card-disconnected" // card with sourceRef.tool === "backlog" whose Story no longer exists
+  | "tag-mismatch" // tags on canvas objects that don't appear in any workspace entity
+  | "abandoned-cluster" // cluster with no edits + no connectors for 14d
   | "missing-frame-label"; // unlabelled frame (empty or whitespace-only label)
 
 export interface BoardInsight {
@@ -48,7 +48,7 @@ export function boardInsights(objects: readonly WhiteboardObject[]): BoardInsigh
       new Date(o.createdAt).getTime() < cutoff &&
       o.updatedAt &&
       new Date(o.updatedAt).getTime() < cutoff &&
-      (o.type === "sticky" || o.type === "freehand"),
+      (o.type === "sticky" || o.type === "freehand")
   );
   if (abandoned.length >= 3) {
     out.push({
@@ -65,21 +65,41 @@ export function boardInsights(objects: readonly WhiteboardObject[]): BoardInsigh
   // R8: previously included connectors / lines (w=h=0) → median skewed
   // toward 0 → outlier detector flagged every visible object. Filter to
   // kinds with meaningful bounding boxes.
-  const SIZED_KINDS = new Set(["sticky", "rect", "ellipse", "triangle", "diamond", "frame", "image", "card", "text"]);
-  const areas = objects.filter((o) => SIZED_KINDS.has(o.type)).map((o) => o.w * o.h).sort((a, b) => a - b);
+  const SIZED_KINDS = new Set([
+    "sticky",
+    "rect",
+    "ellipse",
+    "triangle",
+    "diamond",
+    "frame",
+    "image",
+    "card",
+    "text",
+  ]);
+  const areas = objects
+    .filter((o) => SIZED_KINDS.has(o.type))
+    .map((o) => o.w * o.h)
+    .sort((a, b) => a - b);
   if (areas.length >= 5) {
     // R8: proper median for even-n via the average of the two middle
     // samples. The previous Math.floor(n/2) biased high for even n.
-    const median = areas.length % 2 === 0
-      ? (areas[areas.length / 2 - 1] + areas[areas.length / 2]) / 2
-      : areas[Math.floor(areas.length / 2)];
+    const median =
+      areas.length % 2 === 0
+        ? (areas[areas.length / 2 - 1] + areas[areas.length / 2]) / 2
+        : areas[Math.floor(areas.length / 2)];
     // Guard the degenerate median=0 case (every object is a zero-area
     // placeholder e.g. degenerate freehand). Without this guard, any
     // non-zero object trips `area > 0 * mult = 0` and the rule flags
     // every visible object as an outlier.
-    const outliers = median > 0
-      ? objects.filter((o) => o.w * o.h > median * OUTLIER_SIZE_MULT)
-      : [];
+    // Screen the CANDIDATES through SIZED_KINDS too, not just the median
+    // sample. For `line`/`arrow` (and connectors) w/h are signed deltas to
+    // the end point rather than a bounding box (workspace-types.ts), so a
+    // long diagonal arrow reported a bogus "area" and got flagged
+    // oversized — or a negative one when drawn up-and-right.
+    const outliers =
+      median > 0
+        ? objects.filter((o) => SIZED_KINDS.has(o.type) && o.w * o.h > median * OUTLIER_SIZE_MULT)
+        : [];
     if (outliers.length > 0) {
       out.push({
         id: "outlier-size",
@@ -117,14 +137,17 @@ export function boardInsights(objects: readonly WhiteboardObject[]): BoardInsigh
   // The naive nested filter was O(n²); on a 1000-sticky board that was
   // ~2 M hypot calls. Spatial hash takes the worst case to roughly
   // O(n · k) where k is the local bucket density (~10-30 in practice).
-  const stickies = objects.filter((o): o is Extract<WhiteboardObject, { type: "sticky" }> => o.type === "sticky");
+  const stickies = objects.filter(
+    (o): o is Extract<WhiteboardObject, { type: "sticky" }> => o.type === "sticky"
+  );
   if (stickies.length >= 10) {
     const cell = COLOR_SCRAMBLE_NEIGHBOR_RADIUS;
     const buckets = new Map<string, typeof stickies>();
     for (const s of stickies) {
       const k = `${Math.floor(s.x / cell)},${Math.floor(s.y / cell)}`;
       const list = buckets.get(k);
-      if (list) list.push(s); else buckets.set(k, [s]);
+      if (list) list.push(s);
+      else buckets.set(k, [s]);
     }
     const radSq = COLOR_SCRAMBLE_NEIGHBOR_RADIUS * COLOR_SCRAMBLE_NEIGHBOR_RADIUS;
     let scrambled = 0;
@@ -166,7 +189,10 @@ export function boardInsights(objects: readonly WhiteboardObject[]): BoardInsigh
 
   // --- Overcrowded: high density of objects in a small bbox ---
   if (objects.length >= 25) {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
     let totalArea = 0;
     for (const o of objects) {
       if (o.x < minX) minX = o.x;
@@ -182,7 +208,8 @@ export function boardInsights(objects: readonly WhiteboardObject[]): BoardInsigh
         kind: "overcrowded",
         severity: "warn",
         title: "Board is visually overcrowded",
-        detail: "Objects occupy >50% of the bounding rectangle. Consider spreading them out or using frames.",
+        detail:
+          "Objects occupy >50% of the bounding rectangle. Consider spreading them out or using frames.",
         targets: [],
       });
     }
@@ -217,7 +244,11 @@ export function boardInsights(objects: readonly WhiteboardObject[]): BoardInsigh
  */
 export function boardInsightsCross(
   objects: readonly WhiteboardObject[],
-  workspace?: { stories?: readonly { id: string; tags?: string[] }[]; risks?: readonly { id: string; tags?: string[] }[]; teamMembers?: readonly { id: string }[] } | null,
+  workspace?: {
+    stories?: readonly { id: string; tags?: string[] }[];
+    risks?: readonly { id: string; tags?: string[] }[];
+    teamMembers?: readonly { id: string }[];
+  } | null
 ): BoardInsight[] {
   if (!workspace) return [];
   const out: BoardInsight[] = [];
@@ -257,7 +288,10 @@ export function boardInsightsCross(
   for (const o of objects) {
     if (!o.tags || o.tags.length === 0) continue;
     for (const t of o.tags) {
-      if (!knownTags.has(t)) { orphanTagTargets.push(o.id); break; }
+      if (!knownTags.has(t)) {
+        orphanTagTargets.push(o.id);
+        break;
+      }
     }
   }
   if (orphanTagTargets.length > 0 && knownTags.size > 0) {

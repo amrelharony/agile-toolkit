@@ -280,11 +280,21 @@ export function EpicRoadmapClient() {
         .sort((a, b) => a.x - b.x),
     [epics]
   );
-  const projectedNext = useMemo(
-    () =>
-      progressSeries.length >= 2 ? forecastLinear(progressSeries, [progressSeries.length]) : [],
-    [progressSeries]
-  );
+  // The horizon must be expressed on the SAME axis as the points, because
+  // `forecastLinear` evaluates `slope * x + intercept` at each horizon
+  // literally. `progressSeries.length` (2, 3, …) is an insertion count, but
+  // x is now `quarterIndex` (year*4+q ≈ 8105 for 2026 Q1), so the line was
+  // extrapolated ~8100 units outside its own domain: two epics at 70% and
+  // 50% one quarter apart projected 81100%. Evaluate one quarter past the
+  // last observed point instead, and clamp — progress is a percentage.
+  const projectedNext = useMemo(() => {
+    if (progressSeries.length < 2) return [];
+    const nextX = progressSeries[progressSeries.length - 1].x + 1;
+    return forecastLinear(progressSeries, [nextX]).map((p) => ({
+      ...p,
+      yHat: Math.min(100, Math.max(0, p.yHat)),
+    }));
+  }, [progressSeries]);
 
   const promptConfig = useMemo(
     () => ({

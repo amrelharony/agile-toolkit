@@ -77,18 +77,50 @@ describe("healthCheckKPIs (synced healthChecks singleton)", () => {
     expect(r.trend).toBe("same");
   });
 
-  it("derives an upward trend from history", () => {
-    // The prior entry scores 50% (one green, one red). Going 50% → 100% is a
-    // real "up".
+  it("ignores the `current` draft once anything has been saved", () => {
+    // Regression lock: the Squad Health Check tool's `saveCheck()` archives
+    // the scored snapshot into `history` and resets `current` to a pristine
+    // ALL-GREEN form. Sourcing the headline from `current` therefore reported
+    // 100% / "On Track" the instant a user saved an all-red check, pinned the
+    // sparkline's last point at 100 and made the trend arrow always point up.
+    // `current` is a draft, never a measurement — only saved checks count.
     const hc: HealthCheck = {
       id: "healthCheck:current",
-      current: { sprintName: "S2", scores: { a: light("green"), b: light("green") } as never },
+      // What `saveCheck()` leaves behind: empty name, every dimension green.
+      current: { sprintName: "", scores: { a: light("green"), b: light("green") } as never },
+      history: [
+        {
+          id: "h1",
+          sprintName: "S1",
+          date: "2026-01-01",
+          scores: { a: light("red"), b: light("red") } as never,
+        },
+      ],
+    };
+    const r = healthCheckKPIs([hc]);
+    expect(r.healthPct).toBe(0); // the all-red check the user actually saved
+    expect(r.series).toEqual([0]); // and no phantom 100 appended
+    expect(r.trend).toBe("same"); // a single point has no trend
+  });
+
+  it("derives an upward trend across saved checks", () => {
+    // The prior entry scores 50% (one green, one red), the latest 100%.
+    // Going 50% → 100% is a real "up".
+    const hc: HealthCheck = {
+      id: "healthCheck:current",
+      current: { sprintName: "", scores: { a: light("green"), b: light("green") } as never },
       history: [
         {
           id: "h1",
           sprintName: "S1",
           date: "2026-01-01",
           scores: { a: light("green"), b: light("red") } as never,
+        },
+        {
+          id: "h2",
+          sprintName: "S2",
+          date: "2026-01-15",
+          scores: { a: light("green"), b: light("green") } as never,
         },
       ],
     };
@@ -105,7 +137,7 @@ describe("healthCheckKPIs (synced healthChecks singleton)", () => {
     // are skipped separately.
     const hc: HealthCheck = {
       id: "healthCheck:current",
-      current: { sprintName: "S2", scores: { a: light("green"), b: light("green") } as never },
+      current: { sprintName: "", scores: { a: light("green"), b: light("green") } as never },
       history: [
         {
           id: "h1",
@@ -113,12 +145,35 @@ describe("healthCheckKPIs (synced healthChecks singleton)", () => {
           date: "2026-01-01",
           scores: { a: light("red"), b: light("red") } as never,
         },
+        {
+          id: "h2",
+          sprintName: "S2",
+          date: "2026-01-15",
+          scores: { a: light("green"), b: light("green") } as never,
+        },
       ],
     };
     const r = healthCheckKPIs([hc]);
     expect(r.healthPct).toBe(100);
     expect(r.trend).toBe("up"); // prev 0% → now 100%
     expect(r.series).toEqual([0, 100]);
+  });
+
+  it("falls back to `current` when nothing has been saved yet", () => {
+    // Before the first save there is no measurement but the live form is
+    // meaningful, so it still drives the card.
+    const hc: HealthCheck = {
+      id: "healthCheck:current",
+      current: {
+        sprintName: "S1",
+        scores: { a: light("green"), b: light("green"), c: light("red") } as never,
+      },
+      history: [],
+    };
+    const r = healthCheckKPIs([hc]);
+    expect(r.healthPct).toBe(67);
+    expect(r.series).toEqual([67]);
+    expect(r.trend).toBe("same");
   });
 });
 

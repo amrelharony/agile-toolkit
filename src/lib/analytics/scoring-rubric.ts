@@ -8,6 +8,8 @@
  * scored list with rank + percentile.
  */
 
+import { quantile } from "./anomaly";
+
 export interface ScoredItem<T = Record<string, number>> {
   id: string;
   title: string;
@@ -36,7 +38,7 @@ export function riceScore(
   reach: number,
   impact: number,
   confidencePct: number,
-  effort: number,
+  effort: number
 ): number {
   const eff = Math.max(0.5, num(effort, 0.5));
   const conf = Math.max(0, Math.min(100, num(confidencePct, 0))) / 100;
@@ -57,10 +59,13 @@ export function wsjfScore(
   businessValue: number,
   timeCriticality: number,
   rrOe: number,
-  jobSize: number,
+  jobSize: number
 ): number {
   const size = Math.max(0.5, num(jobSize, 0.5));
-  return (Math.max(0, num(businessValue)) + Math.max(0, num(timeCriticality)) + Math.max(0, num(rrOe))) / size;
+  return (
+    (Math.max(0, num(businessValue)) + Math.max(0, num(timeCriticality)) + Math.max(0, num(rrOe))) /
+    size
+  );
 }
 
 /**
@@ -69,7 +74,7 @@ export function wsjfScore(
  */
 export function weightedScore(
   optionScores: Record<string, number>,
-  criteriaWeights: Record<string, number>,
+  criteriaWeights: Record<string, number>
 ): number {
   let total = 0;
   for (const [criterionId, weight] of Object.entries(criteriaWeights)) {
@@ -131,8 +136,14 @@ export function rank<T>(items: ScoredItem<T>[]): RankedItem<T>[] {
 export function detectOutliers<T>(items: ScoredItem<T>[], k = 1.5): Set<string> {
   if (items.length < 4) return new Set();
   const sorted = items.map((i) => i.score).sort((a, b) => a - b);
-  const q1 = sorted[Math.floor(sorted.length * 0.25)];
-  const q3 = sorted[Math.floor(sorted.length * 0.75)];
+  // Interpolated quantiles, not `sorted[floor(n * p)]`. At n=4 — the
+  // smallest set this guard admits — floor(4 * 0.75) is n-1, so Q3 WAS the
+  // maximum and the upper fence sat 1.5·IQR above the very point it was
+  // meant to catch: [1, 2, 3, 1000] yielded zero outliers. n=5..8 were
+  // biased the same way. `quantile` (shared with iqrOutliers) expects the
+  // array pre-sorted, which it is.
+  const q1 = quantile(sorted, 0.25);
+  const q3 = quantile(sorted, 0.75);
   const iqr = q3 - q1;
   const lo = q1 - k * iqr;
   const hi = q3 + k * iqr;

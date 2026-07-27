@@ -133,8 +133,18 @@ function dayDiff(fromIso: string, toIso?: string): number {
   return Math.max(0, Math.round((to - from) / (1000 * 60 * 60 * 24)));
 }
 
+// `resolvedAt` is deliberately PRESERVED across a resolved→open transition
+// (see the store's `setStatus`), so `status` — not the presence of the
+// timestamp — is the only valid "is this closed?" test. Keying off the
+// timestamp froze a re-opened issue's age at the old resolution date and
+// dropped it from the burn-down chart while the "Open issues" KPI still
+// counted it.
+function isResolved(i: A11yIssue): boolean {
+  return i.status === "resolved";
+}
+
 function ageDays(i: A11yIssue): number {
-  return dayDiff(i.openedAt, i.resolvedAt);
+  return dayDiff(i.openedAt, isResolved(i) ? i.resolvedAt : undefined);
 }
 
 /* ── Main client ────────────────────────────────────────────────────────── */
@@ -298,7 +308,9 @@ export function A11yTrackerClient() {
       };
       for (const i of state.issues) {
         const opened = i.openedAt <= d;
-        const resolved = i.resolvedAt ? i.resolvedAt <= d : false;
+        // Gate on status, not on the preserved timestamp — a re-opened issue
+        // still carries its old `resolvedAt` and was dropping off the chart.
+        const resolved = isResolved(i) && i.resolvedAt ? i.resolvedAt <= d : false;
         if (opened && !resolved) counts[i.severity]++;
       }
       const total = counts.critical + counts.serious + counts.moderate + counts.minor;
