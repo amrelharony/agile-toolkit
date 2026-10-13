@@ -1,7 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
-import { isEmailAuthorized } from "./authorize";
+import { OWNER_DENIAL_MESSAGES, authorizedEmailCount, isOwnerUser } from "./authorize";
+import { jsonError } from "./json-error";
 
 /**
  * Server-side helper for API route handlers (App Router `route.ts`).
@@ -36,6 +37,12 @@ export async function requireAuthorizedUser(): Promise<{
   if (!url || !anon) {
     throw jsonError(503, "auth_unavailable", "Supabase is not configured.");
   }
+  // An empty allowlist is a deployment fault, not a verdict on the caller. A
+  // 403 would tell the client "not the owner" — and the client answers that
+  // by signing the session out — so report it like the missing env above.
+  if (authorizedEmailCount() === 0) {
+    throw jsonError(503, "auth_unavailable", "AUTHORIZED_EMAILS is not configured.");
+  }
 
   const cookieStore = cookies();
   const supabase = createServerClient(url, anon, {
@@ -67,54 +74,24 @@ export async function requireAuthorizedUser(): Promise<{
   // getUser() round-trips to Supabase Auth to verify the JWT signature.
   // For API/MCP endpoints we want the verified check.
   const { data, error } = await supabase.auth.getUser();
+  if (error?.name === "AuthRetryableFetchError") {
+    // Same split as the middleware's probe: the auth backend did not answer
+    // (DNS, abort, 5xx), which says nothing about who is calling. A 401 would
+    // make the client drop the owner's session over an outage.
+    throw jsonError(503, "auth_unreachable", "The auth backend is unreachable.", {
+      "retry-after": "5",
+    });
+  }
   if (error || !data.user) {
     throw jsonError(401, "unauthenticated", "Sign in required.");
   }
 
-  if (!isEmailAuthorized(data.user.email)) {
-    throw jsonError(403, "not_authorized", "This account is not on the allowlist.");
-  }
-
-  // BUG-A7: assert the identity is a Google identity with a verified email.
-  // The allowlist is paranoid-by-default — adding any second OAuth provider
-  // later must not silently widen who can sign in just because their email
-  // collides with an allowlist entry. Today (Google-only) this is redundant;
-  // tomorrow it's load-bearing.
-  //
-  // Fail-closed on undefined provider: a row without `app_metadata.provider`
-  // could come from a manually inserted user, a misconfigured OAuth flow,
-  // or a future provider that doesn't populate the field. None of those
-  // should pass the Google-only gate.
-  const provider = (data.user.app_metadata as { provider?: unknown } | null)?.provider;
-  if (provider !== "google") {
-    throw jsonError(403, "wrong_provider", "Only Google identities are accepted.");
-  }
-  // Require email-verified. Prefer the identity record's own flag (which
-  // reflects the verification state the provider asserted at sign-in); if
-  // identities is empty (some Supabase configs omit it), fall back to the
-  // top-level `email_confirmed_at` timestamp. Either signal must affirmatively
-  // confirm — we never permissively accept an unverified email.
-  const identities = (data.user.identities ?? []) as Array<{
-    provider: string;
-    identity_data?: { email_verified?: boolean; email?: string };
-  }>;
-  if (identities.length > 0) {
-    const matched = identities.find(
-      (i) => i.identity_data?.email?.toLowerCase() === data.user.email?.toLowerCase()
-    );
-    if (!matched || matched.identity_data?.email_verified === false) {
-      throw jsonError(403, "email_unverified", "Email not verified.");
-    }
-  } else if (!data.user.email_confirmed_at) {
-    throw jsonError(403, "email_unverified", "Email not verified.");
+  // Allowlist + Google provider + verified email (BUG-A7), shared with the
+  // middleware, the OAuth callback and the MCP PAT check.
+  const owner = isOwnerUser(data.user);
+  if (!owner.ok) {
+    throw jsonError(403, owner.code, OWNER_DENIAL_MESSAGES[owner.code]);
   }
 
   return { user: data.user, supabase };
-}
-
-function jsonError(status: number, code: string, message: string): Response {
-  return new Response(JSON.stringify({ error: code, message }), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
 }

@@ -4,7 +4,7 @@ import "./globals.css";
 import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/layout/app-shell";
-import { Toaster } from "@/components/ui/sonner";
+import { AppToaster } from "@/components/layout/app-toaster";
 import { ParticleBackground } from "@/components/shared/particle-background";
 
 const inter = Inter({
@@ -35,7 +35,7 @@ export const metadata: Metadata = {
     template: "%s | Agile Toolkit",
   },
   description:
-    "Free, open suite of 75+ interactive Agile tools — Planning Poker, Sprint Capacity Planner, Retro Board, Burndown Charts, Kanban, OKRs, and more.",
+    "Free, open suite of 110+ interactive Agile tools — sprint planning, retros, estimation, metrics and more. Runs in your browser; no sign-up.",
   keywords: [
     "agile",
     "scrum",
@@ -111,7 +111,7 @@ export default function RootLayout({
 
         <TooltipProvider>
           <AppShell>{children}</AppShell>
-          <Toaster />
+          <AppToaster />
         </TooltipProvider>
       </body>
     </html>

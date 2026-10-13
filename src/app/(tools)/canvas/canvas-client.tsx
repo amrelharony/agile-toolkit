@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   LayoutTemplate,
@@ -36,6 +36,8 @@ import {
   exportPptx,
 } from "@/lib/whiteboard/export";
 import { resolveShareToken } from "@/lib/whiteboard/share-link";
+import { useOwnerState } from "@/lib/auth/use-is-owner";
+import { toast } from "@/lib/utils/toast";
 import { wbId } from "@/lib/whiteboard/clipboard";
 import { emitSignal, subscribeSignals } from "@/lib/signals/signal-bus";
 import type { WhiteboardCard, WhiteboardObject } from "@/lib/stores/workspace-types";
@@ -70,6 +72,8 @@ import { VoiceInputButton } from "./components/voice-input-button";
  *   - `viewer`   : pure read-only
  */
 type CanvasMode = "editor" | "commenter" | "viewer";
+
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
  * Resolve the canvas mode from the URL synchronously, WITHOUT calling
@@ -106,12 +110,16 @@ function getInitialCanvasMode(): CanvasMode {
  * Async mode resolver — calls `resolveShareToken` against Supabase
  * (with localStorage fallback for legacy tokens) and returns the
  * appropriate mode. Used by an effect on mount + popstate.
+ *
+ * `honourShare` is false for public visitors: share links belong to the
+ * owner's boards, which a visitor's browser never loads (their realtime
+ * stays local), so only `?view=` applies to them.
  */
-async function resolveCanvasMode(): Promise<CanvasMode> {
+async function resolveCanvasMode(honourShare: boolean): Promise<CanvasMode> {
   if (typeof window === "undefined") return "editor";
   try {
     const params = new URLSearchParams(window.location.search);
-    const token = params.get("share");
+    const token = honourShare ? params.get("share") : null;
     if (token) {
       const hit = await resolveShareToken(token);
       if (hit) {
@@ -131,17 +139,66 @@ async function resolveCanvasMode(): Promise<CanvasMode> {
   }
 }
 
+/**
+ * Drop `share` / `board` from the address bar so a visitor's own board
+ * isn't shown under someone else's link. `view` goes too: the role it
+ * names (`readonly` / `commenter`) belonged to the owner's link, and left
+ * behind it would lock the visitor's OWN browser-local board read-only.
+ * A bare `?view=` with no share/board stays (a dev/test affordance).
+ * Passes `null` state on purpose:
+ * Next's patched replaceState then copies its own router state over and
+ * records the new URL, whereas passing `history.state` (which carries
+ * `__NA`) skips that sync and a later router update would restore the
+ * old `?share=` URL. Returns true when a share token was dropped.
+ */
+function stripShareParams(): boolean {
+  try {
+    const url = new URL(window.location.href);
+    const hadShare = url.searchParams.has("share");
+    if (!hadShare && !url.searchParams.has("board")) return false;
+    url.searchParams.delete("share");
+    url.searchParams.delete("board");
+    url.searchParams.delete("view");
+    window.history.replaceState(null, "", url);
+    return hadShare;
+  } catch {
+    return false;
+  }
+}
+
 export function CanvasClient() {
   // Initial mode is the URL-driven mode WITHOUT the share-token lookup
   // (synchronous). The async effect below validates the token against
   // Supabase + localStorage and upgrades the mode when it resolves.
   // We deliberately START as viewer when `?share=` is present so a
   // brief render window can't grant editor on a forged URL.
-  const [mode, setMode] = useState<CanvasMode>(() => getInitialCanvasMode());
+  //
+  // The page is prerendered with no URL (mode "editor"), so the hydrating
+  // render must say "editor" too or React throws a hydration mismatch
+  // (#418/#423) on every `?share=` / `?view=` link. The URL mode is applied
+  // in a layout effect instead: it commits before the first paint, so the
+  // viewer floor still holds for anything the user can see or click.
+  const [mode, setMode] = useState<CanvasMode>("editor");
+  useIsomorphicLayoutEffect(() => {
+    setMode(getInitialCanvasMode());
+  }, []);
+  // Whether `?share=` applies depends on who is looking, so the mode is
+  // only resolved once auth settles (until then a share link stays at the
+  // viewer floor from getInitialCanvasMode). A session whose owner check
+  // is still unanswered counts as neither owner nor visitor: it keeps the
+  // floor and its link until the check lands, instead of having the
+  // (probably the owner's) `?share=` stripped as a visitor's.
+  const { isOwner, visitor } = useOwnerState();
+  const shareNoticeShownRef = useRef(false);
   useEffect(() => {
+    if (!isOwner && !visitor) return;
     let cancelled = false;
+    if (visitor && stripShareParams() && !shareNoticeShownRef.current) {
+      shareNoticeShownRef.current = true;
+      toast.info("Share links open for the board owner. Ask for a squad invite to collaborate.");
+    }
     const refresh = () => {
-      void resolveCanvasMode().then((next) => {
+      void resolveCanvasMode(isOwner).then((next) => {
         if (!cancelled) setMode(next);
       });
     };
@@ -152,7 +209,7 @@ export function CanvasClient() {
       cancelled = true;
       window.removeEventListener("popstate", onPop);
     };
-  }, []);
+  }, [isOwner, visitor]);
   const readOnly = mode !== "editor";
   const canComment = mode !== "viewer";
   // Subscribe to AI panel visibility so we only run the expensive

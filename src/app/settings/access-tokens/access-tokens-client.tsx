@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { KeyRound, Trash2, Copy, Check, Eye, EyeOff } from "lucide-react";
+import { EmptyState } from "@/components/shared/empty-state";
+import { useOwnerState } from "@/lib/auth/use-is-owner";
+import { KeyRound, Lock, Trash2, Copy, Check, Eye, EyeOff } from "lucide-react";
 
 type AccessLevel = "full" | "write" | "read";
 
@@ -30,7 +33,13 @@ interface CreatedToken {
   rawToken: string;
 }
 
+const SIGN_IN_HREF = `/auth/sign-in?next=${encodeURIComponent("/settings/access-tokens")}`;
+
 export function AccessTokensClient() {
+  // The middleware already sends non-owners to sign-in; this guard is
+  // defence in depth (e.g. a session the owner check rejected after the
+  // page loaded), so the token API is never called for a visitor.
+  const { isOwner, settled } = useOwnerState();
   const [tokens, setTokens] = useState<TokenRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -65,8 +74,9 @@ export function AccessTokensClient() {
   };
 
   useEffect(() => {
+    if (!isOwner) return;
     void refresh();
-  }, []);
+  }, [isOwner]);
 
   const onCreate = async () => {
     const name = newName.trim();
@@ -123,6 +133,27 @@ export function AccessTokensClient() {
       /* clipboard blocked — user can manually copy */
     }
   };
+
+  if (settled && !isOwner) {
+    return (
+      <div className="max-w-3xl">
+        <EmptyState
+          icon={Lock}
+          action={
+            <Button asChild variant="outline" size="sm">
+              <Link href={SIGN_IN_HREF}>Owner sign in</Link>
+            </Button>
+          }
+        >
+          <p className="font-medium text-text">Owner only</p>
+          <p className="mt-1 text-sm">
+            Access tokens connect agents to the workspace owner&apos;s account. Sign in as the owner
+            to manage them.
+          </p>
+        </EmptyState>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-3xl">

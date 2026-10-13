@@ -1,9 +1,12 @@
 import { Suspense } from "react";
+import type { Metadata } from "next";
 import { SignInCard } from "./sign-in-card";
 
-export const metadata = {
-  title: "Sign in — Agile Toolkit",
-  description: "Sign in to your Agile Toolkit workspace.",
+// The root layout's title template appends " | Agile Toolkit".
+export const metadata: Metadata = {
+  title: "Owner sign in",
+  description: "Owner sign in for the Agile Toolkit workspace. Visitors don't need an account.",
+  robots: { index: false, follow: false },
 };
 
 export default function SignInPage() {
@@ -27,12 +30,8 @@ export default function SignInPage() {
           className="rounded-2xl shadow-sm"
         />
         <div className="text-center space-y-1">
-          <h1 className="text-3xl font-semibold tracking-tight text-text">
-            Agile Toolkit
-          </h1>
-          <p className="text-sm text-sub">
-            100+ tools for agile delivery, in one workspace.
-          </p>
+          <h1 className="text-3xl font-semibold tracking-tight text-text">Agile Toolkit</h1>
+          <p className="text-sm text-sub">110+ tools for agile delivery, in one workspace.</p>
         </div>
       </header>
 

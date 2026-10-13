@@ -11,13 +11,24 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { Search, Moon, Sun, Menu, Contrast, MessageSquare } from "lucide-react";
+import Link from "next/link";
+import { Search, Moon, Sun, Menu, Contrast, MessageSquare, CloudOff, X } from "lucide-react";
 import { SonificationToggle } from "@/components/shared/sonification-toggle";
 import { LlmStatusChip } from "@/components/ai/llm-status-chip";
 import { useAgentStore } from "@/lib/agent/store";
 import { XpBar } from "@/components/gamification/xp-bar";
 import { WeatherWidget } from "@/lib/weather/widget";
 import { UserMenu } from "@/components/auth/user-menu";
+import { VisitorDataMergeDialog } from "@/components/auth/visitor-data-merge-dialog";
+import { useAuth } from "@/lib/auth/auth-provider";
+import { OWNER_UNVERIFIED } from "@/lib/auth/owner-check";
+import {
+  setVisitorDataPromptOpen,
+  useOwnerSeen,
+  useOwnerSyncGateStore,
+  useVisitorDataPending,
+} from "@/lib/sync/owner-sync-gate";
+import { installLocalDataChannelListener } from "@/lib/utils/clear-local-data";
 import { KudosHeaderBeacon } from "@/lib/kudos/beacon/header-beacon";
 import { useKudosSettingsStore } from "@/lib/stores/kudos-settings-store";
 import { cn } from "@/lib/utils";
@@ -99,6 +110,12 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
     setTheme((t) => (t === "dark" ? "light" : t === "light" ? "hc" : "dark"));
   };
 
+  // Another tab cleared this browser's toolkit data (visitor "Clear data",
+  // owner sign-out, or discarding signed-out work): clear this tab too (its
+  // in-memory stores and its own sessionStorage, which the other tab can't
+  // reach) and reload, or the cleared data would be written straight back.
+  useEffect(() => installLocalDataChannelListener(), []);
+
   useEffect(() => {
     // Throttle via rAF — `scroll` can fire at native 60Hz+, and our only
     // need is the boolean transition. Calling setState 60 times per second
@@ -122,7 +139,7 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
     };
   }, []);
 
-  return (
+  const bar = (
     <header
       className={cn(
         // Mobile-first: tight 8 px gap on the smallest phones, growing as the
@@ -283,5 +300,100 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
         <UserMenu />
       </div>
     </header>
+  );
+
+  return (
+    <>
+      {bar}
+      <SharedBrowserNotice />
+      <VisitorDataMergeDialog />
+    </>
+  );
+}
+
+const NOTICE_DISMISSED_KEY = "agile-toolkit:signed-out-notice-dismissed";
+
+/**
+ * Slim notice under the header for the two shared-browser states that
+ * otherwise fail silently:
+ *  - the owner has used this browser but is now signed out (e.g. the
+ *    session lapsed): changes stay local until they sign back in;
+ *  - the owner closed the "work created while signed out" dialog without
+ *    answering: cloud sync stays paused until they do.
+ */
+function SharedBrowserNotice() {
+  const { status, error } = useAuth();
+  const pathname = usePathname();
+  const ownerSeen = useOwnerSeen();
+  const syncPending = useVisitorDataPending();
+  const promptOpen = useOwnerSyncGateStore((s) => s.promptOpen);
+  // Hidden until sessionStorage is read, so a dismissed notice never flashes.
+  const [dismissed, setDismissed] = useState(true);
+
+  useEffect(() => {
+    try {
+      setDismissed(window.sessionStorage.getItem(NOTICE_DISMISSED_KEY) === "1");
+    } catch {
+      setDismissed(false);
+    }
+  }, []);
+
+  const dismiss = () => {
+    setDismissed(true);
+    try {
+      window.sessionStorage.setItem(NOTICE_DISMISSED_KEY, "1");
+    } catch {
+      /* storage blocked — dismissed for this page view only */
+    }
+  };
+
+  // Tokens, not `border-accent/30`-style modifiers: opacity modifiers on the
+  // var() palette colours emit no CSS in this Tailwind config.
+  const noticeClass =
+    "mx-3 sm:mx-4 md:mx-6 mt-2 flex items-center gap-2 rounded-lg border border-[var(--glowS)] bg-[var(--glow)] px-3 py-1.5 text-xs text-sub";
+
+  if (syncPending && !promptOpen) {
+    return (
+      <div role="status" className={noticeClass}>
+        <CloudOff className="w-3.5 h-3.5 shrink-0 text-accent" aria-hidden="true" />
+        <span className="flex-1 min-w-0">
+          Cloud sync is paused until you choose what to do with work created while signed out.
+        </span>
+        <button
+          type="button"
+          onClick={() => setVisitorDataPromptOpen(true)}
+          className="shrink-0 font-medium text-accent hover:underline underline-offset-4"
+        >
+          Review
+        </button>
+      </div>
+    );
+  }
+
+  // A visitor on a browser the owner has used. Not while an owner check is
+  // merely unanswered (OWNER_UNVERIFIED): that session is still signed in
+  // and AuthProvider is retrying.
+  const signedOut = status === "anonymous" || (status === "error" && error !== OWNER_UNVERIFIED);
+  if (!signedOut || !ownerSeen || dismissed) return null;
+
+  return (
+    <div role="status" className={noticeClass}>
+      <CloudOff className="w-3.5 h-3.5 shrink-0 text-accent" aria-hidden="true" />
+      <span className="flex-1 min-w-0">Signed out — changes stay on this device.</span>
+      <Link
+        href={`/auth/sign-in?next=${encodeURIComponent(pathname || "/")}`}
+        className="shrink-0 font-medium text-accent hover:underline underline-offset-4"
+      >
+        Sign in to sync
+      </Link>
+      <button
+        type="button"
+        onClick={dismiss}
+        className="shrink-0 -mr-1 p-1 rounded text-sub hover:text-text"
+        aria-label="Dismiss"
+      >
+        <X className="w-3.5 h-3.5" aria-hidden="true" />
+      </button>
+    </div>
   );
 }

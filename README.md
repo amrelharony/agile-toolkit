@@ -1,8 +1,12 @@
 # Agile Toolkit
 
-A single-user, AI-controllable, cross-device toolkit of 100+ tools for agile
-delivery — sprint planning, retros, story mapping, OKRs, metrics dashboards,
-decision frameworks, whiteboarding, AI/ML PM workflows, and more.
+A free, public toolkit of 110 interactive tools for agile delivery — sprint
+planning, retros, story mapping, OKRs, metrics dashboards, decision frameworks,
+whiteboarding, AI/ML PM workflows, and more — plus the free "Agile at Work"
+comic book.
+
+Every tool works without an account: a visitor's work stays in their browser.
+The owner's sign-in adds cross-device cloud sync, the in-app agent and MCP.
 
 Built with Next.js 14 (App Router), Zustand, Supabase, and Tailwind.
 
@@ -10,13 +14,38 @@ Built with Next.js 14 (App Router), Zustand, Supabase, and Tailwind.
 
 Five integrated subsystems, layered:
 
-1. **Auth lock** — Single-email allowlist via Google OAuth. Edge middleware
-   gates every page and API route on a Supabase session whose email is in
-   `AUTHORIZED_EMAILS`. Fail-closed: missing env → every request bounces to
-   `/not-authorized`. RLS on every user table is `auth.uid() = user_id`.
-   See [src/middleware.ts](src/middleware.ts).
+1. **Access model** — Public, browser-only tools; owner-only server.
+   - **Visitors** (no sign-in) use every tool. Their data stays in the
+     browser's localStorage and never reaches the toolkit's server or
+     database (in-tool AI prompts go straight to the provider of the key the
+     visitor brings).
+   - **The owner** is a Supabase session whose user is in
+     `AUTHORIZED_EMAILS`, signed in with Google, with a verified email
+     (`isOwnerUser` in [src/lib/auth/authorize.ts](src/lib/auth/authorize.ts)).
+     Owner-only: cloud and history sync, the agent's server path, MCP,
+     personal access tokens, the kudos/squads/sessions APIs and realtime
+     multiplayer.
+   - Edge middleware lets every page through (pages fail **open**) and
+     guards the owner surface (fails **closed**): every non-bypassed
+     `/api/*` route answers JSON `401 unauthenticated`,
+     `403 not_authorized | wrong_provider | email_unverified` or
+     `503 auth_unavailable | auth_unreachable` (with `retry-after`) — never a
+     redirect. The pages in `OWNER_ONLY_PAGES`
+     ([src/lib/auth/owner-routes.ts](src/lib/auth/owner-routes.ts):
+     `/settings/access-tokens`, `/settings/squads`) redirect to sign-in or
+     `/not-authorized`. A non-owner's session cookies are expired, so they
+     carry on as a visitor.
+   - The browser never trusts a session on its own: `GET /api/auth/owner`
+     (`200 {owner:true}`, else 401/403/503 JSON) confirms the owner before
+     anything owner-only starts. RLS on every user table is
+     `auth.uid() = user_id`.
+   - Shared browsers: owner sign-out clears the toolkit's local data unless
+     "Keep a copy on this browser" is ticked; visitors can clear it from the
+     visitor menu; and when the owner signs in where a visitor left work, a
+     "merge or discard?" prompt runs before any sync uploads it.
+   - See [src/middleware.ts](src/middleware.ts).
 
-2. **Cross-device cloud sync** — Local-first. Every Zustand store and every
+2. **Cross-device cloud sync** (owner) — Local-first. Every Zustand store and every
    workspace entity (sprints, stories, whiteboard objects, etc.) writes to
    localStorage first; a debounced pusher mirrors to Supabase. Realtime
    subscriptions fan remote writes back to other open tabs. LWW on
@@ -30,14 +59,14 @@ Five integrated subsystems, layered:
    `tools/list`. ~102 actions wired today, growing.
    See [src/lib/actions/registry.ts](src/lib/actions/registry.ts).
 
-4. **In-app chat agent** — A right-side sheet (Cmd/Ctrl+J) powered by GLM
+4. **In-app chat agent** (owner) — A right-side sheet (Cmd/Ctrl+J) powered by GLM
    (Zhipu) via OpenAI-compatible chat completions. Server proxy at
    `/api/agent/stream` or browser-direct BYOK using the per-tool key in
    the LLM settings store. Write actions pause for inline approval;
    "approve all this session" opt-in available.
    See [src/app/api/agent/stream/route.ts](src/app/api/agent/stream/route.ts).
 
-5. **MCP server** — HTTP/SSE transport at `/api/mcp` for remote agents
+5. **MCP server** (owner) — HTTP/SSE transport at `/api/mcp` for remote agents
    (Claude Desktop, Claude Code, OpenClaw), plus a thin stdio relay
    package (`mcp-server/`) that forwards to the deployed app. PAT auth
    with scrypt-hashed bearer tokens. Per-token rate-limit bucket.
@@ -69,14 +98,15 @@ npx supabase db push
 
 ## Scripts
 
-| Command            | Purpose                           |
-| ------------------ | --------------------------------- |
-| `npm run dev`      | Next.js dev server with HMR.      |
-| `npm run build`    | Production build.                 |
-| `npm run start`    | Run the production build locally. |
-| `npm run lint`     | ESLint over the project.          |
-| `npm run test`     | Vitest in watch mode.             |
-| `npm run test:run` | Vitest one-shot (CI uses this).   |
+| Command              | Purpose                                                           |
+| -------------------- | ----------------------------------------------------------------- |
+| `npm run dev`        | Next.js dev server with HMR.                                      |
+| `npm run build`      | Production build.                                                 |
+| `npm run start`      | Run the production build locally.                                 |
+| `npm run lint`       | ESLint over the project.                                          |
+| `npm run test`       | Vitest in watch mode.                                             |
+| `npm run test:run`   | Vitest one-shot (CI uses this).                                   |
+| `npm run pdf:worker` | Copy the pdf.js worker to `public/` (after bumping `pdfjs-dist`). |
 
 ## Deployment
 
@@ -91,8 +121,42 @@ Environment variables for production (set in the Vercel dashboard):
   the Supabase project (see `vercel.json`).
 
 Vercel Authentication ("Require Log In" under Deployment Protection)
-must be **off** for the public domain to reach the app; the
-single-user lock is enforced by the in-app middleware, not Vercel's.
+must be **off** for the production domain — the site is public and the
+owner-only surface is enforced by the in-app middleware. Keep it **on** for
+Preview deployments (see the checklist below).
+
+### Owner checklist — before deploying
+
+The public "Owner sign in" button lets anyone start a Google sign-in, so:
+
+- **Supabase → Authentication → Sign In / Providers:** once the owner has
+  signed in at least once (that creates the account), turn off **Allow new
+  users to sign up** — strangers then get `signup_disabled` instead of an
+  account. Confirm **anonymous sign-ins** are off.
+- **Supabase → Authentication → Users:** delete any non-owner users created
+  while sign-ups were on.
+- **Vercel → Settings → Deployment Protection:** protect **Preview**
+  deployments. Previews share the production Supabase project and would
+  otherwise be public.
+
+## "Agile at Work" comic
+
+The reader lives at `/agile-at-work`. The PDF is a static file the owner
+commits; nothing else is needed.
+
+- Put it at `public/comics/agile-at-work.pdf`.
+- Keep it at **50 MB or less**. GitHub's web uploader caps files at 25 MB
+  and `git push` rejects files over 100 MB, so push larger files with git.
+- Export it for the web: **linearized ("Fast Web View")**, JPEG images at
+  **150–200 dpi**, fonts embedded. Avoid JPEG2000 and JBIG2 images — the
+  reader doesn't configure pdf.js's WASM decoders for them, so they won't
+  render.
+- Availability is decided at build time (`scripts/comic-asset.mjs`): until
+  the file exists the page shows "Coming soon", and the home banner and the
+  sitemap entry stay hidden. Restart `npm run dev` after adding or
+  replacing the file; on Vercel the push that adds it rebuilds.
+- After bumping `pdfjs-dist`, run `npm run pdf:worker` so the public worker
+  matches the library version.
 
 ## MCP integration
 
@@ -127,12 +191,17 @@ Rate limit: 120 requests/minute per PAT.
 
 ## Security
 
-- All routes gated by middleware on a valid Supabase session + email allowlist.
+- Pages are public; every non-bypassed `/api/*` route and the
+  `OWNER_ONLY_PAGES` require the owner (allowlisted Google account with a
+  verified email). API failures are JSON 401/403/503, never redirects.
+- MCP bearer tokens are re-checked against the owner, so a PAT row inserted
+  by another account resolves to nothing.
 - All Supabase tables enforce `auth.uid() = user_id` via RLS.
 - PATs stored as scrypt hashes; lookup via SECURITY DEFINER Postgres function.
 - CSP locked to first-party + the LLM provider endpoints the app actually uses.
 - HSTS, COOP, X-Frame-Options DENY, frame-ancestors 'none'.
-- security.txt at `/.well-known/security.txt`.
+- security.txt at `/.well-known/security.txt`; `/robots.txt` keeps `/api/`,
+  `/auth/`, `/settings/`, `/guest/` and `/not-authorized` out of the index.
 - See [src/lib/auth/](src/lib/auth/) for the auth helpers and
   [src/middleware.ts](src/middleware.ts) for the gate.
 

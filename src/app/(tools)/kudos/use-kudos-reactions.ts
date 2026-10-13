@@ -18,11 +18,16 @@
  * normalises owner squad-profile attribution server-side). Without auth
  * we still construct an attribution string from the room's local userId
  * — defensive so the optimistic state is well-formed even pre-login.
+ *
+ * Visitors (anyone but the verified owner) stop after step 1: the
+ * reactions API is owner-only, so their reaction lives in this browser's
+ * workspace store and there is nothing to roll back.
  */
 
 import { useCallback } from "react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useAuthOptional } from "@/lib/auth/auth-provider";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { toast } from "@/lib/utils/toast";
 import type { Kudos, KudosReaction } from "@/lib/stores/workspace-types";
 
@@ -33,6 +38,7 @@ export interface UseKudosReactionsHook {
 
 export function useKudosReactions(): UseKudosReactionsHook {
   const auth = useAuthOptional();
+  const isOwner = useIsOwner();
   const kudosList = useWorkspaceStore((s) => s.kudos ?? EMPTY);
   const upsertKudos = useWorkspaceStore((s) => s.upsertKudos);
 
@@ -63,6 +69,7 @@ export function useKudosReactions(): UseKudosReactionsHook {
         reactions: [...existing, optimistic],
       };
       upsertKudos(optimisticKudos);
+      if (!isOwner) return;
 
       try {
         const res = await fetch(`/api/kudos/${encodeURIComponent(kudosId)}/reactions`, {
@@ -89,7 +96,7 @@ export function useKudosReactions(): UseKudosReactionsHook {
         toast.error("Couldn't reach the server. Reaction reverted.");
       }
     },
-    [auth?.user?.id, kudosList, upsertKudos]
+    [auth?.user?.id, isOwner, kudosList, upsertKudos]
   );
 
   return { addReaction };

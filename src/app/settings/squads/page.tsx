@@ -3,6 +3,8 @@ import { SquadsClient } from "./squads-client";
 export const metadata = {
   title: "Squads — Agile Toolkit",
   description: "Manage squad invite codes and guest profiles.",
+  // Owner-only page: keep it out of search results on the public site.
+  robots: { index: false, follow: false },
 };
 
 export default function SquadsPage() {

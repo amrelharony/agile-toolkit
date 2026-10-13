@@ -1,10 +1,17 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { isEmailAuthorized } from "@/lib/auth/authorize";
+import {
+  OWNER_DENIAL_MESSAGES,
+  authorizedEmailCount,
+  isOwnerUser,
+  type OwnerCandidate,
+} from "@/lib/auth/authorize";
+import { jsonError } from "@/lib/auth/json-error";
+import { routeKind } from "@/lib/auth/owner-routes";
 
 /**
- * How long the session check may take before we give up and treat the request
- * as signed out.
+ * How long the session check may take before we give up and treat the auth
+ * backend as unreachable.
  *
  * A healthy getUser() round-trip is tens of milliseconds; 3s is far outside
  * normal and still leaves room under Vercel's middleware budget for the
@@ -13,9 +20,12 @@ import { isEmailAuthorized } from "@/lib/auth/authorize";
  */
 export const AUTH_TIMEOUT_MS = 3_000;
 
-/** Outcome of the session check. All non-`ok` outcomes fail closed. */
+/**
+ * Outcome of the session check. Every non-`ok` outcome fails closed for the
+ * API and owner pages (public pages pass regardless).
+ */
 type SessionProbe =
-  | { status: "ok"; user: { email?: string | null } }
+  | { status: "ok"; user: OwnerCandidate }
   | { status: "anonymous" }
   | { status: "unreachable" };
 
@@ -27,7 +37,7 @@ type SessionProbe =
 type SessionVerifier = {
   auth: {
     getUser(): Promise<{
-      data: { user: { email?: string | null } | null };
+      data: { user: OwnerCandidate | null };
       error: { name?: string } | null;
     }>;
   };
@@ -55,10 +65,11 @@ export async function probeSession(supabase: SessionVerifier): Promise<SessionPr
     .getUser()
     .then(({ data, error }): SessionProbe => {
       if (!error && data.user) return { status: "ok", user: data.user };
-      // Best-effort split for the logs only: supabase-js raises
-      // AuthRetryableFetchError when the request itself failed (DNS, abort,
-      // 5xx) as opposed to "this cookie carries no valid session". Both fail
-      // closed to the same place, so a misclassification costs nothing.
+      // Best-effort split: supabase-js raises AuthRetryableFetchError when
+      // the request itself failed (DNS, abort, 5xx) as opposed to "this
+      // cookie carries no valid session". Both fail closed for the owner
+      // surface; the split only picks between a retryable 503 and a 401, so
+      // a misclassification costs a wrong status code, never access.
       return error?.name === "AuthRetryableFetchError"
         ? { status: "unreachable" }
         : { status: "anonymous" };
@@ -73,28 +84,49 @@ export async function probeSession(supabase: SessionVerifier): Promise<SessionPr
 }
 
 /**
- * Edge middleware — single-user auth gate.
+ * Edge middleware — public pages, owner-only server.
  *
- * Every page route and API route runs through this. Allows only requests
- * carrying a valid Supabase session whose email is in AUTHORIZED_EMAILS.
+ * Every tool page is public: a visitor without a session uses the toolkit in
+ * their browser, data in localStorage, and nothing here gets in the way. What
+ * stays owner-only is the server — every /api/* route that is not on the
+ * bypass list — plus the pages in OWNER_ONLY_PAGES that exist only to manage
+ * those APIs. The owner is a Supabase session whose user passes isOwnerUser
+ * (allowlisted in AUTHORIZED_EMAILS, Google identity, verified email).
  *
- * Fail-closed: if Supabase env vars or AUTHORIZED_EMAILS are unset, every
- * request is redirected to /not-authorized. That's the desired behaviour
- * — the toolkit should not boot in an unconfigured state.
+ * So: pages fail OPEN, the API and owner pages fail CLOSED.
+ *
+ *   - No session cookie: answered without any I/O — no Supabase client, no
+ *     env read. A page passes, the API gets a JSON 401, an owner page
+ *     redirects to sign-in. Anonymous page views cost nothing, and a Supabase
+ *     outage leaves the public site fully working.
+ *   - Misconfigured (Supabase env or AUTHORIZED_EMAILS missing): pages pass
+ *     with their cookies untouched, the API gets a JSON 503, owner pages go to
+ *     /not-authorized?reason=config. An empty allowlist must not read as
+ *     "this user is not the owner", or the owner would be signed out on every
+ *     navigation with nothing pointing at the cause.
+ *   - A session that is not the owner's: its auth cookies are expired, so the
+ *     browser carries on as a visitor rather than being locked out of a
+ *     public site. The API gets a JSON 403, owner pages /not-authorized.
+ *
+ * API answers are JSON, never a redirect: fetch follows a 307 keeping the
+ * method, so a client would get the HTML sign-in page where it expects JSON
+ * — or a 200 for a write that never happened.
  *
  * Fail-FAST too: the session check is the only outbound call this middleware
  * makes, and it is bounded (see AUTH_TIMEOUT_MS). An unreachable auth backend
- * must degrade to the sign-in page, never hang. When the Supabase project's
- * DNS record disappeared in July 2026, the unbounded call meant every
- * signed-in request sat until Vercel killed the invocation — a site-wide
- * 504 MIDDLEWARE_INVOCATION_TIMEOUT — while signed-out visitors saw a
- * perfectly healthy site, because with no session cookie supabase-js answers
- * locally and never touches the network.
+ * must degrade — pages pass, the API answers 503, owner pages go to sign-in —
+ * never hang. When the Supabase project's DNS record disappeared in July
+ * 2026, the unbounded call meant every signed-in request sat until Vercel
+ * killed the invocation — a site-wide 504 MIDDLEWARE_INVOCATION_TIMEOUT —
+ * while signed-out visitors saw a perfectly healthy site, because with no
+ * session cookie supabase-js answers locally and never touches the network.
  *
- * Bypass list (see `config.matcher` at the bottom):
+ * Bypass list (see isBypassPath, and `config.matcher` at the bottom):
  *   /auth/*           — sign-in, callback, sign-out flows
  *   /not-authorized   — the denied page itself
  *   /api/health       — uptime probes
+ *   /api/mcp, /api/agent/stream — bearer-token / self-gated endpoints
+ *   /guest/*, /api/guest/* — invite-cookie flows, gated by their handlers
  *   /_next/*          — Next.js static + image optimisation
  *   /favicon.ico, robots.txt, sitemap.xml — typical static
  *   /public assets    — anything with a file extension served by Next
@@ -102,61 +134,30 @@ export async function probeSession(supabase: SessionVerifier): Promise<SessionPr
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Bypass paths that must remain reachable for the auth flow itself,
-  // for trivial static assets, AND for the MCP / agent endpoints that
-  // perform their own bearer-token authentication. Middleware can't
-  // enforce a Supabase session on those routes — external agents
-  // (Claude Desktop, Claude Code) never carry one. Those routes' POST
-  // handlers gate on `requireAuthorizedUser` or `verifyBearer` directly.
-  const isGuestPath =
-    pathname === "/guest" || pathname.startsWith("/guest/") || pathname.startsWith("/api/guest/");
-  if (
-    pathname.startsWith("/auth/") ||
-    pathname === "/not-authorized" ||
-    pathname === "/api/health" ||
-    pathname === "/api/mcp" ||
-    pathname.startsWith("/api/mcp/") ||
-    pathname === "/api/agent/stream" ||
-    isGuestPath
-  ) {
-    // Dual-cookie disambiguation: when an authenticated owner navigates
-    // into the /guest/* tree carrying both an `sb-*` Supabase session
-    // AND a leftover `agile-toolkit:guest` cookie (e.g. they tested the
-    // guest flow on their own browser earlier), strip the guest cookie
-    // on the way through. Otherwise `useCollaborativeSession` reads
-    // guest-first and downgrades the owner into a guest identity,
-    // attributing their edits to a squad_profile_id instead of user_id.
-    const stripGuestCookie =
-      isGuestPath && hasOwnerSessionCookie(request) && request.cookies.has("agile-toolkit:guest");
-    // The strip has to happen on the REQUEST as well, not just the response.
-    // Deleting it only on the response expires it in the browser but leaves
-    // the incoming cookie header intact, so the very render this fires on
-    // still resolves a guest session in `(guest)/layout.tsx` — the owner got
-    // a page mounted in guest mode whose writes then 401'd, because the
-    // browser had already dropped the cookie the client fetches needed.
-    // `NextResponse.next({ request })` forwards the mutated headers.
-    if (stripGuestCookie) request.cookies.delete("agile-toolkit:guest");
-    const resp = stripGuestCookie ? NextResponse.next({ request }) : NextResponse.next();
-    if (stripGuestCookie) {
-      resp.cookies.set({
-        name: "agile-toolkit:guest",
-        value: "",
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: 0,
-      });
-    }
-    return resp;
+  if (isBypassPath(pathname)) return bypass(request);
+
+  const kind = routeKind(pathname);
+
+  // Fast path, no I/O: without a session cookie there is nobody to verify.
+  // Checked before the env so the public site keeps serving even when the
+  // deployment's auth config is broken.
+  if (!hasSupabaseSessionCookie(request)) {
+    if (kind === "public-page") return NextResponse.next();
+    if (kind === "api") return jsonError(401, "unauthenticated", "Sign in required.");
+    return redirectTo(request, "/auth/sign-in", "unauthenticated");
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  // Fail closed: if Supabase env is missing, treat every request as
-  // unauthorised. Redirect rather than 500 so the page renders cleanly.
-  if (!url || !anon) {
+  // Fail closed for the owner surface, open for pages — and leave the
+  // cookies alone: nothing here says the session is bad.
+  if (!url || !anon || authorizedEmailCount() === 0) {
+    warnMisconfiguredOnce();
+    if (kind === "public-page") return NextResponse.next();
+    if (kind === "api") {
+      return jsonError(503, "auth_unavailable", "Owner sign-in is not configured.");
+    }
     return redirectTo(request, "/not-authorized", "config");
   }
 
@@ -221,21 +222,118 @@ export async function middleware(request: NextRequest) {
     // visitors while every signed-in request lands here, so without this the
     // outage is invisible in the platform logs.
     console.warn(
-      `[middleware] auth backend unreachable within ${AUTH_TIMEOUT_MS}ms — treating request as signed out`
+      `[middleware] auth backend unreachable within ${AUTH_TIMEOUT_MS}ms — pages pass, owner routes fail closed`
     );
+    // The session may well still be valid, so nothing is expired here.
+    if (kind === "public-page") return buildResponse(NextResponse.next({ request }));
+    if (kind === "api") {
+      return buildResponse(
+        jsonError(503, "auth_unreachable", "The auth backend is unreachable.", {
+          "retry-after": "5",
+        })
+      );
+    }
     return buildResponse(redirectTo(request, "/auth/sign-in", "auth_unreachable"));
   }
 
   if (probe.status === "anonymous") {
+    // A stale cookie. buildResponse carries Supabase's own removals for it.
+    if (kind === "public-page") return buildResponse(NextResponse.next({ request }));
+    if (kind === "api") {
+      return buildResponse(jsonError(401, "unauthenticated", "Sign in required."));
+    }
     return buildResponse(redirectTo(request, "/auth/sign-in", "unauthenticated"));
   }
 
-  if (!isEmailAuthorized(probe.user.email)) {
+  const owner = isOwnerUser(probe.user);
+  if (!owner.ok) {
     // Privacy: do NOT log the rejected email. The denial event is enough.
-    return buildResponse(redirectTo(request, "/not-authorized", "denied"));
+    //
+    // A real session that isn't the owner's: drop it so the browser carries
+    // on as a visitor. Stripped from the forwarded request too, so the page
+    // rendered on this very request already sees a visitor.
+    const names = sessionCookieNames(request, cookiesToSet);
+    for (const name of names) request.cookies.delete(name);
+    let resp: NextResponse;
+    if (kind === "public-page") resp = NextResponse.next({ request });
+    else if (kind === "api") resp = jsonError(403, owner.code, OWNER_DENIAL_MESSAGES[owner.code]);
+    else resp = redirectTo(request, "/not-authorized", "denied");
+    // After buildResponse, so the expiry overwrites any rotated token
+    // Supabase queued under the same name.
+    return expireCookies(buildResponse(resp), names);
   }
 
   return buildResponse(NextResponse.next({ request }));
+}
+
+// Bypass paths that must remain reachable for the auth flow itself,
+// for trivial static assets, AND for the MCP / agent endpoints that
+// perform their own bearer-token authentication. Middleware can't
+// enforce a Supabase session on those routes — external agents
+// (Claude Desktop, Claude Code) never carry one. Those routes' POST
+// handlers gate on `requireAuthorizedUser` or `verifyBearer` directly.
+function isBypassPath(pathname: string): boolean {
+  return (
+    pathname.startsWith("/auth/") ||
+    pathname === "/not-authorized" ||
+    pathname === "/api/health" ||
+    pathname === "/api/mcp" ||
+    pathname.startsWith("/api/mcp/") ||
+    pathname === "/api/agent/stream" ||
+    isGuestPath(pathname)
+  );
+}
+
+function isGuestPath(pathname: string): boolean {
+  return (
+    pathname === "/guest" || pathname.startsWith("/guest/") || pathname.startsWith("/api/guest/")
+  );
+}
+
+function bypass(request: NextRequest): NextResponse {
+  // Dual-cookie disambiguation: when an authenticated owner navigates
+  // into the /guest/* tree carrying both an `sb-*` Supabase session
+  // AND a leftover `agile-toolkit:guest` cookie (e.g. they tested the
+  // guest flow on their own browser earlier), strip the guest cookie
+  // on the way through. Otherwise `useCollaborativeSession` reads
+  // guest-first and downgrades the owner into a guest identity,
+  // attributing their edits to a squad_profile_id instead of user_id.
+  const stripGuestCookie =
+    isGuestPath(request.nextUrl.pathname) &&
+    hasSupabaseSessionCookie(request) &&
+    request.cookies.has("agile-toolkit:guest");
+  // The strip has to happen on the REQUEST as well, not just the response.
+  // Deleting it only on the response expires it in the browser but leaves
+  // the incoming cookie header intact, so the very render this fires on
+  // still resolves a guest session in `(guest)/layout.tsx` — the owner got
+  // a page mounted in guest mode whose writes then 401'd, because the
+  // browser had already dropped the cookie the client fetches needed.
+  // `NextResponse.next({ request })` forwards the mutated headers.
+  if (stripGuestCookie) request.cookies.delete("agile-toolkit:guest");
+  const resp = stripGuestCookie ? NextResponse.next({ request }) : NextResponse.next();
+  if (stripGuestCookie) {
+    resp.cookies.set({
+      name: "agile-toolkit:guest",
+      value: "",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 0,
+    });
+  }
+  return resp;
+}
+
+let warnedMisconfigured = false;
+function warnMisconfiguredOnce(): void {
+  // Once per isolate: every request with a session cookie lands here while
+  // the config is broken, and one line is enough to point at the cause.
+  if (warnedMisconfigured) return;
+  warnedMisconfigured = true;
+  console.warn(
+    "[middleware] Supabase env or AUTHORIZED_EMAILS is not configured — pages pass, owner routes answer 503 / /not-authorized"
+  );
 }
 
 function redirectTo(
@@ -248,6 +346,8 @@ function redirectTo(
   // `denied` and `config` cases — those land users on a terminal page.
   // `auth_unreachable` keeps it: the session may well still be valid, so
   // once the backend recovers the retry should land where they were going.
+  // The terminal page itself gets `?reason=`, so /not-authorized can tell
+  // "not the owner account" apart from "this deployment is misconfigured".
   const url = request.nextUrl.clone();
   url.pathname = destination;
   url.search = "";
@@ -256,27 +356,49 @@ function redirectTo(
     if (safeRelativeUrl(original)) {
       url.searchParams.set("next", original);
     }
+  } else {
+    url.searchParams.set("reason", reason);
   }
   return NextResponse.redirect(url);
 }
 
-// Cheap shape-check for "an owner Supabase session cookie is present."
-// We don't try to verify it (that needs the full Supabase client and a
+// Cheap shape-check for "a Supabase session cookie is present." We don't
+// try to verify it here (that needs the full Supabase client and a
 // round-trip), just notice that one of the `sb-*-auth-token` cookies
-// exists. Used only to disambiguate the dual-cookie case on /guest/*
-// — verification on the owner-side path remains in the main flow.
+// exists. It is the no-I/O fast path for every visitor, and it
+// disambiguates the dual-cookie case on /guest/*.
 // `@supabase/ssr` splits any session over 3180 bytes into numbered chunks
 // named `sb-<ref>-auth-token.0`, `.1`, … and in that case the un-suffixed
 // cookie does not exist at all. A plain `endsWith("-auth-token")` therefore
 // missed every chunked session — which is the common case for Google OAuth,
 // where the `identities[].identity_data` payload pushes the cookie past the
-// chunk threshold — so the strip above never fired for those users.
+// chunk threshold — so the guest strip never fired for those users.
+// The PKCE `sb-<ref>-auth-token-code-verifier` cookie deliberately does not
+// match: it is not a session, and a half-finished sign-in must not cost a
+// visitor a getUser round-trip.
 const AUTH_TOKEN_COOKIE = /-auth-token(\.\d+)?$/;
-function hasOwnerSessionCookie(request: NextRequest): boolean {
-  for (const c of request.cookies.getAll()) {
-    if (c.name.startsWith("sb-") && AUTH_TOKEN_COOKIE.test(c.name)) return true;
-  }
-  return false;
+function isSessionCookieName(name: string): boolean {
+  return name.startsWith("sb-") && AUTH_TOKEN_COOKIE.test(name);
+}
+
+function hasSupabaseSessionCookie(request: NextRequest): boolean {
+  return request.cookies.getAll().some((c) => isSessionCookieName(c.name));
+}
+
+/** Every session cookie name in the request or queued by Supabase this pass. */
+function sessionCookieNames(
+  request: NextRequest,
+  cookiesToSet: ReadonlyArray<{ name: string }>
+): string[] {
+  const names = [...request.cookies.getAll(), ...cookiesToSet]
+    .map((c) => c.name)
+    .filter(isSessionCookieName);
+  return names.filter((name, i) => names.indexOf(name) === i);
+}
+
+function expireCookies(resp: NextResponse, names: readonly string[]): NextResponse {
+  for (const name of names) resp.cookies.set({ name, value: "", path: "/", maxAge: 0 });
+  return resp;
 }
 
 // eslint-disable-next-line no-control-regex
@@ -302,17 +424,26 @@ export const config = {
   // Match everything EXCEPT:
   //   - _next/static, _next/image, _next/data         (build artifacts)
   //   - favicon.ico, robots.txt, sitemap.xml, manifest (root statics)
-  //   - any file with an extension served from /public (.svg, .png, etc.)
+  //   - .well-known/*                                  (security.txt et al.)
+  //   - a file directly under /comics or a .glb directly under /mascot
+  //   - any top-level file with an extension served from /public (.svg, …)
   //
   // The inner `(?!…)` is a negative lookahead consumed by Next's matcher
   // syntax. Keep this in sync with the bypass list at the top of the
   // function — the matcher is the fast path, the function body is the
-  // safety net.
+  // safety net. test/auth/middleware-matcher.test.ts compiles it the way
+  // Next does and pins which paths are exempt.
   matcher: [
-    // The final alternative anchors the extension rule to the BASENAME
-    // (last path segment) so that `/api/foo.json` or `/dashboard.csv`
-    // still hit middleware. The prior `.*\.[a-zA-Z0-9]+$` rule matched
-    // the whole pathname and silently exempted any dotted route. (BUG-A1)
-    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|robots\\.txt|sitemap\\.xml|manifest\\.webmanifest|[^/]+\\.[a-zA-Z0-9]+$).*)",
+    // The final alternative anchors the extension rule to a TOP-LEVEL file
+    // (no further `/` before the end) so that `/api/foo.json` still hits
+    // middleware. The prior `.*\.[a-zA-Z0-9]+$` rule matched the whole
+    // pathname and silently exempted any dotted route. (BUG-A1)
+    //
+    // The comic PDF is exempt because pdf.js fetches it in HTTP range
+    // requests: running middleware per chunk would cost the owner a getUser
+    // round-trip each time. Only a FILE directly under /comics is exempt,
+    // never the bare `comics/` prefix, which would also exempt any future
+    // page or nested route under /comics. Same idea for the mascot model.
+    "/((?!_next/static|_next/image|_next/data|favicon\\.ico|robots\\.txt|sitemap\\.xml|manifest\\.webmanifest|\\.well-known/|comics/[^/]+\\.[a-zA-Z0-9]+$|mascot/[^/]+\\.glb$|[^/]+\\.[a-zA-Z0-9]+$).*)",
   ],
 };

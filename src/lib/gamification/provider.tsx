@@ -6,14 +6,21 @@ import { installEventBridge } from "./event-bridge";
 import { installSecretDetector } from "./secrets";
 import { installWindowBridge, subscribe } from "./engine";
 import { appendXpEvent } from "./opfs";
-import { scheduleProfileSync } from "./supabase-sync";
+import { cancelProfileSync, scheduleProfileSync } from "./supabase-sync";
 import { achievements } from "./achievements";
 import { toast } from "@/lib/utils/toast";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
 import type { XpEvent } from "./types";
 
+/**
+ * Must sit under <AuthProvider>: the leaderboard upsert to Supabase is
+ * owner-only, so visitors (and a tree without AuthProvider) keep their
+ * XP, levels and achievements in this browser.
+ */
 export function GamificationProvider({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const silentMode = useVDnaStore((s) => s.silentMode);
+  const isOwner = useIsOwner();
 
   useEffect(() => {
     useVDnaStore.persist.rehydrate();
@@ -32,6 +39,11 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
     };
   }, [mounted]);
 
+  // Signing out drops a sync still waiting out its debounce.
+  useEffect(() => {
+    if (!isOwner) cancelProfileSync();
+  }, [isOwner]);
+
   useEffect(() => {
     if (!mounted) return;
     const unsub = subscribe((effect) => {
@@ -39,13 +51,13 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
         const xpEvt = effect.payload as unknown as XpEvent;
         const visitor = useVDnaStore.getState().visitorId;
         appendXpEvent({ ...xpEvt, visitorId: visitor });
-        scheduleProfileSync();
+        if (isOwner) scheduleProfileSync();
       } else if (effect.kind === "level-up") {
         const { level } = effect.payload as { level: number };
         if (!silentMode) {
           toast.success(`Level ${level}!`, { description: "New milestone unlocked." });
         }
-        scheduleProfileSync();
+        if (isOwner) scheduleProfileSync();
       } else if (effect.kind === "achievement") {
         const { id, title, xp } = effect.payload as { id: string; title: string; xp: number };
         const ach = achievements.find((a) => a.id === id);
@@ -65,7 +77,7 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
       }
     });
     return unsub;
-  }, [mounted, silentMode]);
+  }, [mounted, silentMode, isOwner]);
 
   return <>{children}</>;
 }

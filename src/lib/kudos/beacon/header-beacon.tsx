@@ -13,6 +13,10 @@
  * The component stamps `id="kudos-header-beacon"` on its root so the
  * FlyingCard portal can fall back to the beacon's rect when sender or
  * recipient DOM identity ids are unavailable.
+ *
+ * Visitors (neither the owner nor a guest) have no server-side wall —
+ * `/api/kudos` is owner-only — so their popover lists the newest kudos
+ * kept in this browser's workspace store, with no network call.
  */
 
 import { useEffect, useState } from "react";
@@ -22,17 +26,20 @@ import { motion, useReducedMotion } from "framer-motion";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useSignal } from "@/lib/signals/signal-bus";
 import { useGuestProfile } from "@/lib/auth/guest-profile-provider";
-import { useAuthOptional } from "@/lib/auth/auth-provider";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Kudos } from "@/lib/stores/workspace-types";
 import { getKudosTheme } from "@/app/(tools)/kudos/types";
 import { cn } from "@/lib/utils";
+
+const RECENT_LIMIT = 5;
 
 interface RecentResponse {
   kudos?: Kudos[];
 }
 
 async function fetchRecent(toProfileId: string | null): Promise<Kudos[]> {
-  const params = new URLSearchParams({ limit: "5" });
+  const params = new URLSearchParams({ limit: String(RECENT_LIMIT) });
   if (toProfileId) params.set("to_profile_id", toProfileId);
   try {
     const res = await fetch(`/api/kudos?${params.toString()}`);
@@ -44,10 +51,17 @@ async function fetchRecent(toProfileId: string | null): Promise<Kudos[]> {
   }
 }
 
+/** Newest-first by `sentAt` (then id), mirroring the API's ordering. */
+function localRecent(): Kudos[] {
+  const all = useWorkspaceStore.getState().kudos ?? [];
+  const at = (k: Kudos) => Date.parse(k.sentAt) || 0;
+  return [...all].sort((a, b) => at(b) - at(a) || b.id.localeCompare(a.id)).slice(0, RECENT_LIMIT);
+}
+
 export function KudosHeaderBeacon() {
   const reducedMotion = useReducedMotion();
   const guest = useGuestProfile();
-  const auth = useAuthOptional();
+  const isOwner = useIsOwner();
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const [pulseTrigger, setPulseTrigger] = useState(0);
@@ -58,7 +72,7 @@ export function KudosHeaderBeacon() {
   // kudos addressed to THIS guest. Owners hit the endpoint without a
   // profile filter — workspace-wide wall is theirs by definition.
   const toProfileId = guest?.id ?? null;
-  const isAuthenticated = !!auth?.user || !!guest;
+  const localOnly = !isOwner && !guest;
 
   useSignal(["kudos.received"], () => {
     setUnread((n) => n + 1);
@@ -68,6 +82,11 @@ export function KudosHeaderBeacon() {
   useEffect(() => {
     if (!open) return;
     setUnread(0);
+    if (localOnly) {
+      setRecent(localRecent());
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     let cancelled = false;
     void (async () => {
@@ -80,13 +99,10 @@ export function KudosHeaderBeacon() {
     return () => {
       cancelled = true;
     };
-  }, [open, toProfileId]);
+  }, [open, toProfileId, localOnly]);
 
-  // Render the beacon for everyone (owners + guests) — both can receive
-  // kudos. When auth/guest is fully absent we still render so the
-  // FlyingCard's fallback rect lookup has a target; the popover just
-  // shows the empty state.
-  void isAuthenticated;
+  // Render the beacon for everyone (owners, guests and visitors) — all can
+  // receive kudos, and the FlyingCard's fallback rect lookup needs a target.
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

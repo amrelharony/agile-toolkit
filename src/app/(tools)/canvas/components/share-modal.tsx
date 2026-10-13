@@ -12,6 +12,10 @@
  * description and stashes the snapshot into
  * `workspace.whiteboardSavedTemplates`. Saved templates appear in the
  * TemplateGallery under a "Custom" tab.
+ *
+ * Public visitors only get the save tab: share links, the channel post
+ * (built around a share link) and squad invites all need the owner's
+ * session, so for anyone else they would only fail.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -28,6 +32,7 @@ import {
 } from "lucide-react";
 import { SessionShareContent } from "@/components/collab/session-share-modal";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   buildShareUrl,
@@ -92,7 +97,11 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
   // below now owns focus capture + restore, with the added `document.contains`
   // guard for triggers that get unmounted while the modal is open.
 
-  const [tab, setTab] = useState<Tab>("share");
+  const isOwner = useIsOwner();
+  const [tab, setTab] = useState<Tab>(() => (isOwner ? "share" : "save"));
+  // Derived rather than trusted from state so a session that stops being
+  // the owner while the modal is open falls back to the local-only tab.
+  const activeTab: Tab = isOwner ? tab : "save";
   const objects = useWorkspaceStore((s) => s.whiteboardObjects);
   const boardObjects = useMemo(
     () => (objects ?? []).filter((o) => o.boardId === boardId),
@@ -115,7 +124,9 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
   // unmounting (rare, but possible across multi-board scenarios), the
   // useState initialiser doesn't re-run and `tokens` stays stale.
   // Re-fetch whenever boardId changes.
+  // Visitors never see the token tabs, so skip the lookup entirely.
   useEffect(() => {
+    if (!isOwner) return;
     let cancelled = false;
     void listShareTokens(boardId).then((rows) => {
       if (!cancelled) setTokens(rows);
@@ -123,7 +134,7 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [boardId]);
+  }, [boardId, isOwner]);
 
   // R10-deferred: focus-trap so Tab cycles inside the dialog instead
   // of escaping to the underlying canvas (WCAG 2.4.3).
@@ -145,23 +156,25 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
       >
         <div className="flex items-center justify-between gap-2 p-4 border-b border-border">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <button
-              type="button"
-              onClick={() => setTab("share")}
-              className={`px-3 py-1.5 rounded text-sm flex items-center gap-1.5 transition-colors ${
-                tab === "share"
-                  ? "bg-accent/15 text-accent border border-accent/40"
-                  : "text-sub hover:text-text"
-              }`}
-            >
-              <Share2 className="w-4 h-4" />
-              Share
-            </button>
+            {isOwner && (
+              <button
+                type="button"
+                onClick={() => setTab("share")}
+                className={`px-3 py-1.5 rounded text-sm flex items-center gap-1.5 transition-colors ${
+                  activeTab === "share"
+                    ? "bg-accent/15 text-accent border border-accent/40"
+                    : "text-sub hover:text-text"
+                }`}
+              >
+                <Share2 className="w-4 h-4" />
+                Share
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setTab("save")}
               className={`px-3 py-1.5 rounded text-sm flex items-center gap-1.5 transition-colors ${
-                tab === "save"
+                activeTab === "save"
                   ? "bg-accent/15 text-accent border border-accent/40"
                   : "text-sub hover:text-text"
               }`}
@@ -169,30 +182,34 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
               <BookmarkPlus className="w-4 h-4" />
               Save as template
             </button>
-            <button
-              type="button"
-              onClick={() => setTab("post")}
-              className={`px-3 py-1.5 rounded text-sm flex items-center gap-1.5 transition-colors ${
-                tab === "post"
-                  ? "bg-accent/15 text-accent border border-accent/40"
-                  : "text-sub hover:text-text"
-              }`}
-            >
-              <Send className="w-4 h-4" />
-              Post to Slack / Teams
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("squad")}
-              className={`px-3 py-1.5 rounded text-sm flex items-center gap-1.5 transition-colors ${
-                tab === "squad"
-                  ? "bg-accent/15 text-accent border border-accent/40"
-                  : "text-sub hover:text-text"
-              }`}
-            >
-              <Users className="w-4 h-4" />
-              Invite squad
-            </button>
+            {isOwner && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setTab("post")}
+                  className={`px-3 py-1.5 rounded text-sm flex items-center gap-1.5 transition-colors ${
+                    activeTab === "post"
+                      ? "bg-accent/15 text-accent border border-accent/40"
+                      : "text-sub hover:text-text"
+                  }`}
+                >
+                  <Send className="w-4 h-4" />
+                  Post to Slack / Teams
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("squad")}
+                  className={`px-3 py-1.5 rounded text-sm flex items-center gap-1.5 transition-colors ${
+                    activeTab === "squad"
+                      ? "bg-accent/15 text-accent border border-accent/40"
+                      : "text-sub hover:text-text"
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  Invite squad
+                </button>
+              </>
+            )}
           </div>
           <button
             type="button"
@@ -204,7 +221,12 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
           </button>
         </div>
 
-        {tab === "share" && (
+        {!isOwner && (
+          <p className="px-4 pt-3 text-xs text-sub">
+            Share links and squad invites are available to the workspace owner.
+          </p>
+        )}
+        {activeTab === "share" && (
           <ShareTab
             boardId={boardId}
             boardName={boardName}
@@ -212,7 +234,7 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
             onTokensChanged={refreshTokens}
           />
         )}
-        {tab === "save" && (
+        {activeTab === "save" && (
           <SaveTemplateTab
             boardId={boardId}
             boardName={boardName}
@@ -221,7 +243,7 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
             onClose={onClose}
           />
         )}
-        {tab === "post" && (
+        {activeTab === "post" && (
           <PostMessageTab
             boardId={boardId}
             boardName={boardName}
@@ -229,7 +251,7 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
             tokens={tokens}
           />
         )}
-        {tab === "squad" && <SessionShareContent toolId="canvas" entityId={boardId} />}
+        {activeTab === "squad" && <SessionShareContent toolId="canvas" entityId={boardId} />}
       </div>
     </div>
   );

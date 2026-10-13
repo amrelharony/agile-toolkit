@@ -8,6 +8,10 @@
  * useAgentStore + sendUserMessage + ConfirmAction as before, so the agent's
  * tool-calling brain, confirm cards, and persistence are unchanged; only the
  * shell is new. The mascot "talks" (Talking clip) while the agent streams.
+ *
+ * The agent itself is owner-only. Visitors keep the mascot (clicks, Konami,
+ * Cmd/Ctrl+J) but the panel shows <AgentVisitorNotice/> instead of the chat,
+ * so their panel never touches /api/agent/* or the agent tables in Supabase.
  */
 
 import {
@@ -18,8 +22,11 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
 import { X, Plus, History } from "lucide-react";
 import { useAgentStore } from "@/lib/agent/store";
+import { useOwnerState } from "@/lib/auth/use-is-owner";
+import { isComicRoute } from "@/lib/comic/agile-at-work";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import { abortInFlight } from "@/lib/agent/client";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
@@ -29,6 +36,7 @@ import { playMascotSound } from "./engine/audio/mascot-audio";
 import { RateLimitBar } from "./rate-limit-bar";
 import { AgentConversation } from "../agent-conversation";
 import { ConversationList } from "../conversation-list";
+import { AgentVisitorNotice } from "../agent-visitor-notice";
 import styles from "./mascot-assistant.module.css";
 
 /** Award XP via the gamification window bridge (no-op if unavailable). */
@@ -84,6 +92,30 @@ export function MascotAssistant() {
   const toggleSheet = useAgentStore((s) => s.toggleSheet);
   const closeSheet = useAgentStore((s) => s.closeSheet);
   const [showHistory, setShowHistory] = useState(false);
+  // `settled` keeps the owner from seeing the visitor notice flash while
+  // auth is still loading; no chat component mounts until it's settled.
+  const { isOwner, settled } = useOwnerState();
+  // The comic reader fills the viewport, so its toolbar (Prev/Next, the
+  // scrubber, Download PDF) always ends up under the fixed figure's 130×220
+  // hit box — on phones and desktops alike. The figure steps aside on that
+  // route; the header button and Cmd/Ctrl+J still open the chat.
+  const pathname = usePathname();
+  const hideFigure = isComicRoute(pathname);
+
+  // Owner signed out mid-session: stop any in-flight agent turn (its tool
+  // calls run in this tab) and drop the conversation from memory.
+  const wasOwnerRef = useRef(false);
+  useEffect(() => {
+    if (isOwner) {
+      wasOwnerRef.current = true;
+      return;
+    }
+    if (!wasOwnerRef.current) return;
+    wasOwnerRef.current = false;
+    abortInFlight();
+    useAgentStore.getState().reset();
+    setShowHistory(false);
+  }, [isOwner]);
 
   // Click interaction: a flourish + multi-click escalations on top of the chat
   // toggle (the toggle is debounced so rapid taps don't thrash the panel).
@@ -245,33 +277,39 @@ export function MascotAssistant() {
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
             <div>
               <p className="text-sm font-semibold text-text">✦ ElharonyClaw</p>
-              <p className="text-[11px] text-sub">Drive every tool · Cmd/Ctrl+J to toggle</p>
+              <p className="text-[11px] text-sub">
+                {isOwner ? "Drive every tool · " : ""}Cmd/Ctrl+J to toggle
+              </p>
             </div>
             <div className="flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={() => {
-                  useAgentStore.getState().reset();
-                  setShowHistory(false);
-                }}
-                aria-label="New chat"
-                title="New chat"
-                className="rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
-              >
-                <Plus className="h-4 w-4" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowHistory((v) => !v)}
-                aria-label="Conversation history"
-                title="History"
-                aria-pressed={showHistory}
-                className={`rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text ${
-                  showHistory ? "text-accent" : "text-sub"
-                }`}
-              >
-                <History className="h-4 w-4" aria-hidden="true" />
-              </button>
+              {isOwner && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      useAgentStore.getState().reset();
+                      setShowHistory(false);
+                    }}
+                    aria-label="New chat"
+                    title="New chat"
+                    className="rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowHistory((v) => !v)}
+                    aria-label="Conversation history"
+                    title="History"
+                    aria-pressed={showHistory}
+                    className={`rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text ${
+                      showHistory ? "text-accent" : "text-sub"
+                    }`}
+                  >
+                    <History className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 onClick={closeSheet}
@@ -282,7 +320,11 @@ export function MascotAssistant() {
               </button>
             </div>
           </div>
-          {showHistory ? (
+          {!isOwner ? (
+            <div className="min-h-0 flex-1" aria-busy={!settled}>
+              {settled && <AgentVisitorNotice onAction={closeSheet} />}
+            </div>
+          ) : showHistory ? (
             <div className="min-h-0 flex-1">
               <ConversationList onClose={() => setShowHistory(false)} />
             </div>
@@ -297,22 +339,26 @@ export function MascotAssistant() {
         </div>
       )}
 
-      {/* Always-present floating mascot — click to toggle the chat. */}
-      <button
-        type="button"
-        onClick={onMascotClick}
-        onPointerDown={onPointerDown}
-        aria-label={open ? "Close assistant" : "Open assistant"}
-        title="Ask ElharonyClaw · drag to reposition"
-        style={
-          dragPos ? { position: "fixed", left: dragPos.left, top: dragPos.top } : buttonPos(corner)
-        }
-        className={`z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-          dragPos ? "" : styles.float
-        }`}
-      >
-        <Mascot3D width={130} height={220} />
-      </button>
+      {/* Floating mascot — click to toggle the chat. */}
+      {!hideFigure && (
+        <button
+          type="button"
+          onClick={onMascotClick}
+          onPointerDown={onPointerDown}
+          aria-label={open ? "Close assistant" : "Open assistant"}
+          title="Ask ElharonyClaw · drag to reposition"
+          style={
+            dragPos
+              ? { position: "fixed", left: dragPos.left, top: dragPos.top }
+              : buttonPos(corner)
+          }
+          className={`z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+            dragPos ? "" : styles.float
+          }`}
+        >
+          <Mascot3D width={130} height={220} />
+        </button>
+      )}
     </>
   );
 }

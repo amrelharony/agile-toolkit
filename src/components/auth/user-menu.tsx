@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useMounted } from "@/hooks/use-mounted";
 import {
   DropdownMenu,
@@ -11,21 +12,37 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth/auth-provider";
+import { OWNER_UNVERIFIED } from "@/lib/auth/owner-check";
+import { isOwnerOnlyPage } from "@/lib/auth/owner-routes";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
-import { SCRUM_ROLE_LABEL } from "@/lib/auth/types";
+import { useHistoryStore } from "@/lib/history/history-store";
+import { syncEngine } from "@/lib/sync/engine";
+import { useOwnerSeen, useVisitorDataPending } from "@/lib/sync/owner-sync-gate";
+import { clearLocalWorkspaceData } from "@/lib/utils/clear-local-data";
+import { toast } from "@/lib/utils/toast";
+import { SCRUM_ROLE_LABEL, type SignOutResult } from "@/lib/auth/types";
 import {
   LogOut,
   History,
-  ShieldCheck,
   UserCircle,
   LogIn,
   Sparkles,
   KeyRound,
   Palette,
+  BarChart3,
+  Eraser,
 } from "lucide-react";
 
 function getInitials(name: string | null | undefined, email: string): string {
@@ -38,14 +55,44 @@ function getInitials(name: string | null | undefined, email: string): string {
   return source.slice(0, 2).toUpperCase();
 }
 
-export function UserMenu() {
-  const { status, user, profile, signOut } = useAuth();
-  const openAiSettings = useLlmUiStore((s) => s.openSettings);
-  const mounted = useMounted();
-  const router = useRouter();
+/** Upper bound on the pre-sign-out cloud flush, so a dead network can't
+ *  leave the sign-out dialog spinning. */
+const FLUSH_TIMEOUT_MS = 4_000;
 
-  // Hide entirely when auth is disabled (no Supabase env), or until hydrated.
-  if (!mounted || status === "disabled") {
+function flushCloudSync(): Promise<void> {
+  return Promise.race([
+    syncEngine.flushAllNow().catch(() => {}),
+    new Promise<void>((resolve) => setTimeout(resolve, FLUSH_TIMEOUT_MS)),
+  ]);
+}
+
+/**
+ * Set (after the data sweep) when a sign-out removed the session from this
+ * browser but the server never confirmed it; read once by the next page.
+ */
+const UNREVOKED_SIGN_OUT_KEY = "agile-toolkit:sign-out-unrevoked";
+
+const UNREVOKED_SIGN_OUT_MESSAGE =
+  "Signed out on this browser. The server couldn't be reached to end your session everywhere, so your other devices may still be signed in.";
+
+function useUnrevokedSignOutNotice() {
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem(UNREVOKED_SIGN_OUT_KEY) === null) return;
+      window.sessionStorage.removeItem(UNREVOKED_SIGN_OUT_KEY);
+    } catch {
+      return;
+    }
+    toast.warning(UNREVOKED_SIGN_OUT_MESSAGE);
+  }, []);
+}
+
+export function UserMenu() {
+  const { status, user, error } = useAuth();
+  const mounted = useMounted();
+  useUnrevokedSignOutNotice();
+
+  if (!mounted) {
     return <div className="w-9 h-9" aria-hidden="true" />;
   }
 
@@ -58,127 +105,408 @@ export function UserMenu() {
     );
   }
 
-  if (status === "anonymous" || status === "error") {
-    // Middleware redirects unauthenticated users to /auth/sign-in before
-    // reaching any tool page. Reaching this branch means the menu is
-    // rendering during a brief in-between state (e.g. just signed out).
-    // Link to the sign-in page rather than triggering OAuth inline, so
-    // the page-level UI handles the redirect-to-Google flow consistently.
-    return (
-      <div className="flex items-center gap-1">
-        <Button variant="outline" size="sm" asChild className="gap-1.5">
-          <Link href="/auth/sign-in" aria-label="Sign in">
-            <LogIn className="w-3.5 h-3.5" aria-hidden="true" />
-            <span className="hidden sm:inline">Sign in</span>
-          </Link>
-        </Button>
-      </div>
-    );
-  }
+  // "authenticated" is only ever the server-verified owner (AuthProvider).
+  // Everyone else — signed out, a non-owner Google account, or a
+  // deployment without auth — is a visitor whose work stays in this
+  // browser. A session whose owner check couldn't complete yet is NOT
+  // shown as a visitor: it is still signed in (AuthProvider is retrying),
+  // so the menu says so and offers to sign it out of this browser.
+  if (status === "authenticated" && user) return <OwnerMenu />;
+  return (
+    <VisitorMenu
+      authAvailable={status !== "disabled"}
+      sessionUnverified={status === "error" && error === OWNER_UNVERIFIED}
+    />
+  );
+}
 
-  // authenticated
+function VisitorMenu({
+  authAvailable,
+  sessionUnverified,
+}: {
+  authAvailable: boolean;
+  sessionUnverified: boolean;
+}) {
+  const openAiSettings = useLlmUiStore((s) => s.openSettings);
+  const pathname = usePathname();
+  const ownerSeen = useOwnerSeen();
+  const [clearOpen, setClearOpen] = useState(false);
+  const [signOutOpen, setSignOutOpen] = useState(false);
+
+  const signInHref = `/auth/sign-in?next=${encodeURIComponent(pathname || "/")}`;
+  const title = sessionUnverified
+    ? "Signed in — checking owner access"
+    : ownerSeen
+      ? "Signed out — sign in to sync"
+      : "Visitor";
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="relative min-touch-coarse w-9 h-9 rounded-full flex items-center justify-center text-sub ring-1 ring-border hover:text-accent hover:ring-accent/40 transition-all duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            aria-label={sessionUnverified ? "Account menu" : "Visitor menu"}
+            title={title}
+          >
+            <UserCircle className="w-5 h-5" aria-hidden="true" />
+            {/* The owner has used this browser before: hint that signing
+                back in resumes cloud sync (their session may have lapsed). */}
+            {(ownerSeen || sessionUnverified) && (
+              <span
+                className="absolute top-0.5 right-0.5 w-2.5 h-2.5 rounded-full bg-accent ring-2 ring-[var(--bg)]"
+                aria-hidden="true"
+              />
+            )}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-64">
+          {sessionUnverified ? (
+            <div className="px-2 py-2 text-xs text-sub">
+              <span className="text-sm font-medium text-text">Signed in</span> · Checking owner
+              access… Cloud sync resumes once it&apos;s confirmed.
+            </div>
+          ) : (
+            <div className="px-2 py-2 text-xs text-sub">
+              <span className="text-sm font-medium text-text">Visitor</span> · Your work stays in
+              this browser
+            </div>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              openAiSettings();
+            }}
+            className="cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4" aria-hidden="true" />
+            <span>AI settings (bring your own key)</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/settings/appearance" className="cursor-pointer">
+              <Palette className="w-4 h-4" aria-hidden="true" />
+              <span>Appearance</span>
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <Link href="/history" className="cursor-pointer">
+              <History className="w-4 h-4" aria-hidden="true" />
+              <span>My history</span>
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/insights" className="cursor-pointer">
+              <BarChart3 className="w-4 h-4" aria-hidden="true" />
+              <span>My insights</span>
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={() => setClearOpen(true)}
+            className="text-destructive focus:text-destructive cursor-pointer"
+          >
+            <Eraser className="w-4 h-4" aria-hidden="true" />
+            <span>Clear data on this browser…</span>
+          </DropdownMenuItem>
+          {sessionUnverified ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() => setSignOutOpen(true)}
+                className="text-destructive focus:text-destructive cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" aria-hidden="true" />
+                <span>Sign out…</span>
+              </DropdownMenuItem>
+            </>
+          ) : (
+            authAvailable && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href={signInHref} className="cursor-pointer">
+                    <LogIn className="w-4 h-4" aria-hidden="true" />
+                    <span>{ownerSeen ? "Sign in to sync" : "Owner sign in"}</span>
+                  </Link>
+                </DropdownMenuItem>
+              </>
+            )
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <ClearDataDialog open={clearOpen} onOpenChange={setClearOpen} />
+      {sessionUnverified && <SignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />}
+    </>
+  );
+}
+
+function ClearDataDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const onConfirm = () => {
+    setBusy(true);
+    clearLocalWorkspaceData({ broadcast: true });
+    // In-memory stores still hold the data; a reload drops them.
+    window.location.reload();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Clear data on this browser?</DialogTitle>
+          <DialogDescription>
+            This removes every tool&apos;s data, your history and any AI keys saved in this browser,
+            in all open tabs. It can&apos;t be undone — export anything you want to keep first.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={onConfirm} disabled={busy}>
+            {busy ? "Clearing…" : "Clear data"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function OwnerMenu() {
+  const { user, profile } = useAuth();
+  const openAiSettings = useLlmUiStore((s) => s.openSettings);
+  const [signOutOpen, setSignOutOpen] = useState(false);
+
   const displayName = profile?.display_name || user?.email || "Account";
   const initials = getInitials(profile?.display_name, user?.email ?? "");
   const role = profile?.scrum_role ? SCRUM_ROLE_LABEL[profile.scrum_role] : null;
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="min-touch-coarse w-9 h-9 rounded-full ring-1 ring-border hover:ring-accent/40 transition-all duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent overflow-hidden"
-          aria-label={`Account menu for ${displayName}`}
-        >
-          <Avatar className="w-9 h-9">
-            {profile?.avatar_url && <AvatarImage src={profile.avatar_url} alt={displayName} />}
-            <AvatarFallback className="text-xs font-medium bg-accent/15 text-accent">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
-        <div className="px-2 py-2">
-          <div className="text-sm font-medium text-text truncate">{displayName}</div>
-          <div className="text-xs text-sub truncate">{user?.email}</div>
-          {role && (
-            <Badge variant="secondary" className="mt-1.5 text-[10px]">
-              {role}
-            </Badge>
-          )}
-        </div>
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-xs uppercase tracking-wide text-sub">
-          Activity
-        </DropdownMenuLabel>
-        <DropdownMenuItem asChild>
-          <Link href="/history" className="cursor-pointer">
-            <History className="w-4 h-4" aria-hidden="true" />
-            <span>My history</span>
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href="/insights" className="cursor-pointer">
-            <UserCircle className="w-4 h-4" aria-hidden="true" />
-            <span>My insights</span>
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        {/* BYOK AI settings — paste your own API key to run prompts inline
-            instead of copy-pasting them into another tab. */}
-        <DropdownMenuItem
-          onSelect={(e) => {
-            e.preventDefault();
-            openAiSettings();
-          }}
-          className="cursor-pointer"
-        >
-          <Sparkles className="w-4 h-4" aria-hidden="true" />
-          <span>AI settings (BYOK)</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href="/settings/access-tokens" className="cursor-pointer">
-            <KeyRound className="w-4 h-4" aria-hidden="true" />
-            <span>Access tokens</span>
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href="/settings/appearance" className="cursor-pointer">
-            <Palette className="w-4 h-4" aria-hidden="true" />
-            <span>Appearance</span>
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href="/account/privacy" className="cursor-pointer">
-            <ShieldCheck className="w-4 h-4" aria-hidden="true" />
-            <span>Privacy &amp; data</span>
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={(e) => {
-            e.preventDefault();
-            // AWAIT signOut() before navigating. The previous fire-and-forget
-            // dispatched the redirect before Supabase had cleared its session
-            // cookies — the next request still carried the old auth header,
-            // middleware re-validated it, and the user landed back on the
-            // tool page they were trying to leave. Then a beat later the
-            // SIGNED_OUT event fired and the UI jolted. Await + replace gives
-            // a clean transition: cookies cleared, then sign-in page renders.
-            void (async () => {
-              try {
-                await signOut();
-              } finally {
-                router.replace("/auth/sign-in");
-                router.refresh();
-              }
-            })();
-          }}
-          className="text-destructive focus:text-destructive cursor-pointer"
-        >
-          <LogOut className="w-4 h-4" aria-hidden="true" />
-          <span>Sign out</span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="min-touch-coarse w-9 h-9 rounded-full ring-1 ring-border hover:ring-accent/40 transition-all duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent overflow-hidden"
+            aria-label={`Account menu for ${displayName}`}
+          >
+            <Avatar className="w-9 h-9">
+              {profile?.avatar_url && <AvatarImage src={profile.avatar_url} alt={displayName} />}
+              <AvatarFallback className="text-xs font-medium bg-accent/15 text-accent">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-64">
+          <div className="px-2 py-2">
+            <div className="text-sm font-medium text-text truncate">{displayName}</div>
+            <div className="text-xs text-sub truncate">{user?.email}</div>
+            {role && (
+              <Badge variant="secondary" className="mt-1.5 text-[10px]">
+                {role}
+              </Badge>
+            )}
+          </div>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-xs uppercase tracking-wide text-sub">
+            Activity
+          </DropdownMenuLabel>
+          <DropdownMenuItem asChild>
+            <Link href="/history" className="cursor-pointer">
+              <History className="w-4 h-4" aria-hidden="true" />
+              <span>My history</span>
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/insights" className="cursor-pointer">
+              <BarChart3 className="w-4 h-4" aria-hidden="true" />
+              <span>My insights</span>
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {/* BYOK AI settings — paste your own API key to run prompts inline
+              instead of copy-pasting them into another tab. */}
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              openAiSettings();
+            }}
+            className="cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4" aria-hidden="true" />
+            <span>AI settings (BYOK)</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/settings/access-tokens" className="cursor-pointer">
+              <KeyRound className="w-4 h-4" aria-hidden="true" />
+              <span>Access tokens</span>
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/settings/appearance" className="cursor-pointer">
+              <Palette className="w-4 h-4" aria-hidden="true" />
+              <span>Appearance</span>
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onSelect={() => setSignOutOpen(true)}
+            className="text-destructive focus:text-destructive cursor-pointer"
+          >
+            <LogOut className="w-4 h-4" aria-hidden="true" />
+            <span>Sign out…</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <SignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />
+    </>
+  );
+}
+
+/**
+ * Owner sign-out. The site is public, so the next person at this browser
+ * is a visitor: by default sign-out also clears the toolkit's local data
+ * (workspace, history, BYOK keys) — the cloud workspace keeps the owner's
+ * copy. "Keep a copy on this browser" opts out, for a personal device.
+ */
+function SignOutDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { user, status, error, signOut } = useAuth();
+  const router = useRouter();
+  const [keepCopy, setKeepCopy] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  // Offline, history events whose push hasn't landed, or cloud sync paused
+  // (a "work created while signed out" answer outstanding, or the owner
+  // check unanswered) means clearing would lose work the cloud doesn't
+  // have yet. Only computed while open.
+  const offline = open && typeof navigator !== "undefined" && navigator.onLine === false;
+  const unsyncedHistory = useHistoryStore(
+    (s) =>
+      open && s.events.some((e) => e.userId === user?.id && !e.syncedAt && e.squadProfileId == null)
+  );
+  const decisionPending = useVisitorDataPending();
+  const unverified = status === "error" && error === OWNER_UNVERIFIED;
+  const syncPaused = open && (decisionPending || unverified);
+  const atRisk = offline || unsyncedHistory || syncPaused;
+
+  const onConfirm = async () => {
+    setBusy(true);
+    setFailed(false);
+    if (!keepCopy) {
+      // Push anything still inside its debounce while the session is
+      // valid: the cloud copy is what makes clearing this browser safe.
+      await flushCloudSync();
+    }
+    // AWAIT signOut() before navigating, so the session cookies are gone
+    // before the next request goes out.
+    let result: SignOutResult;
+    try {
+      result = await signOut();
+    } catch {
+      result = { revoked: false, signedOutHere: false };
+    }
+    if (!result.signedOutHere) {
+      // The session is still in this browser. Clearing and reloading now
+      // would look like a clean sign-out while the next page load restores
+      // the owner's session (and pulls the cloud workspace back) for
+      // whoever uses this browser next. Stay, say so, let them retry.
+      setBusy(false);
+      setFailed(true);
+      return;
+    }
+    const leaveOwnerPage = isOwnerOnlyPage(window.location.pathname);
+    if (!keepCopy) {
+      clearLocalWorkspaceData({ broadcast: true });
+      // After the sweep, so it survives into the next page, which says it.
+      if (!result.revoked) {
+        try {
+          window.sessionStorage.setItem(UNREVOKED_SIGN_OUT_KEY, "1");
+        } catch {
+          /* storage blocked: no notice */
+        }
+      }
+      // A full load, not a soft refresh: in-memory stores still hold the
+      // owner's data and would write it straight back.
+      if (leaveOwnerPage) window.location.replace("/");
+      else window.location.reload();
+    } else {
+      if (!result.revoked) toast.warning(UNREVOKED_SIGN_OUT_MESSAGE);
+      if (leaveOwnerPage) router.replace("/");
+      else router.refresh();
+    }
+  };
+
+  const description = syncPaused
+    ? "Cloud sync is paused, so changes made since it paused are only in this browser. Signing out also clears the toolkit data stored in this browser, so the next person using it starts fresh."
+    : "Your work is saved in your cloud workspace. Signing out also clears the toolkit data stored in this browser, so the next person using it starts fresh.";
+  const riskMessage = offline
+    ? "You're offline — changes made since the last sync would be lost."
+    : decisionPending
+      ? "Cloud sync is paused until you choose what to do with work created while signed out — changes made since you signed in would be lost."
+      : unverified
+        ? "Your owner access hasn't been confirmed yet, so cloud sync is paused — changes made since would be lost."
+        : "Some recent history hasn't synced yet and would be lost.";
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Sign out</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <label className="flex items-start gap-2 text-sm text-text cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={keepCopy}
+            onChange={(e) => setKeepCopy(e.target.checked)}
+            disabled={busy}
+          />
+          <span>
+            Keep a copy on this browser
+            <span className="block text-xs text-sub">
+              For a device only you use — anyone using this browser can see and change it.
+            </span>
+          </span>
+        </label>
+        {atRisk && !keepCopy && (
+          <p className="text-xs text-destructive" role="status">
+            {riskMessage} Keep a copy, or wait until sync catches up.
+          </p>
+        )}
+        {failed && (
+          <p className="text-xs text-destructive" role="alert">
+            Couldn&apos;t sign out — you&apos;re still signed in on this browser and nothing was
+            cleared. Check your connection and try again.
+          </p>
+        )}
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={() => void onConfirm()} disabled={busy}>
+            {busy ? "Signing out…" : "Sign out"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

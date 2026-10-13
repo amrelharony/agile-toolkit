@@ -10,7 +10,9 @@
  *   * `defaultFromName` — owner's auth profile name; guest's squad
  *     display name. The form does not let the user edit it (their
  *     identity is fixed by their auth/guest context) but renders it as
- *     read-only so they can sanity-check it.
+ *     read-only so they can sanity-check it. A signed-out visitor has
+ *     no such identity, so the parent passes `onFromNameChange` and the
+ *     field becomes an editable "Your name" input instead.
  *
  * Validation mirrors the original HTML's UX (50-word message cap,
  * short word caps on names) with live counters. The Send button is
@@ -44,8 +46,13 @@ export interface RecipientOption {
 }
 
 interface Props {
-  /** Sender display name (read-only). */
+  /** Sender display name (read-only unless `onFromNameChange` is set). */
   defaultFromName: string;
+  /** Placeholder for the editable sender field. */
+  fromPlaceholder?: string;
+  /** When set, the sender field is editable and reports each change
+   *  here; the parent owns the value via `defaultFromName`. */
+  onFromNameChange?: (name: string) => void;
   /** Sender's squad profile id (guest mode) or undefined (owner). */
   defaultFromProfileId?: string;
   /** Optional team label seeded into the form. Owners often want
@@ -104,6 +111,8 @@ const newKudosId = (): string => {
 
 export function KudosForm({
   defaultFromName,
+  fromPlaceholder,
+  onFromNameChange,
   defaultFromProfileId,
   defaultTeamName,
   recipients,
@@ -418,12 +427,30 @@ export function KudosForm({
         {/* Sender — read-only display + optional team label. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="flex flex-col gap-2">
-            <Label className="text-sub text-sm">From</Label>
-            <Input
-              value={defaultFromName}
-              readOnly
-              className="bg-surface-deep border-border/40 text-text/80"
-            />
+            {onFromNameChange ? (
+              <>
+                <Label htmlFor="kudos-from" className="text-sub text-sm">
+                  From
+                </Label>
+                <Input
+                  id="kudos-from"
+                  placeholder={fromPlaceholder}
+                  value={defaultFromName}
+                  onChange={(e) => onFromNameChange(e.target.value)}
+                  maxLength={48}
+                  className="bg-surface-deep border-border/40 text-text"
+                />
+              </>
+            ) : (
+              <>
+                <Label className="text-sub text-sm">From</Label>
+                <Input
+                  value={defaultFromName}
+                  readOnly
+                  className="bg-surface-deep border-border/40 text-text/80"
+                />
+              </>
+            )}
             {!fromOk && <p className="text-xs text-sub/60">Long names render small on the card.</p>}
           </div>
           <div className="flex flex-col gap-2">

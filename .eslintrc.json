@@ -1,5 +1,6 @@
 {
   "root": true,
+  "ignorePatterns": ["public/**"],
   "extends": ["next/core-web-vitals", "next/typescript"],
   "rules": {
     "no-console": ["error", { "allow": ["warn", "error"] }]

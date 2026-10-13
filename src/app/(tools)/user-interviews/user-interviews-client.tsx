@@ -19,6 +19,7 @@ import { INTERVIEW_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { EmptyState } from "@/components/shared/empty-state";
 import { redactPii } from "@/lib/utils/redact-pii";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
 
 interface Interview {
@@ -116,6 +117,8 @@ export function UserInterviewsClient() {
   // unencrypted on this device.
   const [anonymizeOnExport, setAnonymizeOnExport] = useState(true);
   const { log } = useHistoryLogger("user-interviews");
+  // Only the owner's data leaves the browser (cloud sync is owner-only).
+  const isOwner = useIsOwner();
 
   const add = () => {
     const i = emptyInterview();
@@ -221,10 +224,10 @@ export function UserInterviewsClient() {
       <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200 flex items-start gap-2">
         <Quote className="w-4 h-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
         <div>
-          Stored unencrypted on this device (and synced to your account if signed in). Don&rsquo;t
-          paste customer-identifiable quotes verbatim — redact names, employers, and other PII
-          before saving. The toggle below also strips emails / phone numbers / API keys from
-          exports.
+          Stored unencrypted in this browser{isOwner ? " and synced to your cloud workspace" : ""}.
+          Don&rsquo;t paste customer-identifiable quotes verbatim — redact names, employers, and
+          other PII before saving. The toggle below also strips emails / phone numbers / API keys
+          from exports.
         </div>
       </div>
       <div className="flex flex-wrap items-center justify-end gap-3 mb-4">

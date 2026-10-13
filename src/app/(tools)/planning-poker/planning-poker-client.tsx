@@ -10,6 +10,7 @@ import { generatePlanningPokerPrompts } from "@/lib/ai-prompts/planning-poker";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ function generateRoomCode(): string {
 // ─── Lobby ───────────────────────────────────────────────────────────
 function LobbyScreen({
   onStart,
+  isOwner,
 }: {
   onStart: (data: {
     sessionName: string;
@@ -39,6 +41,7 @@ function LobbyScreen({
     scaleType: ScaleType;
     displayName: string;
   }) => void;
+  isOwner: boolean;
 }) {
   const [sessionName, setSessionName] = useState("Sprint Planning");
   const [scaleType, setScaleType] = useState<ScaleType>("fibonacci");
@@ -152,8 +155,9 @@ function LobbyScreen({
         contentClassName="flex flex-col gap-2"
       >
         <p className="text-xs text-sub">
-          Guest joiners use a squad invite (Settings → Squads). Once you start a session you can
-          invite your squad from the header.
+          {isOwner
+            ? "Guest joiners use a squad invite (Settings → Squads). Once you start a session you can invite your squad from the header."
+            : "Sessions run in this browser. Multiplayer invites are available to the workspace owner."}
         </p>
       </SectionCard>
     </div>
@@ -162,6 +166,9 @@ function LobbyScreen({
 
 // ─── Root ─────────────────────────────────────────────────────────────
 export function PlanningPokerClient() {
+  // Visitors get a solo session: useRoom keeps them off Realtime and the
+  // squad invite button hides itself, so the copy says so instead.
+  const isOwner = useIsOwner();
   const [activeRoomCode, setActiveRoomCode] = useState<string | null>(null);
   // isLocalOnly from usePokerSession is true whenever roomCode is null
   // (lobby) — so it can't distinguish "lobby, env is fine" from "lobby,
@@ -278,7 +285,7 @@ export function PlanningPokerClient() {
             exit={{ opacity: 0, y: -16 }}
             transition={{ duration: 0.2 }}
           >
-            {!realtimeAvailable && (
+            {isOwner && !realtimeAvailable && (
               <div className="max-w-xl mx-auto mb-4 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-200/80">
                 <WifiOff className="h-4 w-4 shrink-0" />
                 <span>
@@ -288,7 +295,7 @@ export function PlanningPokerClient() {
                 </span>
               </div>
             )}
-            <LobbyScreen onStart={handleStart} />
+            <LobbyScreen onStart={handleStart} isOwner={isOwner} />
           </motion.div>
         ) : (
           <motion.div
@@ -314,7 +321,15 @@ export function PlanningPokerClient() {
                   />
                 </>
               }
-              connectionLabel={isLocalOnly ? "Local-only" : isConnected ? "Live" : "Connecting…"}
+              connectionLabel={
+                !isOwner
+                  ? "Browser-only"
+                  : isLocalOnly
+                    ? "Local-only"
+                    : isConnected
+                      ? "Live"
+                      : "Connecting…"
+              }
               connectionTone={isLocalOnly ? "warn" : "live"}
             />
           </motion.div>

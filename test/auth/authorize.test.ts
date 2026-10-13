@@ -61,3 +61,117 @@ describe("isEmailAuthorized", () => {
     expect(authorizedEmailCount()).toBe(3);
   });
 });
+
+describe("isOwnerUser", () => {
+  const owner = {
+    email: "alice@example.com",
+    email_confirmed_at: "2024-01-01T00:00:00Z",
+    app_metadata: { provider: "google" },
+    identities: [{ identity_data: { email: "alice@example.com", email_verified: true } }],
+  };
+
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.stubEnv("AUTHORIZED_EMAILS", "alice@example.com");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("accepts an allowlisted, verified Google identity", async () => {
+    const { isOwnerUser } = await import("@/lib/auth/authorize");
+    expect(isOwnerUser(owner)).toEqual({ ok: true });
+  });
+
+  it("rejects a missing user", async () => {
+    const { isOwnerUser } = await import("@/lib/auth/authorize");
+    expect(isOwnerUser(null)).toEqual({ ok: false, code: "not_authorized" });
+    expect(isOwnerUser(undefined)).toEqual({ ok: false, code: "not_authorized" });
+    expect(isOwnerUser({})).toEqual({ ok: false, code: "not_authorized" });
+  });
+
+  it("rejects an email that is not on the allowlist", async () => {
+    const { isOwnerUser } = await import("@/lib/auth/authorize");
+    expect(
+      isOwnerUser({
+        ...owner,
+        email: "eve@example.com",
+        identities: [{ identity_data: { email: "eve@example.com", email_verified: true } }],
+      })
+    ).toEqual({ ok: false, code: "not_authorized" });
+  });
+
+  it("rejects everyone when the allowlist is empty (fail-closed)", async () => {
+    vi.stubEnv("AUTHORIZED_EMAILS", "");
+    const { isOwnerUser } = await import("@/lib/auth/authorize");
+    expect(isOwnerUser(owner)).toEqual({ ok: false, code: "not_authorized" });
+  });
+
+  it("rejects a missing or non-Google provider", async () => {
+    const { isOwnerUser } = await import("@/lib/auth/authorize");
+    const wrong = { ok: false, code: "wrong_provider" };
+    expect(isOwnerUser({ ...owner, app_metadata: { provider: "github" } })).toEqual(wrong);
+    expect(isOwnerUser({ ...owner, app_metadata: {} })).toEqual(wrong);
+    expect(isOwnerUser({ ...owner, app_metadata: null })).toEqual(wrong);
+    expect(isOwnerUser({ ...owner, app_metadata: undefined })).toEqual(wrong);
+  });
+
+  it("rejects an identity Google reports as unverified", async () => {
+    const { isOwnerUser } = await import("@/lib/auth/authorize");
+    expect(
+      isOwnerUser({
+        ...owner,
+        identities: [{ identity_data: { email: "alice@example.com", email_verified: false } }],
+      })
+    ).toEqual({ ok: false, code: "email_unverified" });
+  });
+
+  it("rejects when no identity matches the user's email", async () => {
+    const { isOwnerUser } = await import("@/lib/auth/authorize");
+    expect(
+      isOwnerUser({
+        ...owner,
+        identities: [{ identity_data: { email: "other@example.com", email_verified: true } }],
+      })
+    ).toEqual({ ok: false, code: "email_unverified" });
+    expect(isOwnerUser({ ...owner, identities: [{ identity_data: null }] })).toEqual({
+      ok: false,
+      code: "email_unverified",
+    });
+  });
+
+  it("matches the identity email case-insensitively", async () => {
+    const { isOwnerUser } = await import("@/lib/auth/authorize");
+    expect(
+      isOwnerUser({
+        ...owner,
+        email: "Alice@Example.com",
+        identities: [{ identity_data: { email: "ALICE@example.com", email_verified: true } }],
+      })
+    ).toEqual({ ok: true });
+  });
+
+  it("falls back to email_confirmed_at only when identities is empty", async () => {
+    const { isOwnerUser } = await import("@/lib/auth/authorize");
+    expect(isOwnerUser({ ...owner, identities: [] })).toEqual({ ok: true });
+    expect(isOwnerUser({ ...owner, identities: null })).toEqual({ ok: true });
+    expect(isOwnerUser({ ...owner, identities: [], email_confirmed_at: null })).toEqual({
+      ok: false,
+      code: "email_unverified",
+    });
+    expect(isOwnerUser({ ...owner, identities: undefined, email_confirmed_at: "" })).toEqual({
+      ok: false,
+      code: "email_unverified",
+    });
+  });
+
+  it("has a 403 message for every denial code", async () => {
+    const { OWNER_DENIAL_MESSAGES } = await import("@/lib/auth/authorize");
+    expect(Object.keys(OWNER_DENIAL_MESSAGES).sort()).toEqual([
+      "email_unverified",
+      "not_authorized",
+      "wrong_provider",
+    ]);
+  });
+});

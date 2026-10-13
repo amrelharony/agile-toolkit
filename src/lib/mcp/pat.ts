@@ -1,5 +1,6 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import { isOwnerUser, type OwnerCandidate } from "@/lib/auth/authorize";
 import { isAccessLevel, type AccessLevel } from "./capability";
 
 /**
@@ -78,6 +79,7 @@ export function constantTimeEqual(a: string, b: string): boolean {
  *   - Service-role key not configured
  *   - Token doesn't match any row
  *   - Token is revoked or expired
+ *   - The token's user is not the workspace owner, or that can't be checked
  */
 export async function verifyBearer(bearer: string): Promise<{
   userId: string;
@@ -153,6 +155,12 @@ export async function verifyBearer(bearer: string): Promise<{
       squad_profile_ids: string[] | null;
       access_level: string | null;
     };
+    // A valid token is not enough: RLS lets ANY signed-in Supabase user
+    // insert their own access_tokens row, and a Google account can get a
+    // session without ever passing our callback's owner check (run the PKCE
+    // exchange against Supabase directly). So MCP re-asserts that the
+    // token's user is the owner, with the same rule as every other gate.
+    if (!(await isOwnerUserId(admin, resolved.user_id))) return null;
     return {
       userId: resolved.user_id,
       tokenId: resolved.token_id,
@@ -169,6 +177,66 @@ export async function verifyBearer(bearer: string): Promise<{
     };
   }
   return null;
+}
+
+/**
+ * Owner verdicts per user id, so an MCP session (one call per tool use)
+ * doesn't cost an admin round-trip on every request. Five minutes bounds how
+ * long a change to AUTHORIZED_EMAILS or the user's identity takes to bite;
+ * revoking the token itself still takes effect immediately, because the hash
+ * lookup above runs on every call. Only reached after a token verified, so
+ * an unauthenticated caller can't fill it. Bounded, oldest-first eviction.
+ */
+const OWNER_VERDICT_TTL_MS = 5 * 60_000;
+const OWNER_VERDICT_MAX = 100;
+const ownerVerdicts = new Map<string, { ok: boolean; at: number }>();
+
+/** The one admin call the owner check makes; structural so tests can fake it. */
+type AdminUserLookup = {
+  auth: {
+    admin: {
+      getUserById(uid: string): Promise<{
+        data: { user: OwnerCandidate | null };
+        error: { message: string } | null;
+      }>;
+    };
+  };
+};
+
+async function isOwnerUserId(admin: AdminUserLookup, userId: string): Promise<boolean> {
+  const now = Date.now();
+  const hit = ownerVerdicts.get(userId);
+  if (hit && now - hit.at < OWNER_VERDICT_TTL_MS) return hit.ok;
+
+  let ok: boolean;
+  try {
+    const { data, error } = await admin.auth.admin.getUserById(userId);
+    if (error || !data.user) {
+      // Fail closed, and don't cache: a transient lookup failure must not
+      // lock the owner out for five minutes.
+      // eslint-disable-next-line no-console
+      console.warn("[mcp/pat] owner lookup failed:", error?.message ?? "no user");
+      return false;
+    }
+    ok = isOwnerUser(data.user).ok;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[mcp/pat] owner lookup threw:", err instanceof Error ? err.message : err);
+    return false;
+  }
+
+  ownerVerdicts.delete(userId);
+  if (ownerVerdicts.size >= OWNER_VERDICT_MAX) {
+    const oldest = ownerVerdicts.keys().next().value;
+    if (oldest !== undefined) ownerVerdicts.delete(oldest);
+  }
+  ownerVerdicts.set(userId, { ok, at: now });
+  return ok;
+}
+
+/** Test seam: forget cached owner verdicts. */
+export function __resetPatOwnerCache(): void {
+  ownerVerdicts.clear();
 }
 
 export function prefixOf(rawToken: string): string {

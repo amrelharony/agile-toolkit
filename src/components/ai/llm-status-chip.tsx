@@ -4,6 +4,7 @@ import { Sparkles, SparklesIcon } from "lucide-react";
 import { useMounted } from "@/hooks/use-mounted";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
 import { useAgentBackend } from "@/lib/agent/use-agent-backend";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { cn } from "@/lib/utils";
 
 const SERVER_PROVIDER_NAME: Record<string, string> = { openclaw: "OpenClaw", glm: "GLM" };
@@ -22,7 +23,8 @@ const SERVER_PROVIDER_NAME: Record<string, string> = { openclaw: "OpenClaw", glm
 export function LlmStatusChip() {
   const mounted = useMounted();
   const byok = useActiveLlm();
-  const backend = useAgentBackend();
+  // The server agent is owner-only; visitors see their own BYOK state.
+  const backend = useAgentBackend({ enabled: useIsOwner() });
 
   // The agent is "on" when either a BYOK key is configured OR the server has a
   // backend (OpenClaw/GLM). BYOK takes precedence in the label since it's the

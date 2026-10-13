@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth/auth-provider";
+import { useOwnerSyncGate } from "@/lib/sync/owner-sync-gate";
 import { useHistoryStore } from "./history-store";
 import { pushEvents, pullEvents, nextPullCursor, subscribeToHistory } from "./sync";
 
@@ -15,6 +16,10 @@ const BACKOFF_MAX_MS = 5 * 60 * 1000; // 5 min cap
  * Lifecycle:
  *   - On `SIGNED_IN`: stamp anonymous local events with userId, push them,
  *     then pull anything newer from cloud, then subscribe to realtime.
+ *     "Signed in" is the owner sync gate (see owner-sync-gate.ts): the
+ *     verified owner, after any "work created while signed out: merge or
+ *     discard?" question is answered. The anonymous-event stamp therefore
+ *     only ever runs for events the owner chose to keep.
  *   - On `SIGNED_OUT`: stop the realtime channel; keep local events.
  *   - On every store change (debounced): push any new events with userId
  *     that aren't yet `syncedAt` set.
@@ -23,7 +28,8 @@ const BACKOFF_MAX_MS = 5 * 60 * 1000; // 5 min cap
  *   - On realtime reconnect: pull events that arrived during the gap.
  */
 export function HistorySyncProvider({ children }: { children: React.ReactNode }) {
-  const { status, user } = useAuth();
+  const { user } = useAuth();
+  const gateOpen = useOwnerSyncGate();
   const userId = user?.id ?? null;
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const lastUserIdRef = useRef<string | null>(null);
@@ -46,7 +52,7 @@ export function HistorySyncProvider({ children }: { children: React.ReactNode })
       unsubscribeRef.current = null;
     }
 
-    if (status !== "authenticated" || !userId) {
+    if (!gateOpen || !userId) {
       lastUserIdRef.current = null;
       setSyncStatus("idle");
       failureCountRef.current = 0;
@@ -131,7 +137,7 @@ export function HistorySyncProvider({ children }: { children: React.ReactNode })
       cancelled = true;
     };
   }, [
-    status,
+    gateOpen,
     userId,
     addEvents,
     markSynced,
@@ -142,7 +148,7 @@ export function HistorySyncProvider({ children }: { children: React.ReactNode })
 
   // Debounced push on store changes.
   useEffect(() => {
-    if (status !== "authenticated" || !userId) return;
+    if (!gateOpen || !userId) return;
     const unsub = useHistoryStore.subscribe((s, prev) => {
       if (s.events === prev.events) return;
       const newOnes = s.events.filter(
@@ -186,7 +192,7 @@ export function HistorySyncProvider({ children }: { children: React.ReactNode })
       unsub();
       if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
     };
-  }, [status, userId, markSynced, setSyncStatus]);
+  }, [gateOpen, userId, markSynced, setSyncStatus]);
 
   // Cleanup on unmount.
   useEffect(() => {

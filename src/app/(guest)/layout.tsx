@@ -8,9 +8,15 @@
  * canvas page takes the full viewport).
  */
 
+import type { Metadata } from "next";
 import { getGuestSession } from "@/lib/auth/guest-session";
 import { GuestProfileProvider } from "@/lib/auth/guest-profile-provider";
 import { PresenceIdentityProvider } from "@/lib/realtime/presence-identity";
+
+// Invite-code and squad-guest pages are reached by link, never by search.
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 export default async function GuestLayout({ children }: { children: React.ReactNode }) {
   const session = await getGuestSession();

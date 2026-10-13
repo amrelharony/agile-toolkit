@@ -8,3 +8,6 @@ package-lock.json
 .claude/worktrees/
 supabase/migrations/*.sql
 design-system/
+# Vendored pdf.js workers, byte-copied from pdfjs-dist (npm run pdf:worker).
+# test/pdf/worker-version.test.ts fails if they are reformatted.
+public/pdf.worker*.mjs

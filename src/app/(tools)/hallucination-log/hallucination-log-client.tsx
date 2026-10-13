@@ -27,6 +27,7 @@ import { HALLUCINATION_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
 import { toast } from "@/lib/utils/toast";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
 
 // Lazy-load — keeps the adapter chunks async for users who only paste
 // in hallucinations they spotted in production.
@@ -57,6 +58,8 @@ export function HallucinationLogClient() {
   const upsert = useWorkspaceStore((s) => s.upsertHallucination);
   const removeOne = useWorkspaceStore((s) => s.removeHallucination);
   const { log } = useHistoryLogger("hallucination-log");
+  // Only the owner's data leaves the browser (cloud sync is owner-only).
+  const isOwner = useIsOwner();
   const exportRef = useRef<HTMLDivElement>(null);
 
   const [feature, setFeature] = useState("");
@@ -338,12 +341,12 @@ export function HallucinationLogClient() {
             rows={2}
           />
           {/* BUG-T3-hallucination-log-2: privacy disclosure. The Input
-              and Actual fields end up in localStorage and (when signed in)
-              in Supabase user_state. Customer prompts pasted here become
-              durable PII unless the user knows that. */}
+              and Actual fields end up in localStorage and (for the owner)
+              in Supabase. Customer prompts pasted here become durable PII
+              unless the user knows that. */}
           <p className="text-[11px] text-sub mt-2 italic">
-            Logged locally on this device (and synced to your account if signed in). Don&rsquo;t
-            paste customer-identifiable prompts or responses — redact PII first.
+            Logged in this browser{isOwner ? " and synced to your cloud workspace" : ""}.
+            Don&rsquo;t paste customer-identifiable prompts or responses — redact PII first.
           </p>
           <Button onClick={add} className="mt-3 gap-1">
             <Plus className="w-4 h-4" />

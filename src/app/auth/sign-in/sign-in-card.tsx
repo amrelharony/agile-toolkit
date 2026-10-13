@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { getAuthBrowserClient } from "@/lib/auth/supabase-browser";
-import { LogIn, Users } from "lucide-react";
+import { isOwnerOnlyPage } from "@/lib/auth/owner-routes";
+import { ArrowLeft, LogIn, Users } from "lucide-react";
 
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
@@ -20,6 +21,9 @@ function safeNext(raw: string | null): string {
   return raw;
 }
 
+const NOT_OWNER_MESSAGE =
+  "That Google account isn't the owner account. You can keep using every tool without signing in.";
+
 const ERROR_MESSAGES: Record<string, string> = {
   expired: "That sign-in link expired. Try again.",
   invalid: "That sign-in attempt was invalid. Try again.",
@@ -27,7 +31,10 @@ const ERROR_MESSAGES: Record<string, string> = {
   rate_limited: "Too many attempts. Wait a moment and try again.",
   oauth_failed: "Sign-in didn't complete. Try again.",
   missing_code: "Sign-in didn't complete. Try again.",
-  not_authorized: "That Google account isn't on the allowlist.",
+  not_authorized: NOT_OWNER_MESSAGE,
+  // Supabase refused to create an account (sign-ups are off): only the
+  // existing owner account can sign in.
+  signup_disabled: NOT_OWNER_MESSAGE,
   auth_disabled: "Auth isn't configured on this deployment.",
 };
 
@@ -37,6 +44,9 @@ export function SignInCard() {
   const [error, setError] = useState<string | null>(null);
 
   const next = safeNext(params.get("next"));
+  // Visitors leave without signing in, so an owner-only `next` would just
+  // bounce them back here.
+  const backHref = isOwnerOnlyPage(next.split(/[?#]/)[0]) ? "/" : next;
   const errCode = params.get("auth_error");
   const initialError = errCode ? (ERROR_MESSAGES[errCode] ?? "Sign-in failed.") : null;
   const displayError = error ?? initialError;
@@ -65,7 +75,7 @@ export function SignInCard() {
   return (
     <div className="max-w-sm w-full space-y-4 text-center">
       <p className="text-sub text-sm">
-        Sign in with the Google account on the workspace allowlist.
+        Owner sign in. Visitors don&apos;t need an account — every tool works in your browser.
       </p>
 
       <Button
@@ -110,6 +120,14 @@ export function SignInCard() {
         Join with a squad invite code
       </Link>
       <p className="text-[11px] text-sub/60">No account needed — your squad lead shares a code.</p>
+
+      <Link
+        href={backHref}
+        className="inline-flex items-center gap-1.5 pt-2 text-sm text-sub hover:text-accent transition-colors"
+      >
+        <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
+        Back to the toolkit
+      </Link>
     </div>
   );
 }

@@ -32,9 +32,9 @@ export interface Profile {
 }
 
 export type AuthStatus =
-  | "disabled"      // Supabase env vars missing — anonymous-only mode
-  | "loading"       // session check in flight
-  | "anonymous"     // hydrated, no session
+  | "disabled" // Supabase env vars missing — anonymous-only mode
+  | "loading" // session check in flight
+  | "anonymous" // hydrated, no session
   | "authenticated" // hydrated, session present
   | "error";
 
@@ -45,9 +45,17 @@ export interface AuthState {
   error: string | null;
 }
 
+export interface SignOutResult {
+  /** The server ended the session(s). False when the call failed or hung. */
+  revoked: boolean;
+  /** No session is left in this browser (removed locally if need be). */
+  signedOutHere: boolean;
+}
+
 export interface AuthActions {
   signInWithGoogle: () => Promise<void>;
-  signOut: () => Promise<void>;
+  /** Never throws; see SignOutResult. */
+  signOut: () => Promise<SignOutResult>;
   updateProfile: (patch: Partial<Pick<Profile, "scrum_role" | "display_name">>) => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
