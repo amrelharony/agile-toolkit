@@ -2,7 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { LayoutTemplate, FileInput, Download, FileImage, FileCode, FileJson, FileText, FileSpreadsheet, Share2, Activity, Presentation, Sparkles, Maximize2 } from "lucide-react";
+import {
+  LayoutTemplate,
+  FileInput,
+  Download,
+  FileImage,
+  FileCode,
+  FileJson,
+  FileText,
+  FileSpreadsheet,
+  Share2,
+  Activity,
+  Presentation,
+  Sparkles,
+  Maximize2,
+} from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -12,7 +26,15 @@ import { generateCanvasPrompts } from "@/lib/ai-prompts/canvas";
 import { boardInsights, boardInsightsCross } from "@/lib/analytics/board-insights";
 import { clusterObjects } from "@/lib/whiteboard/cluster-bridge";
 import { fitToRects } from "@/lib/whiteboard/canvas-transform";
-import { exportPng, exportSvg, exportJson, exportJpg, exportPdf, exportCsv, exportPptx } from "@/lib/whiteboard/export";
+import {
+  exportPng,
+  exportSvg,
+  exportJson,
+  exportJpg,
+  exportPdf,
+  exportCsv,
+  exportPptx,
+} from "@/lib/whiteboard/export";
 import { resolveShareToken } from "@/lib/whiteboard/share-link";
 import { wbId } from "@/lib/whiteboard/clipboard";
 import { emitSignal, subscribeSignals } from "@/lib/signals/signal-bus";
@@ -150,7 +172,7 @@ export function CanvasClient() {
   // create "My first board", and then rehydration restores the user's
   // actual boards, leaving them with a phantom extra board on every reload.
   const [hydrated, setHydrated] = useState(() =>
-    typeof window === "undefined" ? false : useWorkspaceStore.persist.hasHydrated(),
+    typeof window === "undefined" ? false : useWorkspaceStore.persist.hasHydrated()
   );
   useEffect(() => {
     if (hydrated) return;
@@ -163,9 +185,16 @@ export function CanvasClient() {
     // Kick rehydration in case nobody else has yet (the app-shell does it,
     // but the canvas page may load before that mounts in some flows).
     void Promise.resolve(useWorkspaceStore.persist.rehydrate())
-      .then(() => { if (!cancelled) setHydrated(true); })
-      .catch(() => { if (!cancelled) setHydrated(true); /* still unblock UI */ });
-    return () => { cancelled = true; off(); };
+      .then(() => {
+        if (!cancelled) setHydrated(true);
+      })
+      .catch(() => {
+        if (!cancelled) setHydrated(true); /* still unblock UI */
+      });
+    return () => {
+      cancelled = true;
+      off();
+    };
   }, [hydrated]);
 
   // Ensure at least one board exists, and one is active. Lazy-create on
@@ -210,7 +239,7 @@ export function CanvasClient() {
   // produce a new reference and cascade into `promptConfig`'s deps.
   const activeBoard = useMemo(
     () => boards.find((b) => b.id === activeBoardId),
-    [boards, activeBoardId],
+    [boards, activeBoardId]
   );
 
   // R10: drop the `o.type === "card"` filter — `importFromStories` in
@@ -288,14 +317,14 @@ export function CanvasClient() {
           // card fields (title/points/status). For stickies we
           // add a parallel updater.
           const cardsFor = (entityId: string): WhiteboardCard[] =>
-            (state.whiteboardObjects ?? []).filter((o): o is WhiteboardCard =>
-              o.type === "card" && o.sourceRef?.entityId === entityId,
+            (state.whiteboardObjects ?? []).filter(
+              (o): o is WhiteboardCard => o.type === "card" && o.sourceRef?.entityId === entityId
             );
           // R10: sticky updater — content lives in `content` on
           // WhiteboardSticky. Syncs the displayed text only (stickies
           // have no points/status fields).
           const updateStickyContent = (entityId: string, newContent: string) => {
-            for (const s of (state.whiteboardObjects ?? [])) {
+            for (const s of state.whiteboardObjects ?? []) {
               if (s.type !== "sticky" || s.sourceRef?.entityId !== entityId) continue;
               updates.push({
                 ...s,
@@ -323,9 +352,8 @@ export function CanvasClient() {
             }
             // R10: also refresh stickies (imported via importFromStories
             // with tool="story"). Display the same title + optional pts.
-            const stickyText = story.points != null
-              ? `${story.title} · ${story.points}pt`
-              : story.title;
+            const stickyText =
+              story.points != null ? `${story.title} · ${story.points}pt` : story.title;
             updateStickyContent(id, stickyText);
           } else if (signal.kind === "risk.opened" || signal.kind === "risk.closed") {
             const id = payload.riskId ?? payload.entityId ?? payload.id;
@@ -381,7 +409,7 @@ export function CanvasClient() {
             console.warn("[canvas] card sync handler failed:", err);
           }
         }
-      },
+      }
     );
     return unsub;
   }, [hydrated, upsertWhiteboardObjects]);
@@ -396,11 +424,11 @@ export function CanvasClient() {
   const allComments = useWorkspaceStore((s) => s.whiteboardCommentThreads);
   const objects = useMemo(
     () => (allObjects ?? []).filter((o) => o.boardId === activeBoardId),
-    [allObjects, activeBoardId],
+    [allObjects, activeBoardId]
   );
   const comments = useMemo(
     () => (allComments ?? []).filter((c) => c.boardId === activeBoardId),
-    [allComments, activeBoardId],
+    [allComments, activeBoardId]
   );
 
   const workspace = useWorkspaceStore(
@@ -416,18 +444,18 @@ export function CanvasClient() {
         techDebt: s.techDebt,
         maturityLevel: s.maturityLevel,
         teamName: s.teamName,
-      }),
-    ),
+      })
+    )
   );
 
   // Merge baseline anti-patterns with cross-tool rules (card-disconnected,
   // tag-mismatch). Cross-tool rules need the workspace state — pass
   // through the same snapshot the AI prompts use so both surfaces stay
   // in sync.
-  const insights = useMemo(() => [
-    ...boardInsights(objects),
-    ...boardInsightsCross(objects, workspace),
-  ], [objects, workspace]);
+  const insights = useMemo(
+    () => [...boardInsights(objects), ...boardInsightsCross(objects, workspace)],
+    [objects, workspace]
+  );
   // Use content-aware (TF-IDF bag-of-words) clustering by default —
   // semantic clusters tend to be more useful than positional clusters
   // on brainstorm boards where users rarely arrange by topic from the
@@ -441,16 +469,21 @@ export function CanvasClient() {
   // generator and is only meaningful while the user is looking at it.
   const clusters = useMemo(
     () => (showAIPanel ? clusterObjects(objects, { mode: "content" }) : []),
-    [showAIPanel, objects],
+    [showAIPanel, objects]
   );
 
-  const promptConfig = useMemo(() => ({
-    toolName: "Canvas",
-    prompts: activeBoard
-      ? generateCanvasPrompts({ board: activeBoard, objects, comments, insights, clusters }, workspace)
-      : [],
-  }), [activeBoard, objects, comments, insights, clusters, workspace]);
-
+  const promptConfig = useMemo(
+    () => ({
+      toolName: "Canvas",
+      prompts: activeBoard
+        ? generateCanvasPrompts(
+            { board: activeBoard, objects, comments, insights, clusters },
+            workspace
+          )
+        : [],
+    }),
+    [activeBoard, objects, comments, insights, clusters, workspace]
+  );
 
   const onFit = () => {
     if (objects.length === 0 || viewportSize.w === 0) return;
@@ -518,7 +551,7 @@ export function CanvasClient() {
   const exportFilename = (ext: string) => {
     const raw = (activeBoard?.name ?? "").trim();
     // eslint-disable-next-line no-control-regex
-    const safe = (raw || "canvas").replace(/[\\/:*?"<>| -]/g, "_").slice(0, 100);
+    const safe = (raw || "canvas").replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 100);
     return `${safe}.${ext}`;
   };
   /**
@@ -537,7 +570,7 @@ export function CanvasClient() {
    * edge.
    */
   const exportFullBoard = async (
-    rasterise: (node: HTMLElement) => Promise<void>,
+    rasterise: (node: HTMLElement) => Promise<void>
   ): Promise<void> => {
     const node = canvasViewportRef.current;
     if (!node || !activeBoard) return;
@@ -557,7 +590,9 @@ export function CanvasClient() {
         // gives the browser a paint tick so html-to-image reads the
         // post-transform layout. One rAF was occasionally insufficient
         // on Chromium when DevTools was open (paint debounced).
-        await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+        await new Promise<void>((r) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => r()))
+        );
       }
       await rasterise(node);
     } finally {
@@ -672,7 +707,10 @@ export function CanvasClient() {
             >
               <button
                 type="button"
-                onClick={() => { void doExportPng(); setShowExportMenu(false); }}
+                onClick={() => {
+                  void doExportPng();
+                  setShowExportMenu(false);
+                }}
                 className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-deep flex items-center gap-2 text-text"
               >
                 <FileImage className="w-4 h-4 text-sub" />
@@ -680,7 +718,10 @@ export function CanvasClient() {
               </button>
               <button
                 type="button"
-                onClick={() => { doExportSvg(); setShowExportMenu(false); }}
+                onClick={() => {
+                  doExportSvg();
+                  setShowExportMenu(false);
+                }}
                 className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-deep flex items-center gap-2 text-text"
               >
                 <FileCode className="w-4 h-4 text-sub" />
@@ -688,7 +729,10 @@ export function CanvasClient() {
               </button>
               <button
                 type="button"
-                onClick={() => { void doExportJpg(); setShowExportMenu(false); }}
+                onClick={() => {
+                  void doExportJpg();
+                  setShowExportMenu(false);
+                }}
                 className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-deep flex items-center gap-2 text-text"
               >
                 <FileImage className="w-4 h-4 text-sub" />
@@ -696,7 +740,10 @@ export function CanvasClient() {
               </button>
               <button
                 type="button"
-                onClick={() => { void doExportPdf(); setShowExportMenu(false); }}
+                onClick={() => {
+                  void doExportPdf();
+                  setShowExportMenu(false);
+                }}
                 className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-deep flex items-center gap-2 text-text"
               >
                 <FileText className="w-4 h-4 text-sub" />
@@ -704,7 +751,10 @@ export function CanvasClient() {
               </button>
               <button
                 type="button"
-                onClick={() => { doExportCsv(); setShowExportMenu(false); }}
+                onClick={() => {
+                  doExportCsv();
+                  setShowExportMenu(false);
+                }}
                 className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-deep flex items-center gap-2 text-text"
               >
                 <FileSpreadsheet className="w-4 h-4 text-sub" />
@@ -712,7 +762,10 @@ export function CanvasClient() {
               </button>
               <button
                 type="button"
-                onClick={() => { doExportPptx(); setShowExportMenu(false); }}
+                onClick={() => {
+                  doExportPptx();
+                  setShowExportMenu(false);
+                }}
                 className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-deep flex items-center gap-2 text-text"
                 title="Saves an .html file. Open with PowerPoint (Right-click → Open with) to embed as a slide."
               >
@@ -721,7 +774,10 @@ export function CanvasClient() {
               </button>
               <button
                 type="button"
-                onClick={() => { doExportJson(); setShowExportMenu(false); }}
+                onClick={() => {
+                  doExportJson();
+                  setShowExportMenu(false);
+                }}
                 className="w-full px-3 py-1.5 text-left text-sm hover:bg-surface-deep flex items-center gap-2 text-text"
               >
                 <FileJson className="w-4 h-4 text-sub" />
@@ -815,10 +871,7 @@ export function CanvasClient() {
             className="absolute top-3 right-3 z-20 bg-surface/95 border border-border rounded-lg p-0.5 shadow-md backdrop-blur-sm"
             data-canvas-export-ignore="true"
           >
-            <VoiceInputButton
-              boardId={activeBoardId}
-              worldCenter={voiceWorldCenter}
-            />
+            <VoiceInputButton boardId={activeBoardId} worldCenter={voiceWorldCenter} />
           </div>
         )}
         <ZoomControls onFit={onFit} viewportSize={viewportSize} />
@@ -858,12 +911,17 @@ export function CanvasClient() {
               className="pointer-events-auto text-center w-[min(360px,calc(100%-2rem))] px-5 py-5 rounded-xl bg-surface/90 border border-border backdrop-blur-md shadow-xl"
               data-canvas-export-ignore="true"
             >
-              <Sparkles className="w-7 h-7 text-accent mx-auto mb-2 opacity-70" aria-hidden="true" />
+              <Sparkles
+                className="w-7 h-7 text-accent mx-auto mb-2 opacity-70"
+                aria-hidden="true"
+              />
               <h3 className="text-sm font-semibold text-text mb-1">Start your board</h3>
               <p className="text-xs text-sub mb-3">
                 Pick a template or import — or press{" "}
-                <kbd className="font-mono text-[10px] bg-surface-deep border border-border rounded px-1 py-0.5">N</kbd>
-                {" "}for a sticky.
+                <kbd className="font-mono text-[10px] bg-surface-deep border border-border rounded px-1 py-0.5">
+                  N
+                </kbd>{" "}
+                for a sticky.
               </p>
               <div className="flex items-center justify-center gap-2">
                 <Button
@@ -904,9 +962,11 @@ export function CanvasClient() {
                 // brings critical/warn/info badges above 4.5:1 in the
                 // canvas's dark surface.
                 className={`uppercase font-bold text-[10px] px-1.5 py-0.5 rounded ${
-                  i.severity === "critical" ? "bg-red-700/50 text-red-100"
-                  : i.severity === "warn" ? "bg-amber-700/50 text-amber-100"
-                  : "bg-cyan-700/50 text-cyan-100"
+                  i.severity === "critical"
+                    ? "bg-red-700/50 text-red-100"
+                    : i.severity === "warn"
+                      ? "bg-amber-700/50 text-amber-100"
+                      : "bg-cyan-700/50 text-cyan-100"
                 }`}
               >
                 {i.severity}
@@ -934,10 +994,7 @@ export function CanvasClient() {
         />
       )}
       {showActivity && activeBoardId && (
-        <ActivityStream
-          boardId={activeBoardId}
-          onClose={() => setShowActivity(false)}
-        />
+        <ActivityStream boardId={activeBoardId} onClose={() => setShowActivity(false)} />
       )}
     </ToolPageWrapper>
   );
