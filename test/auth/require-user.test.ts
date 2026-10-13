@@ -46,7 +46,7 @@ async function callRequireAuthorizedUser() {
     return { ok: true as const, result };
   } catch (e) {
     if (e instanceof Response) {
-      return { ok: false as const, status: e.status, body: await e.json() };
+      return { ok: false as const, status: e.status, body: await e.json(), headers: e.headers };
     }
     throw e;
   }
@@ -234,6 +234,96 @@ describe("requireAuthorizedUser — provider + email-verified gates", () => {
     if (!r.ok) {
       expect(r.status).toBe(403);
       expect(r.body.error).toBe("not_authorized");
+    }
+  });
+});
+
+describe("requireAuthorizedUser — error responses", () => {
+  const owner = {
+    id: "u1",
+    email: "alice@example.com",
+    email_confirmed_at: "2024-01-01T00:00:00Z",
+    app_metadata: { provider: "google" },
+    identities: [
+      { provider: "google", identity_data: { email: "alice@example.com", email_verified: true } },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.resetModules();
+    supabaseCreateServerClient.mockReset();
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://test.supabase.co");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon");
+    vi.stubEnv("AUTHORIZED_EMAILS", "alice@example.com");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("answers JSON that no cache may store, with the shared { error, message } shape", async () => {
+    supabaseCreateServerClient.mockReturnValue(
+      makeSupabase({ ...owner, email: "eve@example.com" })
+    );
+    const r = await callRequireAuthorizedUser();
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(403);
+      expect(r.headers.get("content-type")).toContain("application/json");
+      expect(r.headers.get("cache-control")).toBe("no-store");
+      expect(r.body).toEqual({
+        error: "not_authorized",
+        message: "This account is not on the allowlist.",
+      });
+    }
+  });
+
+  it("401s when there is no session", async () => {
+    supabaseCreateServerClient.mockReturnValue(
+      makeSupabase(null, { name: "AuthSessionMissingError", message: "Auth session missing!" })
+    );
+    const r = await callRequireAuthorizedUser();
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(401);
+      expect(r.body.error).toBe("unauthenticated");
+      expect(r.headers.get("cache-control")).toBe("no-store");
+    }
+  });
+
+  it("503s (retryable) rather than 401 when the auth backend is unreachable", async () => {
+    // A 401 would make the client drop the owner's session over an outage.
+    supabaseCreateServerClient.mockReturnValue(
+      makeSupabase(null, { name: "AuthRetryableFetchError", message: "fetch failed" })
+    );
+    const r = await callRequireAuthorizedUser();
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(503);
+      expect(r.body.error).toBe("auth_unreachable");
+      expect(r.headers.get("retry-after")).toBe("5");
+    }
+  });
+
+  it("503s when Supabase is not configured", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "");
+    const r = await callRequireAuthorizedUser();
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(503);
+      expect(r.body.error).toBe("auth_unavailable");
+    }
+    expect(supabaseCreateServerClient).not.toHaveBeenCalled();
+  });
+
+  it("503s instead of 403 when the allowlist is empty — a config fault, not a verdict", async () => {
+    vi.stubEnv("AUTHORIZED_EMAILS", "");
+    supabaseCreateServerClient.mockReturnValue(makeSupabase(owner));
+    const r = await callRequireAuthorizedUser();
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(503);
+      expect(r.body.error).toBe("auth_unavailable");
     }
   });
 });

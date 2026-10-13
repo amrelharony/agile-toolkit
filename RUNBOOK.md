@@ -1,6 +1,8 @@
 # Agile Toolkit — operator runbook
 
-Everything required to bring the single-user refactor online, in roughly the order you'll touch each system. Five steps, ~30 min start-to-finish if you've never used Supabase before; ~10 min if you have.
+Everything required to bring the toolkit online, in roughly the order you'll touch each system. Five steps, ~30 min start-to-finish if you've never used Supabase before; ~10 min if you have.
+
+**Access model in one paragraph.** The site is public: every tool page works without signing in, and a visitor's data stays in their browser. Only the owner — a Google account listed in `AUTHORIZED_EMAILS`, with a verified email — gets cloud and history sync, the agent's server path, MCP, personal access tokens, the kudos/squads/sessions APIs and realtime multiplayer. The middleware lets pages through and answers every non-bypassed `/api/*` request without an owner session with JSON (`401 unauthenticated`, `403 not_authorized | wrong_provider | email_unverified`, `503 auth_unavailable | auth_unreachable`), never a redirect. The owner-only pages (`OWNER_ONLY_PAGES` in `src/lib/auth/owner-routes.ts`: `/settings/access-tokens`, `/settings/squads`) redirect to `/auth/sign-in` or `/not-authorized`. The browser asks `GET /api/auth/owner` before starting anything owner-only.
 
 ---
 
@@ -16,6 +18,7 @@ Everything required to bring the single-user refactor online, in roughly the ord
 5. **Authentication → Providers → Google** → enable.
    - You'll need a Google OAuth client (Cloud Console → OAuth 2.0 client IDs → Web application). Authorized redirect URI: `https://<your-project-ref>.supabase.co/auth/v1/callback` (Supabase shows this string on the same page).
 6. **Authentication → URL configuration** → add `http://localhost:3000` and (later) your production URL to **Site URL** + **Redirect URLs**.
+7. Leave **Allow new users to sign up** on for now — your first owner sign-in (section 4) creates your account. Turn it off before the site goes public (see [Before going public](#before-going-public-owner-checklist)).
 
 ---
 
@@ -84,15 +87,22 @@ select tablename from pg_tables where schemaname = 'public' order by tablename;
 ## 4. First sign-in + smoke walkthrough (5 min)
 
 1. `npm run dev` (or restart if `.env.local` changed mid-session).
-2. Open http://localhost:3000 → you should be redirected to `/auth/sign-in`.
-3. Click **Continue with Google** → sign in with the email in `AUTHORIZED_EMAILS`.
-4. You should land back at `/` with full app chrome (sidebar + header + tools list).
+2. Open http://localhost:3000 → the home page loads as a visitor (no redirect). The header's account button is the visitor menu (person icon).
+3. Visitor menu → **Owner sign in** → **Continue with Google** → sign in with the email in `AUTHORIZED_EMAILS`.
+4. You should land back where you started, with your avatar in the header (the server confirmed you as the owner) — cloud sync is running.
 5. Try a write through the chat agent (header → message-square icon, or Cmd/Ctrl+K twice):
    - Ask: _"Create a sprint called Sprint 47 starting today for 2 weeks at 30 points."_
    - Expect a "Confirm action" card for `workspace.sprint.create`. Click **Approve**.
    - Navigate to `/sprint-goal` → the sprint should appear.
 6. Reload the page → sprint persists (came back from Supabase, not just localStorage).
 7. Open the same URL in a second browser (Chrome + Firefox, or one normal + one private window) → sign in same account → the sprint appears within ~2 s.
+
+8. Check the owner-only surface from a signed-out (private) window:
+   ```bash
+   curl -i http://localhost:3000/api/kudos                   # 401 JSON {"error":"unauthenticated",…}
+   curl -i http://localhost:3000/settings/access-tokens      # 307 → /auth/sign-in?next=…
+   curl -i http://localhost:3000/                            # 200
+   ```
 
 If any of those steps fails, check:
 
@@ -135,13 +145,16 @@ If any of those steps fails, check:
 
 | Symptom                                         | Likely cause                                              | Fix                                                                               |
 | ----------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Every page redirects to `/not-authorized`       | `AUTHORIZED_EMAILS` unset or wrong email                  | Check `.env.local`, restart dev server                                            |
+| `/api/*` returns 503 `auth_unavailable`         | `AUTHORIZED_EMAILS` empty or Supabase env missing         | Check `.env.local`, restart dev server (tool pages keep working meanwhile)        |
+| Sign-in lands on "Not the owner account"        | Google account not in `AUTHORIZED_EMAILS`                 | Sign in with the owner account; check the allowlist spelling                      |
+| Sign-in lands on "Owner sign-in unavailable"    | `AUTHORIZED_EMAILS` empty on that deployment              | Set it (e.g. Vercel → Preview env); no session was created, nothing to undo       |
+| Header says "Cloud sync is paused"              | Signed-out work in this browser awaits merge/discard      | Click **Review** in the notice, then **Merge** or **Discard**                     |
 | `/auth/sign-in` works but bounces back unauth'd | Google redirect URI mismatch                              | Add `http://localhost:3000` to Supabase Auth → URL config                         |
 | Agent sheet won't open / says "no GLM key"      | Neither `ZAI_API_KEY` set nor BYOK configured             | Set the server key, or click avatar → **AI settings (BYOK)** and paste a GLM key  |
 | Agent returns "Insufficient balance"            | z.ai account has no credit AND you picked a paid model    | Top up at z.ai/manage-pricing OR set `ZAI_AGENT_MODEL=glm-4.5-flash` (free tier)  |
 | MCP returns 401                                 | PAT typo, revoked, or `SUPABASE_SERVICE_ROLE_KEY` missing | Verify token in `/settings/access-tokens`; verify env on server                   |
 | `tools/list` returns empty over MCP             | Action registry didn't load on the API route runtime      | Restart dev server; check `src/app/api/mcp/route.ts` still imports `register-all` |
-| Two tabs show different workspace               | Sync engine not running (auth not detected)               | Check browser console for `[sync:*]` errors; verify Supabase is reachable         |
+| Two tabs show different workspace               | Sync not running (owner unverified, or prompt pending)    | Check console for `[sync:*]` errors; verify Supabase and `/api/auth/owner`        |
 
 ---
 
@@ -162,6 +175,44 @@ Production checklist:
 - [ ] Migrations applied to prod Supabase project
 - [ ] First sign-in succeeds
 - [ ] Smoke walkthrough (step 4) repeats green
+- [ ] [Before going public](#before-going-public-owner-checklist) done
+
+---
+
+## Before going public (owner checklist)
+
+Every tool page is public, and so is the **Owner sign in** button. Anyone can start a Google sign-in, so do these **before** the deploy that makes the site public — not after:
+
+1. **Supabase → Authentication → Sign In / Providers → Allow new users to sign up: off.** Your owner account must already exist (sign in once first). Strangers then get `signup_disabled` and land on "Not the owner account" instead of getting an `auth.users` + `profiles` row.
+2. **Supabase → Authentication → Sign In / Providers → Allow anonymous sign-ins: off.** Turn off the Email provider too if you only use Google.
+3. **Supabase → Authentication → Users:** delete every user that isn't the owner (stray sign-ins from while sign-ups were on).
+4. **Vercel → Settings → Deployment Protection:** turn on protection for **Preview** deployments (Vercel Authentication). Every push builds a preview, previews use the production Supabase project, and without protection they are public. Keep it **off** for the production domain.
+5. Verify on the production URL from a signed-out window: `/` → 200, `/api/kudos` → 401 JSON, `/settings/access-tokens` → redirect to sign-in, `/robots.txt` and `/sitemap.xml` → 200.
+
+Known behaviour worth knowing:
+
+- When your session expires you quietly become a visitor; the header shows "Signed out — changes stay on this device" with **Sign in to sync**. Owner pages and the API keep failing closed.
+- Signing out clears the toolkit data in that browser (your cloud copy stays) unless you tick **Keep a copy on this browser**. If a visitor used the browser before you sign in, you're asked to **Merge** their work into your cloud workspace or **Discard** it; sync waits for the answer.
+- Signing out while offline (or while Supabase is down) still removes the session from that browser; the next page warns that your other devices may still be signed in. If even that fails, the dialog says you're still signed in and nothing is cleared — try again.
+- **Merge** for list-style tools (risk register, decision log, 1:1s, …) combines the browser's rows with the cloud's by id; a row deleted while signed out comes back from the cloud. The same applies to your own edits after a session lapse.
+
+---
+
+## Publishing the "Agile at Work" comic
+
+The reader at `/agile-at-work` shows "Coming soon" until the PDF exists, and the home banner and sitemap entry stay hidden. Availability is decided at build time (`scripts/comic-asset.mjs` → `NEXT_PUBLIC_COMIC_PDF_SIZE` / `NEXT_PUBLIC_COMIC_PDF_VERSION`).
+
+1. Export the PDF for the web:
+   - **Linearized** ("Fast Web View" / "Optimize for fast web view"), so page 1 shows before the whole file downloads.
+   - Images as **JPEG at 150–200 dpi**; fonts **embedded**.
+   - **No JPEG2000 or JBIG2** images — the reader doesn't configure pdf.js's WASM decoders for them, so those images won't render.
+   - Aim for **50 MB or less**.
+2. Commit it as `public/comics/agile-at-work.pdf`. GitHub's web uploader caps files at **25 MB** and `git push` rejects files over **100 MB**, so push anything over 25 MB with git.
+3. Restart `npm run dev` locally (the build-time check runs once per start). On Vercel the push that adds the file rebuilds.
+4. Verify: `curl -I https://<domain>/comics/agile-at-work.pdf` → `200`, `content-type: application/pdf`, `accept-ranges: bytes`, `cache-control: public, max-age=86400, stale-while-revalidate=604800`. Then open `/agile-at-work`.
+5. Replacing the file later needs no other change: the reader requests `?v=<content hash>`, so browsers never mix byte ranges of the old and new file.
+
+After bumping `pdfjs-dist`, run `npm run pdf:worker` (copies the matching worker to `public/pdf.worker.legacy.min.mjs`) and commit the result.
 
 ---
 

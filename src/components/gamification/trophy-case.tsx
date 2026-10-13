@@ -24,6 +24,7 @@ import { fetchLeaderboard, type LeaderboardRow } from "@/lib/gamification/supaba
 import type { AchievementCategory } from "@/lib/gamification/types";
 import { cn } from "@/lib/utils";
 import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { tools as toolRegistry } from "@/lib/constants/tools";
 
 const CATEGORY_LABEL: Record<AchievementCategory, string> = {
@@ -50,6 +51,10 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
   const groups = useMemo(() => achievementsByCategory(), []);
   const totalUnlocked = dna.unlocked.length;
   const totalAvailable = achievements.length;
+  // The global leaderboard lives in the owner's Supabase project, so
+  // sharing to it and reading it are owner-only. Visitors keep their
+  // profile in this browser.
+  const isOwner = useIsOwner();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -60,7 +65,9 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
             Trophy Case
           </DialogTitle>
           <DialogDescription className="text-sub">
-            Visitor DNA profile, achievements, daily & weekly challenges, and global leaderboard.
+            {isOwner
+              ? "Visitor DNA profile, achievements, daily & weekly challenges, and global leaderboard."
+              : "Visitor DNA profile, achievements, and daily & weekly challenges — saved in this browser."}
           </DialogDescription>
         </DialogHeader>
 
@@ -163,19 +170,21 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                 maxLength={24}
               />
             </div>
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <div id="trophy-share-label" className="text-xs text-text">
-                  Share on leaderboard
+            {isOwner && (
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div id="trophy-share-label" className="text-xs text-text">
+                    Share on leaderboard
+                  </div>
+                  <div className="text-[10px] text-sub">Requires Supabase env</div>
                 </div>
-                <div className="text-[10px] text-sub">Requires Supabase env</div>
+                <Switch
+                  checked={dna.shareOnLeaderboard}
+                  onCheckedChange={(v) => useVDnaStore.getState().setShareOnLeaderboard(v)}
+                  aria-labelledby="trophy-share-label"
+                />
               </div>
-              <Switch
-                checked={dna.shareOnLeaderboard}
-                onCheckedChange={(v) => useVDnaStore.getState().setShareOnLeaderboard(v)}
-                aria-labelledby="trophy-share-label"
-              />
-            </div>
+            )}
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div id="trophy-silent-label" className="text-xs text-text">
@@ -193,7 +202,9 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
           </div>
         </div>
 
-        <Tabs defaultValue="achievements" className="mt-4">
+        {/* Keyed on ownership so signing out while the leaderboard tab is
+            selected falls back to Achievements instead of an empty panel. */}
+        <Tabs key={isOwner ? "owner" : "visitor"} defaultValue="achievements" className="mt-4">
           <TabsList className="bg-surface border border-border">
             <TabsTrigger value="achievements" className="gap-1.5">
               <Trophy className="w-3.5 h-3.5" /> Achievements
@@ -201,9 +212,11 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
             <TabsTrigger value="challenges" className="gap-1.5">
               <Flag className="w-3.5 h-3.5" /> Challenges
             </TabsTrigger>
-            <TabsTrigger value="leaderboard" className="gap-1.5">
-              <Users className="w-3.5 h-3.5" /> Leaderboard
-            </TabsTrigger>
+            {isOwner && (
+              <TabsTrigger value="leaderboard" className="gap-1.5">
+                <Users className="w-3.5 h-3.5" /> Leaderboard
+              </TabsTrigger>
+            )}
             <TabsTrigger value="activity" className="gap-1.5">
               <Activity className="w-3.5 h-3.5" /> Activity
             </TabsTrigger>
@@ -328,9 +341,11 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
             </div>
           </TabsContent>
 
-          <TabsContent value="leaderboard" className="pt-4">
-            <LeaderboardTab />
-          </TabsContent>
+          {isOwner && (
+            <TabsContent value="leaderboard" className="pt-4">
+              <LeaderboardTab />
+            </TabsContent>
+          )}
 
           <TabsContent value="activity" className="pt-4">
             <div className="space-y-1">

@@ -12,8 +12,16 @@ export function getSupabaseClient(): SupabaseClient | null {
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anon) return null;
 
+  // Nothing signs in through this client: Realtime channels and the
+  // leaderboard run on the anon key (owner data goes through
+  // `getAuthBrowserClient()`). So never read a session from the URL —
+  // createClient defaults to the implicit flow, and a crafted
+  // `#access_token=…` link would otherwise plant someone else's session
+  // here; codes are exchanged only by /auth/callback, which enforces the
+  // owner check. Not persisting a session also ignores one planted in
+  // localStorage before this change.
   cachedClient = createClient(url, anon, {
-    auth: { persistSession: true, autoRefreshToken: true },
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
     realtime: { params: { eventsPerSecond: 10 } },
   });
 

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getAuthServerClient } from "@/lib/auth/supabase-server";
-import { isEmailAuthorized } from "@/lib/auth/authorize";
+import { authorizedEmailCount, isOwnerUser } from "@/lib/auth/authorize";
 
 /**
  * OAuth callback handler.
@@ -8,6 +8,20 @@ import { isEmailAuthorized } from "@/lib/auth/authorize";
  * Google → Supabase → here. We exchange the `code` query param for a
  * session, which Supabase persists via cookies, then bounce the user
  * back to wherever they came from (or `/`).
+ *
+ * Every failure lands somewhere that explains it — never on `next`, which
+ * is usually a public page that would silently ignore an `auth_error`:
+ *   - Supabase refused a new account (`error_code=signup_disabled`): the
+ *     Google account isn't the owner → /not-authorized?reason=denied.
+ *   - Any other provider error (the user pressed Cancel, …) →
+ *     /auth/sign-in?auth_error=oauth_failed&next=…
+ *   - No code, auth not configured, or the exchange failed →
+ *     /auth/sign-in?auth_error=<slug>&next=…
+ *   - An empty owner allowlist (AUTHORIZED_EMAILS) is a deployment fault,
+ *     not a verdict on the account → /not-authorized?reason=config, before
+ *     any session exists (so nothing has to be revoked).
+ *   - A session that isn't the owner's → signed out, then
+ *     /not-authorized?reason=denied.
  */
 
 /**
@@ -42,16 +56,26 @@ function safeNext(raw: string | null): string {
 }
 
 /**
- * Redirect to `path` on `origin` with `?auth_error=<slug>` appended via the
- * URL API. `path` may already carry a query and/or hash (safeNext preserves
- * them), so naive `${path}?auth_error=…` string concatenation would emit a
- * second `?` (folding the slug into the previous param's value) or bury it
- * in the fragment where the consuming page never reads it.
+ * Back to the sign-in page with `?auth_error=<slug>` (the page maps the slug
+ * to a message) and the sanitised `next`, so a retry still lands where the
+ * user was going. Built with the URL API: `next` is a full path that may
+ * carry its own query and hash, and must arrive as one encoded param.
  */
-function redirectWithAuthError(origin: string, path: string, slug: string): NextResponse {
-  const u = new URL(path, origin);
+function redirectToSignIn(origin: string, slug: string, next: string): NextResponse {
+  const u = new URL("/auth/sign-in", origin);
   u.searchParams.set("auth_error", slug);
+  u.searchParams.set("next", next);
   return NextResponse.redirect(u);
+}
+
+function redirectNotAuthorized(origin: string, reason: "denied" | "config"): NextResponse {
+  const u = new URL("/not-authorized", origin);
+  u.searchParams.set("reason", reason);
+  return NextResponse.redirect(u);
+}
+
+function redirectNotOwner(origin: string): NextResponse {
+  return redirectNotAuthorized(origin, "denied");
 }
 
 export async function GET(request: NextRequest) {
@@ -72,13 +96,41 @@ export async function GET(request: NextRequest) {
     return new Response("Forbidden", { status: 403 });
   }
 
+  // Supabase reports a provider-side failure on the redirect itself, as
+  // `?error=…&error_code=…&error_description=…`, with no code. Before this
+  // check those all surfaced as a misleading "missing_code".
+  const providerError = searchParams.get("error");
+  const providerErrorCode = searchParams.get("error_code");
+  if (providerError || providerErrorCode) {
+    // Logged, never reflected: the description is free text from upstream.
+    console.warn(
+      "[auth/callback] provider error:",
+      providerErrorCode ?? providerError,
+      (searchParams.get("error_description") ?? "").slice(0, 200)
+    );
+    // Sign-ups are disabled on the project, so a Google account Supabase
+    // has never seen is by definition not the owner's.
+    if (providerErrorCode === "signup_disabled") return redirectNotOwner(origin);
+    return redirectToSignIn(origin, "oauth_failed", next);
+  }
+
   if (!code) {
-    return redirectWithAuthError(origin, next, "missing_code");
+    return redirectToSignIn(origin, "missing_code", next);
   }
 
   const supabase = getAuthServerClient();
   if (!supabase) {
-    return redirectWithAuthError(origin, next, "auth_disabled");
+    return redirectToSignIn(origin, "auth_disabled", next);
+  }
+
+  // Same rule as the middleware and requireAuthorizedUser: with no owner
+  // allowlisted, isOwnerUser() would reject EVERY account, the owner's
+  // included. Don't exchange the code (no session to revoke afterwards —
+  // the default sign-out scope is global and would end the owner's
+  // sessions on every device sharing this Supabase project) and show the
+  // operator hint instead of "not the owner".
+  if (authorizedEmailCount() === 0) {
+    return redirectNotAuthorized(origin, "config");
   }
 
   // PKCE state verification: Supabase's `exchangeCodeForSession` requires
@@ -98,22 +150,21 @@ export async function GET(request: NextRequest) {
     // UI can localise; log the verbose message server-side for debugging.
     // eslint-disable-next-line no-console
     console.error("[auth/callback] exchangeCodeForSession failed:", error.message);
-    const slug = mapAuthErrorToSlug(error.message);
-    return NextResponse.redirect(`${origin}/auth/sign-in?auth_error=${slug}`);
+    return redirectToSignIn(origin, mapAuthErrorToSlug(error.message), next);
   }
 
-  // Single-user allowlist: even though the code exchange succeeded, the
-  // identity behind that code may not be on the allowlist. Sign out
-  // immediately so we don't leave a stale cookie that middleware would
-  // bounce on every subsequent request, then send the user to the denied
-  // page. Privacy: the rejected email is intentionally not echoed in any
-  // URL or response body.
-  const email = data.session?.user?.email ?? null;
-  if (!isEmailAuthorized(email)) {
+  // Owner check: even though the code exchange succeeded, the identity
+  // behind that code may not be the owner — allowlisted email, Google
+  // identity, verified email, the same isOwnerUser rule the middleware and
+  // API apply. Sign out immediately so no non-owner session is left in the
+  // browser, then send the user to the denied page, which tells them every
+  // tool still works without signing in. Privacy: the rejected email is
+  // intentionally not echoed in any URL or response body.
+  if (!isOwnerUser(data.session?.user).ok) {
     await supabase.auth.signOut().catch(() => {
       /* best-effort; cookie is gone either way after redirect */
     });
-    return NextResponse.redirect(`${origin}/not-authorized`);
+    return redirectNotOwner(origin);
   }
 
   return NextResponse.redirect(`${origin}${next}`);

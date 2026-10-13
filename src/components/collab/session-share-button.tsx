@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { SessionShareModal } from "./session-share-modal";
 
 interface Props {
@@ -16,7 +17,8 @@ interface Props {
 /**
  * Drop-in "invite squad to this session" button. Tools render it with
  * the current entity id (board id, poker round id, retro id). Owner-
- * only — guests don't see it because guest pages don't mount this.
+ * only — guest pages don't mount this, and it renders nothing for public
+ * visitors, whose squad/session APIs would only answer 401.
  */
 export function SessionShareButton({
   toolId,
@@ -26,6 +28,8 @@ export function SessionShareButton({
   label = "Invite squad",
 }: Props) {
   const [open, setOpen] = useState(false);
+  const isOwner = useIsOwner();
+  if (!isOwner) return null;
   return (
     <>
       <Button

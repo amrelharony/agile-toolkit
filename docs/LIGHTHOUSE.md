@@ -5,7 +5,14 @@ best-practices / SEO baselines for the app's **public routes**.
 
 ## What's covered
 
-`lighthouserc.json` baselines `http://localhost:3000/` (the public landing).
+`lighthouserc.json` baselines three public routes:
+
+| URL                 | Why                                                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `/`                 | The landing page (hero, featured comic banner when the PDF exists, tool index).                                            |
+| `/capacity-planner` | A representative tool. Every tool route is public and browser-only, so a visitor sees exactly what Lighthouse measures.    |
+| `/agile-at-work`    | The comic reader. Until `public/comics/agile-at-work.pdf` is committed it renders the "coming soon" state, not the reader. |
+
 The category-score + Core-Web-Vitals assertions are configured as **warnings**,
 so the first run records the numbers without failing the build. Tighten them to
 `error` once the known-good scores are established.
@@ -23,11 +30,17 @@ so the first run records the numbers without failing the build. Tighten them to
 
 ## What's NOT covered (and why)
 
-The tool routes (`/(tools)/*`) are behind Google sign-in. Lighthouse hits the
-unauthenticated redirect, not the real tool UI, so they're intentionally
-excluded from the public-route baseline. To baseline an authenticated route you
-need an LHCI `puppeteerScript` that signs in first (and CI secrets for a test
-account) — that's deliberately out of scope here.
+- **Owner-only pages** (`/settings/access-tokens`, `/settings/squads`) and
+  owner features (cloud sync, the agent, realtime multiplayer) still need the
+  owner's Google sign-in. Baselining them needs an LHCI `puppeteerScript` that
+  signs in first (and CI secrets for a test account) — deliberately out of
+  scope here.
+- **The comic reader with a real PDF.** CI only has the PDF once the owner
+  commits it; after that, `/agile-at-work` measures the reader itself (pdf.js
+  load and first-page render count toward LCP / TBT).
+- **The other tool routes.** They share the app shell measured on `/` and
+  `/capacity-planner`; add a URL to `collect.url` when a tool's own UI is worth
+  a separate baseline.
 
 ## Running it
 

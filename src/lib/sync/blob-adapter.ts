@@ -3,6 +3,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { syncEngine, type SyncAdapter } from "./engine";
 import { compareIso } from "./lww";
+import {
+  clearUnsyncedBlob,
+  markBlobReconciled,
+  mergeBlobPayloads,
+  needsBlobReconcile,
+  recordUnsyncedBlob,
+} from "./unsynced-blobs";
 
 /**
  * Per-blob sync adapter. One adapter instance per registered store key.
@@ -18,6 +25,14 @@ import { compareIso } from "./lww";
  * server). On realtime receipt, the adapter compares against its
  * last-known-server timestamp and skips the apply if the local update
  * is fresher.
+ *
+ * Edits made while the engine is NOT running (signed out, a visitor, the
+ * owner's merge decision pending) are also written to a durable record
+ * (unsynced-blobs.ts): the in-memory `dirty` flag doesn't survive a page
+ * load. A recorded key is reconciled on its first pull/push of the page
+ * session — the cloud row is fetched and `mergeBlobPayloads(local, cloud)`
+ * pushed — instead of "remote wins" (a fresh load) or "local wins" (a
+ * still-dirty tab), either of which loses one side's rows.
  */
 
 interface BlobAdapterOptions {
@@ -64,6 +79,9 @@ class BlobSyncAdapter implements SyncAdapter {
   markDirty(): void {
     if (this.suppressLocalChange) return;
     this.dirty = true;
+    // Nothing will push this edit now, and `dirty` dies with the page:
+    // record it so the next sync session merges it instead of losing it.
+    if (!syncEngine.isRunning()) recordUnsyncedBlob(this.storeKey);
     syncEngine.scheduleFlush(this.id);
   }
 
@@ -72,6 +90,12 @@ class BlobSyncAdapter implements SyncAdapter {
   }
 
   async pull(supabase: SupabaseClient, userId: string): Promise<void> {
+    // Edited while sync was off: merge with the cloud row (whatever the
+    // in-memory dirty flag says — a visitor's tab can still hold it).
+    if (needsBlobReconcile(this.storeKey)) {
+      await this.reconcile(supabase, userId);
+      return;
+    }
     // BUG-S14: never apply a pull over unpushed local edits. The timestamp
     // guard below only protects edits that were already PUSHED — a dirty
     // in-debounce edit has no timestamp yet, so any remote row newer than
@@ -109,12 +133,20 @@ class BlobSyncAdapter implements SyncAdapter {
     }
     this.pushInFlight = true;
     try {
+      // Never push a key edited while sync was off over the cloud row
+      // unmerged (normally its first pull already reconciled it; this
+      // covers a pull that failed or hasn't run).
+      if (needsBlobReconcile(this.storeKey)) {
+        await this.reconcile(supabase, userId);
+        if (!this.dirty) return;
+      }
       const payload = this.getSnapshot();
       const payloadJson = JSON.stringify(payload);
       // Skip the network round-trip if nothing actually changed since the
       // last push (the dirty flag is a hint, not a guarantee).
       if (this.lastPushedPayloadJson === payloadJson) {
         this.dirty = false;
+        clearUnsyncedBlob(this.storeKey);
         return;
       }
       const clientId = syncEngine.getClientId();
@@ -138,6 +170,7 @@ class BlobSyncAdapter implements SyncAdapter {
       // whatever the snapshot looks like at response time.
       this.lastPushedPayloadJson = payloadJson;
       this.dirty = false;
+      clearUnsyncedBlob(this.storeKey);
     } finally {
       this.pushInFlight = false;
       if (this.pendingFlushAfter) {
@@ -149,6 +182,9 @@ class BlobSyncAdapter implements SyncAdapter {
 
   onRemote(row: Record<string, unknown>, eventType: "INSERT" | "UPDATE" | "DELETE"): void {
     if (row.store_key !== this.storeKey) return;
+    // Signed-out edits not merged yet: applying the row would overwrite
+    // them. The reconcile pull fetches the latest row anyway.
+    if (needsBlobReconcile(this.storeKey)) return;
     // For real DELETEs the row's client_id was set by whoever last
     // upserted, not by whoever issued the DELETE, so echo suppression
     // is unreliable. Apply the clear unconditionally — the local default
@@ -199,6 +235,50 @@ class BlobSyncAdapter implements SyncAdapter {
     this.lastPushedPayloadJson = null;
     this.dirty = false;
     this.pendingFlushAfter = false;
+  }
+
+  /**
+   * First sync of a key edited while sync was off: fetch the cloud row and
+   * leave the store holding `mergeBlobPayloads(local, cloud)`, dirty so the
+   * next flush pushes it (the push then clears the record). When the cloud
+   * already has everything local has, just take the cloud row.
+   */
+  private async reconcile(supabase: SupabaseClient, userId: string): Promise<void> {
+    const { data, error } = await supabase
+      .from("user_state")
+      .select("payload, updated_at, client_id")
+      .eq("user_id", userId)
+      .eq("store_key", this.storeKey)
+      .maybeSingle();
+    if (error) throw error;
+    markBlobReconciled(this.storeKey);
+    if (!data) {
+      // Nothing in the cloud yet: the local value is the whole story.
+      this.lastPushedPayloadJson = null;
+      this.dirty = true;
+      return;
+    }
+    const local = this.getSnapshot();
+    const merged = mergeBlobPayloads(local, data.payload);
+    const mergedJson = JSON.stringify(merged);
+    if (mergedJson === JSON.stringify(data.payload)) {
+      this.applyRemote(data.payload, data.updated_at as string);
+      clearUnsyncedBlob(this.storeKey);
+      return;
+    }
+    if (mergedJson !== JSON.stringify(local)) {
+      this.suppressLocalChange = true;
+      try {
+        this.setSnapshot(merged);
+      } finally {
+        this.suppressLocalChange = false;
+      }
+    }
+    // Server timestamp of the row we merged with, for realtime LWW; the
+    // payload marker stays null so the push isn't skipped as a no-op.
+    this.lastPushedUpdatedAt = data.updated_at as string;
+    this.lastPushedPayloadJson = null;
+    this.dirty = true;
   }
 
   private applyRemote(payload: unknown, updatedAt: string): void {

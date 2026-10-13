@@ -1,3 +1,5 @@
+import { readComicAsset } from "./scripts/comic-asset.mjs";
+
 /** @type {import('next').NextConfig} */
 
 /**
@@ -11,6 +13,7 @@
  *     the browser-direct BYOK fallback in agent/client.ts hits z.ai
  *     directly when ANTHROPIC_API_KEY is unset server-side
  *   - Google fonts (Inter, JetBrains Mono, Source Serif)
+ *   - Open-Meteo forecast API for the header weather widget (lib/weather/api.ts)
  *   - data: + blob: for images/exports
  *
  * The `connect-src` whitelist uses a wildcard for *.supabase.co so any
@@ -52,7 +55,7 @@ const cspDirectives = [
   // `fetch(blob:…)` — governed by connect-src. Without it the texture fails to
   // load ("THREE.GLTFLoader: Couldn't load texture blob:…") and the mascot
   // renders as an untextured white clay model.
-  `connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://accounts.google.com https://api.z.ai https://open.bigmodel.cn https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com${mascotGlbOrigin()}`,
+  `connect-src 'self' blob: https://*.supabase.co wss://*.supabase.co https://accounts.google.com https://api.z.ai https://open.bigmodel.cn https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com https://api.open-meteo.com${mascotGlbOrigin()}`,
   "frame-src 'self' https://accounts.google.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
@@ -81,12 +84,33 @@ const securityHeaders = [
   { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
 ];
 
+// Comic PDF size + content hash, read once per `next dev` / `next build` (see
+// scripts/comic-asset.mjs). Both are "" while public/comics/agile-at-work.pdf
+// is absent; restart `next dev` after adding or replacing the file.
+const comicAsset = await readComicAsset();
+
 const nextConfig = {
+  env: {
+    NEXT_PUBLIC_COMIC_PDF_SIZE: comicAsset.size,
+    NEXT_PUBLIC_COMIC_PDF_VERSION: comicAsset.version,
+  },
   async headers() {
     return [
       {
         source: "/(.*)",
         headers: securityHeaders,
+      },
+      // Comic PDFs: matching rules stack, so the security headers above still
+      // apply. Not `immutable` — the filename is stable and the owner may
+      // replace the file; the reader's `?v=<hash>` URL handles cache busting.
+      {
+        source: "/comics/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=86400, stale-while-revalidate=604800",
+          },
+        ],
       },
     ];
   },

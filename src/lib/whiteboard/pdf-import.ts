@@ -22,14 +22,9 @@
  * cost is paid only when a user actually drops a PDF.
  */
 
-import type {
-  WhiteboardImage,
-  WhiteboardObject,
-} from "@/lib/stores/workspace-types";
-import {
-  DATA_URL_MAX_LEN,
-  IMAGE_MAX_BYTES,
-} from "./image-import";
+import type { WhiteboardImage, WhiteboardObject } from "@/lib/stores/workspace-types";
+import { DATA_URL_MAX_LEN, IMAGE_MAX_BYTES } from "./image-import";
+import { loadPdfjs, PDF_WORKER_SRC, type Pdfjs } from "@/lib/pdf/load-pdfjs";
 
 /** Cap on how many pages we'll rasterise. A 200-page PDF would blow
  * localStorage on its own; pause + abort beyond this many pages. */
@@ -88,13 +83,14 @@ const PDF_PARSE_TIMEOUT_MS = 30_000;
 /**
  * Rasterise every page of a PDF File into PNG data URLs.
  *
- * Lazy-imports pdfjs-dist so the main app bundle isn't penalised when
- * no one uses PDFs. The pdfjs worker is self-hosted from /public so
- * we don't depend on a third-party CDN at runtime (supply-chain risk).
+ * Lazy-imports pdfjs-dist (via the shared loader in lib/pdf/load-pdfjs)
+ * so the main app bundle isn't penalised when no one uses PDFs. The
+ * pdfjs worker is self-hosted from /public so we don't depend on a
+ * third-party CDN at runtime (supply-chain risk).
  */
 export async function pdfToImages(
   file: File,
-  opts: PdfImportOpts = {},
+  opts: PdfImportOpts = {}
 ): Promise<PdfImportResult | PdfImportError> {
   if (typeof window === "undefined") {
     return { ok: false, err: "PDF import only works in the browser." };
@@ -106,29 +102,22 @@ export async function pdfToImages(
   // during rasterisation or produce too many oversized page data URLs
   // to fit in localStorage.
   if (file.size > 25 * 1024 * 1024) {
-    return { ok: false, err: `PDF is ${(file.size / 1024 / 1024).toFixed(1)} MB — limit is 25 MB.` };
+    return {
+      ok: false,
+      err: `PDF is ${(file.size / 1024 / 1024).toFixed(1)} MB — limit is 25 MB.`,
+    };
   }
-  // Dynamic import — paid only on first PDF drop. The "legacy" build is
-  // what plays nicely with Next.js's webpack worker bundling.
-  let pdfjs: typeof import("pdfjs-dist");
+  // Dynamic import — paid only on first PDF drop. The shared loader picks
+  // the legacy build (broad browser support) and points workerSrc at the
+  // same-origin copy in /public, shared with the comic reader.
+  let pdfjs: Pdfjs;
   try {
-    pdfjs = await import("pdfjs-dist");
+    pdfjs = await loadPdfjs();
   } catch (err) {
     return {
       ok: false,
-      err: `Failed to load PDF parser: ${err instanceof Error ? err.message : "unknown error"}. The worker file at /pdf.worker.min.mjs may be missing — re-run \`npm install\` to restore it.`,
+      err: `Failed to load PDF parser: ${err instanceof Error ? err.message : "unknown error"}. The worker file at ${PDF_WORKER_SRC} may be missing or out of date — run \`npm run pdf:worker\` to restore it.`,
     };
-  }
-  // Worker source: self-hosted from /public/pdf.worker.min.mjs so we
-  // don't pull a third-party script at runtime (supply-chain risk).
-  // The file is copied into /public during install. Because the worker
-  // is served from the same origin as the app, the cdnjs version-pin
-  // dance is no longer relevant — the worker always matches whatever
-  // pdfjs-dist version `npm install` produced.
-  try {
-    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-  } catch {
-    // some bundles freeze GlobalWorkerOptions; ignore
   }
 
   const buf = await file.arrayBuffer();
@@ -149,7 +138,7 @@ export async function pdfToImages(
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutHandle = setTimeout(
         () => reject(new Error(`PDF parse timed out after ${PDF_PARSE_TIMEOUT_MS / 1000}s`)),
-        PDF_PARSE_TIMEOUT_MS,
+        PDF_PARSE_TIMEOUT_MS
       );
     });
     try {
@@ -162,7 +151,10 @@ export async function pdfToImages(
     // is still mid-parse. .catch swallows the AbortException destroy()
     // raises on the original promise.
     loadingTask.destroy().catch(() => {});
-    return { ok: false, err: `Failed to parse PDF: ${err instanceof Error ? err.message : "unknown error"}` };
+    return {
+      ok: false,
+      err: `Failed to parse PDF: ${err instanceof Error ? err.message : "unknown error"}`,
+    };
   }
 
   // Math.floor — pdf.js declares numPages as a number, and some
@@ -237,7 +229,10 @@ export async function pdfToImages(
       }).promise;
     } catch (err) {
       doc.destroy().catch(() => {});
-      return { ok: false, err: `PDF page ${pageNumber} render failed: ${err instanceof Error ? err.message : "unknown error"}` };
+      return {
+        ok: false,
+        err: `PDF page ${pageNumber} render failed: ${err instanceof Error ? err.message : "unknown error"}`,
+      };
     }
     // Use JPEG at quality 0.85 — produces ~3x smaller payload than PNG
     // for typical text PDFs, with no visible quality loss. Toggle to
@@ -311,7 +306,7 @@ export function pdfPagesToObjects(
   result: PdfImportResult,
   boardId: string,
   origin: { x: number; y: number },
-  zBase: number,
+  zBase: number
 ): WhiteboardObject[] {
   // Display each page at a saner on-canvas size — without this, a
   // 1600px-wide rendered page lands as 1600 world-px, dwarfing every
@@ -360,7 +355,10 @@ export function pdfPagesToObjects(
  * DataTransfer carry a PDF? We exclude oversize files at this stage
  * so the user gets a fast rejection before pdfjs is even loaded.
  */
-export function extractPdfFiles(items: DataTransferItemList | null, files: FileList | null): File[] {
+export function extractPdfFiles(
+  items: DataTransferItemList | null,
+  files: FileList | null
+): File[] {
   const out: File[] = [];
   const addIfPdf = (f: File) => {
     if (f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf")) {

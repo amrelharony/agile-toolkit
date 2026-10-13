@@ -4,7 +4,7 @@ import { KudosClient } from "./kudos-client";
 export const metadata: Metadata = {
   title: "Kudos Wall",
   description:
-    "Send themed recognition cards to your squad. Live updates across all peers, downloadable as PNG, attributed by squad profile.",
+    "Send themed recognition cards to your team, downloadable as PNG for sharing outside the toolkit.",
 };
 
 export default function KudosPage() {

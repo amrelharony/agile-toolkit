@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { syncEngine } from "./engine";
 import { registerBlobStore } from "./register";
+import { recordUnsyncedBlob } from "./unsynced-blobs";
 
 /**
  * Drop-in replacement for `usePersisted` that ALSO opts the key into
@@ -98,6 +100,9 @@ export function setCloudPersistedValue(key: string, value: unknown): void {
   }
   snapshots.set(key, value);
   notifySubs(key, value);
+  // Sync off (signed out, a visitor, …): remember the edit durably, so the
+  // next sync session merges it instead of pulling the cloud row over it.
+  if (!syncEngine.isRunning()) recordUnsyncedBlob(key);
   const dirty = adapterDirty.get(key);
   if (dirty) dirty();
 }
@@ -250,6 +255,11 @@ export function useCloudPersisted<T>(key: string, initial: T): [T, Dispatch<SetS
     // they re-render with the new value. They re-enter via `sub` which
     // sets their own remoteAppliedRef sentinel, suppressing echo.
     notifySubs(key, state);
+    // Sync off (signed out, a visitor, …): the adapter's dirty flag won't
+    // survive a reload (and after a sign-out the registry may not be wired
+    // at all), so record the edit durably — the next sync session merges it
+    // with the cloud row instead of pulling the older row over it.
+    if (!syncEngine.isRunning()) recordUnsyncedBlob(key);
     // Trigger the adapter's debounced push.
     const dirty = adapterDirty.get(key);
     if (dirty) dirty();

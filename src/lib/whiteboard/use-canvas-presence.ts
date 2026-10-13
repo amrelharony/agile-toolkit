@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getSupabaseClient, isRealtimeAvailable } from "@/lib/realtime/supabase-client";
 import type { SimplePresence } from "@/lib/realtime/use-presence";
 import { usePresenceIdentityOverride } from "@/lib/realtime/presence-identity";
+import { useRealtimeAllowed } from "@/lib/realtime/use-realtime-allowed";
 import { throttle, type Throttled } from "@/lib/utils/throttle";
 
 const AVATAR_COLORS = [
@@ -189,9 +190,11 @@ export interface CanvasPresenceHook {
 const CURSOR_THROTTLE_MS = 60;
 
 export function useCanvasPresence(
-  channelName: string | null,
+  requestedChannelName: string | null,
   hint?: Partial<SimplePresence>
 ): CanvasPresenceHook {
+  // Same gate as useRoom: public visitors never join a presence channel.
+  const channelName = useRealtimeAllowed() ? requestedChannelName : null;
   const [members, setMembers] = useState<SimplePresence[]>([]);
   // Identity precedence: explicit `hint` > tree-scoped PresenceIdentity
   // context > "Anonymous". Symmetric with useRoom so the canvas presence
@@ -280,6 +283,9 @@ export function useCanvasPresence(
       } catch {
         /* client torn down */
       }
+      // Drop the old channel's peers so cursors don't linger when the
+      // channel goes away without a replacement (e.g. owner sign-out).
+      setMembers([]);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelName]);

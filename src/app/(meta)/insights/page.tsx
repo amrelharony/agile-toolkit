@@ -130,7 +130,7 @@ export default function InsightsPage() {
       </div>
 
       {events.length === 0 ? (
-        <EmptyState authed={status === "authenticated"} />
+        <EmptyState visitor={status !== "authenticated" && status !== "loading"} />
       ) : (
         <>
           {/* KPI cards.
@@ -355,7 +355,7 @@ function KpiCard({
   );
 }
 
-function EmptyState({ authed }: { authed: boolean }) {
+function EmptyState({ visitor }: { visitor: boolean }) {
   return (
     <div
       className={cn("border border-dashed border-border rounded-lg p-12 text-center", "text-sub")}
@@ -366,8 +366,10 @@ function EmptyState({ authed }: { authed: boolean }) {
         Open any tool — record retros, log impediments, run a planning poker session. Insights
         aggregate from your history.
       </p>
-      {!authed && (
-        <p className="text-[11px] mt-3 text-accent/80">Sign in to keep insights across devices.</p>
+      {visitor && (
+        <p className="text-[11px] mt-3 text-accent/80">
+          Your history and insights are saved in this browser only.
+        </p>
       )}
     </div>
   );

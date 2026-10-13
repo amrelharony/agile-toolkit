@@ -46,6 +46,12 @@ export function scheduleProfileSync() {
   }, DEBOUNCE_MS);
 }
 
+/** Drop a debounced sync that hasn't fired yet (e.g. the owner signed out). */
+export function cancelProfileSync() {
+  if (pending) clearTimeout(pending);
+  pending = null;
+}
+
 async function syncProfile(): Promise<boolean> {
   const supabase = getSupabaseClient();
   if (!supabase) return false;

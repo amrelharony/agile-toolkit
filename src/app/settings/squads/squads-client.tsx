@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Users, Plus, Copy, Check, Trash2, RefreshCw } from "lucide-react";
+import { EmptyState } from "@/components/shared/empty-state";
+import { useOwnerState } from "@/lib/auth/use-is-owner";
+import { Users, Plus, Copy, Check, Trash2, RefreshCw, Lock } from "lucide-react";
 
 interface SquadRow {
   id: string;
@@ -13,7 +16,12 @@ interface SquadRow {
   profileCount: number;
 }
 
+const SIGN_IN_HREF = `/auth/sign-in?next=${encodeURIComponent("/settings/squads")}`;
+
 export function SquadsClient() {
+  // Defence in depth behind the middleware's owner-page redirect: a
+  // visitor never calls the squads API.
+  const { isOwner, settled } = useOwnerState();
   const [squads, setSquads] = useState<SquadRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,8 +48,9 @@ export function SquadsClient() {
   };
 
   useEffect(() => {
+    if (!isOwner) return;
     void refresh();
-  }, []);
+  }, [isOwner]);
 
   const onCreate = async () => {
     const name = newName.trim();
@@ -125,6 +134,24 @@ export function SquadsClient() {
       setError(err instanceof Error ? err.message : "Couldn't delete squad");
     }
   };
+
+  if (settled && !isOwner) {
+    return (
+      <EmptyState
+        icon={Lock}
+        action={
+          <Button asChild variant="outline" size="sm">
+            <Link href={SIGN_IN_HREF}>Owner sign in</Link>
+          </Button>
+        }
+      >
+        <p className="font-medium text-text">Owner only</p>
+        <p className="mt-1 text-sm">
+          Squad invites are issued by the workspace owner. Sign in as the owner to manage them.
+        </p>
+      </EmptyState>
+    );
+  }
 
   return (
     <div className="space-y-6">

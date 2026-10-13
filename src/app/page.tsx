@@ -1,16 +1,35 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { categories, getToolsByCategory, tools as allTools } from "@/lib/constants/tools";
+import {
+  categories,
+  getToolsByCategory,
+  tools as allTools,
+  type ToolDefinition,
+} from "@/lib/constants/tools";
 import { PageHeader } from "@/components/shared/page-header";
 import { ToolCard } from "@/components/shared/tool-card";
 import { InsightsEngine } from "@/components/shared/insights-engine";
 import { MoodReveal } from "@/components/shared/mood-reveal";
+import { FeaturedComicBanner } from "@/components/comic/featured-comic-banner";
+import { comicAsset } from "@/lib/comic/agile-at-work";
 import { ArrowRight, Zap, TrendingUp, Radio, Filter, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 type FilterId = "all" | "smart" | "live";
+
+// Reading material (the comic) lives in the grid but isn't an interactive
+// tool, so it stays out of every "N tools" number.
+const interactiveTools = allTools.filter((t) => t.kind !== "reading");
+// Empty categories are hidden in the grid and sidebar, so don't count them.
+const categoryCount = categories.filter((c) => getToolsByCategory(c).length > 0).length;
+
+/** "3 tools", or "1 title" for a row that only holds reading material. */
+function countLabel(list: ToolDefinition[]): string {
+  const noun = list.every((t) => t.kind === "reading") ? "title" : "tool";
+  return `${list.length} ${list.length === 1 ? noun : `${noun}s`}`;
+}
 
 export default function Home() {
   const [activeFilter, setActiveFilter] = useState<FilterId>("all");
@@ -27,9 +46,11 @@ export default function Home() {
       .filter((c) => c.tools.length > 0);
   }, [activeFilter]);
 
-  const totalCount = allTools.length;
-  const smartCount = allTools.filter((t) => (t.analyticsFeatures?.length ?? 0) > 0).length;
-  const liveCount = allTools.filter((t) => t.isRealtime).length;
+  const totalCount = interactiveTools.length;
+  const smartCount = interactiveTools.filter((t) => (t.analyticsFeatures?.length ?? 0) > 0).length;
+  const liveCount = interactiveTools.filter((t) => t.isRealtime).length;
+  // Build-time flag (scripts/comic-asset.mjs): no banner until the PDF is committed.
+  const showComic = comicAsset().available;
 
   const filters: { id: FilterId; label: string; icon: typeof Zap; count: number }[] = [
     { id: "all", label: "All", icon: Filter, count: totalCount },
@@ -82,6 +103,15 @@ export default function Home() {
         </div>
       </div>
 
+      {showComic && (
+        <div
+          className="mb-6 sm:mb-10 animate-slide-up delay-1"
+          style={{ animationFillMode: "forwards", opacity: 0 }}
+        >
+          <FeaturedComicBanner />
+        </div>
+      )}
+
       {/* Insights Banner */}
       <div
         className="mb-6 sm:mb-10 animate-slide-up delay-1"
@@ -100,7 +130,7 @@ export default function Home() {
       >
         {[
           { value: `${totalCount}`, label: "Tools" },
-          { value: `${categories.length}`, label: "Categories" },
+          { value: `${categoryCount}`, label: "Categories" },
           { value: `${smartCount}`, label: "Smart" },
           { value: `${liveCount}`, label: "Live" },
         ].map((stat, i) => (
@@ -178,7 +208,7 @@ export default function Home() {
               </span>
             </span>
             <span className="font-mono text-[10px] sm:text-xs text-sub shrink-0">
-              {tools.length} {tools.length === 1 ? "tool" : "tools"}
+              {countLabel(tools)}
             </span>
           </summary>
           <MoodReveal

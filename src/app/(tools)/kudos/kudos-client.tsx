@@ -8,6 +8,8 @@ import { SessionShareButton } from "@/components/collab/session-share-button";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useAuthOptional } from "@/lib/auth/auth-provider";
+import { useOwnerState } from "@/lib/auth/use-is-owner";
+import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { useHistoryStore } from "@/lib/history/history-store";
 import { KUDOS_ACTIONS } from "@/lib/history/event-actions";
@@ -45,6 +47,9 @@ import { KUDOS_ENTITY_ID, KUDOS_TOOL_ID } from "./types";
  * The recipient picker shows squad profiles + workspace team members
  * + free-text. Squad profiles are fetched on mount across ALL of the
  * owner's squads via `/api/squads` + `/api/squads/[id]/profiles`.
+ *
+ * Visitors (anyone but the verified owner) get the same wall, kept in
+ * this browser: no squad fetch, no realtime room, no reaction POSTs.
  */
 interface SquadOption {
   id: string;
@@ -58,6 +63,7 @@ interface ProfileSummary {
 
 export function KudosClient() {
   const auth = useAuthOptional();
+  const { isOwner, settled: authSettled } = useOwnerState();
 
   // Per-field selectors — using a literal object in the selector body
   // defeats `useShallow` (the object is reference-inequal every call).
@@ -78,7 +84,7 @@ export function KudosClient() {
   // truth across reloads). Scope the realtime channel by the owner's
   // auth user id so different workspaces on the same Supabase project
   // don't share the channel.
-  const ownerId = auth?.user?.id ?? null;
+  const ownerId = isOwner ? (auth?.user?.id ?? null) : null;
   const room = useKudosRoom({
     isHost: true,
     ownerId,
@@ -90,15 +96,24 @@ export function KudosClient() {
   // Sender identity for the form. The previous chain treated an empty
   // string `display_name` as falsy and fell through to email; we keep
   // that behaviour (a blank display_name shouldn't render as a blank
-  // signature). When email is also missing we fall back to a label.
+  // signature). When email is also missing we fall back to a label —
+  // for the owner only: a visitor isn't the "Workspace owner".
   const emailLocal = typeof auth?.user?.email === "string" ? auth.user.email.split("@")[0] : null;
-  const fromName = auth?.profile?.display_name || emailLocal || "Workspace owner";
+  const fromName = isOwner ? auth?.profile?.display_name || emailLocal || "Workspace owner" : "";
+  // A visitor types their own name; it lives only in this component.
+  const [visitorName, setVisitorName] = useState("");
+  const senderName = isOwner ? fromName : visitorName;
 
   // Fetch squad profiles across every squad the owner has. Each squad
   // gives its members; we aggregate + dedup by profile id so a person
-  // who appears in multiple squads is offered once.
+  // who appears in multiple squads is offered once. Squads are owner-only
+  // (the API 401s for visitors), and a sign-out drops the owner's list.
   const [squadProfiles, setSquadProfiles] = useState<ProfileSummary[]>([]);
   useEffect(() => {
+    if (!isOwner) {
+      setSquadProfiles((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
     let cancelled = false;
     void (async () => {
       try {
@@ -136,7 +151,7 @@ export function KudosClient() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isOwner]);
 
   const recipients = useMemo<RecipientOption[]>(() => {
     const out: RecipientOption[] = [];
@@ -481,15 +496,28 @@ export function KudosClient() {
     <ToolPageWrapper
       toolId={KUDOS_TOOL_ID}
       title="Kudos Wall"
-      description="Send themed recognition cards to your team. Live updates across all peers; downloadable as PNG for sharing outside the toolkit."
+      description={
+        isOwner
+          ? "Send themed recognition cards to your team. Live updates across all peers; downloadable as PNG for sharing outside the toolkit."
+          : "Send themed recognition cards to your team. Saved in this browser; downloadable as PNG for sharing outside the toolkit."
+      }
       category="Outcomes & Pulse"
     >
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div className="flex items-center gap-2 text-xs">
-          {room.isLocalOnly ? (
+          {/* Nothing until auth settles, so the owner doesn't see the
+              visitor label flash on load. */}
+          {!authSettled ? null : !isOwner ? (
+            <span className="inline-flex items-center gap-1.5 text-sub/70">
+              <WifiOff className="h-3 w-3" aria-hidden="true" />
+              Browser-only — saved on this device
+            </span>
+          ) : room.isLocalOnly ? (
             <span className="inline-flex items-center gap-1.5 text-amber-300/80">
               <WifiOff className="h-3 w-3" aria-hidden="true" />
-              Local-only — set Supabase env vars to share live
+              {isRealtimeAvailable()
+                ? "Local-only"
+                : "Local-only — set Supabase env vars to share live"}
             </span>
           ) : room.isConnected ? (
             <span className="inline-flex items-center gap-1.5 text-emerald-400/80">
@@ -523,7 +551,9 @@ export function KudosClient() {
 
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         <KudosForm
-          defaultFromName={fromName}
+          defaultFromName={senderName}
+          fromPlaceholder={isOwner ? undefined : "Your name"}
+          onFromNameChange={isOwner ? undefined : setVisitorName}
           defaultTeamName={teamName}
           recipients={recipients}
           onSubmit={handleSubmit}
@@ -541,7 +571,7 @@ export function KudosClient() {
               void addReaction(id, emoji);
             }}
             onSendReply={handleSendReply}
-            replyFromName={fromName}
+            replyFromName={senderName.trim() || undefined}
           />
         </div>
       </div>

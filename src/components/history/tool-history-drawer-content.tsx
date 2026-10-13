@@ -9,6 +9,7 @@ import { History, Sparkles, RotateCcw } from "lucide-react";
 import { useHistory } from "@/lib/history/use-history";
 import { formatActionLabel } from "@/lib/history/event-actions";
 import { useTimeTravel } from "@/lib/stores/use-time-travel";
+import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { toast } from "@/lib/utils/toast";
 import { cn } from "@/lib/utils";
 import type { HistoryEvent } from "@/lib/history/types";
@@ -106,6 +107,7 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
   const [selected, setSelected] = useState<HistoryEvent | null>(null);
   const [renderLimit, setRenderLimit] = useState(INITIAL_RENDER_LIMIT);
   const timeTravel = useTimeTravel(toolId);
+  const { isOwner, settled } = useOwnerState();
 
   // R11-fix: reset only when the OLDEST event id changes — proxy for
   // "the filter / tool / time-travel cursor moved", NOT for "a new
@@ -185,7 +187,9 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
           <div className="p-8 text-center text-sub text-sm">
             <Sparkles className="w-8 h-8 mx-auto mb-3 text-accent/40" aria-hidden="true" />
             <p>Your actions will be tracked here.</p>
-            <p className="text-xs mt-1">Sign in for cross-device history and AI insights.</p>
+            {settled && !isOwner && (
+              <p className="text-xs mt-1">History is saved in this browser only.</p>
+            )}
           </div>
         ) : (
           <div className="divide-y divide-border">

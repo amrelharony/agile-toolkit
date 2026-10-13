@@ -120,7 +120,7 @@ export default function HistoryPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1 text-xs">
+        <div className="flex items-center gap-2 text-xs">
           {status === "authenticated" ? (
             <Badge variant={syncStatus === "error" ? "destructive" : "secondary"} className="gap-1">
               <Sparkles className="w-3 h-3" aria-hidden="true" />
@@ -130,8 +130,21 @@ export default function HistoryPage() {
                   ? "Sync error"
                   : `Synced${lastSyncAt ? ` • ${timeAgo(lastSyncAt)}` : ""}`}
             </Badge>
-          ) : status === "anonymous" ? (
-            <Badge variant="outline">Local only — sign in to sync</Badge>
+          ) : status !== "loading" ? (
+            // Visitors (and an owner whose check hasn't completed): nothing
+            // leaves the browser, so offer the backup right here.
+            <>
+              <Badge variant="outline">Saved in this browser only</Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1.5 text-xs"
+                onClick={() => exportEventsAsJSON(useHistoryStore.getState().events)}
+              >
+                <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                Export JSON
+              </Button>
+            </>
           ) : null}
         </div>
       </div>
@@ -167,7 +180,8 @@ export default function HistoryPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All tools</SelectItem>
-            {ALL_TOOLS.map((t) => (
+            {/* Reading entries (the comic) never record history. */}
+            {ALL_TOOLS.filter((t) => t.kind !== "reading").map((t) => (
               <SelectItem key={t.id} value={t.id}>
                 {t.name}
               </SelectItem>

@@ -10,9 +10,8 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useLlmStore } from "@/lib/stores/llm-store";
 import { installSignalBridge } from "@/lib/signals/signal-bridge";
 import { bootstrapPredictions } from "@/lib/predictions/bootstrap";
-import { installKudosCloudSync } from "@/lib/kudos/cloud-sync";
-import { runKudosBackfillIfNeeded } from "@/lib/kudos/backfill";
 import { installKudosReceiveBridge } from "@/lib/kudos/receive-bridge";
+import { KudosOwnerBridge } from "@/lib/kudos/owner-bridge";
 // Populate the tool action registry at app load — must happen before
 // any component that consumes the agent / MCP surface mounts.
 import "@/lib/actions/register-all";
@@ -57,8 +56,10 @@ import { TrophyCase } from "@/components/gamification/trophy-case";
 import { RecentToolTracker } from "@/lib/tools/tool-prefs";
 
 // Routes that bypass the full app chrome (sidebar/header/providers).
-// Middleware allows them through unauthenticated, so they must render
-// without depending on auth state, workspace store rehydration, etc.
+// Every page is reachable signed-out now, so that is no longer what sets
+// these apart: they are the auth flow itself (sign-in, sign-out, callback,
+// not-authorized) and the guest tree, which has its own layout. They must
+// render without depending on auth state, workspace store rehydration, etc.
 const BARE_ROUTE_PREFIXES = [
   "/auth/sign-in",
   "/auth/sign-out",
@@ -109,17 +110,13 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
   // to entity changes (impediment.raised, sprint.completed, etc.).
   // Also bootstraps the smart-default predictor registry.
   //
-  // Kudos redesign Phase 1: cloud-sync subscribes to `kudos.sent` on the
-  // same bus, so installing it after `installSignalBridge` guarantees the
-  // first emit lands on a registered listener. Backfill runs after
-  // workspace rehydration completes — kicked off in a microtask so the
-  // initial render isn't blocked by the (typically small) round-trip.
+  // The kudos receive bridge is local-only, so it runs for everyone. The
+  // owner-only cloud half (cloud-sync + backfill to /api/kudos) lives in
+  // <KudosOwnerBridge/> below, which follows the owner's sign-in state.
   useEffect(() => {
     installSignalBridge();
     bootstrapPredictions();
-    installKudosCloudSync();
     installKudosReceiveBridge();
-    void Promise.resolve().then(() => runKudosBackfillIfNeeded());
   }, []);
 
   return (
@@ -128,12 +125,14 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
         <HapticsProvider>
           <EmotionProvider>
             <WeatherProvider>
-              <GamificationProvider>
-                <AuthProvider>
+              <AuthProvider>
+                {/* Inside AuthProvider: the leaderboard sync is owner-only. */}
+                <GamificationProvider>
                   <OwnerPresenceProvider>
                     <CloudSyncProvider>
                       <HistorySyncProvider>
                         <TimeTravelShortcuts />
+                        <KudosOwnerBridge />
                         <RecentToolTracker />
                         <Suspense fallback={null}>
                           <FlyingCardPortal />
@@ -175,8 +174,8 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                       </HistorySyncProvider>
                     </CloudSyncProvider>
                   </OwnerPresenceProvider>
-                </AuthProvider>
-              </GamificationProvider>
+                </GamificationProvider>
+              </AuthProvider>
             </WeatherProvider>
           </EmotionProvider>
         </HapticsProvider>

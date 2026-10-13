@@ -1,10 +1,12 @@
 name: Lighthouse
 
-# Captures Lighthouse baselines for the PUBLIC routes (the auth-walled tool
-# routes need an authenticated run, which this workflow does NOT do — see
-# lighthouserc.json + docs/LIGHTHOUSE.md). Runs on PRs and on demand; the
-# assertions in lighthouserc.json are warnings, so this reports scores without
-# failing the build until the baselines are tightened to errors.
+# Captures Lighthouse baselines for PUBLIC routes. Tool routes are public
+# (browser-only, no sign-in), so lighthouserc.json collects the landing page, a
+# representative tool and the comic reader. Owner-only pages (/settings/*) need
+# an authenticated run, which this workflow does NOT do — see
+# docs/LIGHTHOUSE.md. Runs on PRs and on demand; the assertions in
+# lighthouserc.json are warnings, so this reports scores without failing the
+# build until the baselines are tightened to errors.
 
 on:
   pull_request:

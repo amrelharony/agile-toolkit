@@ -5,6 +5,11 @@
  * GLM) so UI like the header chip can show "AI: OpenClaw" when the agent works
  * server-side without a user BYOK key. Cached module-wide — the route's answer
  * doesn't change within a session.
+ *
+ * The route is owner-only, so callers pass `enabled: false` for visitors: no
+ * request is made and the hook returns null (the chip then shows the BYOK
+ * state). Disabling also drops the cached answer, so after the owner signs out
+ * a visitor on the same browser doesn't keep seeing the owner's server agent.
  */
 
 import { useEffect, useState } from "react";
@@ -17,10 +22,15 @@ export interface AgentBackend {
 
 let cached: AgentBackend | null = null;
 
-export function useAgentBackend(): AgentBackend | null {
-  const [state, setState] = useState<AgentBackend | null>(cached);
+export function useAgentBackend({ enabled }: { enabled: boolean }): AgentBackend | null {
+  const [state, setState] = useState<AgentBackend | null>(() => (enabled ? cached : null));
 
   useEffect(() => {
+    if (!enabled) {
+      cached = null;
+      setState(null);
+      return;
+    }
     if (cached) {
       setState(cached);
       return;
@@ -43,7 +53,9 @@ export function useAgentBackend(): AgentBackend | null {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [enabled]);
 
-  return state;
+  // Gate the return too: the state from an earlier owner render must not
+  // show for the one render between sign-out and the effect clearing it.
+  return enabled ? state : null;
 }

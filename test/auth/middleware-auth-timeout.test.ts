@@ -9,7 +9,8 @@
  *
  * So the property under test is not "the right user is let in" — it is
  * "probeSession always settles, and everything that isn't a verified user
- * fails closed". Fake timers keep the 3s deadline instant.
+ * fails closed" for the API and owner pages (public pages pass regardless;
+ * see middleware-routing.test.ts). Fake timers keep the 3s deadline instant.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { getAuthBrowserClient } from "@/lib/auth/supabase-browser";
 import { syncEngine } from "./engine";
+import { useOwnerSyncGate } from "./owner-sync-gate";
 import { resetCloudPersistedRegistry } from "./use-cloud-persisted";
 
 /**
@@ -11,6 +12,11 @@ import { resetCloudPersistedRegistry } from "./use-cloud-persisted";
  *
  *   SIGNED_IN  → start engine: pull all registered adapters, subscribe realtime
  *   SIGNED_OUT → stop engine: clear subscriptions, drop dirty queue
+ *
+ * "Signed in" means the owner sync gate is open: the server-verified owner,
+ * with any "work created while signed out: merge or discard?" question
+ * answered — the engine's first push would otherwise upload a visitor's
+ * local data to the owner's cloud workspace (see owner-sync-gate.ts).
  *
  * No render output — pure side-effect provider. Tools register their
  * stores at module load (well before this component mounts); the engine
@@ -24,12 +30,13 @@ import { resetCloudPersistedRegistry } from "./use-cloud-persisted";
  * to the new user's Supabase row.
  */
 export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
-  const { user, status } = useAuth();
+  const { user } = useAuth();
+  const gateOpen = useOwnerSyncGate();
   const supabase = getAuthBrowserClient();
   const lastUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (status !== "authenticated" || !user || !supabase) {
+    if (!gateOpen || !user || !supabase) {
       if (lastUserIdRef.current !== null) {
         // User just transitioned to unauthenticated — clear the
         // per-key cache so a future sign-in starts fresh.
@@ -50,7 +57,7 @@ export function CloudSyncProvider({ children }: { children: React.ReactNode }) {
       // Engine.stop is idempotent; safe to call on unmount or status flip.
       syncEngine.stop();
     };
-  }, [status, user, supabase]);
+  }, [gateOpen, user, supabase]);
 
   return <>{children}</>;
 }

@@ -7,8 +7,16 @@ import { cn } from "@/lib/utils";
 
 const Slider = React.forwardRef<
   React.ElementRef<typeof SliderPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof SliderPrimitive.Root>
->(({ className, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof SliderPrimitive.Root> & {
+    /**
+     * Props for the thumb, the focusable role="slider" element. Radix only
+     * names a thumb itself in multi-thumb sliders, so a single-thumb slider
+     * needs its `aria-label` / `aria-valuetext` here (on Root they would
+     * label the wrong element).
+     */
+    thumbProps?: React.ComponentPropsWithoutRef<typeof SliderPrimitive.Thumb>;
+  }
+>(({ className, thumbProps, ...props }, ref) => (
   <SliderPrimitive.Root
     ref={ref}
     className={cn(
@@ -31,13 +39,15 @@ const Slider = React.forwardRef<
      * to a 44 × 44 invisible square so even fat-finger drags catch.
      */}
     <SliderPrimitive.Thumb
+      {...thumbProps}
       className={cn(
         "relative block h-4 w-4 [@media(pointer:coarse)]:h-6 [@media(pointer:coarse)]:w-6",
         "rounded-full border border-primary/50 bg-background shadow transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
         "disabled:pointer-events-none disabled:opacity-50",
         // Invisible expand-hitbox layer for thick fingers.
-        "after:absolute after:inset-[-14px] after:content-[''] after:rounded-full"
+        "after:absolute after:inset-[-14px] after:content-[''] after:rounded-full",
+        thumbProps?.className
       )}
     />
   </SliderPrimitive.Root>

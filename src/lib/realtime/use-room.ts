@@ -6,6 +6,7 @@ import { getSupabaseClient, isRealtimeAvailable } from "./supabase-client";
 import { nanoid } from "nanoid";
 import { emitRtEvent } from "@/lib/sonification/emit";
 import { usePresenceIdentityOverride } from "./presence-identity";
+import { useRealtimeAllowed } from "./use-realtime-allowed";
 
 export interface PresenceMember {
   id: string;
@@ -125,10 +126,16 @@ interface UseRoomOptions<T> {
 
 export function useRoom<T>(
   toolId: string,
-  roomId: string | null,
+  requestedRoomId: string | null,
   initialState: T,
   options: UseRoomOptions<T> = {}
 ): UseRoomResult<T> {
+  // Public visitors stay local-only: a room only they can reach would just
+  // spend the owner's Realtime quota. A null room id routes every caller
+  // (planning-poker, canvas, kudos, collab sessions) onto its existing solo
+  // path, and the owner's room connects once auth verifies them.
+  const realtimeAllowed = useRealtimeAllowed();
+  const roomId = realtimeAllowed ? requestedRoomId : null;
   // Default validator REJECTS every incoming peer state. The previous
   // default (`true`) was a type-guard lie: it claimed `_raw is T` without
   // checking, so any hostile peer could broadcast arbitrary JSON shapes
