@@ -5,6 +5,7 @@ import { Sparkles, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useHolidayStore } from "@/lib/stores/holiday-store";
+import { ThemePicker } from "@/components/settings/theme-picker";
 
 export function AppearanceClient() {
   const enabled = useHolidayStore((s) => s.enabled);
@@ -26,6 +27,7 @@ export function AppearanceClient() {
 
   return (
     <div className="space-y-6">
+      <ThemePicker />
       <section className="rounded-lg border border-border bg-card p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-1 min-w-0 flex-1">

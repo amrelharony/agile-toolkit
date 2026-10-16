@@ -2,7 +2,7 @@ import { AppearanceClient } from "./appearance-client";
 
 export const metadata = {
   title: "Appearance",
-  description: "Holiday themes, seasonal animations, and decorative overlays.",
+  description: "Theme (system, dark, light, high contrast) and holiday decorations.",
 };
 
 export default function AppearancePage() {
@@ -11,10 +11,9 @@ export default function AppearancePage() {
       <header className="mb-6 space-y-2">
         <h1 className="text-fluid-h2 font-semibold text-text">Appearance</h1>
         <p className="text-sub max-w-2xl">
-          The toolkit shifts colors and adds light particle animations on Egyptian holidays (Eid,
-          Ramadan, Coptic Easter, national days, and a few global ones). Turn that off here, or
-          clear the list of themes you&rsquo;ve dismissed this year so they show again on their next
-          window.
+          Choose a colour theme, and control the holiday decorations: on Egyptian holidays (Eid,
+          Ramadan, Coptic Easter, national days and a few global ones) the toolkit shifts colours
+          and adds light particle animations.
         </p>
       </header>
       <AppearanceClient />
