@@ -1,6 +1,5 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — plain .mjs script without types
 import { findViolations } from "../../scripts/check-ui-classes.mjs";
 
 describe("check-ui-classes guard", () => {
