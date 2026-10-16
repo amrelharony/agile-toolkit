@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { CanvasClient } from "./canvas-client";
 
 export const metadata: Metadata = {
-  title: "Canvas — Agile Toolkit",
+  title: "Canvas",
   description:
     "Infinite whiteboard with stickies, shapes, free-hand drawing, smart connectors and AI cluster analysis.",
 };

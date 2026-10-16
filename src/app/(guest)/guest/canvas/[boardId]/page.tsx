@@ -5,7 +5,7 @@ import { isValidGuestPathSegment } from "@/lib/squads/validate";
 import { GuestCanvasClient } from "./guest-canvas-client";
 
 export const metadata = {
-  title: "Canvas — Agile Toolkit",
+  title: "Canvas",
 };
 
 interface Params {

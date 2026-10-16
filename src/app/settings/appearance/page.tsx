@@ -1,7 +1,7 @@
 import { AppearanceClient } from "./appearance-client";
 
 export const metadata = {
-  title: "Appearance — Agile Toolkit",
+  title: "Appearance",
   description: "Holiday themes, seasonal animations, and decorative overlays.",
 };
 

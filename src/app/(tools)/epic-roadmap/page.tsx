@@ -1,7 +1,7 @@
 import { EpicRoadmapClient } from "./epic-roadmap-client";
 
 export const metadata = {
-  title: "Epic Roadmap — Agile Toolkit",
+  title: "Epic Roadmap",
   description: "Timeline view of epics across quarters with progress bars and milestone markers.",
 };
 

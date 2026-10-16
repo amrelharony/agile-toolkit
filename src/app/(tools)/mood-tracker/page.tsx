@@ -1,7 +1,7 @@
 import { MoodTrackerClient } from "./mood-tracker-client";
 
 export const metadata = {
-  title: "Team Mood Tracker — Agile Toolkit",
+  title: "Team Mood Tracker",
   description: "Daily team mood check-ins with aggregate heatmap and velocity correlation.",
 };
 

@@ -1,7 +1,7 @@
 import { SpacePulseClient } from "./space-pulse-client";
 
 export const metadata = {
-  title: "SPACE Pulse — Agile Toolkit",
+  title: "SPACE Pulse",
   description:
     "Quarterly self-rated SPACE survey across satisfaction, performance, activity, communication, and efficiency.",
 };

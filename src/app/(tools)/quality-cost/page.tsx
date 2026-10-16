@@ -1,7 +1,7 @@
 import { QualityCostClient } from "./quality-cost-client";
 
 export const metadata = {
-  title: "Cost of Quality Calculator — Agile Toolkit",
+  title: "Cost of Quality Calculator",
   description:
     "Trade-off calculator across prevention, detection, and failure costs — visualizes COQ distribution and conformance ratio.",
 };

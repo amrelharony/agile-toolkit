@@ -1,7 +1,7 @@
 import { AccessTokensClient } from "./access-tokens-client";
 
 export const metadata = {
-  title: "Access Tokens — Agile Toolkit",
+  title: "Access Tokens",
   description: "Manage personal access tokens for the MCP server.",
   // Owner-only page: keep it out of search results on the public site.
   robots: { index: false, follow: false },

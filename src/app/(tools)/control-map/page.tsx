@@ -1,7 +1,7 @@
 import { ControlMapClient } from "./control-map-client";
 
 export const metadata = {
-  title: "Compliance Control Map — Agile Toolkit",
+  title: "Compliance Control Map",
   description:
     "Map team controls to SOC 2 / ISO 27001 / HIPAA / GDPR with evidence links and per-framework completion dashboard.",
 };

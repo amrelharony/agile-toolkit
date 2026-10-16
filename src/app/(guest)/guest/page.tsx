@@ -3,7 +3,7 @@ import { getGuestSession } from "@/lib/auth/guest-session";
 import { GuestHomeClient } from "./guest-home-client";
 
 export const metadata = {
-  title: "Guest — Agile Toolkit",
+  title: "Guest",
   description: "Your invited collaborative sessions.",
 };
 

@@ -5,7 +5,7 @@ import { isValidGuestPathSegment } from "@/lib/squads/validate";
 import { GuestKudosClient } from "./guest-kudos-client";
 
 export const metadata = {
-  title: "Kudos — Agile Toolkit",
+  title: "Kudos",
 };
 
 interface Params {

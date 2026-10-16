@@ -5,7 +5,7 @@ import { isValidGuestPathSegment } from "@/lib/squads/validate";
 import { GuestToolPlaceholder } from "./guest-tool-placeholder";
 
 export const metadata = {
-  title: "Session — Agile Toolkit",
+  title: "Session",
 };
 
 interface Params {
