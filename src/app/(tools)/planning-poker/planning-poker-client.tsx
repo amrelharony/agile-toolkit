@@ -71,7 +71,7 @@ function LobbyScreen({
     <div className="max-w-xl mx-auto flex flex-col gap-6">
       <SectionCard
         title="Start a Session"
-        className="border-border/40 bg-surface"
+        className="border-border bg-surface"
         headerClassName="pb-4"
         contentClassName="flex flex-col gap-5"
       >
@@ -84,7 +84,7 @@ function LobbyScreen({
             value={sessionName}
             onChange={(e) => setSessionName(e.target.value)}
             placeholder="e.g. Sprint 42 Planning"
-            className="bg-surface-deep border-border/40 text-text"
+            className="bg-surface-deep border-border text-text"
           />
         </div>
 
@@ -99,7 +99,7 @@ function LobbyScreen({
                   "flex-1 rounded-lg border py-2 px-3 text-sm font-medium transition-colors",
                   scaleType === s
                     ? "border-accent/60 bg-accent/10 text-accent"
-                    : "border-border/40 bg-surface-deep text-sub hover:border-border hover:text-text",
+                    : "border-border bg-surface-deep text-sub hover:border-border hover:text-text",
                 ].join(" ")}
               >
                 {SCALE_LABELS[s]}
@@ -111,14 +111,14 @@ function LobbyScreen({
               value={customInput}
               onChange={(e) => setCustomInput(e.target.value)}
               placeholder="Comma-separated values, e.g. 1, 2, 4, 8"
-              className="bg-surface-deep border-border/40 text-text text-sm"
+              className="bg-surface-deep border-border text-text text-sm"
             />
           )}
           <div className="flex flex-wrap gap-1.5 pt-1">
             {resolvedScale.map((v) => (
               <span
                 key={v}
-                className="rounded-md border border-border/40 bg-surface-deep px-2 py-0.5 text-xs text-sub"
+                className="rounded-md border border-border bg-surface-deep px-2 py-0.5 text-xs text-sub"
               >
                 {v}
               </span>
@@ -135,7 +135,7 @@ function LobbyScreen({
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             placeholder="e.g. Alice"
-            className="bg-surface-deep border-border/40 text-text"
+            className="bg-surface-deep border-border text-text"
           />
         </div>
 
@@ -150,7 +150,7 @@ function LobbyScreen({
 
       <SectionCard
         title="Join a Session"
-        className="border-border/40 bg-surface"
+        className="border-border bg-surface"
         headerClassName="pb-4"
         contentClassName="flex flex-col gap-2"
       >

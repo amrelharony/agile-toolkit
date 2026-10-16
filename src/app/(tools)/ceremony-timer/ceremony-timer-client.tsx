@@ -463,7 +463,7 @@ export function CeremonyTimerClient() {
         {/* ----------------------------------------------------------------- */}
         <Card
           ref={cardRef}
-          className={`border-border/40 bg-surface ${
+          className={`border-border bg-surface ${
             isFullscreen ? "!bg-bg !border-0 !rounded-none flex items-center justify-center" : ""
           }`}
         >
@@ -582,7 +582,7 @@ export function CeremonyTimerClient() {
                 variant="outline"
                 onClick={reset}
                 disabled={!started}
-                className="h-14 w-14 rounded-full p-0 border-border/40 hover:bg-surface-hover"
+                className="h-14 w-14 rounded-full p-0 border-border hover:bg-surface-hover"
                 aria-label="Reset timer"
               >
                 <RotateCcw className="h-5 w-5 text-sub" />
@@ -591,7 +591,7 @@ export function CeremonyTimerClient() {
                 size="lg"
                 variant="outline"
                 onClick={toggleFullscreen}
-                className="h-14 w-14 rounded-full p-0 border-border/40 hover:bg-surface-hover"
+                className="h-14 w-14 rounded-full p-0 border-border hover:bg-surface-hover"
                 aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                 title={isFullscreen ? "Exit fullscreen (Esc)" : "Enter fullscreen"}
               >
@@ -636,7 +636,7 @@ export function CeremonyTimerClient() {
         {/* ----------------------------------------------------------------- */}
         <div className="flex flex-col gap-6">
           {/* Presets */}
-          <Card className="border-border/40 bg-surface">
+          <Card className="border-border bg-surface">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-sub flex items-center gap-2">
                 <Timer className="h-4 w-4" />
@@ -680,7 +680,7 @@ export function CeremonyTimerClient() {
                     value={customMin}
                     onChange={(e) => setCustomMin(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && applyCustom()}
-                    className="h-11 bg-surface-deep border-border/40 text-text font-data"
+                    className="h-11 bg-surface-deep border-border text-text font-data"
                   />
                   <Button
                     onClick={applyCustom}
@@ -694,7 +694,7 @@ export function CeremonyTimerClient() {
           </Card>
 
           {/* Participants / Rotation */}
-          <Card className="border-border/40 bg-surface">
+          <Card className="border-border bg-surface">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm font-medium text-sub flex items-center gap-2">
@@ -723,7 +723,7 @@ export function CeremonyTimerClient() {
                     value={nameInput}
                     onChange={(e) => setNameInput(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && addParticipant()}
-                    className="h-10 bg-surface-deep border-border/40 text-text text-sm"
+                    className="h-10 bg-surface-deep border-border text-text text-sm"
                   />
                   <Button
                     size="icon"

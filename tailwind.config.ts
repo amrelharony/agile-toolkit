@@ -1,5 +1,36 @@
 import type { Config } from "tailwindcss";
 
+/**
+ * A theme colour backed by a CSS custom property that still honours
+ * Tailwind's opacity modifiers.
+ *
+ * Tailwind 3 can't parse `var(--x)`, so with a bare string every modified
+ * class (`bg-accent/10`, `text-sub/60`, `ring-accent/40`, …) silently
+ * emitted no CSS: tinted buttons had no fill, danger callouts had no band,
+ * hover states never changed. As a function, the colour keeps emitting a
+ * plain `var(--x)` when there is no modifier (so every unmodified class
+ * renders exactly as before) and mixes in transparency when there is one.
+ * `color-mix` also works for tokens that are already translucent (--border,
+ * --glow), and it follows the active theme because it reads the variable at
+ * paint time.
+ */
+function themeColor(cssVar: string): string {
+  const resolve = ({ opacityValue }: { opacityValue?: string | number }) => {
+    if (opacityValue === undefined) return `var(${cssVar})`;
+    const raw = String(opacityValue);
+    // No modifier: Tailwind passes `var(--tw-bg-opacity, 1)`.
+    if (raw.startsWith("var(")) return `var(${cssVar})`;
+    const n = Number(raw);
+    const amount = Number.isFinite(n)
+      ? `${Math.round(Math.min(Math.max(n, 0), 1) * 1000) / 10}%`
+      : `calc(${raw} * 100%)`;
+    return `color-mix(in srgb, var(${cssVar}) ${amount}, transparent)`;
+  };
+  // Tailwind accepts colour functions at runtime; its config types only
+  // model strings.
+  return resolve as unknown as string;
+}
+
 const config: Config = {
   darkMode: ["class"],
   content: [
@@ -54,20 +85,20 @@ const config: Config = {
       colors: {
         // ── Design system core palette (CSS custom properties) ──
         bg: {
-          DEFAULT: "var(--bg)",
-          primary: "var(--bg)",
-          secondary: "var(--bg2)",
-          card: "var(--card)",
-          hover: "var(--cardH)",
+          DEFAULT: themeColor("--bg"),
+          primary: themeColor("--bg"),
+          secondary: themeColor("--bg2"),
+          card: themeColor("--card"),
+          hover: themeColor("--cardH"),
         },
-        bg2: "var(--bg2)",
+        bg2: themeColor("--bg2"),
         text: {
-          DEFAULT: "var(--text)",
-          primary: "var(--text)",
-          secondary: "var(--sub)",
-          muted: "var(--sub)",
+          DEFAULT: themeColor("--text"),
+          primary: themeColor("--text"),
+          secondary: themeColor("--sub"),
+          muted: themeColor("--sub"),
         },
-        sub: "var(--sub)",
+        sub: themeColor("--sub"),
         // `danger` was never a defined color, so all ~169 `text-danger`,
         // `bg-danger/5`, `border-danger/40` utilities across the app emitted
         // NOTHING: critical insights rendered flatter than the amber warnings
@@ -77,26 +108,28 @@ const config: Config = {
         // switching to `destructive`; aliasing here fixes every remaining
         // call site at once and keeps both spellings theme-aware.
         danger: {
-          DEFAULT: "var(--destructive)",
-          foreground: "var(--destructive-foreground)",
+          DEFAULT: themeColor("--destructive"),
+          foreground: themeColor("--destructive-foreground"),
         },
         accent: {
-          DEFAULT: "var(--accent)",
-          2: "var(--accent2)",
-          3: "var(--accent3)",
+          DEFAULT: themeColor("--accent"),
+          2: themeColor("--accent2"),
+          3: themeColor("--accent3"),
         },
         card: {
-          DEFAULT: "var(--card)",
-          foreground: "var(--card-foreground)",
+          DEFAULT: themeColor("--card"),
+          foreground: themeColor("--card-foreground"),
         },
-        "card-hover": "var(--cardH)",
+        "card-hover": themeColor("--cardH"),
         surface: {
-          DEFAULT: "var(--surface)",
-          deep: "var(--surface-deep)",
-          hover: "var(--surface-hover)",
+          DEFAULT: themeColor("--surface"),
+          deep: themeColor("--surface-deep"),
+          hover: themeColor("--surface-hover"),
         },
-        glow: "var(--glow)",
-        "glow-strong": "var(--glowS)",
+        // Named `glow-color` so `text-glow` stays the text-shadow utility in
+        // globals.css — as a colour key it overrode text colour to 15% alpha.
+        "glow-color": themeColor("--glow"),
+        "glow-strong-color": themeColor("--glowS"),
 
         // ── Semantic colors ──
         success: "#22c55e",
@@ -105,34 +138,34 @@ const config: Config = {
         info: "#3b82f6",
 
         // ── shadcn/ui standard keys ──
-        border: "var(--border)",
-        input: "var(--input)",
-        ring: "var(--ring)",
-        background: "var(--background)",
-        foreground: "var(--foreground)",
+        border: themeColor("--border"),
+        input: themeColor("--input"),
+        ring: themeColor("--ring"),
+        background: themeColor("--background"),
+        foreground: themeColor("--foreground"),
         primary: {
-          DEFAULT: "var(--primary)",
-          foreground: "var(--primary-foreground)",
+          DEFAULT: themeColor("--primary"),
+          foreground: themeColor("--primary-foreground"),
         },
         secondary: {
-          DEFAULT: "var(--secondary)",
-          foreground: "var(--secondary-foreground)",
+          DEFAULT: themeColor("--secondary"),
+          foreground: themeColor("--secondary-foreground"),
         },
         destructive: {
-          DEFAULT: "var(--destructive)",
-          foreground: "var(--destructive-foreground)",
+          DEFAULT: themeColor("--destructive"),
+          foreground: themeColor("--destructive-foreground"),
         },
         muted: {
-          DEFAULT: "var(--muted)",
-          foreground: "var(--muted-foreground)",
+          DEFAULT: themeColor("--muted"),
+          foreground: themeColor("--muted-foreground"),
         },
         popover: {
-          DEFAULT: "var(--popover)",
-          foreground: "var(--popover-foreground)",
+          DEFAULT: themeColor("--popover"),
+          foreground: themeColor("--popover-foreground"),
         },
 
         // ── Backward-compatible aliases (existing tool pages use these) ──
-        "accent-cyan": "var(--accent)",
+        "accent-cyan": themeColor("--accent"),
         "accent-magenta": "#ff00aa",
         "accent-green": "#00ff88",
         "accent-amber": "#ffaa00",

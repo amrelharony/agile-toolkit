@@ -850,7 +850,7 @@ export function BurnupClient() {
             {sortedEntries.map((entry) => (
               <div
                 key={entry.id}
-                className="grid grid-cols-[1fr_auto] sm:grid-cols-[80px_1fr_1fr_1.2fr_auto] gap-2 sm:gap-3 sm:items-center rounded-md border border-border/40 sm:border-0 p-2 sm:p-0"
+                className="grid grid-cols-[1fr_auto] sm:grid-cols-[80px_1fr_1fr_1.2fr_auto] gap-2 sm:gap-3 sm:items-center rounded-md border border-border sm:border-0 p-2 sm:p-0"
               >
                 <div className="flex items-center sm:contents">
                   <span className="font-data text-sm font-semibold text-accent">

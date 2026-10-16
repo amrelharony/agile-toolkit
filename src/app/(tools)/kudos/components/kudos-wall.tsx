@@ -158,7 +158,7 @@ export function KudosWall({
       <div
         role="status"
         aria-live="polite"
-        className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/40 bg-surface/40 px-6 py-12 text-center"
+        className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-surface/40 px-6 py-12 text-center"
       >
         <Sparkles className="h-8 w-8 text-accent/40" aria-hidden="true" />
         <p className="text-sm text-text">No kudos yet</p>
@@ -274,7 +274,7 @@ function WallEntry({
           type="button"
           onClick={() => setStackOpen((v) => !v)}
           aria-expanded={stackOpen}
-          className="min-touch-coarse mt-1.5 ml-2 inline-flex items-center gap-1 rounded-md border border-border/40 bg-surface-deep/60 px-2 py-0.5 text-[11px] text-sub hover:text-text"
+          className="min-touch-coarse mt-1.5 ml-2 inline-flex items-center gap-1 rounded-md border border-border bg-surface-deep/60 px-2 py-0.5 text-[11px] text-sub hover:text-text"
         >
           {stackOpen ? (
             <ChevronDown className="h-3 w-3" aria-hidden="true" />
@@ -310,7 +310,7 @@ function WallEntry({
         />
       )}
       {replies.length > 0 && (
-        <div className="ml-3 sm:ml-6 mt-2 flex flex-col gap-2 border-l-2 border-border/40 pl-3">
+        <div className="ml-3 sm:ml-6 mt-2 flex flex-col gap-2 border-l-2 border-border pl-3">
           {replies.map((r) => (
             <div key={r.id} aria-label={kudosAriaLabel(r)}>
               <KudosCard

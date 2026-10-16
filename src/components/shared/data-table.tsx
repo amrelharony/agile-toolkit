@@ -76,7 +76,7 @@ export function DataTable<Row>({
                     className={cn(
                       "px-3 py-2 font-medium",
                       col.hiddenBelow ? HIDDEN_CLASS[col.hiddenBelow] : undefined,
-                      col.align ? ALIGN_CLASS[col.align] : "text-left",
+                      col.align ? ALIGN_CLASS[col.align] : "text-left"
                     )}
                     style={col.width ? { width: col.width } : undefined}
                   >
@@ -90,8 +90,8 @@ export function DataTable<Row>({
                 <tr
                   key={rowKey(row, i)}
                   className={cn(
-                    "border-b border-border/50 last:border-0",
-                    onRowClick && "cursor-pointer hover:bg-surface-hover active-press",
+                    "border-b border-border last:border-0",
+                    onRowClick && "cursor-pointer hover:bg-surface-hover active-press"
                   )}
                   onClick={onRowClick ? () => onRowClick(row, i) : undefined}
                   onKeyDown={
@@ -113,7 +113,7 @@ export function DataTable<Row>({
                       className={cn(
                         "px-3 py-2.5",
                         col.hiddenBelow ? HIDDEN_CLASS[col.hiddenBelow] : undefined,
-                        col.align ? ALIGN_CLASS[col.align] : "text-left",
+                        col.align ? ALIGN_CLASS[col.align] : "text-left"
                       )}
                     >
                       {col.cell(row, i)}
@@ -133,7 +133,7 @@ export function DataTable<Row>({
             key={rowKey(row, i)}
             className={cn(
               "rounded-lg border border-border bg-card p-3",
-              onRowClick && "cursor-pointer active-press",
+              onRowClick && "cursor-pointer active-press"
             )}
             onClick={onRowClick ? () => onRowClick(row, i) : undefined}
             onKeyDown={

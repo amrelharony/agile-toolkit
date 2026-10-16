@@ -374,7 +374,7 @@ export function SessionScreen({
   return (
     <div className="flex flex-col gap-6">
       {/* Header bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/40 bg-surface px-5 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-5 py-3">
         <div className="flex items-center gap-3">
           <div className="flex flex-col">
             <span className="text-sm font-semibold text-text">{session.sessionName}</span>
@@ -407,7 +407,7 @@ export function SessionScreen({
 
       <div className="grid gap-6 lg:grid-cols-[1fr_260px]">
         <div className="flex flex-col gap-5">
-          <Card className="border-border/40 bg-surface">
+          <Card className="border-border bg-surface">
             <CardContent className="pt-5 pb-5">
               {currentStory ? (
                 <div className="flex flex-col gap-2">
@@ -452,7 +452,7 @@ export function SessionScreen({
                           variant="outline"
                           onClick={resetVotes}
                           disabled={!isHost}
-                          className="border-border/40 text-sub hover:text-text h-8 px-4 text-xs"
+                          className="border-border text-sub hover:text-text h-8 px-4 text-xs"
                         >
                           <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
                           Vote Again
@@ -496,7 +496,7 @@ export function SessionScreen({
               iconClassName="text-sub"
               titleSize="sm"
               titleSuffix={!session.revealed ? "— face down until revealed" : undefined}
-              className="border-border/40 bg-surface"
+              className="border-border bg-surface"
               contentClassName="pb-5"
             >
               <div className="flex flex-wrap gap-4">
@@ -594,7 +594,7 @@ export function SessionScreen({
                             size="sm"
                             variant="outline"
                             onClick={() => saveEstimate(v)}
-                            className="h-8 px-3 text-xs border-border/40 text-sub hover:border-accent/60 hover:text-accent"
+                            className="h-8 px-3 text-xs border-border text-sub hover:border-accent/60 hover:text-accent"
                           >
                             {v}
                           </Button>
@@ -611,7 +611,7 @@ export function SessionScreen({
             <SectionCard
               title="Your vote"
               titleSize="sm"
-              className="border-border/40 bg-surface"
+              className="border-border bg-surface"
               contentClassName="pb-6"
             >
               <div className="flex flex-wrap justify-center gap-3 pt-2 pb-2">
@@ -644,7 +644,7 @@ export function SessionScreen({
             icon={Clock}
             iconClassName="text-sub"
             titleSize="sm"
-            className="border-border/40 bg-surface"
+            className="border-border bg-surface"
             contentClassName="flex flex-col gap-3"
           >
             {isHost && (
@@ -656,7 +656,7 @@ export function SessionScreen({
                     onChange={(e) => setNewStory(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && addStory()}
                     placeholder="Story title…"
-                    className="h-9 text-sm bg-surface-deep border-border/40 text-text"
+                    className="h-9 text-sm bg-surface-deep border-border text-text"
                   />
                   <Button
                     size="icon"
@@ -675,7 +675,7 @@ export function SessionScreen({
                   }}
                   placeholder="Description (optional)..."
                   rows={2}
-                  className="bg-surface-deep border-border/40 resize-none text-xs text-text"
+                  className="bg-surface-deep border-border resize-none text-xs text-text"
                   aria-label="New story description"
                 />
               </div>
@@ -733,7 +733,7 @@ export function SessionScreen({
                 {votedCount}/{session.participants.length} voted
               </span>
             }
-            className="border-border/40 bg-surface"
+            className="border-border bg-surface"
             contentClassName="flex flex-col gap-2 pb-4"
           >
             {session.participants.map((p) => (
@@ -755,7 +755,7 @@ export function SessionScreen({
                     <Check className="h-4 w-4 text-accent-green shrink-0" />
                   )
                 ) : (
-                  <span className="h-4 w-4 rounded-full border-2 border-border/40 shrink-0" />
+                  <span className="h-4 w-4 rounded-full border-2 border-border shrink-0" />
                 )}
               </div>
             ))}

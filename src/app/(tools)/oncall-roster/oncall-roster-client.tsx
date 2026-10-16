@@ -864,7 +864,7 @@ export function OncallRosterClient() {
               </thead>
               <tbody>
                 {personStats.map((p) => (
-                  <tr key={p.person} className="border-b border-border/40">
+                  <tr key={p.person} className="border-b border-border">
                     <td className="py-2 pr-3 text-text">{p.person}</td>
                     <td className="py-2 pr-3 font-data">{p.shifts}</td>
                     <td className="py-2 pr-3 font-data">

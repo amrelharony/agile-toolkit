@@ -353,7 +353,7 @@ export function DevexSurveyClient() {
               </thead>
               <tbody>
                 {[...sorted].reverse().map((r) => (
-                  <tr key={r.id} className="border-b border-border/40">
+                  <tr key={r.id} className="border-b border-border">
                     <td className="py-2 pr-3 font-data text-text">{r.date}</td>
                     <td className="py-2 pr-3 text-sub">{r.respondent || "anon"}</td>
                     <td className="py-2 pr-3 font-data">{r.flowState}</td>

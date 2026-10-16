@@ -94,7 +94,7 @@ function SidebarToolLink({
         <div
           className="
             absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100
-            bg-gradient-to-r from-transparent via-glow to-transparent
+            bg-gradient-to-r from-transparent via-glow-color to-transparent
             -translate-x-full group-hover:animate-shimmer
           "
         />

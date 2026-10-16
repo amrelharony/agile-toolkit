@@ -350,7 +350,7 @@ export function SpacePulseClient() {
               </thead>
               <tbody>
                 {[...sorted].reverse().map((s) => (
-                  <tr key={s.id} className="border-b border-border/40">
+                  <tr key={s.id} className="border-b border-border">
                     <td className="py-2 pr-3 font-data text-text">{s.quarter}</td>
                     {DIMENSIONS.map((d) => (
                       <td key={d.key} className="py-2 pr-3 font-data">

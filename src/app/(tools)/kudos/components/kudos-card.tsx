@@ -253,7 +253,7 @@ function ReactionStrip({ kudosId, grouped, onAddReaction, compact }: ReactionStr
           </PopoverTrigger>
           <PopoverContent
             align="start"
-            className="w-auto max-w-[calc(100vw-2rem)] bg-surface border-border/60 p-2"
+            className="w-auto max-w-[calc(100vw-2rem)] bg-surface border-border p-2"
           >
             <div role="group" aria-label="Pick a reaction" className="grid grid-cols-4 gap-1">
               {COMMON_REACTIONS.map((e) => (

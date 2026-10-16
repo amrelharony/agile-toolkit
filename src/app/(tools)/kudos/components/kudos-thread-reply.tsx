@@ -84,7 +84,7 @@ export function KudosThreadReply({ parent, fromName, fromProfileId, onSend, onSe
   return (
     <form
       onSubmit={handleSend}
-      className="ml-3 sm:ml-6 mt-2 flex flex-col sm:flex-row sm:items-start gap-2 rounded-md border border-border/40 bg-surface-deep/60 p-3"
+      className="ml-3 sm:ml-6 mt-2 flex flex-col sm:flex-row sm:items-start gap-2 rounded-md border border-border bg-surface-deep/60 p-3"
     >
       <div className="flex flex-1 min-w-0 flex-col gap-1.5">
         <Input
@@ -93,7 +93,7 @@ export function KudosThreadReply({ parent, fromName, fromProfileId, onSend, onSe
           onChange={(e) => setMessage(e.target.value)}
           placeholder={`Reply to ${parent.toName}…`}
           maxLength={400}
-          className="bg-surface border-border/40 text-sm text-text"
+          className="bg-surface border-border text-sm text-text"
           autoFocus
         />
         <div className="flex items-center justify-between gap-2">
