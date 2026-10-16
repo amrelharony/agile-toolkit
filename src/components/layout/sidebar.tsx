@@ -5,13 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { usePersisted } from "@/lib/utils/use-persisted";
-import {
-  categories,
-  getToolById,
-  getToolsByCategory,
-  type ToolCategory,
-  type ToolDefinition,
-} from "@/lib/constants/tools";
+import { getToolById, type ToolCategory, type ToolDefinition } from "@/lib/constants/tools";
+import { getVisibleCategories, getVisibleToolsByCategory } from "@/lib/tools/catalog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronLeft, History, Activity, Star, Clock } from "lucide-react";
@@ -548,8 +543,8 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
               )}
             </div>
           )}
-          {categories.map((category) => {
-            const categoryTools = getToolsByCategory(category);
+          {getVisibleCategories().map((category) => {
+            const categoryTools = getVisibleToolsByCategory(category);
             // Skip categories with no tools — the registry lists 37 categories
             // for future Phase 23+ tool batches, but rendering an empty
             // Collapsible looks broken (chevron toggles open → reveals nothing,

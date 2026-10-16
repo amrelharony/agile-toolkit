@@ -39,6 +39,8 @@ interface Props {
    *  are always "Live" if reachable. */
   connectionLabel?: string;
   connectionTone?: "live" | "warn";
+  /** Show the room code (only meaningful when others can join). */
+  showRoomCode?: boolean;
 }
 
 // ─── helpers (duplicated minimal subset; original copies remain in
@@ -219,6 +221,7 @@ export function SessionScreen({
   extraHeaderActions,
   connectionLabel,
   connectionTone = "live",
+  showRoomCode = true,
 }: Props) {
   const [newStory, setNewStory] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -378,10 +381,12 @@ export function SessionScreen({
         <div className="flex items-center gap-3">
           <div className="flex flex-col">
             <span className="text-sm font-semibold text-text">{session.sessionName}</span>
-            <span className="text-xs text-sub">
-              Room:{" "}
-              <span className="font-data text-accent tracking-widest">{session.roomCode}</span>
-            </span>
+            {showRoomCode && (
+              <span className="text-xs text-sub">
+                Room:{" "}
+                <span className="font-data text-accent tracking-widest">{session.roomCode}</span>
+              </span>
+            )}
           </div>
           <Badge className="bg-accent/10 text-accent border-accent/30 text-xs">
             {SCALE_LABELS[session.scaleType] ?? "Custom"}

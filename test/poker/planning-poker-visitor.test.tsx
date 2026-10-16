@@ -86,15 +86,13 @@ beforeEach(() => {
 });
 
 describe("PlanningPokerClient for a public visitor", () => {
-  it("explains that sessions stay in this browser", () => {
+  it("explains how to run the session with a team on one screen", () => {
     h.auth = { status: "anonymous", user: null };
     render(<PlanningPokerClient />);
-    expect(
-      screen.getByText(
-        "Sessions run in this browser. Multiplayer invites are available to the workspace owner."
-      )
-    ).toBeInTheDocument();
+    expect(screen.getByText("Running it with your team")).toBeInTheDocument();
+    expect(screen.getByText(/This session runs on your screen/)).toBeInTheDocument();
     expect(screen.queryByText(/Settings → Squads/)).toBeNull();
+    expect(screen.queryByText(/workspace owner/)).toBeNull();
   });
 
   it("runs a browser-only session with no channel and no invite button", () => {
@@ -103,6 +101,8 @@ describe("PlanningPokerClient for a public visitor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start Session" }));
 
     expect(screen.getByText("Browser-only")).toBeInTheDocument();
+    // A room code nobody can join is noise.
+    expect(screen.queryByText(/Room:/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Invite squad" })).toBeNull();
     expect(h.client.channel).not.toHaveBeenCalled();
   });
@@ -116,6 +116,7 @@ describe("PlanningPokerClient for the owner", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Start Session" }));
     expect(screen.queryByText("Browser-only")).toBeNull();
+    expect(screen.getByText(/Room:/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Invite squad" })).toBeInTheDocument();
     expect(h.client.channel).toHaveBeenCalledWith(
       expect.stringMatching(/^tool:planning-poker:room:/),

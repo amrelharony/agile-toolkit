@@ -1,19 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { ToolDefinition } from "@/lib/constants/tools";
 import {
-  categories,
-  getToolsByCategory,
-  tools as allTools,
-  type ToolDefinition,
-} from "@/lib/constants/tools";
+  getVisibleCategories,
+  getVisibleTools,
+  getVisibleToolsByCategory,
+} from "@/lib/tools/catalog";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { PageHeader } from "@/components/shared/page-header";
 import { ToolCard } from "@/components/shared/tool-card";
 import { InsightsEngine } from "@/components/shared/insights-engine";
 import { MoodReveal } from "@/components/shared/mood-reveal";
 import { FeaturedComicBanner } from "@/components/comic/featured-comic-banner";
 import { comicAsset } from "@/lib/comic/agile-at-work";
-import { ArrowRight, Zap, TrendingUp, Radio, Filter, ChevronDown } from "lucide-react";
+import { ArrowDown, ShieldCheck, TrendingUp, Radio, Filter, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
@@ -21,9 +22,9 @@ type FilterId = "all" | "smart" | "live";
 
 // Reading material (the comic) lives in the grid but isn't an interactive
 // tool, so it stays out of every "N tools" number.
-const interactiveTools = allTools.filter((t) => t.kind !== "reading");
+const interactiveTools = getVisibleTools().filter((t) => t.kind !== "reading");
 // Empty categories are hidden in the grid and sidebar, so don't count them.
-const categoryCount = categories.filter((c) => getToolsByCategory(c).length > 0).length;
+const categoryCount = getVisibleCategories().length;
 
 /** "3 tools", or "1 title" for a row that only holds reading material. */
 function countLabel(list: ToolDefinition[]): string {
@@ -33,11 +34,13 @@ function countLabel(list: ToolDefinition[]): string {
 
 export default function Home() {
   const [activeFilter, setActiveFilter] = useState<FilterId>("all");
+  // Live rooms are owner-only today, so only the owner sees the Live filter.
+  const isOwner = useIsOwner();
 
   const filteredByCategory = useMemo(() => {
-    return categories
+    return getVisibleCategories()
       .map((category) => {
-        let list = getToolsByCategory(category);
+        let list = getVisibleToolsByCategory(category);
         if (activeFilter === "smart")
           list = list.filter((t) => (t.analyticsFeatures?.length ?? 0) > 0);
         if (activeFilter === "live") list = list.filter((t) => t.isRealtime);
@@ -52,10 +55,16 @@ export default function Home() {
   // Build-time flag (scripts/comic-asset.mjs): no banner until the PDF is committed.
   const showComic = comicAsset().available;
 
-  const filters: { id: FilterId; label: string; icon: typeof Zap; count: number }[] = [
+  const filters: { id: FilterId; label: string; icon: typeof Filter; count: number }[] = [
     { id: "all", label: "All", icon: Filter, count: totalCount },
-    { id: "smart", label: "Smart", icon: TrendingUp, count: smartCount },
-    { id: "live", label: "Live", icon: Radio, count: liveCount },
+    { id: "smart", label: "With insights", icon: TrendingUp, count: smartCount },
+    ...(isOwner ? [{ id: "live" as const, label: "Live", icon: Radio, count: liveCount }] : []),
+  ];
+  const stats = [
+    { value: `${totalCount}`, label: "Tools" },
+    { value: `${categoryCount}`, label: "Categories" },
+    { value: "0", label: "Sign-ups needed" },
+    { value: "100%", label: "In your browser" },
   ];
 
   return (
@@ -63,19 +72,19 @@ export default function Home() {
       {/* Hero */}
       <div className="py-6 sm:py-10 md:py-12 animate-slide-up">
         <div className="inline-flex items-center gap-2 px-3 py-1 sm:px-4 sm:py-1.5 rounded-full border border-border bg-[rgba(0,225,255,0.05)] mb-4 sm:mb-6">
-          <Zap className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-accent" aria-hidden="true" />
-          <span className="font-mono text-[10px] sm:text-micro text-accent tracking-wider uppercase">
-            Free &amp; Open Source
+          <ShieldCheck className="w-3.5 h-3.5 text-accent" aria-hidden="true" />
+          <span className="text-xs font-medium text-accent">
+            Free · No sign-up · Your data stays in your browser
           </span>
         </div>
         <PageHeader
           title="Agile Toolkit"
-          subtitle={`${totalCount} interactive tools with cross-tool intelligence, predictive forecasting, and real-time multiplayer. Plan sprints, track metrics, run ceremonies, and build better teams.`}
+          subtitle={`${totalCount} interactive tools for agile teams. Plan sprints, run retros and estimation sessions, track delivery metrics and decide what to build next.`}
           gradient
         />
         <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mt-4 sm:mt-2">
           <Link
-            href="/capacity-planner"
+            href="#all-tools"
             className="
               inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl
               bg-accent text-bg font-mono text-xs sm:text-sm font-semibold uppercase tracking-wider
@@ -84,8 +93,8 @@ export default function Home() {
               min-h-[44px]
             "
           >
-            Get Started
-            <ArrowRight className="w-4 h-4" aria-hidden="true" />
+            Browse tools
+            <ArrowDown className="w-4 h-4" aria-hidden="true" />
           </Link>
           <Link
             href="/health-dashboard"
@@ -97,7 +106,7 @@ export default function Home() {
               min-h-[44px]
             "
           >
-            Insights Hub
+            Team dashboard
             <TrendingUp className="w-4 h-4" aria-hidden="true" />
           </Link>
         </div>
@@ -128,12 +137,7 @@ export default function Home() {
         className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-6 md:gap-8 mb-6 sm:mb-8 animate-slide-up delay-1 stagger-item"
         style={{ animationFillMode: "forwards" }}
       >
-        {[
-          { value: `${totalCount}`, label: "Tools" },
-          { value: `${categoryCount}`, label: "Categories" },
-          { value: `${smartCount}`, label: "Smart" },
-          { value: `${liveCount}`, label: "Live" },
-        ].map((stat, i) => (
+        {stats.map((stat, i) => (
           <div
             key={stat.label}
             className={`text-center animate-fade-in delay-${i + 1}`}
@@ -151,7 +155,8 @@ export default function Home() {
 
       {/* Filter Chips — scrollable row on mobile */}
       <div
-        className="flex flex-wrap gap-2 mb-8 sm:mb-10 animate-slide-up overflow-x-auto -mx-1 px-1 pb-1"
+        id="all-tools"
+        className="flex flex-wrap gap-2 mb-8 sm:mb-10 animate-slide-up overflow-x-auto -mx-1 px-1 pb-1 scroll-mt-20"
         style={{ animationFillMode: "forwards" }}
         role="tablist"
         aria-label="Tool filters"

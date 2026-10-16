@@ -149,15 +149,15 @@ function LobbyScreen({
       </SectionCard>
 
       <SectionCard
-        title="Join a Session"
+        title={isOwner ? "Invite your squad" : "Running it with your team"}
         className="border-border bg-surface"
         headerClassName="pb-4"
         contentClassName="flex flex-col gap-2"
       >
-        <p className="text-xs text-sub">
+        <p className="text-sm text-sub">
           {isOwner
             ? "Guest joiners use a squad invite (Settings → Squads). Once you start a session you can invite your squad from the header."
-            : "Sessions run in this browser. Multiplayer invites are available to the workspace owner."}
+            : "This session runs on your screen. Share it in your meeting, read each story aloud, let everyone pick a card, then reveal together and agree the estimate."}
         </p>
       </SectionCard>
     </div>
@@ -331,6 +331,8 @@ export function PlanningPokerClient() {
                       : "Connecting…"
               }
               connectionTone={isLocalOnly ? "warn" : "live"}
+              // Nobody can join a local-only room, so don't show its code.
+              showRoomCode={!isLocalOnly}
             />
           </motion.div>
         )}

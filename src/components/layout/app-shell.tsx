@@ -38,6 +38,7 @@ import { HapticsProvider } from "@/lib/haptics/provider";
 import { HolidayEngine } from "@/lib/holiday/engine";
 import { EmotionProvider } from "@/lib/emotion/provider";
 import { WeatherProvider } from "@/lib/weather/provider";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { AuthProvider } from "@/lib/auth/auth-provider";
 import { OwnerPresenceProvider } from "./owner-presence-provider";
 import { CloudSyncProvider } from "@/lib/sync/sync-provider";
@@ -127,8 +128,8 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
         <SonificationProvider>
           <HapticsProvider>
             <EmotionProvider>
-              <WeatherProvider>
-                <AuthProvider>
+              <AuthProvider>
+                <OwnerWeather>
                   {/* Inside AuthProvider: the leaderboard sync is owner-only. */}
                   <GamificationProvider>
                     <OwnerPresenceProvider>
@@ -181,12 +182,18 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                       </CloudSyncProvider>
                     </OwnerPresenceProvider>
                   </GamificationProvider>
-                </AuthProvider>
-              </WeatherProvider>
+                </OwnerWeather>
+              </AuthProvider>
             </EmotionProvider>
           </HapticsProvider>
         </SonificationProvider>
       </MotionConfig>
     </ErrorBoundary>
   );
+}
+
+/** Cairo weather is the owner's flavour; visitors never fetch it. */
+function OwnerWeather({ children }: { children: React.ReactNode }) {
+  const isOwner = useIsOwner();
+  return <WeatherProvider enabled={isOwner}>{children}</WeatherProvider>;
 }

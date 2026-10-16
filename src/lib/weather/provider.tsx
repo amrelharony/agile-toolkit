@@ -30,7 +30,19 @@ interface WeatherContextValue {
 
 const WeatherContext = createContext<WeatherContextValue | null>(null);
 
-export function WeatherProvider({ children }: { children: React.ReactNode }) {
+/**
+ * The weather is the site owner's (Cairo) — personal flavour for the header,
+ * the mascot's particles and the emotion/holiday engines. `enabled={false}`
+ * (visitors) skips the network entirely and leaves `weather` null, so every
+ * consumer falls back to its no-weather behaviour.
+ */
+export function WeatherProvider({
+  children,
+  enabled = true,
+}: {
+  children: React.ReactNode;
+  enabled?: boolean;
+}) {
   const [weather, setWeather] = useState<WeatherSnapshot | null>(null);
   const [failed, setFailed] = useState(false);
   const [badge, setBadge] = useState<StatusBadge>(() => computeStatusBadge(new Date(), null));
@@ -75,6 +87,7 @@ export function WeatherProvider({ children }: { children: React.ReactNode }) {
 
   // Initial fetch + 60-minute poll
   useEffect(() => {
+    if (!enabled) return;
     void fetchNow();
     const id = window.setInterval(() => {
       void fetchNow(true);
@@ -83,7 +96,7 @@ export function WeatherProvider({ children }: { children: React.ReactNode }) {
       window.clearInterval(id);
       abortRef.current?.abort();
     };
-  }, [fetchNow]);
+  }, [fetchNow, enabled]);
 
   // Per-minute badge tick so hour boundaries land promptly
   useEffect(() => {
@@ -96,7 +109,7 @@ export function WeatherProvider({ children }: { children: React.ReactNode }) {
   // Re-fetch when the tab becomes visible after a long hidden period.
   // Reads weatherRef so we don't re-attach the listener on every snapshot.
   useEffect(() => {
-    if (typeof document === "undefined") return;
+    if (!enabled || typeof document === "undefined") return;
     const onVis = () => {
       if (document.visibilityState !== "visible") return;
       const last = weatherRef.current?.fetchedAt ?? 0;
@@ -104,7 +117,7 @@ export function WeatherProvider({ children }: { children: React.ReactNode }) {
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [fetchNow]);
+  }, [fetchNow, enabled]);
 
   const value = useMemo<WeatherContextValue>(
     () => ({
@@ -113,7 +126,7 @@ export function WeatherProvider({ children }: { children: React.ReactNode }) {
       failed,
       refresh: () => fetchNow(true),
     }),
-    [weather, badge, failed, fetchNow],
+    [weather, badge, failed, fetchNow]
   );
 
   return <WeatherContext.Provider value={value}>{children}</WeatherContext.Provider>;

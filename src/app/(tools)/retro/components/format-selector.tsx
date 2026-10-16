@@ -15,7 +15,7 @@ export function FormatSelector({ onSelect }: { onSelect: (format: RetroFormat) =
     <ToolPageWrapper
       toolId="retro"
       title="Retro Board"
-      description="Run collaborative retrospectives with your team. Choose a format to get started — multiplayer sync coming soon."
+      description="Pick a format and run the retro on a shared screen: write cards, dot-vote, discuss the top items and agree actions."
       category="Ceremonies"
     >
       <div className="space-y-6">
