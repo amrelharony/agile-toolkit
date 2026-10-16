@@ -7,6 +7,7 @@ import type { StandupEntry } from "@/lib/stores/workspace-types";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { generateStandupPrompts } from "@/lib/ai-prompts/standup";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -562,18 +563,53 @@ export function StandupClient() {
   // New member input
   const [newMember, setNewMember] = useState("");
 
+  // An entry that would replace one already posted today, held until the
+  // user confirms the overwrite. Kept after the dialog closes so its copy
+  // doesn't blank out mid exit-animation.
+  const [pendingReplace, setPendingReplace] = useState<Omit<
+    StandupEntry,
+    "id" | "timestamp"
+  > | null>(null);
+  const [confirmReplaceOpen, setConfirmReplaceOpen] = useState(false);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+
+  // Submit needs a member AND something to say. Both used to be possible
+  // to miss: with a roster but nothing picked the button stayed enabled
+  // and silently did nothing, and an all-blank form posted an empty entry.
+  // The reason is shown under the disabled button instead.
+  const typedMember = customMemberDraft.trim() || formMember.trim();
+  const hasContent = Boolean(yesterday.trim() || today.trim() || blockers.trim());
+  const submitBlockedReason = !typedMember
+    ? "Pick a team member or type a name."
+    : !hasContent
+      ? "Add at least one update: yesterday, today or a blocker."
+      : null;
+
+  const commitEntry = (payload: Omit<StandupEntry, "id" | "timestamp">, replace: boolean) => {
+    if (replace) upsertEntry(payload);
+    else addEntry(payload);
+    log(STANDUP_ACTIONS.ENTRY_ADDED, {
+      member: payload.member,
+      date: payload.date,
+      hasBlocker: payload.blockers.trim().length > 0,
+    });
+    setYesterday("");
+    setToday("");
+    setBlockers("");
+    setCustomMemberDraft("");
+  };
+
   const handleSubmit = () => {
     // Prior code silently fell back to `members[0]` if both fields were
     // empty — a user who cleared the dropdown and forgot to type a name
     // got their standup posted under whoever was alphabetically first.
-    // Require explicit selection; surface a console hint in dev so the
-    // empty-submit path is debuggable without changing the (deliberately
-    // minimal) toast surface area.
-    const typed = customMemberDraft.trim() || formMember.trim();
-    if (!typed) {
+    // Require explicit selection. The button is disabled (with the reason
+    // shown) in that state; this guard only covers programmatic calls.
+    const typed = typedMember;
+    if (!typed || !hasContent) {
       if (process.env.NODE_ENV !== "production") {
         // eslint-disable-next-line no-console
-        console.warn("[standup] submit ignored — no member selected/typed");
+        console.warn("[standup] submit ignored —", submitBlockedReason);
       }
       return;
     }
@@ -597,31 +633,24 @@ export function StandupClient() {
     const date = todayStr();
     const payload = { member, date, yesterday, today, blockers };
     if (hasEntry(member, date)) {
-      const overwrite =
-        typeof window === "undefined"
-          ? true
-          : window.confirm(
-              `${member} already submitted standup for ${date}. Replace the existing entry?`
-            );
-      if (!overwrite) return;
-      upsertEntry(payload);
-    } else {
-      addEntry(payload);
+      // Ask before replacing today's entry; the form keeps its values if
+      // the user backs out.
+      setPendingReplace(payload);
+      setConfirmReplaceOpen(true);
+      return;
     }
-    log(STANDUP_ACTIONS.ENTRY_ADDED, {
-      member,
-      date,
-      hasBlocker: blockers.trim().length > 0,
-    });
-    setYesterday("");
-    setToday("");
-    setBlockers("");
-    setCustomMemberDraft("");
+    commitEntry(payload, false);
   };
 
   const reset = () => {
     resetRaw();
     log(STANDUP_ACTIONS.STANDUP_RESET, {});
+  };
+  // Clearing wipes every day's entries, so confirm first — unless there is
+  // nothing to lose.
+  const requestReset = () => {
+    if (entries.length === 0) reset();
+    else setConfirmClearOpen(true);
   };
 
   /* -- CSV export of all entries ------------------------------------------ */
@@ -689,7 +718,7 @@ export function StandupClient() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="danger-ghost" size="sm" onClick={reset}>
+            <Button variant="danger-ghost" size="sm" onClick={requestReset}>
               Clear Entries
             </Button>
             <AiPromptGenerator config={promptConfig} />
@@ -791,14 +820,22 @@ export function StandupClient() {
                 />
               </div>
 
-              <Button
-                variant="toolkit"
-                onClick={handleSubmit}
-                disabled={!customMemberDraft.trim() && !formMember.trim() && members.length === 0}
-                className="w-full"
-              >
-                Submit Standup
-              </Button>
+              <div className="space-y-1.5">
+                <Button
+                  variant="toolkit"
+                  onClick={handleSubmit}
+                  disabled={submitBlockedReason !== null}
+                  aria-describedby={submitBlockedReason ? "standup-submit-hint" : undefined}
+                  className="w-full"
+                >
+                  Submit Standup
+                </Button>
+                {submitBlockedReason && (
+                  <p id="standup-submit-hint" className="text-xs text-sub text-center">
+                    {submitBlockedReason}
+                  </p>
+                )}
+              </div>
             </SectionCard>
           </div>
 
@@ -935,6 +972,25 @@ export function StandupClient() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <ConfirmDialog
+        open={confirmClearOpen}
+        onOpenChange={setConfirmClearOpen}
+        title={`Delete all ${entries.length} standup ${entries.length === 1 ? "entry" : "entries"}?`}
+        description="Every day's entries and blockers will be removed. Team members stay on the roster."
+        confirmLabel="Delete entries"
+        onConfirm={reset}
+      />
+      <ConfirmDialog
+        open={confirmReplaceOpen}
+        onOpenChange={setConfirmReplaceOpen}
+        title={`Replace ${pendingReplace?.member ?? ""}'s standup?`}
+        description={`${pendingReplace?.member ?? "This member"} already submitted a standup for ${pendingReplace?.date ?? "today"}. Submitting again replaces that entry.`}
+        confirmLabel="Replace entry"
+        onConfirm={() => {
+          if (pendingReplace) commitEntry(pendingReplace, true);
+        }}
+      />
     </ToolPageWrapper>
   );
 }
