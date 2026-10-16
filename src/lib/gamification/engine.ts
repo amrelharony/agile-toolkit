@@ -232,15 +232,20 @@ function setCounter(key: string, value: number) {
 // XP source mapping for event names
 // ──────────────────────────────────────────────────────────────────────────
 
+// XP rewards doing the work — adding, resolving and finishing things in the
+// tools, exporting, exploring new tools — not raw input. Clicks, hovers,
+// focus and keystrokes still drive counters, combos and achievements, but
+// with combo multipliers they used to be worth up to 5 XP each, so three
+// retro cards could jump a visitor from level 1 to 6 mid-ceremony.
 function xpForEvent(name: string): { amount: number; source: XpSource } {
-  if (name === "click") return { amount: 1, source: "click" };
-  if (name === "hover") return { amount: 0.2, source: "hover" };
-  if (name === "focus") return { amount: 0.5, source: "focus" };
-  if (name === "key") return { amount: 1, source: "key" };
-  if (name === "scroll-floor") return { amount: 5, source: "scroll" };
+  if (name === "click") return { amount: 0, source: "click" };
+  if (name === "hover") return { amount: 0, source: "hover" };
+  if (name === "focus") return { amount: 0, source: "focus" };
+  if (name === "key") return { amount: 0, source: "key" };
+  if (name === "scroll-floor") return { amount: 1, source: "scroll" };
   if (name === "tool-visit") return { amount: 5, source: "tool-visit" };
-  if (name === "theme-toggle") return { amount: 10, source: "theme-toggle" };
-  if (name === "sonification-on") return { amount: 10, source: "sonification-toggle" };
+  if (name === "theme-toggle") return { amount: 2, source: "theme-toggle" };
+  if (name === "sonification-on") return { amount: 2, source: "sonification-toggle" };
   if (name === "workspace-push") return { amount: 10, source: "entity-added" };
   // The export helpers (utils/export.ts) dispatch the format-specific
   // names so `export-master` can count per-format; all of them are worth
@@ -268,7 +273,8 @@ function xpForEvent(name: string): { amount: number; source: XpSource } {
       return { amount: 30, source: "entity-resolved" };
     return { amount: 5, source: "entity-added" };
   }
-  return { amount: 1, source: "click" };
+  // Unknown/passive UI events (session minutes, palette opens, …).
+  return { amount: 0, source: "click" };
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -554,8 +560,10 @@ export function dispatch(event: GamificationEvent) {
     // The combo-peak notification should only fire on the *transition* to max
     // multiplier, not on every subsequent event while the combo is sustained.
     // Otherwise a spam of rapid clicks produces a spam of peak toasts.
+    // Only tool actions chain combos: rapid clicking or typing used to reach
+    // x5 in seconds and unlock the combo achievements without doing any work.
     const now = Date.now();
-    if (name === "click" || name.startsWith("tool:") || name === "key") {
+    if (name.startsWith("tool:")) {
       const prevMultiplier = combo.multiplier;
       const prevDepth = combo.depth;
       const c = bumpCombo(now);

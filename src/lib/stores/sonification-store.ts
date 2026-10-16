@@ -15,10 +15,10 @@ interface Actions {
 }
 
 const initial: SonificationPrefs = {
-  // Audio is on by default — browsers still block actual playback until the
-  // first user gesture (click/key/etc.). When that gesture lands the
-  // provider activates the AudioContext. Until then we just queue tones.
-  enabled: true,
+  // Audio is opt-in. These tools are used live in meetings and on shared
+  // screens, where unexpected UI sounds are a liability; the header toggle
+  // (and the user menu) turn it on.
+  enabled: false,
   masterVolume: 0.4,
   mode: "full",
   respectReducedMotion: true,
@@ -56,6 +56,15 @@ export const useSonificationStore = create<SonificationPrefs & Actions>()(
       }),
       storage: safeJSONStorage("sonification"),
       skipHydration: true,
+      // v1: sound became opt-in. Everyone who stored prefs under v0 got
+      // `enabled: true` as the old default without choosing it, so switch
+      // them off once; anyone can turn it back on.
+      version: 1,
+      migrate: (persisted, version) => {
+        const prev = (persisted ?? {}) as Partial<SonificationPrefs>;
+        if (version < 1) return { ...prev, enabled: false } as SonificationPrefs & Actions;
+        return prev as SonificationPrefs & Actions;
+      },
     }
   )
 );

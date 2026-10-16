@@ -34,10 +34,11 @@ describe("gamification achievement unlocks (regression)", () => {
   });
 
   it("unlocks combo-3 and combo-5 from rapid combo events", () => {
-    // Five rapid synchronous clicks build the combo to its x5 cap (depth 4),
-    // crossing both the x3 (depth 3) and x5 (depth 4) thresholds.
+    // Five rapid tool actions build the combo to its x5 cap (depth 4),
+    // crossing both the x3 (depth 3) and x5 (depth 4) thresholds. (Raw
+    // clicks no longer chain combos.)
     for (let i = 0; i < 5; i++) {
-      dispatch({ name: "click" });
+      dispatch({ name: "tool:retro:card-added" });
     }
     const unlocked = useVDnaStore.getState().unlocked;
     expect(unlocked).toContain("combo-3");
