@@ -87,7 +87,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                     </Badge>
                   )}
                   {dna.prestige > 0 && (
-                    <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/40 gap-1">
+                    <Badge className="bg-warning/20 text-warning border-warning/40 gap-1">
                       <Crown className="w-3 h-3" />
                       Prestige {dna.prestige}
                     </Badge>
@@ -132,7 +132,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
             {info.atMax && (
               <Button
                 variant="outline"
-                className="w-full border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
+                className="w-full border-warning/40 text-warning hover:bg-warning/10"
                 onClick={() => {
                   if (
                     confirm(
@@ -360,7 +360,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                 >
                   <span className="text-accent w-14">+{e.amount}</span>
                   <span className="text-sub w-24 truncate">{e.source}</span>
-                  {e.multiplier > 1 && <span className="text-amber-300">×{e.multiplier}</span>}
+                  {e.multiplier > 1 && <span className="text-warning">×{e.multiplier}</span>}
                   <span className="text-text/80 truncate flex-1">
                     {e.meta?.toolId ? `${e.meta.toolId}:${e.meta.eventName ?? ""}` : ""}
                   </span>
@@ -452,7 +452,7 @@ function LeaderboardTab() {
               <span className="text-text truncate">
                 {r.display_name || `Anonymous ${r.visitor_id.slice(0, 6)}`}
               </span>
-              <span className="flex items-center gap-1 text-amber-300 font-data">
+              <span className="flex items-center gap-1 text-warning font-data">
                 {r.prestige > 0 && <Crown className="w-3 h-3" />}
                 {r.prestige || ""}
               </span>

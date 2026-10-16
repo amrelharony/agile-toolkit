@@ -187,9 +187,9 @@ export function GuestKudosClient({ role, profile }: Props) {
               <span
                 className={`text-[10px] uppercase font-bold ${
                   role === "editor"
-                    ? "text-amber-300"
+                    ? "text-warning"
                     : role === "commenter"
-                      ? "text-emerald-300"
+                      ? "text-success"
                       : "text-cyan-300"
                 }`}
               >
@@ -197,11 +197,11 @@ export function GuestKudosClient({ role, profile }: Props) {
               </span>
             </div>
             {room.isLocalOnly ? (
-              <span className="inline-flex items-center gap-1 text-amber-300/80">
+              <span className="inline-flex items-center gap-1 text-warning/80">
                 <WifiOff className="h-3 w-3" aria-hidden="true" /> Local-only
               </span>
             ) : room.isConnected ? (
-              <span className="inline-flex items-center gap-1 text-emerald-400/80">
+              <span className="inline-flex items-center gap-1 text-success/80">
                 <Wifi className="h-3 w-3" aria-hidden="true" /> Live
               </span>
             ) : (
@@ -213,7 +213,7 @@ export function GuestKudosClient({ role, profile }: Props) {
         {loadError && (
           <div
             role="alert"
-            className="flex items-center gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+            className="flex items-center gap-2 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
           >
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span>{loadError}</span>

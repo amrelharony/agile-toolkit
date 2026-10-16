@@ -496,7 +496,7 @@ export function SessionScreen({
   // disappears from presence and the host strips them within one
   // member-sync tick.
 
-  const toneClasses = connectionTone === "warn" ? "text-amber-400/80" : "text-accent-green/80";
+  const toneClasses = connectionTone === "warn" ? "text-warning/80" : "text-accent-green/80";
 
   return (
     <div className="flex flex-col gap-6">

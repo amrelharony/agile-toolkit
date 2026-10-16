@@ -293,8 +293,8 @@ export function RunbookScorerClient() {
             variant="outline"
             className={`font-mono text-[10px] tracking-wider uppercase ${
               hygieneTrend.mk.trend === "up"
-                ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
-                : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                ? "border-success/40 text-success bg-success/10"
+                : "border-warning/40 text-warning bg-warning/10"
             }`}
             title={`Mann-Kendall p=${hygieneTrend.mk.pValue.toFixed(3)} across ${hygieneTrend.sampleSize} reviewed runbooks`}
           >
@@ -463,9 +463,9 @@ function RunbookRow({
     tone === "danger"
       ? "bg-danger/15 text-danger border-danger/40"
       : tone === "warning"
-        ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+        ? "bg-warning/10 text-warning border-warning/30"
         : tone === "success"
-          ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+          ? "bg-success/10 text-success border-success/30"
           : "bg-accent/10 text-accent border-accent/30";
 
   return (
@@ -527,11 +527,11 @@ function RunbookEditor({
           variant="outline"
           className={`font-data ${
             hygiene >= 4
-              ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+              ? "bg-success/10 text-success border-success/30"
               : hygiene >= 3
                 ? "bg-accent/10 text-accent border-accent/30"
                 : hygiene >= 2
-                  ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                  ? "bg-warning/10 text-warning border-warning/30"
                   : "bg-danger/15 text-danger border-danger/40"
           }`}
         >

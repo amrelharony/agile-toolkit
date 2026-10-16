@@ -386,8 +386,8 @@ export function NpsCsatClient() {
                   className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                     // For NPS, "up" trend is good, "down" is bad.
                     npsTrend.trend === "up"
-                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
-                      : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                      ? "border-accent-green/40 text-accent-green bg-accent-green/10"
+                      : "border-warning/40 text-warning bg-warning/10"
                   }`}
                   aria-label={`NPS trend ${npsTrend.trend} (Mann-Kendall p=${npsTrend.pValue.toFixed(3)})`}
                   title={`Mann-Kendall p=${npsTrend.pValue.toFixed(3)}`}
@@ -399,8 +399,8 @@ export function NpsCsatClient() {
                 <span
                   className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                     csatTrend.trend === "up"
-                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
-                      : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                      ? "border-accent-green/40 text-accent-green bg-accent-green/10"
+                      : "border-warning/40 text-warning bg-warning/10"
                   }`}
                   aria-label={`CSAT trend ${csatTrend.trend} (Mann-Kendall p=${csatTrend.pValue.toFixed(3)})`}
                   title={`Mann-Kendall p=${csatTrend.pValue.toFixed(3)}`}
@@ -450,9 +450,9 @@ export function NpsCsatClient() {
                 <span
                   className={`text-xs uppercase tracking-wider w-20 ${
                     npsCategory(e.score) === "promoter"
-                      ? "text-green-400"
+                      ? "text-success"
                       : npsCategory(e.score) === "passive"
-                        ? "text-amber-300"
+                        ? "text-warning"
                         : "text-danger"
                   }`}
                 >

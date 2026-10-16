@@ -124,7 +124,7 @@ export function DataEntryTable({
                       <button
                         onClick={() => onRemoveEntry(entry.id)}
                         aria-label={`Remove snapshot for ${entry.date}`}
-                        className="text-sub hover:text-red-400 transition-colors p-1"
+                        className="text-sub hover:text-danger transition-colors p-1"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

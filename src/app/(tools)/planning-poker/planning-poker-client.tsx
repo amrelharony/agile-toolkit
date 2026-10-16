@@ -321,7 +321,7 @@ export function PlanningPokerClient() {
             transition={{ duration: 0.2 }}
           >
             {isOwner && !realtimeAvailable && (
-              <div className="max-w-xl mx-auto mb-4 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-200/80">
+              <div className="max-w-xl mx-auto mb-4 flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 text-sm text-warning/80">
                 <WifiOff className="h-4 w-4 shrink-0" />
                 <span>
                   Realtime not configured — sessions you start won&apos;t sync to squad members. Set{" "}

@@ -216,7 +216,7 @@ export function ModelMigrationClient() {
                   className="flex items-center gap-2 flex-1 text-left"
                 >
                   {s.done ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <CheckCircle2 className="w-4 h-4 text-success" />
                   ) : (
                     <Circle className="w-4 h-4 text-sub" />
                   )}
@@ -227,7 +227,7 @@ export function ModelMigrationClient() {
                 <button
                   onClick={() => removeStep(s.id)}
                   aria-label="Remove step"
-                  className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
+                  className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>

@@ -592,8 +592,8 @@ export function VulnBurndownClient() {
                 className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                   // For open vulns, "down" is good (closing them out), "up" is bad.
                   openTrend.trend === "down"
-                    ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
-                    : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                    ? "border-accent-green/40 text-accent-green bg-accent-green/10"
+                    : "border-warning/40 text-warning bg-warning/10"
                 }`}
                 aria-label={`Open-vuln trend ${openTrend.trend} (Mann-Kendall p=${openTrend.pValue.toFixed(3)})`}
                 title={`Mann-Kendall p=${openTrend.pValue.toFixed(3)}`}

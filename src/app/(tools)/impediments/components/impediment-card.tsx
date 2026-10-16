@@ -143,7 +143,7 @@ export function ImpedimentCard({ impediment }: { impediment: Impediment }) {
               variant="ghost"
               size="sm"
               onClick={() => handleStatusChange("Escalated")}
-              className="h-7 text-xs gap-1 text-[#ffaa00] hover:text-[#ffaa00] hover:bg-[#ffaa00]/10"
+              className="h-7 text-xs gap-1 text-accent-amber hover:text-accent-amber hover:bg-accent-amber/10"
             >
               <ArrowUpCircle className="w-3 h-3" />
               Escalate
@@ -154,7 +154,7 @@ export function ImpedimentCard({ impediment }: { impediment: Impediment }) {
             variant="ghost"
             size="sm"
             onClick={handleResolve}
-            className="h-7 text-xs gap-1 text-[#00ff88] hover:text-[#00ff88] hover:bg-[#00ff88]/10 ml-auto"
+            className="h-7 text-xs gap-1 text-accent-green hover:text-accent-green hover:bg-accent-green/10 ml-auto"
           >
             <CheckCircle2 className="w-3 h-3" />
             Resolve

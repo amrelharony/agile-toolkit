@@ -19,14 +19,14 @@ export const SEVERITY_LABEL: Record<Severity, string> = {
 export const SEVERITY_BADGE_CLASS: Record<Severity, string> = {
   sev1: "bg-danger/15 text-danger border-danger/40",
   sev2: "bg-danger/10 text-danger border-danger/30",
-  sev3: "bg-amber-500/10 text-amber-300 border-amber-500/30",
+  sev3: "bg-warning/10 text-warning border-warning/30",
   sev4: "bg-accent/10 text-accent border-accent/30",
 };
 
 export const STATUS_BADGE_CLASS: Record<IncidentStatus, string> = {
   active: "bg-danger/10 text-danger border-danger/30",
-  mitigated: "bg-amber-500/10 text-amber-300 border-amber-500/30",
-  resolved: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+  mitigated: "bg-warning/10 text-warning border-warning/30",
+  resolved: "bg-success/10 text-success border-success/30",
 };
 
 export const SEVERITY_MATRIX: { sev: Severity; rule: string }[] = [

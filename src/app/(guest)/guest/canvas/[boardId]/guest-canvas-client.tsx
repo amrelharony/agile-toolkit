@@ -144,9 +144,9 @@ export function GuestCanvasClient({ boardId, role, profile }: Props) {
             <span
               className={`text-[10px] uppercase font-bold ${
                 role === "editor"
-                  ? "text-amber-300"
+                  ? "text-warning"
                   : role === "commenter"
-                    ? "text-emerald-300"
+                    ? "text-success"
                     : "text-cyan-300"
               }`}
             >
@@ -182,7 +182,7 @@ export function GuestCanvasClient({ boardId, role, profile }: Props) {
         {!realtimeOn && (
           <div
             role="alert"
-            className="absolute left-1/2 bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.5rem))] -translate-x-1/2 flex items-center gap-2 border border-amber-500/40 bg-amber-500/10 rounded px-3 py-1.5 text-xs text-amber-200 shadow-lg max-w-[calc(100vw-1rem)]"
+            className="absolute left-1/2 bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.5rem))] -translate-x-1/2 flex items-center gap-2 border border-warning/40 bg-warning/10 rounded px-3 py-1.5 text-xs text-warning shadow-lg max-w-[calc(100vw-1rem)]"
           >
             <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
             Realtime is not configured. You won&apos;t see other participants&apos; edits.

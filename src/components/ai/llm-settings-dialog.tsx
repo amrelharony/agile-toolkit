@@ -388,7 +388,7 @@ function ProviderPanel({
             {reveal ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </Button>
         </div>
-        {keyHint && <p className="text-[11px] text-amber-300/80">{keyHint}</p>}
+        {keyHint && <p className="text-[11px] text-warning/80">{keyHint}</p>}
       </div>
 
       <div className="space-y-1.5">

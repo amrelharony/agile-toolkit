@@ -47,7 +47,7 @@ export function ShowcaseChecklistTab() {
             <span className="text-sm text-sub font-data">
               {checkedCount}/{checklistItems.length}
             </span>
-            {progress === 100 && <CheckCircle2 className="w-4 h-4 text-[#00ff88]" />}
+            {progress === 100 && <CheckCircle2 className="w-4 h-4 text-accent-green" />}
           </>
         }
         contentClassName="space-y-4"

@@ -365,8 +365,8 @@ export function OkrsClient() {
                             !mk.significant || mk.trend === "none"
                               ? "text-sub border-border"
                               : mk.trend === "up"
-                                ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
-                                : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                                ? "border-success/40 text-success bg-success/10"
+                                : "border-warning/40 text-warning bg-warning/10"
                           }`}
                           title="Mann-Kendall trend across the KR list (NOT temporal). Shown only with ≥10 KRs."
                         >

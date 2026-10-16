@@ -44,9 +44,9 @@ export const DEFAULT_STATE = {
 };
 
 export const CATEGORY_COLORS: Record<FeedbackCategory, string> = {
-  positive: "bg-[#00ff88]/10 text-[#00ff88] border-[#00ff88]/20",
-  concern: "bg-[#ef4444]/10 text-[#ef4444] border-[#ef4444]/20",
-  suggestion: "bg-[#ffaa00]/10 text-[#ffaa00] border-[#ffaa00]/20",
+  positive: "bg-accent-green/10 text-accent-green border-accent-green/20",
+  concern: "bg-danger/10 text-danger border-danger/20",
+  suggestion: "bg-accent-amber/10 text-accent-amber border-accent-amber/20",
 };
 
 export const CATEGORY_LABELS: Record<FeedbackCategory, string> = {

@@ -130,7 +130,7 @@ export function HundredDollarTestClient() {
             this banner the user can export with $20 still unallocated
             and not realise. */}
         {items.length > 0 && !fullyAllocated && (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
+          <div className="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning">
             {remaining > 0
               ? `Allocate the remaining $${remaining.toFixed(2)} to finalise — the $100 test only works when the budget is fully distributed.`
               : `You’re over budget by $${Math.abs(remaining).toFixed(2)}. Reduce allocations to bring the total to $100.`}
@@ -196,7 +196,7 @@ export function HundredDollarTestClient() {
                         log(HUNDRED_DOLLAR_ACTIONS.ITEM_REMOVED, { id: it.id });
                       }}
                       aria-label="Remove item"
-                      className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
+                      className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -221,7 +221,7 @@ function KPI({
   tone?: "default" | "ok" | "danger";
 }) {
   const colorClass =
-    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+    tone === "danger" ? "text-danger" : tone === "ok" ? "text-success" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

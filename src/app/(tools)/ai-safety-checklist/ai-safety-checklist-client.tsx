@@ -185,7 +185,7 @@ export function AISafetyChecklistClient() {
                       className="flex items-center gap-2 w-full text-left rounded p-1.5 hover:bg-surface-deep"
                     >
                       {checked ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
                       ) : (
                         <Circle className="w-4 h-4 text-sub shrink-0" />
                       )}

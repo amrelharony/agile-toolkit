@@ -324,7 +324,7 @@ function ControlRow({
           </div>
         </div>
         {STATUS_TONE[c.status] === "success" && (
-          <div className="text-[10px] text-emerald-300/80">
+          <div className="text-[10px] text-success/80">
             Implemented &amp; ready for audit review.
           </div>
         )}

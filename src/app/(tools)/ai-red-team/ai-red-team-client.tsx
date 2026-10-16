@@ -291,7 +291,7 @@ export function AIRedTeamClient() {
                 .map((x) => (
                   <li
                     key={x.id}
-                    className={`border rounded p-3 text-sm ${x.resolvedAt ? "bg-emerald-500/5 border-emerald-500/30" : "bg-surface-deep border-border"}`}
+                    className={`border rounded p-3 text-sm ${x.resolvedAt ? "bg-success/5 border-success/30" : "bg-surface-deep border-border"}`}
                   >
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="flex items-center gap-2 min-w-0">
@@ -305,7 +305,7 @@ export function AIRedTeamClient() {
                           {x.severity}
                         </span>
                         {x.successful && (
-                          <span className="text-xs text-red-400 font-bold">SUCCEEDED</span>
+                          <span className="text-xs text-danger font-bold">SUCCEEDED</span>
                         )}
                         <span className="text-text truncate">{x.attackVector}</span>
                       </span>
@@ -315,7 +315,7 @@ export function AIRedTeamClient() {
                             onClick={() => resolve(x.id)}
                             aria-label="Mark resolved"
                             title="Mark resolved"
-                            className="text-emerald-400 hover:text-emerald-300"
+                            className="text-success hover:text-success"
                           >
                             <CheckCircle2 className="w-4 h-4" />
                           </button>
@@ -323,7 +323,7 @@ export function AIRedTeamClient() {
                         <button
                           onClick={() => remove(x.id)}
                           aria-label="Remove finding"
-                          className="text-sub hover:text-red-400"
+                          className="text-sub hover:text-danger"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -354,7 +354,7 @@ function KPI({
   tone?: "default" | "ok" | "danger";
 }) {
   const colorClass =
-    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+    tone === "danger" ? "text-danger" : tone === "ok" ? "text-success" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

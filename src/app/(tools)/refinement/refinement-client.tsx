@@ -207,15 +207,17 @@ const TOOLTIP_STYLE = {
 function ReadinessIndicator({ pct }: { pct: number }) {
   if (pct === 100)
     return (
-      <Badge className="bg-[#00ff88]/10 text-[#00ff88] border border-[#00ff88]/20">Ready</Badge>
+      <Badge className="bg-accent-green/10 text-accent-green border border-accent-green/20">
+        Ready
+      </Badge>
     );
   if (pct > 0)
     return (
-      <Badge className="bg-[#ffaa00]/10 text-[#ffaa00] border border-[#ffaa00]/20">Partial</Badge>
+      <Badge className="bg-accent-amber/10 text-accent-amber border border-accent-amber/20">
+        Partial
+      </Badge>
     );
-  return (
-    <Badge className="bg-[#ef4444]/10 text-[#ef4444] border border-[#ef4444]/20">Not Ready</Badge>
-  );
+  return <Badge className="bg-danger/10 text-danger border border-danger/20">Not Ready</Badge>;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -300,7 +302,7 @@ function CriterionRow({
               variant="ghost"
               size="icon"
               onClick={commitEdit}
-              className="min-touch-coarse h-7 w-7 text-[#00ff88] hover:bg-[#00ff88]/10"
+              className="min-touch-coarse h-7 w-7 text-accent-green hover:bg-accent-green/10"
             >
               <Check className="w-3.5 h-3.5" />
             </Button>

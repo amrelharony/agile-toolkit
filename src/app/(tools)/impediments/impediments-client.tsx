@@ -270,7 +270,9 @@ export function ImpedimentsClient() {
           <Card className="bg-surface border-border">
             <CardContent className="p-4">
               <p className="text-xs text-sub mb-1">Escalated</p>
-              <p className="text-fluid-h2 font-data font-bold text-[#ffaa00]">{stats.escalated}</p>
+              <p className="text-fluid-h2 font-data font-bold text-accent-amber">
+                {stats.escalated}
+              </p>
             </CardContent>
           </Card>
           <Card className="bg-surface border-border">
@@ -280,7 +282,7 @@ export function ImpedimentsClient() {
               </p>
               {medianResolutionCI ? (
                 <>
-                  <p className="text-fluid-h2 font-data font-bold text-[#00ff88]">
+                  <p className="text-fluid-h2 font-data font-bold text-accent-green">
                     {Math.round(medianResolutionCI.point)}
                     <span className="text-sm font-normal text-sub ml-1">days</span>
                   </p>
@@ -290,7 +292,7 @@ export function ImpedimentsClient() {
                   </p>
                 </>
               ) : (
-                <p className="text-fluid-h2 font-data font-bold text-[#00ff88]">
+                <p className="text-fluid-h2 font-data font-bold text-accent-green">
                   {stats.avgDays}
                   <span className="text-sm font-normal text-sub ml-1">days</span>
                 </p>
@@ -325,8 +327,8 @@ export function ImpedimentsClient() {
                 <span
                   className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
                     raisedTrend.trend === "up"
-                      ? "border-[#ef4444]/40 text-[#ef4444] bg-[#ef4444]/10"
-                      : "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
+                      ? "border-danger/40 text-danger bg-danger/10"
+                      : "border-accent-green/40 text-accent-green bg-accent-green/10"
                   }`}
                 >
                   <TrendingUp
@@ -342,7 +344,7 @@ export function ImpedimentsClient() {
                 </span>
               ))}
             {openChangepoints.length > 0 && (
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-[#ffaa00]/40 text-[#ffaa00] bg-[#ffaa00]/10">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-accent-amber/40 text-accent-amber bg-accent-amber/10">
                 <AlertTriangle className="w-3 h-3" />
                 {openChangepoints.length} regime shift{openChangepoints.length !== 1 ? "s" : ""}{" "}
                 detected (CUSUM)

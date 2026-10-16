@@ -432,7 +432,7 @@ export function HallucinationLogClient() {
                 .map((x) => (
                   <li
                     key={x.id}
-                    className={`rounded border p-3 text-sm ${x.resolvedAt ? "bg-emerald-500/5 border-emerald-500/30" : "bg-surface-deep border-border"}`}
+                    className={`rounded border p-3 text-sm ${x.resolvedAt ? "bg-success/5 border-success/30" : "bg-surface-deep border-border"}`}
                   >
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="flex items-center gap-2 min-w-0">
@@ -459,7 +459,7 @@ export function HallucinationLogClient() {
                         {!x.resolvedAt && (
                           <button
                             onClick={() => resolve(x.id)}
-                            className="text-emerald-400 hover:text-emerald-300 min-touch-coarse inline-flex items-center justify-center"
+                            className="text-success hover:text-success min-touch-coarse inline-flex items-center justify-center"
                             aria-label="Mark resolved"
                           >
                             <CheckCircle2 className="w-4 h-4" />
@@ -467,7 +467,7 @@ export function HallucinationLogClient() {
                         )}
                         <button
                           onClick={() => remove(x.id)}
-                          className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
+                          className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                           aria-label="Remove"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -481,7 +481,7 @@ export function HallucinationLogClient() {
                       <span className="text-text">Out:</span> {x.actual.slice(0, 200)}
                     </p>
                     {x.expected && (
-                      <p className="text-xs text-emerald-300 mt-1">
+                      <p className="text-xs text-success mt-1">
                         Expected: {x.expected.slice(0, 200)}
                       </p>
                     )}
@@ -505,7 +505,7 @@ function KPI({
   tone?: "default" | "ok" | "danger";
 }) {
   const colorClass =
-    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+    tone === "danger" ? "text-danger" : tone === "ok" ? "text-success" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

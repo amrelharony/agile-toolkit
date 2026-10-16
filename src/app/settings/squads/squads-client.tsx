@@ -186,7 +186,7 @@ export function SquadsClient() {
       {error && (
         <div
           role="alert"
-          className="border border-red-500/40 bg-red-500/10 rounded px-3 py-2 text-sm text-red-200"
+          className="border border-danger/40 bg-danger/10 rounded px-3 py-2 text-sm text-danger"
         >
           {error}
         </div>
@@ -229,7 +229,7 @@ export function SquadsClient() {
                     size="sm"
                     onClick={() => void onDelete(s.id, s.name)}
                     title="Delete squad"
-                    className="min-touch-coarse text-xs gap-1 text-red-400 hover:text-red-300"
+                    className="min-touch-coarse text-xs gap-1 text-danger hover:text-danger"
                   >
                     <Trash2 className="w-3 h-3" aria-hidden="true" />
                     Delete

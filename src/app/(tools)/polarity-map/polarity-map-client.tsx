@@ -223,16 +223,14 @@ export function PolarityMapClient() {
                 <button
                   onClick={() => remove(pol.id)}
                   aria-label="Remove polarity"
-                  className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
+                  className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
               }
             >
               {pol.greaterPurpose && (
-                <div className="text-center text-xs text-emerald-300 mb-2">
-                  ↑ {pol.greaterPurpose}
-                </div>
+                <div className="text-center text-xs text-success mb-2">↑ {pol.greaterPurpose}</div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[left, right].map((p) => (
@@ -246,7 +244,7 @@ export function PolarityMapClient() {
                     >
                       {p.label}
                     </div>
-                    <label className="block text-[10px] uppercase text-emerald-400 mb-1">
+                    <label className="block text-[10px] uppercase text-success mb-1">
                       Upsides (one per line)
                     </label>
                     <PoleListTextarea
@@ -255,7 +253,7 @@ export function PolarityMapClient() {
                       onCommit={(lines) => updatePoleLines(p, "upsides", lines)}
                       placeholder="What goes well at this pole?"
                     />
-                    <label className="block text-[10px] uppercase text-red-400 mt-2 mb-1">
+                    <label className="block text-[10px] uppercase text-danger mt-2 mb-1">
                       Downsides (one per line)
                     </label>
                     <PoleListTextarea
@@ -268,7 +266,7 @@ export function PolarityMapClient() {
                 ))}
               </div>
               {pol.deeperFear && (
-                <div className="text-center text-xs text-red-300 mt-2">↓ {pol.deeperFear}</div>
+                <div className="text-center text-xs text-danger mt-2">↓ {pol.deeperFear}</div>
               )}
             </SectionCard>
           );

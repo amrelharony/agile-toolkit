@@ -209,7 +209,7 @@ export function SixHatsClient() {
                           log(SIX_HATS_ACTIONS.THOUGHT_REMOVED, { id: t.id });
                         }}
                         aria-label="Remove thought"
-                        className="text-sub hover:text-red-400 min-touch-coarse"
+                        className="text-sub hover:text-danger min-touch-coarse"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>

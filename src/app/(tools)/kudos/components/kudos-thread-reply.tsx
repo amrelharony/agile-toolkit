@@ -99,13 +99,13 @@ export function KudosThreadReply({ parent, fromName, fromProfileId, onSend, onSe
         <div className="flex items-center justify-between gap-2">
           <span
             className={`text-[10px] ${
-              messageWords > KUDOS_WORD_LIMITS.message ? "text-red-400" : "text-sub/60"
+              messageWords > KUDOS_WORD_LIMITS.message ? "text-danger" : "text-sub/60"
             }`}
           >
             {messageWords}/{KUDOS_WORD_LIMITS.message} words
           </span>
           {error && (
-            <span role="alert" className="text-[10px] text-red-300">
+            <span role="alert" className="text-[10px] text-danger">
               {error}
             </span>
           )}

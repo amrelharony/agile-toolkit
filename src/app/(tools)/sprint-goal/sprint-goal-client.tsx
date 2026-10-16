@@ -327,8 +327,8 @@ export function SprintGoalClient() {
       title={tooltip}
       className={
         passes
-          ? "bg-[#00ff88]/15 text-[#00ff88] border-[#00ff88]/30 hover:bg-[#00ff88]/25"
-          : "bg-red-500/15 text-red-400 border-red-500/30 hover:bg-red-500/25"
+          ? "bg-accent-green/15 text-accent-green border-accent-green/30 hover:bg-accent-green/25"
+          : "bg-danger/15 text-danger border-danger/30 hover:bg-danger/25"
       }
     >
       {label}
@@ -416,7 +416,7 @@ export function SprintGoalClient() {
                       />
                       <span
                         className={`absolute bottom-2 right-3 text-xs ${
-                          sprintGoal.length > GOAL_MAX_CHARS * 0.9 ? "text-red-400" : "text-sub/60"
+                          sprintGoal.length > GOAL_MAX_CHARS * 0.9 ? "text-danger" : "text-sub/60"
                         }`}
                       >
                         {sprintGoal.length}/{GOAL_MAX_CHARS}
@@ -471,7 +471,7 @@ export function SprintGoalClient() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => removeCriterion(criterion.id)}
-                                className="min-touch-coarse text-sub hover:text-red-400 hover:bg-red-500/10 shrink-0"
+                                className="min-touch-coarse text-sub hover:text-danger hover:bg-danger/10 shrink-0"
                                 disabled={criteria.length === 1}
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -579,7 +579,7 @@ export function SprintGoalClient() {
                             variant="ghost"
                             size="icon"
                             onClick={() => removeKeyResult(index)}
-                            className="min-touch-coarse text-sub hover:text-red-400 hover:bg-red-500/10 shrink-0"
+                            className="min-touch-coarse text-sub hover:text-danger hover:bg-danger/10 shrink-0"
                             disabled={keyResults.length === 1}
                           >
                             <Trash2 className="w-4 h-4" />

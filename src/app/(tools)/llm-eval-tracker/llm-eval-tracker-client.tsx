@@ -303,23 +303,19 @@ export function LLMEvalTrackerClient() {
 
         {/* Regression alerts */}
         {regressionFindings.length > 0 && (
-          <SectionCard
-            title="Detected regressions"
-            icon={TrendingDown}
-            iconClassName="text-red-400"
-          >
+          <SectionCard title="Detected regressions" icon={TrendingDown} iconClassName="text-danger">
             <ul className="space-y-2 text-sm">
               {regressionFindings.map((f) => (
                 <li
                   key={f.group}
-                  className="flex items-center justify-between border border-red-500/30 bg-red-500/5 rounded p-2"
+                  className="flex items-center justify-between border border-danger/30 bg-danger/5 rounded p-2"
                 >
                   <span className="text-text">
                     <span className="font-mono text-xs text-sub">{f.group}</span>
                     {" — "}
                     {(f.baselineMean * 100).toFixed(1)}% → {(f.recentMean * 100).toFixed(1)}%
                   </span>
-                  <span className="text-xs text-red-300">
+                  <span className="text-xs text-danger">
                     Δ {(f.delta * 100).toFixed(1)} pts · t={f.tStat.toFixed(2)} ·{" "}
                     {(f.confidence * 100).toFixed(0)}% conf
                   </span>
@@ -528,7 +524,7 @@ export function LLMEvalTrackerClient() {
                         <td className="p-2">
                           <button
                             onClick={() => remove(e.id)}
-                            className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
+                            className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                             aria-label="Remove eval"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -556,7 +552,7 @@ function KPI({
   tone?: "default" | "ok" | "danger";
 }) {
   const colorClass =
-    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+    tone === "danger" ? "text-danger" : tone === "ok" ? "text-success" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

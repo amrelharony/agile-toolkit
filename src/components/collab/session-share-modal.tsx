@@ -249,7 +249,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
       {error && (
         <div
           role="alert"
-          className="flex items-start gap-2 border border-red-500/40 bg-red-500/10 rounded px-3 py-2 text-sm text-red-200"
+          className="flex items-start gap-2 border border-danger/40 bg-danger/10 rounded px-3 py-2 text-sm text-danger"
         >
           <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
           <span>{error}</span>
@@ -375,9 +375,9 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                         <span
                           className={`text-[10px] uppercase font-bold ${
                             i.role === "editor"
-                              ? "text-amber-300"
+                              ? "text-warning"
                               : i.role === "commenter"
-                                ? "text-emerald-300"
+                                ? "text-success"
                                 : "text-cyan-300"
                           }`}
                         >
@@ -400,7 +400,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                           type="button"
                           onClick={() => void onRevoke(i.id)}
                           aria-label="Revoke invite"
-                          className="text-sub hover:text-red-400"
+                          className="text-sub hover:text-danger"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

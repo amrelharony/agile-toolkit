@@ -101,7 +101,7 @@ export function ActiveIncidentCard({
       iconClassName={
         incident.severity === "sev1" || incident.severity === "sev2"
           ? "text-danger"
-          : "text-amber-300"
+          : "text-warning"
       }
       titleSize="lg"
       titleSuffix={
@@ -255,7 +255,7 @@ export function ActiveIncidentCard({
               variant="outline"
               size="sm"
               onClick={() => onMarkStatus(incident.id, "mitigated")}
-              className="border-border text-sub hover:border-amber-500/50 hover:text-amber-300"
+              className="border-border text-sub hover:border-warning/50 hover:text-warning"
             >
               Mark mitigated
             </Button>
@@ -264,7 +264,7 @@ export function ActiveIncidentCard({
             <Button
               size="sm"
               onClick={() => onMarkStatus(incident.id, "resolved")}
-              className="gap-2 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/40"
+              className="gap-2 bg-success/15 text-success hover:bg-success/25 border border-success/40"
             >
               <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
               Mark resolved

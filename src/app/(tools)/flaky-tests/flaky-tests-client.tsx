@@ -562,8 +562,8 @@ export function FlakyTestsClient() {
                 className={`font-mono text-[10px] tracking-wider uppercase ${
                   // Down = fewer new flakies = good. Up = more = bad.
                   weeklyTrend.trend === "down"
-                    ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
-                    : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                    ? "border-success/40 text-success bg-success/10"
+                    : "border-warning/40 text-warning bg-warning/10"
                 }`}
                 title={`Mann-Kendall p=${weeklyTrend.pValue.toFixed(3)}`}
               >

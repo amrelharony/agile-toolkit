@@ -389,7 +389,7 @@ export function AsyncStandupClient() {
             <div className="text-xs uppercase tracking-wider text-sub">Today&apos;s digest</div>
             {recentImpedimentCount > 0 && (
               <Badge
-                className="bg-[#ef4444]/15 text-[#ef4444] border-[#ef4444]/30 gap-1.5 text-[10px]"
+                className="bg-danger/15 text-danger border-danger/30 gap-1.5 text-[10px]"
                 title="Blockers raised in the Impediments tool in the last 7 days. Surface them in your digest."
               >
                 <AlertTriangle className="w-3 h-3" />

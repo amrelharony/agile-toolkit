@@ -386,7 +386,7 @@ export function ImportModal({ boardId, onClose }: Props) {
             className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-[11px] font-mono text-text resize-none focus:outline-none focus:border-accent"
           />
           {diagramParsed?.error && (
-            <p className="text-[11px] text-amber-300 mt-1">{diagramParsed.error}</p>
+            <p className="text-[11px] text-warning mt-1">{diagramParsed.error}</p>
           )}
           <button
             type="button"

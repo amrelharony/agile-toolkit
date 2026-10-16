@@ -655,7 +655,7 @@ export function BurnupClient() {
           }
           footer={
             stats.scopeCreep > 0 ? (
-              <div className="flex items-center gap-2 text-xs text-[#ffaa00] bg-[#ffaa00]/8 border border-[#ffaa00]/20 rounded-md px-3 py-2">
+              <div className="flex items-center gap-2 text-xs text-accent-amber bg-accent-amber/8 border border-accent-amber/20 rounded-md px-3 py-2">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                 Scope creep detected: scope increased by {stats.scopeCreep} pts (
                 {stats.initialScope} → {stats.maxScope}).
@@ -882,7 +882,7 @@ export function BurnupClient() {
                     const n = Number(e.target.value);
                     if (Number.isFinite(n)) updateEntry(entry.id, { scope: Math.max(0, n) });
                   }}
-                  className="col-span-2 sm:col-span-1 bg-surface-deep border-border text-text font-data focus:border-[#ff00aa]/50 focus:ring-[#ff00aa]/20"
+                  className="col-span-2 sm:col-span-1 bg-surface-deep border-border text-text font-data focus:border-accent-magenta/50 focus:ring-accent-magenta/20"
                 />
 
                 <Input

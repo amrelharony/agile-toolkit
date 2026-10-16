@@ -24,7 +24,7 @@ function iconFor(kind: Insight["kind"]) {
 
 function colorFor(severity: Insight["severity"]): string {
   if (severity === "critical") return "border-danger/40 bg-danger/5 text-danger";
-  if (severity === "warn") return "border-amber-500/40 bg-amber-500/5 text-amber-300";
+  if (severity === "warn") return "border-warning/40 bg-warning/5 text-warning";
   return "border-accent/30 bg-accent/5 text-accent";
 }
 

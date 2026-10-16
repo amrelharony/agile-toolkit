@@ -359,14 +359,14 @@ export function HitlQualityClient() {
                     {x.feature && <span className="text-text">{x.feature}</span>}
                     {x.reviewer && <span className="text-xs text-sub">— {x.reviewer}</span>}
                     <span
-                      className={`text-xs ml-auto ${x.agreedWithModel ? "text-emerald-400" : "text-red-400"}`}
+                      className={`text-xs ml-auto ${x.agreedWithModel ? "text-success" : "text-danger"}`}
                     >
                       {x.agreedWithModel ? "agreed" : "disagreed"}
                     </span>
                     <button
                       onClick={() => remove(x.id)}
                       aria-label="Remove review"
-                      className="text-sub hover:text-red-400"
+                      className="text-sub hover:text-danger"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -390,7 +390,7 @@ function KPI({
   tone?: "default" | "ok" | "danger";
 }) {
   const colorClass =
-    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+    tone === "danger" ? "text-danger" : tone === "ok" ? "text-success" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

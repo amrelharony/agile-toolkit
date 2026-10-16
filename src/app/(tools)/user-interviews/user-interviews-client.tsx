@@ -221,7 +221,7 @@ export function UserInterviewsClient() {
       category="Product Discovery"
     >
       {/* BUG-T9-user-interviews-1: privacy banner. */}
-      <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200 flex items-start gap-2">
+      <div className="mb-3 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning flex items-start gap-2">
         <Quote className="w-4 h-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
         <div>
           Stored unencrypted in this browser{isOwner ? " and synced to your cloud workspace" : ""}.

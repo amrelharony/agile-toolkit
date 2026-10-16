@@ -105,7 +105,7 @@ export function VelocitySummaryTab() {
         <SectionCard
           title="Release Progress"
           icon={BarChart3}
-          iconClassName="text-[#00ff88]"
+          iconClassName="text-accent-green"
           contentClassName="space-y-4"
         >
           <div className="space-y-1.5">

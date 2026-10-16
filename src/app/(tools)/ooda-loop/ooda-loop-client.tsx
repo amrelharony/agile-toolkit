@@ -189,7 +189,7 @@ export function OodaLoopClient() {
                 .map((c) => (
                   <li
                     key={c.id}
-                    className={`border rounded p-3 ${c.completedAt ? "bg-emerald-500/5 border-emerald-500/30" : "bg-surface-deep border-border"}`}
+                    className={`border rounded p-3 ${c.completedAt ? "bg-success/5 border-success/30" : "bg-surface-deep border-border"}`}
                   >
                     <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
                       <span className="font-medium text-text min-w-0 break-words">{c.topic}</span>
@@ -201,7 +201,7 @@ export function OodaLoopClient() {
                           <button
                             onClick={() => complete(c)}
                             aria-label="Mark cycle complete"
-                            className="min-touch-coarse inline-flex items-center justify-center text-emerald-400 hover:text-emerald-300"
+                            className="min-touch-coarse inline-flex items-center justify-center text-success hover:text-success"
                           >
                             <CheckCircle2 className="w-4 h-4" />
                           </button>
@@ -212,7 +212,7 @@ export function OodaLoopClient() {
                             log(OODA_ACTIONS.CYCLE_REMOVED, { id: c.id });
                           }}
                           aria-label="Remove cycle"
-                          className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
+                          className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -228,7 +228,7 @@ export function OodaLoopClient() {
                         />
                       </div>
                       <div>
-                        <label className="block text-emerald-400 font-bold mb-1">Orient</label>
+                        <label className="block text-success font-bold mb-1">Orient</label>
                         <StageTextarea
                           value={c.orient ?? ""}
                           onCommit={(v) => update(c, "orient", v)}
@@ -236,7 +236,7 @@ export function OodaLoopClient() {
                         />
                       </div>
                       <div>
-                        <label className="block text-amber-400 font-bold mb-1">Decide</label>
+                        <label className="block text-warning font-bold mb-1">Decide</label>
                         <StageTextarea
                           value={c.decide ?? ""}
                           onCommit={(v) => update(c, "decide", v)}

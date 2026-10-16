@@ -68,8 +68,8 @@ const NEXT_STATUS: Record<AgendaStatus, AgendaStatus> = {
 };
 
 const STATUS_TONE: Record<AgendaStatus, string> = {
-  open: "border-amber-500/40 bg-amber-500/5 text-amber-200",
-  discussed: "border-emerald-500/40 bg-emerald-500/5 text-emerald-200",
+  open: "border-warning/40 bg-warning/5 text-warning",
+  discussed: "border-success/40 bg-success/5 text-success",
   action_required: "border-accent/40 bg-accent/5 text-accent",
 };
 

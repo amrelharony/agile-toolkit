@@ -9,6 +9,7 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { retroFormats, type RetroFormat } from "@/lib/constants/retro-formats";
+import { themed, tint } from "@/lib/utils/theme-color";
 
 export function FormatSelector({ onSelect }: { onSelect: (format: RetroFormat) => void }) {
   return (
@@ -51,9 +52,9 @@ export function FormatSelector({ onSelect }: { onSelect: (format: RetroFormat) =
                         key={col.key}
                         className="text-[10px] px-2 py-0.5 rounded-full border font-medium"
                         style={{
-                          color: col.color,
-                          borderColor: `${col.color}55`,
-                          backgroundColor: `${col.color}15`,
+                          color: themed(col.color),
+                          borderColor: tint(col.color, 33),
+                          backgroundColor: tint(col.color, 8),
                         }}
                       >
                         {col.icon} {col.label}

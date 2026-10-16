@@ -277,7 +277,7 @@ export function RapidDecisionClient() {
                       {d.status === "open" && (
                         <button
                           onClick={() => decide(d)}
-                          className="text-emerald-400 hover:text-emerald-300"
+                          className="text-success hover:text-success"
                         >
                           <CheckCircle2 className="w-4 h-4" />
                         </button>
@@ -285,7 +285,7 @@ export function RapidDecisionClient() {
                       <button
                         onClick={() => remove(d.id)}
                         aria-label="Remove decision"
-                        className="text-sub hover:text-red-400"
+                        className="text-sub hover:text-danger"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -305,12 +305,12 @@ export function RapidDecisionClient() {
                     )}
                     {d.agree && d.agree.length > 0 && (
                       <div>
-                        <span className="text-emerald-400 font-bold">A:</span> {d.agree.join(", ")}
+                        <span className="text-success font-bold">A:</span> {d.agree.join(", ")}
                       </div>
                     )}
                     {d.perform && d.perform.length > 0 && (
                       <div>
-                        <span className="text-amber-400 font-bold">P:</span> {d.perform.join(", ")}
+                        <span className="text-warning font-bold">P:</span> {d.perform.join(", ")}
                       </div>
                     )}
                     {d.input && d.input.length > 0 && (

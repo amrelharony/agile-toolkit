@@ -778,7 +778,7 @@ export function CapacityPlannerClient() {
                           aria-valuemax={100}
                         >
                           <div
-                            className="h-full rounded-full bg-gradient-to-r from-[#00f0ff]/60 to-[#00f0ff] transition-all duration-300"
+                            className="h-full rounded-full bg-gradient-to-r from-accent/60 to-accent transition-all duration-300"
                             style={{ width: `${Math.min(pct, 100)}%` }}
                           />
                         </div>

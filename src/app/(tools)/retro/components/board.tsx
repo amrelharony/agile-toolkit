@@ -32,6 +32,7 @@ import {
 import { PhaseIndicator } from "./phase-indicator";
 import { TimerWidget } from "./timer-widget";
 import { RetroColumnPanel } from "./retro-column-panel";
+import { themed, tint } from "@/lib/utils/theme-color";
 
 export function Board({
   state,
@@ -425,12 +426,12 @@ export function Board({
                     key={i}
                     className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border"
                     style={{
-                      color,
-                      borderColor: `${color}66`,
-                      background: `${color}15`,
+                      color: themed(color),
+                      borderColor: tint(color, 40),
+                      background: tint(color, 8),
                     }}
                   >
-                    <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+                    <span className="w-2 h-2 rounded-full" style={{ background: themed(color) }} />
                     Theme {i + 1}: {count} card{count !== 1 ? "s" : ""}
                   </span>
                 );

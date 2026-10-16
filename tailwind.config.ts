@@ -108,7 +108,7 @@ const config: Config = {
         // switching to `destructive`; aliasing here fixes every remaining
         // call site at once and keeps both spellings theme-aware.
         danger: {
-          DEFAULT: themeColor("--destructive"),
+          DEFAULT: themeColor("--danger"),
           foreground: themeColor("--destructive-foreground"),
         },
         accent: {
@@ -131,11 +131,11 @@ const config: Config = {
         "glow-color": themeColor("--glow"),
         "glow-strong-color": themeColor("--glowS"),
 
-        // ── Semantic colors ──
-        success: "#22c55e",
-        error: "#ef4444",
-        warning: "#fbbf24",
-        info: "#3b82f6",
+        // ── Semantic colors (per theme, see globals.css) ──
+        success: themeColor("--success"),
+        error: themeColor("--danger"),
+        warning: themeColor("--warning"),
+        info: themeColor("--info"),
 
         // ── shadcn/ui standard keys ──
         border: themeColor("--border"),
@@ -166,12 +166,15 @@ const config: Config = {
 
         // ── Backward-compatible aliases (existing tool pages use these) ──
         "accent-cyan": themeColor("--accent"),
-        "accent-magenta": "#ff00aa",
-        "accent-green": "#00ff88",
-        "accent-amber": "#ffaa00",
-        "status-green": "#22c55e",
-        "status-yellow": "#eab308",
-        "status-red": "#ef4444",
+        // Neon accents and status aliases follow the theme too: the raw hex
+        // values were unreadable on the light theme (#00ff88 is 1.3:1 on
+        // white).
+        "accent-magenta": themeColor("--neon-magenta"),
+        "accent-green": themeColor("--neon-green"),
+        "accent-amber": themeColor("--neon-amber"),
+        "status-green": themeColor("--success"),
+        "status-yellow": themeColor("--warning"),
+        "status-red": themeColor("--danger"),
       },
       fontFamily: {
         // Design system fonts

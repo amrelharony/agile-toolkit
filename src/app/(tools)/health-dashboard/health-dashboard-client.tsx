@@ -597,7 +597,7 @@ export function HealthDashboardClient() {
               >
                 {copied ? (
                   <>
-                    <Check className="w-3.5 h-3.5 text-[#22c55e]" />
+                    <Check className="w-3.5 h-3.5 text-success" />
                     Copied
                   </>
                 ) : (
@@ -643,7 +643,7 @@ export function HealthDashboardClient() {
               >
                 <div className="flex items-center gap-2 mb-1.5">
                   {src.hasData ? (
-                    <CheckCircle2 className="w-4 h-4 text-[#22c55e] flex-shrink-0" />
+                    <CheckCircle2 className="w-4 h-4 text-success flex-shrink-0" />
                   ) : (
                     <AlertCircle className="w-4 h-4 text-sub/60 flex-shrink-0" />
                   )}

@@ -335,7 +335,7 @@ export function PromptRegistryClient() {
                           {p.status !== "production" && (
                             <button
                               onClick={() => publish(p)}
-                              className="text-emerald-400 hover:text-emerald-300 min-touch-coarse inline-flex items-center justify-center"
+                              className="text-success hover:text-success min-touch-coarse inline-flex items-center justify-center"
                               aria-label="Publish"
                             >
                               <CheckCircle2 className="w-4 h-4" />
@@ -343,7 +343,7 @@ export function PromptRegistryClient() {
                           )}
                           <button
                             onClick={() => remove(p.id)}
-                            className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
+                            className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                             aria-label="Remove"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -389,7 +389,7 @@ function KPI({
   tone?: "default" | "ok" | "danger";
 }) {
   const colorClass =
-    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+    tone === "danger" ? "text-danger" : tone === "ok" ? "text-success" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

@@ -199,10 +199,10 @@ function TrafficButton({
   const label = light.charAt(0).toUpperCase() + light.slice(1);
   const ring = active
     ? light === "green"
-      ? "ring-2 ring-[#22c55e]"
+      ? "ring-2 ring-success"
       : light === "yellow"
-        ? "ring-2 ring-[#eab308]"
-        : "ring-2 ring-[#ef4444]"
+        ? "ring-2 ring-warning"
+        : "ring-2 ring-danger"
     : "";
   return (
     <button
@@ -232,8 +232,7 @@ function TrendButton({
 }) {
   const arrow = trend === "up" ? "↑" : trend === "same" ? "→" : "↓";
   const label = trend === "up" ? "Up" : trend === "same" ? "Same" : "Down";
-  const color =
-    trend === "up" ? "text-[#22c55e]" : trend === "same" ? "text-sub" : "text-[#ef4444]";
+  const color = trend === "up" ? "text-success" : trend === "same" ? "text-sub" : "text-danger";
   return (
     <button
       onClick={onClick}
@@ -405,10 +404,10 @@ export function HealthCheckClient() {
                     currentHealth === null
                       ? "text-sub"
                       : currentHealth >= 75
-                        ? "text-[#22c55e]"
+                        ? "text-success"
                         : currentHealth >= 50
-                          ? "text-[#eab308]"
-                          : "text-[#ef4444]"
+                          ? "text-warning"
+                          : "text-danger"
                   }`}
                 >
                   {currentHealth === null ? "—" : `${currentHealth}%`}
@@ -614,10 +613,10 @@ export function HealthCheckClient() {
                           <span
                             className={`font-data font-semibold ${
                               health >= 75
-                                ? "text-[#22c55e]"
+                                ? "text-success"
                                 : health >= 50
-                                  ? "text-[#eab308]"
-                                  : "text-[#ef4444]"
+                                  ? "text-warning"
+                                  : "text-danger"
                             }`}
                           >
                             {health}%

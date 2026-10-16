@@ -206,8 +206,8 @@ export function ToolbarTop() {
               className={cn(
                 "min-touch-coarse transition-colors w-7 h-7 rounded flex items-center justify-center",
                 confirmingDelete
-                  ? "text-red-400 hover:text-red-300 bg-red-500/10"
-                  : "text-sub hover:text-red-400 hover:bg-text/[0.04]"
+                  ? "text-danger hover:text-danger bg-danger/10"
+                  : "text-sub hover:text-danger hover:bg-text/[0.04]"
               )}
               title={confirmingDelete ? "Click again to confirm" : `Delete "${board?.name ?? ""}"`}
             >

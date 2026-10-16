@@ -314,8 +314,8 @@ export function DodBuilderClient() {
                   variant="outline"
                   className={`font-mono text-[10px] tracking-wider uppercase ${
                     adherenceTrend.trend === "up"
-                      ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
-                      : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                      ? "border-success/40 text-success bg-success/10"
+                      : "border-warning/40 text-warning bg-warning/10"
                   }`}
                   title={`Mann-Kendall p=${adherenceTrend.pValue.toFixed(3)}`}
                 >
@@ -439,8 +439,8 @@ export function DodBuilderClient() {
                     aria-label={item.done ? "Mark not done" : "Mark done"}
                     className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition min-touch-coarse ${
                       item.done
-                        ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-300"
-                        : "border-border text-transparent hover:border-emerald-500/40"
+                        ? "border-success/60 bg-success/10 text-success"
+                        : "border-border text-transparent hover:border-success/40"
                     }`}
                   >
                     <Check className="w-3 h-3" />

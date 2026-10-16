@@ -126,7 +126,7 @@ export function WorkItemsTable({
                       onClick={() => onRemove(item.id)}
                       disabled={totalCount === 1}
                       aria-label={`Remove ${item.name || "item"}`}
-                      className="text-sub hover:text-red-400 transition-colors p-1 disabled:opacity-30"
+                      className="text-sub hover:text-danger transition-colors p-1 disabled:opacity-30"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

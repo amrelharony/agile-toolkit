@@ -187,7 +187,7 @@ export function WeightedDecisionClient() {
             </Button>
           </div>
           {criteria.length > 0 && !weightsBalanced && (
-            <div className="mt-2 rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[11px] text-amber-300">
+            <div className="mt-2 rounded border border-warning/30 bg-warning/5 px-2 py-1 text-[11px] text-warning">
               Weights sum to {weightSum.toFixed(2)}. Pugh/MCDA convention is sum=1.0 (or sum=100).
               Unequal totals make per-option scores hard to compare across rubrics.
             </div>
@@ -201,7 +201,7 @@ export function WeightedDecisionClient() {
                 {c.name} <span className="text-sub">w{c.weight}</span>
                 <button
                   onClick={() => removeCriterionCascade(c.id)}
-                  className="text-sub hover:text-red-400 ml-1"
+                  className="text-sub hover:text-danger ml-1"
                   aria-label={`Remove criterion ${c.name}`}
                 >
                   <Trash2 className="w-3 h-3" />
@@ -259,11 +259,11 @@ export function WeightedDecisionClient() {
                   {ranked.map((o, i) => (
                     <tr
                       key={o.id}
-                      className={`border-t border-border ${i === 0 ? "bg-emerald-500/5" : ""}`}
+                      className={`border-t border-border ${i === 0 ? "bg-success/5" : ""}`}
                     >
                       <td className="p-2">
                         {o.name}
-                        {i === 0 && <span className="ml-1 text-emerald-400 text-xs">★</span>}
+                        {i === 0 && <span className="ml-1 text-success text-xs">★</span>}
                       </td>
                       {criteria.map((c) => (
                         <td key={c.id} className="p-1 text-center">
@@ -289,7 +289,7 @@ export function WeightedDecisionClient() {
                             removeOption(o.id);
                             log(WEIGHTED_DECISION_ACTIONS.OPTION_REMOVED, { id: o.id });
                           }}
-                          className="text-sub hover:text-red-400"
+                          className="text-sub hover:text-danger"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

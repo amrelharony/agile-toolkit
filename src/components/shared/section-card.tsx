@@ -11,7 +11,7 @@ interface SectionCardProps {
   icon?: LucideIcon;
   /**
    * Override the default icon colour (`text-accent`). Use a single
-   * Tailwind colour utility, e.g. `text-[#00ff88]` or `text-amber-400`.
+   * Tailwind colour utility, e.g. `text-accent-green` or `text-warning`.
    */
   iconClassName?: string;
   /**

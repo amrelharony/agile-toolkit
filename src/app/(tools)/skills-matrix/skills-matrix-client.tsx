@@ -446,17 +446,17 @@ export function SkillsMatrixClient() {
             <span className="font-data font-bold text-accent">{overallCoverage}%</span>
           </div>
           {busFactorCount > 0 && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/5 border border-amber-500/30">
-              <AlertTriangle className="w-4 h-4 text-amber-400" />
-              <span className="text-sm text-amber-300">
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-warning/5 border border-warning/30">
+              <AlertTriangle className="w-4 h-4 text-warning" />
+              <span className="text-sm text-warning">
                 {busFactorCount} bus factor{busFactorCount > 1 ? "s" : ""}
               </span>
             </div>
           )}
           {spofCount > 0 && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/5 border border-red-500/30">
-              <AlertCircle className="w-4 h-4 text-red-400" />
-              <span className="text-sm text-red-300">
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-danger/5 border border-danger/30">
+              <AlertCircle className="w-4 h-4 text-danger" />
+              <span className="text-sm text-danger">
                 {spofCount} knowledge gap{spofCount > 1 ? "s" : ""}
               </span>
             </div>
@@ -539,9 +539,9 @@ export function SkillsMatrixClient() {
                     <td
                       className={`border p-2 bg-surface-deep ${
                         isSPOF
-                          ? "border-red-500/50"
+                          ? "border-danger/50"
                           : isBusFactor
-                            ? "border-amber-500/40"
+                            ? "border-warning/40"
                             : "border-border"
                       }`}
                       title={skill.description || undefined}
@@ -555,7 +555,7 @@ export function SkillsMatrixClient() {
                         {isSPOF && (
                           <Badge
                             variant="outline"
-                            className="text-[10px] border-red-500/50 text-red-400 bg-red-500/10 px-1 py-0 h-4 flex-shrink-0"
+                            className="text-[10px] border-danger/50 text-danger bg-danger/10 px-1 py-0 h-4 flex-shrink-0"
                             title="Knowledge gap: no one has Intermediate+ proficiency"
                           >
                             GAP
@@ -564,7 +564,7 @@ export function SkillsMatrixClient() {
                         {isBusFactor && (
                           <Badge
                             variant="outline"
-                            className="text-[10px] border-amber-500/50 text-amber-400 bg-amber-500/10 px-1 py-0 h-4 flex-shrink-0"
+                            className="text-[10px] border-warning/50 text-warning bg-warning/10 px-1 py-0 h-4 flex-shrink-0"
                             title="Bus factor risk: only 1 person at Advanced+ level"
                           >
                             BUS 1
@@ -596,9 +596,9 @@ export function SkillsMatrixClient() {
                         key={member.id}
                         className={`border p-1.5 ${
                           isSPOF
-                            ? "border-red-500/30"
+                            ? "border-danger/30"
                             : isBusFactor
-                              ? "border-amber-500/20"
+                              ? "border-warning/20"
                               : "border-border"
                         }`}
                       >
@@ -684,11 +684,11 @@ export function SkillsMatrixClient() {
                   .map(({ skill }) => (
                     <div
                       key={skill.id}
-                      className="flex items-start gap-2 p-2 rounded-lg bg-red-500/5 border border-red-500/20"
+                      className="flex items-start gap-2 p-2 rounded-lg bg-danger/5 border border-danger/20"
                     >
-                      <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                      <AlertCircle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-sm font-medium text-red-300">{skill.name}</p>
+                        <p className="text-sm font-medium text-danger">{skill.name}</p>
                         <p className="text-xs text-sub">
                           Knowledge gap — nobody has Intermediate+ proficiency.
                         </p>
@@ -700,11 +700,11 @@ export function SkillsMatrixClient() {
                   .map(({ skill }) => (
                     <div
                       key={skill.id}
-                      className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/5 border border-amber-500/20"
+                      className="flex items-start gap-2 p-2 rounded-lg bg-warning/5 border border-warning/20"
                     >
-                      <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                      <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-sm font-medium text-amber-300">{skill.name}</p>
+                        <p className="text-sm font-medium text-warning">{skill.name}</p>
                         <p className="text-xs text-sub">
                           Bus factor 1 — only one person at Advanced or Expert level.
                         </p>

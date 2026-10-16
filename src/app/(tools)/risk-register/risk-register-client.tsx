@@ -482,7 +482,7 @@ export function RiskRegisterClient() {
             <span
               className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
                 raisedTrend.trend === "up"
-                  ? "border-[#ef4444]/40 text-[#ef4444] bg-[#ef4444]/10"
+                  ? "border-danger/40 text-danger bg-danger/10"
                   : "border-[#34d399]/40 text-[#34d399] bg-[#34d399]/10"
               }`}
             >

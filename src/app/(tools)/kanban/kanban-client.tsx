@@ -528,7 +528,7 @@ export function KanbanClient() {
                   className={cn(
                     "text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border",
                     throughputTrend.trend === "up"
-                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
+                      ? "border-accent-green/40 text-accent-green bg-accent-green/10"
                       : "border-danger/40 text-danger bg-danger/5"
                   )}
                   aria-label={`Throughput trend ${throughputTrend.trend} (Mann-Kendall p=${throughputTrend.pValue.toFixed(3)})`}

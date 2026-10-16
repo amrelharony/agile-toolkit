@@ -312,7 +312,7 @@ export function ValueStreamClient() {
                       lead time — that's logically impossible (process is a
                       subset of lead) and usually indicates bad input. */}
                   {s.processTime > s.leadTime && (
-                    <span className="ml-2 text-[#ffaa00]">⚠ process &gt; lead</span>
+                    <span className="ml-2 text-accent-amber">⚠ process &gt; lead</span>
                   )}
                 </div>
               </CardContent>

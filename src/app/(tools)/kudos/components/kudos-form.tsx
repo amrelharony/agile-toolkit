@@ -420,7 +420,7 @@ export function KudosForm({
             />
           )}
           {!toOk && selectedRecipient && (
-            <p className="text-xs text-amber-400">Up to {KUDOS_WORD_LIMITS.to} words.</p>
+            <p className="text-xs text-warning">Up to {KUDOS_WORD_LIMITS.to} words.</p>
           )}
         </div>
 
@@ -481,14 +481,12 @@ export function KudosForm({
             rows={4}
             className={
               "bg-surface-deep border-border resize-none text-sm text-text" +
-              (!messageOk && messageWords > KUDOS_WORD_LIMITS.message ? " border-red-500/60" : "")
+              (!messageOk && messageWords > KUDOS_WORD_LIMITS.message ? " border-danger/60" : "")
             }
           />
           <div
             className={`text-xs text-right ${
-              messageWords > KUDOS_WORD_LIMITS.message
-                ? "text-red-400 font-semibold"
-                : "text-sub/60"
+              messageWords > KUDOS_WORD_LIMITS.message ? "text-danger font-semibold" : "text-sub/60"
             }`}
           >
             {messageWords}/{KUDOS_WORD_LIMITS.message} words
@@ -498,13 +496,13 @@ export function KudosForm({
           {sentiment?.label === "backhanded" && (
             <div
               role="status"
-              className="flex items-start gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+              className="flex items-start gap-2 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
             >
               <Sparkles className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
               <span>
                 This reads as sarcastic — send anyway?
                 {sentiment.tone.length > 0 && (
-                  <span className="text-amber-300/70"> (tone: {sentiment.tone.join(", ")})</span>
+                  <span className="text-warning/70"> (tone: {sentiment.tone.join(", ")})</span>
                 )}
               </span>
             </div>
@@ -516,7 +514,7 @@ export function KudosForm({
         {error && (
           <div
             role="alert"
-            className="flex items-center gap-2 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200"
+            className="flex items-center gap-2 rounded border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
           >
             <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span>{error}</span>

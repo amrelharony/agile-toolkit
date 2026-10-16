@@ -193,7 +193,7 @@ export function AgenticWorkflowClient() {
                       log(AGENTIC_WORKFLOW_ACTIONS.WORKFLOW_REMOVED, { id: wf.id });
                       if (wf.id === activeWfId) setActiveWfId("");
                     }}
-                    className="pr-2 py-1 text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
+                    className="pr-2 py-1 text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                     aria-label={`Remove workflow ${wf.name}`}
                   >
                     <Trash2 className="w-3 h-3 inline" />
@@ -312,7 +312,7 @@ export function AgenticWorkflowClient() {
                           if (testingNodeId === n.id) setTestingNodeId(null);
                         }}
                         aria-label="Remove step"
-                        className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
+                        className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

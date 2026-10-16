@@ -326,7 +326,7 @@ export function DaciClient() {
                             onClick={() => decide(d)}
                             aria-label={`Mark decided: ${d.title}`}
                             title="Mark decided"
-                            className="text-emerald-400 hover:text-emerald-300"
+                            className="text-success hover:text-success"
                           >
                             <CheckCircle2 className="w-4 h-4" />
                           </button>
@@ -334,7 +334,7 @@ export function DaciClient() {
                         <button
                           onClick={() => remove(d.id)}
                           aria-label="Remove decision"
-                          className="text-sub hover:text-red-400"
+                          className="text-sub hover:text-danger"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -354,14 +354,13 @@ export function DaciClient() {
                       )}
                       {d.contributors && d.contributors.length > 0 && (
                         <div>
-                          <span className="text-emerald-400 font-bold">C:</span>{" "}
+                          <span className="text-success font-bold">C:</span>{" "}
                           {d.contributors.join(", ")}
                         </div>
                       )}
                       {d.informed && d.informed.length > 0 && (
                         <div>
-                          <span className="text-amber-400 font-bold">I:</span>{" "}
-                          {d.informed.join(", ")}
+                          <span className="text-warning font-bold">I:</span> {d.informed.join(", ")}
                         </div>
                       )}
                     </div>
@@ -390,7 +389,7 @@ function KPI({
   tone?: "default" | "ok" | "danger";
 }) {
   const colorClass =
-    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+    tone === "danger" ? "text-danger" : tone === "ok" ? "text-success" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

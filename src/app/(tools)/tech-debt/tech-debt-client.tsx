@@ -400,7 +400,7 @@ export function TechDebtClient() {
           variant="compact"
           label="Interest/Sprint"
           value={totalInterestPerSprint.toFixed(1)}
-          valueClassName="text-amber-300"
+          valueClassName="text-warning"
           hint="velocity-units bleed"
         />
         <StatCard

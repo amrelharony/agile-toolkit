@@ -233,7 +233,7 @@ export function TemplateGallery({ boardId, onClose }: Props) {
         <p className="text-sm text-sub mb-3">
           Click a template to seed the active board.{" "}
           {objects.length > 0 && (
-            <span className="text-amber-400">
+            <span className="text-warning">
               {" "}
               Confirm twice if the board already has content — templates append, not replace.
             </span>
@@ -286,7 +286,7 @@ export function TemplateGallery({ boardId, onClose }: Props) {
                 onClick={() => apply(t.id)}
                 className={`text-left border rounded-lg p-4 transition-colors relative ${
                   armed
-                    ? "border-amber-400 bg-amber-500/10"
+                    ? "border-warning bg-warning/10"
                     : "border-border bg-surface-deep hover:border-accent/40 hover:bg-accent/5"
                 }`}
               >
@@ -298,7 +298,7 @@ export function TemplateGallery({ boardId, onClose }: Props) {
                 <div className="font-semibold text-sm text-text mb-1 pr-12">{t.name}</div>
                 <div className="text-xs text-sub line-clamp-3">{t.description}</div>
                 {armed && (
-                  <div className="text-xs text-amber-300 mt-2">
+                  <div className="text-xs text-warning mt-2">
                     Click again to confirm — will add to existing content
                   </div>
                 )}

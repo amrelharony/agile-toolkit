@@ -277,8 +277,8 @@ export function CFDClient() {
                   className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                     // For WIP, "down" is good (less queue), "up" is concerning.
                     wipTrend.trend === "down"
-                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
-                      : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                      ? "border-accent-green/40 text-accent-green bg-accent-green/10"
+                      : "border-warning/40 text-warning bg-warning/10"
                   }`}
                   aria-label={`WIP trend ${wipTrend.trend} (Mann-Kendall p=${wipTrend.pValue.toFixed(3)})`}
                   title={`Mann-Kendall p=${wipTrend.pValue.toFixed(3)}`}
@@ -339,7 +339,7 @@ export function CFDClient() {
         <Card className="bg-surface border-border">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base font-display text-text">
-              <AlertTriangle className="w-4 h-4 text-amber-400" />
+              <AlertTriangle className="w-4 h-4 text-warning" />
               WIP Limit (optional)
             </CardTitle>
           </CardHeader>
@@ -359,7 +359,7 @@ export function CFDClient() {
               <Button
                 size="sm"
                 onClick={applyWipLimit}
-                className="bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20"
+                className="bg-warning/10 text-warning border border-warning/20 hover:bg-warning/20"
               >
                 Apply
               </Button>
@@ -377,7 +377,7 @@ export function CFDClient() {
               )}
             </div>
             {wipLimit !== null && (
-              <p className="mt-2 text-xs text-amber-400">
+              <p className="mt-2 text-xs text-warning">
                 WIP limit set at {wipLimit} items — red reference line shown on chart.
               </p>
             )}
@@ -418,7 +418,7 @@ export function CFDClient() {
                     {columns.length > 2 && (
                       <button
                         onClick={() => removeColumn(col.id)}
-                        className="text-sub hover:text-red-400 transition-colors ml-1"
+                        className="text-sub hover:text-danger transition-colors ml-1"
                         title="Remove column"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

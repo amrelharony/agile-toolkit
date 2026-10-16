@@ -618,7 +618,7 @@ export function SloBuilderClient() {
                 tone === "danger"
                   ? "border-danger/40 bg-danger/5"
                   : tone === "warning"
-                    ? "border-amber-500/40 bg-amber-500/5"
+                    ? "border-warning/40 bg-warning/5"
                     : "border-border bg-surface";
               return (
                 <div key={slo.id} className={`rounded-lg border p-3 ${cardCls}`}>
@@ -657,7 +657,7 @@ export function SloBuilderClient() {
                       <div className="text-sub uppercase tracking-wider">Remaining</div>
                       <div
                         className={`font-data ${
-                          burned ? "text-danger" : atRisk ? "text-amber-300" : "text-emerald-300"
+                          burned ? "text-danger" : atRisk ? "text-warning" : "text-success"
                         }`}
                       >
                         {remainingPct.toFixed(1)}%
@@ -723,8 +723,8 @@ export function SloBuilderClient() {
                   !burnAnalytics.mk.significant || burnAnalytics.mk.trend === "none"
                     ? "text-sub border-border"
                     : burnAnalytics.mk.trend === "up"
-                      ? "border-amber-500/40 text-amber-300 bg-amber-500/10"
-                      : "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+                      ? "border-warning/40 text-warning bg-warning/10"
+                      : "border-success/40 text-success bg-success/10"
                 }`}
               >
                 {burnAnalytics.sloName} burn{" "}

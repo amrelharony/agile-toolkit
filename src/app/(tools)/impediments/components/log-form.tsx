@@ -77,7 +77,7 @@ export function LogForm() {
     <SectionCard
       title="Log New Impediment"
       icon={AlertTriangle}
-      iconClassName="text-[#ffaa00]"
+      iconClassName="text-accent-amber"
       actions={
         <Button
           variant="ghost"

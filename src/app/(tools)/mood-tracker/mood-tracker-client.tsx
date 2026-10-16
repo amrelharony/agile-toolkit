@@ -358,7 +358,7 @@ export function MoodTrackerClient() {
               <TrendingUp
                 className={`w-5 h-5 ${
                   trend === "rising"
-                    ? "text-green-400"
+                    ? "text-success"
                     : trend === "falling"
                       ? "text-danger"
                       : "text-sub"
@@ -498,8 +498,8 @@ export function MoodTrackerClient() {
                   className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                     // For mood, "up" trend is good, "down" is concerning.
                     moodTrend.trend === "up"
-                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
-                      : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                      ? "border-accent-green/40 text-accent-green bg-accent-green/10"
+                      : "border-warning/40 text-warning bg-warning/10"
                   }`}
                   aria-label={`Rolling-week mood trend ${moodTrend.trend} (Mann-Kendall p=${moodTrend.pValue.toFixed(3)})`}
                   title={`Mann-Kendall p=${moodTrend.pValue.toFixed(3)} on 7-day rolling mean`}

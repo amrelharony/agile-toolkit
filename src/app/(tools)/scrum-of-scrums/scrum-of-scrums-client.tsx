@@ -285,7 +285,7 @@ export function ScrumOfScrumsClient() {
                   <div className="text-sm font-semibold text-text">{e.team}</div>
                   <div className="text-sm text-text/80">{e.text}</div>
                   {e.blockedBy && (
-                    <div className="text-xs text-amber-300">⇢ blocked by: {e.blockedBy}</div>
+                    <div className="text-xs text-warning">⇢ blocked by: {e.blockedBy}</div>
                   )}
                 </div>
                 <div className="flex items-center gap-1">

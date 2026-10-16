@@ -513,11 +513,11 @@ export function OnboardingTrackerClient() {
                           className={cn(
                             "rounded-md border p-2",
                             completed
-                              ? "border-emerald-500/40 bg-emerald-500/5"
+                              ? "border-success/40 bg-success/5"
                               : overdue
                                 ? "border-danger/40 bg-danger/5"
                                 : atRisk
-                                  ? "border-amber-500/40 bg-amber-500/5"
+                                  ? "border-warning/40 bg-warning/5"
                                   : "border-border bg-bg"
                           )}
                         >
@@ -528,7 +528,7 @@ export function OnboardingTrackerClient() {
                               className={cn(
                                 "mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition min-touch-coarse",
                                 completed
-                                  ? "bg-emerald-500/30 border-emerald-500/60 text-emerald-200"
+                                  ? "bg-success/30 border-success/60 text-success"
                                   : "border-border bg-surface text-transparent hover:text-sub"
                               )}
                               aria-label={
@@ -544,7 +544,7 @@ export function OnboardingTrackerClient() {
                                   target {m.targetDays}d
                                 </span>
                                 {completed && completedDays !== null && (
-                                  <span className="text-[11px] text-emerald-300 font-data">
+                                  <span className="text-[11px] text-success font-data">
                                     done in {completedDays}d
                                   </span>
                                 )}
@@ -552,7 +552,7 @@ export function OnboardingTrackerClient() {
                                   <span className="text-[11px] text-danger font-data">overdue</span>
                                 )}
                                 {!completed && atRisk && !overdue && (
-                                  <span className="text-[11px] text-amber-300 font-data">
+                                  <span className="text-[11px] text-warning font-data">
                                     at risk
                                   </span>
                                 )}

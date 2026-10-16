@@ -141,13 +141,11 @@ export function AIInsightsPanel({
 
         <section>
           <h4 className="text-xs uppercase tracking-wider text-sub mb-2 flex items-center gap-1.5">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+            <AlertTriangle className="w-3.5 h-3.5 text-warning" />
             Board hygiene
           </h4>
           {insights.length === 0 ? (
-            <p className="text-xs text-emerald-300/80">
-              No anti-patterns detected. Board is healthy.
-            </p>
+            <p className="text-xs text-success/80">No anti-patterns detected. Board is healthy.</p>
           ) : (
             <ul className="space-y-2">
               {insights.map((i) => (

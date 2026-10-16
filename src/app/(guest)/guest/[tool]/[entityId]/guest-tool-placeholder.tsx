@@ -55,9 +55,9 @@ export function GuestToolPlaceholder({ toolId, entityId, role, profile }: Props)
           <span
             className={`text-[10px] uppercase font-bold ${
               role === "editor"
-                ? "text-amber-300"
+                ? "text-warning"
                 : role === "commenter"
-                  ? "text-emerald-300"
+                  ? "text-success"
                   : "text-cyan-300"
             }`}
           >

@@ -124,7 +124,7 @@ const SEVERITY_LABEL: Record<Severity, string> = {
 const SEVERITY_BADGE: Record<Severity, string> = {
   sev1: "bg-danger/15 text-danger border-danger/40",
   sev2: "bg-danger/10 text-danger border-danger/30",
-  sev3: "bg-amber-500/10 text-amber-300 border-amber-500/30",
+  sev3: "bg-warning/10 text-warning border-warning/30",
   sev4: "bg-accent/10 text-accent border-accent/30",
 };
 
@@ -182,8 +182,8 @@ function burnoutTone(count: number): "default" | "warning" | "danger" {
 
 function burnoutClasses(count: number): string {
   if (count > 5) return "border-danger/40 bg-danger/10 text-danger";
-  if (count >= 3) return "border-amber-500/40 bg-amber-500/10 text-amber-300";
-  return "border-emerald-500/40 bg-emerald-500/10 text-emerald-300";
+  if (count >= 3) return "border-warning/40 bg-warning/10 text-warning";
+  return "border-success/40 bg-success/10 text-success";
 }
 
 interface ShiftDraft {
@@ -602,7 +602,7 @@ export function OncallRosterClient() {
               className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
                 pageTrend.trend === "up"
                   ? "border-danger/40 text-danger bg-danger/10"
-                  : "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+                  : "border-success/40 text-success bg-success/10"
               }`}
             >
               <TrendingUp className={`w-3 h-3 ${pageTrend.trend === "down" ? "rotate-180" : ""}`} />
@@ -616,7 +616,7 @@ export function OncallRosterClient() {
             </span>
           )}
           {pageChangepoints.length > 0 && (
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-amber-500/40 text-amber-300 bg-amber-500/10">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-warning/40 text-warning bg-warning/10">
               <AlertTriangle className="w-3 h-3" />
               {pageChangepoints.length} regime shift
               {pageChangepoints.length === 1 ? "" : "s"} detected (CUSUM)
@@ -818,7 +818,7 @@ export function OncallRosterClient() {
                       {active?.id === s.id && (
                         <Badge
                           variant="outline"
-                          className="bg-emerald-500/15 text-emerald-300 border-emerald-500/40 text-[10px]"
+                          className="bg-success/15 text-success border-success/40 text-[10px]"
                         >
                           ACTIVE
                         </Badge>

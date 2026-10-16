@@ -396,12 +396,12 @@ export function RlhfLogClient() {
               Redact emails / API keys / phone numbers before saving + exporting
             </label>
             {pendingPii && redact && (
-              <span className="text-[11px] text-amber-300">
+              <span className="text-[11px] text-warning">
                 PII detected — will be redacted on save.
               </span>
             )}
             {pendingPii && !redact && (
-              <span className="text-[11px] text-red-300">
+              <span className="text-[11px] text-danger">
                 PII detected in this entry — will be stored and exported as-is.
               </span>
             )}
@@ -464,7 +464,7 @@ export function RlhfLogClient() {
                         <button
                           onClick={() => remove(x.id)}
                           aria-label="Remove pair"
-                          className="text-sub hover:text-red-400"
+                          className="text-sub hover:text-danger"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

@@ -16,6 +16,7 @@ import type { RetroColumn } from "@/lib/constants/retro-formats";
 import { type BoardPhase, type RetroCard, MAX_VOTES } from "../types";
 import { sortedByVotes } from "../helpers";
 import { RetroCardItem } from "./retro-card-item";
+import { themed, tint } from "@/lib/utils/theme-color";
 
 export function RetroColumnPanel({
   column,
@@ -65,13 +66,13 @@ export function RetroColumnPanel({
       {/* Column header */}
       <div
         className="flex items-center justify-between px-3 py-2 rounded-t-lg border-t-2 border-x border-border mb-0"
-        style={{ borderTopColor: column.color }}
+        style={{ borderTopColor: themed(column.color) }}
       >
         <div className="flex items-center gap-2">
           <span className="text-base">{column.icon}</span>
           <span
             className="text-sm font-bold"
-            style={{ color: column.color, textShadow: `0 0 8px ${column.color}55` }}
+            style={{ color: themed(column.color), textShadow: `0 0 8px ${tint(column.color, 33)}` }}
           >
             {column.label}
           </span>

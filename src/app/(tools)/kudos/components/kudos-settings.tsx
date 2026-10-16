@@ -197,7 +197,7 @@ function CustomThemesSection() {
               variant="ghost"
               size="sm"
               onClick={() => removeCustomTheme(t.id)}
-              className="text-sub hover:text-red-300"
+              className="text-sub hover:text-danger"
               aria-label={`Delete theme ${t.title}`}
             >
               <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -342,7 +342,7 @@ function CustomThemeCreator({ onAdd }: CreatorProps) {
         </div>
       </div>
       {error && (
-        <p role="alert" className="text-xs text-red-300">
+        <p role="alert" className="text-xs text-danger">
           Couldn&apos;t add: {error}
         </p>
       )}

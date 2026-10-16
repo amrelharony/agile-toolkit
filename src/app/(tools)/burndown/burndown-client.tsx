@@ -950,8 +950,8 @@ export function BurndownClient() {
                   onClick={() => toggleScopeChange(entry.id)}
                   className={`col-span-2 sm:col-span-1 h-9 px-3 rounded-md text-xs font-medium border transition-colors ${
                     entry.scopeChange
-                      ? "bg-[#ffaa00]/15 border-[#ffaa00]/40 text-[#ffaa00]"
-                      : "bg-card border-border text-sub hover:border-[#ffaa00]/30 hover:text-[#ffaa00]"
+                      ? "bg-accent-amber/15 border-accent-amber/40 text-accent-amber"
+                      : "bg-card border-border text-sub hover:border-accent-amber/30 hover:text-accent-amber"
                   }`}
                 >
                   {entry.scopeChange ? "Scope Changed" : "Mark Change"}

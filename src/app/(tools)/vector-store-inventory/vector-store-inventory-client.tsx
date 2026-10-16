@@ -207,7 +207,7 @@ export function VectorStoreInventoryClient() {
                         <button
                           onClick={() => remove(c.id)}
                           aria-label="Remove collection"
-                          className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
+                          className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

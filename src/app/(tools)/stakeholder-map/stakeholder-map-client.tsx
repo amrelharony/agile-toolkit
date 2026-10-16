@@ -459,7 +459,7 @@ export function StakeholderMapClient() {
           variant="compact"
           label="Champions"
           value={sentimentCounts.champion}
-          valueClassName="text-emerald-300"
+          valueClassName="text-success"
         />
       </KpiGrid>
 
@@ -480,8 +480,8 @@ export function StakeholderMapClient() {
                   {/* Quadrant background grid */}
                   <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-px bg-border rounded-lg overflow-hidden">
                     {/* top-left = high authority + low interest = Keep Satisfied */}
-                    <div className="bg-amber-500/5 p-2">
-                      <div className="text-[10px] uppercase tracking-wider text-amber-300/70">
+                    <div className="bg-warning/5 p-2">
+                      <div className="text-[10px] uppercase tracking-wider text-warning/70">
                         Keep Satisfied
                       </div>
                     </div>
@@ -496,8 +496,8 @@ export function StakeholderMapClient() {
                       <div className="text-[10px] uppercase tracking-wider text-sub">Monitor</div>
                     </div>
                     {/* bottom-right = low authority + high interest = Keep Informed */}
-                    <div className="bg-emerald-500/5 p-2 text-right">
-                      <div className="text-[10px] uppercase tracking-wider text-emerald-300/70">
+                    <div className="bg-success/5 p-2 text-right">
+                      <div className="text-[10px] uppercase tracking-wider text-success/70">
                         Keep Informed
                       </div>
                     </div>

@@ -619,7 +619,7 @@ export function ReleasePlannerClient() {
               className="w-full px-3 py-2 rounded-md text-sm bg-surface-deep border border-border text-text font-data focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 resize-none"
             />
             {velocities.length === 0 && (
-              <p className="text-xs text-red-400">Enter at least one positive velocity value.</p>
+              <p className="text-xs text-danger">Enter at least one positive velocity value.</p>
             )}
             {velocities.length > 0 && (
               <p className="text-xs text-sub">
@@ -863,7 +863,7 @@ export function ReleasePlannerClient() {
               <p className="text-xs text-sub">
                 <span className="text-text font-medium">How to read this:</span> At 85% confidence,
                 there is an 85% chance delivery completes by{" "}
-                <span className="text-[#ffaa00] font-data">
+                <span className="text-accent-amber font-data">
                   {confidenceRows.find((r) => r.pct === 85)?.date ?? "—"}
                 </span>
                 . The simulation sampled {velocities.length} historical velocities across{" "}

@@ -436,7 +436,7 @@ export function AdkarClient() {
                             className={cn(
                               "flex-1 rounded-md border px-1.5 py-1 text-[10px] uppercase tracking-wider text-center",
                               completed
-                                ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200"
+                                ? "border-success/50 bg-success/10 text-success"
                                 : isCurrent
                                   ? "border-accent/60 bg-accent/10 text-accent font-semibold"
                                   : "border-border bg-bg text-sub"

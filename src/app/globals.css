@@ -50,8 +50,9 @@
     --muted-foreground: var(--sub);
     --accent-bg: rgba(0, 225, 255, 0.08);
     --accent-foreground: var(--text);
-    --destructive: #ef4444;
-    --destructive-foreground: var(--text);
+    /* #dc2626 so white button text reaches 4.8:1 (#ef4444 + #f0f2f5 was 3.4:1). */
+    --destructive: #dc2626;
+    --destructive-foreground: #ffffff;
     --input: var(--border);
     --ring: var(--accent);
     --radius: 0.625rem;
@@ -60,6 +61,19 @@
     --chart-3: #00ff88;
     --chart-4: #ffaa00;
     --chart-5: #8b5cf6;
+
+    /* Semantic status colours — readable as text on --bg/--card in each
+       theme (light and HC override below). Use `text-success`,
+       `bg-warning/10`, `border-danger/30`… instead of palette shades like
+       amber-300, which drop to ~1.4:1 on the light theme. */
+    --success: #22c55e;
+    --warning: #fbbf24;
+    --danger: #f87171;
+    --info: #60a5fa;
+    /* The neon brand accents, tamed per theme (accent-green / -amber / -magenta). */
+    --neon-green: #00ff88;
+    --neon-amber: #ffaa00;
+    --neon-magenta: #ff00aa;
   }
 
   * {
@@ -96,6 +110,23 @@
     --surface: rgba(255, 255, 255, 0.8);
     --surface-deep: #eef1f8;
     --surface-hover: rgba(0, 0, 0, 0.04);
+    /* ≥ 4.5:1 on white and on --bg. */
+    --destructive: #b91c1c;
+    --destructive-foreground: #ffffff;
+    --primary-foreground: #ffffff;
+    --success: #15803d;
+    --warning: #b45309;
+    --danger: #b91c1c;
+    --info: #1d4ed8;
+    --neon-green: #047857;
+    --neon-amber: #b45309;
+    --neon-magenta: #be185d;
+    --accent-bg: rgba(0, 102, 255, 0.08);
+    --chart-1: #0066ff;
+    --chart-2: #be185d;
+    --chart-3: #047857;
+    --chart-4: #b45309;
+    --chart-5: #7c3aed;
   }
 }
 
@@ -125,6 +156,13 @@
     --surface: #0a0a0a;
     --surface-deep: #000000;
     --surface-hover: #1a1a1a;
+    --success: #00ffaa;
+    --warning: #ffd400;
+    --danger: #ff6b6b;
+    --info: #7cc4ff;
+    --neon-green: #00ffaa;
+    --neon-amber: #ffd400;
+    --neon-magenta: #ff7eff;
   }
   /* In HC mode, kill the decorative mesh blobs + noise overlay
    * — both reduce contrast against text and serve no a11y purpose. */

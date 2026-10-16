@@ -294,7 +294,7 @@ export function CommentDrawer({ thread, onClose }: Props) {
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-text">Thread</span>
           {thread.resolved && (
-            <span className="text-[10px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+            <span className="text-[10px] uppercase font-bold text-success bg-success/10 px-1.5 py-0.5 rounded">
               resolved
             </span>
           )}
@@ -441,7 +441,7 @@ export function CommentDrawer({ thread, onClose }: Props) {
           <button
             type="button"
             onClick={toggleResolved}
-            className="flex items-center gap-1 px-2 py-1 rounded text-emerald-300 hover:bg-emerald-500/10 text-xs"
+            className="flex items-center gap-1 px-2 py-1 rounded text-success hover:bg-success/10 text-xs"
           >
             <CheckCircle2 className="w-3 h-3" />
             {thread.resolved ? "Reopen" : "Resolve"}
@@ -452,8 +452,8 @@ export function CommentDrawer({ thread, onClose }: Props) {
             aria-pressed={confirmDelete}
             className={`ml-auto text-xs transition-colors ${
               confirmDelete
-                ? "text-red-300 bg-red-500/15 border border-red-500/40 px-2 py-1 rounded font-semibold"
-                : "text-sub hover:text-red-400"
+                ? "text-danger bg-danger/15 border border-danger/40 px-2 py-1 rounded font-semibold"
+                : "text-sub hover:text-danger"
             }`}
           >
             {confirmDelete ? "Confirm delete" : "Delete"}

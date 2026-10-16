@@ -78,7 +78,7 @@ export function JoinClient({ initialCode, nextUrl }: Props) {
         {error && (
           <div
             role="alert"
-            className="flex items-start gap-2 border border-red-500/40 bg-red-500/10 rounded px-3 py-2 text-sm text-red-200"
+            className="flex items-start gap-2 border border-danger/40 bg-danger/10 rounded px-3 py-2 text-sm text-danger"
           >
             <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
             <span>{error}</span>

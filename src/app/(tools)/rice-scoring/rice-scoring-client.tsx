@@ -248,12 +248,12 @@ export function RiceScoringClient() {
                   {ranked.map((r) => (
                     <tr
                       key={r.id}
-                      className={`border-t border-border ${outliers.has(r.id) ? "bg-amber-500/5" : ""}`}
+                      className={`border-t border-border ${outliers.has(r.id) ? "bg-warning/5" : ""}`}
                     >
                       <td className="p-2 font-mono text-xs">{r.rank}</td>
                       <td className="p-2 flex items-center gap-2">
                         {r.title}{" "}
-                        {outliers.has(r.id) && <AlertTriangle className="w-3 h-3 text-amber-400" />}
+                        {outliers.has(r.id) && <AlertTriangle className="w-3 h-3 text-warning" />}
                       </td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.reach}</td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.impact}</td>
@@ -264,7 +264,7 @@ export function RiceScoringClient() {
                         <button
                           onClick={() => remove(r.id)}
                           aria-label="Remove item"
-                          className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
+                          className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

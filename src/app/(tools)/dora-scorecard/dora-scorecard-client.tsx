@@ -690,8 +690,8 @@ function TrendChip({
   const isFavorable = betterDown ? trend === "down" : trend === "up";
   const arrow = trend === "up" ? "↗" : "↘";
   const tone = isFavorable
-    ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
-    : "border-amber-500/40 text-amber-300 bg-amber-500/10";
+    ? "border-success/40 text-success bg-success/10"
+    : "border-warning/40 text-warning bg-warning/10";
   return (
     <Badge variant="outline" className={`font-mono text-[10px] tracking-wider uppercase ${tone}`}>
       {label} {arrow} significant

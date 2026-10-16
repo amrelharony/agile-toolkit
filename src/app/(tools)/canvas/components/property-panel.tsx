@@ -882,7 +882,7 @@ function TagsEditor({
               Add
             </button>
             {capWarning && (
-              <span role="status" className="text-[9px] font-mono text-amber-400 ml-1">
+              <span role="status" className="text-[9px] font-mono text-warning ml-1">
                 ⚠ Some objects at 8-tag limit
               </span>
             )}

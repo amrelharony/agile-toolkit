@@ -75,7 +75,7 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
       )}
     >
       {prestige > 0 && (
-        <span className="flex items-center gap-0.5 text-amber-300 shrink-0">
+        <span className="flex items-center gap-0.5 text-warning shrink-0">
           <Crown className="w-3 h-3" aria-hidden="true" />
           <span className="font-data">{prestige}</span>
         </span>
@@ -105,7 +105,7 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
         <span className="text-[9px]">ach</span>
       </span>
       {comboDepth >= 1 && comboMult > 1 && (
-        <span className="flex items-center gap-0.5 text-amber-300 animate-pulse shrink-0">
+        <span className="flex items-center gap-0.5 text-warning animate-pulse shrink-0">
           <Zap className="w-3 h-3" aria-hidden="true" />
           <span className="font-data">×{comboMult}</span>
         </span>

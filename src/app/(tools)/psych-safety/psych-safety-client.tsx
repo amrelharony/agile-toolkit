@@ -367,7 +367,7 @@ export function PsychSafetyClient() {
                 <span className="text-sub mr-1">Q{q.id.slice(1)}.</span>
                 {q.text}
                 {q.reversed && (
-                  <span className="ml-2 text-[10px] uppercase tracking-wider text-amber-300">
+                  <span className="ml-2 text-[10px] uppercase tracking-wider text-warning">
                     reversed
                   </span>
                 )}
@@ -400,7 +400,7 @@ export function PsychSafetyClient() {
             className="bg-bg border-border text-sm"
             aria-label="Respondent"
           />
-          <p className="text-[11px] text-amber-300 -mt-1">
+          <p className="text-[11px] text-warning -mt-1">
             Edmondson&rsquo;s instrument relies on anonymity for honest answers. Leave blank to
             preserve it.
           </p>

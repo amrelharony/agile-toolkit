@@ -71,14 +71,14 @@ const CATEGORIES: { id: RuleCategory; label: string; color: string }[] = [
   {
     id: "meetings",
     label: "Meetings",
-    color: "border-amber-500/40 bg-amber-500/10 text-amber-300",
+    color: "border-warning/40 bg-warning/10 text-warning",
   },
   {
     id: "decisions",
     label: "Decisions",
     color: "border-purple-500/40 bg-purple-500/10 text-purple-300",
   },
-  { id: "work", label: "Work", color: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { id: "work", label: "Work", color: "border-success/40 bg-success/10 text-success" },
   { id: "conflict", label: "Conflict", color: "border-danger/40 bg-danger/10 text-danger" },
   { id: "other", label: "Other", color: "border-border bg-surface text-sub" },
 ];
@@ -632,7 +632,7 @@ export function WorkingAgreementClient() {
                         onClick={() => toggleStillWorking(r.id)}
                         className={`gap-1 ${
                           r.stillWorking === true
-                            ? "text-emerald-400 hover:text-emerald-300"
+                            ? "text-success hover:text-success"
                             : r.stillWorking === false
                               ? "text-danger hover:text-danger/80"
                               : "text-sub hover:text-text"

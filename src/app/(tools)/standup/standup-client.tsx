@@ -50,16 +50,16 @@ function ageLabel(timestamp: number) {
 
 function ageColor(timestamp: number) {
   const hours = (Date.now() - timestamp) / 3600_000;
-  if (hours < 24) return "text-[#22c55e]";
-  if (hours < 72) return "text-[#eab308]";
-  return "text-[#ef4444]";
+  if (hours < 24) return "text-success";
+  if (hours < 72) return "text-warning";
+  return "text-danger";
 }
 
 function ageBg(timestamp: number) {
   const hours = (Date.now() - timestamp) / 3600_000;
-  if (hours < 24) return "border-[#22c55e]/30 bg-[#22c55e]/5";
-  if (hours < 72) return "border-[#eab308]/30 bg-[#eab308]/5";
-  return "border-[#ef4444]/30 bg-[#ef4444]/5";
+  if (hours < 24) return "border-success/30 bg-success/5";
+  if (hours < 72) return "border-warning/30 bg-warning/5";
+  return "border-danger/30 bg-danger/5";
 }
 
 function generateDayDigest(entries: StandupEntry[], date: string): string {
@@ -128,13 +128,13 @@ function EntryCard({
             <span className="font-medium text-text">{entry.member}</span>
           </div>
           {hasBlocker && !isResolved && (
-            <Badge className="bg-[#ef4444]/15 text-[#ef4444] border-[#ef4444]/30 gap-1">
+            <Badge className="bg-danger/15 text-danger border-danger/30 gap-1">
               <AlertTriangle className="w-3 h-3" />
               Blocker
             </Badge>
           )}
           {isResolved && (
-            <Badge className="bg-[#22c55e]/15 text-[#22c55e] border-[#22c55e]/30 gap-1">
+            <Badge className="bg-success/15 text-success border-success/30 gap-1">
               <CheckCircle2 className="w-3 h-3" />
               Resolved
             </Badge>
@@ -156,17 +156,17 @@ function EntryCard({
         {hasBlocker && (
           <div
             className={`rounded-md border p-3 ${
-              isResolved ? "border-border bg-card" : "border-[#ef4444]/30 bg-[#ef4444]/5"
+              isResolved ? "border-border bg-card" : "border-danger/30 bg-danger/5"
             }`}
           >
             <p className="text-xs text-sub mb-1 uppercase tracking-wider">Blockers</p>
-            <p className={`text-sm ${isResolved ? "text-sub line-through" : "text-[#ef4444]"}`}>
+            <p className={`text-sm ${isResolved ? "text-sub line-through" : "text-danger"}`}>
               {entry.blockers}
             </p>
             {!isResolved && (
               <button
                 onClick={onResolve}
-                className="mt-2 text-xs text-[#22c55e] hover:underline flex items-center gap-1 min-touch-coarse py-1"
+                className="mt-2 text-xs text-success hover:underline flex items-center gap-1 min-touch-coarse py-1"
               >
                 <CheckCircle2 className="w-3 h-3" />
                 Mark resolved
@@ -208,13 +208,11 @@ function TodayTab({
           <p className="text-xs text-sub mt-0.5">Submitted</p>
         </div>
         <div className="bg-surface border border-border rounded-lg p-3 text-center">
-          <p className="text-fluid-h3 font-data font-bold text-[#eab308]">
-            {missingMembers.length}
-          </p>
+          <p className="text-fluid-h3 font-data font-bold text-warning">{missingMembers.length}</p>
           <p className="text-xs text-sub mt-0.5">Missing</p>
         </div>
         <div className="bg-surface border border-border rounded-lg p-3 text-center">
-          <p className="text-fluid-h3 font-data font-bold text-[#ef4444]">
+          <p className="text-fluid-h3 font-data font-bold text-danger">
             {
               todayEntries.filter((e) => e.blockers.trim() && !resolvedBlockers.includes(e.id))
                 .length
@@ -363,7 +361,7 @@ function HistoryTab({ entries, members }: { entries: StandupEntry[]; members: st
                   </td>
                   <td className="py-3 text-sub max-w-xs">
                     {e.blockers ? (
-                      <span className="text-[#ef4444]">{e.blockers}</span>
+                      <span className="text-danger">{e.blockers}</span>
                     ) : (
                       <span className="opacity-40">—</span>
                     )}
@@ -414,10 +412,10 @@ function BlockersTab({
       {/* Open blockers */}
       <div>
         <div className="flex items-center gap-2 mb-3">
-          <AlertTriangle className="w-4 h-4 text-[#ef4444]" />
+          <AlertTriangle className="w-4 h-4 text-danger" />
           <h3 className="text-sm font-medium text-text uppercase tracking-wider">Open Blockers</h3>
           {blockerEntries.length > 0 && (
-            <Badge className="bg-[#ef4444]/15 text-[#ef4444] border-[#ef4444]/30">
+            <Badge className="bg-danger/15 text-danger border-danger/30">
               {blockerEntries.length}
             </Badge>
           )}
@@ -425,7 +423,7 @@ function BlockersTab({
 
         {blockerEntries.length === 0 ? (
           <div className="text-center py-8 text-sub text-sm bg-surface border border-border rounded-lg">
-            <CheckCircle2 className="w-8 h-8 text-[#22c55e] mx-auto mb-2 opacity-60" />
+            <CheckCircle2 className="w-8 h-8 text-success mx-auto mb-2 opacity-60" />
             No open blockers — all clear!
           </div>
         ) : (
@@ -452,7 +450,7 @@ function BlockersTab({
                     size="sm"
                     variant="ghost"
                     onClick={() => onResolve(e.id)}
-                    className="shrink-0 text-[#22c55e] hover:text-[#22c55e] hover:bg-[#22c55e]/10 gap-1.5 text-xs"
+                    className="shrink-0 text-success hover:text-success hover:bg-success/10 gap-1.5 text-xs"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     Resolve
@@ -468,7 +466,7 @@ function BlockersTab({
       {resolvedEntries.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
-            <CheckCircle2 className="w-4 h-4 text-[#22c55e]" />
+            <CheckCircle2 className="w-4 h-4 text-success" />
             <h3 className="text-sm font-medium text-sub uppercase tracking-wider">Resolved</h3>
           </div>
           <div className="space-y-2">
@@ -709,7 +707,7 @@ export function StandupClient() {
             </div>
             {recentBlockerCount > 0 && (
               <Badge
-                className="bg-[#ef4444]/15 text-[#ef4444] border-[#ef4444]/30 gap-1.5"
+                className="bg-danger/15 text-danger border-danger/30 gap-1.5"
                 title="Blockers logged in the Impediments tool in the last 7 days. Bring these up during standup."
               >
                 <AlertTriangle className="w-3 h-3" />
@@ -803,7 +801,7 @@ export function StandupClient() {
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="text-xs text-sub uppercase tracking-wider">Blockers</span>
                   {blockers.trim() && (
-                    <span className="inline-flex items-center gap-1 text-[#ef4444] text-xs">
+                    <span className="inline-flex items-center gap-1 text-danger text-xs">
                       <AlertTriangle className="w-3 h-3" />
                       Will be flagged
                     </span>
@@ -815,7 +813,7 @@ export function StandupClient() {
                   placeholder="Any impediments or blockers? (leave blank if none)"
                   rows={2}
                   className={`bg-surface-deep border-border text-text resize-none focus:border-accent/50 ${
-                    blockers.trim() ? "border-[#ef4444]/40 focus:border-[#ef4444]/60" : ""
+                    blockers.trim() ? "border-danger/40 focus:border-danger/60" : ""
                   }`}
                 />
               </div>
@@ -897,7 +895,7 @@ export function StandupClient() {
                       </div>
                       <button
                         onClick={() => removeMember(m)}
-                        className="text-sub hover:text-red-400 transition-colors min-touch-coarse inline-flex items-center justify-center"
+                        className="text-sub hover:text-danger transition-colors min-touch-coarse inline-flex items-center justify-center"
                         aria-label={`Remove ${m}`}
                       >
                         <Trash2 className="w-3.5 h-3.5" />

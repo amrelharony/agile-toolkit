@@ -464,7 +464,7 @@ export function DependencyMapClient() {
               return (
                 <div
                   key={n.id}
-                  className={`flex items-start gap-2 rounded-lg border p-2 ${onCritical ? "border-amber-500/40 bg-amber-500/5" : "border-border bg-surface"}`}
+                  className={`flex items-start gap-2 rounded-lg border p-2 ${onCritical ? "border-warning/40 bg-warning/5" : "border-border bg-surface"}`}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-text truncate">{n.label}</div>

@@ -78,11 +78,11 @@ function useRiskiestAssumption(): [State, (u: State | ((p: State) => State)) => 
 
 const STATUS_OPTS: { id: Status; label: string; tone: string }[] = [
   { id: "untested", label: "Untested", tone: "border-border bg-surface text-sub" },
-  { id: "testing", label: "Testing", tone: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  { id: "testing", label: "Testing", tone: "border-warning/40 bg-warning/10 text-warning" },
   {
     id: "validated",
     label: "Validated",
-    tone: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
+    tone: "border-success/40 bg-success/10 text-success",
   },
   { id: "invalidated", label: "Invalidated", tone: "border-danger/40 bg-danger/10 text-danger" },
 ];
@@ -476,8 +476,8 @@ export function RiskiestAssumptionClient() {
                   )}
                 </ul>
               </div>
-              <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 min-h-[100px] min-w-0">
-                <div className="text-[10px] uppercase tracking-wider text-amber-300 font-bold mb-2">
+              <div className="rounded-lg border border-warning/40 bg-warning/5 p-3 min-h-[100px] min-w-0">
+                <div className="text-[10px] uppercase tracking-wider text-warning font-bold mb-2">
                   Monitor · high risk · high evidence
                 </div>
                 <ul className="space-y-1 text-xs text-text">
@@ -508,8 +508,8 @@ export function RiskiestAssumptionClient() {
                   )}
                 </ul>
               </div>
-              <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 min-h-[100px] min-w-0">
-                <div className="text-[10px] uppercase tracking-wider text-emerald-300 font-bold mb-2">
+              <div className="rounded-lg border border-success/40 bg-success/5 p-3 min-h-[100px] min-w-0">
+                <div className="text-[10px] uppercase tracking-wider text-success font-bold mb-2">
                   Solid · low risk · high evidence
                 </div>
                 <ul className="space-y-1 text-xs text-text">

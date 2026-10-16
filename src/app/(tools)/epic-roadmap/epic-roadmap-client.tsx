@@ -416,7 +416,7 @@ export function EpicRoadmapClient() {
       ) : (
         <Card className="bg-surface border-border">
           {truncatedSpan && (
-            <div className="px-4 pt-3 text-xs text-amber-300">
+            <div className="px-4 pt-3 text-xs text-warning">
               Showing the first {MAX_QUARTERS_SPAN} quarters of {requestedSpan} requested. Narrow
               your “to” quarter to see every epic.
             </div>

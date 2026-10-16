@@ -449,8 +449,8 @@ export function FeatureFlagTrackerClient() {
             <span
               className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
                 flagTrend.trend === "up"
-                  ? "border-amber-500/40 text-amber-300 bg-amber-500/10"
-                  : "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+                  ? "border-warning/40 text-warning bg-warning/10"
+                  : "border-success/40 text-success bg-success/10"
               }`}
             >
               <TrendingUp className={`w-3 h-3 ${flagTrend.trend === "down" ? "rotate-180" : ""}`} />
@@ -627,7 +627,7 @@ export function FeatureFlagTrackerClient() {
                     className={cn(
                       "border",
                       stale
-                        ? "bg-amber-500/5 border-amber-500/40"
+                        ? "bg-warning/5 border-warning/40"
                         : f.retiredAt
                           ? "bg-bg/50 border-border"
                           : "bg-surface border-border"
@@ -680,7 +680,7 @@ export function FeatureFlagTrackerClient() {
                               : stale
                                 ? "bg-danger/15 text-danger"
                                 : age > 30
-                                  ? "bg-amber-500/10 text-amber-300"
+                                  ? "bg-warning/10 text-warning"
                                   : "bg-bg text-sub"
                           )}
                         >
