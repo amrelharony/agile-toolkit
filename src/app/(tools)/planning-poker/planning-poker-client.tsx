@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { customAlphabet } from "nanoid";
 import { WifiOff } from "lucide-react";
@@ -10,7 +10,7 @@ import { generatePlanningPokerPrompts } from "@/lib/ai-prompts/planning-poker";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
-import { useIsOwner } from "@/lib/auth/use-is-owner";
+import { useOwnerState } from "@/lib/auth/use-is-owner";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,12 @@ import { SectionCard } from "@/components/shared/section-card";
 import { SessionShareButton } from "@/components/collab/session-share-button";
 import { SessionScreen } from "./session-screen";
 import { usePokerSession } from "./use-poker-session";
+import {
+  adoptLocalSession,
+  clearLocalSession,
+  loadLocalSession,
+  saveLocalSession,
+} from "./local-session";
 import { SCALES, SCALE_LABELS, type ScaleType, type Session } from "./types";
 
 // 6-char codes from a 32-symbol unambiguous alphabet (no 0/O/1/I/L). Backed
@@ -168,7 +174,7 @@ function LobbyScreen({
 export function PlanningPokerClient() {
   // Visitors get a solo session: useRoom keeps them off Realtime and the
   // squad invite button hides itself, so the copy says so instead.
-  const isOwner = useIsOwner();
+  const { isOwner, visitor } = useOwnerState();
   const [activeRoomCode, setActiveRoomCode] = useState<string | null>(null);
   // isLocalOnly from usePokerSession is true whenever roomCode is null
   // (lobby) — so it can't distinguish "lobby, env is fine" from "lobby,
@@ -193,6 +199,34 @@ export function PlanningPokerClient() {
     setSession(pendingInitial);
     setPendingInitial(null);
   }, [pendingInitial, isConnected, isLocalOnly, setSession]);
+
+  // Local-only sessions (visitors, or the owner without Realtime env)
+  // survive a refresh or a trip to another tool: restore the stored one
+  // once auth says which kind of viewer this is. Checked once per mount
+  // so leaving a session doesn't bring it straight back. A live room is
+  // never restored — the owner with Realtime keeps today's behavior.
+  const restoreCheckedRef = useRef(false);
+  useEffect(() => {
+    if (restoreCheckedRef.current) return;
+    // Still loading, or an owner re-check is pending: wait for a verdict.
+    if (!visitor && !isOwner) return;
+    restoreCheckedRef.current = true;
+    if (isOwner && isRealtimeAvailable()) return;
+    if (session || pendingInitial) return;
+    const stored = loadLocalSession();
+    if (!stored) return;
+    setPendingInitial(adoptLocalSession(stored, userId));
+    setActiveRoomCode(stored.roomCode);
+  }, [visitor, isOwner, session, pendingInitial, userId]);
+
+  // Mirror every change of a local-only session into storage. A session
+  // that turns out to be live (an owner who started before auth
+  // verified them) drops its stale local copy instead.
+  useEffect(() => {
+    if (!session) return;
+    if (isLocalOnly) saveLocalSession(session);
+    else clearLocalSession();
+  }, [session, isLocalOnly]);
 
   const handleStart = ({
     sessionName,
@@ -223,6 +257,7 @@ export function PlanningPokerClient() {
   };
 
   const handleLeave = () => {
+    clearLocalSession();
     broadcastSessionEnded();
     setActiveRoomCode(null);
     setPendingInitial(null);
@@ -333,6 +368,7 @@ export function PlanningPokerClient() {
               connectionTone={isLocalOnly ? "warn" : "live"}
               // Nobody can join a local-only room, so don't show its code.
               showRoomCode={!isLocalOnly}
+              leaveClearsSession={isLocalOnly}
             />
           </motion.div>
         )}
