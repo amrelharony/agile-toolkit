@@ -100,6 +100,7 @@ export function SectionCard({
           )}
         >
           <CardTitle
+            as="h2"
             className={cn(
               titleSizeClass,
               "font-display text-text flex items-center gap-2 min-w-0 flex-1"

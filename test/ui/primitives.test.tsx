@@ -79,3 +79,30 @@ describe("LiveAnnouncer", () => {
     vi.useRealTimers();
   });
 });
+
+describe("Slider", () => {
+  it("names the thumb (the role=slider element) from the slider's aria-label", async () => {
+    const { Slider } = await import("@/components/ui/slider");
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    render(<Slider aria-label="Confidence" defaultValue={[50]} max={100} />);
+    expect(screen.getByRole("slider", { name: "Confidence" })).toBeInTheDocument();
+  });
+});
+
+describe("CardTitle", () => {
+  it("is a heading", async () => {
+    const { Card, CardHeader, CardTitle } = await import("@/components/ui/card");
+    render(
+      <Card>
+        <CardHeader>
+          <CardTitle>Team members</CardTitle>
+        </CardHeader>
+      </Card>
+    );
+    expect(screen.getByRole("heading", { level: 3, name: "Team members" })).toBeInTheDocument();
+  });
+});
