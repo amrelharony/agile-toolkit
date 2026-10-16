@@ -7,26 +7,29 @@ import { AppShell } from "@/components/layout/app-shell";
 import { AppToaster } from "@/components/layout/app-toaster";
 import { ParticleBackground } from "@/components/shared/particle-background";
 
+// Variable fonts (no `weight` list): the UI uses font-medium (500) and
+// font-bold (700) hundreds of times, and with only 300/400/600/800 loaded
+// the browser snapped them to 400 and 800.
 const inter = Inter({
   subsets: ["latin"],
-  weight: ["300", "400", "600", "800"],
   variable: "--font-inter",
   display: "swap",
 });
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["400", "700"],
   variable: "--font-mono",
   display: "swap",
 });
 
+// Only a couple of decorative spots use the serif, so don't make every page
+// preload it.
 const sourceSerif = Source_Serif_4({
   subsets: ["latin"],
-  weight: ["400", "600", "700"],
   style: ["normal", "italic"],
   variable: "--font-serif",
   display: "swap",
+  preload: false,
 });
 
 export const metadata: Metadata = {
