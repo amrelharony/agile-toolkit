@@ -162,7 +162,7 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                               />
                               <main
                                 id="main-content"
-                                className="flex-1 pb-[calc(2rem+env(safe-area-inset-bottom))] md:pb-8 pl-safe pr-safe md:pl-0 md:pr-0"
+                                className="flex-1 pb-[calc(8rem+env(safe-area-inset-bottom))] md:pb-28 pl-safe pr-safe md:pl-0 md:pr-0"
                               >
                                 {children}
                               </main>

@@ -28,7 +28,7 @@ const OWNER_ONLY = [
 describe("visitor bundle boundary", () => {
   it.each(SHARED_MODULES)("%s does not statically import the agent runtime", (file) => {
     const src = readFileSync(path.join(process.cwd(), file), "utf8");
-    const staticImports = Array.from(src.matchAll(/^import[^;]*?from\s+["']([^"']+)["']/gms)).map(
+    const staticImports = Array.from(src.matchAll(/^import[^;]*?from\s+["']([^"']+)["']/gm)).map(
       (m) => m[1]
     );
     const sideEffectImports = Array.from(src.matchAll(/^import\s+["']([^"']+)["']/gm)).map(
