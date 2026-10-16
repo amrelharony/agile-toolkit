@@ -118,7 +118,10 @@ export function RetroCardItem({
         {/* Action item checkbox in actions phase */}
         {phase === "actions" && card.groupedWith === null && (
           <button
+            type="button"
             onClick={() => onToggleAction(card.id)}
+            aria-label="Action item"
+            aria-pressed={card.isActionItem}
             className="mt-0.5 shrink-0 text-sub hover:text-accent transition-colors"
           >
             {card.isActionItem ? (
@@ -163,8 +166,10 @@ export function RetroCardItem({
           {/* Delete */}
           {phase === "write" && (
             <button
+              type="button"
               onClick={() => onDelete(card.id)}
-              className="opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100 p-1 text-sub hover:text-status-red transition-all"
+              aria-label="Delete card"
+              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100 p-1 text-sub hover:text-status-red transition-all"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
