@@ -525,9 +525,7 @@ export function WardleyMapClient() {
             />
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-sub">
-                  Evolution (0-1)
-                </label>
+                <label className="text-xs uppercase tracking-wider text-sub">Evolution (0-1)</label>
                 <Input
                   type="number"
                   min={0}
@@ -547,7 +545,7 @@ export function WardleyMapClient() {
                 />
               </div>
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-sub">
+                <label className="text-xs uppercase tracking-wider text-sub">
                   Visibility (0-1)
                 </label>
                 <Input
@@ -602,15 +600,15 @@ export function WardleyMapClient() {
                 >
                   <div className="flex-1 min-w-[140px]">
                     <div className="text-sm text-text">{c.name}</div>
-                    <div className="text-[10px] text-sub uppercase tracking-wider">
+                    <div className="text-xs text-sub uppercase tracking-wider">
                       {evolutionStage(c.evolution)}
                     </div>
                     {c.description && (
-                      <div className="text-[11px] text-sub mt-0.5 break-words">{c.description}</div>
+                      <div className="text-xs text-sub mt-0.5 break-words">{c.description}</div>
                     )}
                   </div>
                   <div className="flex items-center gap-1">
-                    <span className="text-[10px] uppercase tracking-wider text-sub">evo</span>
+                    <span className="text-xs uppercase tracking-wider text-sub">evo</span>
                     <NumDraftInput
                       value={c.evolution}
                       onCommit={(n) => moveComponent(c.id, { evolution: n })}
@@ -618,7 +616,7 @@ export function WardleyMapClient() {
                     />
                   </div>
                   <div className="flex items-center gap-1">
-                    <span className="text-[10px] uppercase tracking-wider text-sub">vis</span>
+                    <span className="text-xs uppercase tracking-wider text-sub">vis</span>
                     <NumDraftInput
                       value={c.visibility}
                       onCommit={(n) => moveComponent(c.id, { visibility: n })}

@@ -77,7 +77,7 @@ export function RetroColumnPanel({
             {column.label}
           </span>
         </div>
-        <Badge variant="outline" className="text-[10px] bg-cardH border-border text-sub">
+        <Badge variant="outline" className="text-xs bg-cardH border-border text-sub">
           {cards.length}
         </Badge>
       </div>

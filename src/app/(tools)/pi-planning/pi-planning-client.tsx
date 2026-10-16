@@ -254,7 +254,7 @@ export function PiPlanningClient() {
 
       {sprintsSincePiStart.length > 0 && (
         <div className="mb-3">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/5 text-accent px-2.5 py-1 text-[11px]">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/5 text-accent px-2.5 py-1 text-xs">
             {sprintsSincePiStart.length} sprint{sprintsSincePiStart.length === 1 ? "" : "s"}{" "}
             completed since PI start
           </span>
@@ -379,7 +379,7 @@ export function PiPlanningClient() {
                         className="bg-bg border-border text-sm h-8"
                       />
                       {team.description && (
-                        <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
+                        <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
                           {team.description}
                         </div>
                       )}
@@ -424,7 +424,7 @@ export function PiPlanningClient() {
                       <div
                         className={`rounded-lg border p-2 space-y-1 min-h-[100px] ${over ? "border-danger/40 bg-danger/5" : "border-border bg-surface"}`}
                       >
-                        <div className="flex items-center justify-between text-[10px] text-sub font-data">
+                        <div className="flex items-center justify-between text-xs text-sub font-data">
                           <span>
                             {planned} / {team.velocity}
                           </span>
@@ -453,7 +453,7 @@ export function PiPlanningClient() {
                               }
                               placeholder="Description (optional)..."
                               rows={2}
-                              className="bg-surface border-border resize-none text-[10px] py-1"
+                              className="bg-surface border-border resize-none text-xs py-1"
                               aria-label="Item description"
                             />
                             <div className="flex items-center gap-1">
@@ -469,14 +469,14 @@ export function PiPlanningClient() {
                                   if (Number.isFinite(n) && n >= 0)
                                     updateItem(item.id, { points: n });
                                 }}
-                                className="bg-surface border-border font-data text-[10px] h-6 w-12"
+                                className="bg-surface border-border font-data text-xs h-6 w-12"
                               />
                               <select
                                 value={item.kind}
                                 onChange={(e) =>
                                   updateItem(item.id, { kind: e.target.value as PiItem["kind"] })
                                 }
-                                className="bg-surface border border-border rounded text-[10px] h-6 flex-1 px-1"
+                                className="bg-surface border border-border rounded text-xs h-6 flex-1 px-1"
                               >
                                 <option value="feature">feature</option>
                                 <option value="dependency">dep</option>
@@ -497,7 +497,7 @@ export function PiPlanningClient() {
                           variant="ghost"
                           size="sm"
                           onClick={() => addItem(team.id, it)}
-                          className="w-full h-6 text-[10px] text-sub hover:text-accent"
+                          className="w-full h-6 text-xs text-sub hover:text-accent"
                         >
                           <Plus className="w-3 h-3" />
                         </Button>

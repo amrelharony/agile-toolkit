@@ -539,10 +539,7 @@ export function WorkingAgreementClient() {
                 onClick={() => addRuleFromCatalog(s)}
                 className="text-left rounded-lg border border-border bg-bg hover:border-accent/40 hover:bg-accent/5 transition px-3 py-2 max-w-[320px]"
               >
-                <Badge
-                  variant="outline"
-                  className={`${CATEGORY_CLASS[s.category]} text-[10px] mb-1`}
-                >
+                <Badge variant="outline" className={`${CATEGORY_CLASS[s.category]} text-xs mb-1`}>
                   {s.category}
                 </Badge>
                 <div className="text-xs text-text">{s.text}</div>
@@ -677,7 +674,7 @@ export function WorkingAgreementClient() {
                     ariaLabel="Agreed by"
                   />
                   {r.description && (
-                    <div className="text-sub text-[11px] whitespace-pre-wrap break-words">
+                    <div className="text-sub text-xs whitespace-pre-wrap break-words">
                       {r.description}
                     </div>
                   )}

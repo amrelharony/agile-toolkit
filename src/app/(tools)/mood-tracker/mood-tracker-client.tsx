@@ -469,14 +469,14 @@ export function MoodTrackerClient() {
                   const face = FACES.find((f) => f.score === e.score);
                   return (
                     <li key={e.id} className="rounded-md border border-border bg-bg p-2">
-                      <div className="flex items-center gap-2 text-[11px] text-sub font-data">
+                      <div className="flex items-center gap-2 text-xs text-sub font-data">
                         <span style={{ color: face?.color }}>{face?.label}</span>
                         <span>·</span>
                         <span>{m?.name ?? e.memberId}</span>
                         <span>·</span>
                         <span>{e.date}</span>
                       </div>
-                      <div className="text-sub text-[11px] mt-0.5 whitespace-pre-wrap break-words">
+                      <div className="text-sub text-xs mt-0.5 whitespace-pre-wrap break-words">
                         {e.note}
                       </div>
                     </li>
@@ -495,7 +495,7 @@ export function MoodTrackerClient() {
               <h3 className="text-sm font-semibold text-text">Daily-average mood</h3>
               {moodTrend?.significant && (
                 <span
-                  className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                  className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                     // For mood, "up" trend is good, "down" is concerning.
                     moodTrend.trend === "up"
                       ? "border-accent-green/40 text-accent-green bg-accent-green/10"
@@ -568,7 +568,7 @@ export function MoodTrackerClient() {
                 {days.map((d) => (
                   <div
                     key={d}
-                    className="text-[9px] text-sub font-data text-center rotate-[-45deg] origin-bottom-left mt-4"
+                    className="text-xs text-sub font-data text-center rotate-[-45deg] origin-bottom-left mt-4"
                   >
                     {d.slice(5)}
                   </div>

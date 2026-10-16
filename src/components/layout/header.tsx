@@ -201,7 +201,7 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
           <Search className="w-4 h-4 md:w-3.5 md:h-3.5" aria-hidden="true" />
           <span className="hidden md:inline">Search tools...</span>
         </span>
-        <kbd className="hidden md:inline font-mono text-nano text-sub bg-[var(--card)] border border-border rounded px-1.5 py-0.5">
+        <kbd className="hidden md:inline font-mono text-xs text-sub bg-[var(--card)] border border-border rounded px-1.5 py-0.5">
           {mounted && isMac ? "⌘K" : "Ctrl K"}
         </kbd>
       </button>

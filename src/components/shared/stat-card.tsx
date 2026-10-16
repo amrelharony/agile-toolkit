@@ -104,7 +104,7 @@ export function StatCard({
     return (
       <Card className={cn(cardToneClass, className)}>
         <CardContent className="p-3 sm:p-4">
-          <div className="text-[10px] sm:text-xs uppercase tracking-wider text-sub mb-1 flex items-center gap-1 min-w-0">
+          <div className="text-xs uppercase tracking-wider text-sub mb-1 flex items-center gap-1 min-w-0">
             {Icon && <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
             <span className="truncate">{label}</span>
           </div>

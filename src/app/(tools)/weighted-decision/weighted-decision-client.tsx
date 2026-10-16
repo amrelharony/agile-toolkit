@@ -187,7 +187,7 @@ export function WeightedDecisionClient() {
             </Button>
           </div>
           {criteria.length > 0 && !weightsBalanced && (
-            <div className="mt-2 rounded border border-warning/30 bg-warning/5 px-2 py-1 text-[11px] text-warning">
+            <div className="mt-2 rounded border border-warning/30 bg-warning/5 px-2 py-1 text-xs text-warning">
               Weights sum to {weightSum.toFixed(2)}. Pugh/MCDA convention is sum=1.0 (or sum=100).
               Unequal totals make per-option scores hard to compare across rubrics.
             </div>

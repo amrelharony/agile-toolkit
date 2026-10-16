@@ -190,7 +190,7 @@ export function ToolbarTop() {
                   setNameDraft(board.name);
                   setEditing(true);
                 }}
-                className="text-[11px] text-sub hover:text-accent transition-colors uppercase tracking-wider"
+                className="text-xs text-sub hover:text-accent transition-colors uppercase tracking-wider"
                 title="Rename board"
                 aria-label={`Rename board ${board.name}`}
               >

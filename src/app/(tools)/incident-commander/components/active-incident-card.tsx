@@ -179,7 +179,7 @@ export function ActiveIncidentCard({
                 <Copy className="w-3 h-3 mr-1" aria-hidden="true" /> Copy
               </Button>
             </div>
-            <pre className="text-[11px] text-text whitespace-pre-wrap break-words font-data">
+            <pre className="text-xs text-text whitespace-pre-wrap break-words font-data">
               {slackTemplate}
             </pre>
           </div>
@@ -195,7 +195,7 @@ export function ActiveIncidentCard({
                 <Copy className="w-3 h-3 mr-1" aria-hidden="true" /> Copy
               </Button>
             </div>
-            <pre className="text-[11px] text-text whitespace-pre-wrap break-words font-data">
+            <pre className="text-xs text-text whitespace-pre-wrap break-words font-data">
               {emailTemplate}
             </pre>
           </div>

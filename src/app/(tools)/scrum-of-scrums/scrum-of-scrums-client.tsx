@@ -273,13 +273,13 @@ export function ScrumOfScrumsClient() {
               <div className="flex items-start gap-3">
                 <div className="flex flex-col items-center w-20 shrink-0">
                   <div
-                    className="text-[10px] uppercase font-data"
+                    className="text-xs uppercase font-data"
                     style={{ color: KIND_COLORS[e.kind] }}
                   >
                     {e.kind}
                   </div>
                   <div className="text-xs text-sub font-data">{e.meetingDate}</div>
-                  <div className="text-[10px] text-sub">age {ageDays(e) ?? "—"}d</div>
+                  <div className="text-xs text-sub">age {ageDays(e) ?? "—"}d</div>
                 </div>
                 <div className="flex-1 min-w-0 space-y-1">
                   <div className="text-sm font-semibold text-text">{e.team}</div>

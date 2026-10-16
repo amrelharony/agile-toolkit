@@ -580,7 +580,7 @@ export function CodeReviewMetricsClient() {
           hint="lines changed"
         />
       </KpiGrid>
-      <div className="text-[11px] text-sub mb-4 -mt-2 font-mono">
+      <div className="text-xs text-sub mb-4 -mt-2 font-mono">
         {unmerged > 0 ? `${unmerged} PR(s) still open` : ""}
       </div>
 
@@ -678,7 +678,7 @@ export function CodeReviewMetricsClient() {
         icon={GitPullRequest}
         className="mb-6 bg-surface border-border"
       >
-        <div className="text-[11px] text-sub mb-2">
+        <div className="text-xs text-sub mb-2">
           Paste a CSV with columns:{" "}
           <code>
             prNumber, author, openedAt, mergedAt, reviewerCount, commentCount, linesChanged,
@@ -714,7 +714,7 @@ export function CodeReviewMetricsClient() {
           headerExtras={
             cycleTrend?.significant ? (
               <span
-                className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                   // For cycle time, "down" trend is good (faster), "up" is bad.
                   cycleTrend.trend === "down"
                     ? "border-accent-green/40 text-accent-green bg-accent-green/10"
@@ -843,7 +843,7 @@ export function CodeReviewMetricsClient() {
           height={260}
           className="mb-6"
         >
-          <div className="text-[11px] text-sub px-1 mb-2">
+          <div className="text-xs text-sub px-1 mb-2">
             Measures comments left on each author&apos;s PRs — not reviews-given. Reviewer-level
             credit isn&apos;t available because comments are logged at the PR level only.
           </div>
@@ -888,7 +888,7 @@ export function CodeReviewMetricsClient() {
                     <CardContent className="p-3 space-y-1.5">
                       <div className="flex flex-wrap items-center gap-2 text-xs">
                         {s.prNumber && (
-                          <Badge variant="outline" className="font-data text-[10px]">
+                          <Badge variant="outline" className="font-data text-xs">
                             {s.prNumber}
                           </Badge>
                         )}

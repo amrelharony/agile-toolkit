@@ -586,7 +586,7 @@ export function RfcTrackerClient() {
                           >
                             <div className="flex items-baseline justify-between gap-2 mb-0.5">
                               <span className="font-semibold text-text">{c.author}</span>
-                              <span className="text-[10px] text-sub font-data">
+                              <span className="text-xs text-sub font-data">
                                 {new Date(c.ts).toLocaleString()}
                               </span>
                             </div>

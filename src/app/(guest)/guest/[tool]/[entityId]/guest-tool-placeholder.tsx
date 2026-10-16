@@ -53,7 +53,7 @@ export function GuestToolPlaceholder({ toolId, entityId, role, profile }: Props)
             Back
           </Link>
           <span
-            className={`text-[10px] uppercase font-bold ${
+            className={`text-xs uppercase font-bold ${
               role === "editor"
                 ? "text-warning"
                 : role === "commenter"
@@ -110,7 +110,7 @@ export function GuestToolPlaceholder({ toolId, entityId, role, profile }: Props)
             </div>
           )}
 
-          <p className="text-[10px] text-sub italic pt-2 border-t border-border">
+          <p className="text-xs text-sub italic pt-2 border-t border-border">
             Generic placeholder for tools without a guest renderer yet.
           </p>
         </div>

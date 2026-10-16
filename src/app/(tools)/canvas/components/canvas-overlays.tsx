@@ -33,51 +33,65 @@ export function PresenceChips(props: {
   logActivity: (kind: string, summary: string) => void;
 }) {
   const {
-    members, selfId, followUserId, setFollowUserId,
-    camera, size, broadcastFocus, selectionBbox, selection, logActivity,
+    members,
+    selfId,
+    followUserId,
+    setFollowUserId,
+    camera,
+    size,
+    broadcastFocus,
+    selectionBbox,
+    selection,
+    logActivity,
   } = props;
 
   if (members.length === 0) return null;
 
   return (
-    <div className="absolute top-3 right-3 z-20 flex items-center gap-1" data-canvas-export-ignore="true">
-      {members.filter((m) => m.id !== selfId).slice(0, 8).map((m) => {
-        const isFollowing = followUserId === m.id;
-        return (
-          <button
-            key={m.id}
-            type="button"
-            title={isFollowing ? `Stop following ${m.name}` : `Follow ${m.name}`}
-            aria-label={isFollowing ? `Stop following ${m.name}` : `Follow ${m.name}`}
-            onClick={() => setFollowUserId(isFollowing ? null : m.id)}
-            style={{
-              width: 26,
-              height: 26,
-              borderRadius: "50%",
-              background: m.color,
-              color: "#0b0f17",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 11,
-              fontWeight: 700,
-              border: isFollowing ? "2px solid #00f0ff" : "2px solid #0b0f17",
-              marginLeft: -6,
-              cursor: "pointer",
-              boxShadow: isFollowing ? "0 0 8px rgba(0,240,255,0.6)" : undefined,
-            }}
-          >
-            {m.name.charAt(0).toUpperCase()}
-          </button>
-        );
-      })}
+    <div
+      className="absolute top-3 right-3 z-20 flex items-center gap-1"
+      data-canvas-export-ignore="true"
+    >
+      {members
+        .filter((m) => m.id !== selfId)
+        .slice(0, 8)
+        .map((m) => {
+          const isFollowing = followUserId === m.id;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              title={isFollowing ? `Stop following ${m.name}` : `Follow ${m.name}`}
+              aria-label={isFollowing ? `Stop following ${m.name}` : `Follow ${m.name}`}
+              onClick={() => setFollowUserId(isFollowing ? null : m.id)}
+              style={{
+                width: 26,
+                height: 26,
+                borderRadius: "50%",
+                background: m.color,
+                color: "#0b0f17",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 11,
+                fontWeight: 700,
+                border: isFollowing ? "2px solid #00f0ff" : "2px solid #0b0f17",
+                marginLeft: -6,
+                cursor: "pointer",
+                boxShadow: isFollowing ? "0 0 8px rgba(0,240,255,0.6)" : undefined,
+              }}
+            >
+              {m.name.charAt(0).toUpperCase()}
+            </button>
+          );
+        })}
       {followUserId && (
         <button
           type="button"
           onClick={() => setFollowUserId(null)}
           aria-label="Stop following"
           title="Stop following"
-          className="ml-1 text-[10px] uppercase font-mono text-accent hover:text-text px-2 py-1 rounded bg-surface/95 border border-accent"
+          className="ml-1 text-xs uppercase font-mono text-accent hover:text-text px-2 py-1 rounded bg-surface/95 border border-accent"
         >
           following
         </button>
@@ -87,7 +101,8 @@ export function PresenceChips(props: {
         onClick={() => {
           if (size.w === 0) return;
           broadcastFocus("snap", {
-            x: camera.x, y: camera.y,
+            x: camera.x,
+            y: camera.y,
             w: size.w / Math.max(0.001, camera.zoom),
             h: size.h / Math.max(0.001, camera.zoom),
           });
@@ -95,7 +110,7 @@ export function PresenceChips(props: {
         }}
         aria-label="Bring everyone to my view"
         title="Bring everyone to me"
-        className="ml-1 text-[10px] uppercase font-mono text-sub hover:text-text px-2 py-1 rounded bg-surface/95 border border-border"
+        className="ml-1 text-xs uppercase font-mono text-sub hover:text-text px-2 py-1 rounded bg-surface/95 border border-border"
       >
         Bring all
       </button>
@@ -103,18 +118,22 @@ export function PresenceChips(props: {
         type="button"
         onClick={() => {
           const target = selectionBbox ?? {
-            x: camera.x, y: camera.y,
+            x: camera.x,
+            y: camera.y,
             w: size.w / Math.max(0.001, camera.zoom),
             h: size.h / Math.max(0.001, camera.zoom),
           };
           broadcastFocus("spotlight", target);
-          logActivity("spotlight", selectionBbox
-            ? `Spotlighted ${selection.length} object${selection.length === 1 ? "" : "s"}`
-            : "Spotlighted my view");
+          logActivity(
+            "spotlight",
+            selectionBbox
+              ? `Spotlighted ${selection.length} object${selection.length === 1 ? "" : "s"}`
+              : "Spotlighted my view"
+          );
         }}
         aria-label="Spotlight"
         title="Spotlight (8s flash on peer screens)"
-        className="ml-1 text-[10px] uppercase font-mono text-sub hover:text-text px-2 py-1 rounded bg-surface/95 border border-border"
+        className="ml-1 text-xs uppercase font-mono text-sub hover:text-text px-2 py-1 rounded bg-surface/95 border border-border"
       >
         Spotlight
       </button>
@@ -208,10 +227,11 @@ export function EmptyCanvasHint(props: { objectCount: number }) {
   if (props.objectCount !== 0) return null;
   return (
     <div
-      className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none text-[10px] text-sub/70 font-mono text-center"
+      className="absolute bottom-3 left-1/2 -translate-x-1/2 pointer-events-none text-xs text-sub/70 font-mono text-center"
       data-canvas-export-ignore="true"
     >
-      Hold <kbd className="px-1 bg-surface/70 border border-border rounded text-[10px]">Space</kbd> + drag to pan · scroll to zoom
+      Hold <kbd className="px-1 bg-surface/70 border border-border rounded text-xs">Space</kbd> +
+      drag to pan · scroll to zoom
     </div>
   );
 }

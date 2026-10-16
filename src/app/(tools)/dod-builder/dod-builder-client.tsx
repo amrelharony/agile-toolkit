@@ -312,7 +312,7 @@ export function DodBuilderClient() {
               {adherenceTrend?.significant && (
                 <Badge
                   variant="outline"
-                  className={`font-mono text-[10px] tracking-wider uppercase ${
+                  className={`font-mono text-xs tracking-wider uppercase ${
                     adherenceTrend.trend === "up"
                       ? "border-success/40 text-success bg-success/10"
                       : "border-warning/40 text-warning bg-warning/10"
@@ -461,7 +461,7 @@ export function DodBuilderClient() {
                   <div className="flex-1 min-w-0">
                     <div className="text-text text-sm">{item.label}</div>
                     {item.description && (
-                      <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
+                      <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
                         {item.description}
                       </div>
                     )}

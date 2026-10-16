@@ -779,7 +779,7 @@ export function RACIClient() {
                         value={role.description ?? ""}
                         onCommit={(v) => updateRoleDescription(role.id, v)}
                         placeholder="Description (optional)..."
-                        className="mt-1 h-6 text-[11px] bg-surface border-border"
+                        className="mt-1 h-6 text-xs bg-surface border-border"
                         aria-label={`Description for role ${role.name}`}
                       />
                     </th>
@@ -831,7 +831,7 @@ export function RACIClient() {
                           value={activity.description ?? ""}
                           onCommit={(v) => updateActivityDescription(activity.id, v)}
                           placeholder="Description (optional)..."
-                          className="mt-1 h-6 text-[11px] bg-surface border-border"
+                          className="mt-1 h-6 text-xs bg-surface border-border"
                           aria-label={`Description for activity ${activity.name}`}
                         />
                       </td>

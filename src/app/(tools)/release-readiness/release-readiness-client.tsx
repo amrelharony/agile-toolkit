@@ -496,7 +496,7 @@ export function ReleaseReadinessClient() {
             gatePassTrend?.significant ? (
               <Badge
                 variant="outline"
-                className={`font-mono text-[10px] tracking-wider uppercase ${
+                className={`font-mono text-xs tracking-wider uppercase ${
                   gatePassTrend.trend === "up"
                     ? "border-success/40 text-success bg-success/10"
                     : "border-warning/40 text-warning bg-warning/10"
@@ -712,7 +712,7 @@ function ReleaseCard({
               />
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-semibold text-text">{g.label}</div>
-                <div className="text-[11px] text-sub line-clamp-2">{g.description}</div>
+                <div className="text-xs text-sub line-clamp-2">{g.description}</div>
               </div>
             </label>
           ))}

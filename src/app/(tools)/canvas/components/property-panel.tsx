@@ -336,7 +336,7 @@ function PropertyPanelImpl({
               aria-label={`Routing ${r}`}
               title={r}
               onClick={() => patchAll(connectors, { routing: r } as Partial<WhiteboardConnector>)}
-              className="text-[10px] uppercase font-mono px-1.5 py-1 rounded text-sub hover:text-text hover:bg-surface-deep"
+              className="text-xs uppercase font-mono px-1.5 py-1 rounded text-sub hover:text-text hover:bg-surface-deep"
             >
               {r[0]}
             </button>
@@ -421,7 +421,7 @@ function PropertyPanelImpl({
                     patchAll(stickies, { fontSize: s } as Partial<WhiteboardSticky>);
                   if (texts.length > 0) patchAll(texts, { fontSize: s } as Partial<WhiteboardText>);
                 }}
-                className={`min-w-[22px] h-6 px-1 rounded text-[10px] font-mono transition-colors ${
+                className={`min-w-[22px] h-6 px-1 rounded text-xs font-mono transition-colors ${
                   active
                     ? "bg-accent/20 text-accent"
                     : "text-sub hover:text-text hover:bg-surface-deep"
@@ -457,7 +457,7 @@ function PropertyPanelImpl({
                   if (texts.length > 0)
                     patchAll(texts, { fontFamily: f.value } as Partial<WhiteboardText>);
                 }}
-                className={`h-6 px-1.5 rounded text-[10px] transition-colors ${
+                className={`h-6 px-1.5 rounded text-xs transition-colors ${
                   active
                     ? "bg-accent/20 text-accent"
                     : "text-sub hover:text-text hover:bg-surface-deep"
@@ -551,7 +551,7 @@ function PropertyPanelImpl({
           type="button"
           onClick={() => onOpenCardDetail(cards[0].id)}
           title="Open full card details (Cmd+E)"
-          className="text-[10px] uppercase font-mono px-2 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10 transition-colors"
+          className="text-xs uppercase font-mono px-2 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10 transition-colors"
         >
           Details
         </button>
@@ -574,7 +574,7 @@ function PropertyPanelImpl({
                   startedAt: undefined,
                 } as Partial<WhiteboardTimer>)
               }
-              className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+              className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
             >
               {Math.round(sec / 60)}m
             </button>
@@ -597,7 +597,7 @@ function PropertyPanelImpl({
                 revealed: false,
               } as Partial<WhiteboardVoting>)
             }
-            className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             Fib
           </button>
@@ -612,7 +612,7 @@ function PropertyPanelImpl({
                 revealed: false,
               } as Partial<WhiteboardVoting>)
             }
-            className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             T-shirt
           </button>
@@ -627,7 +627,7 @@ function PropertyPanelImpl({
                 revealed: false,
               } as Partial<WhiteboardVoting>)
             }
-            className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             Dots
           </button>
@@ -648,7 +648,7 @@ function PropertyPanelImpl({
                 columnLabels: ["To do", "In progress", "Done"],
               } as Partial<WhiteboardKanbanFrame>)
             }
-            className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             3
           </button>
@@ -662,7 +662,7 @@ function PropertyPanelImpl({
                 columnLabels: ["Backlog", "To do", "In progress", "Done"],
               } as Partial<WhiteboardKanbanFrame>)
             }
-            className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             4
           </button>
@@ -676,7 +676,7 @@ function PropertyPanelImpl({
                 columnLabels: ["Backlog", "To do", "In progress", "Review", "Done"],
               } as Partial<WhiteboardKanbanFrame>)
             }
-            className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             5
           </button>
@@ -821,7 +821,7 @@ function TagsEditor({
         }`}
       >
         <Tag className="w-3.5 h-3.5" aria-hidden="true" />
-        {tags.length > 0 && <span className="text-[9px] font-mono ml-0.5">{tags.length}</span>}
+        {tags.length > 0 && <span className="text-xs font-mono ml-0.5">{tags.length}</span>}
       </button>
       {open && (
         <div
@@ -833,7 +833,7 @@ function TagsEditor({
               {tags.map((t) => (
                 <span
                   key={t}
-                  className="inline-flex items-center gap-1 bg-accent/15 text-accent border border-accent/30 rounded-full px-2 py-0.5 text-[10px] font-mono"
+                  className="inline-flex items-center gap-1 bg-accent/15 text-accent border border-accent/30 rounded-full px-2 py-0.5 text-xs font-mono"
                 >
                   {t}
                   <button
@@ -848,7 +848,7 @@ function TagsEditor({
               ))}
             </div>
           ) : (
-            <p className="text-[10px] text-sub italic mb-2">No tags yet.</p>
+            <p className="text-xs text-sub italic mb-2">No tags yet.</p>
           )}
           <form
             onSubmit={(e) => {
@@ -877,12 +877,12 @@ function TagsEditor({
             <button
               type="submit"
               disabled={!input.trim()}
-              className="text-[10px] uppercase font-mono text-sub hover:text-accent px-2 py-1 disabled:opacity-30"
+              className="text-xs uppercase font-mono text-sub hover:text-accent px-2 py-1 disabled:opacity-30"
             >
               Add
             </button>
             {capWarning && (
-              <span role="status" className="text-[9px] font-mono text-warning ml-1">
+              <span role="status" className="text-xs font-mono text-warning ml-1">
                 ⚠ Some objects at 8-tag limit
               </span>
             )}

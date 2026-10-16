@@ -719,7 +719,7 @@ export function SloBuilderClient() {
               {/* Mann-Kendall trend chip on the burn series. */}
               <Badge
                 variant="outline"
-                className={`font-mono text-[10px] tracking-wider uppercase ${
+                className={`font-mono text-xs tracking-wider uppercase ${
                   !burnAnalytics.mk.significant || burnAnalytics.mk.trend === "none"
                     ? "text-sub border-border"
                     : burnAnalytics.mk.trend === "up"

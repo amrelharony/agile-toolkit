@@ -142,7 +142,7 @@ export function GuestCanvasClient({ boardId, role, profile }: Props) {
             />
             <span className="text-xs text-text truncate">{profile.displayName}</span>
             <span
-              className={`text-[10px] uppercase font-bold ${
+              className={`text-xs uppercase font-bold ${
                 role === "editor"
                   ? "text-warning"
                   : role === "commenter"
@@ -154,7 +154,7 @@ export function GuestCanvasClient({ boardId, role, profile }: Props) {
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-1.5 text-[11px] text-sub">
+        <div className="flex items-center gap-1.5 text-xs text-sub">
           <Users className="w-3 h-3" aria-hidden="true" />
           {realtimeOn ? "Live" : "Local-only"}
         </div>

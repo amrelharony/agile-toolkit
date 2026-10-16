@@ -1,13 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  Legend,
-} from "recharts";
+import { PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -117,7 +111,7 @@ function MoneyField({
           className="bg-bg border-border font-data pl-6"
         />
       </div>
-      {hint && <div className="text-[10px] text-sub">{hint}</div>}
+      {hint && <div className="text-xs text-sub">{hint}</div>}
     </div>
   );
 }
@@ -166,20 +160,21 @@ export function QualityCostClient() {
   const pct = (n: number) => (total ? (n / total) * 100 : 0);
 
   const pieData = useMemo(
-    () => [
-      { name: "Prevention", value: state.preventionCost, color: COLOR_MAP.prevention },
-      { name: "Detection", value: state.detectionCost, color: COLOR_MAP.detection },
-      {
-        name: "Internal failure",
-        value: state.internalFailureCost,
-        color: COLOR_MAP.internal,
-      },
-      {
-        name: "External failure",
-        value: state.externalFailureCost,
-        color: COLOR_MAP.external,
-      },
-    ].filter((d) => d.value > 0),
+    () =>
+      [
+        { name: "Prevention", value: state.preventionCost, color: COLOR_MAP.prevention },
+        { name: "Detection", value: state.detectionCost, color: COLOR_MAP.detection },
+        {
+          name: "Internal failure",
+          value: state.internalFailureCost,
+          color: COLOR_MAP.internal,
+        },
+        {
+          name: "External failure",
+          value: state.externalFailureCost,
+          color: COLOR_MAP.external,
+        },
+      ].filter((d) => d.value > 0),
     [state]
   );
 
@@ -203,8 +198,7 @@ export function QualityCostClient() {
     [state, total, conformance, nonConformance, workspace]
   );
 
-  const fmt = (n: number) =>
-    n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
   return (
     <ToolPageWrapper
@@ -280,19 +274,14 @@ export function QualityCostClient() {
               : "ext failures escaping QA"
           }
           tone={
-            state.externalFailureCost > state.internalFailureCost &&
-            state.externalFailureCost > 0
+            state.externalFailureCost > state.internalFailureCost && state.externalFailureCost > 0
               ? "danger"
               : "default"
           }
         />
       </KpiGrid>
 
-      <SectionCard
-        title="Costs"
-        icon={DollarSign}
-        className="mb-6 bg-surface border-border"
-      >
+      <SectionCard title="Costs" icon={DollarSign} className="mb-6 bg-surface border-border">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <MoneyField
             id="coq-prevention"
@@ -369,9 +358,7 @@ export function QualityCostClient() {
               outerRadius={110}
               innerRadius={60}
               paddingAngle={2}
-              label={({ name, percent }) =>
-                `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
-              }
+              label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
             >
               {pieData.map((d) => (
                 <Cell key={d.name} fill={d.color} />
@@ -390,13 +377,12 @@ export function QualityCostClient() {
       )}
 
       <CalloutAlert tone="info">
-        <strong>COQ framework:</strong> Cost of Quality splits into{" "}
-        <em>conformance</em> (prevention + detection) and <em>non-conformance</em>{" "}
-        (internal + external failure). Mature orgs typically run ~70/30 conformance
-        to non-conformance. The classic Crosby rule of thumb:{" "}
+        <strong>COQ framework:</strong> Cost of Quality splits into <em>conformance</em> (prevention
+        + detection) and <em>non-conformance</em> (internal + external failure). Mature orgs
+        typically run ~70/30 conformance to non-conformance. The classic Crosby rule of thumb:{" "}
         <strong>$1 invested in prevention saves about $100 in eventual failure cost.</strong>{" "}
-        External failures (the ones customers see) are usually 4-10× more expensive
-        than internal ones — so &ldquo;ship faster, fix later&rdquo; rarely pencils out.
+        External failures (the ones customers see) are usually 4-10× more expensive than internal
+        ones — so &ldquo;ship faster, fix later&rdquo; rarely pencils out.
       </CalloutAlert>
     </ToolPageWrapper>
   );

@@ -509,7 +509,7 @@ export function OneOnOneClient() {
                   <div className="flex items-start gap-2">
                     <button
                       onClick={() => toggleAgendaStatus(a.id)}
-                      className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded font-data border border-current/40 shrink-0 hover:opacity-80 min-touch-coarse inline-flex items-center justify-center"
+                      className="text-xs uppercase tracking-wider px-1.5 py-0.5 rounded font-data border border-current/40 shrink-0 hover:opacity-80 min-touch-coarse inline-flex items-center justify-center"
                       aria-label={`Cycle status for ${a.text}`}
                     >
                       {STATUS_LABELS[a.status]}
@@ -645,12 +645,12 @@ export function OneOnOneClient() {
                           key={a.id}
                           className={`rounded-md border p-2 text-xs ${STATUS_TONE[a.status]}`}
                         >
-                          <span className="text-[10px] uppercase tracking-wider mr-2 font-data">
+                          <span className="text-xs uppercase tracking-wider mr-2 font-data">
                             {STATUS_LABELS[a.status]}
                           </span>
                           <span className="text-text">{a.text}</span>
                           {a.action && (
-                            <div className="text-[11px] mt-1 text-sub">
+                            <div className="text-xs mt-1 text-sub">
                               → {a.action}
                               {a.owner && ` (${a.owner})`}
                               {a.dueDate && ` · due ${a.dueDate}`}

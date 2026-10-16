@@ -261,7 +261,7 @@ export default function InsightsPage() {
                   );
                 })}
               </div>
-              <div className="flex items-center justify-between text-[10px] text-sub mt-3">
+              <div className="flex items-center justify-between text-xs text-sub mt-3">
                 <span>{stats.heatmap[0]?.day}</span>
                 <span className="flex items-center gap-1">
                   less
@@ -367,7 +367,7 @@ function EmptyState({ visitor }: { visitor: boolean }) {
         aggregate from your history.
       </p>
       {visitor && (
-        <p className="text-[11px] mt-3 text-accent/80">
+        <p className="text-xs mt-3 text-accent/80">
           Your history and insights are saved in this browser only.
         </p>
       )}

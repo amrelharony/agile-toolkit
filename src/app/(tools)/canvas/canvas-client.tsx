@@ -935,7 +935,7 @@ export function CanvasClient() {
         {readOnly && (
           <div
             data-canvas-export-ignore="true"
-            className={`absolute top-3 left-3 z-20 text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded ${
+            className={`absolute top-3 left-3 z-20 text-xs uppercase font-bold tracking-wider px-2 py-1 rounded ${
               mode === "commenter"
                 ? "bg-cyan-700/40 text-cyan-100"
                 : "bg-amber-700/40 text-amber-100"
@@ -975,7 +975,7 @@ export function CanvasClient() {
               <h3 className="text-sm font-semibold text-text mb-1">Start your board</h3>
               <p className="text-xs text-sub mb-3">
                 Pick a template or import — or press{" "}
-                <kbd className="font-mono text-[10px] bg-surface-deep border border-border rounded px-1 py-0.5">
+                <kbd className="font-mono text-xs bg-surface-deep border border-border rounded px-1 py-0.5">
                   N
                 </kbd>{" "}
                 for a sticky.
@@ -1018,7 +1018,7 @@ export function CanvasClient() {
                 // scored ~1.2:1 — WCAG fails). text-*-100 on bg-*-700/50
                 // brings critical/warn/info badges above 4.5:1 in the
                 // canvas's dark surface.
-                className={`uppercase font-bold text-[10px] px-1.5 py-0.5 rounded ${
+                className={`uppercase font-bold text-xs px-1.5 py-0.5 rounded ${
                   i.severity === "critical"
                     ? "bg-red-700/50 text-red-100"
                     : i.severity === "warn"

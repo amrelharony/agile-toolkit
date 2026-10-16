@@ -447,7 +447,7 @@ export function FeatureFlagTrackerClient() {
         <div className="flex flex-wrap items-center gap-2 mb-4">
           {flagTrend.significant ? (
             <span
-              className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
+              className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
                 flagTrend.trend === "up"
                   ? "border-warning/40 text-warning bg-warning/10"
                   : "border-success/40 text-success bg-success/10"
@@ -458,7 +458,7 @@ export function FeatureFlagTrackerClient() {
               <span className="opacity-60">· p={flagTrend.pValue.toFixed(3)}</span>
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface">
+            <span className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface">
               <TrendingUp className="w-3 h-3" />
               Weekly flag creation trend: no significant change
             </span>
@@ -522,7 +522,7 @@ export function FeatureFlagTrackerClient() {
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <p className="text-[11px] text-sub mt-2">
+          <p className="text-xs text-sub mt-2">
             Kaplan-Meier estimate over {retiredAges.length} retired flag
             {retiredAges.length === 1 ? "" : "s"} (active flags are right-censored). Y-axis:
             probability the flag is still active after N days.
@@ -638,7 +638,7 @@ export function FeatureFlagTrackerClient() {
                         <div className="min-w-0">
                           <div className="font-data text-sm text-text break-all">{f.name}</div>
                           {f.description && (
-                            <div className="text-[11px] text-sub mt-0.5 whitespace-pre-wrap">
+                            <div className="text-xs text-sub mt-0.5 whitespace-pre-wrap">
                               {f.description}
                             </div>
                           )}
@@ -652,7 +652,7 @@ export function FeatureFlagTrackerClient() {
                           ) : (
                             ENV_LABEL[f.environment]
                           )}
-                          <div className="text-[11px] mt-0.5">{PURPOSE_LABEL[f.purpose]}</div>
+                          <div className="text-xs mt-0.5">{PURPOSE_LABEL[f.purpose]}</div>
                         </div>
                         <Select
                           value={f.status}
@@ -689,7 +689,7 @@ export function FeatureFlagTrackerClient() {
                               createdAt — show an em-dash instead. */}
                           {Number.isFinite(age) ? `${age}d` : "—"}
                           {f.retiredAt && (
-                            <div className="text-[10px] text-sub mt-0.5">retired {f.retiredAt}</div>
+                            <div className="text-xs text-sub mt-0.5">retired {f.retiredAt}</div>
                           )}
                         </div>
                         <div className="text-xs text-sub">since {f.createdAt}</div>

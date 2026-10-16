@@ -8,10 +8,7 @@ import { useActiveLlm } from "@/lib/llm/use-active-llm";
 import { generateMindMapPrompt } from "@/lib/whiteboard/ai-actions";
 import { extractJson } from "@/lib/utils/extract-json";
 
-const AiRunPanel = dynamic(
-  () => import("@/components/shared/ai-run-panel"),
-  { ssr: false },
-);
+const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), { ssr: false });
 
 /**
  * Recursive shape produced by the LLM. Parser validates that every
@@ -120,11 +117,15 @@ export function AiMindMapSection({
           disabled={!canGenerate || !isReady}
           className="w-full gap-1.5 bg-accent text-bg hover:bg-accent/90 font-semibold disabled:opacity-50"
         >
-          {armedPrompt ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Network className="w-3.5 h-3.5" />}
+          {armedPrompt ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Network className="w-3.5 h-3.5" />
+          )}
           Generate
         </Button>
         {!isReady && (
-          <p className="text-[10px] text-sub italic">
+          <p className="text-xs text-sub italic">
             Configure an AI provider to enable mind-map generation.{" "}
             <button
               type="button"
@@ -150,7 +151,7 @@ export function AiMindMapSection({
             <button
               type="button"
               onClick={onReset}
-              className="text-[10px] text-sub hover:text-text underline"
+              className="text-xs text-sub hover:text-text underline"
             >
               Start over
             </button>

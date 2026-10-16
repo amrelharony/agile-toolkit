@@ -278,12 +278,12 @@ export function AccessTokensClient() {
                   <div className="text-sm font-medium text-text truncate flex items-center gap-2">
                     {t.name}
                     {t.access_level && t.access_level !== "full" && (
-                      <span className="text-[10px] uppercase tracking-wide text-accent bg-accent/10 px-1.5 py-0.5 rounded">
+                      <span className="text-xs uppercase tracking-wide text-accent bg-accent/10 px-1.5 py-0.5 rounded">
                         {ACCESS_LEVEL_LABEL[t.access_level]}
                       </span>
                     )}
                     {t.revoked_at && (
-                      <span className="text-[10px] uppercase tracking-wide text-destructive bg-destructive/10 px-1.5 py-0.5 rounded">
+                      <span className="text-xs uppercase tracking-wide text-destructive bg-destructive/10 px-1.5 py-0.5 rounded">
                         revoked
                       </span>
                     )}

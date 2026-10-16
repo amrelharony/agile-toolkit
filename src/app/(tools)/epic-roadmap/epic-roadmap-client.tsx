@@ -496,7 +496,7 @@ export function EpicRoadmapClient() {
                               />
                               {idx === Math.floor((start + end) / 2) && (
                                 <div
-                                  className="absolute inset-0 flex items-center justify-center text-[10px] font-data"
+                                  className="absolute inset-0 flex items-center justify-center text-xs font-data"
                                   style={{ color }}
                                 >
                                   {e.progress}%

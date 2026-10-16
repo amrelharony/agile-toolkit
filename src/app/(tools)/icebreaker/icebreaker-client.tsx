@@ -161,21 +161,18 @@ function IceBreakerCard({
       </CardHeader>
       <CardContent className="pt-0">
         <div className="flex flex-wrap gap-1.5">
-          <Badge variant="outline" className={`text-[10px] ${categoryColors[icebreaker.category]}`}>
+          <Badge variant="outline" className={`text-xs ${categoryColors[icebreaker.category]}`}>
             {icebreaker.category}
           </Badge>
-          <Badge variant="outline" className="text-[10px] bg-cardH text-sub border-border">
+          <Badge variant="outline" className="text-xs bg-cardH text-sub border-border">
             <Clock className="w-3 h-3 mr-0.5" />
             {icebreaker.timeMinutes}m
           </Badge>
-          <Badge variant="outline" className="text-[10px] bg-cardH text-sub border-border">
+          <Badge variant="outline" className="text-xs bg-cardH text-sub border-border">
             <Users className="w-3 h-3 mr-0.5" />
             {sizeLabel[icebreaker.teamSize]}
           </Badge>
-          <Badge
-            variant="outline"
-            className={`text-[10px] ${energyColors[icebreaker.energyLevel]}`}
-          >
+          <Badge variant="outline" className={`text-xs ${energyColors[icebreaker.energyLevel]}`}>
             <Zap className="w-3 h-3 mr-0.5" />
             {icebreaker.energyLevel}
           </Badge>

@@ -167,7 +167,7 @@ function HypothesisRow({
           <Lightbulb className="w-5 h-5 text-accent mt-0.5 shrink-0" />
           <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
             <div>
-              <div className="text-[10px] uppercase text-sub mb-1">We believe</div>
+              <div className="text-xs uppercase text-sub mb-1">We believe</div>
               <Textarea
                 rows={2}
                 value={believe.draft}
@@ -178,7 +178,7 @@ function HypothesisRow({
               />
             </div>
             <div>
-              <div className="text-[10px] uppercase text-sub mb-1">We will do</div>
+              <div className="text-xs uppercase text-sub mb-1">We will do</div>
               <Textarea
                 rows={2}
                 value={willDo.draft}
@@ -189,7 +189,7 @@ function HypothesisRow({
               />
             </div>
             <div>
-              <div className="text-[10px] uppercase text-sub mb-1">To learn</div>
+              <div className="text-xs uppercase text-sub mb-1">To learn</div>
               <Textarea
                 rows={2}
                 value={toLearn.draft}
@@ -485,7 +485,7 @@ export function HypothesisTrackerClient() {
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <p className="text-[11px] text-sub mt-2">
+          <p className="text-xs text-sub mt-2">
             Kaplan-Meier estimate over {resolvedDurations.length} resolved hypothes
             {resolvedDurations.length === 1 ? "is" : "es"} (drafted / running are right-censored).
             Y-axis: probability the hypothesis is still open after N days.

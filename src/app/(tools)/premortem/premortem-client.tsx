@@ -259,7 +259,7 @@ export function PremortemClient() {
                     >
                       <ChevronUp className="w-3 h-3" />
                     </Button>
-                    <span className="text-[10px] text-sub font-data text-center">{idx + 1}</span>
+                    <span className="text-xs text-sub font-data text-center">{idx + 1}</span>
                     <Button
                       variant="ghost"
                       size="sm"

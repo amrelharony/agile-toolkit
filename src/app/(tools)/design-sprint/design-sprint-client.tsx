@@ -568,7 +568,7 @@ export function DesignSprintClient() {
         <CardContent className="p-4 space-y-3">
           <div className="flex flex-wrap items-baseline gap-2">
             <div className="text-base font-semibold text-text">{state.sprint.name}</div>
-            <Badge variant="outline" className="text-[10px] bg-bg border-border text-sub">
+            <Badge variant="outline" className="text-xs bg-bg border-border text-sub">
               Started {state.sprint.startDate}
             </Badge>
           </div>
@@ -615,7 +615,7 @@ export function DesignSprintClient() {
                   : "border-border bg-surface hover:border-accent/30"
               }`}
             >
-              <div className="text-[10px] uppercase tracking-wider text-sub">Day {d.day}</div>
+              <div className="text-xs uppercase tracking-wider text-sub">Day {d.day}</div>
               <div className="text-sm font-semibold text-text">{d.dayName}</div>
               <div className="text-xs text-sub font-data">{taskPct}% done</div>
             </button>

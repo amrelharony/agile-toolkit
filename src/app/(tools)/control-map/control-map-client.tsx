@@ -212,7 +212,7 @@ function ControlRow({
     <Card className="bg-surface border-border">
       <CardContent className="p-3 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="font-data text-[10px]">
+          <Badge variant="outline" className="font-data text-xs">
             {FRAMEWORK_LABEL[c.framework]}
           </Badge>
           <span className="font-data text-text text-sm">{c.controlId}</span>
@@ -271,7 +271,7 @@ function ControlRow({
         </div>
 
         <div className="space-y-1">
-          <div className="text-[10px] uppercase tracking-wider text-sub flex items-center gap-1">
+          <div className="text-xs uppercase tracking-wider text-sub flex items-center gap-1">
             <LinkIcon className="w-3 h-3" /> Evidence ({c.evidenceLinks.length})
           </div>
           {c.evidenceLinks.length > 0 && (
@@ -324,9 +324,7 @@ function ControlRow({
           </div>
         </div>
         {STATUS_TONE[c.status] === "success" && (
-          <div className="text-[10px] text-success/80">
-            Implemented &amp; ready for audit review.
-          </div>
+          <div className="text-xs text-success/80">Implemented &amp; ready for audit review.</div>
         )}
       </CardContent>
     </Card>

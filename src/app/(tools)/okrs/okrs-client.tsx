@@ -361,7 +361,7 @@ export function OkrsClient() {
                       {mk && measurableKrCount >= 10 && (
                         <Badge
                           variant="outline"
-                          className={`font-mono text-[10px] tracking-wider uppercase ${
+                          className={`font-mono text-xs tracking-wider uppercase ${
                             !mk.significant || mk.trend === "none"
                               ? "text-sub border-border"
                               : mk.trend === "up"
@@ -380,7 +380,7 @@ export function OkrsClient() {
                       {fc.length > 0 && fcConfidence && measurableKrCount >= 10 && (
                         <Badge
                           variant="outline"
-                          className="font-mono text-[10px] tracking-wider uppercase text-accent border-accent/40 bg-accent/10"
+                          className="font-mono text-xs tracking-wider uppercase text-accent border-accent/40 bg-accent/10"
                           title={`Across-the-list projection (NOT temporal). Confidence: ${fcConfidence}. Shown only with ≥10 KRs.`}
                         >
                           List proj ~ {Math.round(Math.max(0, Math.min(1, fc[0].yHat)) * 100)}%

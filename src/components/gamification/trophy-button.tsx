@@ -34,7 +34,7 @@ export function TrophyButton() {
       >
         <Trophy className="w-4 h-4" />
         {mounted && (
-          <span className="absolute -bottom-0.5 -right-0.5 text-[9px] font-data font-bold text-accent bg-bg rounded px-1 leading-tight">
+          <span className="absolute -bottom-0.5 -right-0.5 text-xs font-data font-bold text-accent bg-bg rounded px-1 leading-tight">
             {level}
           </span>
         )}

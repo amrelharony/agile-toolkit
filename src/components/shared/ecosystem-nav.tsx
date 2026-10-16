@@ -79,13 +79,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
           aria-label="Amr El Harony — Main site"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/ae.svg"
-            alt="AE"
-            width={22}
-            height={22}
-            className="rounded"
-          />
+          <img src="/ae.svg" alt="AE" width={22} height={22} className="rounded" />
         </a>
 
         <div className="w-px h-4 bg-border" />
@@ -100,7 +94,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
                 href={app.href}
                 className={`
                   relative px-2.5 py-1 rounded-md
-                  font-mono text-[10px] tracking-wider
+                  font-mono text-xs tracking-wider
                   transition-all duration-default
                   ${
                     isActive
@@ -132,7 +126,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
             onClick={() => setMobileOpen(!mobileOpen)}
             className="
               flex items-center gap-1
-              font-mono text-[10px] tracking-wider text-sub
+              font-mono text-xs tracking-wider text-sub
               hover:text-text
               transition-colors duration-fast
             "
@@ -164,7 +158,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
                   href={app.href}
                   className={`
                     block px-3 py-1.5
-                    font-mono text-[10px] tracking-wider
+                    font-mono text-xs tracking-wider
                     transition-colors duration-fast
                     ${
                       app.id === currentApp

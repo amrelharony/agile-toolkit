@@ -476,7 +476,7 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
           <button
             type="button"
             onClick={stop}
-            className="text-[10px] uppercase font-mono text-sub hover:text-text ml-1"
+            className="text-xs uppercase font-mono text-sub hover:text-text ml-1"
           >
             Stop
           </button>
@@ -492,7 +492,7 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
           <button
             type="button"
             onClick={() => setError(null)}
-            className="text-[10px] uppercase font-mono text-sub hover:text-text ml-2"
+            className="text-xs uppercase font-mono text-sub hover:text-text ml-2"
           >
             Dismiss
           </button>

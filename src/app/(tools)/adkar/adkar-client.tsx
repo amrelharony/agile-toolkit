@@ -434,7 +434,7 @@ export function AdkarClient() {
                           <div
                             key={s}
                             className={cn(
-                              "flex-1 rounded-md border px-1.5 py-1 text-[10px] uppercase tracking-wider text-center",
+                              "flex-1 rounded-md border px-1.5 py-1 text-xs uppercase tracking-wider text-center",
                               completed
                                 ? "border-success/50 bg-success/10 text-success"
                                 : isCurrent

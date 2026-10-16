@@ -316,7 +316,7 @@ function OwnerMenu() {
             <div className="text-sm font-medium text-text truncate">{displayName}</div>
             <div className="text-xs text-sub truncate">{user?.email}</div>
             {role && (
-              <Badge variant="secondary" className="mt-1.5 text-[10px]">
+              <Badge variant="secondary" className="mt-1.5 text-xs">
                 {role}
               </Badge>
             )}

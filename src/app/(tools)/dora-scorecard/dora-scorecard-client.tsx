@@ -681,7 +681,7 @@ function TrendChip({
     return (
       <Badge
         variant="outline"
-        className="font-mono text-[10px] tracking-wider uppercase text-sub border-border"
+        className="font-mono text-xs tracking-wider uppercase text-sub border-border"
       >
         {label} flat
       </Badge>
@@ -693,7 +693,7 @@ function TrendChip({
     ? "border-success/40 text-success bg-success/10"
     : "border-warning/40 text-warning bg-warning/10";
   return (
-    <Badge variant="outline" className={`font-mono text-[10px] tracking-wider uppercase ${tone}`}>
+    <Badge variant="outline" className={`font-mono text-xs tracking-wider uppercase ${tone}`}>
       {label} {arrow} significant
     </Badge>
   );

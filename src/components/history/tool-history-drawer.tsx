@@ -21,10 +21,9 @@ interface ToolHistoryDrawerProps {
  * The trigger button still pulls `useHistory` so the badge count is
  * accurate from first paint; the hook is small and mostly shared.
  */
-const ToolHistoryDrawerContent = dynamic(
-  () => import("./tool-history-drawer-content"),
-  { ssr: false }
-);
+const ToolHistoryDrawerContent = dynamic(() => import("./tool-history-drawer-content"), {
+  ssr: false,
+});
 
 export function ToolHistoryDrawer({ toolId }: ToolHistoryDrawerProps) {
   const [open, setOpen] = useState(false);
@@ -42,21 +41,13 @@ export function ToolHistoryDrawer({ toolId }: ToolHistoryDrawerProps) {
           <History className="w-3.5 h-3.5" aria-hidden="true" />
           <span className="hidden sm:inline">History</span>
           {total > 0 && (
-            <Badge
-              variant="secondary"
-              className="ml-0.5 px-1.5 py-0 h-4 text-[10px]"
-            >
+            <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 h-4 text-xs">
               {total > 999 ? "999+" : total}
             </Badge>
           )}
         </Button>
       </SheetTrigger>
-      {open && (
-        <ToolHistoryDrawerContent
-          toolId={toolId}
-          onClose={() => setOpen(false)}
-        />
-      )}
+      {open && <ToolHistoryDrawerContent toolId={toolId} onClose={() => setOpen(false)} />}
     </Sheet>
   );
 }

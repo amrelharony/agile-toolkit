@@ -244,7 +244,7 @@ export function PolarityMapClient() {
                     >
                       {p.label}
                     </div>
-                    <label className="block text-[10px] uppercase text-success mb-1">
+                    <label className="block text-xs uppercase text-success mb-1">
                       Upsides (one per line)
                     </label>
                     <PoleListTextarea
@@ -253,7 +253,7 @@ export function PolarityMapClient() {
                       onCommit={(lines) => updatePoleLines(p, "upsides", lines)}
                       placeholder="What goes well at this pole?"
                     />
-                    <label className="block text-[10px] uppercase text-danger mt-2 mb-1">
+                    <label className="block text-xs uppercase text-danger mt-2 mb-1">
                       Downsides (one per line)
                     </label>
                     <PoleListTextarea

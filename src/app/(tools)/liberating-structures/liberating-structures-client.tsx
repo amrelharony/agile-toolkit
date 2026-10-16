@@ -495,11 +495,11 @@ export function LiberatingStructuresClient() {
                   </div>
                   <div className="text-xs text-sub line-clamp-2">{s.purpose}</div>
                   <div className="flex flex-wrap gap-1.5 pt-1">
-                    <Badge variant="outline" className="text-[10px] bg-bg border-border text-sub">
+                    <Badge variant="outline" className="text-xs bg-bg border-border text-sub">
                       <Clock className="w-3 h-3 mr-0.5" />
                       {s.timing}
                     </Badge>
-                    <Badge variant="outline" className="text-[10px] bg-bg border-border text-sub">
+                    <Badge variant="outline" className="text-xs bg-bg border-border text-sub">
                       <Users className="w-3 h-3 mr-0.5" />
                       {s.groupSize}
                     </Badge>
@@ -510,7 +510,7 @@ export function LiberatingStructuresClient() {
                     <div className="relative z-10 pt-2 border-t border-border space-y-2">
                       <p className="text-xs text-text leading-relaxed">{s.description}</p>
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-sub">Source: {s.source}</span>
+                        <span className="text-xs text-sub">Source: {s.source}</span>
                         <Button
                           type="button"
                           size="sm"

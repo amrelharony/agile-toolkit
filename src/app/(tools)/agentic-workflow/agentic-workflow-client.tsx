@@ -263,7 +263,7 @@ export function AgenticWorkflowClient() {
                     <div className="flex items-center gap-2 p-2">
                       <span className="text-xs text-sub font-mono w-6">#{i + 1}</span>
                       <span
-                        className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded"
+                        className="text-xs uppercase font-bold px-1.5 py-0.5 rounded"
                         style={{
                           backgroundColor: KIND_COLORS[n.kind] + "20",
                           color: KIND_COLORS[n.kind],

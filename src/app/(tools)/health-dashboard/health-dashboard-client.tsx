@@ -530,7 +530,7 @@ export function HealthDashboardClient() {
               ) : (
                 <div className="w-10 h-10 rounded-full border-2 border-dashed border-border" />
               )}
-              <span className="text-[10px] text-sub text-center leading-tight max-w-[80px]">
+              <span className="text-xs text-sub text-center leading-tight max-w-[80px]">
                 {kpi.name}
               </span>
             </div>

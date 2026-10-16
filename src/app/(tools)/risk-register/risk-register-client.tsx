@@ -418,7 +418,7 @@ export function RiskRegisterClient() {
               <ShieldAlert className="w-4 h-4 text-accent" />
               5×5 Matrix
             </div>
-            <div className="grid grid-cols-6 gap-1 text-[10px]">
+            <div className="grid grid-cols-6 gap-1 text-xs">
               <div />
               {[1, 2, 3, 4, 5].map((i) => (
                 <div key={`h${i}`} className="text-center text-sub font-data">
@@ -480,7 +480,7 @@ export function RiskRegisterClient() {
         <div className="mb-4">
           {raisedTrend.significant ? (
             <span
-              className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
+              className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
                 raisedTrend.trend === "up"
                   ? "border-danger/40 text-danger bg-danger/10"
                   : "border-[#34d399]/40 text-[#34d399] bg-[#34d399]/10"
@@ -493,7 +493,7 @@ export function RiskRegisterClient() {
               <span className="opacity-60">· p={raisedTrend.pValue.toFixed(3)}</span>
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-[var(--surface-hover)]">
+            <span className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-[var(--surface-hover)]">
               <TrendingUp className="w-3 h-3" />
               Risk creation trend: no significant change
             </span>
@@ -556,7 +556,7 @@ export function RiskRegisterClient() {
               </ResponsiveContainer>
             </div>
             {causalAnnotations.length > 0 && (
-              <div className="mt-2 text-[11px] text-sub">
+              <div className="mt-2 text-xs text-sub">
                 {causalAnnotations.length} regime shift{causalAnnotations.length !== 1 ? "s" : ""}{" "}
                 detected (CUSUM markers)
               </div>
@@ -587,7 +587,7 @@ export function RiskRegisterClient() {
                           glance before the user reaches the editable textarea
                           below. */}
                       {r.mitigation && r.mitigation.trim().length > 0 && (
-                        <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
+                        <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
                           {r.mitigation}
                         </div>
                       )}
@@ -683,7 +683,7 @@ export function RiskRegisterClient() {
                   />
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] uppercase tracking-wider text-sub font-mono shrink-0 w-32">
+                      <span className="text-xs uppercase tracking-wider text-sub font-mono shrink-0 w-32">
                         Mitigation due
                       </span>
                       <SmartInput<string>

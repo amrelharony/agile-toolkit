@@ -57,7 +57,7 @@ export function RICETab({ items }: { items: BacklogItem[] }) {
                 <td className="py-3 pr-3 font-medium text-text align-top">
                   <div>{item.name}</div>
                   {item.description && (
-                    <div className="text-sub text-[11px] mt-0.5 mb-0.5 whitespace-pre-wrap break-words font-normal">
+                    <div className="text-sub text-xs mt-0.5 mb-0.5 whitespace-pre-wrap break-words font-normal">
                       {item.description}
                     </div>
                   )}

@@ -346,7 +346,7 @@ export function ImportModal({ boardId, onClose }: Props) {
             value={jiraCsv}
             onChange={(e) => onJiraCsvChange(e.target.value)}
             placeholder="Issue key,Summary,Status,Assignee,Story Points,..."
-            className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-[11px] font-mono text-text resize-none focus:outline-none focus:border-accent"
+            className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-xs font-mono text-text resize-none focus:outline-none focus:border-accent"
           />
           <button
             type="button"
@@ -383,10 +383,10 @@ export function ImportModal({ boardId, onClose }: Props) {
             value={diagramCsv}
             onChange={(e) => onDiagramCsvChange(e.target.value)}
             placeholder={"name,parent\nCEO,\nVP Eng,CEO\nVP Sales,CEO\nDev Lead,VP Eng"}
-            className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-[11px] font-mono text-text resize-none focus:outline-none focus:border-accent"
+            className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-xs font-mono text-text resize-none focus:outline-none focus:border-accent"
           />
           {diagramParsed?.error && (
-            <p className="text-[11px] text-warning mt-1">{diagramParsed.error}</p>
+            <p className="text-xs text-warning mt-1">{diagramParsed.error}</p>
           )}
           <button
             type="button"
@@ -422,7 +422,7 @@ export function ImportModal({ boardId, onClose }: Props) {
             placeholder={
               'Name,Role,Status\nAlex,PM,Active\nSara,Eng,Active\n"Jordan, Lee",QA,On leave'
             }
-            className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-[11px] font-mono text-text resize-none focus:outline-none focus:border-accent"
+            className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-xs font-mono text-text resize-none focus:outline-none focus:border-accent"
           />
           <button
             type="button"

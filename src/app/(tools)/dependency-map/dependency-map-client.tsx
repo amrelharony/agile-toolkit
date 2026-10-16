@@ -469,7 +469,7 @@ export function DependencyMapClient() {
                   <div className="flex-1 min-w-0">
                     <div className="text-sm text-text truncate">{n.label}</div>
                     {n.description && (
-                      <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
+                      <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
                         {n.description}
                       </div>
                     )}

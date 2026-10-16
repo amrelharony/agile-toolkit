@@ -344,14 +344,14 @@ function EventRow({ event, toolName, expanded, onToggle }: EventRowProps) {
       >
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 min-w-0">
-            <Badge variant="outline" className="text-[10px] shrink-0">
+            <Badge variant="outline" className="text-xs shrink-0">
               {toolName}
             </Badge>
             <span className="text-sm font-medium text-text truncate">
               {formatActionLabel(event.action)}
             </span>
             {event.isMilestone && (
-              <Badge variant="secondary" className="text-[9px] px-1 py-0">
+              <Badge variant="secondary" className="text-xs px-1 py-0">
                 milestone
               </Badge>
             )}
@@ -360,14 +360,14 @@ function EventRow({ event, toolName, expanded, onToggle }: EventRowProps) {
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <span className="hidden sm:inline text-[11px] text-sub font-mono">
+            <span className="hidden sm:inline text-xs text-sub font-mono">
               {event.occurredAt.slice(11, 16)}
             </span>
-            <span className="text-[11px] text-sub">{timeAgo(event.occurredAt)}</span>
+            <span className="text-xs text-sub">{timeAgo(event.occurredAt)}</span>
           </div>
         </div>
         {expanded && (
-          <pre className="mt-2 text-[11px] bg-surface-deep border border-border rounded p-2 overflow-x-auto font-mono leading-tight whitespace-pre-wrap break-all">
+          <pre className="mt-2 text-xs bg-surface-deep border border-border rounded p-2 overflow-x-auto font-mono leading-tight whitespace-pre-wrap break-all">
             {JSON.stringify(event.payload, null, 2)}
           </pre>
         )}

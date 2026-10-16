@@ -424,7 +424,7 @@ export function Board({
                 return (
                   <span
                     key={i}
-                    className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border"
+                    className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border"
                     style={{
                       color: themed(color),
                       borderColor: tint(color, 40),

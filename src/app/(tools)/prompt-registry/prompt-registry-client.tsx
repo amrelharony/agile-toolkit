@@ -277,7 +277,7 @@ export function PromptRegistryClient() {
                             {p.name}@{p.version}
                           </span>
                           <span
-                            className="text-[10px] uppercase px-1.5 py-0.5 rounded font-bold"
+                            className="text-xs uppercase px-1.5 py-0.5 rounded font-bold"
                             style={{ backgroundColor: statusColor + "20", color: statusColor }}
                           >
                             {p.status}

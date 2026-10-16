@@ -194,7 +194,7 @@ function ThreatRow({
             return (
               <Badge
                 variant="outline"
-                className="font-data uppercase tracking-wider text-[10px]"
+                className="font-data uppercase tracking-wider text-xs"
                 title={STRIDE_LABEL[cat]}
               >
                 {STRIDE_TAG[cat]} · {STRIDE_LABEL[cat]}

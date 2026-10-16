@@ -517,7 +517,7 @@ export function A11yTrackerClient() {
           headerExtras={
             openTrend?.significant ? (
               <span
-                className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                   // For open-issue count, "down" trend is good (fewer open), "up" is bad.
                   openTrend.trend === "down"
                     ? "border-accent-green/40 text-accent-green bg-accent-green/10"
@@ -652,7 +652,7 @@ export function A11yTrackerClient() {
                   <span className="font-data text-sub">{c.count} open</span>
                   <Badge
                     variant="outline"
-                    className="font-data text-[10px] capitalize"
+                    className="font-data text-xs capitalize"
                     style={{
                       color: SEVERITY_COLOR[c.worst],
                       borderColor: `${SEVERITY_COLOR[c.worst]}66`,
@@ -683,7 +683,7 @@ export function A11yTrackerClient() {
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge
                     variant="outline"
-                    className="font-data uppercase tracking-wider text-[10px]"
+                    className="font-data uppercase tracking-wider text-xs"
                     style={{
                       color: SEVERITY_COLOR[i.severity],
                       borderColor: `${SEVERITY_COLOR[i.severity]}66`,

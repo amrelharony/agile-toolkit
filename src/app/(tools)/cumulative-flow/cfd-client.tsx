@@ -274,7 +274,7 @@ export function CFDClient() {
             trailing={
               wipTrend?.significant ? (
                 <span
-                  className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                  className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                     // For WIP, "down" is good (less queue), "up" is concerning.
                     wipTrend.trend === "down"
                       ? "border-accent-green/40 text-accent-green bg-accent-green/10"

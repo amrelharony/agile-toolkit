@@ -207,7 +207,7 @@ export function ValueStreamClient() {
 
       {recentStoryMoves.length > 0 && (
         <div className="mb-3">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/5 text-accent px-2.5 py-1 text-[11px]">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/5 text-accent px-2.5 py-1 text-xs">
             {recentStoryMoves.length} stor{recentStoryMoves.length === 1 ? "y" : "ies"} changed
             status in last 7 days
           </span>
@@ -277,7 +277,7 @@ export function ValueStreamClient() {
                   aria-label={`Description for stage ${s.name}`}
                 />
                 <div>
-                  <div className="text-[10px] uppercase text-sub">Process Time (d)</div>
+                  <div className="text-xs uppercase text-sub">Process Time (d)</div>
                   <NumCell
                     value={s.processTime}
                     onCommit={(n) => update(s.id, { processTime: n })}
@@ -286,7 +286,7 @@ export function ValueStreamClient() {
                   />
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase text-sub">Lead Time (d)</div>
+                  <div className="text-xs uppercase text-sub">Lead Time (d)</div>
                   <NumCell
                     value={s.leadTime}
                     onCommit={(n) => update(s.id, { leadTime: n })}
@@ -295,7 +295,7 @@ export function ValueStreamClient() {
                   />
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase text-sub">%C/A</div>
+                  <div className="text-xs uppercase text-sub">%C/A</div>
                   <NumCell
                     value={s.completeAccurate}
                     onCommit={(n) => update(s.id, { completeAccurate: n })}
@@ -304,7 +304,7 @@ export function ValueStreamClient() {
                     className="bg-bg border-border font-data h-8"
                   />
                 </div>
-                <div className="pt-1 text-[10px] text-sub">
+                <div className="pt-1 text-xs text-sub">
                   {s.leadTime > 0 && (
                     <span>Wait: {Math.max(0, s.leadTime - s.processTime).toFixed(1)}d</span>
                   )}

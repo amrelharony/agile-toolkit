@@ -747,7 +747,7 @@ export function VelocityClient() {
         {trendTest?.significant && (
           <div className="flex items-center justify-end -mt-2">
             <span
-              className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+              className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border ${
                 trendTest.trend === "up"
                   ? "bg-accent/15 text-accent border-accent/40"
                   : "bg-destructive/15 text-destructive border-destructive/40"
@@ -897,7 +897,7 @@ export function VelocityClient() {
                 <Trash2 className="w-4 h-4" />
               </Button>
               <div className="col-span-2 sm:col-span-1 space-y-1">
-                <span className="sm:hidden text-[10px] text-sub font-medium uppercase tracking-wider">
+                <span className="sm:hidden text-xs text-sub font-medium uppercase tracking-wider">
                   Committed
                 </span>
                 <NumCell
@@ -909,7 +909,7 @@ export function VelocityClient() {
                 />
               </div>
               <div className="col-span-2 sm:col-span-1 space-y-1">
-                <span className="sm:hidden text-[10px] text-sub font-medium uppercase tracking-wider">
+                <span className="sm:hidden text-xs text-sub font-medium uppercase tracking-wider">
                   Completed
                 </span>
                 <NumCell

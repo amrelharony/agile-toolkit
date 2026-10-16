@@ -101,7 +101,7 @@ export function ChartCard({
             <span className="min-w-0 truncate">{title}</span>
             {badge &&
               (typeof badge === "string" ? (
-                <Badge variant="outline" className="ml-2 text-[10px]">
+                <Badge variant="outline" className="ml-2 text-xs">
                   {badge}
                 </Badge>
               ) : (

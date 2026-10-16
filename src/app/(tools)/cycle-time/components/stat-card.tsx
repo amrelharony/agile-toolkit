@@ -36,7 +36,7 @@ export function StatCard({
           {unit && <span className="text-sm text-sub">{unit}</span>}
           {trailing}
         </div>
-        {footer && <div className="mt-1 text-[11px] text-sub font-mono">{footer}</div>}
+        {footer && <div className="mt-1 text-xs text-sub font-mono">{footer}</div>}
       </CardContent>
     </Card>
   );

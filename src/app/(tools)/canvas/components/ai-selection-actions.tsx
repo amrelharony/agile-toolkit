@@ -14,10 +14,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import { extractJson } from "@/lib/utils/extract-json";
 
-const AiRunPanel = dynamic(
-  () => import("@/components/shared/ai-run-panel"),
-  { ssr: false },
-);
+const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), { ssr: false });
 
 /**
  * Find the JSON payload inside an LLM response.
@@ -87,7 +84,9 @@ export function AiSelectionActions({
   onApplyActionItems: (items: readonly ActionItem[]) => void;
 }) {
   const { isReady, openSettings } = useActiveLlm();
-  const allObjects = useWorkspaceStore((s) => s.whiteboardObjects ?? []) as readonly WhiteboardObject[];
+  const allObjects = useWorkspaceStore(
+    (s) => s.whiteboardObjects ?? []
+  ) as readonly WhiteboardObject[];
 
   // Resolve selected objects once per change. Cheap lookup — selection
   // sizes are typically ≤ 50, allObjects ≤ a few thousand.
@@ -142,7 +141,7 @@ export function AiSelectionActions({
       </h4>
 
       {!isReady ? (
-        <p className="text-[10px] text-sub italic">
+        <p className="text-xs text-sub italic">
           Configure an AI provider to enable these actions.{" "}
           <button
             type="button"
@@ -153,8 +152,9 @@ export function AiSelectionActions({
           </button>
         </p>
       ) : selection.length === 0 ? (
-        <p className="text-[10px] text-sub italic">
-          Select one or more objects, then use Translate or Rewrite. Extract action items works on the whole board if nothing is selected.
+        <p className="text-xs text-sub italic">
+          Select one or more objects, then use Translate or Rewrite. Extract action items works on
+          the whole board if nothing is selected.
         </p>
       ) : null}
 
@@ -168,14 +168,16 @@ export function AiSelectionActions({
           disabled={!isReady}
         >
           {COMMON_LANGUAGES.map((lang) => (
-            <option key={lang} value={lang}>{lang}</option>
+            <option key={lang} value={lang}>
+              {lang}
+            </option>
           ))}
         </select>
         <Button
           size="sm"
           onClick={onTranslate}
           disabled={!isReady || selectedObjects.length === 0}
-          className="text-[10px] font-mono uppercase bg-accent/15 hover:bg-accent/25 text-accent border border-accent/40 disabled:opacity-40"
+          className="text-xs font-mono uppercase bg-accent/15 hover:bg-accent/25 text-accent border border-accent/40 disabled:opacity-40"
         >
           Translate
         </Button>
@@ -191,14 +193,16 @@ export function AiSelectionActions({
           disabled={!isReady}
         >
           {TONES.map((t) => (
-            <option key={t} value={t}>{t}</option>
+            <option key={t} value={t}>
+              {t}
+            </option>
           ))}
         </select>
         <Button
           size="sm"
           onClick={onRewrite}
           disabled={!isReady || selectedObjects.length === 0}
-          className="text-[10px] font-mono uppercase bg-accent/15 hover:bg-accent/25 text-accent border border-accent/40 disabled:opacity-40"
+          className="text-xs font-mono uppercase bg-accent/15 hover:bg-accent/25 text-accent border border-accent/40 disabled:opacity-40"
         >
           Rewrite
         </Button>
@@ -209,7 +213,7 @@ export function AiSelectionActions({
         size="sm"
         onClick={onExtract}
         disabled={!isReady}
-        className="w-full gap-1.5 text-[10px] font-mono uppercase bg-accent/15 hover:bg-accent/25 text-accent border border-accent/40 disabled:opacity-40"
+        className="w-full gap-1.5 text-xs font-mono uppercase bg-accent/15 hover:bg-accent/25 text-accent border border-accent/40 disabled:opacity-40"
       >
         <ListTodo className="w-3 h-3" />
         Extract action items {selection.length === 0 ? "(whole board)" : ""}
@@ -246,10 +250,12 @@ export function AiSelectionActions({
                   // other fields are optional and the parent
                   // gracefully handles missing values.
                   const items = parsed
-                    .filter((x): x is ActionItem =>
-                      !!x && typeof x === "object" &&
-                      typeof (x as ActionItem).title === "string" &&
-                      (x as ActionItem).title.trim().length > 0,
+                    .filter(
+                      (x): x is ActionItem =>
+                        !!x &&
+                        typeof x === "object" &&
+                        typeof (x as ActionItem).title === "string" &&
+                        (x as ActionItem).title.trim().length > 0
                     )
                     .map((x) => ({
                       title: x.title.trim().slice(0, 500),
@@ -266,8 +272,11 @@ export function AiSelectionActions({
           />
           <button
             type="button"
-            onClick={() => { setArmed(null); setArmedPrompt(null); }}
-            className="text-[10px] text-sub hover:text-text underline"
+            onClick={() => {
+              setArmed(null);
+              setArmedPrompt(null);
+            }}
+            className="text-xs text-sub hover:text-text underline"
           >
             Dismiss
           </button>

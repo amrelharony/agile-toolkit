@@ -120,7 +120,7 @@ export function AIInsightsPanel({
                         />
                         <span className="text-xs text-text font-medium">Cluster {c.id + 1}</span>
                       </span>
-                      <span className="text-[10px] text-sub font-mono">
+                      <span className="text-xs text-sub font-mono">
                         {c.objectIds.length} item{c.objectIds.length === 1 ? "" : "s"}
                       </span>
                     </button>
@@ -134,7 +134,7 @@ export function AIInsightsPanel({
               })}
             </ul>
           )}
-          <p className="text-[10px] text-sub italic mt-2">
+          <p className="text-xs text-sub italic mt-2">
             Click a cluster to select its objects, or Summarize to distil it into a single sticky.
           </p>
         </section>
@@ -155,7 +155,7 @@ export function AIInsightsPanel({
                     <span
                       // Higher-contrast palette — see canvas-client for
                       // rationale. Was text-*-300 on bg-*-500/20.
-                      className={`text-[9px] uppercase font-bold px-1 py-0.5 rounded ${
+                      className={`text-xs uppercase font-bold px-1 py-0.5 rounded ${
                         i.severity === "critical"
                           ? "bg-red-700/50 text-red-100"
                           : i.severity === "warn"

@@ -427,7 +427,7 @@ export function IncidentCommanderClient() {
         <div className="flex flex-wrap items-center gap-2 mb-4">
           {incidentTrend.significant ? (
             <span
-              className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
+              className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
                 incidentTrend.trend === "up"
                   ? "border-danger/40 text-danger bg-danger/10"
                   : "border-success/40 text-success bg-success/10"
@@ -440,7 +440,7 @@ export function IncidentCommanderClient() {
               <span className="opacity-60">· p={incidentTrend.pValue.toFixed(3)}</span>
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface">
+            <span className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface">
               <TrendingUp className="w-3 h-3" />
               Weekly incident trend: no significant change
             </span>
@@ -504,7 +504,7 @@ export function IncidentCommanderClient() {
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <p className="text-[11px] text-sub mt-2">
+          <p className="text-xs text-sub mt-2">
             {/* BUG-RD3-incident-commander-1: drop the misleading
                 "right-censored" claim. The code now only feeds RESOLVED
                 incidents into the K-M estimator (each marked

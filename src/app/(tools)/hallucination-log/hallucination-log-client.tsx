@@ -314,7 +314,7 @@ export function HallucinationLogClient() {
               </button>
             )}
             {llm.isReady && (
-              <span className="text-[11px] text-sub">
+              <span className="text-xs text-sub">
                 Will autofill &ldquo;Actual&rdquo; with the streamed output.
               </span>
             )}
@@ -344,7 +344,7 @@ export function HallucinationLogClient() {
               and Actual fields end up in localStorage and (for the owner)
               in Supabase. Customer prompts pasted here become durable PII
               unless the user knows that. */}
-          <p className="text-[11px] text-sub mt-2 italic">
+          <p className="text-xs text-sub mt-2 italic">
             Logged in this browser{isOwner ? " and synced to your cloud workspace" : ""}.
             Don&rsquo;t paste customer-identifiable prompts or responses — redact PII first.
           </p>
@@ -437,7 +437,7 @@ export function HallucinationLogClient() {
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="flex items-center gap-2 min-w-0">
                         <span
-                          className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded"
+                          className="text-xs uppercase font-bold px-1.5 py-0.5 rounded"
                           // Fallback to the medium colour when the persisted
                           // severity isn't in the known set — otherwise the
                           // template literal stringifies `undefined` into the

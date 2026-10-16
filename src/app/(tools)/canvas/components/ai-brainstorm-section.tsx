@@ -121,7 +121,7 @@ export function AiBrainstormSection({
           className="w-full text-xs bg-surface-deep border border-border rounded px-2 py-1.5 text-text placeholder:text-sub focus:outline-none focus:border-accent"
         />
         <div className="flex items-center gap-2">
-          <label className="text-[10px] text-sub font-mono uppercase">Count</label>
+          <label className="text-xs text-sub font-mono uppercase">Count</label>
           <input
             type="number"
             value={count}
@@ -149,7 +149,7 @@ export function AiBrainstormSection({
         </div>
 
         {!isReady && (
-          <p className="text-[10px] text-sub italic">
+          <p className="text-xs text-sub italic">
             Configure an AI provider to enable brainstorming.{" "}
             <button
               type="button"
@@ -178,7 +178,7 @@ export function AiBrainstormSection({
             <button
               type="button"
               onClick={onReset}
-              className="text-[10px] text-sub hover:text-text underline"
+              className="text-xs text-sub hover:text-text underline"
             >
               Start over
             </button>

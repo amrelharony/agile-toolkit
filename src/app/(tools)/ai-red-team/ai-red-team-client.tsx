@@ -296,7 +296,7 @@ export function AIRedTeamClient() {
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="flex items-center gap-2 min-w-0">
                         <span
-                          className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded"
+                          className="text-xs uppercase font-bold px-1.5 py-0.5 rounded"
                           style={{
                             backgroundColor: COLORS[x.severity] + "20",
                             color: COLORS[x.severity],

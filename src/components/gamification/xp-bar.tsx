@@ -68,7 +68,7 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
         "min-touch-coarse flex items-center gap-2 h-8 rounded-full",
         "border border-border bg-surface/60 backdrop-blur-sm",
         "px-2.5 sm:px-3",
-        "text-[10px] sm:text-[11px] font-mono uppercase tracking-wider",
+        "text-xs font-mono uppercase tracking-wider",
         "text-sub hover:text-text hover:border-accent/40 hover:bg-surface",
         "transition-all duration-fast",
         "shrink-0"
@@ -82,7 +82,7 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
       )}
       <span className="flex items-center gap-1 shrink-0">
         <span className="text-accent font-data">L{info.level}</span>
-        {info.atMax && <span className="text-[9px] text-accent">MAX</span>}
+        {info.atMax && <span className="text-xs text-accent">MAX</span>}
       </span>
       <div
         className="relative h-1.5 rounded-full bg-bg border border-border overflow-hidden shrink-0 w-16 sm:w-24 md:w-28"
@@ -102,7 +102,7 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
       <span className="hidden md:flex items-center gap-1 text-sub shrink-0">
         <span className="text-sub/50">·</span>
         <span className="font-data text-accent">{unlockedCount}</span>
-        <span className="text-[9px]">ach</span>
+        <span className="text-xs">ach</span>
       </span>
       {comboDepth >= 1 && comboMult > 1 && (
         <span className="flex items-center gap-0.5 text-warning animate-pulse shrink-0">

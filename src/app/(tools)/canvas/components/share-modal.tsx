@@ -413,7 +413,7 @@ function ShareTab({
               >
                 <span className="font-mono text-text">{t.token}</span>
                 <span
-                  className={`text-[10px] uppercase font-bold ${
+                  className={`text-xs uppercase font-bold ${
                     t.role === "editor"
                       ? "text-warning"
                       : t.role === "commenter"
@@ -766,7 +766,7 @@ function PostMessageTab({
           <span>{copyError}</span>
         </div>
       )}
-      <p className="text-[10px] text-sub mt-2 italic">
+      <p className="text-xs text-sub mt-2 italic">
         Tip: pair with a server-side webhook subscriber on{" "}
         <code className="text-text">whiteboard.boardShared</code> to post automatically.
       </p>

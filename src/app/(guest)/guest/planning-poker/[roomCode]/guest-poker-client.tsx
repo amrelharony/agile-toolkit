@@ -108,7 +108,7 @@ function GuestPokerInner({ roomCode, role, profile }: Props) {
             />
             <span className="text-text">{profile.displayName}</span>
             <span
-              className={`text-[10px] uppercase font-bold ${
+              className={`text-xs uppercase font-bold ${
                 role === "editor"
                   ? "text-warning"
                   : role === "commenter"

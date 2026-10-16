@@ -216,12 +216,12 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
                             {formatActionLabel(event.action)}
                           </span>
                           {event.isMilestone && (
-                            <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">
+                            <Badge variant="outline" className="text-xs px-1 py-0 h-4">
                               milestone
                             </Badge>
                           )}
                         </div>
-                        <span className="text-[11px] text-sub shrink-0">
+                        <span className="text-xs text-sub shrink-0">
                           {timeAgo(event.occurredAt)}
                         </span>
                       </div>
@@ -232,7 +232,7 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
                       )}
                       {isSelected && (
                         <div className="mt-2 space-y-2">
-                          <pre className="text-[10px] bg-[var(--card)] border border-border rounded p-2 overflow-x-auto font-mono leading-tight">
+                          <pre className="text-xs bg-[var(--card)] border border-border rounded p-2 overflow-x-auto font-mono leading-tight">
                             {JSON.stringify(event.payload, null, 2)}
                           </pre>
                           {timeTravel.available && (
@@ -267,7 +267,7 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
                 >
                   Load {Math.min(RENDER_CHUNK, events.length - renderLimit)} more
                 </Button>
-                <div className="text-[10px] text-sub mt-1">
+                <div className="text-xs text-sub mt-1">
                   Showing {renderLimit} of {events.length}
                 </div>
               </div>

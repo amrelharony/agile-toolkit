@@ -176,7 +176,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                   <div id="trophy-share-label" className="text-xs text-text">
                     Share on leaderboard
                   </div>
-                  <div className="text-[10px] text-sub">Requires Supabase env</div>
+                  <div className="text-xs text-sub">Requires Supabase env</div>
                 </div>
                 <Switch
                   checked={dna.shareOnLeaderboard}
@@ -190,7 +190,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                 <div id="trophy-silent-label" className="text-xs text-text">
                   Silent mode
                 </div>
-                <div className="text-[10px] text-sub">Suppress toasts</div>
+                <div className="text-xs text-sub">Suppress toasts</div>
               </div>
               <Switch
                 checked={dna.silentMode}
@@ -198,7 +198,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                 aria-labelledby="trophy-silent-label"
               />
             </div>
-            <div className="text-[10px] text-sub font-mono">ID: {dna.visitorId.slice(0, 10)}…</div>
+            <div className="text-xs text-sub font-mono">ID: {dna.visitorId.slice(0, 10)}…</div>
           </div>
         </div>
 
@@ -253,10 +253,10 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                             <Lock className="w-3.5 h-3.5 text-sub shrink-0" />
                           )}
                         </div>
-                        <div className="text-[11px] mt-0.5 line-clamp-2">
+                        <div className="text-xs mt-0.5 line-clamp-2">
                           {hidden ? "Hidden achievement" : a.description}
                         </div>
-                        <div className="text-[10px] mt-1 font-data text-accent">+{a.xp} XP</div>
+                        <div className="text-xs mt-1 font-data text-accent">+{a.xp} XP</div>
                       </div>
                     );
                   })}
@@ -335,7 +335,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                 })}
               </div>
             </div>
-            <div className="text-[11px] text-sub/70">
+            <div className="text-xs text-sub/70">
               Pool: {DAILY_POOL.length} daily · {WEEKLY_POOL.length} weekly · rotates at local
               midnight / Monday.
             </div>
@@ -364,9 +364,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                   <span className="text-text/80 truncate flex-1">
                     {e.meta?.toolId ? `${e.meta.toolId}:${e.meta.eventName ?? ""}` : ""}
                   </span>
-                  <span className="text-sub text-[10px]">
-                    {new Date(e.at).toLocaleTimeString()}
-                  </span>
+                  <span className="text-sub text-xs">{new Date(e.at).toLocaleTimeString()}</span>
                 </div>
               ))}
             </div>

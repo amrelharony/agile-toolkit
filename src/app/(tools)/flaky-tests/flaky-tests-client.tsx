@@ -559,7 +559,7 @@ export function FlakyTestsClient() {
             weeklyTrend?.significant ? (
               <Badge
                 variant="outline"
-                className={`font-mono text-[10px] tracking-wider uppercase ${
+                className={`font-mono text-xs tracking-wider uppercase ${
                   // Down = fewer new flakies = good. Up = more = bad.
                   weeklyTrend.trend === "down"
                     ? "border-success/40 text-success bg-success/10"
@@ -676,7 +676,7 @@ export function FlakyTestsClient() {
                         {t.name}
                       </span>
                       {t.suite && (
-                        <Badge variant="outline" className="text-[10px] font-data">
+                        <Badge variant="outline" className="text-xs font-data">
                           {t.suite}
                         </Badge>
                       )}

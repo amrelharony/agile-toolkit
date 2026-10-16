@@ -759,7 +759,7 @@ export function CapacityPlannerClient() {
                             <p className="text-sm font-medium text-text">{m.name}</p>
                             {m.role && <p className="text-xs text-sub">{m.role}</p>}
                             {m.description && (
-                              <p className="text-sub text-[11px] mt-0.5 mb-0.5 whitespace-pre-wrap break-words">
+                              <p className="text-sub text-xs mt-0.5 mb-0.5 whitespace-pre-wrap break-words">
                                 {m.description}
                               </p>
                             )}

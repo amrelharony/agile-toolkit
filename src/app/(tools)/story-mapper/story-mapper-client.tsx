@@ -927,10 +927,7 @@ export function StoryMapperClient() {
                   <div className="group flex-shrink-0 w-40 mr-3 flex flex-col justify-start">
                     <div className="flex items-start gap-1 px-2 py-1.5 rounded-lg bg-surface-deep border border-border h-full">
                       <div className="flex-1 min-w-0">
-                        <Badge
-                          variant="outline"
-                          className="mb-1 text-[10px] border-border text-sub"
-                        >
+                        <Badge variant="outline" className="mb-1 text-xs border-border text-sub">
                           Slice {sliceIdx + 1}
                         </Badge>
                         <EditableName

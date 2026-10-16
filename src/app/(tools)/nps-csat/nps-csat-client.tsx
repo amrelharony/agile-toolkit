@@ -383,7 +383,7 @@ export function NpsCsatClient() {
               <h3 className="text-sm font-semibold text-text">Score Trend</h3>
               {npsTrend?.significant && (
                 <span
-                  className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                  className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                     // For NPS, "up" trend is good, "down" is bad.
                     npsTrend.trend === "up"
                       ? "border-accent-green/40 text-accent-green bg-accent-green/10"
@@ -397,7 +397,7 @@ export function NpsCsatClient() {
               )}
               {csatTrend?.significant && (
                 <span
-                  className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                  className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                     csatTrend.trend === "up"
                       ? "border-accent-green/40 text-accent-green bg-accent-green/10"
                       : "border-warning/40 text-warning bg-warning/10"

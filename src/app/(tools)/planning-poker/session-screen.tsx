@@ -856,7 +856,7 @@ export function SessionScreen({
                     <div className="flex-1 min-w-0">
                       <div className="truncate">{story.title}</div>
                       {story.description && (
-                        <div className="text-sub text-[11px] mt-0.5 whitespace-pre-wrap break-words font-normal opacity-80">
+                        <div className="text-sub text-xs mt-0.5 whitespace-pre-wrap break-words font-normal opacity-80">
                           {story.description}
                         </div>
                       )}

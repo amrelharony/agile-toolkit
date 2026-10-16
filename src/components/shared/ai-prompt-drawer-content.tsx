@@ -129,7 +129,7 @@ export default function AiPromptDrawerContent({ config }: AiPromptDrawerContentP
             discover the BYOK feature directly from the drawer. */}
         <div className="pt-1">
           {isReady ? (
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border border-accent/40 bg-accent/10 text-accent">
+            <span className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border border-accent/40 bg-accent/10 text-accent">
               <Sparkles className="w-3 h-3" />
               AI: {providerName}
               {model && <span className="text-sub normal-case">· {model}</span>}
@@ -138,7 +138,7 @@ export default function AiPromptDrawerContent({ config }: AiPromptDrawerContentP
             <button
               type="button"
               onClick={openSettings}
-              className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border border-border bg-surface text-sub hover:text-accent hover:border-accent/40 transition"
+              className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border border-border bg-surface text-sub hover:text-accent hover:border-accent/40 transition"
             >
               <Sparkles className="w-3 h-3" />
               AI: Off — bring your own key

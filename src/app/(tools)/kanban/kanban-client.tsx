@@ -526,7 +526,7 @@ export function KanbanClient() {
               {throughputTrend?.significant && (
                 <span
                   className={cn(
-                    "text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border",
+                    "text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border",
                     throughputTrend.trend === "up"
                       ? "border-accent-green/40 text-accent-green bg-accent-green/10"
                       : "border-danger/40 text-danger bg-danger/5"
@@ -789,7 +789,7 @@ export function KanbanClient() {
                   >
                     <div className="text-text font-medium break-words">{c.title}</div>
                     {c.description && (
-                      <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
+                      <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
                         {c.description}
                       </div>
                     )}

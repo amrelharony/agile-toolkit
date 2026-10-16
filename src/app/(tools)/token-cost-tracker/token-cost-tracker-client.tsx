@@ -384,7 +384,7 @@ export function TokenCostTrackerClient() {
             />
           </div>
           {previewCost !== null && (
-            <p className="mt-2 text-[11px] text-sub">
+            <p className="mt-2 text-xs text-sub">
               Price-table match: leave Cost blank to auto-fill with ${previewCost.toFixed(4)}. Type
               a value to override (e.g. for custom-priced model variants).
             </p>

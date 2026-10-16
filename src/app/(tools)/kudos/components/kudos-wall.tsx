@@ -274,7 +274,7 @@ function WallEntry({
           type="button"
           onClick={() => setStackOpen((v) => !v)}
           aria-expanded={stackOpen}
-          className="min-touch-coarse mt-1.5 ml-2 inline-flex items-center gap-1 rounded-md border border-border bg-surface-deep/60 px-2 py-0.5 text-[11px] text-sub hover:text-text"
+          className="min-touch-coarse mt-1.5 ml-2 inline-flex items-center gap-1 rounded-md border border-border bg-surface-deep/60 px-2 py-0.5 text-xs text-sub hover:text-text"
         >
           {stackOpen ? (
             <ChevronDown className="h-3 w-3" aria-hidden="true" />

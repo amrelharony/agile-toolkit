@@ -189,7 +189,7 @@ function CustomThemesSection() {
               </span>
               <div className="flex flex-col min-w-0">
                 <span className="text-sm text-text truncate">{t.title}</span>
-                <span className="text-[10px] text-sub/60 font-mono">{t.id}</span>
+                <span className="text-xs text-sub/60 font-mono">{t.id}</span>
               </div>
             </div>
             <Button

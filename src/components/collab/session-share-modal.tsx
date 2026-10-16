@@ -373,7 +373,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                           <span className="text-text font-medium">Anyone in squad</span>
                         )}
                         <span
-                          className={`text-[10px] uppercase font-bold ${
+                          className={`text-xs uppercase font-bold ${
                             i.role === "editor"
                               ? "text-warning"
                               : i.role === "commenter"
@@ -405,7 +405,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                      <div className="flex items-center gap-2 text-[10px] text-sub pl-0.5">
+                      <div className="flex items-center gap-2 text-xs text-sub pl-0.5">
                         <span>{squadName}</span>
                         <span aria-hidden="true">·</span>
                         <span>{expiryLabel}</span>

@@ -415,7 +415,7 @@ export function TechDebtClient() {
       <Card className="bg-surface border-border mb-6">
         <CardContent className="p-4">
           <div className="text-sm font-semibold text-text mb-3">Impact × Effort Heatmap</div>
-          <div className="grid grid-cols-6 gap-1 text-[10px]">
+          <div className="grid grid-cols-6 gap-1 text-xs">
             <div />
             {[1, 2, 3, 4, 5].map((i) => (
               <div key={`h${i}`} className="text-center text-sub font-data">
@@ -507,7 +507,7 @@ export function TechDebtClient() {
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <p className="text-[11px] text-sub mt-2">
+          <p className="text-xs text-sub mt-2">
             Kaplan-Meier estimate over {resolvedDurations.length} resolved item
             {resolvedDurations.length === 1 ? "" : "s"}. Y-axis: probability the debt is still open
             after N days.

@@ -93,7 +93,7 @@ export function ActionItemRow({
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <div>
-          <Label className="text-[10px] uppercase tracking-wider text-sub">Owner</Label>
+          <Label className="text-xs uppercase tracking-wider text-sub">Owner</Label>
           <Input
             value={ownerDraft}
             onChange={(e) => setOwnerDraft(e.target.value)}
@@ -109,7 +109,7 @@ export function ActionItemRow({
           />
         </div>
         <div>
-          <Label className="text-[10px] uppercase tracking-wider text-sub">Due</Label>
+          <Label className="text-xs uppercase tracking-wider text-sub">Due</Label>
           <Input
             type="date"
             value={dueDraft}
@@ -124,7 +124,7 @@ export function ActionItemRow({
           />
         </div>
         <div>
-          <Label className="text-[10px] uppercase tracking-wider text-sub">Status</Label>
+          <Label className="text-xs uppercase tracking-wider text-sub">Status</Label>
           <Select
             value={action.status}
             onValueChange={(v) => onUpdate({ status: v as ActionStatus })}

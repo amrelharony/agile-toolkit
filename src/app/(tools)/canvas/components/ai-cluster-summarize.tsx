@@ -9,10 +9,7 @@ import { summarizeClusterPrompt } from "@/lib/whiteboard/ai-actions";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import type { ClusterResult } from "@/lib/whiteboard/cluster-bridge";
 
-const AiRunPanel = dynamic(
-  () => import("@/components/shared/ai-run-panel"),
-  { ssr: false },
-);
+const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), { ssr: false });
 
 /**
  * Reduce the AI's free-form response to a clean summary string.
@@ -81,7 +78,7 @@ export function AiClusterSummarize({
         size="sm"
         onClick={onClick}
         disabled={memberObjects.length === 0}
-        className="w-full gap-1.5 bg-accent/20 hover:bg-accent/30 text-accent border border-accent/40 font-mono text-[10px] uppercase tracking-wider"
+        className="w-full gap-1.5 bg-accent/20 hover:bg-accent/30 text-accent border border-accent/40 font-mono text-xs uppercase tracking-wider"
       >
         <Sparkles className="w-3 h-3" />
         Summarize cluster

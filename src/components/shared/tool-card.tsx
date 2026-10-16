@@ -135,7 +135,7 @@ export function ToolCard({
             <span
               key={tag}
               className="
-                font-mono text-nano tracking-wider uppercase
+                font-mono text-xs tracking-wider uppercase
                 px-2 py-0.5 rounded-xs
                 bg-[var(--card)] border border-border text-sub
                 transition-all duration-default

@@ -35,7 +35,7 @@ export function FeaturedComicBanner() {
       <ComicPanelArt />
 
       <div className="min-w-0 flex-1">
-        <span className="inline-flex items-center px-2.5 py-1 rounded-full border border-border bg-[var(--glow)] font-mono text-[10px] sm:text-micro text-accent tracking-wider uppercase">
+        <span className="inline-flex items-center px-2.5 py-1 rounded-full border border-border bg-[var(--glow)] font-mono text-xs text-accent tracking-wider uppercase">
           New · Comic
         </span>
         <h2

@@ -291,7 +291,7 @@ export function RunbookScorerClient() {
         <div className="flex items-center justify-end mb-4 -mt-2">
           <Badge
             variant="outline"
-            className={`font-mono text-[10px] tracking-wider uppercase ${
+            className={`font-mono text-xs tracking-wider uppercase ${
               hygieneTrend.mk.trend === "up"
                 ? "border-success/40 text-success bg-success/10"
                 : "border-warning/40 text-warning bg-warning/10"

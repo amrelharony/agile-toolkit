@@ -515,7 +515,7 @@ export function SkillsMatrixClient() {
                         value={member.description ?? ""}
                         onCommit={(v) => updateMemberDescription(member.id, v)}
                         placeholder="Description (optional)..."
-                        className="mt-1 h-6 text-[11px] bg-surface border-border font-normal"
+                        className="mt-1 h-6 text-xs bg-surface border-border font-normal"
                         aria-label={`Description for member ${member.name}`}
                       />
                     </th>
@@ -555,7 +555,7 @@ export function SkillsMatrixClient() {
                         {isSPOF && (
                           <Badge
                             variant="outline"
-                            className="text-[10px] border-danger/50 text-danger bg-danger/10 px-1 py-0 h-4 flex-shrink-0"
+                            className="text-xs border-danger/50 text-danger bg-danger/10 px-1 py-0 h-4 flex-shrink-0"
                             title="Knowledge gap: no one has Intermediate+ proficiency"
                           >
                             GAP
@@ -564,7 +564,7 @@ export function SkillsMatrixClient() {
                         {isBusFactor && (
                           <Badge
                             variant="outline"
-                            className="text-[10px] border-warning/50 text-warning bg-warning/10 px-1 py-0 h-4 flex-shrink-0"
+                            className="text-xs border-warning/50 text-warning bg-warning/10 px-1 py-0 h-4 flex-shrink-0"
                             title="Bus factor risk: only 1 person at Advanced+ level"
                           >
                             BUS 1
@@ -587,7 +587,7 @@ export function SkillsMatrixClient() {
                         value={skill.description ?? ""}
                         onCommit={(v) => updateSkillDescription(skill.id, v)}
                         placeholder="Description (optional)..."
-                        className="mt-1 h-6 text-[11px] bg-surface border-border"
+                        className="mt-1 h-6 text-xs bg-surface border-border"
                         aria-label={`Description for skill ${skill.name}`}
                       />
                     </td>

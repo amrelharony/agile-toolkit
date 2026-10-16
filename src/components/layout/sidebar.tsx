@@ -109,7 +109,7 @@ function SidebarToolLink({
             <Badge
               variant="outline"
               className={cn(
-                "ml-auto text-[10px] px-1 py-0 relative z-[1]",
+                "ml-auto text-xs px-1 py-0 relative z-[1]",
                 tool.badge === "new"
                   ? "border-accent-green text-accent-green"
                   : "border-accent-amber text-accent-amber"
@@ -658,7 +658,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
         {/* Footer */}
         {expanded && (
           <div className="px-4 pb-3 pt-2 pb-safe border-t border-border md:border-t-0 md:pb-3">
-            <p className="text-[10px] text-sub text-center">
+            <p className="text-xs text-sub text-center">
               Built by{" "}
               <a
                 href="https://amrelharony.com"

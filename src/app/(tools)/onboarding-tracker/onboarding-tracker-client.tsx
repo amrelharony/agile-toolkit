@@ -540,21 +540,19 @@ export function OnboardingTrackerClient() {
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                                 <span className="text-sm font-medium text-text">{m.name}</span>
-                                <span className="text-[11px] text-sub font-data">
+                                <span className="text-xs text-sub font-data">
                                   target {m.targetDays}d
                                 </span>
                                 {completed && completedDays !== null && (
-                                  <span className="text-[11px] text-success font-data">
+                                  <span className="text-xs text-success font-data">
                                     done in {completedDays}d
                                   </span>
                                 )}
                                 {!completed && overdue && (
-                                  <span className="text-[11px] text-danger font-data">overdue</span>
+                                  <span className="text-xs text-danger font-data">overdue</span>
                                 )}
                                 {!completed && atRisk && !overdue && (
-                                  <span className="text-[11px] text-warning font-data">
-                                    at risk
-                                  </span>
+                                  <span className="text-xs text-warning font-data">at risk</span>
                                 )}
                               </div>
                               {/* BUG-T5-onboarding-tracker-3:

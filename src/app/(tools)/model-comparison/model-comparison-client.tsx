@@ -312,7 +312,7 @@ export function ModelComparisonClient() {
                         onChange={() => toggleProvider(p.id)}
                         className="accent-accent"
                       />
-                      <span className="font-mono uppercase tracking-wider text-[10px] text-accent">
+                      <span className="font-mono uppercase tracking-wider text-xs text-accent">
                         {PROVIDER_META[p.id].name}
                       </span>
                       <span className="text-sub normal-case">{modelInfo?.label ?? p.model}</span>

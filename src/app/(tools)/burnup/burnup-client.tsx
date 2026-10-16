@@ -799,7 +799,7 @@ export function BurnupClient() {
         {trendTest?.significant && (
           <div className="flex items-center justify-end -mt-2">
             <span
-              className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+              className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border ${
                 trendTest.trend === "up"
                   ? "bg-accent/15 text-accent border-accent/40"
                   : "bg-destructive/15 text-destructive border-destructive/40"

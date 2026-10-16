@@ -650,7 +650,7 @@ export function SprintGoalClient() {
             >
               {/* Business Objective */}
               <div>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+                <span className="text-xs font-semibold uppercase tracking-wider text-accent">
                   Business Objective
                 </span>
                 <p className="text-text mt-1">
@@ -660,7 +660,7 @@ export function SprintGoalClient() {
 
               {/* Sprint Goal */}
               <div>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+                <span className="text-xs font-semibold uppercase tracking-wider text-accent">
                   Sprint Goal
                 </span>
                 <p className="text-text mt-1">
@@ -670,7 +670,7 @@ export function SprintGoalClient() {
 
               {/* Acceptance Criteria */}
               <div>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+                <span className="text-xs font-semibold uppercase tracking-wider text-accent">
                   Acceptance Criteria
                 </span>
                 {criteria.some((c) => c.text.trim()) ? (
@@ -690,7 +690,7 @@ export function SprintGoalClient() {
 
               {/* Key Results */}
               <div>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+                <span className="text-xs font-semibold uppercase tracking-wider text-accent">
                   Key Results
                 </span>
                 {keyResults.some((kr) => kr.trim()) ? (

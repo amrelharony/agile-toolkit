@@ -186,7 +186,7 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
                 >
                   <MessageSquare className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                   <span className="truncate">{c.title}</span>
-                  <span className="ml-auto shrink-0 text-[10px] text-sub">
+                  <span className="ml-auto shrink-0 text-xs text-sub">
                     {relativeTime(c.lastMessageAt)}
                   </span>
                 </button>

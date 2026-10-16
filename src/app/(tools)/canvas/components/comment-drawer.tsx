@@ -294,7 +294,7 @@ export function CommentDrawer({ thread, onClose }: Props) {
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-text">Thread</span>
           {thread.resolved && (
-            <span className="text-[10px] uppercase font-bold text-success bg-success/10 px-1.5 py-0.5 rounded">
+            <span className="text-xs uppercase font-bold text-success bg-success/10 px-1.5 py-0.5 rounded">
               resolved
             </span>
           )}
@@ -316,7 +316,7 @@ export function CommentDrawer({ thread, onClose }: Props) {
           <div key={c.id} className="text-sm">
             <div className="flex items-baseline justify-between mb-0.5">
               <span className="font-semibold text-text text-xs">{c.author}</span>
-              <span className="text-[10px] text-sub font-mono">{c.at.slice(11, 16)}</span>
+              <span className="text-xs text-sub font-mono">{c.at.slice(11, 16)}</span>
             </div>
             <p className="text-text whitespace-pre-wrap break-words text-xs">{c.text}</p>
           </div>
@@ -502,11 +502,11 @@ function MentionAutocomplete({
               active ? "bg-surface-deep ring-1 ring-accent/40" : ""
             }`}
           >
-            <span className="w-5 h-5 rounded-full bg-accent/30 text-accent flex items-center justify-center text-[10px] font-bold">
+            <span className="w-5 h-5 rounded-full bg-accent/30 text-accent flex items-center justify-center text-xs font-bold">
               {(m.name || "?").charAt(0).toUpperCase()}
             </span>
             <span className="flex-1 truncate">{m.name}</span>
-            <span className="text-[9px] text-sub font-mono">
+            <span className="text-xs text-sub font-mono">
               @{m.name.split(/\s+/)[0]?.toLowerCase()}
             </span>
           </button>

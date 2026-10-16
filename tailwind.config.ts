@@ -195,11 +195,9 @@ const config: Config = {
         h4: ["28px", { lineHeight: "1.2", letterSpacing: "-0.5px" }],
         h5: ["20px", { lineHeight: "1.4" }],
         body: ["14px", { lineHeight: "1.6" }],
-        label: ["11px", { lineHeight: "1", letterSpacing: "2px" }],
         caption: ["12px", { lineHeight: "1.4" }],
-        tiny: ["10px", { lineHeight: "1.4" }],
-        micro: ["9px", { lineHeight: "1" }],
-        nano: ["8px", { lineHeight: "1", letterSpacing: "1.5px" }],
+        // No sizes below 12px: label (11), tiny (10), micro (9) and nano (8)
+        // were removed with the type-scale reset — use text-xs.
 
         // ── Fluid scale (mobile-first, no-media-query) ──
         // Uses clamp(min, viewport-relative, max). Use these for any text

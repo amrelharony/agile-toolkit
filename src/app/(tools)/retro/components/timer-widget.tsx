@@ -44,7 +44,7 @@ export function TimerWidget({
             onClick={() => {
               onChange(p);
             }}
-            className="text-[10px] px-1.5 py-0.5 rounded border border-border text-sub hover:border-accent-cyan/40 hover:text-accent transition-colors"
+            className="text-xs px-1.5 py-0.5 rounded border border-border text-sub hover:border-accent-cyan/40 hover:text-accent transition-colors"
           >
             {p / 60}m
           </button>

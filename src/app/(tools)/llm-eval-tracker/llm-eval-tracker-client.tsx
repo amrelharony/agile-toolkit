@@ -380,7 +380,7 @@ export function LLMEvalTrackerClient() {
                 <div className="flex flex-col gap-1 min-w-[8rem]">
                   <label
                     htmlFor="live-eval-score"
-                    className="text-[10px] uppercase tracking-wider text-sub font-mono"
+                    className="text-xs uppercase tracking-wider text-sub font-mono"
                   >
                     Score 0–1
                   </label>
@@ -399,7 +399,7 @@ export function LLMEvalTrackerClient() {
                   <Plus className="w-4 h-4" />
                   Log score for {llm.providerName ?? "active provider"}
                 </Button>
-                <span className="text-[11px] text-sub">
+                <span className="text-xs text-sub">
                   Model: <span className="font-mono">{llm.model ?? "—"}</span>
                 </span>
               </div>

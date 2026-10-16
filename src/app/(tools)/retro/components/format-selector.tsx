@@ -50,7 +50,7 @@ export function FormatSelector({ onSelect }: { onSelect: (format: RetroFormat) =
                     {fmt.columns.map((col) => (
                       <span
                         key={col.key}
-                        className="text-[10px] px-2 py-0.5 rounded-full border font-medium"
+                        className="text-xs px-2 py-0.5 rounded-full border font-medium"
                         style={{
                           color: themed(col.color),
                           borderColor: tint(col.color, 33),

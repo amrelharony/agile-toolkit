@@ -333,7 +333,7 @@ export default function AiRunPanel({
         compact ? "p-2 border-border bg-surface" : "mt-3 p-3 border-accent/30 bg-accent/5"
       )}
     >
-      <div className="flex items-center justify-between gap-2 text-[11px]">
+      <div className="flex items-center justify-between gap-2 text-xs">
         <div className="flex items-center gap-2 text-accent font-mono uppercase tracking-wider">
           <span>{providerName ?? "AI"}</span>
           {modelInfo && (
@@ -390,7 +390,7 @@ export default function AiRunPanel({
           </>
         )}
         {running && (
-          <span className="text-[11px] text-sub inline-flex items-center gap-1">
+          <span className="text-xs text-sub inline-flex items-center gap-1">
             <Loader2 className="w-3 h-3 animate-spin" />
             Streaming…
             {ttftMs !== null && <span className="font-mono">· first token {ttftMs}ms</span>}
@@ -420,7 +420,7 @@ export default function AiRunPanel({
       )}
 
       {usage && usage.inputTokens >= 0 && usage.outputTokens >= 0 && providerId && modelId && (
-        <div className="text-[10px] text-sub font-mono text-right">
+        <div className="text-xs text-sub font-mono text-right">
           Used {usage.inputTokens.toLocaleString()} in / {usage.outputTokens.toLocaleString()} out ·{" "}
           {formatCostUsd(
             estimateCostUsd(providerId, modelId, usage.inputTokens, usage.outputTokens)

@@ -481,23 +481,23 @@ export function StakeholderMapClient() {
                   <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-px bg-border rounded-lg overflow-hidden">
                     {/* top-left = high authority + low interest = Keep Satisfied */}
                     <div className="bg-warning/5 p-2">
-                      <div className="text-[10px] uppercase tracking-wider text-warning/70">
+                      <div className="text-xs uppercase tracking-wider text-warning/70">
                         Keep Satisfied
                       </div>
                     </div>
                     {/* top-right = high authority + high interest = Manage Closely */}
                     <div className="bg-accent/10 p-2 text-right">
-                      <div className="text-[10px] uppercase tracking-wider text-accent/70">
+                      <div className="text-xs uppercase tracking-wider text-accent/70">
                         Manage Closely
                       </div>
                     </div>
                     {/* bottom-left = low authority + low interest = Monitor */}
                     <div className="bg-bg p-2">
-                      <div className="text-[10px] uppercase tracking-wider text-sub">Monitor</div>
+                      <div className="text-xs uppercase tracking-wider text-sub">Monitor</div>
                     </div>
                     {/* bottom-right = low authority + high interest = Keep Informed */}
                     <div className="bg-success/5 p-2 text-right">
-                      <div className="text-[10px] uppercase tracking-wider text-success/70">
+                      <div className="text-xs uppercase tracking-wider text-success/70">
                         Keep Informed
                       </div>
                     </div>
@@ -505,13 +505,13 @@ export function StakeholderMapClient() {
 
                   {/* Axis labels */}
                   <div
-                    className="absolute -left-6 top-1/2 -translate-y-1/2 -rotate-90 text-[10px] uppercase tracking-wider text-sub"
+                    className="absolute -left-6 top-1/2 -translate-y-1/2 -rotate-90 text-xs uppercase tracking-wider text-sub"
                     aria-hidden
                   >
                     Authority →
                   </div>
                   <div
-                    className="absolute left-1/2 -bottom-6 -translate-x-1/2 text-[10px] uppercase tracking-wider text-sub"
+                    className="absolute left-1/2 -bottom-6 -translate-x-1/2 text-xs uppercase tracking-wider text-sub"
                     aria-hidden
                   >
                     Interest →

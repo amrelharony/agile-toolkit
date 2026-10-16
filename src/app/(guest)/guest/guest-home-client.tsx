@@ -136,7 +136,7 @@ export function GuestHomeClient({ profile }: Props) {
                         {formatToolName(s.toolId)}
                       </h3>
                       <span
-                        className={`text-[10px] uppercase font-bold ${
+                        className={`text-xs uppercase font-bold ${
                           s.role === "editor"
                             ? "text-warning"
                             : s.role === "commenter"
@@ -147,7 +147,7 @@ export function GuestHomeClient({ profile }: Props) {
                         {s.role}
                       </span>
                     </div>
-                    <p className="text-[11px] text-sub mt-0.5 truncate">Shared by {s.sharedBy}</p>
+                    <p className="text-xs text-sub mt-0.5 truncate">Shared by {s.sharedBy}</p>
                   </div>
                   <ArrowRight
                     className="w-4 h-4 text-sub group-hover:text-accent transition"

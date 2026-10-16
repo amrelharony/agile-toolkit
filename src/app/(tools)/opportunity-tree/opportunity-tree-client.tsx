@@ -168,7 +168,7 @@ export function OpportunityTreeClient() {
         >
           <div className="flex items-start gap-2">
             <span
-              className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded font-data flex-shrink-0"
+              className="text-xs uppercase tracking-wider px-1.5 py-0.5 rounded font-data flex-shrink-0"
               style={{ background: `${kindColor}22`, color: kindColor }}
             >
               {node.kind}

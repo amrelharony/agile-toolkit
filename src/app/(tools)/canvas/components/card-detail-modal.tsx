@@ -243,7 +243,7 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
             {card.sourceRef && (
               <span
                 title={card.sourceRef.tool}
-                className="text-[10px] uppercase font-mono text-sub bg-surface-deep px-2 py-0.5 rounded max-w-[140px] truncate inline-block"
+                className="text-xs uppercase font-mono text-sub bg-surface-deep px-2 py-0.5 rounded max-w-[140px] truncate inline-block"
               >
                 ↳ {card.sourceRef.tool}
               </span>
@@ -428,7 +428,7 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
             </button>
           </div>
           {card.sourceRef && (
-            <p className="text-[10px] text-sub italic text-center pt-1">
+            <p className="text-xs text-sub italic text-center pt-1">
               Linked to a {card.sourceRef.tool} item. {card.sourceRef.tool} edits flow into this
               card; card edits stay on the canvas.
             </p>

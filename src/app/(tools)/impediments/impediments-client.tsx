@@ -286,7 +286,7 @@ export function ImpedimentsClient() {
                     {Math.round(medianResolutionCI.point)}
                     <span className="text-sm font-normal text-sub ml-1">days</span>
                   </p>
-                  <p className="text-[11px] text-sub mt-1 font-data">
+                  <p className="text-xs text-sub mt-1 font-data">
                     95% CI [{Math.round(medianResolutionCI.lower)},{" "}
                     {Math.round(medianResolutionCI.upper)}]
                   </p>
@@ -325,7 +325,7 @@ export function ImpedimentsClient() {
             {raisedTrend &&
               (raisedTrend.significant ? (
                 <span
-                  className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
+                  className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
                     raisedTrend.trend === "up"
                       ? "border-danger/40 text-danger bg-danger/10"
                       : "border-accent-green/40 text-accent-green bg-accent-green/10"
@@ -338,13 +338,13 @@ export function ImpedimentsClient() {
                   <span className="opacity-60">· p={raisedTrend.pValue.toFixed(3)}</span>
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface-deep">
+                <span className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface-deep">
                   <TrendingUp className="w-3 h-3" />
                   Impediment creation trend: no significant change
                 </span>
               ))}
             {openChangepoints.length > 0 && (
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-accent-amber/40 text-accent-amber bg-accent-amber/10">
+              <span className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-accent-amber/40 text-accent-amber bg-accent-amber/10">
                 <AlertTriangle className="w-3 h-3" />
                 {openChangepoints.length} regime shift{openChangepoints.length !== 1 ? "s" : ""}{" "}
                 detected (CUSUM)

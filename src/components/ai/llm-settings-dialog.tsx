@@ -150,7 +150,7 @@ export function LlmSettingsDialog() {
                 )}
               >
                 <div className="font-semibold">Session only</div>
-                <div className="text-[11px] mt-0.5 opacity-80">
+                <div className="text-xs mt-0.5 opacity-80">
                   Cleared when you close this tab. Safest default.
                 </div>
               </button>
@@ -165,7 +165,7 @@ export function LlmSettingsDialog() {
                 )}
               >
                 <div className="font-semibold">This device</div>
-                <div className="text-[11px] mt-0.5 opacity-80">
+                <div className="text-xs mt-0.5 opacity-80">
                   Survives reload. Any extension or XSS in this app can read it.
                 </div>
               </button>
@@ -187,10 +187,10 @@ export function LlmSettingsDialog() {
               value={maxOutputTokens}
               onCommit={setMaxOutputTokens}
             />
-            <span className="text-[11px] text-sub">caps cost per request</span>
+            <span className="text-xs text-sub">caps cost per request</span>
           </div>
 
-          <p className="text-[11px] leading-relaxed">
+          <p className="text-xs leading-relaxed">
             Your key is stored only in this browser. Requests go directly from your browser to the
             provider — they never touch the toolkit&apos;s servers. Any browser extension or XSS in
             this app could read your key. Use session mode for the strongest default.
@@ -388,7 +388,7 @@ function ProviderPanel({
             {reveal ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </Button>
         </div>
-        {keyHint && <p className="text-[11px] text-warning/80">{keyHint}</p>}
+        {keyHint && <p className="text-xs text-warning/80">{keyHint}</p>}
       </div>
 
       <div className="space-y-1.5">
@@ -418,14 +418,14 @@ function ProviderPanel({
             {models.map((m) => (
               <SelectItem key={m.id} value={m.id}>
                 <span className="font-mono">{m.label}</span>
-                <span className="ml-2 text-[11px] text-sub">
+                <span className="ml-2 text-xs text-sub">
                   ${m.inputPer1k.toFixed(4)}/${m.outputPer1k.toFixed(4)} per 1K
                 </span>
               </SelectItem>
             ))}
             <SelectItem value={CUSTOM_MODEL_VALUE}>
               <span className="font-mono">Custom model id…</span>
-              <span className="ml-2 text-[11px] text-sub">type any id the provider supports</span>
+              <span className="ml-2 text-xs text-sub">type any id the provider supports</span>
             </SelectItem>
           </SelectContent>
         </Select>

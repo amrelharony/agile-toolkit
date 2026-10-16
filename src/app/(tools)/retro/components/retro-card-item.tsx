@@ -184,7 +184,7 @@ export function RetroCardItem({
             value={card.groupedWith ?? "__none__"}
             onValueChange={(val) => onGroup(card.id, val === "__none__" ? null : val)}
           >
-            <SelectTrigger className="min-touch-coarse h-6 text-[10px] bg-cardH border-border text-sub">
+            <SelectTrigger className="min-touch-coarse h-6 text-xs bg-cardH border-border text-sub">
               <SelectValue placeholder="Group with…" />
             </SelectTrigger>
             <SelectContent className="bg-card border-border">

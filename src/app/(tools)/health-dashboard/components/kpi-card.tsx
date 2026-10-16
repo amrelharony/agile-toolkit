@@ -41,7 +41,7 @@ export function KpiCard({ kpi }: { kpi: KPI }) {
           </div>
           {hasData && (
             <Badge
-              className="text-[10px] font-medium px-1.5 py-0.5 border-0"
+              className="text-xs font-medium px-1.5 py-0.5 border-0"
               style={{
                 background: STATUS_BG[kpi.status],
                 color: STATUS_COLOR[kpi.status],
