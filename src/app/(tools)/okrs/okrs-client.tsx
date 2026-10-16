@@ -6,7 +6,6 @@ import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ReferenceLine } 
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { WorkspaceSyncButton } from "@/components/shared/workspace-sync-button";
 import { ChartCard } from "@/components/shared/chart-card";
 import { SmartInput } from "@/components/shared/smart-input";
 import { Button } from "@/components/ui/button";
@@ -132,7 +131,7 @@ export function OkrsClient() {
   // Import/Push buttons to ferry data between) raced cross-tab edits
   // and silently overwrote workspace data on Push. The workspace store
   // is already persisted + cloud-synced; we read/write through it
-  // directly. Import/Push become no-ops (or removed entirely).
+  // directly, so there is no Workspace import/push button.
   const okrs = useWorkspaceStore((s) => s.okrs);
   const upsertOkr = useWorkspaceStore((s) => s.upsertOkr);
   const removeOkr = useWorkspaceStore((s) => s.removeOkr);
@@ -186,12 +185,6 @@ export function OkrsClient() {
     });
     log(OKR_ACTIONS.KEY_RESULT_REMOVED, { okrId, krId });
   };
-
-  // Import/Push are now no-ops (workspace IS the store). Kept as
-  // identity functions so existing buttons stay wired without errors;
-  // a follow-up can remove the buttons entirely.
-  const handleImport = () => 0;
-  const handlePush = () => okrs.length;
 
   const promptConfig = useMemo(
     () => ({
@@ -262,7 +255,6 @@ export function OkrsClient() {
       category="Outcomes & Pulse"
     >
       <ActionRow>
-        <WorkspaceSyncButton toolName="OKR Tracker" onImport={handleImport} onPush={handlePush} />
         <AiPromptGenerator config={promptConfig} />
         <ExportButton
           filename="okrs"

@@ -34,9 +34,13 @@ export function WorkspaceSyncButton({
 }: WorkspaceSyncButtonProps) {
   const [open, setOpen] = useState(false);
 
+  // A count of 0 means nothing moved, so it gets a neutral notice rather
+  // than a success toast claiming work was done.
   const handleImport = () => {
     const n = onImport?.();
-    if (typeof n === "number") toast.success(`Imported ${n} item${n === 1 ? "" : "s"} from Workspace`);
+    if (n === 0) toast.info("Nothing new to import from Workspace");
+    else if (typeof n === "number")
+      toast.success(`Imported ${n} item${n === 1 ? "" : "s"} from Workspace`);
     else if (onImport) toast.success("Imported from Workspace");
     setOpen(false);
   };
@@ -55,16 +59,15 @@ export function WorkspaceSyncButton({
       return;
     }
     const n = onPush?.();
-    if (typeof n === "number") toast.success(`Pushed ${n} item${n === 1 ? "" : "s"} to Workspace`);
+    if (n === 0) toast.info("Nothing to push to Workspace");
+    else if (typeof n === "number")
+      toast.success(`Pushed ${n} item${n === 1 ? "" : "s"} to Workspace`);
     else if (onPush) toast.success("Pushed to Workspace");
     setOpen(false);
   };
 
   const handleUnlink = () => {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`Unlink "${toolName}" from Workspace?`)
-    ) {
+    if (typeof window !== "undefined" && !window.confirm(`Unlink "${toolName}" from Workspace?`)) {
       setOpen(false);
       return;
     }
