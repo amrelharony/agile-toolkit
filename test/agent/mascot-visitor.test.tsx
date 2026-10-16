@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 // Owner state comes from useAuthOptional (via useOwnerState); the chat
 // pieces that talk to Supabase / the agent API are replaced by markers so
@@ -18,6 +18,8 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/agent/client", () => ({
   abortInFlight: vi.fn(),
 }));
+// The owner panel populates the action registry; the test doesn't need it.
+vi.mock("@/lib/actions/register-all", () => ({}));
 vi.mock("@/components/agent/mascot/mascot-3d", () => ({
   default: () => <div data-testid="mascot-3d" />,
 }));
@@ -69,11 +71,11 @@ describe("MascotAssistant — owner gating", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows visitors the notice instead of the chat, with no owner requests", () => {
+  it("shows visitors the tool guide instead of the chat, with no owner requests", () => {
     h.auth = { status: "anonymous", user: null };
     render(<MascotAssistant />);
 
-    expect(screen.getByTestId("agent-visitor-notice")).toBeInTheDocument();
+    expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
     expect(screen.queryByTestId("agent-conversation")).toBeNull();
     expect(screen.queryByTestId("conversation-list")).toBeNull();
     expect(screen.queryByTestId("rate-limit-bar")).toBeNull();
@@ -100,17 +102,29 @@ describe("MascotAssistant — owner gating", () => {
     h.auth = { status: "loading", user: null };
     render(<MascotAssistant />);
 
-    expect(screen.queryByTestId("agent-visitor-notice")).toBeNull();
+    expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
     expect(screen.queryByTestId("agent-conversation")).toBeNull();
     expect(screen.queryByTestId("rate-limit-bar")).toBeNull();
   });
 
-  it("gives the owner the full chat panel", () => {
+  it("lets a visitor find a tool from the panel", () => {
+    h.auth = { status: "anonymous", user: null };
+    render(<MascotAssistant />);
+
+    fireEvent.change(screen.getByLabelText("What do you need to do?"), {
+      target: { value: "retrospective" },
+    });
+    const results = screen.getByRole("list", { name: "Matching tools" });
+    expect(within(results).getAllByRole("link")[0]).toHaveAttribute("href", "/retro");
+  });
+
+  it("gives the owner the full chat panel", async () => {
     h.auth = OWNER;
     render(<MascotAssistant />);
 
-    expect(screen.queryByTestId("agent-visitor-notice")).toBeNull();
-    expect(screen.getByTestId("agent-conversation")).toBeInTheDocument();
+    expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
+    // The chat is a lazily loaded chunk.
+    expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
     expect(screen.getByTestId("rate-limit-bar")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New chat" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Conversation history" })).toBeInTheDocument();
@@ -129,7 +143,7 @@ describe("MascotAssistant — owner gating", () => {
     rerender(<MascotAssistant />);
 
     expect(useAgentStore.getState().messages).toEqual([]);
-    expect(screen.getByTestId("agent-visitor-notice")).toBeInTheDocument();
+    expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
   });
 });
 

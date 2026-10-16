@@ -13,9 +13,9 @@ import { installSignalBridge } from "@/lib/signals/signal-bridge";
 import { bootstrapPredictions } from "@/lib/predictions/bootstrap";
 import { installKudosReceiveBridge } from "@/lib/kudos/receive-bridge";
 import { KudosOwnerBridge } from "@/lib/kudos/owner-bridge";
-// Populate the tool action registry at app load — must happen before
-// any component that consumes the agent / MCP surface mounts.
-import "@/lib/actions/register-all";
+// The tool action registry is populated by the owner's agent panel
+// (components/agent/mascot/owner-agent-panel) when it loads — only the
+// agent reads it client-side, so visitors never download it.
 
 // Settings dialog is dynamic-imported so its body (tabs, model lists, the
 // tested provider import) never lands in the eager bundle — only loads

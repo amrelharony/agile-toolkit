@@ -10,8 +10,10 @@
  * shell is new. The mascot "talks" (Talking clip) while the agent streams.
  *
  * The agent itself is owner-only. Visitors keep the mascot (clicks, Konami,
- * Cmd/Ctrl+J) but the panel shows <AgentVisitorNotice/> instead of the chat,
- * so their panel never touches /api/agent/* or the agent tables in Supabase.
+ * Cmd/Ctrl+J) but the panel shows <VisitorGuide/> — a tool finder — instead
+ * of the chat, so their panel never touches /api/agent/* or the agent tables
+ * in Supabase. The chat (and the action registry it needs) is a separate
+ * dynamic chunk, owner-agent-panel, so visitors never download it either.
  */
 
 import {
@@ -28,15 +30,11 @@ import { useAgentStore } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { isComicRoute } from "@/lib/comic/agile-at-work";
 import { useMascotStore } from "@/lib/agent/mascot/store";
-import { abortInFlight } from "@/lib/agent/client";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { createClickInteraction } from "./engine/interactions/clicks";
 import { installKonami } from "./engine/customization/commands";
 import { playMascotSound } from "./engine/audio/mascot-audio";
-import { RateLimitBar } from "./rate-limit-bar";
-import { AgentConversation } from "../agent-conversation";
-import { ConversationList } from "../conversation-list";
-import { AgentVisitorNotice } from "../agent-visitor-notice";
+import { VisitorGuide } from "./visitor-guide";
 import styles from "./mascot-assistant.module.css";
 
 /** Award XP via the gamification window bridge (no-op if unavailable). */
@@ -86,6 +84,10 @@ function panelPos(c: Corner): CSSProperties {
 }
 
 const Mascot3D = dynamic(() => import("./mascot-3d"), { ssr: false });
+const OwnerAgentPanel = dynamic(() => import("./owner-agent-panel"), {
+  ssr: false,
+  loading: () => <div className="min-h-0 flex-1" aria-busy="true" />,
+});
 
 export function MascotAssistant() {
   const open = useAgentStore((s) => s.open);
@@ -102,8 +104,8 @@ export function MascotAssistant() {
   const pathname = usePathname();
   const hideFigure = isComicRoute(pathname);
 
-  // Owner signed out mid-session: stop any in-flight agent turn (its tool
-  // calls run in this tab) and drop the conversation from memory.
+  // Owner signed out mid-session: drop the conversation from memory. (The
+  // chat panel unmounts at the same moment, which aborts any in-flight turn.)
   const wasOwnerRef = useRef(false);
   useEffect(() => {
     if (isOwner) {
@@ -112,7 +114,6 @@ export function MascotAssistant() {
     }
     if (!wasOwnerRef.current) return;
     wasOwnerRef.current = false;
-    abortInFlight();
     useAgentStore.getState().reset();
     setShowHistory(false);
   }, [isOwner]);
@@ -217,12 +218,6 @@ export function MascotAssistant() {
   // react to tool results, shift mood to the reply's sentiment.
   useMascotChatReactions();
 
-  // Abort any in-flight stream when the panel closes/unmounts (from agent-sheet).
-  useEffect(() => {
-    if (!open) abortInFlight();
-  }, [open]);
-  useEffect(() => () => abortInFlight(), []);
-
   // Cmd/Ctrl+J toggles — the de-facto AI-chat shortcut (moved from agent-sheet).
   // Skip when typing in an editable element so it can't steal focus mid-edit.
   useEffect(() => {
@@ -277,8 +272,8 @@ export function MascotAssistant() {
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
             <div>
               <p className="text-sm font-semibold text-text">✦ ElharonyClaw</p>
-              <p className="text-[11px] text-sub">
-                {isOwner ? "Drive every tool · " : ""}Cmd/Ctrl+J to toggle
+              <p className="text-xs text-sub">
+                {isOwner ? "Drive every tool · " : "Find the right tool · "}Cmd/Ctrl+J
               </p>
             </div>
             <div className="flex items-center gap-0.5">
@@ -322,19 +317,13 @@ export function MascotAssistant() {
           </div>
           {!isOwner ? (
             <div className="min-h-0 flex-1" aria-busy={!settled}>
-              {settled && <AgentVisitorNotice onAction={closeSheet} />}
-            </div>
-          ) : showHistory ? (
-            <div className="min-h-0 flex-1">
-              <ConversationList onClose={() => setShowHistory(false)} />
+              {settled && <VisitorGuide onNavigate={closeSheet} />}
             </div>
           ) : (
-            <>
-              <RateLimitBar />
-              <div className="min-h-0 flex-1 px-3 py-2">
-                <AgentConversation />
-              </div>
-            </>
+            <OwnerAgentPanel
+              showHistory={showHistory}
+              onCloseHistory={() => setShowHistory(false)}
+            />
           )}
         </div>
       )}
