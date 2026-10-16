@@ -26,7 +26,7 @@ describe("page metadata", () => {
 
   it("only builds metadata for tools that exist", () => {
     for (const f of pages) {
-      for (const m of readFileSync(f, "utf8").matchAll(/toolMetadata\("([^"]+)"/g)) {
+      for (const m of Array.from(readFileSync(f, "utf8").matchAll(/toolMetadata\("([^"]+)"/g))) {
         expect(getToolById(m[1]), `${f}: unknown tool "${m[1]}"`).toBeDefined();
       }
     }
