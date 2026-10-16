@@ -817,10 +817,13 @@
 
   /* Kill iOS auto-zoom on input focus — any input < 16px triggers it */
   @media (max-width: 768px) {
+    /* `!important` because these base-layer selectors lose to utility
+       classes: 78 textareas/inputs with `text-xs`/`text-sm` stayed at
+       12–14px and iOS zoomed the page on every focus. */
     input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
     textarea,
     select {
-      font-size: max(16px, 1rem);
+      font-size: max(16px, 1rem) !important;
     }
   }
 
