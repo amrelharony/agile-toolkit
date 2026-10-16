@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -271,6 +272,18 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
   // Without this, keyboard / SR users tab past the drawer into the
   // backdrop DOM, and closing leaves focus on `<body>` (WCAG 2.4.3
   // failure).
+  // Below md the closed drawer is only translated off-screen, so its
+  // ~100 links stayed in the tab order and the accessibility tree ahead of
+  // the page (also at 400% desktop zoom). `inert` removes them while it's
+  // closed. React 18 has no boolean `inert` prop, so set the attribute.
+  const isDesktop = useMediaQuery("(min-width: 768px)");
+  useEffect(() => {
+    const aside = asideRef.current;
+    if (!aside) return;
+    if (!isDesktop && !mobileOpen) aside.setAttribute("inert", "");
+    else aside.removeAttribute("inert");
+  }, [isDesktop, mobileOpen]);
+
   useEffect(() => {
     if (!mobileOpen) return;
     if (typeof document === "undefined") return;
