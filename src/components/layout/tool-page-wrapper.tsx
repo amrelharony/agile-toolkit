@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { InsightsEngine } from "@/components/shared/insights-engine";
 import { ToolHistoryDrawer } from "@/components/history/tool-history-drawer";
 import { UndoRedoControls } from "@/components/history/undo-redo-controls";
@@ -33,6 +32,9 @@ interface ToolPageWrapperProps {
  *     right of the title as before.
  *   - Description: capped at `max-w-prose` (≈ 65ch) so wide monitors get
  *     readable line lengths instead of single 200-char lines.
+ *   - Entrance: a CSS translate-only rise. It used to be a framer-motion
+ *     fade from `opacity: 0`, which the server rendered into the HTML, so
+ *     every tool page stayed invisible until the JS bundle hydrated.
  */
 export function ToolPageWrapper({
   title,
@@ -45,21 +47,14 @@ export function ToolPageWrapper({
   const showToolbar = showHistory && Boolean(toolId);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: "easeOut" }}
-      className="container-tool"
-    >
+    <div className="container-tool motion-safe:animate-rise">
       {/* Header row — title + toolbar */}
       <header className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-start sm:gap-4 gap-3">
         <div className="flex-1 min-w-0">
           <h1 className="font-display font-bold text-text leading-tight text-glow text-fluid-h2 mb-1 sm:mb-2">
             {title}
           </h1>
-          <p className="text-fluid-body text-sub max-w-prose">
-            {description}
-          </p>
+          <p className="text-fluid-body text-sub max-w-prose">{description}</p>
         </div>
         {showToolbar && (
           <div
@@ -75,6 +70,6 @@ export function ToolPageWrapper({
 
       {showInsights && toolId && <InsightsEngine toolId={toolId} limit={2} />}
       {children}
-    </motion.div>
+    </div>
   );
 }

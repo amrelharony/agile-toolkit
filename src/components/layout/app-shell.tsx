@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
+import { MotionConfig } from "framer-motion";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { CommandPalette } from "./command-palette";
@@ -121,65 +122,71 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <ErrorBoundary name="AppShell">
-      <SonificationProvider>
-        <HapticsProvider>
-          <EmotionProvider>
-            <WeatherProvider>
-              <AuthProvider>
-                {/* Inside AuthProvider: the leaderboard sync is owner-only. */}
-                <GamificationProvider>
-                  <OwnerPresenceProvider>
-                    <CloudSyncProvider>
-                      <HistorySyncProvider>
-                        <TimeTravelShortcuts />
-                        <KudosOwnerBridge />
-                        <RecentToolTracker />
-                        <Suspense fallback={null}>
-                          <FlyingCardPortal />
-                        </Suspense>
-                        {/* Skip-to-content link for screen readers + keyboard users */}
-                        <a
-                          href="#main-content"
-                          className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-3 focus:py-2 focus:bg-accent focus:text-bg focus:rounded-md"
-                        >
-                          Skip to content
-                        </a>
+      {/* framer-motion ignores prefers-reduced-motion unless told to. */}
+      <MotionConfig reducedMotion="user">
+        <SonificationProvider>
+          <HapticsProvider>
+            <EmotionProvider>
+              <WeatherProvider>
+                <AuthProvider>
+                  {/* Inside AuthProvider: the leaderboard sync is owner-only. */}
+                  <GamificationProvider>
+                    <OwnerPresenceProvider>
+                      <CloudSyncProvider>
+                        <HistorySyncProvider>
+                          <TimeTravelShortcuts />
+                          <KudosOwnerBridge />
+                          <RecentToolTracker />
+                          <Suspense fallback={null}>
+                            <FlyingCardPortal />
+                          </Suspense>
+                          {/* Skip-to-content link for screen readers + keyboard users */}
+                          <a
+                            href="#main-content"
+                            className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-3 focus:py-2 focus:bg-accent focus:text-bg focus:rounded-md"
+                          >
+                            Skip to content
+                          </a>
 
-                        <div className="flex min-h-screen">
-                          <Sidebar mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-                          <div className="flex-1 flex flex-col min-w-0">
-                            <Header
-                              onOpenSearch={() => setSearchOpen(true)}
-                              onOpenSidebar={() => setSidebarOpen(true)}
-                              onOpenTrophyCase={() => setTrophyOpen(true)}
+                          <div className="flex min-h-screen">
+                            <Sidebar
+                              mobileOpen={sidebarOpen}
+                              onClose={() => setSidebarOpen(false)}
                             />
-                            <main
-                              id="main-content"
-                              className="flex-1 pb-[calc(2rem+env(safe-area-inset-bottom))] md:pb-8 pl-safe pr-safe md:pl-0 md:pr-0"
-                            >
-                              {children}
-                            </main>
+                            <div className="flex-1 flex flex-col min-w-0">
+                              <Header
+                                onOpenSearch={() => setSearchOpen(true)}
+                                onOpenSidebar={() => setSidebarOpen(true)}
+                                onOpenTrophyCase={() => setTrophyOpen(true)}
+                              />
+                              <main
+                                id="main-content"
+                                className="flex-1 pb-[calc(2rem+env(safe-area-inset-bottom))] md:pb-8 pl-safe pr-safe md:pl-0 md:pr-0"
+                              >
+                                {children}
+                              </main>
+                            </div>
+                            <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
                           </div>
-                          <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} />
-                        </div>
-                        <TrophyCase open={trophyOpen} onOpenChange={setTrophyOpen} />
-                        <Suspense fallback={null}>
-                          <HolidayEngine />
-                        </Suspense>
-                        {/* BYOK settings dialog — open/close state lives in llm-ui-store,
+                          <TrophyCase open={trophyOpen} onOpenChange={setTrophyOpen} />
+                          <Suspense fallback={null}>
+                            <HolidayEngine />
+                          </Suspense>
+                          {/* BYOK settings dialog — open/close state lives in llm-ui-store,
             so this single mount serves both header-chip and UserMenu
             entry points. Dynamic-imported so non-AI users never load it. */}
-                        <LlmSettingsDialog />
-                        <MascotAssistant />
-                      </HistorySyncProvider>
-                    </CloudSyncProvider>
-                  </OwnerPresenceProvider>
-                </GamificationProvider>
-              </AuthProvider>
-            </WeatherProvider>
-          </EmotionProvider>
-        </HapticsProvider>
-      </SonificationProvider>
+                          <LlmSettingsDialog />
+                          <MascotAssistant />
+                        </HistorySyncProvider>
+                      </CloudSyncProvider>
+                    </OwnerPresenceProvider>
+                  </GamificationProvider>
+                </AuthProvider>
+              </WeatherProvider>
+            </EmotionProvider>
+          </HapticsProvider>
+        </SonificationProvider>
+      </MotionConfig>
     </ErrorBoundary>
   );
 }

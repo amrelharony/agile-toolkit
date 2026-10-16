@@ -284,6 +284,12 @@ const config: Config = {
           from: { opacity: "0", transform: "translateY(8px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
+        // Translate-only entrance: content is visible from the first frame
+        // (no opacity ramp), so it also reads fine before JS hydrates.
+        rise: {
+          from: { transform: "translateY(8px)" },
+          to: { transform: "translateY(0)" },
+        },
         "scale-in": {
           from: { opacity: "0", transform: "scale(0.95)" },
           to: { opacity: "1", transform: "scale(1)" },
@@ -335,6 +341,7 @@ const config: Config = {
         "mesh-2": "mesh-float-2 25s ease-in-out infinite",
         "fade-in": "fade-in 0.4s ease-out forwards",
         "slide-up": "slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+        rise: "rise 0.35s cubic-bezier(0.16, 1, 0.3, 1) both",
         "scale-in": "scale-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards",
         shimmer: "shimmer 0.8s ease forwards",
         skeleton: "skeleton-shimmer 1.5s ease-in-out infinite",
