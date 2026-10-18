@@ -118,6 +118,16 @@ describe("MascotAssistant — owner gating", () => {
     expect(within(results).getAllByRole("link")[0]).toHaveAttribute("href", "/retro");
   });
 
+  it("shows a visitor how to run the tool they're on", async () => {
+    h.auth = { status: "anonymous", user: null };
+    h.pathname = "/wsjf";
+    render(<MascotAssistant />);
+
+    const tool = screen.getByRole("region", { name: "This tool" });
+    expect(await within(tool).findByText("How to run it")).toBeInTheDocument();
+    expect(within(tool).getByText(/WSJF = cost of delay ÷ job size/)).toBeInTheDocument();
+  });
+
   it("gives the owner the full chat panel", async () => {
     h.auth = OWNER;
     render(<MascotAssistant />);
