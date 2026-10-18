@@ -9,6 +9,11 @@
  * on the main thread. Gated by `prefers-reduced-motion`; pauses when
  * the tab is hidden.
  *
+ * Only runs where it's decoration, not a distraction: never on touch
+ * devices (battery, and there's no pointer to follow), and paused and
+ * faded out on tool pages, where people are working. It starts on the
+ * first non-tool page and resumes there.
+ *
  * StrictMode note: `transferControlToOffscreen` is one-shot per canvas,
  * so the worker and engine are kept in refs and never torn down on
  * cleanup. This component lives in the root layout for the page
@@ -16,7 +21,9 @@
  * listeners are detached/re-attached across effect cycles.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { getToolByPath } from "@/lib/constants/tools";
 import { ParticleEngine } from "@/lib/particles/engine";
 import type { EngineConfig, InboundMsg } from "@/lib/particles/types";
 
@@ -42,9 +49,18 @@ export function ParticleBackground() {
   const workerRef = useRef<Worker | null>(null);
   const engineRef = useRef<ParticleEngine | null>(null);
   const modeRef = useRef<Mode>("off");
+  const pathname = usePathname();
+  // Assume touch until measured, so nothing starts before we know.
+  const [coarse, setCoarse] = useState(true);
+  const onToolPage = Boolean(pathname && getToolByPath(pathname));
+  const active = !coarse && !onToolPage;
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    setCoarse(window.matchMedia("(pointer: coarse)").matches);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !active) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -208,8 +224,10 @@ export function ParticleBackground() {
     });
 
     return () => {
-      // Detach listeners only. The worker/engine persists for the page
-      // lifetime — see file header for rationale.
+      // Detach listeners and pause (leaving for a tool page, or a
+      // StrictMode re-run, which resumes above). The worker/engine
+      // persists for the page lifetime — see file header for rationale.
+      send({ type: "pause" });
       ro.disconnect();
       themeMO.disconnect();
       dprMq?.removeEventListener("change", emitResize);
@@ -221,7 +239,7 @@ export function ParticleBackground() {
       document.removeEventListener("visibilitychange", onVisibility);
       mqReduce.removeEventListener("change", onReduceChange);
     };
-  }, []);
+  }, [active]);
 
   return (
     <canvas
@@ -238,6 +256,8 @@ export function ParticleBackground() {
         height: "100dvh",
         pointerEvents: "none",
         zIndex: -1,
+        opacity: active ? 1 : 0,
+        transition: "opacity 400ms ease",
       }}
     />
   );
