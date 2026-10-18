@@ -268,6 +268,7 @@ export function RlhfLogClient() {
                 value={pairPrompt}
                 onChange={(e) => setPairPrompt(e.target.value)}
                 placeholder="Shared prompt fed to both A and B…"
+                aria-label="Shared prompt for A and B"
                 rows={3}
                 className="font-mono text-xs"
               />
@@ -344,6 +345,7 @@ export function RlhfLogClient() {
         <SectionCard title="Log pairwise comparison" icon={Plus}>
           <Textarea
             placeholder="Prompt"
+            aria-label="Prompt"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             className="font-mono text-xs"
@@ -352,12 +354,14 @@ export function RlhfLogClient() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
             <Textarea
               placeholder="Response A"
+              aria-label="Response A"
               value={a}
               onChange={(e) => setA(e.target.value)}
               rows={4}
             />
             <Textarea
               placeholder="Response B"
+              aria-label="Response B"
               value={b}
               onChange={(e) => setB(e.target.value)}
               rows={4}
@@ -365,7 +369,7 @@ export function RlhfLogClient() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
             <Select value={winner} onValueChange={(v) => setWinner(v as RlhfPair["winner"])}>
-              <SelectTrigger>
+              <SelectTrigger aria-label="Winner">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -376,11 +380,13 @@ export function RlhfLogClient() {
             </Select>
             <Input
               placeholder="Reviewer (optional)"
+              aria-label="Reviewer (optional)"
               value={reviewer}
               onChange={(e) => setReviewer(e.target.value)}
             />
             <Input
               placeholder="Reason (optional)"
+              aria-label="Reason (optional)"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
             />
@@ -391,7 +397,6 @@ export function RlhfLogClient() {
                 type="checkbox"
                 checked={redact}
                 onChange={(e) => setRedact(e.target.checked)}
-                aria-label="Redact PII before saving"
               />
               Redact emails / API keys / phone numbers before saving + exporting
             </label>
@@ -523,7 +528,7 @@ function PairPicker({
           onPick({ provider: prov as ProviderId, model });
         }}
       >
-        <SelectTrigger>
+        <SelectTrigger aria-label={`Side ${label} provider and model`}>
           <SelectValue placeholder="Pick provider + model" />
         </SelectTrigger>
         <SelectContent>

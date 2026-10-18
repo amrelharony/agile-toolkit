@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, Legend } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -348,7 +348,9 @@ export function DevexSurveyClient() {
                   <th className="py-2 pr-3">Feedback</th>
                   <th className="py-2 pr-3">Cog. load</th>
                   <th className="py-2 pr-3">Comments</th>
-                  <th className="py-2 pr-3 w-10"></th>
+                  <th className="py-2 pr-3 w-10">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -397,6 +399,7 @@ function SliderRow({
   value: number;
   onChange: (v: number) => void;
 }) {
+  const hintId = useId();
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
@@ -410,8 +413,12 @@ function SliderRow({
         value={[value]}
         onValueChange={([v]) => onChange(v)}
         className="w-full"
+        aria-label={label}
+        thumbProps={{ "aria-valuetext": `${value} of 5`, "aria-describedby": hintId }}
       />
-      <p className="text-xs text-sub">{hint}</p>
+      <p id={hintId} className="text-xs text-sub">
+        {hint}
+      </p>
     </div>
   );
 }

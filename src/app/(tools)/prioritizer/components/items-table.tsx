@@ -89,7 +89,9 @@ export function ItemsTable({
               <th className="text-center text-xs text-sub font-medium uppercase tracking-wider pb-2 px-2 min-w-[70px]">
                 RICE Eff
               </th>
-              <th className="w-9" />
+              <th className="w-9">
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -101,6 +103,7 @@ export function ItemsTable({
                       value={item.name}
                       onCommit={(v) => updateItem(item.id, { name: v })}
                       className={inputCls}
+                      aria-label="Item name"
                     />
                     <BlurTextarea
                       value={item.description ?? ""}
@@ -119,7 +122,10 @@ export function ItemsTable({
                     value={item.moscow}
                     onValueChange={(v) => updateItem(item.id, { moscow: v as MoSCoWCategory })}
                   >
-                    <SelectTrigger className={inputCls + " min-w-[110px]"}>
+                    <SelectTrigger
+                      className={inputCls + " min-w-[110px]"}
+                      aria-label={`MoSCoW for ${item.name || "unnamed item"}`}
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-surface border-border">
@@ -137,6 +143,7 @@ export function ItemsTable({
                     value={item.businessValue}
                     min={1}
                     max={10}
+                    aria-label={`Value (1–10) for ${item.name || "unnamed item"}`}
                     onCommit={(n) => updateItem(item.id, { businessValue: n, value: n })}
                     className={inputCls + " w-16 text-center"}
                   />
@@ -147,6 +154,7 @@ export function ItemsTable({
                     value={item.matrixEffort}
                     min={1}
                     max={10}
+                    aria-label={`Effort (1–10) for ${item.name || "unnamed item"}`}
                     onCommit={(n) => updateItem(item.id, { matrixEffort: n })}
                     className={inputCls + " w-16 text-center"}
                   />
@@ -157,6 +165,7 @@ export function ItemsTable({
                     value={item.timeCriticality}
                     min={1}
                     max={10}
+                    aria-label={`Time criticality for ${item.name || "unnamed item"}`}
                     onCommit={(n) => updateItem(item.id, { timeCriticality: n })}
                     className={inputCls + " w-16 text-center"}
                   />
@@ -167,6 +176,7 @@ export function ItemsTable({
                     value={item.riskReduction}
                     min={1}
                     max={10}
+                    aria-label={`Risk reduction for ${item.name || "unnamed item"}`}
                     onCommit={(n) => updateItem(item.id, { riskReduction: n })}
                     className={inputCls + " w-16 text-center"}
                   />
@@ -177,6 +187,7 @@ export function ItemsTable({
                     value={item.jobSize}
                     min={1}
                     max={10}
+                    aria-label={`Job size for ${item.name || "unnamed item"}`}
                     onCommit={(n) => updateItem(item.id, { jobSize: n })}
                     className={inputCls + " w-16 text-center"}
                   />
@@ -186,6 +197,7 @@ export function ItemsTable({
                   <NumCell
                     value={item.reach}
                     min={1}
+                    aria-label={`Reach for ${item.name || "unnamed item"}`}
                     onCommit={(n) => updateItem(item.id, { reach: n })}
                     className={inputCls + " w-20 text-center"}
                   />
@@ -196,7 +208,10 @@ export function ItemsTable({
                     value={String(item.impact)}
                     onValueChange={(v) => updateItem(item.id, { impact: Number(v) as ImpactValue })}
                   >
-                    <SelectTrigger className={inputCls + " w-20"}>
+                    <SelectTrigger
+                      className={inputCls + " w-20"}
+                      aria-label={`Impact for ${item.name || "unnamed item"}`}
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-surface border-border">
@@ -214,6 +229,7 @@ export function ItemsTable({
                     value={item.confidence}
                     min={1}
                     max={100}
+                    aria-label={`Confidence % for ${item.name || "unnamed item"}`}
                     onCommit={(n) => updateItem(item.id, { confidence: n })}
                     className={inputCls + " w-16 text-center"}
                   />
@@ -224,6 +240,7 @@ export function ItemsTable({
                     value={item.effort}
                     min={0.1}
                     step={0.1}
+                    aria-label={`RICE effort (person-months) for ${item.name || "unnamed item"}`}
                     onCommit={(n) => updateItem(item.id, { effort: n })}
                     className={inputCls + " w-16 text-center"}
                   />
@@ -235,8 +252,9 @@ export function ItemsTable({
                     onClick={() => removeItem(item.id)}
                     disabled={items.length <= 1}
                     className="min-touch-coarse h-8 w-8 disabled:opacity-30"
+                    aria-label={`Remove ${item.name || "unnamed item"}`}
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                   </Button>
                 </td>
               </tr>

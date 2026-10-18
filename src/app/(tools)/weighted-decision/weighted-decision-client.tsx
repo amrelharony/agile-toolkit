@@ -171,6 +171,7 @@ export function WeightedDecisionClient() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Input
               placeholder="Criterion name"
+              aria-label="Criterion name"
               value={criterionName}
               onChange={(e) => setCriterionName(e.target.value)}
             />
@@ -178,11 +179,12 @@ export function WeightedDecisionClient() {
               type="number"
               step="0.5"
               placeholder="Weight"
+              aria-label="Criterion weight"
               value={criterionWeight}
               onChange={(e) => setCriterionWeight(e.target.value)}
             />
             <Button onClick={addCriterion} className="gap-1">
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4" aria-hidden="true" />
               Add criterion
             </Button>
           </div>
@@ -200,11 +202,12 @@ export function WeightedDecisionClient() {
               >
                 {c.name} <span className="text-sub">w{c.weight}</span>
                 <button
+                  type="button"
                   onClick={() => removeCriterionCascade(c.id)}
                   className="text-sub hover:text-danger ml-1"
                   aria-label={`Remove criterion ${c.name}`}
                 >
-                  <Trash2 className="w-3 h-3" />
+                  <Trash2 className="w-3 h-3" aria-hidden="true" />
                 </button>
               </li>
             ))}
@@ -215,11 +218,12 @@ export function WeightedDecisionClient() {
           <div className="flex gap-2">
             <Input
               placeholder="Option name"
+              aria-label="Option name"
               value={optionName}
               onChange={(e) => setOptionName(e.target.value)}
             />
             <Button onClick={addOption} className="gap-1">
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4" aria-hidden="true" />
               Add option
             </Button>
           </div>
@@ -252,7 +256,9 @@ export function WeightedDecisionClient() {
                       </th>
                     ))}
                     <th className="p-2 text-right">Total</th>
-                    <th className="p-2 w-10"></th>
+                    <th className="p-2 w-10">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -263,7 +269,12 @@ export function WeightedDecisionClient() {
                     >
                       <td className="p-2">
                         {o.name}
-                        {i === 0 && <span className="ml-1 text-success text-xs">★</span>}
+                        {i === 0 && (
+                          <span className="ml-1 text-success text-xs">
+                            <span aria-hidden="true">★</span>
+                            <span className="sr-only">(top option)</span>
+                          </span>
+                        )}
                       </td>
                       {criteria.map((c) => (
                         <td key={c.id} className="p-1 text-center">
@@ -279,19 +290,22 @@ export function WeightedDecisionClient() {
                               setScore(o, c.id, Number.isFinite(n) ? n : 0);
                             }}
                             className="h-7 w-16 text-center text-xs"
+                            aria-label={`${c.name} score for ${o.name}`}
                           />
                         </td>
                       ))}
                       <td className="p-2 text-right font-mono">{o.score.toFixed(2)}</td>
                       <td className="p-2">
                         <button
+                          type="button"
                           onClick={() => {
                             removeOption(o.id);
                             log(WEIGHTED_DECISION_ACTIONS.OPTION_REMOVED, { id: o.id });
                           }}
                           className="text-sub hover:text-danger"
+                          aria-label={`Remove option ${o.name}`}
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4" aria-hidden="true" />
                         </button>
                       </td>
                     </tr>

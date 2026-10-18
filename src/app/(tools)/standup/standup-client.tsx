@@ -296,7 +296,8 @@ function HistoryTab({ entries, members }: { entries: StandupEntry[]; members: st
           <select
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
-            className="bg-surface-deep border border-border rounded-md px-3 py-1.5 text-sm text-text focus:border-accent/50 focus:outline-none"
+            aria-label="Digest date"
+            className="bg-surface-deep border border-border rounded-md px-3 py-1.5 text-sm text-text focus:border-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             {allDates.length === 0 ? (
               <option value={todayStr()}>{todayStr()}</option>
@@ -314,7 +315,8 @@ function HistoryTab({ entries, members }: { entries: StandupEntry[]; members: st
           <select
             value={filterMember}
             onChange={(e) => setFilterMember(e.target.value)}
-            className="bg-surface-deep border border-border rounded-md px-3 py-1.5 text-sm text-text focus:border-accent/50 focus:outline-none"
+            aria-label="Filter by member"
+            className="bg-surface-deep border border-border rounded-md px-3 py-1.5 text-sm text-text focus:border-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <option value="all">All members</option>
             {members.map((m) => (
@@ -738,11 +740,15 @@ export function StandupClient() {
             >
               {/* Member selector */}
               <div>
-                <label className="text-xs text-sub uppercase tracking-wider mb-1.5 block">
+                <label
+                  htmlFor="standup-member"
+                  className="text-xs text-sub uppercase tracking-wider mb-1.5 block"
+                >
                   Team member
                 </label>
                 <div className="flex gap-2">
                   <select
+                    id="standup-member"
                     value={formMember}
                     onChange={(e) => {
                       setFormMember(e.target.value);
@@ -750,7 +756,7 @@ export function StandupClient() {
                       // the picked name takes effect immediately.
                       if (e.target.value) setCustomMemberDraft("");
                     }}
-                    className="flex-1 bg-surface-deep border border-border rounded-md px-3 py-2 text-sm text-text focus:border-accent/50 focus:outline-none"
+                    className="flex-1 bg-surface-deep border border-border rounded-md px-3 py-2 text-sm text-text focus:border-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   >
                     <option value="">Select member…</option>
                     {members.map((m) => (
@@ -761,6 +767,7 @@ export function StandupClient() {
                   </select>
                   <Input
                     placeholder="Or type name"
+                    aria-label="Or type a team member name"
                     value={customMemberDraft}
                     onChange={(e) => setCustomMemberDraft(e.target.value)}
                     className="flex-1 input-toolkit"
@@ -770,10 +777,14 @@ export function StandupClient() {
 
               {/* Yesterday */}
               <div>
-                <label className="text-xs text-sub uppercase tracking-wider mb-1.5 block">
+                <label
+                  htmlFor="standup-yesterday"
+                  className="text-xs text-sub uppercase tracking-wider mb-1.5 block"
+                >
                   Yesterday
                 </label>
                 <Textarea
+                  id="standup-yesterday"
                   value={yesterday}
                   onChange={(e) => setYesterday(e.target.value)}
                   placeholder="What did you complete yesterday?"
@@ -784,10 +795,14 @@ export function StandupClient() {
 
               {/* Today */}
               <div>
-                <label className="text-xs text-sub uppercase tracking-wider mb-1.5 block">
+                <label
+                  htmlFor="standup-today"
+                  className="text-xs text-sub uppercase tracking-wider mb-1.5 block"
+                >
                   Today
                 </label>
                 <Textarea
+                  id="standup-today"
                   value={today}
                   onChange={(e) => setToday(e.target.value)}
                   placeholder="What will you work on today?"
@@ -799,7 +814,12 @@ export function StandupClient() {
               {/* Blockers */}
               <div>
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-xs text-sub uppercase tracking-wider">Blockers</span>
+                  <label
+                    htmlFor="standup-blockers"
+                    className="text-xs text-sub uppercase tracking-wider"
+                  >
+                    Blockers
+                  </label>
                   {blockers.trim() && (
                     <span className="inline-flex items-center gap-1 text-danger text-xs">
                       <AlertTriangle className="w-3 h-3" />
@@ -808,6 +828,7 @@ export function StandupClient() {
                   )}
                 </div>
                 <Textarea
+                  id="standup-blockers"
                   value={blockers}
                   onChange={(e) => setBlockers(e.target.value)}
                   placeholder="Any impediments or blockers? (leave blank if none)"
@@ -857,6 +878,7 @@ export function StandupClient() {
                     }
                   }}
                   placeholder="Add member…"
+                  aria-label="New team member name"
                   className="input-toolkit text-sm"
                 />
                 <Button
@@ -869,8 +891,9 @@ export function StandupClient() {
                     }
                   }}
                   className="shrink-0"
+                  aria-label="Add member"
                 >
-                  <Plus className="w-4 h-4" />
+                  <Plus className="w-4 h-4" aria-hidden="true" />
                 </Button>
               </div>
 
@@ -894,6 +917,7 @@ export function StandupClient() {
                         <span className="text-sm text-text">{m}</span>
                       </div>
                       <button
+                        type="button"
                         onClick={() => removeMember(m)}
                         className="text-sub hover:text-danger transition-colors min-touch-coarse inline-flex items-center justify-center"
                         aria-label={`Remove ${m}`}

@@ -525,8 +525,14 @@ export function WardleyMapClient() {
             />
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-xs uppercase tracking-wider text-sub">Evolution (0-1)</label>
+                <label
+                  htmlFor="wardley-evolution"
+                  className="text-xs uppercase tracking-wider text-sub"
+                >
+                  Evolution (0-1)
+                </label>
                 <Input
+                  id="wardley-evolution"
                   type="number"
                   min={0}
                   max={1}
@@ -541,14 +547,17 @@ export function WardleyMapClient() {
                     setDraft((d) => ({ ...d, evolution: v.toFixed(2) }));
                   }}
                   className="bg-bg border-border font-data"
-                  aria-label="Evolution"
                 />
               </div>
               <div>
-                <label className="text-xs uppercase tracking-wider text-sub">
+                <label
+                  htmlFor="wardley-visibility"
+                  className="text-xs uppercase tracking-wider text-sub"
+                >
                   Visibility (0-1)
                 </label>
                 <Input
+                  id="wardley-visibility"
                   type="number"
                   min={0}
                   max={1}
@@ -563,7 +572,6 @@ export function WardleyMapClient() {
                     setDraft((d) => ({ ...d, visibility: v.toFixed(2) }));
                   }}
                   className="bg-bg border-border font-data"
-                  aria-label="Visibility"
                 />
               </div>
             </div>
@@ -612,7 +620,7 @@ export function WardleyMapClient() {
                     <NumDraftInput
                       value={c.evolution}
                       onCommit={(n) => moveComponent(c.id, { evolution: n })}
-                      ariaLabel="Evolution"
+                      ariaLabel={`Evolution for ${c.name}`}
                     />
                   </div>
                   <div className="flex items-center gap-1">
@@ -620,7 +628,7 @@ export function WardleyMapClient() {
                     <NumDraftInput
                       value={c.visibility}
                       onCommit={(n) => moveComponent(c.id, { visibility: n })}
-                      ariaLabel="Visibility"
+                      ariaLabel={`Visibility for ${c.name}`}
                     />
                   </div>
                   <Button
@@ -631,7 +639,7 @@ export function WardleyMapClient() {
                     className="text-sub hover:text-danger md:min-h-0 md:min-w-0 md:h-7 md:w-7 p-0 flex-shrink-0"
                     aria-label={`Remove ${c.name}`}
                   >
-                    <Trash2 className="w-4 h-4 md:w-3.5 md:h-3.5" />
+                    <Trash2 className="w-4 h-4 md:w-3.5 md:h-3.5" aria-hidden="true" />
                   </Button>
                 </div>
               ))}
@@ -700,9 +708,11 @@ export function WardleyMapClient() {
                       size="icon"
                       onClick={() => removeLink(l.id)}
                       className="text-sub hover:text-danger md:min-h-0 md:min-w-0 md:h-6 md:w-6 p-0 ml-auto flex-shrink-0"
-                      aria-label="Remove link"
+                      aria-label={`Remove link ${componentById(l.fromId)?.name ?? ""} to ${
+                        componentById(l.toId)?.name ?? ""
+                      }`}
                     >
-                      <Trash2 className="w-4 h-4 md:w-3 md:h-3" />
+                      <Trash2 className="w-4 h-4 md:w-3 md:h-3" aria-hidden="true" />
                     </Button>
                   </div>
                 ))}

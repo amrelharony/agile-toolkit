@@ -114,7 +114,7 @@ export function KudosBeacon() {
               unread > 0
                 ? `Kudos beacon — ${unread} new`
                 : idleGlow
-                  ? "Kudos beacon — fairness hint available"
+                  ? "Recognise someone — kudos beacon fairness hint"
                   : "Kudos beacon"
             }
             className={cn(

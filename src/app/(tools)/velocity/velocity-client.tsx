@@ -214,6 +214,7 @@ function NumCell({
   max,
   className,
   onCommitBlur,
+  "aria-label": ariaLabel,
 }: {
   value: number;
   onCommit: (n: number) => void;
@@ -222,6 +223,8 @@ function NumCell({
   className?: string;
   /** Optional hook fired alongside the commit, useful for history logging. */
   onCommitBlur?: (n: number) => void;
+  /** Row cells have no visible label on wide screens: name field and row. */
+  "aria-label"?: string;
 }) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
@@ -247,6 +250,7 @@ function NumCell({
         if (e.key === "Enter") e.currentTarget.blur();
       }}
       className={className}
+      aria-label={ariaLabel}
     />
   );
 }
@@ -878,6 +882,7 @@ export function VelocityClient() {
                     logSprintCommit(sp.id, "name", v);
                   }}
                   className="input-toolkit focus:ring-accent/20"
+                  aria-label="Sprint name"
                 />
                 <BlurInput
                   value={sp.description ?? ""}
@@ -893,8 +898,9 @@ export function VelocityClient() {
                 disabled={sprints.length <= 1}
                 onClick={() => removeSprint(sp.id)}
                 className="min-touch-coarse h-9 w-9 disabled:opacity-30 justify-self-end sm:order-last"
+                aria-label={`Remove ${sp.name || "sprint"}`}
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-4 h-4" aria-hidden="true" />
               </Button>
               <div className="col-span-2 sm:col-span-1 space-y-1">
                 <span className="sm:hidden text-xs text-sub font-medium uppercase tracking-wider">
@@ -905,6 +911,7 @@ export function VelocityClient() {
                   onCommit={(n) => updateSprint(sp.id, { committed: n })}
                   onCommitBlur={(n) => logSprintCommit(sp.id, "committed", n)}
                   min={0}
+                  aria-label={`Committed points for ${sp.name || "sprint"}`}
                   className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
                 />
               </div>
@@ -917,6 +924,7 @@ export function VelocityClient() {
                   onCommit={(n) => updateSprint(sp.id, { completed: n })}
                   onCommitBlur={(n) => logSprintCommit(sp.id, "completed", n)}
                   min={0}
+                  aria-label={`Completed points for ${sp.name || "sprint"}`}
                   className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
                 />
               </div>

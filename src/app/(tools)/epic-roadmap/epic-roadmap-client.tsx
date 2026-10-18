@@ -142,8 +142,10 @@ function EpicRowEditor({
           onChange={(ev) => setTitleDraft(ev.target.value)}
           onBlur={commitTitle}
           className="bg-bg border-border text-sm h-7 flex-1"
+          aria-label="Epic title"
         />
         <ProgressCell
+          label={`Progress % for ${epic.title || "epic"}`}
           value={epic.progress}
           onChange={(n) => {
             update(epic.id, { progress: n });
@@ -155,8 +157,9 @@ function EpicRowEditor({
           size="sm"
           onClick={() => remove(epic.id)}
           className="h-7 text-sub hover:text-danger"
+          aria-label={`Remove ${epic.title || "epic"}`}
         >
-          <Trash2 className="w-3.5 h-3.5" />
+          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
         </Button>
       </div>
       <Textarea
@@ -172,7 +175,15 @@ function EpicRowEditor({
   );
 }
 
-function ProgressCell({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+function ProgressCell({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (n: number) => void;
+}) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
   const commit = () => {
@@ -195,6 +206,7 @@ function ProgressCell({ value, onChange }: { value: number; onChange: (n: number
         if (ev.key === "Enter") ev.currentTarget.blur();
       }}
       className="bg-bg border-border font-data h-7 w-14"
+      aria-label={label}
     />
   );
 }
@@ -385,16 +397,22 @@ export function EpicRoadmapClient() {
       <Card className="bg-surface border-border mb-4">
         <CardContent className="p-3 flex flex-wrap items-end gap-2">
           <div>
-            <div className="text-xs text-sub">View from</div>
+            <label htmlFor="er-view-from" className="block text-xs text-sub">
+              View from
+            </label>
             <Input
+              id="er-view-from"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
               className="bg-bg border-border font-data w-32"
             />
           </div>
           <div>
-            <div className="text-xs text-sub">to</div>
+            <label htmlFor="er-view-to" className="block text-xs text-sub">
+              <span className="sr-only">View </span>to
+            </label>
             <Input
+              id="er-view-to"
               value={to}
               onChange={(e) => setTo(e.target.value)}
               className="bg-bg border-border font-data w-32"

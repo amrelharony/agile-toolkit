@@ -173,6 +173,7 @@ function NumCell({
   onCommit,
   className,
   style,
+  "aria-label": ariaLabel,
 }: {
   value: number;
   min: number;
@@ -180,6 +181,7 @@ function NumCell({
   onCommit: (n: number) => void;
   className?: string;
   style?: React.CSSProperties;
+  "aria-label"?: string;
 }) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
@@ -206,6 +208,7 @@ function NumCell({
       }}
       className={className}
       style={style}
+      aria-label={ariaLabel}
     />
   );
 }
@@ -430,6 +433,7 @@ export function SprintCompareClient() {
                     value={sp.name}
                     onCommit={(v) => updateSprint(sp.id, { name: v })}
                     className="input-toolkit focus:ring-accent/20 max-w-xs"
+                    aria-label="Sprint name"
                   />
                   <Button
                     variant="danger-ghost"
@@ -437,8 +441,9 @@ export function SprintCompareClient() {
                     disabled={sprints.length <= 1}
                     onClick={() => removeSprint(sp.id)}
                     className="min-touch-coarse h-8 w-8 disabled:opacity-30 ml-auto"
+                    aria-label={`Remove ${sp.name || "sprint"}`}
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-4 h-4" aria-hidden="true" />
                   </Button>
                 </div>
 
@@ -452,6 +457,7 @@ export function SprintCompareClient() {
                         min={1}
                         max={10}
                         onCommit={(n) => updateScore(sp.id, dim, n)}
+                        aria-label={`${dim} for ${sp.name || "sprint"}`}
                         className="bg-surface-deep border-border text-text font-data focus:ring-0"
                         style={{
                           borderColor: `${color}40`,

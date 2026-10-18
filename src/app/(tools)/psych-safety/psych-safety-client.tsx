@@ -399,8 +399,9 @@ export function PsychSafetyClient() {
             placeholder="Respondent name (visible to anyone with workspace access)"
             className="bg-bg border-border text-sm"
             aria-label="Respondent"
+            aria-describedby="psych-safety-respondent-note"
           />
-          <p className="text-xs text-warning -mt-1">
+          <p id="psych-safety-respondent-note" className="text-xs text-warning -mt-1">
             Edmondson&rsquo;s instrument relies on anonymity for honest answers. Leave blank to
             preserve it.
           </p>
@@ -575,9 +576,9 @@ export function PsychSafetyClient() {
                 size="sm"
                 onClick={() => removeResponse(r.id)}
                 className="h-6 w-6 p-0 text-sub hover:text-danger shrink-0"
-                aria-label="Remove response"
+                aria-label={`Remove response from ${new Date(r.ts).toLocaleString()}`}
               >
-                <Trash2 className="w-3 h-3" />
+                <Trash2 className="w-3 h-3" aria-hidden="true" />
               </Button>
             </div>
           ))}

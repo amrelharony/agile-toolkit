@@ -45,7 +45,11 @@ describe("Health check starts unrated", () => {
     render(<HealthCheckClient />);
     expect(score()).toHaveTextContent("Health: —");
     expect(score()).not.toHaveTextContent("100%");
-    expect(screen.queryAllByRole("button", { pressed: true })).toHaveLength(0);
+    expect(
+      screen.queryAllByRole("button", { pressed: true, name: /^(Green|Yellow|Red)$/ })
+    ).toHaveLength(0);
+    // Trends are not ratings: each dimension starts on "Same".
+    expect(screen.getAllByRole("button", { pressed: true, name: "Same" })).toHaveLength(8);
     expect(saveButton()).toBeDisabled();
     expect(saveButton()).toHaveAccessibleDescription(/Rate all 8 dimensions .*0 of 8 rated/);
   });

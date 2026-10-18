@@ -235,6 +235,7 @@ export function HitlQualityClient() {
                 value={livePrompt}
                 onChange={(e) => setLivePrompt(e.target.value)}
                 placeholder="The prompt the reviewer is grading…"
+                aria-label="Prompt under review"
                 rows={3}
                 className="font-mono text-xs"
               />
@@ -253,11 +254,13 @@ export function HitlQualityClient() {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             <Input
               placeholder="Feature"
+              aria-label="Feature"
               value={feature}
               onChange={(e) => setFeature(e.target.value)}
             />
             <Input
               placeholder="Reviewer"
+              aria-label="Reviewer"
               value={reviewer}
               onChange={(e) => setReviewer(e.target.value)}
             />
@@ -284,6 +287,7 @@ export function HitlQualityClient() {
           </div>
           <Textarea
             placeholder="Reason / notes (optional)"
+            aria-label="Reason or notes (optional)"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             className="mt-2"

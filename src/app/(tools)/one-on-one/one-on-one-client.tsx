@@ -508,9 +508,10 @@ export function OneOnOneClient() {
                 >
                   <div className="flex items-start gap-2">
                     <button
+                      type="button"
                       onClick={() => toggleAgendaStatus(a.id)}
                       className="text-xs uppercase tracking-wider px-1.5 py-0.5 rounded font-data border border-current/40 shrink-0 hover:opacity-80 min-touch-coarse inline-flex items-center justify-center"
-                      aria-label={`Cycle status for ${a.text}`}
+                      aria-label={`${STATUS_LABELS[a.status]}: change status of ${a.text}`}
                     >
                       {STATUS_LABELS[a.status]}
                     </button>
@@ -591,12 +592,15 @@ export function OneOnOneClient() {
               const expanded = expandedPast.has(m.id);
               return (
                 <div key={m.id} className="rounded-lg border border-border bg-surface">
-                  <button
-                    onClick={() => togglePastExpanded(m.id)}
-                    className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-bg/40"
-                    aria-expanded={expanded}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
+                  {/* The disclosure toggle and the row actions are siblings:
+                      buttons can't nest inside the toggle button. */}
+                  <div className="w-full flex items-center justify-between gap-2 hover:bg-bg/40">
+                    <button
+                      type="button"
+                      onClick={() => togglePastExpanded(m.id)}
+                      className="flex flex-1 items-center gap-2 min-w-0 py-3 pl-3 text-left"
+                      aria-expanded={expanded}
+                    >
                       {expanded ? (
                         <ChevronDown className="w-3.5 h-3.5 text-sub" />
                       ) : (
@@ -608,33 +612,28 @@ export function OneOnOneClient() {
                       <span className="text-xs text-sub">
                         {m.agenda.length} item{m.agenda.length === 1 ? "" : "s"}
                       </span>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
+                    </button>
+                    <div className="flex items-center gap-1 shrink-0 pr-3">
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setActiveMeetingId(m.id);
-                        }}
+                        onClick={() => setActiveMeetingId(m.id)}
                         className="text-xs text-sub hover:text-accent"
+                        aria-label={`Open 1:1 from ${m.date}`}
                       >
                         Open
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeMeeting(m.id);
-                        }}
+                        onClick={() => removeMeeting(m.id)}
                         className="h-7 w-7 p-0 text-sub hover:text-danger min-touch-coarse"
-                        aria-label="Remove meeting"
+                        aria-label={`Remove 1:1 from ${m.date}`}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>
-                  </button>
+                  </div>
                   {expanded && (
                     <div className="px-3 pb-3 space-y-1.5">
                       {m.description && (

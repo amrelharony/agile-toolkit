@@ -328,7 +328,7 @@ export function NpsCsatClient() {
                 })
               }
             >
-              <SelectTrigger className="bg-bg border-border">
+              <SelectTrigger className="bg-bg border-border" aria-label="Survey type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -341,6 +341,7 @@ export function NpsCsatClient() {
               value={draft.date}
               onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
               className="bg-bg border-border"
+              aria-label="Response date"
             />
             <Input
               type="number"
@@ -353,12 +354,14 @@ export function NpsCsatClient() {
                 if (e.key === "Enter") e.currentTarget.blur();
               }}
               className="bg-bg border-border font-data"
+              aria-label={draft.kind === "nps" ? "Score (0–10)" : "Score (1–5)"}
             />
             <Input
               value={draft.respondent ?? ""}
               onChange={(e) => setDraft((d) => ({ ...d, respondent: e.target.value }))}
               placeholder="Respondent (optional)"
               className="bg-bg border-border"
+              aria-label="Respondent (optional)"
             />
             <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
               <Plus className="w-4 h-4" />
@@ -371,6 +374,7 @@ export function NpsCsatClient() {
             onChange={(e) => setDraft((d) => ({ ...d, verbatim: e.target.value }))}
             placeholder="Verbatim comment (optional)"
             className="bg-bg border-border"
+            aria-label="Verbatim comment (optional)"
           />
         </CardContent>
       </Card>
@@ -467,8 +471,9 @@ export function NpsCsatClient() {
                 size="sm"
                 onClick={() => remove(e.id)}
                 className="text-sub hover:text-danger"
+                aria-label={`Remove ${e.kind.toUpperCase()} response from ${e.date}`}
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
               </Button>
             </div>
           ))}

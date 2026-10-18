@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -121,6 +121,7 @@ function HypothesisRow({
   updateStatus: (id: string, status: Status) => void;
   remove: (id: string) => void;
 }) {
+  const uid = useId();
   const description = useDraftField(h.description ?? "", (next) => {
     update(h.id, { description: next });
     logUpdate(h.id, ["description"]);
@@ -162,13 +163,17 @@ function HypothesisRow({
           onBlur={description.onBlur}
           placeholder="Description (optional) — context, link, or rationale..."
           className="bg-bg border-border text-sm"
+          aria-label="Description (optional)"
         />
         <div className="flex items-start gap-3">
           <Lightbulb className="w-5 h-5 text-accent mt-0.5 shrink-0" />
           <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
             <div>
-              <div className="text-xs uppercase text-sub mb-1">We believe</div>
+              <label htmlFor={`${uid}-believe`} className="block text-xs uppercase text-sub mb-1">
+                We believe
+              </label>
               <Textarea
+                id={`${uid}-believe`}
                 rows={2}
                 value={believe.draft}
                 onChange={(e) => believe.setDraft(e.target.value)}
@@ -178,8 +183,11 @@ function HypothesisRow({
               />
             </div>
             <div>
-              <div className="text-xs uppercase text-sub mb-1">We will do</div>
+              <label htmlFor={`${uid}-willDo`} className="block text-xs uppercase text-sub mb-1">
+                We will do
+              </label>
               <Textarea
+                id={`${uid}-willDo`}
                 rows={2}
                 value={willDo.draft}
                 onChange={(e) => willDo.setDraft(e.target.value)}
@@ -189,8 +197,11 @@ function HypothesisRow({
               />
             </div>
             <div>
-              <div className="text-xs uppercase text-sub mb-1">To learn</div>
+              <label htmlFor={`${uid}-toLearn`} className="block text-xs uppercase text-sub mb-1">
+                To learn
+              </label>
               <Textarea
+                id={`${uid}-toLearn`}
                 rows={2}
                 value={toLearn.draft}
                 onChange={(e) => toLearn.setDraft(e.target.value)}
@@ -202,7 +213,10 @@ function HypothesisRow({
           </div>
           <div className="flex flex-col gap-2 items-end">
             <Select value={h.status} onValueChange={(v) => updateStatus(h.id, v as Status)}>
-              <SelectTrigger className="bg-bg border-border w-full sm:w-36 capitalize">
+              <SelectTrigger
+                className="bg-bg border-border w-full sm:w-36 capitalize"
+                aria-label="Hypothesis status"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -220,8 +234,9 @@ function HypothesisRow({
               size="sm"
               onClick={() => remove(h.id)}
               className="text-sub hover:text-danger"
+              aria-label="Delete hypothesis"
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
             </Button>
           </div>
         </div>
@@ -232,6 +247,7 @@ function HypothesisRow({
             onBlur={successMetric.onBlur}
             placeholder="Success metric (e.g. 30% DAU activation within 14 days)"
             className="bg-bg border-border text-sm"
+            aria-label="Success metric"
           />
           <Input
             value={experiment.draft}
@@ -239,6 +255,7 @@ function HypothesisRow({
             onBlur={experiment.onBlur}
             placeholder="Experiment design"
             className="bg-bg border-border text-sm"
+            aria-label="Experiment design"
           />
         </div>
         {h.resolvedAt && (
@@ -249,6 +266,7 @@ function HypothesisRow({
             onBlur={outcome.onBlur}
             placeholder="Outcome: what did we learn?"
             className="bg-bg border-border text-sm"
+            aria-label="Outcome"
           />
         )}
         <div className="text-xs text-sub flex items-center gap-3">

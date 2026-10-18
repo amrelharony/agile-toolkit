@@ -452,8 +452,11 @@ export function A11yTrackerClient() {
       <SectionCard title="Log a11y issue" icon={Eye} className="mb-6 bg-surface border-border">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs text-sub">Component</Label>
+            <Label htmlFor="a11y-component" className="text-xs text-sub">
+              Component
+            </Label>
             <Input
+              id="a11y-component"
               value={component}
               onChange={(e) => setComponent(e.target.value)}
               placeholder="Header, ProductCard, Modal..."
@@ -461,8 +464,11 @@ export function A11yTrackerClient() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">WCAG criterion</Label>
+            <Label htmlFor="a11y-wcag" className="text-xs text-sub">
+              WCAG criterion
+            </Label>
             <Input
+              id="a11y-wcag"
               value={wcagCriterion}
               onChange={(e) => setWcagCriterion(e.target.value)}
               placeholder="1.4.3, 2.1.1..."
@@ -470,9 +476,11 @@ export function A11yTrackerClient() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">Severity</Label>
+            <Label htmlFor="a11y-severity" className="text-xs text-sub">
+              Severity
+            </Label>
             <Select value={severity} onValueChange={(v) => setSeverity(v as Severity)}>
-              <SelectTrigger className="bg-bg border-border capitalize">
+              <SelectTrigger id="a11y-severity" className="bg-bg border-border capitalize">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -490,13 +498,16 @@ export function A11yTrackerClient() {
               disabled={!component.trim() || !wcagCriterion.trim()}
               className="gap-2 w-full bg-accent text-bg hover:bg-accent/90 disabled:opacity-40"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4" aria-hidden="true" />
               Add issue
             </Button>
           </div>
           <div className="sm:col-span-2 lg:col-span-4 space-y-1">
-            <Label className="text-xs text-sub">Description (optional)</Label>
+            <Label htmlFor="a11y-description" className="text-xs text-sub">
+              Description (optional)
+            </Label>
             <Textarea
+              id="a11y-description"
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -523,10 +534,10 @@ export function A11yTrackerClient() {
                     ? "border-accent-green/40 text-accent-green bg-accent-green/10"
                     : "border-warning/40 text-warning bg-warning/10"
                 }`}
-                aria-label={`Weekly open-issue trend ${openTrend.trend} (Mann-Kendall p=${openTrend.pValue.toFixed(3)})`}
                 title={`Mann-Kendall p=${openTrend.pValue.toFixed(3)}`}
               >
-                {openTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+                <span aria-hidden="true">{openTrend.trend === "up" ? "↗ trend" : "↘ trend"}</span>
+                <span className="sr-only">{`Weekly open-issue trend ${openTrend.trend} (Mann-Kendall p=${openTrend.pValue.toFixed(3)})`}</span>
               </span>
             ) : undefined
           }

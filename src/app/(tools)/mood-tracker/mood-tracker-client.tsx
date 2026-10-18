@@ -383,6 +383,7 @@ export function MoodTrackerClient() {
                 onChange={(e) => setNewMemberName(e.target.value)}
                 placeholder="Add a team member..."
                 className="bg-bg border-border"
+                aria-label="Team member name"
               />
               <Button onClick={addMember} className="gap-2 bg-accent text-bg hover:bg-accent/90">
                 <Plus className="w-4 h-4" />
@@ -400,12 +401,17 @@ export function MoodTrackerClient() {
                   <div key={m.id} className="rounded-lg border border-border bg-bg p-2 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm text-text w-full sm:w-40 sm:truncate">{m.name}</span>
-                      <div className="flex flex-wrap gap-1.5 flex-1 w-full sm:w-auto">
+                      <div
+                        role="group"
+                        aria-label={`Mood for ${m.name}`}
+                        className="flex flex-wrap gap-1.5 flex-1 w-full sm:w-auto"
+                      >
                         {FACES.map((f) => (
                           <button
                             key={f.score}
                             type="button"
                             onClick={() => log(m.id, f.score)}
+                            aria-pressed={todays?.score === f.score}
                             className={`flex-1 min-w-[60px] rounded-md border py-1.5 text-xs font-semibold transition ${
                               todays?.score === f.score
                                 ? "border-transparent text-bg"
@@ -438,6 +444,7 @@ export function MoodTrackerClient() {
                   onChange={(e) => setNewMemberName(e.target.value)}
                   placeholder="Add another team member..."
                   className="bg-bg border-border"
+                  aria-label="Team member name"
                 />
                 <Button onClick={addMember} className="gap-2 bg-accent text-bg hover:bg-accent/90">
                   <Plus className="w-4 h-4" />
@@ -501,10 +508,10 @@ export function MoodTrackerClient() {
                       ? "border-accent-green/40 text-accent-green bg-accent-green/10"
                       : "border-warning/40 text-warning bg-warning/10"
                   }`}
-                  aria-label={`Rolling-week mood trend ${moodTrend.trend} (Mann-Kendall p=${moodTrend.pValue.toFixed(3)})`}
                   title={`Mann-Kendall p=${moodTrend.pValue.toFixed(3)} on 7-day rolling mean`}
                 >
-                  {moodTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+                  <span aria-hidden="true">{moodTrend.trend === "up" ? "↗ trend" : "↘ trend"}</span>
+                  <span className="sr-only">{`Rolling-week mood trend ${moodTrend.trend} (Mann-Kendall p=${moodTrend.pValue.toFixed(3)})`}</span>
                 </span>
               )}
             </div>

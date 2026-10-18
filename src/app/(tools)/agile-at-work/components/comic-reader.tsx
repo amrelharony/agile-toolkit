@@ -359,7 +359,8 @@ function ReaderView({
                 >
                   {url ? (
                     // Blob URLs from pdf.js renders: next/image can't optimise them.
-                    // eslint-disable-next-line @next/next/no-img-element
+                    // onLoad is a load event, not a user interaction.
+                    // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/no-noninteractive-element-interactions
                     <img
                       src={url}
                       alt={`${COMIC_TITLE} — page ${p} of ${numPages}`}

@@ -344,8 +344,14 @@ export function KudosForm({
         {/* Theme picker — chip-style for tactile feel. Matches the
             "kudos type" select in the original HTML. */}
         <div className="flex flex-col gap-2">
-          <Label className="text-sub text-sm">Kudos type</Label>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          <p id="kudos-type-label" className="text-sm font-medium leading-none text-sub">
+            Kudos type
+          </p>
+          <div
+            role="group"
+            aria-labelledby="kudos-type-label"
+            className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
+          >
             {themeOptions.map((t) => {
               const isSelected = selectedThemeKey === t.key;
               return (
@@ -412,6 +418,7 @@ export function KudosForm({
           {recipientId === "free" && (
             <Input
               placeholder="Recipient name"
+              aria-label="Recipient name"
               value={freeRecipient}
               onChange={(e) => setFreeRecipient(e.target.value)}
               maxLength={64}
@@ -443,8 +450,11 @@ export function KudosForm({
               </>
             ) : (
               <>
-                <Label className="text-sub text-sm">From</Label>
+                <Label htmlFor="kudos-from" className="text-sub text-sm">
+                  From
+                </Label>
                 <Input
+                  id="kudos-from"
                   value={defaultFromName}
                   readOnly
                   className="bg-surface-deep border-border text-text/80"

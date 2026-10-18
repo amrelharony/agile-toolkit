@@ -581,6 +581,7 @@ export function RiskRegisterClient() {
                         onCommit={(v) => update(r.id, { title: v })}
                         placeholder="Risk title"
                         className="bg-bg border-border"
+                        aria-label="Risk title"
                       />
                       {/* Mitigation preview under the title — mirrors the
                           kanban description style so the gist is visible at a
@@ -598,7 +599,10 @@ export function RiskRegisterClient() {
                         update(r.id, { probability: Number(v) as Risk["probability"] })
                       }
                     >
-                      <SelectTrigger className="bg-bg border-border font-data">
+                      <SelectTrigger
+                        className="bg-bg border-border font-data"
+                        aria-label={`Probability for ${r.title || "risk"}`}
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -613,7 +617,10 @@ export function RiskRegisterClient() {
                       value={String(r.impact)}
                       onValueChange={(v) => update(r.id, { impact: Number(v) as Risk["impact"] })}
                     >
-                      <SelectTrigger className="bg-bg border-border font-data">
+                      <SelectTrigger
+                        className="bg-bg border-border font-data"
+                        aria-label={`Impact for ${r.title || "risk"}`}
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -643,7 +650,10 @@ export function RiskRegisterClient() {
                         update(r.id, next);
                       }}
                     >
-                      <SelectTrigger className="bg-bg border-border capitalize">
+                      <SelectTrigger
+                        className="bg-bg border-border capitalize"
+                        aria-label={`Status for ${r.title || "risk"}`}
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -669,8 +679,9 @@ export function RiskRegisterClient() {
                         size="sm"
                         onClick={() => remove(r.id)}
                         className="text-sub hover:text-danger min-touch-coarse"
+                        aria-label={`Remove ${r.title || "risk"}`}
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                       </Button>
                     </div>
                   </div>
@@ -680,12 +691,16 @@ export function RiskRegisterClient() {
                     onCommit={(v) => update(r.id, { mitigation: v })}
                     placeholder="Mitigation plan..."
                     className="bg-bg border-border text-sm"
+                    aria-label={`Mitigation plan for ${r.title || "risk"}`}
                   />
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs uppercase tracking-wider text-sub font-mono shrink-0 w-32">
+                      <label
+                        htmlFor={`risk-due-${r.id}`}
+                        className="text-xs uppercase tracking-wider text-sub font-mono shrink-0 w-32"
+                      >
                         Mitigation due
-                      </span>
+                      </label>
                       <SmartInput<string>
                         predicted={
                           predictedMitigationByRisk.get(r.id) ?? {
@@ -697,6 +712,7 @@ export function RiskRegisterClient() {
                         render={({ ghost, accept, chip }) => (
                           <div className="flex flex-col gap-1 flex-1">
                             <Input
+                              id={`risk-due-${r.id}`}
                               type="date"
                               value={r.mitigationDueAt ?? ""}
                               onChange={(e) =>
