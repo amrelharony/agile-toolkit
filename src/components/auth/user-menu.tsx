@@ -34,6 +34,7 @@ import { useOwnerSeen, useVisitorDataPending } from "@/lib/sync/owner-sync-gate"
 import { clearLocalWorkspaceData } from "@/lib/utils/clear-local-data";
 import { toast } from "@/lib/utils/toast";
 import { useSonificationStore } from "@/lib/stores/sonification-store";
+import { YourDataDialog } from "@/components/data/your-data-dialog";
 import { SCRUM_ROLE_LABEL, type SignOutResult } from "@/lib/auth/types";
 import {
   LogOut,
@@ -45,6 +46,7 @@ import {
   Palette,
   BarChart3,
   Eraser,
+  HardDrive,
 } from "lucide-react";
 
 function getInitials(name: string | null | undefined, email: string): string {
@@ -134,6 +136,7 @@ function VisitorMenu({
   const ownerSeen = useOwnerSeen();
   const [clearOpen, setClearOpen] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
+  const [dataOpen, setDataOpen] = useState(false);
 
   const signInHref = `/auth/sign-in?next=${encodeURIComponent(pathname || "/")}`;
   const title = sessionUnverified
@@ -193,6 +196,10 @@ function VisitorMenu({
             </Link>
           </DropdownMenuItem>
           <SoundMenuItem />
+          <DropdownMenuItem onSelect={() => setDataOpen(true)} className="cursor-pointer">
+            <HardDrive className="w-4 h-4" aria-hidden="true" />
+            <span>Your data (back up & restore)</span>
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
             <Link href="/history" className="cursor-pointer">
@@ -241,6 +248,7 @@ function VisitorMenu({
         </DropdownMenuContent>
       </DropdownMenu>
       <ClearDataDialog open={clearOpen} onOpenChange={setClearOpen} />
+      <YourDataDialog open={dataOpen} onOpenChange={setDataOpen} />
       {sessionUnverified && <SignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />}
     </>
   );
@@ -289,6 +297,7 @@ function OwnerMenu() {
   const { user, profile } = useAuth();
   const openAiSettings = useLlmUiStore((s) => s.openSettings);
   const [signOutOpen, setSignOutOpen] = useState(false);
+  const [dataOpen, setDataOpen] = useState(false);
 
   const displayName = profile?.display_name || user?.email || "Account";
   const initials = getInitials(profile?.display_name, user?.email ?? "");
@@ -363,6 +372,10 @@ function OwnerMenu() {
             </Link>
           </DropdownMenuItem>
           <SoundMenuItem />
+          <DropdownMenuItem onSelect={() => setDataOpen(true)} className="cursor-pointer">
+            <HardDrive className="w-4 h-4" aria-hidden="true" />
+            <span>Your data (back up & restore)</span>
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onSelect={() => setSignOutOpen(true)}
@@ -374,6 +387,7 @@ function OwnerMenu() {
         </DropdownMenuContent>
       </DropdownMenu>
       <SignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />
+      <YourDataDialog open={dataOpen} onOpenChange={setDataOpen} />
     </>
   );
 }
