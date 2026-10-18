@@ -7,7 +7,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { Download, Copy, FileJson, FileSpreadsheet, FileText, ImageIcon } from "lucide-react";
+import { usePathname } from "next/navigation";
+import {
+  Download,
+  Copy,
+  FileJson,
+  FileSpreadsheet,
+  FileText,
+  ImageIcon,
+  Link2,
+} from "lucide-react";
+import { getToolByPath } from "@/lib/constants/tools";
+import { shareSnapshotLink } from "@/components/share/share-link-button";
 import {
   exportToCSV,
   exportToJSON,
@@ -22,8 +33,12 @@ interface ExportButtonProps {
   clipboardText?: string;
   csvData?: { headers: string[]; rows: (string | number)[][] };
   jsonData?: unknown;
-  /** The tool's content as Markdown, for pasting into a wiki, ticket or chat. */
+  /** The tool's content as Markdown, for pasting into a wiki, ticket or chat.
+   *  Also enables "Copy share link" (a read-only snapshot at /s). */
   markdown?: string;
+  /** Structured state carried in the share link so the recipient can
+   *  "Copy into my browser" (tools listed in lib/share/snapshot-import). */
+  shareState?: unknown;
   targetRef?: React.RefObject<HTMLElement | null>;
 }
 
@@ -33,8 +48,12 @@ export function ExportButton({
   csvData,
   jsonData,
   markdown,
+  shareState,
   targetRef,
 }: ExportButtonProps) {
+  const pathname = usePathname();
+  const tool = pathname ? getToolByPath(pathname) : undefined;
+
   const handleCopy = async () => {
     if (clipboardText) {
       const success = await copyToClipboard(clipboardText);
@@ -54,6 +73,11 @@ export function ExportButton({
     if (!markdown) return;
     if (await copyToClipboard(markdown)) toast.success("Copied as Markdown");
     else toast.error("Failed to copy");
+  };
+
+  const handleShare = () => {
+    if (!markdown || !tool) return;
+    void shareSnapshotLink({ toolId: tool.id, title: filename, markdown, state: shareState });
   };
 
   const handleMarkdown = () => {
@@ -112,6 +136,12 @@ export function ExportButton({
               <FileText className="w-4 h-4" aria-hidden="true" />
               Download Markdown (.md)
             </DropdownMenuItem>
+            {tool && (
+              <DropdownMenuItem onClick={handleShare} className="gap-2 cursor-pointer">
+                <Link2 className="w-4 h-4" aria-hidden="true" />
+                Copy share link
+              </DropdownMenuItem>
+            )}
           </>
         )}
         {csvData && (

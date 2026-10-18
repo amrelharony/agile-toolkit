@@ -335,6 +335,7 @@ export function OkrsClient() {
           }}
           jsonData={okrs}
           markdown={markdown}
+          shareState={okrs}
         />
         <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
           <Plus className="w-4 h-4" />

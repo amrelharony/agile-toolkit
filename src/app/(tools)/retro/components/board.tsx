@@ -568,6 +568,7 @@ export function Board({
           <ExportButton
             filename={`retro-${state.format.id}-${todayLocalISO()}`}
             markdown={markdown}
+            shareState={{ format: state.format, cards: state.cards }}
             jsonData={exportJson}
           />
           <Button
