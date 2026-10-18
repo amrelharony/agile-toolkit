@@ -11,7 +11,7 @@
  *     leaves it empty
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus,
@@ -23,6 +23,7 @@ import {
   Check,
   Clock,
   ListPlus,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -30,13 +31,27 @@ import { SectionCard } from "@/components/shared/section-card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { IconButton } from "@/components/ui/icon-button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { emit as sonify } from "@/lib/sonification/emit";
+import { undoable } from "@/lib/utils/undoable";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PLANNING_POKER_ACTIONS } from "@/lib/history/event-actions";
 import { SCALE_LABELS, type Session, type Participant } from "./types";
 import { REDACTED_VOTE } from "./merge";
 import { castVotes, isNumeric, sortVotes, withRound } from "./rounds";
+import { PlayingCard, VotingDeck } from "./voting-deck";
+import {
+  addPlayers,
+  allVotesIn,
+  nextVoter,
+  removePlayer,
+  restorePlayer,
+  seatPlayers,
+  voteFor,
+} from "./players";
+import { AddPlayers, PassScreen, PlayerDeck, VotedMark } from "./facilitator-controls";
 
 interface Props {
   session: Session;
@@ -66,6 +81,11 @@ interface Props {
   /** The host accepted an estimate for a story that had none. The owner
    *  side writes it back to the story's source; guests pass nothing. */
   onEstimateAccepted?: (storyId: string, value: string, votes: string[]) => void;
+  /** Facilitator mode: a LOCAL session where the host runs the vote for
+   *  everyone on one screen — seating people with no device, recording
+   *  their votes face down, passing the screen round. Never set for a
+   *  live room, where every guest votes from their own device. */
+  facilitator?: boolean;
 }
 
 // ─── helpers (duplicated minimal subset; original copies remain in
@@ -174,111 +194,6 @@ const CONSENSUS_LABELS: Record<Consensus, string> = {
   spread: "Discussion needed",
 };
 
-function CardFace({
-  value,
-  faceDown,
-  selected,
-  small,
-}: {
-  value: string;
-  faceDown: boolean;
-  selected: boolean;
-  small: boolean;
-}) {
-  return faceDown ? (
-    <div
-      className="absolute inset-1 rounded-lg overflow-hidden"
-      style={{
-        background:
-          "repeating-linear-gradient(45deg, #1e2540 0px, #1e2540 4px, #151a30 4px, #151a30 8px)",
-      }}
-    />
-  ) : (
-    <span
-      className={[
-        "font-display font-bold tabular-nums leading-none z-10",
-        small ? "text-sm" : "text-2xl",
-        selected ? "text-accent" : "text-text",
-      ].join(" ")}
-    >
-      {value}
-    </span>
-  );
-}
-
-/**
- * A card in the voting deck when `onSelect` is given — a real button with
- * radio semantics inside the "Your vote" radiogroup, so it's reachable
- * and operable from the keyboard. Without `onSelect` it's a read-only
- * card (other participants' face-down or revealed votes).
- */
-function PlayingCard({
-  value,
-  faceDown = false,
-  selected = false,
-  onSelect,
-  small = false,
-  rotation = 0,
-  tabIndex,
-  buttonRef,
-}: {
-  value: string;
-  faceDown?: boolean;
-  selected?: boolean;
-  onSelect?: () => void;
-  small?: boolean;
-  rotation?: number;
-  tabIndex?: number;
-  buttonRef?: (el: HTMLButtonElement | null) => void;
-}) {
-  const w = small ? 48 : 64;
-  const h = small ? 68 : 90;
-  const className = [
-    "relative rounded-xl border-2 flex items-center justify-center shrink-0 select-none",
-    onSelect
-      ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-      : "cursor-default",
-    faceDown
-      ? "bg-surface border-border"
-      : selected
-        ? "bg-surface-deep border-accent shadow-[0_0_18px_#00f0ffaa,0_0_36px_#00f0ff44]"
-        : "bg-surface-hover border-border hover:border-[#00f0ff66]",
-  ].join(" ");
-  const face = <CardFace value={value} faceDown={faceDown} selected={selected} small={small} />;
-
-  if (!onSelect) {
-    return (
-      <motion.div
-        animate={{ rotate: rotation, scale: selected ? 1.12 : 1 }}
-        transition={{ type: "spring", stiffness: 300, damping: 20 }}
-        style={{ width: w, height: h, rotate: rotation }}
-        className={className}
-      >
-        {face}
-      </motion.div>
-    );
-  }
-
-  return (
-    <motion.button
-      ref={buttonRef}
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      tabIndex={tabIndex}
-      onClick={onSelect}
-      whileHover={{ y: -8, scale: 1.05 }}
-      whileTap={{ scale: 0.97 }}
-      animate={{ rotate: rotation, scale: selected ? 1.12 : 1 }}
-      transition={{ type: "spring", stiffness: 300, damping: 20 }}
-      style={{ width: w, height: h, rotate: rotation }}
-      className={className}
-    >
-      {face}
-    </motion.button>
-  );
-}
-
 function Avatar({ name, size = 36 }: { name: string; size?: number }) {
   const color = avatarColor(name);
   return (
@@ -312,18 +227,125 @@ export function SessionScreen({
   queuedCount = 0,
   onAddQueued,
   onEstimateAccepted,
+  facilitator = false,
 }: Props) {
   const [newStory, setNewStory] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
   const newStoryRef = useRef<HTMLInputElement>(null);
-  const voteCardRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const { log } = useHistoryLogger("planning-poker");
+  const announce = useAnnounce();
 
   const currentStory = session.stories[session.currentStoryIdx] ?? null;
   const localParticipant: Participant | undefined = session.participants.find(
     (p) => p.id === localParticipantId
   );
+
+  // ─── Facilitator mode (local sessions only) ───
+  const facilitating = facilitator && isHost;
+  // Whose deck is open for the facilitator to play into, if anyone's.
+  const [deckForId, setDeckForId] = useState<string | null>(null);
+  // Passing the screen round: who had it last, and whether they voted.
+  const [passing, setPassing] = useState<{
+    lastId: string | null;
+    lastName: string;
+    voted: boolean;
+  } | null>(null);
+  const voteForRefs = useRef(new Map<string, HTMLButtonElement>());
+  const returnFocusTo = useRef<string | null>(null);
+  const hasPlayers = facilitating && session.participants.some((p) => p.id !== session.hostId);
+  const deckFor =
+    facilitating && currentStory && !session.revealed && deckForId !== null
+      ? (session.participants.find((p) => p.id === deckForId) ?? null)
+      : null;
+  const passingNow = facilitating && currentStory !== null && !session.revealed && passing !== null;
+  const closeDecks = () => {
+    setDeckForId(null);
+    setPassing(null);
+  };
+
+  // A player's deck closes with their pick; focus goes back to their
+  // "Vote for" button rather than dropping to the page.
+  useEffect(() => {
+    const id = returnFocusTo.current;
+    if (id === null || deckFor !== null) return;
+    returnFocusTo.current = null;
+    voteForRefs.current.get(id)?.focus();
+  });
+
+  const allIn = facilitating && allVotesIn(session);
+  const wasAllIn = useRef(allIn);
+  useEffect(() => {
+    if (allIn && !wasAllIn.current) announce("All votes in");
+    wasAllIn.current = allIn;
+  }, [allIn, announce]);
+
+  const addTeamPlayers = (names: string[]) => {
+    if (!facilitating) return;
+    const { added } = addPlayers(session, names);
+    if (added.length === 0) return;
+    onUpdateSession((s) => seatPlayers(s, added));
+    announce(
+      added.length === 1
+        ? `${added[0].name} joined the table`
+        : `${added.length} people joined the table`
+    );
+  };
+
+  const removeTeamPlayer = (player: Participant) => {
+    if (!facilitating || player.id === session.hostId) return;
+    const index = session.participants.findIndex((p) => p.id === player.id);
+    // Undo puts their face-down vote back only if it's still the same round.
+    const round = {
+      storyIdx: session.currentStoryIdx,
+      revealed: session.revealed,
+      rounds: currentStory?.rounds?.length ?? 0,
+    };
+    if (deckForId === player.id) setDeckForId(null);
+    undoable({
+      label: `Removed ${player.name}`,
+      apply: () => onUpdateSession((s) => removePlayer(s, player.id)),
+      revert: () =>
+        onUpdateSession((s) => {
+          const sameRound =
+            s.currentStoryIdx === round.storyIdx &&
+            s.revealed === round.revealed &&
+            (s.stories[s.currentStoryIdx]?.rounds?.length ?? 0) === round.rounds;
+          return restorePlayer(s, sameRound ? player : { ...player, vote: null }, index);
+        }),
+    });
+  };
+
+  const openDeckFor = (id: string) => {
+    setPassing(null);
+    setDeckForId(id);
+  };
+
+  // Not logged as the facilitator's own vote, and never with its value:
+  // it's someone else's card, face down.
+  const recordVoteFor = (player: Participant, value: string) => {
+    sonify("planning-poker", "vote");
+    onUpdateSession((s) => voteFor(s, player.id, value));
+    setDeckForId(null);
+    if (passing !== null) {
+      setPassing({ lastId: player.id, lastName: player.name, voted: true });
+    } else {
+      returnFocusTo.current = player.id;
+    }
+    announce(`${player.name} voted`);
+  };
+
+  const startPassing = () => {
+    const first = nextVoter(session.participants, passing?.lastId ?? null);
+    if (!first) return;
+    setPassing((prev) => prev ?? { lastId: null, lastName: "", voted: false });
+    setDeckForId(first.id);
+  };
+
+  const skipVoter = (player: Participant) => {
+    setDeckForId(null);
+    setPassing({ lastId: player.id, lastName: player.name, voted: false });
+  };
 
   const addStory = () => {
     if (!isHost) return;
@@ -341,6 +363,7 @@ export function SessionScreen({
 
   const goToStory = (idx: number) => {
     if (!isHost) return;
+    closeDecks();
     onUpdateSession((s) => ({
       ...s,
       currentStoryIdx: idx,
@@ -382,6 +405,7 @@ export function SessionScreen({
   const revealVotes = () => {
     if (!isHost) return;
     sonify("planning-poker", "reveal");
+    closeDecks();
     let logPayload: {
       storyId: string | null;
       title: string | null;
@@ -400,10 +424,12 @@ export function SessionScreen({
       return { ...s, revealed: true };
     });
     log(PLANNING_POKER_ACTIONS.VOTES_REVEALED, logPayload);
+    announce("Votes revealed");
   };
 
   const resetVotes = () => {
     if (!isHost) return;
+    closeDecks();
     onUpdateSession((s) => ({
       ...s,
       // A revealed round is kept on the story, so a re-vote shows how far
@@ -432,6 +458,7 @@ export function SessionScreen({
         .filter((v): v is string => v !== null && v !== REDACTED_VOTE);
       onEstimateAccepted(story.id, value, cast);
     }
+    closeDecks();
     let skipped = false;
     onUpdateSession((s) => {
       if (s.stories[s.currentStoryIdx]?.finalEstimate !== null) {
@@ -476,36 +503,6 @@ export function SessionScreen({
       ? `You'll leave the live room and your squad will see that the host has left. This session's ${storyCount} ${storyNoun} and their estimates will be cleared from this browser.`
       : "You'll leave the live room. The session carries on for everyone else.";
 
-  // Roving focus for the voting deck: arrows move between cards (wrapping),
-  // Home/End jump to the ends. Space/Enter casts the vote — moving focus
-  // alone never does, since every vote is broadcast to the room.
-  const handleDeckKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const count = session.scale.length;
-    const current = voteCardRefs.current.indexOf(e.target as HTMLButtonElement);
-    if (current === -1 || count === 0) return;
-    let next: number;
-    switch (e.key) {
-      case "ArrowRight":
-      case "ArrowDown":
-        next = (current + 1) % count;
-        break;
-      case "ArrowLeft":
-      case "ArrowUp":
-        next = (current - 1 + count) % count;
-        break;
-      case "Home":
-        next = 0;
-        break;
-      case "End":
-        next = count - 1;
-        break;
-      default:
-        return;
-    }
-    e.preventDefault();
-    voteCardRefs.current[next]?.focus();
-  };
-
   const votes = session.revealed
     ? session.participants.map((p) => p.vote).filter((v): v is string => v !== null)
     : [];
@@ -514,12 +511,9 @@ export function SessionScreen({
   const consensus = session.revealed && votes.length > 0 ? consensusLevel(votes) : null;
 
   const myVote = localParticipant?.vote ?? null;
-  // The checked card takes the deck's single tab stop; with no vote yet
-  // it falls to the first card.
-  const tabStopIdx = Math.max(0, myVote === null ? 0 : session.scale.indexOf(myVote));
   const votedCount = session.participants.filter((p) => p.vote !== null).length;
-  const cardCount = session.scale.length;
-  const maxRotation = Math.min(20, cardCount * 1.5);
+  // Passing the screen round: who's up after the last person to have it.
+  const passNext = passingNow ? nextVoter(session.participants, passing.lastId) : null;
 
   // Ghost participant cleanup is handled host-side via realtime
   // presence — see the prune effect in `usePokerSession`. No per-tab
@@ -678,7 +672,13 @@ export function SessionScreen({
               icon={Users}
               iconClassName="text-sub"
               titleSize="sm"
-              titleSuffix={!session.revealed ? "— face down until revealed" : undefined}
+              titleSuffix={
+                session.revealed
+                  ? undefined
+                  : allIn
+                    ? "— all votes in, face down until revealed"
+                    : "— face down until revealed"
+              }
               className="border-border bg-surface"
               contentClassName="pb-5"
             >
@@ -686,17 +686,42 @@ export function SessionScreen({
                 {session.participants.map((p) => (
                   <div key={p.id} className="flex flex-col items-center gap-2">
                     <PlayingCard
-                      value={p.vote ?? ""}
+                      // A face-down card never carries its value.
+                      value={session.revealed ? (p.vote ?? "") : ""}
                       faceDown={!session.revealed || p.vote === null}
                       small
                     />
                     <div className="flex items-center gap-1.5">
                       <Avatar name={p.name} size={20} />
                       <span className="text-xs text-sub max-w-[80px] truncate">{p.name}</span>
-                      {p.vote !== null && !session.revealed && (
+                      {p.vote !== null && !session.revealed && !facilitating && (
                         <Check className="h-3 w-3 text-accent-green" />
                       )}
                     </div>
+                    {facilitating && !session.revealed && (
+                      <>
+                        {/* A fixed-height row, so the Vote buttons line up. */}
+                        <div className="flex h-4 items-center">
+                          {p.vote !== null && <VotedMark />}
+                        </div>
+                        {p.id !== session.hostId && (
+                          <Button
+                            ref={(el) => {
+                              if (el) voteForRefs.current.set(p.id, el);
+                              else voteForRefs.current.delete(p.id);
+                            }}
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openDeckFor(p.id)}
+                            aria-label={`Vote for ${p.name}`}
+                            className="h-7 px-2.5 text-xs"
+                          >
+                            Vote
+                          </Button>
+                        )}
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -790,46 +815,62 @@ export function SessionScreen({
             </SectionCard>
           )}
 
-          {currentStory && !session.revealed && localParticipant && (
-            <SectionCard
-              title="Your vote"
-              titleSize="sm"
-              className="border-border bg-surface"
-              contentClassName="pb-6"
-            >
-              {/* Arrow keys are handled here for the whole deck; focus itself
-                  lives on the cards (roving tabindex), not on the group. */}
-              {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus */}
-              <div
-                role="radiogroup"
-                aria-label="Your vote"
-                onKeyDown={handleDeckKeyDown}
-                className="flex flex-wrap justify-center gap-3 pt-2 pb-2"
+          {deckFor ? (
+            <PlayerDeck
+              key={deckFor.id}
+              player={deckFor}
+              scale={session.scale}
+              passing={passingNow}
+              onPick={(value) => recordVoteFor(deckFor, value)}
+              onSkip={() => skipVoter(deckFor)}
+              onClose={closeDecks}
+            />
+          ) : passingNow ? (
+            <PassScreen
+              last={
+                passing.lastId === null ? null : { name: passing.lastName, voted: passing.voted }
+              }
+              next={passNext}
+              onNext={startPassing}
+              onDone={closeDecks}
+            />
+          ) : (
+            currentStory &&
+            !session.revealed &&
+            localParticipant && (
+              <SectionCard
+                title="Your vote"
+                titleSize="sm"
+                actions={
+                  hasPlayers && votedCount < session.participants.length ? (
+                    <Button
+                      type="button"
+                      variant="toolkit"
+                      size="sm"
+                      onClick={startPassing}
+                      title="Hand the screen round: each person who hasn't voted picks a card in turn"
+                      className="h-8 text-xs"
+                    >
+                      Next voter
+                    </Button>
+                  ) : undefined
+                }
+                className="border-border bg-surface"
+                contentClassName="pb-6"
               >
-                {session.scale.map((value, i) => {
-                  const mid = (cardCount - 1) / 2;
-                  const rotation = cardCount > 1 ? ((i - mid) / mid) * maxRotation : 0;
-                  return (
-                    <PlayingCard
-                      key={value}
-                      value={value}
-                      selected={myVote === value}
-                      onSelect={() => castVote(value)}
-                      rotation={rotation}
-                      tabIndex={i === tabStopIdx ? 0 : -1}
-                      buttonRef={(el) => {
-                        voteCardRefs.current[i] = el;
-                      }}
-                    />
-                  );
-                })}
-              </div>
-              {myVote !== null && (
-                <p className="text-center text-sm text-accent mt-2">
-                  You voted <span className="font-data font-bold">{myVote}</span>
-                </p>
-              )}
-            </SectionCard>
+                <VotingDeck
+                  label="Your vote"
+                  scale={session.scale}
+                  selected={myVote}
+                  onPick={castVote}
+                />
+                {myVote !== null && (
+                  <p className="text-center text-sm text-accent mt-2">
+                    You voted <span className="font-data font-bold">{myVote}</span>
+                  </p>
+                )}
+              </SectionCard>
+            )
           )}
         </div>
 
@@ -967,8 +1008,21 @@ export function SessionScreen({
                 ) : (
                   <span className="h-4 w-4 rounded-full border-2 border-border shrink-0" />
                 )}
+                {facilitating && p.id !== session.hostId && (
+                  <IconButton
+                    label={`Remove ${p.name}`}
+                    icon={<X aria-hidden="true" />}
+                    tooltip={false}
+                    variant="danger-ghost"
+                    onClick={() => removeTeamPlayer(p)}
+                    className="-my-1 h-7 w-7 shrink-0"
+                  />
+                )}
               </div>
             ))}
+            {facilitating && (
+              <AddPlayers participants={session.participants} onAdd={addTeamPlayers} />
+            )}
           </SectionCard>
         </div>
       </div>
