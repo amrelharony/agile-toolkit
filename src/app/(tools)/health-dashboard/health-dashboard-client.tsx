@@ -466,7 +466,7 @@ export function HealthDashboardClient() {
   return (
     <ToolPageWrapper
       toolId="health-dashboard"
-      title="Agile Health Dashboard"
+      title="Team Dashboard"
       description="Insights hub with cross-tool anti-pattern detection, forecasts, and aggregate KPIs from your entire workspace."
       category="Metrics & Dashboards"
       showInsights={false}

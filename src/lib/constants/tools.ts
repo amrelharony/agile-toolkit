@@ -527,7 +527,7 @@ export const tools: ToolDefinition[] = [
   {
     id: "health-dashboard",
     code: "B7",
-    name: "Agile Health Dashboard",
+    name: "Team Dashboard",
     description: "Aggregate insights hub with anti-pattern detection, forecasts, and team KPIs",
     category: "Metrics & Dashboards",
     path: "/health-dashboard",
