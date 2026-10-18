@@ -3,6 +3,7 @@
 import { InsightsEngine } from "@/components/shared/insights-engine";
 import { ToolHistoryDrawer } from "@/components/history/tool-history-drawer";
 import { UndoRedoControls } from "@/components/history/undo-redo-controls";
+import { SavedChip } from "@/components/data/saved-chip";
 
 interface ToolPageWrapperProps {
   title: string;
@@ -56,16 +57,22 @@ export function ToolPageWrapper({
           </h1>
           <p className="text-fluid-body text-sub max-w-prose">{description}</p>
         </div>
-        {showToolbar && (
-          <div
-            className="shrink-0 flex items-center gap-2 flex-wrap"
-            // "group", not "toolbar": a toolbar promises arrow-key movement
-            // between its controls, which this row doesn't implement.
-            role="group"
-            aria-label="Tool history controls"
-          >
-            <UndoRedoControls toolId={toolId!} />
-            <ToolHistoryDrawer toolId={toolId!} />
+        {toolId && (
+          <div className="shrink-0 flex items-center gap-2 flex-wrap">
+            {/* Where this tool's data lives, and the way to back it up. */}
+            <SavedChip />
+            {showToolbar && (
+              <div
+                className="flex items-center gap-2"
+                // "group", not "toolbar": a toolbar promises arrow-key movement
+                // between its controls, which this row doesn't implement.
+                role="group"
+                aria-label="Tool history controls"
+              >
+                <UndoRedoControls toolId={toolId} />
+                <ToolHistoryDrawer toolId={toolId} />
+              </div>
+            )}
           </div>
         )}
       </header>

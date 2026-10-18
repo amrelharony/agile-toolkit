@@ -25,6 +25,7 @@
  */
 
 import { createJSONStorage } from "zustand/middleware";
+import { reportStorageWriteFailure } from "./storage-health";
 
 // R8: log every blocked-storage warning AT MOST ONCE per label. iOS
 // Safari Private Browsing throws on every read/write, and zustand's
@@ -56,7 +57,12 @@ export function safeJSONStorage(label: string) {
         try {
           localStorage.setItem(k, v);
         } catch (err) {
-          warnOnce(label, "localStorage write failed (quota / private mode) — state held in memory only.", err);
+          warnOnce(
+            label,
+            "localStorage write failed (quota / private mode) — state held in memory only.",
+            err
+          );
+          reportStorageWriteFailure();
         }
       },
       removeItem: (k: string) => {

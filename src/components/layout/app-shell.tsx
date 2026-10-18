@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import { MotionConfig } from "framer-motion";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
+import { StorageHealthBanner } from "@/components/data/storage-health-banner";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { CommandPalette } from "./command-palette";
@@ -157,6 +158,7 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                                 onClose={() => setSidebarOpen(false)}
                               />
                               <div className="flex-1 flex flex-col min-w-0">
+                                <StorageHealthBanner />
                                 <Header
                                   onOpenSearch={() => setSearchOpen(true)}
                                   onOpenSidebar={() => setSidebarOpen(true)}

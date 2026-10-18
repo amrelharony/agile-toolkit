@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 
 import { syncEngine } from "./engine";
 import { registerBlobStore } from "./register";
 import { recordUnsyncedBlob } from "./unsynced-blobs";
+import { reportStorageWriteFailure } from "@/lib/stores/storage-health";
 
 /**
  * Drop-in replacement for `usePersisted` that ALSO opts the key into
@@ -97,6 +98,7 @@ export function setCloudPersistedValue(key: string, value: unknown): void {
       // eslint-disable-next-line no-console
       console.warn(`[setCloudPersistedValue] failed to persist key=${key}`, e);
     }
+    reportStorageWriteFailure();
   }
   snapshots.set(key, value);
   notifySubs(key, value);
@@ -209,6 +211,7 @@ export function useCloudPersisted<T>(key: string, initial: T): [T, Dispatch<SetS
               // eslint-disable-next-line no-console
               console.warn(`[useCloudPersisted] failed to persist remote key=${key}`, e);
             }
+            reportStorageWriteFailure();
           }
           notifySubs(key, next);
         },
@@ -249,6 +252,7 @@ export function useCloudPersisted<T>(key: string, initial: T): [T, Dispatch<SetS
         // eslint-disable-next-line no-console
         console.warn(`[useCloudPersisted] failed to persist key=${key}`, e);
       }
+      reportStorageWriteFailure();
     }
     snapshots.set(key, state);
     // Notify other mounted hooks for this key (within the same tab) so
