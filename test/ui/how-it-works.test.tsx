@@ -1,14 +1,12 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { HowItWorks } from "@/components/tool-frame/how-it-works";
-
-beforeEach(() => localStorage.clear());
 
 describe("HowItWorks", () => {
   it("shows the method guide for a tool", async () => {
     render(<HowItWorks toolId="wsjf" />);
-    expect(await screen.findByText("How this works")).toBeInTheDocument();
-    expect(screen.getByText(/cost of delay ÷ job size/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "How this works" })).toBeInTheDocument();
+    expect(await screen.findByText(/cost of delay ÷ job size/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /modified Fibonacci/ })).toBeInTheDocument();
   });
 
@@ -18,14 +16,12 @@ describe("HowItWorks", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("opens on the first visit to a tool and stays collapsed after that", async () => {
-    const first = render(<HowItWorks toolId="kanban" />);
-    await screen.findByText("How this works");
-    expect(first.container.querySelector("details")).toHaveAttribute("open");
-    first.unmount();
-
-    const again = render(<HowItWorks toolId="kanban" />);
-    await screen.findByText("How this works");
-    expect(again.container.querySelector("details")).not.toHaveAttribute("open");
+  it("renders its header at once, collapsed, so the page doesn't shift when the guide loads", async () => {
+    const { container } = render(<HowItWorks toolId="kanban" />);
+    // Before the guide text arrives the header is already in place.
+    expect(screen.getByRole("heading", { name: "How this works" })).toBeInTheDocument();
+    expect(container.querySelector("details")).not.toHaveAttribute("open");
+    expect((await screen.findAllByText(/Work-in-progress/)).length).toBeGreaterThan(0);
+    expect(container.querySelector("details")).not.toHaveAttribute("open");
   });
 });
