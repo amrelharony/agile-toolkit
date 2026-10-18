@@ -85,6 +85,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       commandProps={{ shouldFilter: false, loop: true }}
     >
       <CommandInput
+        aria-label="Search tools"
         placeholder="What do you need to do? e.g. run a retro, prioritise a backlog"
         className="font-body"
         value={query}

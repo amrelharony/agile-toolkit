@@ -105,7 +105,11 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                   {info.atMax ? "—" : `${info.xpIntoLevel} / ${info.xpNeededForLevel}`}
                 </span>
               </div>
-              <Progress value={info.progress01 * 100} className="h-2" />
+              <Progress
+                value={info.progress01 * 100}
+                aria-label={info.atMax ? "Level progress" : `Progress to level ${info.level + 1}`}
+                className="h-2"
+              />
             </div>
             <div className="grid grid-cols-4 gap-2 text-center">
               <div>
@@ -252,6 +256,8 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                           ) : (
                             <Lock className="w-3.5 h-3.5 text-sub shrink-0" />
                           )}
+                          {/* The trophy / lock icons are decorative; say it. */}
+                          <span className="sr-only">{unlocked ? "Unlocked" : "Locked"}</span>
                         </div>
                         <div className="text-xs mt-0.5 line-clamp-2">
                           {hidden ? "Hidden achievement" : a.description}
@@ -288,7 +294,11 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                       </div>
                       <div className="text-xs text-sub mb-2">{def.description}</div>
                       <div className="flex items-center gap-2">
-                        <Progress value={(c.progress / c.goal) * 100} className="h-1.5 flex-1" />
+                        <Progress
+                          value={(c.progress / c.goal) * 100}
+                          aria-label={`${def.title} progress`}
+                          className="h-1.5 flex-1"
+                        />
                         <span className="text-xs font-data text-text">
                           {c.progress} / {c.goal}
                         </span>
@@ -325,7 +335,11 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                       </div>
                       <div className="text-xs text-sub mb-2">{def.description}</div>
                       <div className="flex items-center gap-2">
-                        <Progress value={(c.progress / c.goal) * 100} className="h-1.5 flex-1" />
+                        <Progress
+                          value={(c.progress / c.goal) * 100}
+                          aria-label={`${def.title} progress`}
+                          className="h-1.5 flex-1"
+                        />
                         <span className="text-xs font-data text-text">
                           {c.progress} / {c.goal}
                         </span>
@@ -429,7 +443,11 @@ function LeaderboardTab() {
           Load
         </Button>
       </div>
-      {error && <div className="text-xs text-danger mb-2">{error}</div>}
+      {error && (
+        <div role="alert" className="text-xs text-danger mb-2">
+          {error}
+        </div>
+      )}
       {!available && (
         <div className="text-xs text-sub">
           Set <code className="font-mono text-accent">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}

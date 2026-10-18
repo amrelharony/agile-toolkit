@@ -277,7 +277,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                   setSelectedSquadId(e.target.value);
                   setSelectedProfileId("");
                 }}
-                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent"
+                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-ring"
               >
                 {squads.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -291,7 +291,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
               <select
                 value={selectedProfileId}
                 onChange={(e) => setSelectedProfileId(e.target.value)}
-                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent"
+                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-ring"
               >
                 <option value="">Anyone in squad</option>
                 {profilesForSelected.map((p) => (
@@ -308,7 +308,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as "editor" | "viewer" | "commenter")}
-                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent"
+                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-ring"
               >
                 <option value="editor">Editor (full collaboration)</option>
                 <option value="commenter">Commenter (read + comments)</option>
@@ -323,7 +323,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                   const v = e.target.value;
                   setTtlDays(v === "never" ? null : Number(v));
                 }}
-                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent"
+                className="h-11 md:h-9 bg-surface-deep border border-border rounded px-2 text-base md:text-sm text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-ring"
               >
                 <option value="1">1 day</option>
                 <option value="7">7 days</option>
@@ -387,7 +387,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                         <button
                           type="button"
                           onClick={() => void onCopyLink(i)}
-                          aria-label="Copy guest link"
+                          aria-label={`Copy guest link for ${i.profile?.displayName ?? "anyone in squad"}`}
                           className="text-sub hover:text-accent"
                         >
                           {copiedInviteId === i.id ? (
@@ -399,7 +399,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                         <button
                           type="button"
                           onClick={() => void onRevoke(i.id)}
-                          aria-label="Revoke invite"
+                          aria-label={`Revoke invite for ${i.profile?.displayName ?? "anyone in squad"}`}
                           className="text-sub hover:text-danger"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -460,17 +460,22 @@ export function SessionShareModal({ toolId, entityId, onClose }: ModalProps) {
   useFocusTrap(dialogRef, { active: true });
 
   return (
+    // Backdrop: clicking outside the panel closes it (a mouse shortcut —
+    // Esc and the Close button cover keyboard users), so it's presentation
+    // only. The dialog role sits on the panel, not on the backdrop.
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Invite squad to session"
-      ref={dialogRef}
+      role="presentation"
       className="fixed inset-0 z-modal flex items-center justify-center bg-bg/80 backdrop-blur-sm"
-      onClick={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Invite squad to session"
+        ref={dialogRef}
         className="relative bg-surface border border-border rounded-xl max-w-lg w-[92vw] max-h-[85dvh] overflow-auto overscroll-contain"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-2">

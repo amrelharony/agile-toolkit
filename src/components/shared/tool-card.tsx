@@ -17,6 +17,19 @@ interface ToolCardProps {
   toolId?: string;
 }
 
+/**
+ * Home-grid tool card.
+ *
+ * The title is the card's link and its `::after` stretches over the whole
+ * card, so the card stays clickable while the favourite star sits beside
+ * the link instead of inside it (a <button> inside an <a> is invalid and
+ * screen readers announce it as part of the link). Layers, bottom to top:
+ * shimmer (z-0) → title/description with the stretched link (z-1) → tags
+ * (z-1, click-through) → top row with the star (z-2, click-through except
+ * the star). Flex items honour `z-index` without `position`, so the title
+ * block paints above the shimmer without becoming the link's containing
+ * block.
+ */
 export function ToolCard({
   href,
   icon,
@@ -37,8 +50,7 @@ export function ToolCard({
   };
 
   return (
-    <Link
-      href={href}
+    <div
       data-sonify-hover="card"
       className="
         group relative flex flex-col gap-3
@@ -74,9 +86,11 @@ export function ToolCard({
         />
       </div>
 
-      {/* Content */}
-      <div className="relative z-[1] flex items-start justify-between">
+      {/* Content — above the stretched link so the star stays clickable;
+          everything else in the row lets clicks fall through to the link. */}
+      <div className="pointer-events-none relative z-[2] flex items-start justify-between">
         <div
+          aria-hidden="true"
           className="
             w-11 h-11 rounded-xl
             bg-[var(--card)] border border-border
@@ -93,14 +107,16 @@ export function ToolCard({
             <button
               type="button"
               onClick={handleStarClick}
-              aria-label={favorited ? `Unstar ${title}` : `Star ${title}`}
+              aria-label={
+                favorited ? `Remove ${title} from favorites` : `Add ${title} to favorites`
+              }
               aria-pressed={favorited}
               data-no-sound="true"
               className={cn(
                 // `min-touch-coarse` lifts the tap area to 44 × 44 on touch
                 // devices without enlarging the visual glyph on desktop where
                 // the 32 × 32 chip pairs with the adjacent ArrowRight.
-                "min-touch-coarse w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-default",
+                "pointer-events-auto min-touch-coarse w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-default",
                 favorited
                   ? "text-accent-amber"
                   : "text-sub opacity-40 hover:opacity-100 hover:text-accent-amber"
@@ -114,6 +130,7 @@ export function ToolCard({
             </button>
           )}
           <ArrowRight
+            aria-hidden="true"
             className="
               w-4 h-4 text-sub opacity-40
               group-hover:opacity-100 group-hover:text-accent
@@ -124,13 +141,20 @@ export function ToolCard({
         </div>
       </div>
 
-      <div className="relative z-[1]">
-        <h3 className="text-sm font-semibold text-text">{title}</h3>
+      <div className="z-[1]">
+        <h3 className="text-sm font-semibold text-text">
+          <Link
+            href={href}
+            className="focus-visible:outline-none after:absolute after:inset-0 after:rounded-2xl after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-accent"
+          >
+            {title}
+          </Link>
+        </h3>
         <p className="text-caption text-sub mt-1 line-clamp-2">{description}</p>
       </div>
 
       {tags && tags.length > 0 && (
-        <div className="relative z-[1] flex flex-wrap gap-1.5 mt-auto">
+        <div className="pointer-events-none relative z-[1] flex flex-wrap gap-1.5 mt-auto">
           {tags.map((tag) => (
             <span
               key={tag}
@@ -148,6 +172,6 @@ export function ToolCard({
           ))}
         </div>
       )}
-    </Link>
+    </div>
   );
 }

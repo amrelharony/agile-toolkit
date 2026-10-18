@@ -154,7 +154,7 @@ export function InsightsEngine({ toolId, limit = 3, compact = false }: InsightsE
               onClick={() =>
                 setDismissedArr((arr) => (arr.includes(ins.id) ? arr : [...arr, ins.id]))
               }
-              aria-label="Dismiss"
+              aria-label={`Dismiss: ${ins.title}`}
             >
               <X className="w-3.5 h-3.5" />
             </button>

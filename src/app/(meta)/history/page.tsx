@@ -175,7 +175,7 @@ export default function HistoryPage() {
             setPage(0);
           }}
         >
-          <SelectTrigger className="w-full sm:w-48 bg-surface-deep">
+          <SelectTrigger aria-label="Filter by tool" className="w-full sm:w-48 bg-surface-deep">
             <SelectValue placeholder="All tools" />
           </SelectTrigger>
           <SelectContent>
@@ -205,7 +205,7 @@ export default function HistoryPage() {
 
       {/* Range presets + count + export */}
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-        <div className="flex items-center gap-1 flex-wrap">
+        <div role="group" aria-label="Date range" className="flex items-center gap-1 flex-wrap">
           <Calendar className="w-3.5 h-3.5 text-sub mr-1" aria-hidden="true" />
           {RANGE_PRESETS.map((p) => (
             <button
@@ -215,6 +215,7 @@ export default function HistoryPage() {
                 setRangeId(p.id);
                 setPage(0);
               }}
+              aria-pressed={rangeId === p.id}
               className={cn(
                 "min-touch-coarse px-2.5 py-1 text-xs rounded-md transition-colors",
                 rangeId === p.id
@@ -238,7 +239,7 @@ export default function HistoryPage() {
               else if (v === "md") exportEventsAsMarkdown(filtered);
             }}
           >
-            <SelectTrigger className="w-32 h-8 text-xs">
+            <SelectTrigger aria-label="Export events" className="w-32 h-8 text-xs">
               <Download className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
               <SelectValue placeholder="Export" />
             </SelectTrigger>
@@ -331,15 +332,22 @@ interface EventRowProps {
 }
 
 function EventRow({ event, toolName, expanded, onToggle }: EventRowProps) {
+  const payloadId = `history-payload-${event.clientEventId}`;
   return (
-    <li>
+    // The payload sits beside the toggle, not inside it: inside the button
+    // the whole JSON dump became part of the button's accessible name.
+    <li className={cn(expanded && "bg-accent/5")}>
       <button
         type="button"
         onClick={onToggle}
+        aria-expanded={expanded}
+        aria-controls={expanded ? payloadId : undefined}
         className={cn(
-          "w-full text-left px-4 py-3 transition-colors",
-          "hover:bg-accent/5 focus-visible:bg-accent/5 outline-none",
-          expanded && "bg-accent/5"
+          "w-full text-left px-4 pt-3 transition-colors",
+          expanded ? "pb-0" : "pb-3",
+          // Inset ring: the list scrolls inside an overflow container that
+          // would clip the global offset outline at its edges.
+          "hover:bg-accent/5 focus-visible:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
         )}
       >
         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -356,7 +364,11 @@ function EventRow({ event, toolName, expanded, onToggle }: EventRowProps) {
               </Badge>
             )}
             {event.syncedAt && (
-              <Sparkles className="w-3 h-3 text-accent/60 shrink-0" aria-label="Synced to cloud" />
+              <Sparkles
+                className="w-3 h-3 text-accent/60 shrink-0"
+                role="img"
+                aria-label="Synced to cloud"
+              />
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -366,12 +378,14 @@ function EventRow({ event, toolName, expanded, onToggle }: EventRowProps) {
             <span className="text-xs text-sub">{timeAgo(event.occurredAt)}</span>
           </div>
         </div>
-        {expanded && (
+      </button>
+      {expanded && (
+        <div id={payloadId} className="px-4 pb-3">
           <pre className="mt-2 text-xs bg-surface-deep border border-border rounded p-2 overflow-x-auto font-mono leading-tight whitespace-pre-wrap break-all">
             {JSON.stringify(event.payload, null, 2)}
           </pre>
-        )}
-      </button>
+        </div>
+      )}
     </li>
   );
 }

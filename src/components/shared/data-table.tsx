@@ -28,7 +28,11 @@ interface DataTableProps<Row> {
   /** Shown when `rows.length === 0`. */
   emptyState?: ReactNode;
   className?: string;
-  /** Row-level onClick — adds role=button + keyboard support. */
+  /**
+   * Row-level onClick. Table rows become focusable (Enter / Space activate)
+   * and keep their row semantics; mobile cards render as a button inside
+   * the list item.
+   */
   onRowClick?: (row: Row, index: number) => void;
 }
 
@@ -87,6 +91,10 @@ export function DataTable<Row>({
             </thead>
             <tbody>
               {rows.map((row, i) => (
+                // A clickable row stays a row: role="button" on a <tr> would
+                // strip the table semantics (cells lose their headers). The
+                // row is focusable and Enter / Space activate it instead.
+                // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
                 <tr
                   key={rowKey(row, i)}
                   className={cn(
@@ -97,6 +105,8 @@ export function DataTable<Row>({
                   onKeyDown={
                     onRowClick
                       ? (e) => {
+                          // Ignore keys bubbling from controls inside a cell.
+                          if (e.target !== e.currentTarget) return;
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
                             onRowClick(row, i);
@@ -104,7 +114,6 @@ export function DataTable<Row>({
                         }
                       : undefined
                   }
-                  role={onRowClick ? "button" : undefined}
                   tabIndex={onRowClick ? 0 : undefined}
                 >
                   {columns.map((col) => (
@@ -128,49 +137,59 @@ export function DataTable<Row>({
 
       {/* Mobile: stacked cards */}
       <ul className="md:hidden space-y-2">
-        {rows.map((row, i) => (
-          <li
-            key={rowKey(row, i)}
-            className={cn(
-              "rounded-lg border border-border bg-card p-3",
-              onRowClick && "cursor-pointer active-press"
-            )}
-            onClick={onRowClick ? () => onRowClick(row, i) : undefined}
-            onKeyDown={
-              onRowClick
-                ? (e) => {
+        {rows.map((row, i) => {
+          const cardClass = "rounded-lg border border-border bg-card p-3";
+          const body = renderCard ? (
+            renderCard(row, i)
+          ) : (
+            <dl className="grid grid-cols-1 gap-1.5">
+              {columns
+                .filter((c) => !c.cardHidden)
+                .map((col) => (
+                  <Fragment key={col.key}>
+                    {col.primary ? (
+                      // A <dd> needs its <dt>; the title row's term is
+                      // visually implied, so it's screen-reader only.
+                      <div>
+                        <dt className="sr-only">{col.header}</dt>
+                        <dd className="text-sm font-semibold text-text">{col.cell(row, i)}</dd>
+                      </div>
+                    ) : (
+                      <div className="flex items-start justify-between gap-3 text-xs">
+                        <dt className="text-sub">{col.header}</dt>
+                        <dd className="text-right text-text/90">{col.cell(row, i)}</dd>
+                      </div>
+                    )}
+                  </Fragment>
+                ))}
+            </dl>
+          );
+          return (
+            <li key={rowKey(row, i)} className={onRowClick ? undefined : cardClass}>
+              {onRowClick ? (
+                // The button sits inside the <li> so the list keeps its
+                // item semantics (role="button" on the <li> replaced them).
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className={cn(cardClass, "cursor-pointer active-press")}
+                  onClick={() => onRowClick(row, i)}
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget) return;
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
                       onRowClick(row, i);
                     }
-                  }
-                : undefined
-            }
-            role={onRowClick ? "button" : undefined}
-            tabIndex={onRowClick ? 0 : undefined}
-          >
-            {renderCard ? (
-              renderCard(row, i)
-            ) : (
-              <dl className="grid grid-cols-1 gap-1.5">
-                {columns
-                  .filter((c) => !c.cardHidden)
-                  .map((col) => (
-                    <Fragment key={col.key}>
-                      {col.primary ? (
-                        <dd className="text-sm font-semibold text-text">{col.cell(row, i)}</dd>
-                      ) : (
-                        <div className="flex items-start justify-between gap-3 text-xs">
-                          <dt className="text-sub">{col.header}</dt>
-                          <dd className="text-right text-text/90">{col.cell(row, i)}</dd>
-                        </div>
-                      )}
-                    </Fragment>
-                  ))}
-              </dl>
-            )}
-          </li>
-        ))}
+                  }}
+                >
+                  {body}
+                </div>
+              ) : (
+                body
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

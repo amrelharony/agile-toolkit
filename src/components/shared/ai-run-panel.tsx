@@ -396,6 +396,12 @@ export default function AiRunPanel({
             {ttftMs !== null && <span className="font-mono">· first token {ttftMs}ms</span>}
           </span>
         )}
+        {/* Always mounted so the run's start and end are announced; the
+            streamed text itself isn't live (it would be read token by token).
+            Errors are announced by the error toast. */}
+        <span role="status" className="sr-only">
+          {running ? "Generating response" : text && !error ? "Response ready" : ""}
+        </span>
       </div>
 
       {(text || error) && (

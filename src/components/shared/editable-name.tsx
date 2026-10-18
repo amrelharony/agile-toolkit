@@ -19,6 +19,11 @@ interface EditableNameProps {
    * (story-mapper for example shrinks the input padding).
    */
   inputClassName?: string;
+  /**
+   * Accessible name for the edit input (e.g. "Role name"). Defaults to
+   * "Rename <value>", or the placeholder when the value is empty.
+   */
+  ariaLabel?: string;
 }
 
 /**
@@ -46,10 +51,16 @@ export function EditableName({
   placeholder,
   className,
   inputClassName,
+  ariaLabel,
 }: EditableNameProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  // Enter / Escape unmount the focused input; hand focus back to the
+  // button so keyboard users don't land on <body>. A blur (clicking
+  // elsewhere) must not pull focus back, so only those keys set this.
+  const refocusButton = useRef(false);
 
   // Keep the draft in sync when the parent updates `value` from elsewhere
   // (e.g. an external import / undo).
@@ -61,6 +72,9 @@ export function EditableName({
     if (editing) {
       inputRef.current?.focus();
       inputRef.current?.select();
+    } else if (refocusButton.current) {
+      refocusButton.current = false;
+      buttonRef.current?.focus();
     }
   }, [editing]);
 
@@ -82,6 +96,7 @@ export function EditableName({
         ref={inputRef}
         value={draft}
         placeholder={placeholder}
+        aria-label={ariaLabel ?? (value ? `Rename ${value}` : (placeholder ?? "Name"))}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
@@ -90,10 +105,12 @@ export function EditableName({
           // preventDefault a stray submit could fire and reload the page.
           if (e.key === "Enter") {
             e.preventDefault();
+            refocusButton.current = true;
             commit();
           }
           if (e.key === "Escape") {
             e.preventDefault();
+            refocusButton.current = true;
             setDraft(value);
             setEditing(false);
           }
@@ -112,6 +129,7 @@ export function EditableName({
 
   return (
     <button
+      ref={buttonRef}
       type="button"
       onClick={() => setEditing(true)}
       className={cn(

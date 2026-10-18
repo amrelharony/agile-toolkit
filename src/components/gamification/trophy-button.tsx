@@ -30,7 +30,10 @@ export function TrophyButton() {
           "text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
         )}
         title={mounted ? `Level ${level} · open trophy case` : "Trophy case"}
-        aria-label="Open trophy case"
+        // The level badge is visible text; keep it in the name instead of
+        // letting the label hide it.
+        aria-label={mounted ? `Open trophy case, level ${level}` : "Open trophy case"}
+        aria-haspopup="dialog"
       >
         <Trophy className="w-4 h-4" />
         {mounted && (

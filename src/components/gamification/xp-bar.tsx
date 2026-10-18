@@ -84,12 +84,12 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
         <span className="text-accent font-data">L{info.level}</span>
         {info.atMax && <span className="text-xs text-accent">MAX</span>}
       </span>
+      {/* Decorative: a button's children are presentational, so a
+          progressbar role here was never exposed — the button's
+          aria-label already carries the percentage. */}
       <div
         className="relative h-1.5 rounded-full bg-bg border border-border overflow-hidden shrink-0 w-16 sm:w-24 md:w-28"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={pct}
+        aria-hidden="true"
       >
         <div
           className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-accent to-accent-2 transition-[width]"

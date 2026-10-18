@@ -120,6 +120,9 @@ function SidebarToolLink({
           )}
         </>
       )}
+      {/* Rail mode shows only the icon; keep the link named (a `title`
+          alone is not a reliable accessible name). */}
+      {!expanded && <span className="sr-only">{tool.name}</span>}
       {isActive && (
         <div
           className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-accent shadow-[0_0_8px_var(--glow)]"
@@ -346,14 +349,17 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
 
   return (
     <>
-      {/* Mobile backdrop */}
+      {/* Mobile backdrop — a mouse/touch shortcut for closing the drawer;
+          keyboard users have Escape and the close button, so it stays out
+          of the accessibility tree. */}
       <div
+        role="presentation"
         className={cn(
           "md:hidden fixed inset-0 z-[90] bg-bg/70 backdrop-blur-sm transition-opacity duration-medium",
           mobileOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
         )}
         onClick={onClose}
-        aria-hidden={!mobileOpen}
+        aria-hidden="true"
       />
 
       <aside
@@ -411,7 +417,9 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/AT.svg"
-                alt="Agile Toolkit"
+                // Expanded, the visible wordmark names the link; a matching
+                // alt would make it read "Agile Toolkit Agile Toolkit".
+                alt={expanded ? "" : "Agile Toolkit"}
                 width={32}
                 height={32}
                 className="w-full h-full object-cover"
@@ -465,7 +473,12 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                     )}
                     aria-hidden="true"
                   />
-                  {expanded && <span className="truncate font-medium">{label}</span>}
+                  {expanded ? (
+                    <span className="truncate font-medium">{label}</span>
+                  ) : (
+                    // Rail mode: icon only, so name the link for assistive tech.
+                    <span className="sr-only">{label}</span>
+                  )}
                   {isActive && (
                     <div
                       className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-accent shadow-[0_0_8px_var(--glow)]"
@@ -636,6 +649,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
 
         {/* Collapse toggle — desktop only */}
         <button
+          type="button"
           onClick={() => setCollapsed(!collapsed)}
           data-no-sound="true"
           className="

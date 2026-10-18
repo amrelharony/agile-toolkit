@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Sparkles, Copy, Check, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -64,11 +64,18 @@ function PromptCard({
     }
   };
 
+  // Every card has its own "Run with AI" / "Copy"; tie them to this
+  // card's title so screen readers can tell them apart.
+  const titleId = useId();
+  const runPanelId = useId();
+
   return (
     <div className="rounded-lg border border-border bg-surface-deep p-4 space-y-2">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h4 className="text-sm font-semibold text-text">{title}</h4>
+          <h4 id={titleId} className="text-sm font-semibold text-text">
+            {title}
+          </h4>
           <p className="text-xs text-sub mt-0.5">{description}</p>
         </div>
         <div className="flex gap-1.5 shrink-0">
@@ -78,7 +85,11 @@ function PromptCard({
               variant="outline"
               className="gap-1.5 border-accent/40 bg-accent/5 text-accent hover:bg-accent/10"
               onClick={() => setShowRun((v) => !v)}
-              aria-pressed={showRun}
+              // It shows / hides the run panel below, so it's a disclosure
+              // (a pressed state with a label that flips reads as nonsense).
+              aria-expanded={showRun}
+              aria-controls={showRun ? runPanelId : undefined}
+              aria-describedby={titleId}
             >
               <Play className="w-3.5 h-3.5" />
               {showRun ? "Hide" : "Run with AI"}
@@ -89,6 +100,7 @@ function PromptCard({
             variant="outline"
             className="gap-1.5 border-border hover:border-accent/40 hover:bg-accent/5 text-sub hover:text-accent"
             onClick={handleCopy}
+            aria-describedby={titleId}
           >
             {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
             {copied ? "Copied" : "Copy"}
@@ -101,7 +113,9 @@ function PromptCard({
       {isReady && showRun && (
         // AiRunPanel is dynamic-imported, so it lands in the bundle only
         // when the user actually expands it for the first time.
-        <AiRunPanel prompt={prompt} toolName={toolName} />
+        <div id={runPanelId}>
+          <AiRunPanel prompt={prompt} toolName={toolName} />
+        </div>
       )}
     </div>
   );

@@ -174,6 +174,7 @@ export function AccessTokensClient() {
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
+            aria-label="Token name"
             placeholder="e.g. Claude Desktop on Laptop"
             className="flex-1 min-w-0 rounded-md border border-border bg-bg px-3 py-2 text-sm text-text"
             maxLength={80}
@@ -216,9 +217,18 @@ export function AccessTokensClient() {
           </p>
           <div className="flex flex-wrap gap-2">
             <code className="flex-1 min-w-0 basis-full sm:basis-0 font-mono text-sm bg-bg rounded-md border border-border px-3 py-2 break-all">
-              {revealVisible
-                ? revealed.rawToken
-                : `${revealed.rawToken.slice(0, 8)}${"•".repeat(Math.max(0, revealed.rawToken.length - 8))}`}
+              {revealVisible ? (
+                revealed.rawToken
+              ) : (
+                // Screen readers would read every mask dot as "bullet".
+                <>
+                  {revealed.rawToken.slice(0, 8)}
+                  <span aria-hidden="true">
+                    {"•".repeat(Math.max(0, revealed.rawToken.length - 8))}
+                  </span>
+                  <span className="sr-only"> (rest hidden)</span>
+                </>
+              )}
             </code>
             <Button
               onClick={() => setRevealVisible((v) => !v)}
@@ -247,6 +257,9 @@ export function AccessTokensClient() {
                 <Copy className="w-4 h-4" aria-hidden="true" />
               )}
             </Button>
+            <span role="status" className="sr-only">
+              {copied ? "Token copied" : ""}
+            </span>
           </div>
           <Button onClick={() => setRevealed(null)} variant="outline" size="sm">
             I&apos;ve saved it

@@ -123,6 +123,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
         {/* Mobile dropdown */}
         <div className="sm:hidden relative ml-auto" ref={dropdownRef}>
           <button
+            type="button"
             onClick={() => setMobileOpen(!mobileOpen)}
             className="
               flex items-center gap-1
@@ -131,7 +132,8 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
               transition-colors duration-fast
             "
             aria-expanded={mobileOpen}
-            aria-haspopup="true"
+            // A disclosure of plain links, not an ARIA menu, so no aria-haspopup.
+            aria-controls={mobileOpen ? "ecosystem-nav-mobile" : undefined}
           >
             {apps.find((a) => a.id === currentApp)?.shortLabel}
             <ChevronDown
@@ -142,6 +144,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
           </button>
           {mobileOpen && (
             <div
+              id="ecosystem-nav-mobile"
               className="
                 absolute top-full right-0 mt-1
                 py-1 rounded-lg min-w-[140px]
@@ -166,6 +169,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
                         : "text-sub hover:text-text hover:bg-card-hover"
                     }
                   `}
+                  aria-current={app.id === currentApp ? "page" : undefined}
                 >
                   {app.label}
                 </a>

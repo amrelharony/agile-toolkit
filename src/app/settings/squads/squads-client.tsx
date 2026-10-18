@@ -169,9 +169,10 @@ export function SquadsClient() {
             onKeyDown={(e) => {
               if (e.key === "Enter") void onCreate();
             }}
+            aria-label="Squad name"
             placeholder="Squad name (e.g. Engineering)"
             maxLength={80}
-            className="flex-1 bg-surface-deep border border-border rounded px-3 py-2 text-sm text-text focus:outline-none focus:border-accent"
+            className="flex-1 bg-surface-deep border border-border rounded px-3 py-2 text-sm text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-ring"
           />
           <Button
             onClick={() => void onCreate()}
@@ -219,6 +220,7 @@ export function SquadsClient() {
                     size="sm"
                     onClick={() => void onRegenerate(s.id)}
                     title="Regenerate invite code"
+                    aria-label={`New code for ${s.name}`}
                     className="min-touch-coarse text-xs gap-1"
                   >
                     <RefreshCw className="w-3 h-3" aria-hidden="true" />
@@ -229,6 +231,7 @@ export function SquadsClient() {
                     size="sm"
                     onClick={() => void onDelete(s.id, s.name)}
                     title="Delete squad"
+                    aria-label={`Delete squad ${s.name}`}
                     className="min-touch-coarse text-xs gap-1 text-danger hover:text-danger"
                   >
                     <Trash2 className="w-3 h-3" aria-hidden="true" />
@@ -246,6 +249,9 @@ export function SquadsClient() {
                   onClick={() => void onCopy(s.code)}
                   className="min-touch-coarse gap-1 text-xs shrink-0"
                   title="Copy invite link"
+                  aria-label={
+                    copiedCode === s.code ? `Copied link for ${s.name}` : `Copy link for ${s.name}`
+                  }
                 >
                   {copiedCode === s.code ? (
                     <Check className="w-3 h-3" aria-hidden="true" />

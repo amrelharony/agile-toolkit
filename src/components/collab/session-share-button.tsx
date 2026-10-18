@@ -37,6 +37,7 @@ export function SessionShareButton({
         variant="outline"
         size={size}
         onClick={() => setOpen(true)}
+        aria-haspopup="dialog"
         className={`gap-1.5 border-border hover:border-accent/30 hover:bg-accent/5 text-sub hover:text-accent ${className ?? ""}`}
       >
         <Users className="w-4 h-4" aria-hidden="true" />
