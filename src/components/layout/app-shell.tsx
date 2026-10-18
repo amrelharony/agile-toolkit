@@ -12,6 +12,7 @@ import { Header } from "./header";
 import { CommandPalette } from "./command-palette";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useLlmStore } from "@/lib/stores/llm-store";
+import { dismissUndoToasts } from "@/lib/utils/undoable";
 import { installSignalBridge } from "@/lib/signals/signal-bridge";
 import { bootstrapPredictions } from "@/lib/predictions/bootstrap";
 import { installKudosReceiveBridge } from "@/lib/kudos/receive-bridge";
@@ -97,6 +98,12 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [trophyOpen, setTrophyOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pathname = usePathname();
+
+  // An Undo toast belongs to the page that raised it (lib/utils/undoable).
+  useEffect(() => {
+    dismissUndoToasts();
+  }, [pathname]);
 
   // Workspace store uses skipHydration; rehydrate ONCE at the app shell level
   // rather than per-tool. Multiple tools mounting all at once previously each

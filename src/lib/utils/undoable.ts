@@ -30,9 +30,11 @@ export interface UndoableAction {
 export function undoable({ label, description, apply, revert, durationMs = 8000 }: UndoableAction) {
   apply();
   let undone = false;
-  return toast(label, {
+  const id = toast(label, {
     description,
     duration: durationMs,
+    onDismiss: () => openUndoToasts.delete(id),
+    onAutoClose: () => openUndoToasts.delete(id),
     action: {
       label: "Undo",
       onClick: () => {
@@ -42,4 +44,19 @@ export function undoable({ label, description, apply, revert, durationMs = 8000 
       },
     },
   });
+  if (id !== undefined) openUndoToasts.add(id);
+  return id;
+}
+
+/** Undo toasts still on screen. */
+const openUndoToasts = new Set<string | number>();
+
+/**
+ * Close every open Undo toast. The app shell calls this on navigation: a
+ * revert that restores a page's local state can't work once that page has
+ * unmounted, and an Undo that silently does nothing is worse than none.
+ */
+export function dismissUndoToasts(): void {
+  openUndoToasts.forEach((id) => toast.dismiss(id));
+  openUndoToasts.clear();
 }
