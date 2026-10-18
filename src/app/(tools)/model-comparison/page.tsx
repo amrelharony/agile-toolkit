@@ -3,8 +3,7 @@ import { ModelComparisonClient } from "./model-comparison-client";
 
 export const metadata: Metadata = {
   title: "Model Comparison Matrix",
-  description:
-    "Per-model cost / 1k tokens, latency, context window, eval score, vendor lock-in, and status.",
+  description: "Per-model cost / 1k tokens, latency, context window, eval score and status.",
 };
 
 export default function Page() {
