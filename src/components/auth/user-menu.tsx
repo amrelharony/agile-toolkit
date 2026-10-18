@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -34,7 +35,6 @@ import { useOwnerSeen, useVisitorDataPending } from "@/lib/sync/owner-sync-gate"
 import { clearLocalWorkspaceData } from "@/lib/utils/clear-local-data";
 import { toast } from "@/lib/utils/toast";
 import { useSonificationStore } from "@/lib/stores/sonification-store";
-import { YourDataDialog } from "@/components/data/your-data-dialog";
 import { SCRUM_ROLE_LABEL, type SignOutResult } from "@/lib/auth/types";
 import {
   LogOut,
@@ -48,6 +48,12 @@ import {
   Eraser,
   HardDrive,
 } from "lucide-react";
+
+// Loaded on first open: backup/restore isn't needed until someone asks.
+const YourDataDialog = dynamic(
+  () => import("@/components/data/your-data-dialog").then((m) => m.YourDataDialog),
+  { ssr: false }
+);
 
 function getInitials(name: string | null | undefined, email: string): string {
   const source = (name ?? email).trim();
@@ -248,7 +254,7 @@ function VisitorMenu({
         </DropdownMenuContent>
       </DropdownMenu>
       <ClearDataDialog open={clearOpen} onOpenChange={setClearOpen} />
-      <YourDataDialog open={dataOpen} onOpenChange={setDataOpen} />
+      {dataOpen && <YourDataDialog open={dataOpen} onOpenChange={setDataOpen} />}
       {sessionUnverified && <SignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />}
     </>
   );
@@ -387,7 +393,7 @@ function OwnerMenu() {
         </DropdownMenuContent>
       </DropdownMenu>
       <SignOutDialog open={signOutOpen} onOpenChange={setSignOutOpen} />
-      <YourDataDialog open={dataOpen} onOpenChange={setDataOpen} />
+      {dataOpen && <YourDataDialog open={dataOpen} onOpenChange={setDataOpen} />}
     </>
   );
 }

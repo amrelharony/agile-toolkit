@@ -22,11 +22,12 @@ beforeEach(() => {
 });
 
 describe("SavedChip", () => {
-  it("tells visitors their work is saved in this browser and opens the backup dialog", () => {
+  it("tells visitors their work is saved in this browser and opens the backup dialog", async () => {
     render(<SavedChip />);
     const chip = screen.getByRole("button", { name: /Saved in this browser/ });
     fireEvent.click(chip);
-    expect(screen.getByRole("dialog", { name: "Your data" })).toBeInTheDocument();
+    // The dialog loads on first open.
+    expect(await screen.findByRole("dialog", { name: "Your data" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Download backup/ })).toBeInTheDocument();
   });
 

@@ -1,11 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { AlertTriangle, HardDrive } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { useStorageHealth } from "@/lib/stores/storage-health";
-import { YourDataDialog } from "@/components/data/your-data-dialog";
+
+// The dialog (backup, restore, storage estimate) loads on first open; the
+// chip itself is on every tool page.
+const YourDataDialog = dynamic(
+  () => import("@/components/data/your-data-dialog").then((m) => m.YourDataDialog),
+  { ssr: false }
+);
 
 /**
  * "Saved in this browser" next to a tool's title, for visitors.
@@ -19,6 +26,7 @@ export function SavedChip({ className }: { className?: string }) {
   const { visitor } = useOwnerState();
   const writeFailed = useStorageHealth((s) => s.writeFailed);
   const [open, setOpen] = useState(false);
+  const [opened, setOpened] = useState(false);
   if (!visitor) return null;
   const label = writeFailed ? "Not saving" : "Saved in this browser";
 
@@ -26,7 +34,10 @@ export function SavedChip({ className }: { className?: string }) {
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setOpened(true);
+          setOpen(true);
+        }}
         aria-haspopup="dialog"
         aria-label={`${label} — back up or restore your data`}
         className={cn(
@@ -45,7 +56,7 @@ export function SavedChip({ className }: { className?: string }) {
         )}
         <span>{label}</span>
       </button>
-      <YourDataDialog open={open} onOpenChange={setOpen} />
+      {opened && <YourDataDialog open={open} onOpenChange={setOpen} />}
     </>
   );
 }
