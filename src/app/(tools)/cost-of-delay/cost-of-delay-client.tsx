@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import dynamic from "next/dynamic";
 import { Clock, Plus, Trash2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
@@ -16,6 +16,14 @@ import { generateCostOfDelayPrompts } from "@/lib/ai-prompts/cost-of-delay";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { COD_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+
+// Recharts loads with the chart, not the page.
+const CostOfDelayChart = dynamic(() => import("./charts").then((m) => m.CostOfDelayChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
 
 export function CostOfDelayClient() {
   const all = useWorkspaceStore((s) => s.prioritizations ?? []);
@@ -166,21 +174,7 @@ export function CostOfDelayClient() {
             }
           >
             <div className="-mx-2 h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} layout="vertical" margin={{ left: 16 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis type="number" stroke="#888" fontSize={11} />
-                  <YAxis type="category" dataKey="title" stroke="#888" fontSize={11} width={150} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#0f1117",
-                      border: "1px solid #2a2f3a",
-                      fontSize: 12,
-                    }}
-                  />
-                  <Bar dataKey="cost" fill="#ff6b6b" />
-                </BarChart>
-              </ResponsiveContainer>
+              <CostOfDelayChart data={chartData} />
             </div>
           </SectionCard>
         )}

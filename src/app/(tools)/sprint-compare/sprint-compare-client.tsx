@@ -4,15 +4,7 @@ import { useRef, useMemo, useState, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
-import {
-  RadarChart,
-  Radar,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Legend,
-  Tooltip,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -30,6 +22,12 @@ import { BlurInput } from "@/components/shared/blur-fields";
 import { Label } from "@/components/ui/label";
 import { Plus, Trash2, GitCompare } from "lucide-react";
 import { parseHexOrBlack } from "@/lib/utils";
+
+// Recharts loads with the chart, not the page; ChartCard's fixed-height box
+// reserves the space while it does.
+const SprintRadarChart = dynamic(() => import("./charts").then((m) => m.SprintRadarChart), {
+  ssr: false,
+});
 
 /* -------------------------------------------------------------------------- */
 /*  Constants                                                                 */
@@ -234,13 +232,6 @@ function ScoreCell({ value, color }: { value: number; color: string }) {
   );
 }
 
-const TOOLTIP_STYLE = {
-  backgroundColor: "#1a1f36",
-  border: "1px solid rgba(255,255,255,0.1)",
-  borderRadius: "8px",
-  color: "#e2e8f0",
-};
-
 /* -------------------------------------------------------------------------- */
 /*  Main component                                                            */
 /* -------------------------------------------------------------------------- */
@@ -361,29 +352,7 @@ export function SprintCompareClient() {
             </>
           }
         >
-          <RadarChart data={radarData} margin={{ top: 10, right: 30, left: 30, bottom: 10 }}>
-            <PolarGrid stroke="rgba(255,255,255,0.1)" />
-            <PolarAngleAxis dataKey="dimension" tick={{ fill: "#94a3b8", fontSize: 12 }} />
-            <PolarRadiusAxis
-              domain={[0, 10]}
-              tick={{ fill: "#94a3b8", fontSize: 10 }}
-              tickCount={6}
-              stroke="rgba(255,255,255,0.05)"
-            />
-            <Tooltip contentStyle={TOOLTIP_STYLE} />
-            {sprints.map((sp, i) => (
-              <Radar
-                key={sp.id}
-                name={sp.name}
-                dataKey={sp.id}
-                stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                fill={CHART_COLORS[i % CHART_COLORS.length]}
-                fillOpacity={0.15}
-                strokeWidth={2}
-              />
-            ))}
-            <Legend wrapperStyle={{ paddingTop: "12px", color: "#94a3b8", fontSize: 12 }} />
-          </RadarChart>
+          <SprintRadarChart data={radarData} series={sprints} colors={CHART_COLORS} />
         </ChartCard>
 
         {/* ---- Score Input ---- */}

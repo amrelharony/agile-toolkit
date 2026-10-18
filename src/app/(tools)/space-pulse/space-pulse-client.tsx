@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip } from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -16,7 +16,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Plus, Trash2, ArrowUp, ArrowDown, Minus } from "lucide-react";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { generateSpacePrompts } from "@/lib/ai-prompts/space-pulse";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPACE_ACTIONS } from "@/lib/history/event-actions";
@@ -24,6 +23,12 @@ import { toast } from "@/lib/utils/toast";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace, SpaceScore } from "@/lib/stores/workspace-types";
+
+// Recharts loads with the chart, not the page; ChartCard's fixed-height box
+// reserves the space while it does.
+const SpaceRadarChart = dynamic(() => import("./charts").then((m) => m.SpaceRadarChart), {
+  ssr: false,
+});
 
 // Quarter must be `YYYY-Q[1-4]` so localeCompare yields chronological order.
 // Anything else slips through, but we warn the user at write-time.
@@ -313,24 +318,7 @@ export function SpacePulseClient() {
         </SectionCard>
 
         <ChartCard title={latest ? `Radar — ${latest.quarter}` : "Radar"} height={360}>
-          <RadarChart data={radarData} margin={{ top: 16, right: 24, bottom: 16, left: 24 }}>
-            <PolarGrid stroke={chartTheme.gridColor} />
-            <PolarAngleAxis dataKey="subject" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
-            <PolarRadiusAxis
-              angle={90}
-              domain={[0, 5]}
-              tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
-            />
-            <Radar
-              name="SPACE"
-              dataKey="value"
-              stroke={chartTheme.colors.cyan}
-              fill={chartTheme.colors.cyan}
-              fillOpacity={0.2}
-              strokeWidth={2}
-            />
-            <Tooltip contentStyle={chartTheme.tooltipStyle} />
-          </RadarChart>
+          <SpaceRadarChart data={radarData} />
         </ChartCard>
       </div>
 

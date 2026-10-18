@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, Legend } from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -25,8 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, Bug, AlertTriangle, Clock, ShieldOff } from "lucide-react";
-import { chartTheme } from "@/components/charts/chart-theme";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { SmartInput } from "@/components/shared/smart-input";
 import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
@@ -42,6 +41,12 @@ import type {
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { VULN_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
+
+// Recharts loads with the chart, not the page; ChartCard's fixed-height box
+// reserves the space while it does.
+const OpenVulnsChart = dynamic(() => import("./charts").then((m) => m.OpenVulnsChart), {
+  ssr: false,
+});
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 
@@ -622,62 +627,7 @@ export function VulnBurndownClient() {
             ) : undefined
           }
         >
-          <AreaChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
-            <XAxis
-              dataKey="date"
-              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-              axisLine={{ stroke: chartTheme.gridColor }}
-              tickLine={false}
-            />
-            <YAxis
-              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-              axisLine={false}
-              tickLine={false}
-              allowDecimals={false}
-            />
-            <Tooltip contentStyle={chartTheme.tooltipStyle} />
-            <Legend wrapperStyle={chartTheme.legendStyle} />
-            <Area
-              type="monotone"
-              dataKey="critical"
-              stackId="1"
-              stroke={SEVERITY_COLOR.critical}
-              fill={SEVERITY_COLOR.critical}
-              fillOpacity={0.45}
-              name="Critical"
-            />
-            <Area
-              type="monotone"
-              dataKey="high"
-              stackId="1"
-              stroke={SEVERITY_COLOR.high}
-              fill={SEVERITY_COLOR.high}
-              fillOpacity={0.45}
-              name="High"
-            />
-            <Area
-              type="monotone"
-              dataKey="medium"
-              stackId="1"
-              stroke={SEVERITY_COLOR.medium}
-              fill={SEVERITY_COLOR.medium}
-              fillOpacity={0.45}
-              name="Medium"
-            />
-            <Area
-              type="monotone"
-              dataKey="low"
-              stackId="1"
-              stroke={SEVERITY_COLOR.low}
-              fill={SEVERITY_COLOR.low}
-              fillOpacity={0.45}
-              name="Low"
-            />
-            {openChangepoints.map((cp, i) => (
-              <CausalLine key={`cusum-${i}`} annotation={cp} />
-            ))}
-          </AreaChart>
+          <OpenVulnsChart data={chartData} colors={SEVERITY_COLOR} annotations={openChangepoints} />
         </ChartCard>
       )}
 

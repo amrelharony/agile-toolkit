@@ -1,17 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -48,11 +38,24 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { FEATURE_FLAG_ACTIONS } from "@/lib/history/event-actions";
 import { generateFeatureFlagPrompts } from "@/lib/ai-prompts/feature-flag-tracker";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { cn } from "@/lib/utils";
 import { durationsFromTimeRanges, kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 import { mannKendall } from "@/lib/analytics/trend-test";
+
+// Recharts loads with each chart, not the page. The fixed-height boxes
+// around them reserve the space while the chunk loads.
+const chartPlaceholder = () => (
+  <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+);
+const FlagSurvivalChart = dynamic(() => import("./charts").then((m) => m.FlagSurvivalChart), {
+  ssr: false,
+  loading: chartPlaceholder,
+});
+const FlagAgeChart = dynamic(() => import("./charts").then((m) => m.FlagAgeChart), {
+  ssr: false,
+  loading: chartPlaceholder,
+});
 
 type FlagStatus = "active" | "on" | "off" | "deprecated";
 type FlagEnv = "dev" | "staging" | "prod" | "all";
@@ -483,45 +486,7 @@ export function FeatureFlagTrackerClient() {
           className="mb-4"
         >
           <div className="h-40 -mx-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={survivalChartData}
-                margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
-              >
-                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="t"
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  axisLine={{ stroke: chartTheme.gridColor }}
-                  label={{
-                    value: "days",
-                    fill: chartTheme.axisColor,
-                    fontSize: 10,
-                    position: "insideBottom",
-                    offset: -2,
-                  }}
-                />
-                <YAxis
-                  domain={[0, 1]}
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  axisLine={{ stroke: chartTheme.gridColor }}
-                  tickFormatter={(v) => `${Math.round(v * 100)}%`}
-                />
-                <Tooltip
-                  contentStyle={chartTheme.tooltipStyle}
-                  formatter={(v) => [`${(Number(v) * 100).toFixed(1)}%`, "still active"]}
-                  labelFormatter={(v) => `${v}d`}
-                />
-                <Line
-                  type="stepAfter"
-                  dataKey="survival"
-                  stroke={chartTheme.colors.cyan}
-                  strokeWidth={2}
-                  dot={false}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <FlagSurvivalChart data={survivalChartData} />
           </div>
           <p className="text-xs text-sub mt-2">
             Kaplan-Meier estimate over {retiredAges.length} retired flag
@@ -735,26 +700,7 @@ export function FeatureFlagTrackerClient() {
             <CardContent className="p-4">
               <div className="text-sm font-semibold text-text mb-3">Flags by age (active only)</div>
               <div className="h-56 -mx-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={ageBuckets} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} />
-                    <XAxis
-                      dataKey="bucket"
-                      tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                      axisLine={{ stroke: chartTheme.gridColor }}
-                    />
-                    <YAxis
-                      tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                      axisLine={{ stroke: chartTheme.gridColor }}
-                      allowDecimals={false}
-                    />
-                    <Tooltip
-                      contentStyle={chartTheme.tooltipStyle}
-                      formatter={(v) => [String(v), "Flags"]}
-                    />
-                    <Bar dataKey="count" fill={chartTheme.colors.cyan} radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <FlagAgeChart data={ageBuckets} />
               </div>
             </CardContent>
           </Card>

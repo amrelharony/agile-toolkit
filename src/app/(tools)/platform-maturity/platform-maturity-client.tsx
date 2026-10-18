@@ -1,7 +1,7 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useMemo } from "react";
-import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -14,13 +14,19 @@ import { BlurInput } from "@/components/shared/blur-fields";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Layers, ChevronRight, Save, RotateCcw } from "lucide-react";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { generatePlatformMaturityPrompts } from "@/lib/ai-prompts/platform-maturity";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PLATFORM_MATURITY_ACTIONS } from "@/lib/history/event-actions";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
+
+// Recharts loads with the radar, not the page. ChartCard's fixed-height box
+// holds the space while it loads.
+const PlatformMaturityRadar = dynamic(
+  () => import("./charts").then((m) => m.PlatformMaturityRadar),
+  { ssr: false }
+);
 
 type DimensionId =
   | "goldenPaths"
@@ -354,24 +360,7 @@ export function PlatformMaturityClient() {
         </SectionCard>
 
         <ChartCard title="Maturity radar" height={360}>
-          <RadarChart data={radarData} margin={{ top: 16, right: 24, bottom: 16, left: 24 }}>
-            <PolarGrid stroke={chartTheme.gridColor} />
-            <PolarAngleAxis dataKey="subject" tick={{ fill: chartTheme.axisColor, fontSize: 10 }} />
-            <PolarRadiusAxis
-              angle={90}
-              domain={[0, 5]}
-              tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
-            />
-            <Radar
-              name="Maturity"
-              dataKey="value"
-              stroke={chartTheme.colors.cyan}
-              fill={chartTheme.colors.cyan}
-              fillOpacity={0.2}
-              strokeWidth={2}
-            />
-            <Tooltip contentStyle={chartTheme.tooltipStyle} />
-          </RadarChart>
+          <PlatformMaturityRadar data={radarData} />
         </ChartCard>
       </div>
 

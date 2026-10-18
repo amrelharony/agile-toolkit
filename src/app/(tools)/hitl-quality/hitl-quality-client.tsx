@@ -3,15 +3,6 @@
 import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useShallow } from "zustand/react/shallow";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
 import { Users, Plus, Trash2, Beaker, Sparkles } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
@@ -33,6 +24,14 @@ const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), {
   ssr: false,
   loading: () => (
     <div className="text-xs text-sub p-2 border border-border rounded">Loading panel…</div>
+  ),
+});
+
+// Recharts loads with the trend chart, not the page.
+const HitlMeanRatingChart = dynamic(() => import("./charts").then((m) => m.HitlMeanRatingChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
   ),
 });
 
@@ -302,21 +301,7 @@ export function HitlQualityClient() {
         {trendData.length > 1 && (
           <SectionCard title="Mean rating over time" icon={Users}>
             <div className="-mx-2 h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={trendData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="date" stroke="#888" fontSize={11} />
-                  <YAxis domain={[1, 5]} stroke="#888" fontSize={11} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#0f1117",
-                      border: "1px solid #2a2f3a",
-                      fontSize: 12,
-                    }}
-                  />
-                  <Line dataKey="mean" stroke="#00f0ff" strokeWidth={2} dot={{ r: 3 }} />
-                </LineChart>
-              </ResponsiveContainer>
+              <HitlMeanRatingChart data={trendData} />
             </div>
           </SectionCard>
         )}

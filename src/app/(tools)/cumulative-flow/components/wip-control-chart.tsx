@@ -6,23 +6,22 @@
  * Western-Electric out-of-control dots.
  */
 
-import {
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ReferenceLine,
-  ReferenceDot,
-  ResponsiveContainer,
-  LineChart,
-  Line,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Activity } from "lucide-react";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import type { WipLimits, WipSeriesPoint, WipSignal } from "../types";
 import { MIN_XMR_SAMPLES } from "../constants";
+
+// Recharts loads with the chart, not the page. The fixed-height box below
+// reserves the chart's space while the chunk loads.
+const WipControlLineChart = dynamic(() => import("../charts").then((m) => m.WipControlLineChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
 
 export function WipControlChart({
   wipSeries,
@@ -61,101 +60,12 @@ export function WipControlChart({
       </CardHeader>
       <CardContent>
         <div className="-mx-2" style={{ height: 240 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={wipSeries} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-              <XAxis
-                dataKey="date"
-                tick={{ fill: "#94a3b8", fontSize: 11 }}
-                axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                tickLine={false}
-              />
-              <YAxis
-                tick={{ fill: "#94a3b8", fontSize: 11 }}
-                axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                tickLine={false}
-                allowDecimals={false}
-              />
-              <Tooltip
-                contentStyle={{
-                  background: "var(--surface)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
-                labelStyle={{ color: "var(--sub)" }}
-              />
-              {wipLimits && (
-                <>
-                  <ReferenceLine
-                    y={wipLimits.centerLine}
-                    stroke="var(--sub)"
-                    strokeDasharray="2 4"
-                    label={{
-                      value: `X̄ ${wipLimits.centerLine.toFixed(1)}`,
-                      fill: "var(--sub)",
-                      fontSize: 10,
-                      position: "right",
-                    }}
-                  />
-                  <ReferenceLine
-                    y={wipLimits.ucl}
-                    stroke="#ef4444"
-                    strokeDasharray="4 2"
-                    label={{
-                      value: `UCL ${wipLimits.ucl.toFixed(1)}`,
-                      fill: "#ef4444",
-                      fontSize: 10,
-                      position: "right",
-                    }}
-                  />
-                  <ReferenceLine
-                    y={wipLimits.lcl}
-                    stroke="#ef4444"
-                    strokeDasharray="4 2"
-                    label={{
-                      value: `LCL ${wipLimits.lcl.toFixed(1)}`,
-                      fill: "#ef4444",
-                      fontSize: 10,
-                      position: "right",
-                    }}
-                  />
-                </>
-              )}
-              {cusumAnnotations.map((a, i) => (
-                <CausalLine key={i} annotation={a} />
-              ))}
-              {/* Western Electric out-of-control markers — small red
-                  dots at the offending sample. Hover hint via the SVG
-                  title shows which rule fired. */}
-              {signals.map((sig) => {
-                const point = wipSeries[sig.index];
-                if (!point) return null;
-                return (
-                  <ReferenceDot
-                    key={`we-${sig.index}-${sig.rule}`}
-                    x={point.date}
-                    y={point.value}
-                    r={4}
-                    fill="var(--destructive)"
-                    stroke="var(--destructive)"
-                    ifOverflow="extendDomain"
-                  >
-                    <title>{`${sig.rule}: ${sig.description}`}</title>
-                  </ReferenceDot>
-                );
-              })}
-              <Line
-                type="monotone"
-                dataKey="value"
-                stroke="#00f0ff"
-                strokeWidth={2}
-                dot={{ r: 3, fill: "#00f0ff" }}
-                activeDot={{ r: 5 }}
-                name="WIP"
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          <WipControlLineChart
+            wipSeries={wipSeries}
+            wipLimits={wipLimits}
+            cusumAnnotations={cusumAnnotations}
+            signals={signals}
+          />
         </div>
       </CardContent>
     </Card>

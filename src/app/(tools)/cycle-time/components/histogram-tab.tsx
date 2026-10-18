@@ -6,19 +6,20 @@
  * defined bucket, plus a legend.
  */
 
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ReferenceLine,
-  ResponsiveContainer,
-} from "recharts";
+import dynamic from "next/dynamic";
 import type { CycleStats, HistogramDatum } from "../types";
-import { BUCKETS } from "../helpers";
-import { HistogramTooltip } from "./chart-tooltips";
+
+// Recharts loads with the chart, not the page. The placeholder keeps the
+// chart's 380px height while the chunk loads.
+const CycleTimeHistogramChart = dynamic(
+  () => import("../charts").then((m) => m.CycleTimeHistogramChart),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[380px] w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+    ),
+  }
+);
 
 export function HistogramTab({
   histogramData,
@@ -31,73 +32,11 @@ export function HistogramTab({
 }) {
   return (
     <>
-      <ResponsiveContainer width="100%" height={380}>
-        <BarChart data={histogramData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-          <XAxis
-            dataKey="bucket"
-            tick={{ fill: "#94a3b8", fontSize: 11 }}
-            axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-            tickLine={false}
-          />
-          <YAxis
-            tick={{ fill: "#94a3b8", fontSize: 12 }}
-            axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-            tickLine={false}
-            allowDecimals={false}
-            label={{
-              value: "Items",
-              angle: -90,
-              position: "insideLeft",
-              fill: "#94a3b8",
-              fontSize: 12,
-            }}
-          />
-          <Tooltip content={<HistogramTooltip />} />
-          <Bar dataKey="count" fill="#00f0ff" fillOpacity={0.8} radius={[4, 4, 0, 0]} />
-          {/* Each percentile marker is rendered ONLY when its
-              value lands inside a defined histogram bucket. The
-              previous version passed `x={undefined}` to Recharts
-              when no bucket matched (e.g. all items completed in
-              0d, P95 falls below the 1-day bucket), which threw
-              console warnings and rendered phantom lines. */}
-          {(() => {
-            const idx = BUCKETS.findIndex((b) => stats.median >= b.min && stats.median <= b.max);
-            return idx >= 0 ? (
-              <ReferenceLine
-                x={BUCKETS[idx].label}
-                stroke="#00f0ff"
-                strokeDasharray="4 2"
-                label={{ value: "P50", fill: "#00f0ff", fontSize: 10 }}
-              />
-            ) : null;
-          })()}
-          {(() => {
-            const idx = BUCKETS.findIndex((b) => stats.p85 >= b.min && stats.p85 <= b.max);
-            return idx >= 0 ? (
-              <ReferenceLine
-                x={BUCKETS[idx].label}
-                stroke="#f59e0b"
-                strokeDasharray="4 2"
-                label={{ value: "P85", fill: "#f59e0b", fontSize: 10 }}
-              />
-            ) : null;
-          })()}
-          {(() => {
-            const idx = BUCKETS.findIndex(
-              (b) => percentileMap[95] >= b.min && percentileMap[95] <= b.max
-            );
-            return idx >= 0 ? (
-              <ReferenceLine
-                x={BUCKETS[idx].label}
-                stroke="#ef4444"
-                strokeDasharray="4 2"
-                label={{ value: "P95", fill: "#ef4444", fontSize: 10 }}
-              />
-            ) : null;
-          })()}
-        </BarChart>
-      </ResponsiveContainer>
+      <CycleTimeHistogramChart
+        histogramData={histogramData}
+        stats={stats}
+        percentileMap={percentileMap}
+      />
       <div className="flex items-center gap-4 mt-3 text-xs text-sub">
         <span className="flex items-center gap-1.5">
           <span className="w-5 border-t border-dashed border-accent" />

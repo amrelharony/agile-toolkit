@@ -1,19 +1,7 @@
 "use client";
 
 import { useId, useMemo, useRef, useState } from "react";
-import {
-  ScatterChart,
-  Scatter,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  ReferenceLine,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -30,7 +18,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, GitPullRequest, Clock, MessageSquare, Layers } from "lucide-react";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 import { xmrLimits } from "@/lib/analytics/control-chart";
 import { mannKendall } from "@/lib/analytics/trend-test";
@@ -41,6 +28,18 @@ import type { PrSample } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CODE_REVIEW_ACTIONS } from "@/lib/history/event-actions";
 import { toast } from "@/lib/utils/toast";
+
+// Recharts loads with each chart, not the page. ChartCard reserves the
+// chart's height while the chunk loads.
+const WeeklyCycleTimeChart = dynamic(() => import("./charts").then((m) => m.WeeklyCycleTimeChart), {
+  ssr: false,
+});
+const PrSizeScatterChart = dynamic(() => import("./charts").then((m) => m.PrSizeScatterChart), {
+  ssr: false,
+});
+const TopAuthorsChart = dynamic(() => import("./charts").then((m) => m.TopAuthorsChart), {
+  ssr: false,
+});
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 
@@ -745,79 +744,7 @@ export function CodeReviewMetricsClient() {
             ) : undefined
           }
         >
-          <LineChart data={weeklyChartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
-            <XAxis
-              dataKey="week"
-              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-              axisLine={{ stroke: chartTheme.gridColor }}
-              tickLine={false}
-            />
-            <YAxis
-              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-              axisLine={false}
-              tickLine={false}
-              label={{
-                value: "Hours",
-                angle: -90,
-                position: "insideLeft",
-                fill: chartTheme.axisColor,
-                fontSize: 11,
-              }}
-            />
-            <Tooltip contentStyle={chartTheme.tooltipStyle} />
-            <Line
-              type="monotone"
-              dataKey="meanHours"
-              stroke={chartTheme.colors.cyan}
-              strokeWidth={2}
-              dot={{ r: 3 }}
-              name="Mean cycle (h)"
-            />
-            {cycleControl && (
-              <>
-                <ReferenceLine
-                  y={cycleControl.centerLine}
-                  stroke={chartTheme.colors.cyan}
-                  strokeDasharray="2 4"
-                  strokeOpacity={0.55}
-                  label={{
-                    value: "X̄",
-                    fill: chartTheme.colors.cyan,
-                    fontSize: 10,
-                    position: "right",
-                  }}
-                  ifOverflow="extendDomain"
-                />
-                <ReferenceLine
-                  y={cycleControl.ucl}
-                  stroke={chartTheme.colors.red}
-                  strokeDasharray="2 4"
-                  strokeOpacity={0.55}
-                  label={{
-                    value: "UCL",
-                    fill: chartTheme.colors.red,
-                    fontSize: 10,
-                    position: "right",
-                  }}
-                  ifOverflow="extendDomain"
-                />
-                <ReferenceLine
-                  y={cycleControl.lcl}
-                  stroke={chartTheme.colors.green}
-                  strokeDasharray="2 4"
-                  strokeOpacity={0.55}
-                  label={{
-                    value: "LCL",
-                    fill: chartTheme.colors.green,
-                    fontSize: 10,
-                    position: "right",
-                  }}
-                  ifOverflow="extendDomain"
-                />
-              </>
-            )}
-          </LineChart>
+          <WeeklyCycleTimeChart data={weeklyChartData} control={cycleControl} />
         </ChartCard>
       )}
 
@@ -829,27 +756,7 @@ export function CodeReviewMetricsClient() {
           chartContainerRef={scatterRef}
           className="mb-6"
         >
-          <ScatterChart margin={{ top: 10, right: 16, left: 0, bottom: 10 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} />
-            <XAxis
-              type="number"
-              dataKey="linesChanged"
-              name="Lines changed"
-              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-              axisLine={{ stroke: chartTheme.gridColor }}
-              tickLine={false}
-            />
-            <YAxis
-              type="number"
-              dataKey="cycleHours"
-              name="Cycle hours"
-              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-              axisLine={false}
-              tickLine={false}
-            />
-            <Tooltip cursor={{ strokeDasharray: "3 3" }} contentStyle={chartTheme.tooltipStyle} />
-            <Scatter data={scatterData} fill="#00f0ff" />
-          </ScatterChart>
+          <PrSizeScatterChart data={scatterData} />
         </ChartCard>
       )}
 
@@ -864,23 +771,7 @@ export function CodeReviewMetricsClient() {
             Measures comments left on each author&apos;s PRs — not reviews-given. Reviewer-level
             credit isn&apos;t available because comments are logged at the PR level only.
           </div>
-          <BarChart data={topAuthors} margin={{ top: 10, right: 16, left: 0, bottom: 10 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
-            <XAxis
-              dataKey="author"
-              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-              axisLine={{ stroke: chartTheme.gridColor }}
-              tickLine={false}
-            />
-            <YAxis
-              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-              axisLine={false}
-              tickLine={false}
-              allowDecimals={false}
-            />
-            <Tooltip contentStyle={chartTheme.tooltipStyle} />
-            <Bar dataKey="comments" fill="#ff00aa" radius={[4, 4, 0, 0]} />
-          </BarChart>
+          <TopAuthorsChart data={topAuthors} />
         </ChartCard>
       )}
 

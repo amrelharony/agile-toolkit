@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -20,9 +21,7 @@ import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { cusum } from "@/lib/analytics/changepoint";
 import { ChartCard } from "@/components/shared/chart-card";
-import { chartTheme } from "@/components/charts/chart-theme";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
-import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import type { Category, Impediment, Severity, Status } from "./types";
 import { useImpedimentStore } from "./use-impediment-store";
 import {
@@ -33,6 +32,12 @@ import {
 } from "./helpers";
 import { LogForm } from "./components/log-form";
 import { ImpedimentCard } from "./components/impediment-card";
+
+// Recharts loads with the chart, not the page. ChartCard's fixed-height box
+// holds the space while it loads.
+const WeeklyRaisedChart = dynamic(() => import("./charts").then((m) => m.WeeklyRaisedChart), {
+  ssr: false,
+});
 
 export function ImpedimentsClient() {
   const { impediments, reset } = useImpedimentStore();
@@ -356,33 +361,7 @@ export function ImpedimentsClient() {
         {/* Weekly raised-per-week trend with CUSUM regime-shift markers. */}
         {weeklyChartData.length >= 4 && (
           <ChartCard title="Weekly raised" icon={TrendingUp} height={200}>
-            <LineChart data={weeklyChartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-              <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
-              <XAxis
-                dataKey="week"
-                tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                axisLine={{ stroke: chartTheme.gridColor }}
-                tickLine={false}
-              />
-              <YAxis
-                tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-                allowDecimals={false}
-              />
-              <Tooltip contentStyle={chartTheme.tooltipStyle} />
-              <Line
-                type="monotone"
-                dataKey="raised"
-                stroke={chartTheme.colors.cyan}
-                strokeWidth={2}
-                dot={{ r: 3 }}
-                name="Raised / week"
-              />
-              {raisedChangepoints.map((cp, i) => (
-                <CausalLine key={`raised-cusum-${i}`} annotation={cp} />
-              ))}
-            </LineChart>
+            <WeeklyRaisedChart data={weeklyChartData} changepoints={raisedChangepoints} />
           </ChartCard>
         )}
 

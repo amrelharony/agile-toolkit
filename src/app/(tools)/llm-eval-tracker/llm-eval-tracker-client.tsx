@@ -3,17 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useShallow } from "zustand/react/shallow";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ReferenceLine,
-} from "recharts";
 import { Brain, Plus, Trash2, AlertTriangle, TrendingDown, Beaker, Sparkles } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
@@ -41,7 +30,13 @@ const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), {
   ),
 });
 
-const COLORS = ["#00f0ff", "#ff00aa", "#00ff88", "#ffaa00", "#9d4edd", "#ff6b6b"];
+// Recharts loads with the score chart, not the page.
+const ScoreOverTimeChart = dynamic(() => import("./charts").then((m) => m.ScoreOverTimeChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
 
 export function LLMEvalTrackerClient() {
   const evals = useWorkspaceStore((s) => s.llmEvals ?? []);
@@ -465,38 +460,7 @@ export function LLMEvalTrackerClient() {
             }
           >
             <div className="-mx-2 h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="date" stroke="#888" fontSize={11} />
-                  <YAxis domain={[0, 1]} stroke="#888" fontSize={11} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#0f1117",
-                      border: "1px solid #2a2f3a",
-                      fontSize: 12,
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <ReferenceLine y={0.8} stroke="#00ff88" strokeDasharray="4 4" />
-                  {datasetSeries.map((d, i) => (
-                    <Line
-                      key={d.key}
-                      dataKey={d.key}
-                      name={d.label}
-                      stroke={COLORS[i % COLORS.length]}
-                      strokeWidth={2}
-                      dot={{ r: 3 }}
-                      // R10: do NOT connectNulls. Most rows for a series
-                      // have `undefined` (only a single eval per date).
-                      // Bridging across undefined draws a smooth line
-                      // over weeks of no measurement, falsely implying
-                      // continuous data.
-                      connectNulls={false}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+              <ScoreOverTimeChart data={chartData} series={datasetSeries} />
             </div>
           </SectionCard>
         )}

@@ -1,10 +1,18 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { ResponsiveContainer } from "recharts";
+import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+
+// Loaded with the chart, not the page: a static import here pulled all of
+// Recharts into every tool that renders a ChartCard, even when its chart
+// is below the fold. Tools load their chart bodies the same way (see
+// components/charts/lazy-chart.tsx).
+const ResponsiveContainer = dynamic(() => import("recharts").then((m) => m.ResponsiveContainer), {
+  ssr: false,
+});
 
 interface ChartCardProps {
   /** Card title — short, descriptive. */

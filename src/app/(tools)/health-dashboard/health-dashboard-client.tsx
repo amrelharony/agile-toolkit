@@ -12,7 +12,7 @@ import { correlateEventStreams } from "@/lib/history/selectors";
 import {
   CausalAnnotationList,
   type CausalAnnotationData,
-} from "@/components/charts/causal-annotation";
+} from "@/components/charts/causal-annotation-list";
 import { Button } from "@/components/ui/button";
 import { SectionCard } from "@/components/shared/section-card";
 import {

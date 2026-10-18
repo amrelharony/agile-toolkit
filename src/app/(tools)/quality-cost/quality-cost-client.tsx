@@ -1,7 +1,7 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -15,7 +15,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DollarSign, ShieldCheck, AlertTriangle } from "lucide-react";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { generateQualityCostPrompts } from "@/lib/ai-prompts/quality-cost";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -23,6 +22,13 @@ import type { Workspace } from "@/lib/stores/workspace-types";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { QUALITY_COST_ACTIONS } from "@/lib/history/event-actions";
+
+// Recharts loads with the distribution chart, not the page. ChartCard's
+// fixed-height box holds the space while it loads.
+const CostDistributionChart = dynamic(
+  () => import("./charts").then((m) => m.CostDistributionChart),
+  { ssr: false }
+);
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 
@@ -348,31 +354,7 @@ export function QualityCostClient() {
           chartContainerRef={chartRef}
           className="mb-6"
         >
-          <PieChart>
-            <Pie
-              data={pieData}
-              dataKey="value"
-              nameKey="name"
-              cx="50%"
-              cy="50%"
-              outerRadius={110}
-              innerRadius={60}
-              paddingAngle={2}
-              label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
-            >
-              {pieData.map((d) => (
-                <Cell key={d.name} fill={d.color} />
-              ))}
-            </Pie>
-            <Tooltip
-              contentStyle={chartTheme.tooltipStyle}
-              formatter={(v) => {
-                const n = typeof v === "number" ? v : Number(v);
-                return Number.isFinite(n) ? `$${fmt(n)}` : "—";
-              }}
-            />
-            <Legend wrapperStyle={chartTheme.legendStyle} />
-          </PieChart>
+          <CostDistributionChart data={pieData} formatAmount={fmt} />
         </ChartCard>
       )}
 

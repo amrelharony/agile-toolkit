@@ -1,16 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import {
-  LineChart,
-  Line,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-  ReferenceLine,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -34,8 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, Eye, Clock, Layers } from "lucide-react";
-import { chartTheme } from "@/components/charts/chart-theme";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { xmrLimits } from "@/lib/analytics/control-chart";
 import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
@@ -50,6 +40,12 @@ import type {
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { A11Y_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
+
+// Recharts loads with the chart, not the page. ChartCard reserves the
+// chart's height while the chunk loads.
+const A11yOpenIssuesChart = dynamic(() => import("./charts").then((m) => m.A11yOpenIssuesChart), {
+  ssr: false,
+});
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 
@@ -542,110 +538,12 @@ export function A11yTrackerClient() {
             ) : undefined
           }
         >
-          <LineChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
-            <XAxis
-              dataKey="date"
-              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-              axisLine={{ stroke: chartTheme.gridColor }}
-              tickLine={false}
-            />
-            <YAxis
-              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-              axisLine={false}
-              tickLine={false}
-              allowDecimals={false}
-            />
-            <Tooltip contentStyle={chartTheme.tooltipStyle} />
-            <Legend wrapperStyle={chartTheme.legendStyle} />
-            <Line
-              type="monotone"
-              dataKey="critical"
-              stroke={SEVERITY_COLOR.critical}
-              strokeWidth={2}
-              dot={false}
-              name="Critical"
-            />
-            <Line
-              type="monotone"
-              dataKey="serious"
-              stroke={SEVERITY_COLOR.serious}
-              strokeWidth={2}
-              dot={false}
-              name="Serious"
-            />
-            <Line
-              type="monotone"
-              dataKey="moderate"
-              stroke={SEVERITY_COLOR.moderate}
-              strokeWidth={2}
-              dot={false}
-              name="Moderate"
-            />
-            <Line
-              type="monotone"
-              dataKey="minor"
-              stroke={SEVERITY_COLOR.minor}
-              strokeWidth={2}
-              dot={false}
-              name="Minor"
-            />
-            <Line
-              type="monotone"
-              dataKey="total"
-              stroke={chartTheme.colors.cyan}
-              strokeWidth={1.5}
-              strokeOpacity={0.55}
-              dot={false}
-              name="Total open"
-            />
-            {openControl && (
-              <>
-                <ReferenceLine
-                  y={openControl.centerLine}
-                  stroke={chartTheme.colors.cyan}
-                  strokeDasharray="2 4"
-                  strokeOpacity={0.55}
-                  label={{
-                    value: "X̄",
-                    fill: chartTheme.colors.cyan,
-                    fontSize: 10,
-                    position: "right",
-                  }}
-                  ifOverflow="extendDomain"
-                />
-                <ReferenceLine
-                  y={openControl.ucl}
-                  stroke={chartTheme.colors.red}
-                  strokeDasharray="2 4"
-                  strokeOpacity={0.55}
-                  label={{
-                    value: "UCL",
-                    fill: chartTheme.colors.red,
-                    fontSize: 10,
-                    position: "right",
-                  }}
-                  ifOverflow="extendDomain"
-                />
-                <ReferenceLine
-                  y={openControl.lcl}
-                  stroke={chartTheme.colors.green}
-                  strokeDasharray="2 4"
-                  strokeOpacity={0.55}
-                  label={{
-                    value: "LCL",
-                    fill: chartTheme.colors.green,
-                    fontSize: 10,
-                    position: "right",
-                  }}
-                  ifOverflow="extendDomain"
-                />
-              </>
-            )}
-            {openChangepoints.map((cp, i) => (
-              <CausalLine key={`cusum-${i}`} annotation={cp} />
-            ))}
-          </LineChart>
+          <A11yOpenIssuesChart
+            data={chartData}
+            severityColor={SEVERITY_COLOR}
+            control={openControl}
+            changepoints={openChangepoints}
+          />
         </ChartCard>
       )}
 

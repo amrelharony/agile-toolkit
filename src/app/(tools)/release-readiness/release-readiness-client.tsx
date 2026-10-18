@@ -1,18 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  BarChart,
-  Bar,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  ReferenceLine,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -36,7 +25,6 @@ import {
   BarChart3,
   TrendingUp,
 } from "lucide-react";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type {
@@ -51,6 +39,20 @@ import { generateReleaseReadinessPrompts } from "@/lib/ai-prompts/release-readin
 import { pChartLimits } from "@/lib/analytics/control-chart";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { todayLocalISO } from "@/lib/utils/formatters";
+
+// Recharts loads with the charts, not the page. Each chart sits in a
+// fixed-height box, so the placeholder fills it and the layout holds still.
+const chartPlaceholder = () => (
+  <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+);
+const GatePassControlChart = dynamic(() => import("./charts").then((m) => m.GatePassControlChart), {
+  ssr: false,
+  loading: chartPlaceholder,
+});
+const SkippedGatesChart = dynamic(() => import("./charts").then((m) => m.SkippedGatesChart), {
+  ssr: false,
+  loading: chartPlaceholder,
+});
 
 const GATES: { id: GateId; label: string; description: string }[] = [
   { id: "a11y_audit", label: "A11y audit", description: "WCAG checks pass on changed UI" },
@@ -509,84 +511,7 @@ export function ReleaseReadinessClient() {
           }
         >
           <div className="-mx-2" style={{ height: 220 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={gatePassSeries} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
-                <CartesianGrid
-                  stroke={chartTheme.gridColor}
-                  strokeDasharray="3 3"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="release"
-                  tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                  interval="preserveStartEnd"
-                  height={50}
-                  angle={-45}
-                  textAnchor="end"
-                />
-                <YAxis
-                  domain={[0, 100]}
-                  tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v) => `${v}%`}
-                />
-                <Tooltip
-                  contentStyle={chartTheme.tooltipStyle}
-                  formatter={(v) => [`${Number(v).toFixed(0)}%`, "Pass rate"]}
-                />
-                <ReferenceLine
-                  y={gatePassControl.centerLinePct}
-                  stroke={chartTheme.colors.cyan}
-                  strokeDasharray="2 4"
-                  strokeOpacity={0.55}
-                  label={{
-                    value: "X̄",
-                    fill: chartTheme.colors.cyan,
-                    fontSize: 10,
-                    position: "right",
-                  }}
-                  ifOverflow="extendDomain"
-                />
-                <ReferenceLine
-                  y={gatePassControl.uclPct}
-                  stroke={chartTheme.colors.green}
-                  strokeDasharray="2 4"
-                  strokeOpacity={0.55}
-                  label={{
-                    value: "UCL",
-                    fill: chartTheme.colors.green,
-                    fontSize: 10,
-                    position: "right",
-                  }}
-                  ifOverflow="extendDomain"
-                />
-                <ReferenceLine
-                  y={gatePassControl.lclPct}
-                  stroke={chartTheme.colors.red}
-                  strokeDasharray="2 4"
-                  strokeOpacity={0.55}
-                  label={{
-                    value: "LCL",
-                    fill: chartTheme.colors.red,
-                    fontSize: 10,
-                    position: "right",
-                  }}
-                  ifOverflow="extendDomain"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="passRatePct"
-                  name="Pass rate"
-                  stroke={chartTheme.colors.cyan}
-                  strokeWidth={2}
-                  dot={{ fill: chartTheme.colors.cyan, r: 3 }}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <GatePassControlChart data={gatePassSeries} control={gatePassControl} />
           </div>
         </SectionCard>
       )}
@@ -598,22 +523,7 @@ export function ReleaseReadinessClient() {
           titleSize="lg"
         >
           <div className="-mx-2" style={{ height: 320 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={gateChartData} margin={{ top: 8, right: 12, left: -16, bottom: 60 }}>
-                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="gate"
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  angle={-30}
-                  textAnchor="end"
-                  interval={0}
-                  height={70}
-                />
-                <YAxis tick={{ fill: chartTheme.axisColor, fontSize: 11 }} allowDecimals={false} />
-                <Tooltip contentStyle={chartTheme.tooltipStyle} />
-                <Bar dataKey="skipped" fill={chartTheme.colors.amber} radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <SkippedGatesChart data={gateChartData} />
           </div>
         </SectionCard>
       )}

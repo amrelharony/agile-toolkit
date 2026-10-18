@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -14,24 +15,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, ScrollText, AlertTriangle, BookOpenCheck, Activity } from "lucide-react";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from "recharts";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { POST_MORTEM_ACTIONS } from "@/lib/history/event-actions";
 import { generatePostMortemPrompts } from "@/lib/ai-prompts/post-mortem";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { durationsFromTimeRanges, kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import type { ActionItem, PMStatus, PostMortem, TimelineEntry } from "./types";
 import { isOverdue, isThisQuarter, todayIso } from "./helpers";
 import { usePostMortemLog } from "./use-post-mortem-log";
 import { PostMortemEditor } from "./components/post-mortem-editor";
+
+// Recharts loads with the survival chart, not the page.
+const TimeToPublishChart = dynamic(() => import("./charts").then((m) => m.TimeToPublishChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
 
 interface NewPMDraft {
   title: string;
@@ -418,45 +417,7 @@ export function PostMortemClient() {
           className="mb-6"
         >
           <div className="h-40 -mx-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={survivalChartData}
-                margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
-              >
-                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="t"
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  axisLine={{ stroke: chartTheme.gridColor }}
-                  label={{
-                    value: "days",
-                    fill: chartTheme.axisColor,
-                    fontSize: 10,
-                    position: "insideBottom",
-                    offset: -2,
-                  }}
-                />
-                <YAxis
-                  domain={[0, 1]}
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  axisLine={{ stroke: chartTheme.gridColor }}
-                  tickFormatter={(v) => `${Math.round(v * 100)}%`}
-                />
-                <Tooltip
-                  contentStyle={chartTheme.tooltipStyle}
-                  formatter={(v) => [`${(Number(v) * 100).toFixed(1)}%`, "still unpublished"]}
-                  labelFormatter={(v) => `${v}d`}
-                />
-                <Line
-                  type="stepAfter"
-                  dataKey="survival"
-                  stroke={chartTheme.colors.cyan}
-                  strokeWidth={2}
-                  dot={false}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <TimeToPublishChart data={survivalChartData} />
           </div>
           <p className="text-xs text-sub mt-2">
             Kaplan-Meier estimate over {publishedDurations.length} published post-mortem

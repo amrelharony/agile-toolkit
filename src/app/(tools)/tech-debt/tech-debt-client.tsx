@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -19,15 +20,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, Wrench, Activity } from "lucide-react";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from "recharts";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { TechDebtItem } from "@/lib/stores/workspace-types";
 import { generateTechDebtPrompts } from "@/lib/ai-prompts/tech-debt";
@@ -40,11 +32,22 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { SectionCard } from "@/components/shared/section-card";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { todayLocalISO } from "@/lib/utils/formatters";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { SmartInput } from "@/components/shared/smart-input";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { durationsFromTimeRanges, kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
+
+// Recharts loads with the chart, not the page; the placeholder fills the
+// chart's fixed-height box while it does.
+const ResolutionSurvivalChart = dynamic(
+  () => import("./charts").then((m) => m.ResolutionSurvivalChart),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+    ),
+  }
+);
 
 function emptyItem(): TechDebtItem {
   return {
@@ -471,45 +474,7 @@ export function TechDebtClient() {
           className="mb-6"
         >
           <div className="h-40 -mx-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={survivalChartData}
-                margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
-              >
-                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="t"
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  axisLine={{ stroke: chartTheme.gridColor }}
-                  label={{
-                    value: "days",
-                    fill: chartTheme.axisColor,
-                    fontSize: 10,
-                    position: "insideBottom",
-                    offset: -2,
-                  }}
-                />
-                <YAxis
-                  domain={[0, 1]}
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  axisLine={{ stroke: chartTheme.gridColor }}
-                  tickFormatter={(v) => `${Math.round(v * 100)}%`}
-                />
-                <Tooltip
-                  contentStyle={chartTheme.tooltipStyle}
-                  formatter={(v) => [`${(Number(v) * 100).toFixed(1)}%`, "still open"]}
-                  labelFormatter={(v) => `${v}d`}
-                />
-                <Line
-                  type="stepAfter"
-                  dataKey="survival"
-                  stroke={chartTheme.colors.cyan}
-                  strokeWidth={2}
-                  dot={false}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <ResolutionSurvivalChart data={survivalChartData} />
           </div>
           <p className="text-xs text-sub mt-2">
             Kaplan-Meier estimate over {resolvedDurations.length} resolved item

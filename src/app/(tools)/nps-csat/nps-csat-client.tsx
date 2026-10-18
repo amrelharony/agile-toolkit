@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -17,17 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, BarChart as BarIcon } from "lucide-react";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from "recharts";
-import { chartTheme } from "@/components/charts/chart-theme";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { zScoreAnomalies } from "@/lib/analytics/anomaly";
 import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
@@ -42,6 +33,15 @@ import { NPS_CSAT_ACTIONS } from "@/lib/history/event-actions";
 import { ActionRow } from "@/components/shared/action-row";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
+
+// Recharts loads with the score trend chart, not the page. The placeholder
+// matches the chart's fixed 240px height so the card doesn't jump.
+const ScoreTrendChart = dynamic(() => import("./charts").then((m) => m.ScoreTrendChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[240px] w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
 
 type Kind = "nps" | "csat";
 
@@ -413,27 +413,11 @@ export function NpsCsatClient() {
                 </span>
               )}
             </div>
-            <ResponsiveContainer width="100%" height={240}>
-              <LineChart data={trendData}>
-                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-                <XAxis dataKey="date" stroke={chartTheme.axisColor} />
-                <YAxis stroke={chartTheme.axisColor} />
-                <Tooltip contentStyle={chartTheme.tooltipStyle} />
-                <Line type="monotone" dataKey="nps" stroke={chartTheme.colors.cyan} name="NPS" />
-                <Line
-                  type="monotone"
-                  dataKey="csat"
-                  stroke={chartTheme.colors.purple}
-                  name="CSAT"
-                />
-                {npsChangepoints.map((cp, i) => (
-                  <CausalLine key={`nps-cusum-${i}`} annotation={cp} />
-                ))}
-                {csatChangepoints.map((cp, i) => (
-                  <CausalLine key={`csat-cusum-${i}`} annotation={cp} />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
+            <ScoreTrendChart
+              data={trendData}
+              npsChangepoints={npsChangepoints}
+              csatChangepoints={csatChangepoints}
+            />
           </CardContent>
         </Card>
       )}

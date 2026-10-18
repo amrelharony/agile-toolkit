@@ -1,17 +1,8 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ReferenceLine,
-  ResponsiveContainer,
-} from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -21,7 +12,7 @@ import { KpiGrid } from "@/components/shared/kpi-grid";
 import { CalloutAlert } from "@/components/shared/callout-alert";
 import { SectionCard } from "@/components/shared/section-card";
 import { SmartInput } from "@/components/shared/smart-input";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -55,6 +46,17 @@ import {
 } from "@/components/tool-frame/example-data";
 import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
+
+// Recharts loads with the throughput chart, not the page.
+const WeeklyThroughputChart = dynamic(
+  () => import("./charts").then((m) => m.WeeklyThroughputChart),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+    ),
+  }
+);
 
 type ColumnId = "backlog" | "ready" | "in_progress" | "review" | "done";
 
@@ -609,84 +611,11 @@ export function KanbanClient() {
       {weeklyThroughputSeries.length >= 2 && (
         <SectionCard title="Weekly throughput" icon={Activity} titleSize="sm" className="mb-4">
           <div className="-mx-2" style={{ height: 200 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={weeklyThroughputSeries}
-                margin={{ top: 10, right: 16, left: 0, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fill: "var(--sub)", fontSize: 11 }}
-                  axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fill: "var(--sub)", fontSize: 11 }}
-                  axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                  tickLine={false}
-                  allowDecimals={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: "var(--surface)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                    fontSize: 12,
-                  }}
-                  labelStyle={{ color: "var(--sub)" }}
-                />
-                {throughputLimits && (
-                  <>
-                    <ReferenceLine
-                      y={throughputLimits.centerLine}
-                      stroke="var(--sub)"
-                      strokeDasharray="2 4"
-                      label={{
-                        value: `X̄ ${throughputLimits.centerLine.toFixed(1)}`,
-                        fill: "var(--sub)",
-                        fontSize: 10,
-                        position: "right",
-                      }}
-                    />
-                    <ReferenceLine
-                      y={throughputLimits.ucl}
-                      stroke="var(--destructive)"
-                      strokeDasharray="4 2"
-                      label={{
-                        value: `UCL ${throughputLimits.ucl.toFixed(1)}`,
-                        fill: "var(--destructive)",
-                        fontSize: 10,
-                        position: "right",
-                      }}
-                    />
-                    <ReferenceLine
-                      y={throughputLimits.lcl}
-                      stroke="var(--destructive)"
-                      strokeDasharray="4 2"
-                      label={{
-                        value: `LCL ${throughputLimits.lcl.toFixed(1)}`,
-                        fill: "var(--destructive)",
-                        fontSize: 10,
-                        position: "right",
-                      }}
-                    />
-                  </>
-                )}
-                {throughputCusumAnnotations.map((a, i) => (
-                  <CausalLine key={i} annotation={a} />
-                ))}
-                <Line
-                  type="monotone"
-                  dataKey="value"
-                  stroke="var(--accent)"
-                  strokeWidth={2}
-                  dot={{ r: 3, fill: "var(--accent)" }}
-                  activeDot={{ r: 5 }}
-                  name="Completed"
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <WeeklyThroughputChart
+              data={weeklyThroughputSeries}
+              limits={throughputLimits}
+              annotations={throughputCusumAnnotations}
+            />
           </div>
         </SectionCard>
       )}

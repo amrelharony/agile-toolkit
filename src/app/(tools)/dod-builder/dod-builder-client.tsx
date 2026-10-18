@@ -2,16 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { nanoid } from "nanoid";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ReferenceLine,
-  ResponsiveContainer,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -34,7 +25,6 @@ import {
   Camera,
   Check,
 } from "lucide-react";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { generateDodBuilderPrompts } from "@/lib/ai-prompts/dod-builder";
 import { ActionRow } from "@/components/shared/action-row";
 import { usePersisted } from "@/lib/utils/use-persisted";
@@ -43,6 +33,14 @@ import { DOD_ACTIONS } from "@/lib/history/event-actions";
 import { pChartLimits } from "@/lib/analytics/control-chart";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { todayLocalISO } from "@/lib/utils/formatters";
+
+// Recharts loads with the adherence chart, not the page.
+const DodAdherenceChart = dynamic(() => import("./charts").then((m) => m.DodAdherenceChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
 
 type CategoryId = "code" | "testing" | "docs" | "performance" | "security" | "other";
 
@@ -332,83 +330,7 @@ export function DodBuilderClient() {
               )}
             </div>
             <div style={{ height: 180 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={adherenceSeries}
-                  margin={{ top: 8, right: 12, left: -12, bottom: 0 }}
-                >
-                  <CartesianGrid
-                    stroke={chartTheme.gridColor}
-                    strokeDasharray="3 3"
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="sprintName"
-                    tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    domain={[0, 100]}
-                    tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(v) => `${v}%`}
-                  />
-                  <Tooltip
-                    contentStyle={chartTheme.tooltipStyle}
-                    formatter={(v) => [`${Number(v).toFixed(0)}%`, "Adherence"]}
-                  />
-                  <ReferenceLine
-                    y={adherenceControl.centerLinePct}
-                    stroke={chartTheme.colors.cyan}
-                    strokeDasharray="2 4"
-                    strokeOpacity={0.55}
-                    label={{
-                      value: "X̄",
-                      fill: chartTheme.colors.cyan,
-                      fontSize: 10,
-                      position: "right",
-                    }}
-                    ifOverflow="extendDomain"
-                  />
-                  <ReferenceLine
-                    y={adherenceControl.uclPct}
-                    stroke={chartTheme.colors.green}
-                    strokeDasharray="2 4"
-                    strokeOpacity={0.55}
-                    label={{
-                      value: "UCL",
-                      fill: chartTheme.colors.green,
-                      fontSize: 10,
-                      position: "right",
-                    }}
-                    ifOverflow="extendDomain"
-                  />
-                  <ReferenceLine
-                    y={adherenceControl.lclPct}
-                    stroke={chartTheme.colors.red}
-                    strokeDasharray="2 4"
-                    strokeOpacity={0.55}
-                    label={{
-                      value: "LCL",
-                      fill: chartTheme.colors.red,
-                      fontSize: 10,
-                      position: "right",
-                    }}
-                    ifOverflow="extendDomain"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="adherencePct"
-                    name="Adherence"
-                    stroke={chartTheme.colors.cyan}
-                    strokeWidth={2}
-                    dot={{ fill: chartTheme.colors.cyan, r: 3 }}
-                    activeDot={{ r: 5 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              <DodAdherenceChart data={adherenceSeries} control={adherenceControl} />
             </div>
           </CardContent>
         </Card>

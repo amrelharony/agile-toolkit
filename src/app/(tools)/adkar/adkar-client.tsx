@@ -1,16 +1,7 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Cell,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -33,7 +24,6 @@ import { generateAdkarPrompts } from "@/lib/ai-prompts/adkar";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { cn } from "@/lib/utils";
 
 type Stage = "awareness" | "desire" | "knowledge" | "ability" | "reinforcement";
@@ -82,6 +72,17 @@ const STAGE_COLOR: Record<Stage, string> = {
   ability: "#34d399",
   reinforcement: "#fbbf24",
 };
+
+// Recharts loads with the funnel chart, not the page.
+const AdkarStageFunnelChart = dynamic(
+  () => import("./charts").then((m) => m.AdkarStageFunnelChart),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+    ),
+  }
+);
 
 /** Parse YYYY-MM-DD as local date so day-deltas don't drift across timezones. */
 function parseLocalDate(iso: string): Date | null {
@@ -473,37 +474,7 @@ export function AdkarClient() {
                 Initiatives by current stage
               </div>
               <div className="h-64 -mx-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={funnelData}
-                    layout="vertical"
-                    margin={{ top: 10, right: 20, left: 10, bottom: 0 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} />
-                    <XAxis
-                      type="number"
-                      tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                      axisLine={{ stroke: chartTheme.gridColor }}
-                      allowDecimals={false}
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="stage"
-                      tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                      axisLine={{ stroke: chartTheme.gridColor }}
-                      width={100}
-                    />
-                    <Tooltip
-                      contentStyle={chartTheme.tooltipStyle}
-                      formatter={(v) => [String(v), "Initiatives"]}
-                    />
-                    <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                      {funnelData.map((d, idx) => (
-                        <Cell key={idx} fill={d.color} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                <AdkarStageFunnelChart data={funnelData} />
               </div>
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {STAGES.map((s) => (

@@ -4,7 +4,7 @@ import { useId, useRef, useMemo, useState, useEffect } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { generateCFDPrompts } from "@/lib/ai-prompts/cumulative-flow";
 import { xmrLimits, westernElectricRules } from "@/lib/analytics/control-chart";
 import { cusum } from "@/lib/analytics/changepoint";

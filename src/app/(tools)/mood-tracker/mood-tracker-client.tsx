@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -10,17 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Smile, Heart, TrendingUp } from "lucide-react";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from "recharts";
-import { chartTheme } from "@/components/charts/chart-theme";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { trendDirection, mean } from "@/lib/analytics/anomaly";
 import { cusum } from "@/lib/analytics/changepoint";
@@ -34,6 +25,15 @@ import { MOOD_ACTIONS } from "@/lib/history/event-actions";
 import { ActionRow } from "@/components/shared/action-row";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
+
+// Recharts loads with the daily-average chart, not the page. The placeholder
+// matches the chart's fixed 220px height so the card doesn't jump.
+const DailyMoodChart = dynamic(() => import("./charts").then((m) => m.DailyMoodChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[220px] w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
 
 const MOOD_EVENT: Record<1 | 2 | 3 | 4 | 5, string> = {
   1: "mood-rough",
@@ -515,40 +515,7 @@ export function MoodTrackerClient() {
                 </span>
               )}
             </div>
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={dailySeries} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid
-                  stroke={chartTheme.gridColor}
-                  strokeDasharray="3 3"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  axisLine={{ stroke: chartTheme.gridColor }}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  domain={[1, 5]}
-                  ticks={[1, 2, 3, 4, 5]}
-                />
-                <Tooltip contentStyle={chartTheme.tooltipStyle} />
-                <Line
-                  type="monotone"
-                  dataKey="avg"
-                  stroke={chartTheme.colors.cyan}
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                  name="Daily avg"
-                />
-                {dailyChangepoints.map((cp, i) => (
-                  <CausalLine key={`cusum-${i}`} annotation={cp} />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
+            <DailyMoodChart data={dailySeries} changepoints={dailyChangepoints} />
           </CardContent>
         </Card>
       )}
