@@ -501,7 +501,7 @@ export function Board({
         open={confirmNewOpen}
         onOpenChange={setConfirmNewOpen}
         title="Start a new retro?"
-        description={`This ${state.format.name} board and its ${cardsLabel} will be discarded so you can pick a format again. This can't be undone.`}
+        description={`This ${state.format.name} board and its ${cardsLabel} move to Past retros, below the format picker, and you start a new board.`}
         confirmLabel="Start new retro"
         onConfirm={onReset}
       />

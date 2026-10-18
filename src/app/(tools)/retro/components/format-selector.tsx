@@ -10,8 +10,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { retroFormats, type RetroFormat } from "@/lib/constants/retro-formats";
 import { themed, tint } from "@/lib/utils/theme-color";
+import type { RetroBoard } from "@/lib/stores/workspace-types";
+import { PastRetros } from "./past-retros";
 
-export function FormatSelector({ onSelect }: { onSelect: (format: RetroFormat) => void }) {
+export function FormatSelector({
+  onSelect,
+  past = [],
+  onDeletePast,
+}: {
+  onSelect: (format: RetroFormat) => void;
+  past?: RetroBoard[];
+  onDeletePast?: (retro: RetroBoard) => void;
+}) {
   return (
     <ToolPageWrapper
       toolId="retro"
@@ -74,6 +84,8 @@ export function FormatSelector({ onSelect }: { onSelect: (format: RetroFormat) =
         >
           Quick Start: Start / Stop / Continue
         </Button>
+
+        {onDeletePast && <PastRetros retros={past} onDelete={onDeletePast} />}
       </div>
     </ToolPageWrapper>
   );

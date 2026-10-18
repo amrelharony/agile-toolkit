@@ -1483,7 +1483,8 @@ export interface RetroCard {
 }
 
 /** A retrospective board — a singleton document (one current retro under a
- *  fixed id) holding the format, phase, cards, and timer state. */
+ *  fixed id) holding the format, phase, cards, and timer state. Starting a
+ *  new retro copies the finished one to its own id with `archivedAt` set. */
 export interface RetroBoard {
   id: string;
   format: RetroFormat;
@@ -1493,6 +1494,8 @@ export interface RetroBoard {
   timerSeconds: number;
   timerRunning: boolean;
   discussingIndex: number;
+  /** ISO time the retro was archived; absent on the current board. */
+  archivedAt?: string;
 }
 
 // ── Sprint Planning (squad S1) ───────────────────────────────────────

@@ -18,6 +18,9 @@ vi.mock("@/components/shared/ai-prompt-generator", () => ({
   AiPromptGenerator: () => null,
 }));
 vi.mock("@/lib/sonification/emit", () => ({ emit: () => {} }));
+vi.mock("@/lib/history/use-history-logger", () => ({
+  useHistoryLogger: () => ({ log: () => {}, toolRunId: "test-run" }),
+}));
 vi.mock("framer-motion", async () => {
   const React = await import("react");
   const motionProps = new Set(["initial", "animate", "exit", "transition", "layout"]);
@@ -35,6 +38,8 @@ vi.mock("framer-motion", async () => {
 
 import { Board } from "@/app/(tools)/retro/components/board";
 import { FormatSelector } from "@/app/(tools)/retro/components/format-selector";
+import { RetroClient } from "@/app/(tools)/retro/retro-client";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 const logger: HistoryLogger = { log: () => {}, toolRunId: "test-run" };
 const format = retroFormats[0]; // Start / Stop / Continue
@@ -87,7 +92,7 @@ describe("New Retro", () => {
     expect(onReset).not.toHaveBeenCalled();
     const dialog = screen.getByRole("dialog", { name: "Start a new retro?" });
     expect(dialog).toHaveTextContent(/2 cards/);
-    expect(dialog).toHaveTextContent(/can't be undone/);
+    expect(dialog).toHaveTextContent(/move to Past retros/);
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Start new retro" }));
     expect(onReset).toHaveBeenCalledTimes(1);
@@ -174,5 +179,33 @@ describe("FormatSelector", () => {
     const last = retroFormats[retroFormats.length - 1];
     fireEvent.click(screen.getByRole("button", { name: last.name }));
     expect(onSelect).toHaveBeenCalledWith(last);
+  });
+});
+
+describe("Past retros", () => {
+  it("New Retro keeps the finished board and its actions under Past retros", () => {
+    const actionCard = card("b", "stop", {
+      text: "Fix the flaky CI job",
+      isActionItem: true,
+      assignee: "Sam",
+    });
+    useWorkspaceStore.setState({
+      retroBoards: [
+        { id: "retro:current", ...makeBoard({ cards: [card("a", "start"), actionCard] }) },
+      ],
+    });
+    render(<RetroClient />);
+
+    fireEvent.click(screen.getByRole("button", { name: /New Retro/ }));
+    const dialog = screen.getByRole("dialog", { name: "Start a new retro?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Start new retro" }));
+
+    const boards = useWorkspaceStore.getState().retroBoards ?? [];
+    expect(boards.find((b) => b.id === "retro:current")).toBeUndefined();
+    expect(boards.filter((b) => b.archivedAt)).toHaveLength(1);
+
+    const past = screen.getByRole("region", { name: "Past retros" });
+    expect(within(past).getByText("Fix the flaky CI job")).toBeInTheDocument();
+    expect(within(past).getByText(/Sam/)).toBeInTheDocument();
   });
 });
