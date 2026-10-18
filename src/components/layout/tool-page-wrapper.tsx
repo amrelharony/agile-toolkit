@@ -4,6 +4,7 @@ import { InsightsEngine } from "@/components/shared/insights-engine";
 import { ToolHistoryDrawer } from "@/components/history/tool-history-drawer";
 import { UndoRedoControls } from "@/components/history/undo-redo-controls";
 import { SavedChip } from "@/components/data/saved-chip";
+import { HowItWorks } from "@/components/tool-frame/how-it-works";
 
 interface ToolPageWrapperProps {
   title: string;
@@ -77,6 +78,7 @@ export function ToolPageWrapper({
         )}
       </header>
 
+      {toolId && <HowItWorks toolId={toolId} />}
       {showInsights && toolId && <InsightsEngine toolId={toolId} limit={2} />}
       {children}
     </div>
