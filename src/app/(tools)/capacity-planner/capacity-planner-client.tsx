@@ -1,12 +1,14 @@
 "use client";
 
 import { useRef, useMemo, useState, useEffect, useId } from "react";
+import Link from "next/link";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { generateCapacityPrompts } from "@/lib/ai-prompts/capacity-planner";
 import { undoable } from "@/lib/utils/undoable";
+import { toast } from "@/lib/utils/toast";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CAPACITY_ACTIONS } from "@/lib/history/event-actions";
 import { SectionCard } from "@/components/shared/section-card";
@@ -16,13 +18,24 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Users, Plus, Trash2, Clock, Zap, UserCheck, Settings2, Target } from "lucide-react";
+import {
+  Users,
+  Plus,
+  Trash2,
+  Clock,
+  Zap,
+  UserCheck,
+  Settings2,
+  Target,
+  RefreshCw,
+} from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { CapacityPlan } from "@/lib/stores/workspace-types";
 import { bayesianForecastConfidence } from "@/lib/analytics/forecasting-bayesian";
 import { hasRecentChangepoint } from "@/lib/analytics/changepoint";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
+import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { SmartInput } from "@/components/shared/smart-input";
 import {
   ExampleNotice,
@@ -32,6 +45,7 @@ import {
 } from "@/components/tool-frame/example-data";
 import { buildExampleMembers } from "./example";
 import { toMarkdown } from "./markdown";
+import { revertRosterSync, syncFromRoster, type RosterSyncResult } from "./roster-sync";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -44,6 +58,8 @@ interface TeamMember {
   description?: string;
   availability: number; // 0-100
   daysOff: number;
+  /** The Team page member this row is for; set by "Sync from team". */
+  teamMemberId?: string;
 }
 
 interface SprintConfig {
@@ -161,6 +177,29 @@ function restoreMember(member: TeamMember, index: number) {
   const members = [...plan.members];
   members.splice(Math.min(index, members.length), 0, member);
   useWorkspaceStore.getState().upsertCapacityPlan({ ...plan, members });
+}
+
+/* -- Team roster ----------------------------------------------------------- */
+
+/** "Synced 3 people from the team", with what happened to which rows. */
+function syncToastText({ added, changed }: RosterSyncResult): {
+  label: string;
+  description: string;
+} {
+  const n = added.length + changed.length;
+  const parts: string[] = [];
+  if (added.length > 0) {
+    parts.push(`${added.length} new ${added.length === 1 ? "row" : "rows"}`);
+  }
+  if (changed.length > 0) {
+    parts.push(
+      `${changed.length} existing ${changed.length === 1 ? "row" : "rows"} linked or renamed`
+    );
+  }
+  return {
+    label: `Synced ${n} ${n === 1 ? "person" : "people"} from the team`,
+    description: `${parts.join(", ")}.`,
+  };
 }
 
 /* -- Example --------------------------------------------------------------- */
@@ -534,6 +573,42 @@ export function CapacityPlannerClient() {
     });
   };
 
+  // "Sync from team": a row for everyone on the Team page that has none yet,
+  // matched by teamMemberId or name. Never removes a row; a second run is a
+  // no-op. One Undo takes back the whole sync (see revertRosterSync).
+  const roster = useTeamRoster();
+  const workspaceReady = useWorkspaceHydrated();
+  const syncFromTeam = () => {
+    const plan = currentPlan();
+    const result = syncFromRoster(plan.members, useWorkspaceStore.getState().teamMembers ?? []);
+    if (result.added.length === 0 && result.changed.length === 0) {
+      toast("Everyone on the team already has a row.");
+      return;
+    }
+    const { label, description } = syncToastText(result);
+    undoable({
+      label,
+      description,
+      apply: () => {
+        useWorkspaceStore.getState().upsertCapacityPlan({ ...plan, members: result.members });
+        for (const m of result.added) {
+          log(CAPACITY_ACTIONS.MEMBER_ADDED, {
+            memberId: m.id,
+            name: m.name,
+            teamMemberId: m.teamMemberId,
+            source: "team",
+          });
+        }
+      },
+      revert: () => {
+        const cur = currentPlan();
+        useWorkspaceStore
+          .getState()
+          .upsertCapacityPlan({ ...cur, members: revertRosterSync(cur.members, result) });
+      },
+    });
+  };
+
   const exportRef = useRef<HTMLDivElement>(null);
 
   const calculations = useMemo(() => {
@@ -806,6 +881,27 @@ export function CapacityPlannerClient() {
               >
                 Reset
               </Button>
+              {workspaceReady && roster.length === 0 ? (
+                // Nothing to sync yet: send them to where the team is set up.
+                <Button asChild size="sm" variant="ghost" className="gap-1.5">
+                  <Link href="/team" title="Add your team once and sync it here">
+                    <Users className="w-4 h-4" aria-hidden="true" />
+                    Set up team
+                  </Link>
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={syncFromTeam}
+                  disabled={roster.length === 0}
+                  title="Add a row for everyone on the Team page"
+                  className="gap-1.5"
+                >
+                  <RefreshCw className="w-4 h-4" aria-hidden="true" />
+                  Sync from team
+                </Button>
+              )}
               <Button size="sm" variant="toolkit" onClick={addMember} className="gap-1.5">
                 <Plus className="w-4 h-4" />
                 Add Member
