@@ -6,6 +6,11 @@
  * crosses CLUSTER_MIN_CARDS), and the export path. All mutations flow through
  * the parent-supplied `onUpdate` functional updater so the synced workspace
  * doc stays the single source of truth.
+ *
+ * Facilitator mode: in the Vote phase "Voting as" picks who the next vote
+ * belongs to, each person with their own MAX_VOTES (`votesBy`); "Me" keeps
+ * the single `userVotes` budget. The facilitator can step back a phase
+ * (votes are kept) and add a card in any phase.
  */
 
 import { useState, useCallback, useEffect, useId, useMemo } from "react";
@@ -25,6 +30,7 @@ import { RETRO_ACTIONS } from "@/lib/history/event-actions";
 import { kMeansAuto } from "@/lib/analytics/clustering";
 import { undoable } from "@/lib/utils/undoable";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import type { RetroCard as StoredRetroCard } from "@/lib/stores/workspace-types";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import { type BoardState, MAX_VOTES, PHASES } from "../types";
@@ -37,11 +43,16 @@ import {
   buildExportJson,
   removeCardWithGroup,
   restoreRemovedCards,
+  voterKey,
+  voterNames,
+  votesCastBy,
+  withoutVotesBy,
 } from "../helpers";
 import { PhaseIndicator } from "./phase-indicator";
 import { TimerWidget } from "./timer-widget";
 import { RetroColumnPanel } from "./retro-column-panel";
 import { LastRetroActions } from "./last-retro-actions";
+import { SINGLE_VOTER, VoterPicker } from "./voter-picker";
 import { toMarkdown } from "../markdown";
 import { themed, tint } from "@/lib/utils/theme-color";
 
@@ -68,6 +79,22 @@ export function Board({
   const { log } = logger;
   const [confirmNewOpen, setConfirmNewOpen] = useState(false);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const announce = useAnnounce();
+
+  // Team names for "Voting as" and the assignee field (Actions phase).
+  const assigneeListId = useId();
+  const teamNames = useWorkspaceStore(
+    useShallow((s) => Array.from(new Set((s.teamMembers ?? []).map((m) => (m.name ?? "").trim()))))
+  ).filter(Boolean);
+
+  // Who the next vote belongs to. A name that has left the list (a voter
+  // typed in before Clear Board) falls back to "Me".
+  const [voter, setVoter] = useState<string>(SINGLE_VOTER);
+  const voters = voterNames(teamNames, state.votesBy);
+  const activeVoter =
+    (voter && voters.find((n) => n.toLowerCase() === voter.trim().toLowerCase())) || SINGLE_VOTER;
+  const votesUsed = activeVoter ? votesCastBy(state.votesBy, activeVoter) : state.userVotes;
+  const hasVotes = state.cards.some((c) => c.votes > 0);
 
   // Timer tick — only depend on timerRunning, not timerSeconds, to avoid
   // interval churn on every tick. Functional updater accesses latest state.
@@ -100,7 +127,22 @@ export function Board({
       return { ...prev, phase: nx.key };
     });
     log(RETRO_ACTIONS.PHASE_ADVANCED, transition);
-  }, [onUpdate, log, state.phase]);
+    announce(`${next.label} phase. ${next.description}.`);
+  }, [onUpdate, log, announce, state.phase]);
+
+  // Step back one phase. Nothing is undone: votes, groups and actions stay.
+  // Not logged: PHASE_ADVANCED is a forward milestone.
+  const handleBackPhase = useCallback(() => {
+    const idx = PHASES.findIndex((p) => p.key === state.phase);
+    const back = idx > 0 ? PHASES[idx - 1] : undefined;
+    if (!back) return;
+    onUpdate((prev) => {
+      const i = PHASES.findIndex((p) => p.key === prev.phase);
+      const pv = i > 0 ? PHASES[i - 1] : undefined;
+      return pv ? { ...prev, phase: pv.key } : prev;
+    });
+    announce(`Back to the ${back.label} phase.${hasVotes ? " Votes cast so far are kept." : ""}`);
+  }, [onUpdate, announce, state.phase, hasVotes]);
 
   const handleAddCard = useCallback(
     (columnKey: string, text: string) => {
@@ -134,22 +176,52 @@ export function Board({
       // closure and read it synchronously after dispatch — React 18
       // doesn't guarantee eager invocation of updaters.
       if (state.phase !== "vote") return;
-      if (state.userVotes >= MAX_VOTES) return;
+      // "Me" spends `userVotes`; a picked person spends their own budget.
+      const who = activeVoter;
+      const used = who ? votesCastBy(state.votesBy, who) : state.userVotes;
+      if (used >= MAX_VOTES) return;
       const card = state.cards.find((c) => c.id === id);
       const nextVoteCount = (card?.votes ?? 0) + 1;
       sonify("retro", "vote");
       onUpdate((prev) => {
         if (prev.phase !== "vote") return prev;
-        if (prev.userVotes >= MAX_VOTES) return prev;
+        const cards = prev.cards.map((c) => (c.id === id ? { ...c, votes: c.votes + 1 } : c));
+        if (!who) {
+          if (prev.userVotes >= MAX_VOTES) return prev;
+          return { ...prev, userVotes: prev.userVotes + 1, cards };
+        }
+        const cast = votesCastBy(prev.votesBy, who);
+        if (cast >= MAX_VOTES) return prev;
         return {
           ...prev,
-          userVotes: prev.userVotes + 1,
-          cards: prev.cards.map((c) => (c.id === id ? { ...c, votes: c.votes + 1 } : c)),
+          cards,
+          votesBy: { ...prev.votesBy, [voterKey(prev.votesBy, who)]: cast + 1 },
         };
       });
       log(RETRO_ACTIONS.CARD_VOTED, { cardId: id, voteCount: nextVoteCount });
+      if (used + 1 >= MAX_VOTES) {
+        announce(
+          who ? `${who} has used all ${MAX_VOTES} votes.` : `You have used all ${MAX_VOTES} votes.`
+        );
+      }
     },
-    [onUpdate, log, state.phase, state.userVotes, state.cards]
+    [onUpdate, log, announce, activeVoter, state.phase, state.userVotes, state.votesBy, state.cards]
+  );
+
+  // A voter typed in by the facilitator (no team roster). Kept on the board
+  // with 0 votes so the name survives a reload, then picked.
+  const handleAddVoter = useCallback(
+    (name: string) => {
+      const clean = name.trim();
+      if (!clean) return;
+      onUpdate((prev) => {
+        const key = voterKey(prev.votesBy, clean);
+        if (prev.votesBy && Object.prototype.hasOwnProperty.call(prev.votesBy, key)) return prev;
+        return { ...prev, votesBy: { ...prev.votesBy, [clean]: 0 } };
+      });
+      setVoter(clean);
+    },
+    [onUpdate]
   );
 
   const handleDelete = useCallback(
@@ -316,12 +388,6 @@ export function Board({
     [onUpdate, log, state.format.columns]
   );
 
-  // Team names for the assignee field (Actions phase).
-  const assigneeListId = useId();
-  const teamNames = useWorkspaceStore(
-    useShallow((s) => Array.from(new Set((s.teamMembers ?? []).map((m) => (m.name ?? "").trim()))))
-  ).filter(Boolean);
-
   const promptConfig = useMemo(
     () => ({
       toolName: "Retrospective Board",
@@ -365,9 +431,10 @@ export function Board({
     [state.format, state.cards]
   );
 
+  // Everyone's votes go too, "Me" and each person's.
   const clearBoard = useCallback(() => {
     onUpdate((prev) => ({
-      ...prev,
+      ...withoutVotesBy(prev),
       cards: [],
       userVotes: 0,
       phase: "write",
@@ -391,8 +458,8 @@ export function Board({
     if (cardCount === 0) clearBoard();
     else setConfirmClearOpen(true);
   };
-  // A confirmed clear can be undone: the cards, votes and phase come back.
-  // Cards added since the clear are kept.
+  // A confirmed clear can be undone: the cards, votes (each person's too) and
+  // phase come back. Cards and voters added since the clear are kept.
   const confirmClearBoard = () => {
     const before = state;
     undoable({
@@ -401,12 +468,15 @@ export function Board({
       revert: () =>
         onUpdate((prev) => {
           const ids = new Set(before.cards.map((c) => c.id));
-          return {
+          const restored: BoardState = {
             ...prev,
             cards: [...before.cards, ...prev.cards.filter((c) => !ids.has(c.id))],
             userVotes: before.userVotes,
             phase: before.phase,
           };
+          return before.votesBy || prev.votesBy
+            ? { ...restored, votesBy: { ...prev.votesBy, ...before.votesBy } }
+            : restored;
         }),
     });
   };
@@ -436,12 +506,18 @@ export function Board({
         {/* ── Board Header ─────────────────────────────────── */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
-            <PhaseIndicator current={state.phase} onAdvance={handleAdvancePhase} />
+            <PhaseIndicator
+              current={state.phase}
+              onAdvance={handleAdvancePhase}
+              onBack={handleBackPhase}
+            />
             <div className="flex items-center gap-3 text-xs text-sub">
               <span>{totalCards} cards</span>
               {state.phase === "vote" && (
                 <span className="text-accent font-semibold">
-                  {MAX_VOTES - state.userVotes} votes remaining
+                  {activeVoter
+                    ? `${MAX_VOTES - votesUsed} votes remaining for ${activeVoter}`
+                    : `${MAX_VOTES - state.userVotes} votes remaining`}
                 </span>
               )}
               {state.phase === "actions" && actionCount > 0 && (
@@ -483,7 +559,22 @@ export function Board({
               Cards sorted by votes — click a card to mark it as discussing.
             </span>
           )}
+          {state.phase === "write" && hasVotes && (
+            <span className="ml-2 text-accent">Votes cast so far are kept.</span>
+          )}
         </div>
+
+        {/* ── Voting as (facilitator mode, Vote phase) ─────── */}
+        {state.phase === "vote" && (
+          <VoterPicker
+            names={voters}
+            votesBy={state.votesBy}
+            voter={activeVoter}
+            onVoterChange={setVoter}
+            showAddVoter={teamNames.length === 0}
+            onAddVoter={handleAddVoter}
+          />
+        )}
 
         {/* ── Auto-detected themes (k-means clustering) ────── */}
         {clusters && (
@@ -536,7 +627,7 @@ export function Board({
                 cards={colCards}
                 allCards={state.cards}
                 phase={state.phase}
-                userVotes={state.userVotes}
+                votesUsed={votesUsed}
                 clusterByCardId={clusters?.byCardId}
                 onAdd={handleAddCard}
                 onVote={handleVote}
