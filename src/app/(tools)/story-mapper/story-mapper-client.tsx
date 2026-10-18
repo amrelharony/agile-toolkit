@@ -30,7 +30,8 @@ import { generateStoryMapperPrompts } from "@/lib/ai-prompts/story-mapper";
 import { undoable } from "@/lib/utils/undoable";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace, StoryMap } from "@/lib/stores/workspace-types";
+import type { Workspace, StoryMap, HandoffLink } from "@/lib/stores/workspace-types";
+import { SendToMenuItems } from "@/components/handoff/send-to-menu";
 import { EditableName } from "@/components/shared/editable-name";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { STORY_MAPPER_ACTIONS } from "@/lib/history/event-actions";
@@ -72,6 +73,10 @@ interface StoryCard {
   title: string;
   description: string;
   color: string;
+  /** Planning Poker's estimate, written back when the story is estimated. */
+  estimate?: string;
+  /** Where the card was sent (queued for Planning Poker). */
+  sentTo?: HandoffLink[];
 }
 
 /** stepId -> StoryCard[] */
@@ -312,6 +317,34 @@ const storyMapApi: Omit<StoryMapState, "steps" | "slices"> = {
     set({ steps, slices });
   },
 };
+
+/** Record where a card was sent, on the freshest map. */
+function setCardLinks(
+  cardId: string,
+  update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
+): void {
+  set((s) => ({
+    slices: s.slices.map((sl) => {
+      const stepId = Object.keys(sl.cards).find((k) =>
+        (sl.cards[k] ?? []).some((c) => c.id === cardId)
+      );
+      if (!stepId) return sl;
+      return {
+        ...sl,
+        cards: {
+          ...sl.cards,
+          [stepId]: sl.cards[stepId].map((c) =>
+            c.id === cardId ? { ...c, sentTo: update(c.sentTo) } : c
+          ),
+        },
+      };
+    }),
+  }));
+}
+
+/** A story-map card can be queued for Planning Poker. */
+const CARD_ROUTES = ["poker-queue"] as const;
+const CARD_ROUTE_LABELS = { "poker-queue": "Estimate in Planning Poker" } as const;
 
 /* -- Undo helpers ---------------------------------------------------------- */
 // Put a removed card, step or slice back where it was. Each reads the freshest
@@ -637,7 +670,7 @@ function CardMoveMenu({
           type="button"
           data-card-move={card.id}
           className="min-touch-coarse p-1 rounded text-sub hover:text-accent hover:bg-accent/10 transition-colors inline-flex items-center justify-center"
-          title="Move"
+          title="Move or estimate"
           aria-label={`Move ${card.title}`}
         >
           <ArrowRightLeft className="w-3.5 h-3.5" aria-hidden="true" />
@@ -690,6 +723,18 @@ function CardMoveMenuItems({
 
   return (
     <>
+      <SendToMenuItems
+        routes={CARD_ROUTES}
+        itemLabels={CARD_ROUTE_LABELS}
+        item={{
+          title: card.title,
+          description: card.description || undefined,
+          sourceRef: { tool: "story-mapper", id: card.id, doc: SM_ID },
+        }}
+        sentTo={card.sentTo}
+        onLinksChange={(update) => setCardLinks(card.id, update)}
+      />
+      <DropdownMenuSeparator />
       <DropdownMenuItem disabled={index === 0} onSelect={() => move(sliceId, stepId, index - 1)}>
         Move up
       </DropdownMenuItem>
@@ -800,6 +845,7 @@ function DraggableCard({
         {card.description && (
           <p className="mt-1 text-xs text-sub line-clamp-2 pl-3.5">{card.description}</p>
         )}
+        {card.estimate && <EstimateBadge estimate={card.estimate} />}
       </div>
 
       {/* Action buttons (top-right) — always visible on coarse pointers. */}
@@ -839,6 +885,21 @@ function DraggableCard({
         </button>
       </div>
     </div>
+  );
+}
+
+/** Planning Poker's estimate on a card. */
+function EstimateBadge({ estimate }: { estimate: string }) {
+  return (
+    <p className="mt-1.5 pl-3.5">
+      <span
+        className="inline-flex items-center rounded border border-accent/30 bg-accent/10 px-1.5 text-xs font-data text-accent"
+        title="Estimate from Planning Poker"
+      >
+        <span className="sr-only">Estimate: </span>
+        {estimate}
+      </span>
+    </p>
   );
 }
 

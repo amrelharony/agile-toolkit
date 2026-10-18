@@ -32,6 +32,11 @@ export const useImpedimentStore = create<ImpedimentStore>()(
           ],
         })),
 
+      importImpediment: (imp) =>
+        set((s) =>
+          s.impediments.some((i) => i.id === imp.id) ? s : { impediments: [imp, ...s.impediments] }
+        ),
+
       updateStatus: (id, status, resolvedDate) =>
         set((s) => ({
           impediments: s.impediments.map((i) =>

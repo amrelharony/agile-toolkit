@@ -7,6 +7,7 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { WorkspaceSyncButton } from "@/components/shared/workspace-sync-button";
+import { SourceLink } from "@/components/handoff/source-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -604,6 +605,8 @@ export function RiskRegisterClient() {
                           {r.mitigation}
                         </div>
                       )}
+                      {/* Sent here from another tool (a premortem cause). */}
+                      <SourceLink sourceRef={r.sourceRef} />
                     </div>
                     <Select
                       value={String(r.probability)}

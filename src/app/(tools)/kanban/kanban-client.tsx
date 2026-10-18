@@ -33,6 +33,8 @@ import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { generateKanbanPrompts } from "@/lib/ai-prompts/kanban";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { HandoffRef } from "@/lib/stores/workspace-types";
+import { SourceLink } from "@/components/handoff/source-link";
 import { cn } from "@/lib/utils";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -71,6 +73,8 @@ interface KCard {
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
+  /** Where the card was sent from (a retro action). */
+  sourceRef?: HandoffRef;
 }
 
 interface KanbanState {
@@ -783,6 +787,8 @@ export function KanbanClient() {
                       </div>
                     )}
                     {!c.description && <div className="mb-1.5" />}
+                    {/* Sent here from another tool (a retro action). */}
+                    <SourceLink sourceRef={c.sourceRef} className="mb-1.5" />
                     {/* Card controls. Stacked on mobile (one per row) so each
                         select/button is a comfortable touch target; flex row
                         on sm+ where horizontal density is fine. */}

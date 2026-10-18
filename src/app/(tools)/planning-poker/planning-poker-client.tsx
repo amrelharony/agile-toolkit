@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { customAlphabet } from "nanoid";
-import { WifiOff } from "lucide-react";
+import { ListChecks, WifiOff } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generatePlanningPokerPrompts } from "@/lib/ai-prompts/planning-poker";
@@ -13,6 +13,13 @@ import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { undoable } from "@/lib/utils/undoable";
+import { toast } from "@/lib/utils/toast";
+import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
+import {
+  pendingQueueItems,
+  takeQueuedStories,
+  writeBackPokerEstimate,
+} from "@/lib/handoffs/poker-writeback";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -57,21 +64,28 @@ function generateRoomCode(): string {
 }
 
 // ─── Lobby ───────────────────────────────────────────────────────────
+interface StartData {
+  sessionName: string;
+  scale: string[];
+  scaleType: ScaleType;
+  displayName: string;
+  /** Open the session with the queued stories already in it. */
+  fromQueue?: boolean;
+}
+
 function LobbyScreen({
   onStart,
   onLoadExample,
   isOwner,
+  queuedCount = 0,
 }: {
-  onStart: (data: {
-    sessionName: string;
-    scale: string[];
-    scaleType: ScaleType;
-    displayName: string;
-  }) => void;
+  onStart: (data: StartData) => void;
   /** Omitted until auth settles, so the example can't beat a stored
    *  session to the restore. */
   onLoadExample?: () => void;
   isOwner: boolean;
+  /** Stories other tools queued for estimation (Story Mapper). */
+  queuedCount?: number;
 }) {
   const [sessionName, setSessionName] = useState(DEFAULT_SESSION_NAME);
   const [scaleType, setScaleType] = useState<ScaleType>("fibonacci");
@@ -86,14 +100,15 @@ function LobbyScreen({
           .filter(Boolean)
       : SCALES[scaleType];
 
-  const handleStart = () => {
-    if (!sessionName.trim() || !displayName.trim()) return;
-    if (resolvedScale.length < 2) return;
+  const canStart = Boolean(sessionName.trim() && displayName.trim() && resolvedScale.length >= 2);
+  const handleStart = (fromQueue = false) => {
+    if (!canStart) return;
     onStart({
       sessionName: sessionName.trim(),
       scale: resolvedScale,
       scaleType,
       displayName: displayName.trim(),
+      fromQueue,
     });
   };
 
@@ -175,12 +190,29 @@ function LobbyScreen({
         </div>
 
         <Button
-          onClick={handleStart}
-          disabled={!sessionName.trim() || !displayName.trim() || resolvedScale.length < 2}
+          onClick={() => handleStart()}
+          disabled={!canStart}
           className="bg-accent text-[#0a0e1a] hover:bg-accent/80 font-semibold h-11"
         >
           Start Session
         </Button>
+        {queuedCount > 0 && (
+          <div className="flex flex-col gap-2 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="flex items-center gap-2 text-sm text-text">
+              <ListChecks className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+              {queuedCount} {queuedCount === 1 ? "story" : "stories"} queued for estimation
+            </p>
+            <Button
+              type="button"
+              variant="toolkit"
+              size="sm"
+              onClick={() => handleStart(true)}
+              disabled={!canStart}
+            >
+              Start with the queue
+            </Button>
+          </div>
+        )}
         {onLoadExample && <LoadExampleButton onLoad={onLoadExample} className="self-center" />}
       </SectionCard>
 
@@ -259,17 +291,43 @@ export function PlanningPokerClient() {
     else clearLocalSession();
   }, [session, isLocalOnly]);
 
-  const handleStart = ({
-    sessionName,
-    scale,
-    scaleType,
-    displayName,
-  }: {
-    sessionName: string;
-    scale: string[];
-    scaleType: ScaleType;
-    displayName: string;
-  }) => {
+  // ─── Queue: stories other tools sent (Story Mapper) ───
+  // It lives on the estimate log in this browser's workspace, never in the
+  // session payload. Only this owner-side client reads it; guests don't.
+  const queue = useWorkspaceStore(
+    useShallow((s) => (s.pokerEstimationLogs ?? []).find((d) => d.id === POKER_LOG_ID)?.queue)
+  );
+  const sessionStoryIds = useMemo(() => session?.stories.map((st) => st.id) ?? [], [session]);
+  const queuedCount = useMemo(
+    () => pendingQueueItems(queue, sessionStoryIds).length,
+    [queue, sessionStoryIds]
+  );
+
+  const addQueued = () => {
+    if (!session) return;
+    const stories = takeQueuedStories(session.stories.map((st) => st.id));
+    if (stories.length === 0) return;
+    setSession((prev) => (prev ? { ...prev, stories: [...prev.stories, ...stories] } : prev));
+  };
+
+  // The host accepted an estimate. A story pulled from this browser's queue
+  // gets it written back to its source card; any other story is ignored.
+  const handleEstimateAccepted = (storyId: string, value: string, votes: string[]) => {
+    if (!session) return;
+    const { item, written } = writeBackPokerEstimate({
+      sessionStoryId: storyId,
+      value,
+      scaleType: session.scaleType,
+      votes,
+    });
+    if (item && written) {
+      toast.success(`Saved ${value} on the story map`, {
+        description: `“${shortName(item.title)}”`,
+      });
+    }
+  };
+
+  const handleStart = ({ sessionName, scale, scaleType, displayName, fromQueue }: StartData) => {
     const code = generateRoomCode();
     const initial: Session = {
       roomCode: code,
@@ -279,7 +337,7 @@ export function PlanningPokerClient() {
       host: displayName,
       hostId: userId,
       participants: [{ id: userId, name: displayName, vote: null }],
-      stories: [],
+      stories: fromQueue ? takeQueuedStories() : [],
       currentStoryIdx: 0,
       revealed: false,
     };
@@ -424,6 +482,7 @@ export function PlanningPokerClient() {
               onStart={handleStart}
               onLoadExample={visitor || isOwner ? loadExample : undefined}
               isOwner={isOwner}
+              queuedCount={queuedCount}
             />
           </motion.div>
         ) : (
@@ -468,6 +527,9 @@ export function PlanningPokerClient() {
               // Nobody can join a local-only room, so don't show its code.
               showRoomCode={!isLocalOnly}
               leaveClearsSession={isLocalOnly}
+              queuedCount={queuedCount}
+              onAddQueued={addQueued}
+              onEstimateAccepted={handleEstimateAccepted}
             />
           </motion.div>
         )}

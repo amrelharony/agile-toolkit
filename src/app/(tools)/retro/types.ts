@@ -8,6 +8,7 @@
  */
 
 import type { RetroFormat } from "@/lib/constants/retro-formats";
+import type { HandoffLink } from "@/lib/stores/workspace-types";
 
 export type BoardPhase = "write" | "vote" | "discuss" | "actions";
 
@@ -20,6 +21,10 @@ export interface RetroCard {
   isActionItem: boolean;
   assignee: string;
   discussing: boolean;
+  /** Where this action was sent (an impediment, a Kanban card). */
+  sentTo?: HandoffLink[];
+  /** Id of the previous retro's card this action was carried over from. */
+  carriedFrom?: string;
 }
 
 export interface BoardState {
@@ -30,6 +35,8 @@ export interface BoardState {
   timerSeconds: number;
   timerRunning: boolean;
   discussingIndex: number; // index into sorted discuss list
+  /** The archived retro this one follows, for carrying its actions over. */
+  previousRetroId?: string;
 }
 
 export const MAX_VOTES = 3;

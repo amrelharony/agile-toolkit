@@ -43,3 +43,42 @@ export function retroArchivesToPrune(
 export function retroActionItems(board: RetroBoard): RetroCard[] {
   return board.cards.filter((c) => c.isActionItem);
 }
+
+/**
+ * The retro this board follows: the archive named by `previousRetroId`, or
+ * else the newest archive. Null when there is none.
+ */
+export function previousRetro(
+  boards: readonly RetroBoard[],
+  previousRetroId?: string
+): RetroBoard | null {
+  const past = pastRetros(boards);
+  return (previousRetroId && past.find((b) => b.id === previousRetroId)) || past[0] || null;
+}
+
+/**
+ * A carried-over copy of a previous retro's action: a new action item on the
+ * current board, in the same column when this format has it (else the first
+ * column). It keeps the assignee and where the action was already sent, so
+ * it isn't sent to the same tool twice.
+ */
+export function carriedOverCard(
+  action: RetroCard,
+  columnKeys: readonly string[],
+  id: string
+): RetroCard {
+  return {
+    id,
+    columnKey: columnKeys.includes(action.columnKey)
+      ? action.columnKey
+      : (columnKeys[0] ?? action.columnKey),
+    text: action.text,
+    votes: 0,
+    groupedWith: null,
+    isActionItem: true,
+    assignee: action.assignee,
+    discussing: false,
+    ...(action.sentTo && action.sentTo.length > 0 ? { sentTo: action.sentTo } : {}),
+    carriedFrom: action.id,
+  };
+}

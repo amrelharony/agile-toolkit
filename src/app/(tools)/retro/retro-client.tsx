@@ -37,6 +37,9 @@ export function RetroClient() {
   const handleSelectFormat = useCallback(
     (format: RetroFormat) => {
       // The picker only shows when there is no board, so nothing is lost here.
+      // The new retro follows the newest archived one, whose actions it
+      // offers to carry over.
+      const previous = pastRetros(useWorkspaceStore.getState().retroBoards ?? [])[0];
       upsertRetroBoard({
         id: RB_ID,
         format,
@@ -46,6 +49,7 @@ export function RetroClient() {
         timerSeconds: 300,
         timerRunning: false,
         discussingIndex: 0,
+        ...(previous ? { previousRetroId: previous.id } : {}),
       });
       logger.log(RETRO_ACTIONS.FORMAT_CHANGED, { format: format.name });
     },

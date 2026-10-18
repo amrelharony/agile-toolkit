@@ -29,6 +29,8 @@ import {
   buildWeeklyImpedimentSeries,
   daysSince,
   resolutionDaysSeries,
+  sameWorkspaceImpediment,
+  toWorkspaceImpediment,
 } from "./helpers";
 import { LogForm } from "./components/log-form";
 import { ImpedimentCard } from "./components/impediment-card";
@@ -49,12 +51,6 @@ export function ImpedimentsClient() {
   // detector, dashboards) all wake up on every change.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const sevMap: Record<Severity, "low" | "medium" | "high" | "critical"> = {
-      Low: "low",
-      Medium: "medium",
-      High: "high",
-      Critical: "critical",
-    };
     // BUG-T4-impediments-2: hoist ownedIds onto window so it survives
     // React 18 StrictMode's double-mount (and HMR remounts), instead
     // of being recreated as an empty Set on every effect run. Without
@@ -75,25 +71,11 @@ export function ImpedimentsClient() {
       const localById = new Map(snapshot.map((i) => [i.id, i]));
       for (const local of snapshot) {
         const existing = wsById.get(local.id);
-        const next = {
-          id: local.id,
-          title: local.title,
-          severity: sevMap[local.severity],
-          raisedAt: local.raisedDate,
-          resolvedAt: local.resolvedDate,
-          owner: local.assignedTo || undefined,
-          source: "manual" as const,
-        };
+        // Keeps `source` and `sourceRef`, so one sent from a retro or a
+        // standup still links back after an edit here.
+        const next = toWorkspaceImpediment(local);
         ownedIds.add(local.id);
-        if (
-          existing &&
-          existing.title === next.title &&
-          existing.severity === next.severity &&
-          existing.raisedAt === next.raisedAt &&
-          existing.resolvedAt === next.resolvedAt &&
-          existing.owner === next.owner
-        )
-          continue;
+        if (existing && sameWorkspaceImpediment(existing, next)) continue;
         workspace.upsertImpediment(next);
       }
       // Remove workspace rows we previously owned but the user deleted.

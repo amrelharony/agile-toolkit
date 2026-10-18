@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import type { RetroColumn } from "@/lib/constants/retro-formats";
+import type { HandoffLink } from "@/lib/handoffs/types";
 import { type BoardPhase, type RetroCard, MAX_VOTES } from "../types";
 import { sortedByVotes } from "../helpers";
 import { RetroCardItem } from "./retro-card-item";
@@ -32,6 +33,8 @@ export function RetroColumnPanel({
   onToggleAction,
   onAssigneeChange,
   onToggleDiscussing,
+  onLinksChange,
+  assigneeListId,
 }: {
   column: RetroColumn;
   cards: RetroCard[];
@@ -46,6 +49,11 @@ export function RetroColumnPanel({
   onToggleAction: (id: string) => void;
   onAssigneeChange: (id: string, val: string) => void;
   onToggleDiscussing: (id: string) => void;
+  onLinksChange?: (
+    id: string,
+    update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
+  ) => void;
+  assigneeListId?: string;
 }) {
   const [inputVal, setInputVal] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -107,6 +115,8 @@ export function RetroColumnPanel({
                     onToggleAction={onToggleAction}
                     onAssigneeChange={onAssigneeChange}
                     onToggleDiscussing={onToggleDiscussing}
+                    onLinksChange={onLinksChange}
+                    assigneeListId={assigneeListId}
                   />
                   {children.map((child) => (
                     <RetroCardItem
@@ -123,6 +133,8 @@ export function RetroColumnPanel({
                       onToggleAction={onToggleAction}
                       onAssigneeChange={onAssigneeChange}
                       onToggleDiscussing={onToggleDiscussing}
+                      onLinksChange={onLinksChange}
+                      assigneeListId={assigneeListId}
                     />
                   ))}
                 </div>

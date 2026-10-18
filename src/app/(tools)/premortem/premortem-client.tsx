@@ -26,6 +26,8 @@ import {
 } from "@/components/tool-frame/example-data";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { undoable } from "@/lib/utils/undoable";
+import { SendToMenu } from "@/components/handoff/send-to-menu";
+import type { HandoffLink } from "@/lib/handoffs/types";
 import { EXAMPLE_SCENARIO, buildExample } from "./example";
 import { toMarkdown } from "./markdown";
 
@@ -45,7 +47,12 @@ interface Cause {
   impact: number;
   preventiveAction?: string;
   owner?: string;
+  /** Where this cause was sent (added to the Risk Register). */
+  sentTo?: HandoffLink[];
 }
+
+/** A premortem cause can become a risk. */
+const CAUSE_ROUTES = ["risk"] as const;
 
 interface State {
   scenario: string;
@@ -139,6 +146,15 @@ export function PremortemClient() {
     setState((s) => ({
       ...s,
       causes: s.causes.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+    }));
+  };
+  const updateLinks = (
+    id: string,
+    change: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
+  ) => {
+    setState((s) => ({
+      ...s,
+      causes: s.causes.map((c) => (c.id === id ? { ...c, sentTo: change(c.sentTo) } : c)),
     }));
   };
   // Separate from `update` so we can call it from onBlur on the
@@ -422,7 +438,7 @@ export function PremortemClient() {
                   aria-label={`Description for cause ${idx + 1} (optional)`}
                   className="bg-bg border-border text-sm"
                 />
-                <div className="grid grid-cols-1 md:grid-cols-[1fr_200px] gap-2">
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_200px_auto] gap-2 md:items-start">
                   <BlurTextarea
                     rows={1}
                     value={c.preventiveAction ?? ""}
@@ -440,6 +456,21 @@ export function PremortemClient() {
                     placeholder="Owner"
                     aria-label={`Owner for cause ${idx + 1}`}
                     className="bg-bg border-border text-sm"
+                  />
+                  <SendToMenu
+                    routes={CAUSE_ROUTES}
+                    item={{
+                      title: c.text,
+                      description: c.description,
+                      owner: c.owner,
+                      likelihood: c.likelihood,
+                      impact: c.impact,
+                      mitigation: c.preventiveAction,
+                      sourceRef: { tool: "premortem", id: c.id },
+                    }}
+                    sentTo={c.sentTo}
+                    onLinksChange={(change) => updateLinks(c.id, change)}
+                    className="h-9 justify-self-start"
                   />
                 </div>
               </CardContent>

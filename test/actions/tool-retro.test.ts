@@ -6,9 +6,24 @@
  *      and top-voted cards; reports exists:false with no board
  *   3. add_card appends to the active board, and no-ops {added:false} when
  *      no retro is active
+ *   4. list_state's previousActions: the action items of the retro the
+ *      board follows (else the newest archive), with carry-over and sentTo,
+ *      on the browser and MCP paths
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+vi.mock("@/lib/actions/server-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/actions/server-store")>();
+  return {
+    ...actual,
+    serverGetEntity: vi.fn(async () => null),
+    serverListEntities: vi.fn(async () => []),
+    serverUpsertEntity: vi.fn(async () => {}),
+  };
+});
+
+import * as serverStore from "@/lib/actions/server-store";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { RetroBoard, RetroCard } from "@/lib/stores/workspace-types";
@@ -127,5 +142,116 @@ describe("tool.retro.add_card", () => {
     expect(stored?.cards).toHaveLength(1);
     expect(stored?.cards[0].text).toBe("great teamwork");
     expect(stored?.cards[0].columnKey).toBe("good");
+  });
+});
+
+describe("tool.retro.list_state previousActions", () => {
+  const ARCHIVE = "retro:2026-10-05T10:00:00.000Z";
+  const OLDER = "retro:2026-09-01T10:00:00.000Z";
+  const sent = { route: "kanban" as const, targetId: "k1", at: "2026-10-05T11:00:00.000Z" };
+
+  function archived(id: string, cards: RetroCard[]): RetroBoard {
+    return { ...board(cards), id, archivedAt: id.slice("retro:".length), phase: "actions" };
+  }
+  const archive = () =>
+    archived(ARCHIVE, [
+      card({
+        id: "a1",
+        columnKey: "good",
+        text: "pair on tests",
+        isActionItem: true,
+        assignee: "Sam",
+        sentTo: [sent],
+      }),
+      card({ id: "a2", columnKey: "bad", text: "fix CI", isActionItem: true }),
+      card({ id: "n1", columnKey: "good", text: "not an action" }),
+    ]);
+  const older = () => archived(OLDER, [card({ id: "o1", columnKey: "good", isActionItem: true })]);
+  const currentFollowing = (previousRetroId?: string) => ({
+    ...board([
+      card({
+        id: "c1",
+        columnKey: "good",
+        text: "pair on tests",
+        isActionItem: true,
+        carriedFrom: "a1",
+      }),
+    ]),
+    ...(previousRetroId ? { previousRetroId } : {}),
+  });
+
+  type Result = {
+    exists: boolean;
+    previousActions: {
+      id: string;
+      text: string;
+      assignee: string;
+      retroId: string;
+      carriedOver: boolean;
+      sentTo: unknown[];
+    }[];
+  };
+
+  beforeEach(() => {
+    useWorkspaceStore.setState({ retroBoards: [] });
+  });
+
+  it("is empty when there is no archived retro", async () => {
+    useWorkspaceStore.getState().upsertRetroBoard(board([]));
+    const r = (await registry.get("tool.retro.list_state")!.handler({}, ctx())) as Result;
+    expect(r.previousActions).toEqual([]);
+  });
+
+  it("lists the followed retro's action items, carried over or sent", async () => {
+    useWorkspaceStore.setState({ retroBoards: [older(), archive(), currentFollowing(ARCHIVE)] });
+    const r = (await registry.get("tool.retro.list_state")!.handler({}, ctx())) as Result;
+    expect(r.exists).toBe(true);
+    expect(r.previousActions).toEqual([
+      {
+        id: "a1",
+        text: "pair on tests",
+        assignee: "Sam",
+        retroId: ARCHIVE,
+        carriedOver: true,
+        sentTo: [sent],
+      },
+      { id: "a2", text: "fix CI", assignee: "", retroId: ARCHIVE, carriedOver: false, sentTo: [] },
+    ]);
+  });
+
+  it("follows previousRetroId over the newest archive", async () => {
+    useWorkspaceStore.setState({ retroBoards: [older(), archive(), currentFollowing(OLDER)] });
+    const r = (await registry.get("tool.retro.list_state")!.handler({}, ctx())) as Result;
+    expect(r.previousActions.map((a) => a.id)).toEqual(["o1"]);
+  });
+
+  it("falls back to the newest archive, even with no current board", async () => {
+    useWorkspaceStore.setState({ retroBoards: [older(), archive()] });
+    const r = (await registry.get("tool.retro.list_state")!.handler({}, ctx())) as Result;
+    expect(r.exists).toBe(false);
+    expect(r.previousActions.map((a) => a.id)).toEqual(["a1", "a2"]);
+    expect(r.previousActions.every((a) => !a.carriedOver)).toBe(true);
+  });
+
+  it("reads the same from the server on the MCP path", async () => {
+    const boards = [older(), archive(), currentFollowing()];
+    vi.mocked(serverStore.serverGetEntity).mockImplementation(
+      (async (_u: string, _k: string, id: string) =>
+        boards.find((b) => b.id === id) ?? null) as typeof serverStore.serverGetEntity
+    );
+    vi.mocked(serverStore.serverListEntities).mockImplementation(
+      (async () => boards) as typeof serverStore.serverListEntities
+    );
+
+    const r = (await registry.get("tool.retro.list_state")!.mcpHandler!({}, ctx())) as Result;
+    expect(r.exists).toBe(true);
+    expect(r.previousActions.map((a) => [a.id, a.carriedOver])).toEqual([
+      ["a1", true],
+      ["a2", false],
+    ]);
+    expect(serverStore.serverListEntities).toHaveBeenCalledWith(
+      "test-user",
+      "workspace:retroBoard"
+    );
   });
 });

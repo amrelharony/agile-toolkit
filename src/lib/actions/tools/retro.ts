@@ -8,7 +8,9 @@
  *                singleton: one RetroBoard document under a fixed id.
  *
  *   1. list_state — board phase, per-column counts, vote totals, action
- *                   items, and the top-voted cards in one read.
+ *                   items, and the top-voted cards in one read; plus the
+ *                   previous retro's action items (previousActions), with
+ *                   whether each was carried over and where it was sent.
  *   2. add_card   — append a card to a column (the verb an agent uses to
  *                   seed a board). No-op {added:false} when no retro is
  *                   active (a format must be chosen first, in-app).
@@ -20,8 +22,8 @@
 import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { serverGetEntity, serverUpsertEntity } from "../server-store";
-import type { RetroBoard, RetroCard } from "@/lib/stores/workspace-types";
+import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
+import type { HandoffLink, RetroBoard, RetroCard } from "@/lib/stores/workspace-types";
 
 const KIND_RETRO = "workspace:retroBoard";
 // MUST match RB_ID in retro-client.tsx so agent writes land on the row the
@@ -65,6 +67,49 @@ function summarize(board: RetroBoard | null) {
   };
 }
 
+/** One of the previous retro's action items, as list_state reports it. */
+interface PreviousAction {
+  id: string;
+  text: string;
+  assignee: string;
+  /** The retro it came from (an archived board id). */
+  retroId: string;
+  /** Copied onto the current board as an action item. */
+  carriedOver: boolean;
+  /** Where it was sent (an impediment, a Kanban card). */
+  sentTo: HandoffLink[];
+}
+
+// Mirrors pastRetros / previousRetro in retro/archive.ts (kept local so this
+// server action stays self-contained, like the other tool actions).
+function pastRetros(boards: readonly RetroBoard[]): RetroBoard[] {
+  return boards
+    .filter((b) => typeof b.archivedAt === "string")
+    .sort((a, b) => (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
+}
+
+function previousRetro(boards: readonly RetroBoard[], previousRetroId?: string): RetroBoard | null {
+  const past = pastRetros(boards);
+  return (previousRetroId && past.find((b) => b.id === previousRetroId)) || past[0] || null;
+}
+
+/** The previous retro's actions: the archive the current board follows
+ *  (previousRetroId), else the newest archive. Shared by both paths. */
+function previousActions(board: RetroBoard | null, previous: RetroBoard | null): PreviousAction[] {
+  if (!previous) return [];
+  const carried = new Set((board?.cards ?? []).map((c) => c.carriedFrom).filter(Boolean));
+  return (previous.cards ?? [])
+    .filter((c) => c.isActionItem)
+    .map((c) => ({
+      id: c.id,
+      text: c.text,
+      assignee: c.assignee,
+      retroId: previous.id,
+      carriedOver: carried.has(c.id),
+      sentTo: c.sentTo ?? [],
+    }));
+}
+
 // ──────── tool.retro.list_state ────────
 registry.register({
   id: "tool.retro.list_state",
@@ -72,12 +117,23 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the current retro board. Returns {exists, formatName, phase, totalCards, totalVotes, actionItems, byColumn: {columnKey, count}[], topVoted: {id, text, votes, columnKey}[] (≤5)}.",
+    "Summarise the current retro board. Returns {exists, formatName, phase, totalCards, totalVotes, actionItems, byColumn: {columnKey, count}[], topVoted: {id, text, votes, columnKey}[] (≤5), previousActions: {id, text, assignee, retroId, carriedOver, sentTo: {route, targetId, at}[]}[] (the previous retro's action items)}.",
   paramsSchema: z.object({}),
-  handler: async () => summarize(browserBoard()),
+  handler: async () => {
+    const board = browserBoard();
+    const previous = previousRetro(ws().retroBoards ?? [], board?.previousRetroId);
+    return { ...summarize(board), previousActions: previousActions(board, previous) };
+  },
   mcpHandler: async (_params, ctx) => {
-    const board = await serverGetEntity<RetroBoard>(ctx.userId, KIND_RETRO, RB_ID);
-    return summarize(board ?? null);
+    const board = (await serverGetEntity<RetroBoard>(ctx.userId, KIND_RETRO, RB_ID)) ?? null;
+    let previous = board?.previousRetroId
+      ? await serverGetEntity<RetroBoard>(ctx.userId, KIND_RETRO, board.previousRetroId)
+      : null;
+    if (!previous?.archivedAt) {
+      previous =
+        pastRetros(await serverListEntities<RetroBoard>(ctx.userId, KIND_RETRO))[0] ?? null;
+    }
+    return { ...summarize(board), previousActions: previousActions(board, previous) };
   },
 });
 
