@@ -131,11 +131,13 @@ describe("hand-off and backlog link fields survive agent updates", () => {
       timerRunning: false,
       discussingIndex: 0,
       previousRetroId: "retro:2026-10-04T10:00:00.000Z",
+      votesBy: { Priya: 2, Sam: 3 },
     } as unknown as RetroBoard;
     useWorkspaceStore.setState({ retroBoards: [board] });
     await update("retro_board", "retro:current", { phase: "discuss" });
     const after = useWorkspaceStore.getState().retroBoards![0];
     expect(after.previousRetroId).toBe("retro:2026-10-04T10:00:00.000Z");
+    expect(after.votesBy).toEqual({ Priya: 2, Sam: 3 });
     expect(after.cards[0].sentTo).toEqual([link]);
     expect(after.cards[0].carriedFrom).toBe("old-1");
   });
