@@ -7,8 +7,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { Download, Copy, FileJson, FileSpreadsheet, ImageIcon } from "lucide-react";
-import { exportToCSV, exportToJSON, exportToPNG, copyToClipboard } from "@/lib/utils/export";
+import { Download, Copy, FileJson, FileSpreadsheet, FileText, ImageIcon } from "lucide-react";
+import {
+  exportToCSV,
+  exportToJSON,
+  exportToMarkdown,
+  exportToPNG,
+  copyToClipboard,
+} from "@/lib/utils/export";
 import { toast } from "@/lib/utils/toast";
 
 interface ExportButtonProps {
@@ -16,6 +22,8 @@ interface ExportButtonProps {
   clipboardText?: string;
   csvData?: { headers: string[]; rows: (string | number)[][] };
   jsonData?: unknown;
+  /** The tool's content as Markdown, for pasting into a wiki, ticket or chat. */
+  markdown?: string;
   targetRef?: React.RefObject<HTMLElement | null>;
 }
 
@@ -24,6 +32,7 @@ export function ExportButton({
   clipboardText,
   csvData,
   jsonData,
+  markdown,
   targetRef,
 }: ExportButtonProps) {
   const handleCopy = async () => {
@@ -39,6 +48,18 @@ export function ExportButton({
       exportToCSV(csvData.headers, csvData.rows, filename);
       toast.success("CSV exported");
     }
+  };
+
+  const handleCopyMarkdown = async () => {
+    if (!markdown) return;
+    if (await copyToClipboard(markdown)) toast.success("Copied as Markdown");
+    else toast.error("Failed to copy");
+  };
+
+  const handleMarkdown = () => {
+    if (!markdown) return;
+    exportToMarkdown(markdown, filename);
+    toast.success("Markdown exported");
   };
 
   const handleJSON = () => {
@@ -74,15 +95,24 @@ export function ExportButton({
           Export
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="bg-surface border-border"
-      >
+      <DropdownMenuContent align="end" className="bg-surface border-border">
         {clipboardText && (
           <DropdownMenuItem onClick={handleCopy} className="gap-2 cursor-pointer">
             <Copy className="w-4 h-4" />
             Copy to Clipboard
           </DropdownMenuItem>
+        )}
+        {markdown && (
+          <>
+            <DropdownMenuItem onClick={handleCopyMarkdown} className="gap-2 cursor-pointer">
+              <Copy className="w-4 h-4" aria-hidden="true" />
+              Copy as Markdown
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleMarkdown} className="gap-2 cursor-pointer">
+              <FileText className="w-4 h-4" aria-hidden="true" />
+              Download Markdown (.md)
+            </DropdownMenuItem>
+          </>
         )}
         {csvData && (
           <DropdownMenuItem onClick={handleCSV} className="gap-2 cursor-pointer">

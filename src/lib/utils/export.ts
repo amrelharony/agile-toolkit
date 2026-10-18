@@ -27,7 +27,7 @@ const FORMULA_PREFIX = /^[=+\-@\t\r]/;
 // whole engine (plus its zustand store) into each of those chunks — and
 // keeps the module graph acyclic.
 let gamifyDispatch: ((name: string) => void) | null = null;
-function trackExport(format: "png" | "csv" | "json") {
+function trackExport(format: "png" | "csv" | "json" | "markdown") {
   if (typeof window === "undefined") return;
   void (async () => {
     try {
@@ -75,6 +75,13 @@ export function exportToCSV(headers: string[], rows: (string | number)[][], file
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
   saveAs(blob, `${sanitizeFilename(filename)}.csv`);
   trackExport("csv");
+}
+
+/** Save a Markdown document (meeting notes, a decision record) as `<filename>.md`. */
+export function exportToMarkdown(markdown: string, filename: string) {
+  const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+  saveAs(blob, `${sanitizeFilename(filename)}.md`);
+  trackExport("markdown");
 }
 
 export function exportToJSON(data: unknown, filename: string) {
