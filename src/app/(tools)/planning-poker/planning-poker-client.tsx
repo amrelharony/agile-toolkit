@@ -12,6 +12,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import type { Workspace } from "@/lib/stores/workspace-types";
+import { undoable } from "@/lib/utils/undoable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +27,12 @@ import {
   saveLocalSession,
 } from "./local-session";
 import { SCALES, SCALE_LABELS, type ScaleType, type Session } from "./types";
+
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
 
 // 6-char codes from a 32-symbol unambiguous alphabet (no 0/O/1/I/L). Backed
 // by a CSPRNG via nanoid — Math.random was predictable and could collide
@@ -262,11 +269,30 @@ export function PlanningPokerClient() {
   };
 
   const handleLeave = () => {
-    clearLocalSession();
-    broadcastSessionEnded();
-    setActiveRoomCode(null);
-    setPendingInitial(null);
-    setSession(() => null);
+    const leave = () => {
+      clearLocalSession();
+      broadcastSessionEnded();
+      setActiveRoomCode(null);
+      setPendingInitial(null);
+      setSession(() => null);
+    };
+    // Leaving a local-only session discards its stories, so offer Undo. A
+    // live room can't be taken back: the squad has already seen the host go.
+    const left = session;
+    if (!isLocalOnly || !left || left.stories.length === 0) return leave();
+    const n = left.stories.length;
+    undoable({
+      label: `Left “${shortName(left.sessionName)}”`,
+      description: `${n} ${n === 1 ? "story" : "stories"} and their estimates were cleared.`,
+      apply: leave,
+      // Re-open it the way a stored session is restored, unless another
+      // session has been started since.
+      revert: () => {
+        if (loadLocalSession()) return;
+        setPendingInitial(left);
+        setActiveRoomCode(left.roomCode);
+      },
+    });
   };
 
   // ─── AI prompt config (owner only, derived from current session) ───

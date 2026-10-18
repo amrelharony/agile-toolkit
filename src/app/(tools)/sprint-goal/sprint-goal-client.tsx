@@ -11,6 +11,7 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateSprintGoalPrompts } from "@/lib/ai-prompts/sprint-goal";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPRINT_GOAL_ACTIONS } from "@/lib/history/event-actions";
+import { undoable } from "@/lib/utils/undoable";
 import { selectEvents } from "@/lib/history/selectors";
 import { useHistoryStore } from "@/lib/history/history-store";
 import { CalloutAlert } from "@/components/shared/callout-alert";
@@ -132,6 +133,12 @@ function genId() {
   return crypto.randomUUID();
 }
 
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 // Singleton id for the one current sprint goal. MUST match SG_ID in
@@ -233,8 +240,26 @@ export function SprintGoalClient() {
   };
 
   const removeCriterion = (id: string) => {
-    setCriteria((prev) => (prev.length > 1 ? prev.filter((c) => c.id !== id) : prev));
-    log(SPRINT_GOAL_ACTIONS.CRITERION_REMOVED, { criterionId: id });
+    const index = criteria.findIndex((c) => c.id === id);
+    // The last criterion stays (its button is disabled too).
+    if (index === -1 || criteria.length <= 1) return;
+    const criterion = criteria[index];
+    undoable({
+      label: criterion.text.trim()
+        ? `Deleted “${shortName(criterion.text)}”`
+        : `Deleted acceptance criterion ${index + 1}`,
+      apply: () => {
+        setCriteria((prev) => (prev.length > 1 ? prev.filter((c) => c.id !== id) : prev));
+        log(SPRINT_GOAL_ACTIONS.CRITERION_REMOVED, { criterionId: id });
+      },
+      revert: () =>
+        setCriteria((prev) => {
+          if (prev.some((c) => c.id === id)) return prev;
+          const next = [...prev];
+          next.splice(Math.min(index, next.length), 0, criterion);
+          return next;
+        }),
+    });
   };
 
   const updateCriterionText = (id: string, text: string) =>
@@ -249,8 +274,23 @@ export function SprintGoalClient() {
 
   const addKeyResult = () => setKeyResults((prev) => [...prev, ""]);
 
-  const removeKeyResult = (index: number) =>
-    setKeyResults((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev));
+  // Key results are plain strings with no id, so Undo puts the text back at
+  // the index it was removed from.
+  const removeKeyResult = (index: number) => {
+    if (keyResults.length <= 1 || index >= keyResults.length) return;
+    const kr = keyResults[index];
+    undoable({
+      label: kr.trim() ? `Deleted “${shortName(kr)}”` : `Deleted key result ${index + 1}`,
+      apply: () =>
+        setKeyResults((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : prev)),
+      revert: () =>
+        setKeyResults((prev) => {
+          const next = [...prev];
+          next.splice(Math.min(index, next.length), 0, kr);
+          return next;
+        }),
+    });
+  };
 
   const updateKeyResult = (index: number, value: string) =>
     setKeyResults((prev) => prev.map((kr, i) => (i === index ? value : kr)));

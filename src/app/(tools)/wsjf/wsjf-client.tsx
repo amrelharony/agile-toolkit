@@ -17,6 +17,13 @@ import { generateWsjfPrompts } from "@/lib/ai-prompts/wsjf";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { WSJF_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+import { undoable } from "@/lib/utils/undoable";
+
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
 
 export function WsjfClient() {
   const all = useWorkspaceStore((s) => s.prioritizations ?? []);
@@ -68,6 +75,23 @@ export function WsjfClient() {
     setTc("");
     setRrOe("");
     setSize("");
+  }
+
+  // The table is ranked by score, so the restored item finds its own place.
+  function remove(id: string) {
+    const item = items.find((x) => x.id === id);
+    if (!item) return;
+    undoable({
+      label: `Deleted “${shortName(item.title)}”`,
+      apply: () => {
+        removeOne(id);
+        log(WSJF_ACTIONS.ITEM_REMOVED, { id });
+      },
+      revert: () => {
+        const back = (useWorkspaceStore.getState().prioritizations ?? []).some((x) => x.id === id);
+        if (!back) upsert(item);
+      },
+    });
   }
 
   const ranked = useMemo(
@@ -253,10 +277,7 @@ export function WsjfClient() {
                       <td className="p-2">
                         <button
                           type="button"
-                          onClick={() => {
-                            removeOne(r.id);
-                            log(WSJF_ACTIONS.ITEM_REMOVED, { id: r.id });
-                          }}
+                          onClick={() => remove(r.id)}
                           aria-label={`Remove ${r.title}`}
                           className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                         >

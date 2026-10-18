@@ -20,6 +20,7 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { type HistoryLogger } from "@/lib/history/use-history-logger";
 import { RETRO_ACTIONS } from "@/lib/history/event-actions";
 import { kMeansAuto } from "@/lib/analytics/clustering";
+import { undoable } from "@/lib/utils/undoable";
 import { type BoardState, MAX_VOTES, PHASES } from "../types";
 import {
   makeId,
@@ -28,11 +29,19 @@ import {
   extractCardFeatures,
   buildExportText,
   buildExportJson,
+  removeCardWithGroup,
+  restoreRemovedCards,
 } from "../helpers";
 import { PhaseIndicator } from "./phase-indicator";
 import { TimerWidget } from "./timer-widget";
 import { RetroColumnPanel } from "./retro-column-panel";
 import { themed, tint } from "@/lib/utils/theme-color";
+
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
 
 export function Board({
   state,
@@ -135,27 +144,31 @@ export function Board({
 
   const handleDelete = useCallback(
     (id: string) => {
-      let cascadedCount = 0;
-      onUpdate((prev) => {
-        // Collect every id that should disappear: the deleted card and every
-        // card grouped under it. Then sweep groupedWith on survivors so a
-        // parent that pointed at a now-deleted child doesn't keep a dangling
-        // reference (used by exports and the AI prompt).
-        const removed = new Set<string>([id]);
-        for (const c of prev.cards) if (c.groupedWith === id) removed.add(c.id);
-        cascadedCount = removed.size - 1;
-        return {
-          ...prev,
-          cards: prev.cards
-            .filter((c) => !removed.has(c.id))
-            .map((c) =>
-              c.groupedWith && removed.has(c.groupedWith) ? { ...c, groupedWith: null } : c
-            ),
-        };
+      const card = state.cards.find((c) => c.id === id);
+      if (!card) return;
+      // The card goes with every card grouped under it. Keep the board as it
+      // was so Undo can put them all back in place, still grouped.
+      const snapshot = state.cards;
+      const { removed } = removeCardWithGroup(snapshot, id);
+      const cascadedCount = removed.size - 1;
+      undoable({
+        label: `Deleted “${shortName(card.text)}”`,
+        description:
+          cascadedCount > 0
+            ? `And ${cascadedCount} card${cascadedCount === 1 ? "" : "s"} grouped under it.`
+            : undefined,
+        apply: () => {
+          onUpdate((prev) => ({ ...prev, cards: removeCardWithGroup(prev.cards, id).cards }));
+          log(RETRO_ACTIONS.CARD_REMOVED, { cardId: id, cascadedCount });
+        },
+        revert: () =>
+          onUpdate((prev) => ({
+            ...prev,
+            cards: restoreRemovedCards(prev.cards, snapshot, removed),
+          })),
       });
-      log(RETRO_ACTIONS.CARD_REMOVED, { cardId: id, cascadedCount });
     },
-    [onUpdate, log]
+    [onUpdate, log, state.cards]
   );
 
   const handleGroup = useCallback(
@@ -335,6 +348,25 @@ export function Board({
     if (cardCount === 0) clearBoard();
     else setConfirmClearOpen(true);
   };
+  // A confirmed clear can be undone: the cards, votes and phase come back.
+  // Cards added since the clear are kept.
+  const confirmClearBoard = () => {
+    const before = state;
+    undoable({
+      label: `Cleared ${cardsLabel}`,
+      apply: clearBoard,
+      revert: () =>
+        onUpdate((prev) => {
+          const ids = new Set(before.cards.map((c) => c.id));
+          return {
+            ...prev,
+            cards: [...before.cards, ...prev.cards.filter((c) => !ids.has(c.id))],
+            userVotes: before.userVotes,
+            phase: before.phase,
+          };
+        }),
+    });
+  };
 
   const totalCards = state.cards.filter((c) => c.groupedWith === null).length;
   const actionCount = state.cards.filter((c) => c.isActionItem).length;
@@ -509,9 +541,9 @@ export function Board({
         open={confirmClearOpen}
         onOpenChange={setConfirmClearOpen}
         title="Clear all cards?"
-        description={`All ${cardsLabel} and their votes will be removed and the board goes back to the Write phase. This can't be undone.`}
+        description={`All ${cardsLabel} and their votes will be removed and the board goes back to the Write phase.`}
         confirmLabel="Clear board"
-        onConfirm={clearBoard}
+        onConfirm={confirmClearBoard}
       />
     </ToolPageWrapper>
   );

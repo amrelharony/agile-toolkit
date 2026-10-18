@@ -12,6 +12,7 @@ import { generateStandupPrompts } from "@/lib/ai-prompts/standup";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { STANDUP_ACTIONS } from "@/lib/history/event-actions";
+import { undoable } from "@/lib/utils/undoable";
 import { selectEvents } from "@/lib/history/selectors";
 import { useHistoryStore } from "@/lib/history/history-store";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,12 @@ import {
 
 function todayStr() {
   return todayLocalISO();
+}
+
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
 function ageLabel(timestamp: number) {
@@ -517,10 +524,21 @@ export function StandupClient() {
     if (teamMembers.some((m) => m.name.trim().toLowerCase() === norm)) return;
     upsertTeamMember({ id: `member_${crypto.randomUUID()}`, name: name.trim() });
   };
+  // Undo brings the member back to the roster (at the end). Owner links the
+  // store cleared on removal (stories, OKRs, impediments, canvas cards) stay
+  // cleared.
   const removeMember = (name: string) => {
     const norm = name.trim().toLowerCase();
     const tm = teamMembers.find((m) => m.name.trim().toLowerCase() === norm);
-    if (tm) removeTeamMember(tm.id);
+    if (!tm) return;
+    undoable({
+      label: `Removed “${shortName(tm.name)}”`,
+      apply: () => removeTeamMember(tm.id),
+      revert: () => {
+        const back = (useWorkspaceStore.getState().teamMembers ?? []).some((m) => m.id === tm.id);
+        if (!back) upsertTeamMember(tm);
+      },
+    });
   };
   const hasEntry = (member: string, date: string) =>
     entries.some((e) => e.member === member && e.date === date);
@@ -646,11 +664,27 @@ export function StandupClient() {
     resetRaw();
     log(STANDUP_ACTIONS.STANDUP_RESET, {});
   };
-  // Clearing wipes every day's entries, so confirm first — unless there is
-  // nothing to lose.
+  // Clearing wipes every day's entries, so confirm first (with the count),
+  // then offer Undo — unless there is nothing to lose.
   const requestReset = () => {
     if (entries.length === 0) reset();
     else setConfirmClearOpen(true);
+  };
+  const confirmReset = () => {
+    const cleared = useWorkspaceStore.getState().standupEntries ?? [];
+    undoable({
+      label: `Deleted ${cleared.length} standup ${cleared.length === 1 ? "entry" : "entries"}`,
+      apply: reset,
+      // Entries posted since the clear are kept, and win over a restored
+      // entry for the same member and day (one entry per member per day).
+      revert: () =>
+        useWorkspaceStore.setState((s) => {
+          const now = s.standupEntries ?? [];
+          const taken = new Set(now.map((e) => `${e.date} ${e.member}`));
+          const restored = cleared.filter((e) => !taken.has(`${e.date} ${e.member}`));
+          return { standupEntries: [...restored, ...now] };
+        }),
+    });
   };
 
   /* -- CSV export of all entries ------------------------------------------ */
@@ -1001,7 +1035,7 @@ export function StandupClient() {
         title={`Delete all ${entries.length} standup ${entries.length === 1 ? "entry" : "entries"}?`}
         description="Every day's entries and blockers will be removed. Team members stay on the roster."
         confirmLabel="Delete entries"
-        onConfirm={reset}
+        onConfirm={confirmReset}
       />
       <ConfirmDialog
         open={confirmReplaceOpen}

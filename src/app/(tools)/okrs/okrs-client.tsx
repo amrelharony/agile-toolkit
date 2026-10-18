@@ -36,7 +36,14 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { OKR_ACTIONS } from "@/lib/history/event-actions";
 import { ActionRow } from "@/components/shared/action-row";
 import { EmptyState } from "@/components/shared/empty-state";
+import { undoable } from "@/lib/utils/undoable";
 // usePersisted no longer used — workspace store is the single source of truth.
+
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
 
 /**
  * Numeric input with a string draft buffer so typing a multi-digit value
@@ -152,8 +159,20 @@ export function OkrsClient() {
   };
   const remove = (id: string) => {
     const obj = okrs.find((o) => o.id === id);
-    removeOkr(id);
-    log(OKR_ACTIONS.OBJECTIVE_REMOVED, { okrId: id, objective: obj?.objective });
+    if (!obj) return;
+    undoable({
+      label: obj.objective.trim()
+        ? `Deleted “${shortName(obj.objective)}”`
+        : "Deleted an untitled objective",
+      apply: () => {
+        removeOkr(id);
+        log(OKR_ACTIONS.OBJECTIVE_REMOVED, { okrId: id, objective: obj.objective });
+      },
+      // Comes back with its key results; lands at the end of the list.
+      revert: () => {
+        if (!useWorkspaceStore.getState().okrs.some((o) => o.id === id)) upsertOkr(obj);
+      },
+    });
   };
   const update = (id: string, patch: Partial<Okr>) => {
     const current = okrs.find((o) => o.id === id);
@@ -181,12 +200,30 @@ export function OkrsClient() {
   };
   const removeKr = (okrId: string, krId: string) => {
     const current = okrs.find((o) => o.id === okrId);
-    if (!current) return;
-    upsertOkr({
-      ...current,
-      keyResults: current.keyResults.filter((k) => k.id !== krId),
+    const index = current?.keyResults.findIndex((k) => k.id === krId) ?? -1;
+    if (!current || index === -1) return;
+    const kr = current.keyResults[index];
+    undoable({
+      label: kr.title.trim()
+        ? `Deleted “${shortName(kr.title)}”`
+        : "Deleted an untitled key result",
+      apply: () => {
+        upsertOkr({
+          ...current,
+          keyResults: current.keyResults.filter((k) => k.id !== krId),
+        });
+        log(OKR_ACTIONS.KEY_RESULT_REMOVED, { okrId, krId });
+      },
+      // Back into its objective at its old position, keeping any edits made
+      // since. Nothing to do if the objective itself was deleted meanwhile.
+      revert: () => {
+        const parent = useWorkspaceStore.getState().okrs.find((o) => o.id === okrId);
+        if (!parent || parent.keyResults.some((k) => k.id === krId)) return;
+        const keyResults = [...parent.keyResults];
+        keyResults.splice(Math.min(index, keyResults.length), 0, kr);
+        upsertOkr({ ...parent, keyResults });
+      },
     });
-    log(OKR_ACTIONS.KEY_RESULT_REMOVED, { okrId, krId });
   };
 
   const promptConfig = useMemo(
