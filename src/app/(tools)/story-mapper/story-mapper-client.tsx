@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useId } from "react";
 import {
   DragOverlay,
   PointerSensor,
@@ -9,8 +9,10 @@ import {
   useSensor,
   useSensors,
   closestCorners,
+  type Announcements,
   type DragStartEvent,
   type DragEndEvent,
+  type UniqueIdentifier,
 } from "@dnd-kit/core";
 import { SonifiedDndContext as DndContext } from "@/lib/sonification/sonified-dnd-context";
 import {
@@ -39,9 +41,18 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Trash2, GripVertical, Pencil, Map } from "lucide-react";
+import { Plus, Trash2, GripVertical, Pencil, Map, ArrowRightLeft } from "lucide-react";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                      */
@@ -382,6 +393,7 @@ function CardEditDialog({
   // anywhere in the map changes — that re-render was blurring open
   // EditableName inputs mid-edit when a sibling card got dragged.
   const updateCard = useStoryMapStore((s) => s.updateCard);
+  const uid = useId();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(card.title);
   const [description, setDescription] = useState(card.description);
@@ -416,8 +428,14 @@ function CardEditDialog({
         </DialogHeader>
         <div className="space-y-4 pt-2">
           <div className="space-y-1.5">
-            <label className="text-xs text-sub font-medium uppercase tracking-wider">Title</label>
+            <label
+              htmlFor={`${uid}-title`}
+              className="text-xs text-sub font-medium uppercase tracking-wider"
+            >
+              Title
+            </label>
             <Input
+              id={`${uid}-title`}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Story title…"
@@ -426,10 +444,14 @@ function CardEditDialog({
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs text-sub font-medium uppercase tracking-wider">
+            <label
+              htmlFor={`${uid}-description`}
+              className="text-xs text-sub font-medium uppercase tracking-wider"
+            >
               Description
             </label>
             <textarea
+              id={`${uid}-description`}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="As a user, I want to…"
@@ -438,13 +460,20 @@ function CardEditDialog({
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs text-sub font-medium uppercase tracking-wider">Color</label>
-            <div className="flex gap-2">
+            <p
+              id={`${uid}-color`}
+              className="text-xs text-sub font-medium uppercase tracking-wider"
+            >
+              Color
+            </p>
+            <div role="group" aria-labelledby={`${uid}-color`} className="flex gap-2">
               {CARD_COLORS.map((c) => (
                 <button
                   key={c.value}
                   type="button"
                   title={c.label}
+                  aria-label={c.label}
+                  aria-pressed={color === c.value}
                   onClick={() => setColor(c.value)}
                   className="min-touch-coarse w-7 h-7 rounded-full transition-transform hover:scale-110"
                   style={{
@@ -505,20 +534,146 @@ function decodeDragId(id: string) {
   return { sliceId: parts[0], stepId: parts[1], cardId: parts[2] };
 }
 
-function DraggableCard({
+/** moveCard's signature, passed down so menu moves are logged like drags. */
+type MoveCardFn = StoryMapState["moveCard"];
+
+/**
+ * Non-drag alternative to drag and drop (WCAG 2.5.7): move a card up or
+ * down within its cell, or to the end of any other cell, from a menu.
+ */
+function CardMoveMenu({
   card,
   sliceId,
   stepId,
+  index,
+  count,
+  onMove,
 }: {
   card: StoryCard;
   sliceId: string;
   stepId: string;
+  index: number;
+  count: number;
+  onMove: MoveCardFn;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          data-card-move={card.id}
+          className="min-touch-coarse p-1 rounded text-sub hover:text-accent hover:bg-accent/10 transition-colors inline-flex items-center justify-center"
+          title="Move"
+          aria-label={`Move ${card.title}`}
+        >
+          <ArrowRightLeft className="w-3.5 h-3.5" aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <CardMoveMenuItems
+          card={card}
+          sliceId={sliceId}
+          stepId={stepId}
+          index={index}
+          count={count}
+          onMove={onMove}
+        />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Mounted only while the menu is open, so cards don't subscribe to the map. */
+function CardMoveMenuItems({
+  card,
+  sliceId,
+  stepId,
+  index,
+  count,
+  onMove,
+}: {
+  card: StoryCard;
+  sliceId: string;
+  stepId: string;
+  index: number;
+  count: number;
+  onMove: MoveCardFn;
+}) {
+  const steps = useStoryMapStore((s) => s.steps);
+  const slices = useStoryMapStore((s) => s.slices);
+  const uid = useId();
+
+  const move = (toSliceId: string, toStepId: string, toIndex?: number) => {
+    onMove(sliceId, stepId, toSliceId, toStepId, card.id, toIndex);
+    // A move to another cell remounts the card there and unmounts this
+    // menu: return focus to the moved card's menu button, not <body>.
+    requestAnimationFrame(() => {
+      Array.from(document.querySelectorAll<HTMLElement>("[data-card-move]"))
+        .find((el) => el.dataset.cardMove === card.id)
+        ?.focus();
+    });
+  };
+
+  return (
+    <>
+      <DropdownMenuItem disabled={index === 0} onSelect={() => move(sliceId, stepId, index - 1)}>
+        Move up
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        disabled={index >= count - 1}
+        onSelect={() => move(sliceId, stepId, index + 1)}
+      >
+        Move down
+      </DropdownMenuItem>
+      {slices.map((sl, i) => (
+        <DropdownMenuGroup key={sl.id} aria-labelledby={`${uid}-${i}`}>
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel id={`${uid}-${i}`} className="text-xs text-sub">
+            Move to {sl.name}
+          </DropdownMenuLabel>
+          {steps.map((st) => (
+            <DropdownMenuItem
+              key={st.id}
+              disabled={sl.id === sliceId && st.id === stepId}
+              onSelect={() => move(sl.id, st.id)}
+            >
+              {st.name}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      ))}
+    </>
+  );
+}
+
+function DraggableCard({
+  card,
+  sliceId,
+  stepId,
+  index,
+  count,
+  onMove,
+}: {
+  card: StoryCard;
+  sliceId: string;
+  stepId: string;
+  index: number;
+  count: number;
+  onMove: MoveCardFn;
 }) {
   // BUG-RD3-story-mapper-1: scope selector — see CardEditDialog above.
   const removeCard = useStoryMapStore((s) => s.removeCard);
   const dragId = encodeDragId(sliceId, stepId, card.id);
 
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
     id: dragId,
   });
 
@@ -533,17 +688,23 @@ function DraggableCard({
       ref={setNodeRef}
       style={{ ...style, borderColor: `${card.color}40` }}
       className="group relative rounded-md border text-sm p-2.5 bg-surface-deep hover:bg-surface transition-colors cursor-default"
-      {...attributes}
     >
-      {/* Drag handle — stays visible on touch devices since hover doesn't exist. */}
+      {/* Drag handle — stays visible on touch devices since hover doesn't exist.
+          It is the drag activator: focusable, and it gets both the sortable
+          attributes and the listeners, so the KeyboardSensor (Space to pick
+          up, arrows to move, Space to drop) receives its keydown. */}
       <button
         type="button"
+        ref={setActivatorNodeRef}
+        {...attributes}
         {...listeners}
-        className="min-touch-coarse absolute left-1 top-1/2 -translate-y-1/2 flex items-center justify-center text-sub/30 hover:text-sub cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity"
-        tabIndex={-1}
-        aria-label="Drag handle"
+        className="min-touch-coarse absolute left-1 top-1/2 -translate-y-1/2 flex items-center justify-center text-sub/30 hover:text-sub cursor-grab active:cursor-grabbing touch-none opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity"
+        aria-label={`Drag ${card.title}`}
       >
-        <GripVertical className="w-4 h-4 [@media(pointer:coarse)]:w-5 [@media(pointer:coarse)]:h-5" />
+        <GripVertical
+          className="w-4 h-4 [@media(pointer:coarse)]:w-5 [@media(pointer:coarse)]:h-5"
+          aria-hidden="true"
+        />
       </button>
 
       <div className="pl-5 pr-8 [@media(pointer:coarse)]:pl-7">
@@ -574,9 +735,17 @@ function DraggableCard({
               onClick={(e) => e.stopPropagation()}
               aria-label={`Edit ${card.title}`}
             >
-              <Pencil className="w-3.5 h-3.5" />
+              <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
           }
+        />
+        <CardMoveMenu
+          card={card}
+          sliceId={sliceId}
+          stepId={stepId}
+          index={index}
+          count={count}
+          onMove={onMove}
         />
         <button
           type="button"
@@ -585,7 +754,7 @@ function DraggableCard({
           title="Delete card"
           aria-label={`Delete ${card.title}`}
         >
-          <Trash2 className="w-3.5 h-3.5" />
+          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
       </div>
     </div>
@@ -622,10 +791,12 @@ function CellDropZone({
   sliceId,
   stepId,
   cards,
+  onMove,
 }: {
   sliceId: string;
   stepId: string;
   cards: StoryCard[];
+  onMove: MoveCardFn;
 }) {
   // BUG-RD3-story-mapper-1: scope selector — see CardEditDialog above.
   const addCard = useStoryMapStore((s) => s.addCard);
@@ -649,8 +820,16 @@ function CellDropZone({
           isOver && cards.length === 0 ? "bg-accent/5 ring-1 ring-accent/30" : ""
         }`}
       >
-        {cards.map((card) => (
-          <DraggableCard key={card.id} card={card} sliceId={sliceId} stepId={stepId} />
+        {cards.map((card, i) => (
+          <DraggableCard
+            key={card.id}
+            card={card}
+            sliceId={sliceId}
+            stepId={stepId}
+            index={i}
+            count={cards.length}
+            onMove={onMove}
+          />
         ))}
       </div>
       <button
@@ -658,7 +837,7 @@ function CellDropZone({
         onClick={() => addCard(sliceId, stepId)}
         className="mt-1.5 w-full flex items-center gap-1 text-xs text-sub/50 hover:text-accent hover:bg-accent/5 rounded px-1.5 py-1 transition-colors group"
       >
-        <Plus className="w-3 h-3 flex-shrink-0 group-hover:text-accent" />
+        <Plus className="w-3 h-3 flex-shrink-0 group-hover:text-accent" aria-hidden="true" />
         <span>Add card</span>
       </button>
     </SortableContext>
@@ -720,6 +899,48 @@ export function StoryMapperClient() {
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
+
+  // Live-region announcements in words. dnd-kit's defaults read the raw
+  // "sliceId::stepId::cardId" drag ids aloud.
+  const accessibility = useMemo(() => {
+    const cardTitle = (cardId: string) => {
+      for (const sl of slices) {
+        for (const cards of Object.values(sl.cards)) {
+          const found = cards.find((c) => c.id === cardId);
+          if (found) return found.title;
+        }
+      }
+      return "story card";
+    };
+    const cellName = (id: UniqueIdentifier) => {
+      const { sliceId, stepId } = decodeDragId(String(id));
+      const step = steps.find((st) => st.id === stepId)?.name ?? "step";
+      const slice = slices.find((sl) => sl.id === sliceId)?.name ?? "slice";
+      return `${step}, ${slice}`;
+    };
+    const cardName = (id: UniqueIdentifier) => `"${cardTitle(decodeDragId(String(id)).cardId)}"`;
+    const target = (id: UniqueIdentifier) => {
+      const { cardId } = decodeDragId(String(id));
+      return cardId === EMPTY_CELL_SENTINEL
+        ? `the end of ${cellName(id)}`
+        : `${cardName(id)} in ${cellName(id)}`;
+    };
+    const announcements: Announcements = {
+      onDragStart: ({ active }) => `Picked up ${cardName(active.id)} in ${cellName(active.id)}.`,
+      onDragOver: ({ active, over }) => {
+        if (!over) return `${cardName(active.id)} is no longer over a drop area.`;
+        if (over.id === active.id) return `${cardName(active.id)} is back in its original place.`;
+        return `${cardName(active.id)} is over ${target(over.id)}.`;
+      },
+      onDragEnd: ({ active, over }) => {
+        if (!over || over.id === active.id) return `${cardName(active.id)} was dropped. Not moved.`;
+        return `${cardName(active.id)} was moved to ${cellName(over.id)}.`;
+      },
+      onDragCancel: ({ active }) =>
+        `Moving ${cardName(active.id)} was cancelled. It is back in ${cellName(active.id)}.`,
+    };
+    return { announcements };
+  }, [steps, slices]);
 
   /* -- Find the card being dragged for the overlay ---- */
   const activeCard = useMemo<StoryCard | null>(() => {
@@ -839,6 +1060,7 @@ export function StoryMapperClient() {
     >
       <DndContext
         sensors={sensors}
+        accessibility={accessibility}
         collisionDetection={closestCorners}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
@@ -961,6 +1183,7 @@ export function StoryMapperClient() {
                         sliceId={slice.id}
                         stepId={step.id}
                         cards={slice.cards[step.id] ?? []}
+                        onMove={moveCard}
                       />
                     </div>
                   ))}
