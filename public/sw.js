@@ -6,7 +6,7 @@
  *
  *  - /_next/static/* (content-hashed, immutable): cache first.
  *  - Page navigations: network first; on failure, the last copy of that
- *    page; failing that, a small offline page.
+ *    same page; failing that, a small offline page.
  *  - Everything else (API, auth, Supabase, AI providers, RSC fetches, the
  *    mascot model) is left to the network and the browser's HTTP cache.
  *
@@ -64,7 +64,9 @@ async function handleNavigation(request) {
     }
     return response;
   } catch {
-    const cached = (await cache.match(request, { ignoreSearch: true })) || (await cache.match("/"));
+    // Only this page's own copy: serving another page's HTML under this URL
+    // would hydrate the wrong route.
+    const cached = await cache.match(request, { ignoreSearch: true });
     return (
       cached ||
       new Response(OFFLINE_HTML, {
