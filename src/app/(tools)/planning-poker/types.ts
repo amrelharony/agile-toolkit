@@ -31,7 +31,13 @@ export interface Story {
   title: string;
   description?: string;
   finalEstimate: string | null;
+  /** The revealed votes of each finished round, oldest first and sorted
+   *  low to high, so a re-voted story keeps the first round's spread. */
+  rounds?: string[][];
 }
+
+/** Rounds kept per story; older ones drop off. */
+export const MAX_ROUNDS = 10;
 
 export interface Session {
   roomCode: string;
@@ -108,6 +114,15 @@ export function isValidSession(raw: unknown): raw is Session {
       (typeof st.finalEstimate !== "string" || st.finalEstimate.length > 32)
     )
       return false;
+    if (st.rounds !== undefined) {
+      if (!Array.isArray(st.rounds) || st.rounds.length > MAX_ROUNDS) return false;
+      for (const round of st.rounds) {
+        if (!Array.isArray(round) || round.length > 100) return false;
+        for (const v of round) {
+          if (typeof v !== "string" || v.length === 0 || v.length > 32) return false;
+        }
+      }
+    }
   }
   return true;
 }

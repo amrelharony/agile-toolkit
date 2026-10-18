@@ -17,7 +17,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SectionCard } from "@/components/shared/section-card";
+import { ExportButton } from "@/components/shared/export-button";
 import { SessionShareButton } from "@/components/collab/session-share-button";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
 import { SessionScreen } from "./session-screen";
 import { usePokerSession } from "./use-poker-session";
 import {
@@ -27,6 +33,13 @@ import {
   saveLocalSession,
 } from "./local-session";
 import { SCALES, SCALE_LABELS, type ScaleType, type Session } from "./types";
+import {
+  DEFAULT_DISPLAY_NAME,
+  DEFAULT_SESSION_NAME,
+  buildExample,
+  isExampleSession,
+} from "./example";
+import { toMarkdown } from "./markdown";
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -46,6 +59,7 @@ function generateRoomCode(): string {
 // ─── Lobby ───────────────────────────────────────────────────────────
 function LobbyScreen({
   onStart,
+  onLoadExample,
   isOwner,
 }: {
   onStart: (data: {
@@ -54,12 +68,15 @@ function LobbyScreen({
     scaleType: ScaleType;
     displayName: string;
   }) => void;
+  /** Omitted until auth settles, so the example can't beat a stored
+   *  session to the restore. */
+  onLoadExample?: () => void;
   isOwner: boolean;
 }) {
-  const [sessionName, setSessionName] = useState("Sprint Planning");
+  const [sessionName, setSessionName] = useState(DEFAULT_SESSION_NAME);
   const [scaleType, setScaleType] = useState<ScaleType>("fibonacci");
   const [customInput, setCustomInput] = useState("1, 2, 4, 8, 16, 32");
-  const [displayName, setDisplayName] = useState("Scrum Master");
+  const [displayName, setDisplayName] = useState(DEFAULT_DISPLAY_NAME);
 
   const resolvedScale =
     scaleType === "custom"
@@ -164,6 +181,7 @@ function LobbyScreen({
         >
           Start Session
         </Button>
+        {onLoadExample && <LoadExampleButton onLoad={onLoadExample} className="self-center" />}
       </SectionCard>
 
       <SectionCard
@@ -228,7 +246,8 @@ export function PlanningPokerClient() {
     const stored = loadLocalSession();
     if (!stored) return;
     setPendingInitial(adoptLocalSession(stored, userId));
-    setActiveRoomCode(stored.roomCode);
+    // The example never gets a room, even if this browser signs in later.
+    setActiveRoomCode(isExampleId(stored.roomCode) ? null : stored.roomCode);
   }, [visitor, isOwner, session, pendingInitial, userId]);
 
   // Mirror every change of a local-only session into storage. A session
@@ -279,6 +298,7 @@ export function PlanningPokerClient() {
     // Leaving a local-only session discards its stories, so offer Undo. A
     // live room can't be taken back: the squad has already seen the host go.
     const left = session;
+    const leftRoom = activeRoomCode;
     if (!isLocalOnly || !left || left.stories.length === 0) return leave();
     const n = left.stories.length;
     undoable({
@@ -286,14 +306,53 @@ export function PlanningPokerClient() {
       description: `${n} ${n === 1 ? "story" : "stories"} and their estimates were cleared.`,
       apply: leave,
       // Re-open it the way a stored session is restored, unless another
-      // session has been started since.
+      // session has been started since. It goes back to the room it had:
+      // none for the example, which must never open a channel.
       revert: () => {
         if (loadLocalSession()) return;
         setPendingInitial(left);
-        setActiveRoomCode(left.roomCode);
+        setActiveRoomCode(leftRoom);
       },
     });
   };
+
+  // ─── Example session ───
+  // Committed straight through setSession with no room code, so useRoom
+  // never opens a channel for it; it's stored like any local session.
+  // Loading it isn't the user's work, so nothing is logged.
+  const exampleShown = isExampleSession(session);
+  const loadExample = () => {
+    if (session || pendingInitial) return;
+    setSession(buildExample(userId));
+  };
+  // Drops the example's stories and teammates. Stories the user added
+  // stay on as their own session; with none, it's back to the lobby.
+  const clearExample = () => {
+    if (!session?.stories.some((s) => !isExampleId(s.id))) {
+      clearLocalSession();
+      setActiveRoomCode(null);
+      setPendingInitial(null);
+      setSession(() => null);
+      return;
+    }
+    setSession((prev) =>
+      prev
+        ? {
+            ...prev,
+            roomCode: generateRoomCode(),
+            sessionName: DEFAULT_SESSION_NAME,
+            participants: prev.participants
+              .filter((p) => !isExampleId(p.id))
+              .map((p) => ({ ...p, vote: null })),
+            stories: prev.stories.filter((s) => !isExampleId(s.id)),
+            currentStoryIdx: 0,
+            revealed: false,
+          }
+        : prev
+    );
+  };
+
+  const markdown = useMemo(() => toMarkdown(session), [session]);
 
   // ─── AI prompt config (owner only, derived from current session) ───
   const workspace = useWorkspaceStore(
@@ -361,7 +420,11 @@ export function PlanningPokerClient() {
                 </span>
               </div>
             )}
-            <LobbyScreen onStart={handleStart} isOwner={isOwner} />
+            <LobbyScreen
+              onStart={handleStart}
+              onLoadExample={visitor || isOwner ? loadExample : undefined}
+              isOwner={isOwner}
+            />
           </motion.div>
         ) : (
           <motion.div
@@ -371,6 +434,7 @@ export function PlanningPokerClient() {
             exit={{ opacity: 0, y: -16 }}
             transition={{ duration: 0.2 }}
           >
+            {exampleShown && <ExampleNotice onClear={clearExample} />}
             <SessionScreen
               session={session}
               onUpdateSession={(updater) => setSession((prev) => (prev ? updater(prev) : prev))}
@@ -379,12 +443,16 @@ export function PlanningPokerClient() {
               onLeave={handleLeave}
               extraHeaderActions={
                 <>
+                  <ExportButton filename="planning-poker" markdown={markdown} />
                   {promptConfig && <AiPromptGenerator config={promptConfig} />}
-                  <SessionShareButton
-                    toolId="planning-poker"
-                    entityId={session.roomCode}
-                    label="Invite squad"
-                  />
+                  {/* The example (and what's kept of it) has no room to invite to. */}
+                  {activeRoomCode !== null && (
+                    <SessionShareButton
+                      toolId="planning-poker"
+                      entityId={session.roomCode}
+                      label="Invite squad"
+                    />
+                  )}
                 </>
               }
               connectionLabel={

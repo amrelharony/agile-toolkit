@@ -26,6 +26,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PLANNING_POKER_ACTIONS } from "@/lib/history/event-actions";
 import { SCALE_LABELS, type Session, type Participant } from "./types";
 import { REDACTED_VOTE } from "./merge";
+import { castVotes, isNumeric, sortVotes, withRound } from "./rounds";
 
 interface Props {
   session: Session;
@@ -51,9 +52,15 @@ interface Props {
 
 // ─── helpers (duplicated minimal subset; original copies remain in
 // planning-poker-client.tsx for the lobby tour-of-features) ────────
+// Letters and digits only, so "Priya (PM)" reads "PP", not "P(". Built
+// with the constructor, like the canvas mention regexes: the Unicode flag
+// needs a newer compile target than ours.
+const NOT_LETTER_OR_DIGIT = new RegExp("[^\\p{L}\\p{N}]", "gu");
+
 function getInitials(name: string): string {
   return name
     .split(" ")
+    .map((w) => w.replace(NOT_LETTER_OR_DIGIT, ""))
     .filter(Boolean)
     .map((w) => w[0])
     .join("")
@@ -77,13 +84,6 @@ function avatarColor(name: string): string {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
-function isNumeric(v: string): boolean {
-  if (v === "?" || v === "∞") return false;
-  if (v.trim() === "") return false;
-  if (!/^-?\d+(\.\d+)?$/.test(v.trim())) return false;
-  return !isNaN(Number(v));
-}
-
 /**
  * The values the host can commit as a story's estimate: every distinct
  * vote except the "no estimate" cards ("?" / "∞") and the pre-reveal
@@ -91,19 +91,12 @@ function isNumeric(v: string): boolean {
  * sizes, custom labels) follows in scale order, so XS…XXL reads naturally.
  */
 function acceptableEstimates(votes: string[], scale: string[]): string[] {
-  const rank = (v: string) => {
-    const i = scale.indexOf(v);
-    return i === -1 ? scale.length : i;
-  };
-  return Array.from(new Set(votes))
-    .filter((v) => v.trim() !== "" && v !== "?" && v !== "∞" && v !== REDACTED_VOTE)
-    .sort((a, b) => {
-      const an = isNumeric(a);
-      const bn = isNumeric(b);
-      if (an && bn) return Number(a) - Number(b);
-      if (an !== bn) return an ? -1 : 1;
-      return rank(a) - rank(b);
-    });
+  return sortVotes(
+    Array.from(new Set(votes)).filter(
+      (v) => v.trim() !== "" && v !== "?" && v !== "∞" && v !== REDACTED_VOTE
+    ),
+    scale
+  );
 }
 
 function calcStats(votes: string[]): {
@@ -392,6 +385,13 @@ export function SessionScreen({
     if (!isHost) return;
     onUpdateSession((s) => ({
       ...s,
+      // A revealed round is kept on the story, so a re-vote shows how far
+      // apart the first one was.
+      stories: s.revealed
+        ? s.stories.map((st, i) =>
+            i === s.currentStoryIdx ? withRound(st, castVotes(s.participants), s.scale) : st
+          )
+        : s.stories,
       revealed: false,
       participants: s.participants.map((p) => ({ ...p, vote: null })),
     }));
@@ -410,7 +410,9 @@ export function SessionScreen({
         return s;
       }
       const stories = s.stories.map((st, i) =>
-        i === s.currentStoryIdx ? { ...st, finalEstimate: value } : st
+        i === s.currentStoryIdx
+          ? { ...withRound(st, castVotes(s.participants), s.scale), finalEstimate: value }
+          : st
       );
       const nextUnestimated = stories.findIndex(
         (st, i) => i > s.currentStoryIdx && st.finalEstimate === null
@@ -618,6 +620,17 @@ export function SessionScreen({
                       Final estimate:{" "}
                       <span className="font-data font-bold">{currentStory.finalEstimate}</span>
                     </div>
+                  )}
+
+                  {currentStory.rounds && currentStory.rounds.length > 0 && (
+                    <ol aria-label="Voting rounds" className="flex flex-col gap-0.5 px-1 text-xs">
+                      {currentStory.rounds.map((round, i) => (
+                        <li key={i} className="text-sub">
+                          Round {i + 1}:{" "}
+                          <span className="font-data text-text">{round.join(" · ")}</span>
+                        </li>
+                      ))}
+                    </ol>
                   )}
                 </div>
               ) : (

@@ -2,12 +2,14 @@
 
 /**
  * Pre-board screen — pick a retro format (card grid) or jump straight in with
- * the Start/Stop/Continue quick-start. Shown when no board exists yet.
+ * the Start/Stop/Continue quick-start. Shown when no board exists yet. A
+ * first-time visitor (no past retros either) can load an example board.
  */
 
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { LoadExampleButton } from "@/components/tool-frame/example-data";
 import { retroFormats, type RetroFormat } from "@/lib/constants/retro-formats";
 import { themed, tint } from "@/lib/utils/theme-color";
 import type { RetroBoard } from "@/lib/stores/workspace-types";
@@ -15,10 +17,12 @@ import { PastRetros } from "./past-retros";
 
 export function FormatSelector({
   onSelect,
+  onLoadExample,
   past = [],
   onDeletePast,
 }: {
   onSelect: (format: RetroFormat) => void;
+  onLoadExample?: () => void;
   past?: RetroBoard[];
   onDeletePast?: (retro: RetroBoard) => void;
 }) {
@@ -77,13 +81,16 @@ export function FormatSelector({
           ))}
         </div>
 
-        <Button
-          size="lg"
-          onClick={() => onSelect(retroFormats[0])}
-          className="bg-accent-cyan text-bg font-bold hover:bg-accent-cyan/90 shadow-neon-cyan"
-        >
-          Quick Start: Start / Stop / Continue
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            size="lg"
+            onClick={() => onSelect(retroFormats[0])}
+            className="bg-accent-cyan text-bg font-bold hover:bg-accent-cyan/90 shadow-neon-cyan"
+          >
+            Quick Start: Start / Stop / Continue
+          </Button>
+          {onLoadExample && past.length === 0 && <LoadExampleButton onLoad={onLoadExample} />}
+        </div>
 
         {onDeletePast && <PastRetros retros={past} onDelete={onDeletePast} />}
       </div>

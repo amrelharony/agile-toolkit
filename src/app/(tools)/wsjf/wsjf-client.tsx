@@ -18,6 +18,14 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { WSJF_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
 import { undoable } from "@/lib/utils/undoable";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { buildExample } from "./example";
+import { toMarkdown } from "./markdown";
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -94,6 +102,16 @@ export function WsjfClient() {
     });
   }
 
+  // Example rows are written like any other item but never logged or
+  // signalled: loading an example isn't the user's own scoring work.
+  function loadExample() {
+    for (const item of buildExample()) upsert(item);
+  }
+
+  function clearExample() {
+    for (const x of items) if (isExampleId(x.id)) removeOne(x.id);
+  }
+
   const ranked = useMemo(
     () =>
       rank(
@@ -145,6 +163,8 @@ export function WsjfClient() {
     [ranked, workspace]
   );
 
+  const markdown = useMemo(() => toMarkdown(items), [items]);
+
   const csvData = {
     headers: ["Rank", "Title", "BV", "TC", "RR/OE", "Size", "WSJF"],
     rows: ranked.map((r) => [
@@ -164,6 +184,7 @@ export function WsjfClient() {
       title="WSJF Calculator"
       description="Weighted Shortest Job First: (Business Value + Time Criticality + Risk Reduction/Opportunity Enablement) ÷ Job Size."
     >
+      {hasExampleItems(items) && <ExampleNotice onClear={clearExample} />}
       <div ref={exportRef} className="space-y-4">
         <SectionCard title="Add feature" icon={Plus}>
           <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
@@ -203,10 +224,13 @@ export function WsjfClient() {
               onChange={(e) => setSize(e.target.value)}
             />
           </div>
-          <Button onClick={add} className="mt-3 gap-1">
-            <Plus className="w-4 h-4" />
-            Add & score
-          </Button>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button onClick={add} className="gap-1">
+              <Plus className="w-4 h-4" />
+              Add & score
+            </Button>
+            {items.length === 0 && <LoadExampleButton onLoad={loadExample} />}
+          </div>
         </SectionCard>
 
         {chartData.length > 0 && (
@@ -219,6 +243,7 @@ export function WsjfClient() {
                   filename="wsjf-scores"
                   csvData={csvData}
                   jsonData={ranked}
+                  markdown={markdown}
                   targetRef={exportRef}
                 />
               </>

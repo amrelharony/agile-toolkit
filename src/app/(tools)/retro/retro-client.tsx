@@ -12,6 +12,7 @@ import type { BoardState } from "./types";
 import { FormatSelector } from "./components/format-selector";
 import { Board } from "./components/board";
 import { archivedRetroCopy, hasRetroContent, pastRetros, retroArchivesToPrune } from "./archive";
+import { buildExample, withoutExampleCards } from "./example";
 
 // ── Root Client ──────────────────────────────────────────────
 
@@ -52,17 +53,36 @@ export function RetroClient() {
   );
 
   // "New Retro" keeps the finished board under Past retros (with its action
-  // items) before clearing the current one.
+  // items) before clearing the current one. Example cards aren't the team's
+  // retro, so they aren't kept.
   const handleReset = useCallback(() => {
     const boards = useWorkspaceStore.getState().retroBoards ?? [];
     const cur = boards.find((b) => b.id === RB_ID);
-    if (hasRetroContent(cur)) {
+    const own = cur && { ...cur, cards: withoutExampleCards(cur.cards) };
+    if (hasRetroContent(own)) {
       for (const id of retroArchivesToPrune(boards)) removeRetroBoard(id);
-      upsertRetroBoard(archivedRetroCopy(cur));
+      upsertRetroBoard(archivedRetroCopy(own));
     }
     removeRetroBoard(RB_ID);
     logger.log(RETRO_ACTIONS.RETRO_RESET, {});
   }, [logger, removeRetroBoard, upsertRetroBoard]);
+
+  // Offered only from the format picker, so there is no board to overwrite.
+  // Not logged: loading the example isn't the team's work.
+  const handleLoadExample = useCallback(() => {
+    if ((useWorkspaceStore.getState().retroBoards ?? []).some((b) => b.id === RB_ID)) return;
+    upsertRetroBoard({ id: RB_ID, ...buildExample() });
+  }, [upsertRetroBoard]);
+
+  // Removes only the example cards. A board left with none of the user's own
+  // cards existed just for the example, so it goes back to the format picker.
+  const handleClearExample = useCallback(() => {
+    const cur = (useWorkspaceStore.getState().retroBoards ?? []).find((b) => b.id === RB_ID);
+    if (!cur) return;
+    const cards = withoutExampleCards(cur.cards);
+    if (cards.length === 0) removeRetroBoard(RB_ID);
+    else upsertRetroBoard({ ...cur, cards });
+  }, [removeRetroBoard, upsertRetroBoard]);
 
   const handleDeletePast = useCallback(
     (retro: RetroBoard) => {
@@ -87,9 +107,22 @@ export function RetroClient() {
 
   if (!boardState) {
     return (
-      <FormatSelector onSelect={handleSelectFormat} past={past} onDeletePast={handleDeletePast} />
+      <FormatSelector
+        onSelect={handleSelectFormat}
+        onLoadExample={handleLoadExample}
+        past={past}
+        onDeletePast={handleDeletePast}
+      />
     );
   }
 
-  return <Board state={boardState} onUpdate={handleUpdate} onReset={handleReset} logger={logger} />;
+  return (
+    <Board
+      state={boardState}
+      onUpdate={handleUpdate}
+      onReset={handleReset}
+      onClearExample={handleClearExample}
+      logger={logger}
+    />
+  );
 }

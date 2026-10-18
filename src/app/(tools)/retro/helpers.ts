@@ -1,6 +1,6 @@
 /**
  * Retro board — pure helpers (id/timer formatting, vote sorting, card delete
- * and its undo, theme clustering features, export builders). No React, no
+ * and its undo, theme clustering features, the JSON export). No React, no
  * side effects beyond `crypto.randomUUID()` — kept framework-free so they
  * stay trivially testable and shareable between the board and its export
  * path.
@@ -107,43 +107,7 @@ export function extractCardFeatures(text: string): number[] {
   ];
 }
 
-export function buildExportText(state: BoardState): string {
-  const lines: string[] = [
-    `# Retrospective: ${state.format.name}`,
-    `Date: ${new Date().toLocaleDateString()}`,
-    "",
-  ];
-
-  for (const col of state.format.columns) {
-    const colCards = state.cards.filter((c) => c.columnKey === col.key && c.groupedWith === null);
-    lines.push(`## ${col.label}`);
-    if (colCards.length === 0) {
-      lines.push("  (no cards)");
-    } else {
-      sortedByVotes(colCards).forEach((card) => {
-        lines.push(`- [${card.votes} votes] ${card.text}`);
-        if (card.isActionItem) {
-          lines.push(`  → ACTION ITEM${card.assignee ? ` | Assigned to: ${card.assignee}` : ""}`);
-        }
-        const children = state.cards.filter((c) => c.groupedWith === card.id);
-        children.forEach((child) => lines.push(`  • ${child.text}`));
-      });
-    }
-    lines.push("");
-  }
-
-  const actionItems = state.cards.filter((c) => c.isActionItem);
-  if (actionItems.length > 0) {
-    lines.push("## Action Items Summary");
-    actionItems.forEach((c) => {
-      lines.push(`- [ ] ${c.text}${c.assignee ? ` (@${c.assignee})` : ""}`);
-    });
-  }
-
-  return lines.join("\n");
-}
-
-export function buildExportJson(state: BoardState) {
+export function buildExportJson(state: Pick<BoardState, "format" | "cards">) {
   return {
     format: state.format.name,
     date: new Date().toISOString(),
