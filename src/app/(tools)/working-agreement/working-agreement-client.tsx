@@ -150,6 +150,10 @@ function newId(): string {
   return crypto.randomUUID();
 }
 
+function stillWorkingLabel(v: boolean | undefined): string {
+  return v === true ? "Working" : v === false ? "Not working" : "Check in";
+}
+
 function parseAgreedBy(s: string): string[] {
   return s
     .split(",")
@@ -558,7 +562,7 @@ export function WorkingAgreementClient() {
               value={newRuleCategory}
               onValueChange={(v) => setNewRuleCategory(v as RuleCategory)}
             >
-              <SelectTrigger className="bg-bg border-border">
+              <SelectTrigger className="bg-bg border-border" aria-label="Rule category">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -577,7 +581,11 @@ export function WorkingAgreementClient() {
               className="bg-bg border-border"
               aria-label="Rule text"
             />
-            <Button onClick={addCustomRule} className="gap-2 bg-accent text-bg hover:bg-accent/90">
+            <Button
+              onClick={addCustomRule}
+              aria-label="Add rule"
+              className="gap-2 bg-accent text-bg hover:bg-accent/90"
+            >
               <Plus className="w-4 h-4" />
               Add
             </Button>
@@ -634,7 +642,7 @@ export function WorkingAgreementClient() {
                               ? "text-danger hover:text-danger/80"
                               : "text-sub hover:text-text"
                         }`}
-                        aria-label="Toggle still-working status"
+                        aria-label={`${stillWorkingLabel(r.stillWorking)} (still-working status for ${r.text})`}
                       >
                         {r.stillWorking === true ? (
                           <CheckCircle2 className="w-4 h-4" />
@@ -643,13 +651,7 @@ export function WorkingAgreementClient() {
                         ) : (
                           <CircleDashed className="w-4 h-4" />
                         )}
-                        <span className="text-xs">
-                          {r.stillWorking === true
-                            ? "Working"
-                            : r.stillWorking === false
-                              ? "Not working"
-                              : "Check in"}
-                        </span>
+                        <span className="text-xs">{stillWorkingLabel(r.stillWorking)}</span>
                       </Button>
                       <Button
                         type="button"

@@ -220,18 +220,20 @@ export function ScrumOfScrumsClient() {
               value={draft.meetingDate}
               onChange={(e) => setDraft((d) => ({ ...d, meetingDate: e.target.value }))}
               className="bg-bg border-border"
+              aria-label="Meeting date"
             />
             <Input
               value={draft.team}
               onChange={(e) => setDraft((d) => ({ ...d, team: e.target.value }))}
               placeholder="Team name"
+              aria-label="Team name"
               className="bg-bg border-border"
             />
             <Select
               value={draft.kind}
               onValueChange={(v) => setDraft((d) => ({ ...d, kind: v as EntryKind }))}
             >
-              <SelectTrigger className="bg-bg border-border capitalize">
+              <SelectTrigger className="bg-bg border-border capitalize" aria-label="Entry type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -245,6 +247,7 @@ export function ScrumOfScrumsClient() {
               value={draft.blockedBy ?? ""}
               onChange={(e) => setDraft((d) => ({ ...d, blockedBy: e.target.value }))}
               placeholder="Blocked by (team)"
+              aria-label="Blocked by (team)"
               className="bg-bg border-border"
             />
             <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
@@ -257,6 +260,7 @@ export function ScrumOfScrumsClient() {
             value={draft.text}
             onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))}
             placeholder="Describe the update, blocker, dependency, or decision..."
+            aria-label="Entry details"
             className="bg-bg border-border"
           />
         </CardContent>
@@ -282,7 +286,10 @@ export function ScrumOfScrumsClient() {
                   <div className="text-xs text-sub">age {ageDays(e) ?? "—"}d</div>
                 </div>
                 <div className="flex-1 min-w-0 space-y-1">
-                  <div className="text-sm font-semibold text-text">{e.team}</div>
+                  <div className="text-sm font-semibold text-text">
+                    {e.team}
+                    {e.status === "resolved" && <span className="sr-only"> (resolved)</span>}
+                  </div>
                   <div className="text-sm text-text/80">{e.text}</div>
                   {e.blockedBy && (
                     <div className="text-xs text-warning">⇢ blocked by: {e.blockedBy}</div>
@@ -294,6 +301,7 @@ export function ScrumOfScrumsClient() {
                       variant="outline"
                       size="sm"
                       onClick={() => resolve(e.id)}
+                      aria-label={`Resolve ${e.kind} from ${e.team}`}
                       className="border-accent/40 text-accent hover:bg-accent/10"
                     >
                       Resolve
@@ -304,7 +312,7 @@ export function ScrumOfScrumsClient() {
                     size="sm"
                     onClick={() => remove(e.id)}
                     className="text-sub hover:text-danger min-touch-coarse"
-                    aria-label="Remove entry"
+                    aria-label={`Remove ${e.kind} from ${e.team}`}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>

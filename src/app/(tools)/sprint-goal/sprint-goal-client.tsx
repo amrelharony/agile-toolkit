@@ -332,6 +332,7 @@ export function SprintGoalClient() {
       }
     >
       {label}
+      <span className="sr-only">{passes ? " (met)" : " (not met)"}</span>
     </Badge>
   );
 
@@ -370,6 +371,7 @@ export function SprintGoalClient() {
                   <TabsTrigger
                     key={step}
                     value={step}
+                    aria-label={STEP_LABELS[step]}
                     className="flex-1 gap-2 data-[state=active]:bg-accent-cyan/15 data-[state=active]:text-accent data-[state=active]:shadow-none text-sub"
                   >
                     {STEP_ICONS[step]}
@@ -388,6 +390,7 @@ export function SprintGoalClient() {
                       context for why the sprint work matters.
                     </p>
                     <BlurTextarea
+                      aria-label="Business objective"
                       placeholder="e.g., Increase user retention by streamlining the onboarding experience..."
                       value={businessObjective}
                       onCommit={setBusinessObjective}
@@ -408,6 +411,7 @@ export function SprintGoalClient() {
                     </p>
                     <div className="relative">
                       <BlurTextarea
+                        aria-label="Sprint goal"
                         placeholder="e.g., Deliver a self-service onboarding flow that allows new users to complete setup within 3 minutes..."
                         value={sprintGoal}
                         onCommit={(v) => setSprintGoal(v.slice(0, GOAL_MAX_CHARS))}
@@ -453,7 +457,7 @@ export function SprintGoalClient() {
                     </p>
 
                     <div className="space-y-4">
-                      {criteria.map((criterion) => {
+                      {criteria.map((criterion, criterionIdx) => {
                         const smart = validateSmart(criterion);
                         return (
                           <div
@@ -462,6 +466,7 @@ export function SprintGoalClient() {
                           >
                             <div className="flex gap-2 mb-3">
                               <BlurTextarea
+                                aria-label={`Acceptance criterion ${criterionIdx + 1}`}
                                 placeholder="e.g., 90% of new users complete onboarding within 3 minutes by end of sprint"
                                 value={criterion.text}
                                 onCommit={(v) => updateCriterionText(criterion.id, v)}
@@ -471,6 +476,7 @@ export function SprintGoalClient() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => removeCriterion(criterion.id)}
+                                aria-label={`Remove acceptance criterion ${criterionIdx + 1}`}
                                 className="min-touch-coarse text-sub hover:text-danger hover:bg-danger/10 shrink-0"
                                 disabled={criteria.length === 1}
                               >
@@ -570,6 +576,7 @@ export function SprintGoalClient() {
                       {keyResults.map((kr, index) => (
                         <div key={index} className="flex gap-2">
                           <BlurInput
+                            aria-label={`Key result ${index + 1}`}
                             placeholder={`e.g., Onboarding completion rate reaches 90%`}
                             value={kr}
                             onCommit={(v) => updateKeyResult(index, v)}
@@ -579,6 +586,7 @@ export function SprintGoalClient() {
                             variant="ghost"
                             size="icon"
                             onClick={() => removeKeyResult(index)}
+                            aria-label={`Remove key result ${index + 1}`}
                             className="min-touch-coarse text-sub hover:text-danger hover:bg-danger/10 shrink-0"
                             disabled={keyResults.length === 1}
                           >

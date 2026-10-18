@@ -531,10 +531,16 @@ export function KanbanClient() {
                       ? "border-accent-green/40 text-accent-green bg-accent-green/10"
                       : "border-danger/40 text-danger bg-danger/5"
                   )}
-                  aria-label={`Throughput trend ${throughputTrend.trend} (Mann-Kendall p=${throughputTrend.pValue.toFixed(3)})`}
                   title={`Mann-Kendall p=${throughputTrend.pValue.toFixed(3)}`}
                 >
-                  {throughputTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+                  {/* aria-label is ignored on a plain span, so the spoken
+                      version lives in sr-only text instead. */}
+                  <span aria-hidden="true">
+                    {throughputTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+                  </span>
+                  <span className="sr-only">
+                    {`Throughput trend ${throughputTrend.trend} (Mann-Kendall p=${throughputTrend.pValue.toFixed(3)})`}
+                  </span>
                 </span>
               )}
             </span>

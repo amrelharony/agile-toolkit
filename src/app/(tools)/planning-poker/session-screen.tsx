@@ -755,6 +755,9 @@ export function SessionScreen({
               className="border-border bg-surface"
               contentClassName="pb-6"
             >
+              {/* Arrow keys are handled here for the whole deck; focus itself
+                  lives on the cards (roving tabindex), not on the group. */}
+              {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus */}
               <div
                 role="radiogroup"
                 aria-label="Your vote"
@@ -806,6 +809,7 @@ export function SessionScreen({
                     onChange={(e) => setNewStory(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && addStory()}
                     placeholder="Story title…"
+                    aria-label="New story title"
                     className="h-9 text-sm bg-surface-deep border-border text-text"
                   />
                   <Button
@@ -843,6 +847,7 @@ export function SessionScreen({
                     key={story.id}
                     onClick={() => goToStory(idx)}
                     disabled={!isHost}
+                    aria-current={idx === session.currentStoryIdx ? "true" : undefined}
                     className={[
                       "flex items-start justify-between gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors",
                       idx === session.currentStoryIdx

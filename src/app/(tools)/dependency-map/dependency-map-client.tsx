@@ -373,15 +373,21 @@ export function DependencyMapClient() {
               value={newNode.label}
               onChange={(e) => setNewNode((n) => ({ ...n, label: e.target.value }))}
               placeholder="Story / epic / service / team..."
+              aria-label="New node label"
               className="bg-bg border-border"
             />
             <Input
               value={newNode.team}
               onChange={(e) => setNewNode((n) => ({ ...n, team: e.target.value }))}
               placeholder="Team (optional)"
+              aria-label="New node team (optional)"
               className="bg-bg border-border"
             />
-            <Button onClick={addNode} className="gap-2 bg-accent text-bg hover:bg-accent/90">
+            <Button
+              onClick={addNode}
+              aria-label="Add node"
+              className="gap-2 bg-accent text-bg hover:bg-accent/90"
+            >
               <Plus className="w-4 h-4" />
               Add
             </Button>
@@ -411,7 +417,7 @@ export function DependencyMapClient() {
               value={newEdge.from}
               onValueChange={(v) => setNewEdge((e) => ({ ...e, from: v }))}
             >
-              <SelectTrigger className="bg-bg border-border">
+              <SelectTrigger className="bg-bg border-border" aria-label="Dependency from">
                 <SelectValue placeholder="From..." />
               </SelectTrigger>
               <SelectContent>
@@ -426,7 +432,7 @@ export function DependencyMapClient() {
               value={newEdge.kind}
               onValueChange={(v) => setNewEdge((e) => ({ ...e, kind: v as Edge["kind"] }))}
             >
-              <SelectTrigger className="bg-bg border-border">
+              <SelectTrigger className="bg-bg border-border" aria-label="Dependency type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -436,7 +442,7 @@ export function DependencyMapClient() {
               </SelectContent>
             </Select>
             <Select value={newEdge.to} onValueChange={(v) => setNewEdge((e) => ({ ...e, to: v }))}>
-              <SelectTrigger className="bg-bg border-border">
+              <SelectTrigger className="bg-bg border-border" aria-label="Dependency to">
                 <SelectValue placeholder="To..." />
               </SelectTrigger>
               <SelectContent>
@@ -447,7 +453,11 @@ export function DependencyMapClient() {
                 ))}
               </SelectContent>
             </Select>
-            <Button onClick={addEdge} className="gap-2 bg-accent text-bg hover:bg-accent/90">
+            <Button
+              onClick={addEdge}
+              aria-label="Add dependency"
+              className="gap-2 bg-accent text-bg hover:bg-accent/90"
+            >
               <Plus className="w-4 h-4" />
               Add
             </Button>
@@ -467,7 +477,10 @@ export function DependencyMapClient() {
                   className={`flex items-start gap-2 rounded-lg border p-2 ${onCritical ? "border-warning/40 bg-warning/5" : "border-border bg-surface"}`}
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-text truncate">{n.label}</div>
+                    <div className="text-sm text-text truncate">
+                      {n.label}
+                      {onCritical && <span className="sr-only"> (on critical path)</span>}
+                    </div>
                     {n.description && (
                       <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
                         {n.description}
@@ -507,7 +520,7 @@ export function DependencyMapClient() {
                   size="icon"
                   onClick={() => removeEdge(e.id)}
                   className="text-sub hover:text-danger flex-shrink-0"
-                  aria-label="Remove dependency"
+                  aria-label={`Remove dependency: ${nodeLabel(e.from)} ${e.kind} ${nodeLabel(e.to)}`}
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>

@@ -6,7 +6,7 @@
  * unchecking "done" falls back to in_progress rather than open.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,6 +37,7 @@ export function ActionItemRow({
   const [textDraft, setTextDraft] = useState(action.text);
   const [ownerDraft, setOwnerDraft] = useState(action.owner ?? "");
   const [dueDraft, setDueDraft] = useState(action.dueDate ?? "");
+  const fieldId = useId();
   useEffect(() => setTextDraft(action.text), [action.text]);
   useEffect(() => setOwnerDraft(action.owner ?? ""), [action.owner]);
   useEffect(() => setDueDraft(action.dueDate ?? ""), [action.dueDate]);
@@ -93,8 +94,11 @@ export function ActionItemRow({
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <div>
-          <Label className="text-xs uppercase tracking-wider text-sub">Owner</Label>
+          <Label htmlFor={`${fieldId}-owner`} className="text-xs uppercase tracking-wider text-sub">
+            Owner
+          </Label>
           <Input
+            id={`${fieldId}-owner`}
             value={ownerDraft}
             onChange={(e) => setOwnerDraft(e.target.value)}
             onBlur={() => {
@@ -109,8 +113,11 @@ export function ActionItemRow({
           />
         </div>
         <div>
-          <Label className="text-xs uppercase tracking-wider text-sub">Due</Label>
+          <Label htmlFor={`${fieldId}-due`} className="text-xs uppercase tracking-wider text-sub">
+            Due
+          </Label>
           <Input
+            id={`${fieldId}-due`}
             type="date"
             value={dueDraft}
             onChange={(e) => setDueDraft(e.target.value)}
@@ -124,12 +131,18 @@ export function ActionItemRow({
           />
         </div>
         <div>
-          <Label className="text-xs uppercase tracking-wider text-sub">Status</Label>
+          <Label
+            htmlFor={`${fieldId}-status`}
+            className="text-xs uppercase tracking-wider text-sub"
+          >
+            Status
+          </Label>
           <Select
             value={action.status}
             onValueChange={(v) => onUpdate({ status: v as ActionStatus })}
           >
             <SelectTrigger
+              id={`${fieldId}-status`}
               className="h-8 text-xs bg-surface border-border"
               aria-label="Action status"
             >

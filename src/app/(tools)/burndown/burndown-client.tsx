@@ -628,7 +628,9 @@ export function BurndownClient() {
         >
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-1.5">
-              <Label className="text-sub text-xs">Total Story Points</Label>
+              <Label htmlFor="burndown-total-points" className="text-sub text-xs">
+                Total Story Points
+              </Label>
               {/* SmartInput-wrapped so the user can Tab-accept the
                   velocity-forecast suggestion. The field still commits on
                   every change (we don't gate the manual flow). */}
@@ -641,6 +643,7 @@ export function BurndownClient() {
                 render={({ ghost, accept, chip }) => (
                   <>
                     <Input
+                      id="burndown-total-points"
                       type="number"
                       min={1}
                       value={totalPointsDraft ?? config.totalPoints}
@@ -674,8 +677,11 @@ export function BurndownClient() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-sub text-xs">Sprint Length (days)</Label>
+              <Label htmlFor="burndown-sprint-days" className="text-sub text-xs">
+                Sprint Length (days)
+              </Label>
               <Input
+                id="burndown-sprint-days"
                 type="number"
                 min={1}
                 max={60}
@@ -694,8 +700,11 @@ export function BurndownClient() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-sub text-xs">Sprint Start Date</Label>
+              <Label htmlFor="burndown-start-date" className="text-sub text-xs">
+                Sprint Start Date
+              </Label>
               <Input
+                id="burndown-start-date"
                 type="date"
                 value={config.sprintStartDate}
                 onChange={(e) => updateConfig({ sprintStartDate: e.target.value })}
@@ -915,14 +924,16 @@ export function BurndownClient() {
                   onClick={() => removeEntry(entry.id)}
                   disabled={sortedEntries.length <= 1}
                   className="min-touch-coarse h-9 w-9 disabled:opacity-30 justify-self-end sm:order-last"
+                  aria-label={`Remove day ${entry.day}`}
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="w-4 h-4" aria-hidden="true" />
                 </Button>
 
                 <Input
                   type="number"
                   min={0}
                   placeholder="— pts"
+                  aria-label={`Remaining points on day ${entry.day}`}
                   value={entry.remaining ?? ""}
                   onChange={(e) =>
                     updateEntry(entry.id, {
@@ -955,6 +966,7 @@ export function BurndownClient() {
                   }`}
                 >
                   {entry.scopeChange ? "Scope Changed" : "Mark Change"}
+                  <span className="sr-only"> on day {entry.day}</span>
                 </button>
               </div>
             ))}

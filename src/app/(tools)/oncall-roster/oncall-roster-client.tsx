@@ -212,9 +212,11 @@ function emptyPageDraft(): PageDraft {
  * Used as a capacity-planning anchor and surfaced as a SectionCard widget.
  */
 function ExpectedPagesInput({
+  id,
   value,
   commit,
 }: {
+  id?: string;
   value: number | undefined;
   commit: (next: number | undefined) => void;
 }) {
@@ -237,6 +239,7 @@ function ExpectedPagesInput({
       render={({ ghost, accept, chip }) => (
         <div className="flex flex-col gap-1">
           <Input
+            id={id}
             type="number"
             min={0}
             value={draft}
@@ -582,8 +585,11 @@ export function OncallRosterClient() {
       <SectionCard title="Capacity expectation" icon={Phone} titleSize="lg" className="mb-6">
         <div className="grid grid-cols-1 sm:grid-cols-[260px_1fr] gap-4 items-start">
           <div>
-            <Label className="text-xs text-sub mb-1 block">Expected pages per week</Label>
+            <Label htmlFor="oncall-expected-pages" className="text-xs text-sub mb-1 block">
+              Expected pages per week
+            </Label>
             <ExpectedPagesInput
+              id="oncall-expected-pages"
               value={state.expectedPagesPerWeek}
               commit={(next) => setState((s) => ({ ...s, expectedPagesPerWeek: next }))}
             />

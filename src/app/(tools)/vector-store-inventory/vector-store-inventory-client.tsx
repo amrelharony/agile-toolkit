@@ -128,34 +128,44 @@ export function VectorStoreInventoryClient() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Input
               placeholder="Collection name"
+              aria-label="Collection name"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
             <Input
               placeholder="Embedding model"
+              aria-label="Embedding model"
               value={model}
               onChange={(e) => setModel(e.target.value)}
             />
             <Input
               type="number"
               placeholder="Dimension"
+              aria-label="Dimension"
               value={dim}
               onChange={(e) => setDim(e.target.value)}
             />
             <Input
               type="number"
               placeholder="Doc count"
+              aria-label="Doc count"
               value={docs}
               onChange={(e) => setDocs(e.target.value)}
             />
             <Input
               placeholder="Refresh cadence"
+              aria-label="Refresh cadence"
               value={refresh}
               onChange={(e) => setRefresh(e.target.value)}
             />
-            <Input placeholder="Owner" value={owner} onChange={(e) => setOwner(e.target.value)} />
+            <Input
+              placeholder="Owner"
+              aria-label="Owner"
+              value={owner}
+              onChange={(e) => setOwner(e.target.value)}
+            />
           </div>
-          <Button onClick={add} className="mt-3 gap-1">
+          <Button onClick={add} aria-label="Add collection" className="mt-3 gap-1">
             <Plus className="w-4 h-4" />
             Add
           </Button>
@@ -187,7 +197,9 @@ export function VectorStoreInventoryClient() {
                     <th className="p-2 text-right">Docs</th>
                     <th className="p-2">Refresh</th>
                     <th className="p-2">Owner</th>
-                    <th className="p-2 w-10"></th>
+                    <th className="p-2 w-10">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -206,7 +218,7 @@ export function VectorStoreInventoryClient() {
                       <td className="p-2">
                         <button
                           onClick={() => remove(c.id)}
-                          aria-label="Remove collection"
+                          aria-label={`Remove collection ${c.name}`}
                           className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                         >
                           <Trash2 className="w-4 h-4" />

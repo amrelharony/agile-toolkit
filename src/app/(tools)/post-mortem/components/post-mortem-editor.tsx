@@ -6,7 +6,7 @@
  * the parent-supplied callbacks (the parent owns the synced store).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,7 @@ export function PostMortemEditor({
   onRemoveAction: (id: string) => void;
 }) {
   const [summaryDraft, setSummaryDraft] = useState(pm.summary ?? "");
+  const summaryId = useId();
   useEffect(() => setSummaryDraft(pm.summary ?? ""), [pm.summary]);
 
   const [factorDraft, setFactorDraft] = useState("");
@@ -112,8 +113,11 @@ export function PostMortemEditor({
         )}
 
         <div>
-          <Label className="text-xs text-sub">Summary</Label>
+          <Label htmlFor={summaryId} className="text-xs text-sub">
+            Summary
+          </Label>
           <Textarea
+            id={summaryId}
             value={summaryDraft}
             onChange={(e) => setSummaryDraft(e.target.value)}
             onBlur={() => {
@@ -218,7 +222,7 @@ export function PostMortemEditor({
                     size="sm"
                     onClick={() => onRemoveTimelineEntry(e.id)}
                     className="h-6 w-6 p-0 text-sub hover:text-danger min-touch-coarse"
-                    aria-label="Remove entry"
+                    aria-label={`Remove timeline entry: ${e.text}`}
                   >
                     <X className="w-3 h-3" aria-hidden="true" />
                   </Button>

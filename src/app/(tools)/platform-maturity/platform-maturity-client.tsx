@@ -332,6 +332,7 @@ export function PlatformMaturityClient() {
                     onValueChange={(vals) => setScore(d.id, vals[0] ?? 1)}
                     className="w-full"
                     aria-label={`${d.label} maturity score`}
+                    thumbProps={{ "aria-valuetext": `${score} of 5` }}
                   />
                   <div>
                     <Label htmlFor={`platform-note-${d.id}`} className="text-xs text-sub sr-only">

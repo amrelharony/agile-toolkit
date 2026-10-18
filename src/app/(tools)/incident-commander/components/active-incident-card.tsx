@@ -119,8 +119,9 @@ export function ActiveIncidentCard({
       }
       actions={
         <div className="flex items-center gap-2">
-          <span className="font-data text-sm text-accent" aria-label="elapsed time">
+          <span className="font-data text-sm text-accent">
             <Clock className="w-3.5 h-3.5 inline mr-1" aria-hidden="true" />
+            <span className="sr-only">Elapsed time: </span>
             {formatDuration(elapsedMs)}
           </span>
         </div>
@@ -133,8 +134,11 @@ export function ActiveIncidentCard({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <Label className="text-xs text-sub">Commander</Label>
+            <Label htmlFor={`ic-${incident.id}-commander`} className="text-xs text-sub">
+              Commander
+            </Label>
             <Input
+              id={`ic-${incident.id}-commander`}
               ref={commanderInputRef}
               value={commanderDraft}
               onChange={(e) => setCommanderDraft(e.target.value)}
@@ -149,8 +153,11 @@ export function ActiveIncidentCard({
             />
           </div>
           <div>
-            <Label className="text-xs text-sub">Scribe</Label>
+            <Label htmlFor={`ic-${incident.id}-scribe`} className="text-xs text-sub">
+              Scribe
+            </Label>
             <Input
+              id={`ic-${incident.id}-scribe`}
               ref={scribeInputRef}
               value={scribeDraft}
               onChange={(e) => setScribeDraft(e.target.value)}
@@ -174,6 +181,7 @@ export function ActiveIncidentCard({
                 variant="ghost"
                 size="sm"
                 onClick={() => copy(slackTemplate, "Slack template")}
+                aria-label="Copy Slack template"
                 className="h-6 px-2 text-xs text-sub hover:text-accent"
               >
                 <Copy className="w-3 h-3 mr-1" aria-hidden="true" /> Copy
@@ -190,6 +198,7 @@ export function ActiveIncidentCard({
                 variant="ghost"
                 size="sm"
                 onClick={() => copy(emailTemplate, "Email template")}
+                aria-label="Copy email template"
                 className="h-6 px-2 text-xs text-sub hover:text-accent"
               >
                 <Copy className="w-3 h-3 mr-1" aria-hidden="true" /> Copy

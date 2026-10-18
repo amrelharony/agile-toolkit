@@ -266,7 +266,9 @@ function CriterionRow({
       {showCheckbox && (
         <button
           onClick={onToggle}
-          aria-label={`Toggle ${criterion.label}`}
+          role="checkbox"
+          aria-checked={checked}
+          aria-label={criterion.label}
           className={`flex-shrink-0 w-5 h-5 mt-0.5 rounded border transition-all ${
             checked ? "bg-accent border-accent" : "border-border hover:border-accent/50"
           }`}
@@ -297,11 +299,13 @@ function CriterionRow({
                 if (e.key === "Escape") setEditing(false);
               }}
               className="flex-1 bg-surface-deep border-border text-text text-sm focus:border-accent/50 h-8"
+              aria-label="Criterion"
             />
             <Button
               variant="ghost"
               size="icon"
               onClick={commitEdit}
+              aria-label="Save criterion"
               className="min-touch-coarse h-7 w-7 text-accent-green hover:bg-accent-green/10"
             >
               <Check className="w-3.5 h-3.5" />
@@ -310,6 +314,7 @@ function CriterionRow({
               variant="ghost"
               size="icon"
               onClick={() => setEditing(false)}
+              aria-label="Cancel editing"
               className="min-touch-coarse h-7 w-7 text-sub hover:bg-cardH"
             >
               <X className="w-3.5 h-3.5" />
@@ -356,6 +361,7 @@ function CriterionRow({
               setDescDraft(criterion.description ?? "");
               setEditing(true);
             }}
+            aria-label={`Edit ${criterion.label}`}
             className="min-touch-coarse h-7 w-7 text-sub hover:text-accent hover:bg-accent/10"
           >
             <Pencil className="w-3 h-3" />
@@ -364,6 +370,7 @@ function CriterionRow({
             variant="danger-ghost"
             size="icon"
             onClick={onRemove}
+            aria-label={`Remove ${criterion.label}`}
             className="min-touch-coarse h-7 w-7"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -526,7 +533,13 @@ export function RefinementClient() {
               title="Definition of Ready"
               icon={CheckSquare}
               actions={
-                <Button size="sm" variant="toolkit" onClick={addCriterion} className="gap-1.5">
+                <Button
+                  size="sm"
+                  variant="toolkit"
+                  onClick={addCriterion}
+                  aria-label="Add criterion"
+                  className="gap-1.5"
+                >
                   <Plus className="w-4 h-4" />
                   Add
                 </Button>
@@ -558,8 +571,11 @@ export function RefinementClient() {
               contentClassName="space-y-4"
             >
               <div className="space-y-1.5">
-                <Label className="text-sub text-xs">Story Name / ID</Label>
+                <Label htmlFor="refinement-story-name" className="text-sub text-xs">
+                  Story Name / ID
+                </Label>
                 <Input
+                  id="refinement-story-name"
                   value={storyName}
                   onChange={(e) => setStoryName(e.target.value)}
                   placeholder="e.g. USER-42 — Add dark mode toggle"
@@ -863,6 +879,7 @@ export function RefinementClient() {
                               variant="danger-ghost"
                               size="icon"
                               onClick={() => removeHistory(h.id)}
+                              aria-label={`Remove ${h.storyName} from history`}
                               className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity"
                             >
                               <Trash2 className="w-3.5 h-3.5" />

@@ -605,8 +605,11 @@ export function BurnupClient() {
         >
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label className="text-sub text-xs">Sprint Length (days)</Label>
+              <Label htmlFor="burnup-sprint-days" className="text-sub text-xs">
+                Sprint Length (days)
+              </Label>
               <Input
+                id="burnup-sprint-days"
                 type="number"
                 min={1}
                 max={60}
@@ -625,8 +628,11 @@ export function BurnupClient() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-sub text-xs">Sprint Start Date</Label>
+              <Label htmlFor="burnup-start-date" className="text-sub text-xs">
+                Sprint Start Date
+              </Label>
               <Input
+                id="burnup-start-date"
                 type="date"
                 value={config.sprintStartDate}
                 onChange={(e) => {
@@ -866,13 +872,14 @@ export function BurnupClient() {
                   aria-label={`Remove day ${entry.day}`}
                   className="min-touch-coarse h-9 w-9 disabled:opacity-30 justify-self-end sm:order-last"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="w-4 h-4" aria-hidden="true" />
                 </Button>
 
                 <Input
                   type="number"
                   min={0}
                   placeholder="Scope (pts)"
+                  aria-label={`Scope points on day ${entry.day}`}
                   value={entry.scope ?? ""}
                   onChange={(e) => {
                     if (e.target.value === "") {
@@ -889,6 +896,7 @@ export function BurnupClient() {
                   type="number"
                   min={0}
                   placeholder="Completed (pts)"
+                  aria-label={`Completed points on day ${entry.day}`}
                   value={entry.completed ?? ""}
                   onChange={(e) => {
                     if (e.target.value === "") {

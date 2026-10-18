@@ -112,6 +112,7 @@ export function WalkingSkeletonClient() {
         <SectionCard title="Goal">
           <BlurTextarea
             placeholder="What's the smallest end-to-end happy path you can ship?"
+            aria-label="Walking skeleton goal"
             value={store.goal}
             onCommit={store.setGoal}
             rows={2}
@@ -129,6 +130,7 @@ export function WalkingSkeletonClient() {
             <Input
               className="sm:col-span-2"
               placeholder="Step description"
+              aria-label="Step description"
               value={text}
               onChange={(e) => setText(e.target.value)}
             />
@@ -196,6 +198,7 @@ export function WalkingSkeletonClient() {
                               store.toggle(s.id);
                               log(WALKING_SKELETON_ACTIONS.STEP_TOGGLED, { id: s.id });
                             }}
+                            aria-pressed={s.done}
                             className="flex items-center gap-2 flex-1 text-left"
                           >
                             {s.done ? (
@@ -211,7 +214,7 @@ export function WalkingSkeletonClient() {
                           </button>
                           <button
                             onClick={() => store.remove(s.id)}
-                            aria-label="Remove step"
+                            aria-label={`Remove step ${s.text}`}
                             className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                           >
                             <Trash2 className="w-4 h-4" />

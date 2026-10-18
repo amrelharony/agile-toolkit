@@ -609,6 +609,7 @@ export function DesignSprintClient() {
               key={d.day}
               type="button"
               onClick={() => setCurrentDay(d.day)}
+              aria-pressed={isCurrent}
               className={`min-w-[120px] md:flex-1 rounded-lg border p-2 transition text-left ${
                 isCurrent
                   ? "border-accent/60 bg-accent/10"
@@ -662,7 +663,9 @@ export function DesignSprintClient() {
                             ? "bg-accent border-accent"
                             : "border-border hover:border-accent/40"
                         }`}
-                        aria-label={t.done ? "Mark not done" : "Mark done"}
+                        role="checkbox"
+                        aria-checked={t.done}
+                        aria-label={t.text}
                       >
                         {t.done && <CheckCircle2 className="w-3 h-3 text-bg" />}
                       </button>
@@ -681,7 +684,7 @@ export function DesignSprintClient() {
                       >
                         <SelectTrigger
                           className="h-8 text-xs bg-surface border-border w-32"
-                          aria-label="Task owner"
+                          aria-label={`Owner for ${t.text}`}
                         >
                           <SelectValue placeholder="Owner" />
                         </SelectTrigger>
@@ -722,7 +725,7 @@ export function DesignSprintClient() {
                         size="sm"
                         onClick={() => removeTask(day.day, t.id)}
                         className="text-sub hover:text-danger"
-                        aria-label="Remove task"
+                        aria-label={`Remove task ${t.text}`}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
@@ -740,6 +743,7 @@ export function DesignSprintClient() {
                   />
                   <Button
                     onClick={() => addTask(day.day)}
+                    aria-label="Add task"
                     className="gap-2 bg-accent text-bg hover:bg-accent/90"
                   >
                     <Plus className="w-4 h-4" />
@@ -766,7 +770,7 @@ export function DesignSprintClient() {
                           size="sm"
                           onClick={() => removeArtifact(day.day, i)}
                           className="text-sub hover:text-danger h-6 w-6 p-0"
-                          aria-label="Remove artifact"
+                          aria-label={`Remove artifact ${a}`}
                         >
                           <Trash2 className="w-3 h-3" />
                         </Button>
@@ -790,6 +794,7 @@ export function DesignSprintClient() {
                   />
                   <Button
                     onClick={() => addArtifact(day.day)}
+                    aria-label="Log artifact"
                     variant="outline"
                     className="gap-2 border-border"
                   >

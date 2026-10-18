@@ -222,6 +222,7 @@ function ProfCell({
       type="button"
       onClick={onClick}
       title={`${title}: ${meta.label} — click to advance`}
+      aria-label={`${title}: ${meta.label}`}
       className={`w-full h-10 rounded border flex items-center justify-center transition-all hover:opacity-80 active:scale-95 select-none ${meta.bg} ${meta.border}`}
     >
       {level === 0 ? (
@@ -504,6 +505,7 @@ export function SkillsMatrixClient() {
                             onClick={() => removeMember(member.id)}
                             className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
                             title="Remove member"
+                            aria-label={`Remove member ${member.name}`}
                           >
                             <Trash2 className="w-3 h-3" />
                           </button>
@@ -527,6 +529,7 @@ export function SkillsMatrixClient() {
                       onClick={addMember}
                       className="min-touch-coarse h-7 w-7 text-accent hover:bg-accent/10"
                       title="Add member"
+                      aria-label="Add member"
                     >
                       <Plus className="w-4 h-4" />
                     </Button>
@@ -576,6 +579,7 @@ export function SkillsMatrixClient() {
                             onClick={() => removeSkill(skill.id)}
                             className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
                             title="Remove skill"
+                            aria-label={`Remove skill ${skill.name}`}
                           >
                             <Trash2 className="w-3 h-3" />
                           </button>

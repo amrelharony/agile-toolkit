@@ -407,8 +407,11 @@ export function OnboardingTrackerClient() {
         <CardContent className="p-4">
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_180px_auto] gap-2">
             <div>
-              <Label className="text-xs text-sub">Name</Label>
+              <Label htmlFor="onboarding-name" className="text-xs text-sub">
+                Name
+              </Label>
               <Input
+                id="onboarding-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Jane Doe"
@@ -417,8 +420,11 @@ export function OnboardingTrackerClient() {
               />
             </div>
             <div>
-              <Label className="text-xs text-sub">Role</Label>
+              <Label htmlFor="onboarding-role" className="text-xs text-sub">
+                Role
+              </Label>
               <Input
+                id="onboarding-role"
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
                 placeholder="Software Engineer"
@@ -427,8 +433,11 @@ export function OnboardingTrackerClient() {
               />
             </div>
             <div>
-              <Label className="text-xs text-sub">Start date</Label>
+              <Label htmlFor="onboarding-start-date" className="text-xs text-sub">
+                Start date
+              </Label>
               <Input
+                id="onboarding-start-date"
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
@@ -439,6 +448,7 @@ export function OnboardingTrackerClient() {
             <div className="flex items-end">
               <Button
                 onClick={addOnboardee}
+                aria-label="Add onboardee"
                 className="gap-2 bg-accent text-bg hover:bg-accent/90 w-full"
               >
                 <Plus className="w-4 h-4" />
@@ -531,9 +541,9 @@ export function OnboardingTrackerClient() {
                                   ? "bg-success/30 border-success/60 text-success"
                                   : "border-border bg-surface text-transparent hover:text-sub"
                               )}
-                              aria-label={
-                                completed ? `Mark ${m.name} incomplete` : `Mark ${m.name} complete`
-                              }
+                              role="checkbox"
+                              aria-checked={completed}
+                              aria-label={`${m.name} (${p.name})`}
                             >
                               <Check className="w-3 h-3" />
                             </button>
@@ -564,7 +574,7 @@ export function OnboardingTrackerClient() {
                                 onCommit={(v) => updateNote(p.id, m.id, v)}
                                 placeholder="Note (optional)"
                                 className="mt-1 bg-surface border-border h-7 text-xs"
-                                aria-label={`Note for ${m.name}`}
+                                aria-label={`Note for ${m.name} (${p.name})`}
                               />
                             </div>
                           </div>

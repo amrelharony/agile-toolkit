@@ -301,7 +301,16 @@ function validateMatrix(
 /*  RACI Cell                                                                 */
 /* -------------------------------------------------------------------------- */
 
-function RACICell({ value, onChange }: { value: RACIValue; onChange: (v: RACIValue) => void }) {
+function RACICell({
+  value,
+  onChange,
+  label,
+}: {
+  value: RACIValue;
+  onChange: (v: RACIValue) => void;
+  /** Accessible name: the trigger only shows a single letter. */
+  label: string;
+}) {
   const color = value ? RACI_COLORS[value] : undefined;
 
   return (
@@ -310,6 +319,7 @@ function RACICell({ value, onChange }: { value: RACIValue; onChange: (v: RACIVal
       onValueChange={(v) => onChange(v === "empty" ? "" : (v as RACIValue))}
     >
       <SelectTrigger
+        aria-label={label}
         className="h-10 w-full border-border bg-surface text-center justify-center focus:ring-accent/20"
         style={
           color
@@ -678,6 +688,7 @@ export function RACIClient() {
                         <RACICell
                           value={matrix[activity.id]?.[role.id] || ""}
                           onChange={(v) => setCellValue(activity.id, role.id, v)}
+                          label={`${activity.name}: ${role.name}`}
                         />
                       </div>
                     ))}
@@ -768,6 +779,7 @@ export function RACIClient() {
                             onClick={() => removeRole(role.id)}
                             className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
                             title="Remove role"
+                            aria-label={`Remove role ${role.name}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -791,6 +803,7 @@ export function RACIClient() {
                       onClick={addRole}
                       className="min-touch-coarse h-7 w-7 text-accent hover:bg-accent/10"
                       title="Add role"
+                      aria-label="Add role"
                     >
                       <Plus className="w-4 h-4" />
                     </Button>
@@ -820,6 +833,7 @@ export function RACIClient() {
                               onClick={() => removeActivity(activity.id)}
                               className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
                               title="Remove activity"
+                              aria-label={`Remove activity ${activity.name}`}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -845,6 +859,7 @@ export function RACIClient() {
                           <RACICell
                             value={matrix[activity.id]?.[role.id] || ""}
                             onChange={(v) => setCellValue(activity.id, role.id, v)}
+                            label={`${activity.name}: ${role.name}`}
                           />
                         </td>
                       ))}

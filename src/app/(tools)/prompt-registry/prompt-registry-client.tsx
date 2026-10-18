@@ -208,22 +208,26 @@ export function PromptRegistryClient() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Input
               placeholder="Prompt name"
+              aria-label="Prompt name"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
             <Input
               placeholder="Version (e.g. 1.4.0)"
+              aria-label="Version"
               value={version}
               onChange={(e) => setVersion(e.target.value)}
             />
             <Input
               placeholder="Author (optional)"
+              aria-label="Author (optional)"
               value={author}
               onChange={(e) => setAuthor(e.target.value)}
             />
           </div>
           <Textarea
             placeholder="Prompt body"
+            aria-label="Prompt body"
             value={body}
             onChange={(e) => setBody(e.target.value)}
             className="mt-2 font-mono text-xs"
@@ -231,6 +235,7 @@ export function PromptRegistryClient() {
           />
           <Input
             placeholder="Change note (what changed vs previous?)"
+            aria-label="Change note"
             value={changeNote}
             onChange={(e) => setChangeNote(e.target.value)}
             className="mt-2"
@@ -321,7 +326,10 @@ export function PromptRegistryClient() {
                             value={p.status}
                             onValueChange={(v) => setStatus(p, v as PromptVersion["status"])}
                           >
-                            <SelectTrigger className="h-7 text-xs w-32">
+                            <SelectTrigger
+                              className="h-7 text-xs w-32"
+                              aria-label={`Status for ${p.name}@${p.version}`}
+                            >
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -336,7 +344,7 @@ export function PromptRegistryClient() {
                             <button
                               onClick={() => publish(p)}
                               className="text-success hover:text-success min-touch-coarse inline-flex items-center justify-center"
-                              aria-label="Publish"
+                              aria-label={`Publish ${p.name}@${p.version}`}
                             >
                               <CheckCircle2 className="w-4 h-4" />
                             </button>
@@ -344,7 +352,7 @@ export function PromptRegistryClient() {
                           <button
                             onClick={() => remove(p.id)}
                             className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
-                            aria-label="Remove"
+                            aria-label={`Remove ${p.name}@${p.version}`}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>

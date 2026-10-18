@@ -202,11 +202,13 @@ export function DaciClient() {
         <SectionCard title="Draft new decision" icon={Plus}>
           <Input
             placeholder="Decision title"
+            aria-label="Decision title"
             value={draft.title}
             onChange={(e) => setDraft({ ...draft, title: e.target.value })}
           />
           <Textarea
             placeholder="Context — why are we deciding this?"
+            aria-label="Context"
             value={draft.context ?? ""}
             onChange={(e) => setDraft({ ...draft, context: e.target.value })}
             className="mt-2"
@@ -215,16 +217,19 @@ export function DaciClient() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
             <Input
               placeholder="Driver (the one making it happen)"
+              aria-label="Driver"
               value={draft.driver ?? ""}
               onChange={(e) => setDraft({ ...draft, driver: e.target.value })}
             />
             <Input
               placeholder="Approver (final say)"
+              aria-label="Approver"
               value={draft.approver ?? ""}
               onChange={(e) => setDraft({ ...draft, approver: e.target.value })}
             />
             <Input
               placeholder="Contributors (comma-separated)"
+              aria-label="Contributors (comma-separated)"
               value={contribDraft ?? (draft.contributors ?? []).join(", ")}
               onChange={(e) => setContribDraft(e.target.value)}
               onBlur={() => {
@@ -235,6 +240,7 @@ export function DaciClient() {
             />
             <Input
               placeholder="Informed (comma-separated)"
+              aria-label="Informed (comma-separated)"
               value={informedDraft ?? (draft.informed ?? []).join(", ")}
               onChange={(e) => setInformedDraft(e.target.value)}
               onBlur={() => {
@@ -246,6 +252,7 @@ export function DaciClient() {
           </div>
           <Textarea
             placeholder="Options considered (one per line)"
+            aria-label="Options considered (one per line)"
             value={optionsDraft ?? (draft.options ?? []).join("\n")}
             onChange={(e) => setOptionsDraft(e.target.value)}
             onBlur={() => {
@@ -258,6 +265,7 @@ export function DaciClient() {
           />
           <Textarea
             placeholder="Recommendation"
+            aria-label="Recommendation"
             value={draft.recommendation ?? ""}
             onChange={(e) => setDraft({ ...draft, recommendation: e.target.value })}
             className="mt-2"
@@ -333,7 +341,7 @@ export function DaciClient() {
                         )}
                         <button
                           onClick={() => remove(d.id)}
-                          aria-label="Remove decision"
+                          aria-label={`Remove decision: ${d.title}`}
                           className="text-sub hover:text-danger"
                         >
                           <Trash2 className="w-4 h-4" />

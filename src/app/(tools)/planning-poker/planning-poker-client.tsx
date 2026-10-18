@@ -95,12 +95,16 @@ function LobbyScreen({
         </div>
 
         <div className="flex flex-col gap-2">
-          <Label className="text-sub text-sm">Estimation scale</Label>
-          <div className="flex gap-2">
+          <span id="estimation-scale-label" className="text-sm font-medium leading-none text-sub">
+            Estimation scale
+          </span>
+          <div role="group" aria-labelledby="estimation-scale-label" className="flex gap-2">
             {(["fibonacci", "tshirt", "custom"] as ScaleType[]).map((s) => (
               <button
                 key={s}
+                type="button"
                 onClick={() => setScaleType(s)}
+                aria-pressed={scaleType === s}
                 className={[
                   "flex-1 rounded-lg border py-2 px-3 text-sm font-medium transition-colors",
                   scaleType === s
@@ -117,6 +121,7 @@ function LobbyScreen({
               value={customInput}
               onChange={(e) => setCustomInput(e.target.value)}
               placeholder="Comma-separated values, e.g. 1, 2, 4, 8"
+              aria-label="Custom scale values"
               className="bg-surface-deep border-border text-text text-sm"
             />
           )}

@@ -266,6 +266,7 @@ function ThreatRow({
           onChange={(e) => mitigation.setDraft(e.target.value)}
           onBlur={mitigation.onBlur}
           placeholder="Mitigation plan..."
+          aria-label={`Mitigation plan for ${t.service}`}
           className="bg-bg border-border text-sm"
         />
         <Textarea
@@ -275,6 +276,7 @@ function ThreatRow({
           onChange={(e) => description.setDraft(e.target.value)}
           onBlur={description.onBlur}
           placeholder="Description (optional)..."
+          aria-label={`Description for ${t.service}`}
           className="bg-bg border-border text-xs"
         />
       </CardContent>
@@ -510,8 +512,11 @@ export function ThreatModelClient() {
       <SectionCard title="New threat" icon={Shield} className="mb-6 bg-surface border-border">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs text-sub">Service</Label>
+            <Label htmlFor="threat-service" className="text-xs text-sub">
+              Service
+            </Label>
             <Input
+              id="threat-service"
               value={service}
               onChange={(e) => setService(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addThreat()}
@@ -520,9 +525,11 @@ export function ThreatModelClient() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">STRIDE category</Label>
+            <Label htmlFor="threat-category" className="text-xs text-sub">
+              STRIDE category
+            </Label>
             <Select value={category} onValueChange={(v) => setCategory(v as Stride)}>
-              <SelectTrigger className="bg-bg border-border">
+              <SelectTrigger id="threat-category" className="bg-bg border-border">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -535,7 +542,7 @@ export function ThreatModelClient() {
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">
+            <span className="text-xs font-medium leading-none text-sub">
               Severity{" "}
               <span className="font-data text-text">
                 {severity}
@@ -545,7 +552,7 @@ export function ThreatModelClient() {
                   aria-hidden="true"
                 />
               </span>
-            </Label>
+            </span>
             <Slider
               value={[severity]}
               onValueChange={(v) => setSeverity(v[0] ?? 3)}
@@ -553,6 +560,7 @@ export function ThreatModelClient() {
               max={5}
               step={1}
               aria-label="Severity"
+              thumbProps={{ "aria-valuetext": `${severity} of 5` }}
             />
           </div>
           <div className="flex items-end">
@@ -565,8 +573,11 @@ export function ThreatModelClient() {
             </Button>
           </div>
           <div className="sm:col-span-2 lg:col-span-2 space-y-1">
-            <Label className="text-xs text-sub">Mitigation (optional)</Label>
+            <Label htmlFor="threat-mitigation" className="text-xs text-sub">
+              Mitigation (optional)
+            </Label>
             <Textarea
+              id="threat-mitigation"
               rows={2}
               value={mitigation}
               onChange={(e) => setMitigation(e.target.value)}
@@ -575,8 +586,11 @@ export function ThreatModelClient() {
             />
           </div>
           <div className="sm:col-span-2 lg:col-span-2 space-y-1">
-            <Label className="text-xs text-sub">Description (optional)</Label>
+            <Label htmlFor="threat-description" className="text-xs text-sub">
+              Description (optional)
+            </Label>
             <Textarea
+              id="threat-description"
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -604,7 +618,8 @@ export function ThreatModelClient() {
                       className="text-center text-sub font-medium pb-2 px-2"
                       title={o.label}
                     >
-                      {STRIDE_TAG[o.value]}
+                      <span aria-hidden="true">{STRIDE_TAG[o.value]}</span>
+                      <span className="sr-only">{o.label}</span>
                     </th>
                   ))}
                 </tr>
@@ -614,16 +629,27 @@ export function ThreatModelClient() {
                   const row = matrix.get(svc)!;
                   return (
                     <tr key={svc}>
-                      <td className="text-text pr-3 py-1.5 truncate max-w-[180px]">{svc}</td>
+                      <th
+                        scope="row"
+                        className="text-left font-normal text-text pr-3 py-1.5 truncate max-w-[180px]"
+                      >
+                        {svc}
+                      </th>
                       {STRIDE_OPTIONS.map((o) => {
                         const count = row[o.value];
                         return (
                           <td key={o.value} className="text-center px-2 py-1.5">
                             <span
                               className={count === 0 ? "text-sub/40" : "text-accent font-semibold"}
-                              aria-label={`${o.label} count for ${svc}`}
                             >
-                              {count === 0 ? "—" : count}
+                              {count === 0 ? (
+                                <>
+                                  <span aria-hidden="true">—</span>
+                                  <span className="sr-only">0</span>
+                                </>
+                              ) : (
+                                count
+                              )}
                             </span>
                           </td>
                         );

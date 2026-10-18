@@ -187,6 +187,7 @@ export function AIRedTeamClient() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Input
               placeholder="Attack vector (e.g. prompt injection)"
+              aria-label="Attack vector"
               value={vector}
               onChange={(e) => setVector(e.target.value)}
             />
@@ -194,7 +195,7 @@ export function AIRedTeamClient() {
               value={severity}
               onValueChange={(v) => setSeverity(v as RedTeamFinding["severity"])}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Severity">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -216,6 +217,7 @@ export function AIRedTeamClient() {
           </div>
           <Textarea
             placeholder="Prompt used (optional)"
+            aria-label="Prompt used (optional)"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             className="mt-2 font-mono text-xs"
@@ -307,13 +309,16 @@ export function AIRedTeamClient() {
                         {x.successful && (
                           <span className="text-xs text-danger font-bold">SUCCEEDED</span>
                         )}
-                        <span className="text-text truncate">{x.attackVector}</span>
+                        <span className="text-text truncate">
+                          {x.attackVector}
+                          {x.resolvedAt && <span className="sr-only"> (resolved)</span>}
+                        </span>
                       </span>
                       <span className="flex items-center gap-2 shrink-0">
                         {!x.resolvedAt && (
                           <button
                             onClick={() => resolve(x.id)}
-                            aria-label="Mark resolved"
+                            aria-label={`Mark resolved: ${x.attackVector}`}
                             title="Mark resolved"
                             className="text-success hover:text-success"
                           >
@@ -322,7 +327,7 @@ export function AIRedTeamClient() {
                         )}
                         <button
                           onClick={() => remove(x.id)}
-                          aria-label="Remove finding"
+                          aria-label={`Remove finding: ${x.attackVector}`}
                           className="text-sub hover:text-danger"
                         >
                           <Trash2 className="w-4 h-4" />
