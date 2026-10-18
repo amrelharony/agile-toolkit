@@ -498,7 +498,7 @@ export function TokenCostTrackerClient() {
                             type="button"
                             onClick={() => remove(x.id)}
                             aria-label={`Remove spend entry: ${x.feature} on ${x.date}`}
-                            className="text-sub hover:text-danger"
+                            className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger"
                           >
                             <Trash2 className="w-4 h-4" aria-hidden="true" />
                           </button>

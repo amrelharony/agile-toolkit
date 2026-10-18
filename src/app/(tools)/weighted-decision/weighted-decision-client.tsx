@@ -213,7 +213,7 @@ export function WeightedDecisionClient() {
                 <button
                   type="button"
                   onClick={() => removeCriterionCascade(c.id)}
-                  className="text-sub hover:text-danger ml-1"
+                  className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger ml-1"
                   aria-label={`Remove criterion ${c.name}`}
                 >
                   <Trash2 className="w-3 h-3" aria-hidden="true" />
@@ -311,7 +311,7 @@ export function WeightedDecisionClient() {
                             removeOption(o.id);
                             log(WEIGHTED_DECISION_ACTIONS.OPTION_REMOVED, { id: o.id });
                           }}
-                          className="text-sub hover:text-danger"
+                          className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger"
                           aria-label={`Remove option ${o.name}`}
                         >
                           <Trash2 className="w-4 h-4" aria-hidden="true" />

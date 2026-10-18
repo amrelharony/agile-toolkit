@@ -355,7 +355,7 @@ export function HitlQualityClient() {
                     <button
                       onClick={() => remove(x.id)}
                       aria-label="Remove review"
-                      className="text-sub hover:text-danger"
+                      className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

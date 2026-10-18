@@ -572,7 +572,7 @@ function ReleaseCard({
             size="sm"
             onClick={onRemove}
             aria-label={`Remove ${release.name}`}
-            className="h-8 w-8 p-0 text-sub hover:text-danger"
+            className="min-touch-coarse h-8 w-8 p-0 text-sub hover:text-danger"
           >
             <Trash2 className="w-4 h-4" aria-hidden="true" />
           </Button>

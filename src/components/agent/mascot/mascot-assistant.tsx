@@ -450,7 +450,7 @@ export function MascotAssistant() {
                 type="button"
                 onClick={closeSheet}
                 aria-label="Close assistant"
-                className="rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
+                className="min-touch-coarse rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>

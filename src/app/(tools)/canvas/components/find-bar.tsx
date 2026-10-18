@@ -232,7 +232,7 @@ function FindBarImpl({ objects, viewportSize, onPanToRect, onSelect, onClose }: 
             type="button"
             onClick={onClose}
             aria-label="Close find bar"
-            className="w-5 h-5 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep"
+            className="min-touch-coarse w-5 h-5 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep"
           >
             <X className="w-3 h-3" aria-hidden="true" />
           </button>

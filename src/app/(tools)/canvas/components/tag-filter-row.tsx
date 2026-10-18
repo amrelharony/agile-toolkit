@@ -90,7 +90,7 @@ function TagFilterRowImpl({ objects }: Props) {
           type="button"
           aria-label="Clear tag filter"
           onClick={() => setTagFilter([])}
-          className="ml-1 text-sub hover:text-text"
+          className="min-touch-coarse -m-1 p-1 ml-1 text-sub hover:text-text"
         >
           <X className="w-3 h-3" aria-hidden="true" />
         </button>

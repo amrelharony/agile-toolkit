@@ -96,7 +96,7 @@ export function RetroCardItem({
             onClick={() => onToggleAction(card.id)}
             aria-label="Action item"
             aria-pressed={card.isActionItem}
-            className="mt-0.5 shrink-0 text-sub hover:text-accent transition-colors"
+            className="min-touch-coarse -m-1 p-1 mt-0.5 shrink-0 text-sub hover:text-accent transition-colors"
           >
             {card.isActionItem ? (
               <CheckSquare className="w-4 h-4 text-accent" aria-hidden="true" />

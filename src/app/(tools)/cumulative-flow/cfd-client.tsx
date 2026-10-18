@@ -425,7 +425,7 @@ export function CFDClient() {
                       <button
                         type="button"
                         onClick={() => removeColumn(col.id)}
-                        className="text-sub hover:text-danger transition-colors ml-1"
+                        className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger transition-colors ml-1"
                         title="Remove column"
                         aria-label={`Remove column ${col.name}`}
                       >
