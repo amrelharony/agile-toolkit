@@ -7,19 +7,24 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generatePrioritizerPrompts } from "@/lib/ai-prompts/prioritizer";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Workspace } from "@/lib/stores/workspace-types";
+import type { PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PRIORITIZER_ACTIONS } from "@/lib/history/event-actions";
-import { Button } from "@/components/ui/button";
+import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { MOSCOW_CONFIG } from "./constants";
 import { riceScore, wsjfScore } from "./scoring";
 import { usePrioritizerStore } from "./use-prioritizer-store";
+import { isExampleBacklogId } from "./example";
 import { ItemsTable } from "./components/items-table";
+import { ScoresTab } from "./components/scores-tab";
+import { WhichMethod } from "./components/which-method";
 import { MoSCoWTab } from "./components/moscow-tab";
 import { WSJFTab } from "./components/wsjf-tab";
 import { RICETab } from "./components/rice-tab";
 import { MatrixTab } from "./components/matrix-tab";
+
+const NO_ROWS: PrioritizationItem[] = [];
 
 export function PrioritizerClient() {
   const {
@@ -27,8 +32,10 @@ export function PrioritizerClient() {
     addItem: addItemRaw,
     updateItem: updateItemRaw,
     removeItem: removeItemRaw,
-    reset: resetRaw,
+    loadExample,
+    clearExample,
   } = usePrioritizerStore();
+  const rows = useWorkspaceStore((s) => s.prioritizations) ?? NO_ROWS;
   const { log } = useHistoryLogger("prioritizer");
 
   const addItem: typeof addItemRaw = (...args) => {
@@ -58,10 +65,7 @@ export function PrioritizerClient() {
     removeItemRaw(id);
     log(PRIORITIZER_ACTIONS.ITEM_REMOVED, { itemId: id, name: item?.name });
   };
-  const reset = () => {
-    resetRaw();
-    log(PRIORITIZER_ACTIONS.PRIORITIZER_RESET, {});
-  };
+  const hasExample = items.some((i) => isExampleBacklogId(i.id));
 
   const workspace = useWorkspaceStore(
     useShallow(
@@ -133,31 +137,31 @@ export function PrioritizerClient() {
     <ToolPageWrapper
       toolId="prioritizer"
       title="Backlog Prioritizer"
-      description="Prioritize your backlog with MoSCoW, WSJF, RICE, and Value vs. Effort frameworks."
+      description="Your shared backlog: score it with MoSCoW, WSJF, RICE and Value vs. Effort here, and compare every method side by side."
       category="Sprint Planning & Estimation"
     >
+      {hasExample && <ExampleNotice onClear={clearExample} />}
       <div className="space-y-6">
         {/* Actions row */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <Button variant="danger-ghost" size="sm" onClick={reset}>
-            Reset to defaults
-          </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <AiPromptGenerator config={promptConfig} />
           <ExportButton filename="backlog-prioritizer" csvData={csvData} jsonData={items} />
         </div>
 
-        {/* Items table */}
+        {/* Items table: the shared backlog the method tools score */}
         <ItemsTable
           items={items}
           updateItem={updateItem}
           removeItem={removeItem}
           addItem={addItem}
+          emptyState={<LoadExampleButton onLoad={loadExample} />}
         />
 
         {/* Prioritization tabs */}
-        <Tabs defaultValue="moscow">
+        <Tabs defaultValue="all">
           <TabsList className="bg-surface-deep border border-border h-auto p-1 flex-wrap gap-1">
             {[
+              { value: "all", label: "All methods" },
               { value: "moscow", label: "MoSCoW" },
               { value: "wsjf", label: "WSJF" },
               { value: "rice", label: "RICE" },
@@ -172,6 +176,11 @@ export function PrioritizerClient() {
               </TabsTrigger>
             ))}
           </TabsList>
+
+          <TabsContent value="all" className="mt-4 space-y-4">
+            <ScoresTab items={items} rows={rows} />
+            <WhichMethod />
+          </TabsContent>
 
           <TabsContent value="moscow" className="mt-4">
             <MoSCoWTab items={items} />

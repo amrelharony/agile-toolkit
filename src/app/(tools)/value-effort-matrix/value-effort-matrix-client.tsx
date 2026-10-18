@@ -16,6 +16,12 @@ import { generateValueEffortPrompts } from "@/lib/ai-prompts/value-effort-matrix
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { VALUE_EFFORT_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+import {
+  BacklogRowLink,
+  ImportFromBacklog,
+  useBacklogImport,
+} from "@/components/prioritization/backlog-link";
+import { linkNewRow } from "@/lib/prioritization/backlog-links";
 
 // Recharts loads with the chart, not the page; the placeholder fills the
 // chart's fixed-height box while it does.
@@ -59,6 +65,14 @@ export function ValueEffortMatrixClient() {
   const [value, setValue] = useState("");
   const [effort, setEffort] = useState("");
 
+  // "Import from backlog" (or a "Score with Value/Effort" link) fills the
+  // form; the next item plotted links to that backlog item.
+  const backlog = useBacklogImport("value-effort", (picked, prefill) => {
+    setTitle(picked.name);
+    setValue(prefill.value === undefined ? "" : String(prefill.value));
+    setEffort(prefill.effort === undefined ? "" : String(prefill.effort));
+  });
+
   function add() {
     if (!title.trim()) return;
     // parseFloat("0") returns 0, which falls through `|| 5` to 5 — meaning a
@@ -73,16 +87,20 @@ export function ValueEffortMatrixClient() {
     };
     const v = clamp(value),
       e = clamp(effort);
-    const item: PrioritizationItem = {
-      id: crypto.randomUUID(),
-      framework: "value-effort",
-      title: title.trim(),
-      score: v - e,
-      fields: { value: v, effort: e, quadrant: quadrantOf(v, e) },
-      status: "scored",
-      updatedAt: new Date().toISOString(),
-    };
+    const item: PrioritizationItem = linkNewRow(
+      {
+        id: crypto.randomUUID(),
+        framework: "value-effort",
+        title: title.trim(),
+        score: v - e,
+        fields: { value: v, effort: e, quadrant: quadrantOf(v, e) },
+        status: "scored",
+        updatedAt: new Date().toISOString(),
+      },
+      backlog.pending?.id
+    );
     upsert(item);
+    backlog.clear();
     log(VALUE_EFFORT_ACTIONS.ITEM_ADDED, { title, quadrant: item.fields?.quadrant });
     emitSignal({
       kind: "prioritization.scored",
@@ -171,7 +189,7 @@ export function ValueEffortMatrixClient() {
       description="Plot items into Quick Wins / Big Bets / Fill-Ins / Time Wasters quadrants based on value (1–10) and effort (1–10)."
     >
       <div ref={exportRef} className="space-y-4">
-        <SectionCard title="Add item" icon={Plus}>
+        <SectionCard title="Add item" icon={Plus} actions={<ImportFromBacklog link={backlog} />}>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
             <Input
               className="sm:col-span-2"
@@ -244,6 +262,7 @@ export function ValueEffortMatrixClient() {
                       <span className="text-xs text-sub mx-2 shrink-0">
                         v{it.fields?.value} e{it.fields?.effort}
                       </span>
+                      <BacklogRowLink row={it} />
                       <button
                         onClick={() => {
                           removeOne(it.id);

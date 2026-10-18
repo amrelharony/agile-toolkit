@@ -1,43 +1,50 @@
 "use client";
 
 /**
- * Backlog items are a synced workspace collection (were an isolated
- * localStorage zustand store), so MCP-written items round-trip into the UI.
- * `usePrioritizerStore` preserves the prior store's API. The deterministic
- * `defaultItems` seed is written into the store on first mount (when the slice
- * is still undefined) so SSR/first-paint matches and update/remove operate on
- * real rows. The collection kind matches src/lib/actions/tools/prioritizer.ts.
+ * Backlog items are a synced workspace collection (`backlogItems`), the
+ * shared backlog the prioritization method tools score. The collection kind
+ * matches src/lib/actions/tools/prioritizer.ts.
+ *
+ * There is no seed: a new backlog is empty and the page offers "Load an
+ * example". (The old `defaultItems` seed never ran, because the workspace
+ * starts with `backlogItems: []`, and "Reset to defaults" wiped the whole
+ * collection without asking.)
  */
 
-import { useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { PrioritizerStore } from "./types";
-import { createDefaultItem, defaultItems } from "./constants";
+import { removeBacklogItemWithUndo, renameLinkedRows } from "@/lib/prioritization/backlog-links";
+import type { BacklogItem, PrioritizerStore } from "./types";
+import { createDefaultItem } from "./constants";
+import { buildExample, isExampleBacklogId } from "./example";
+
+const NO_ITEMS: BacklogItem[] = [];
 
 export function usePrioritizerStore(): PrioritizerStore {
   const raw = useWorkspaceStore(useShallow((s) => s.backlogItems));
   const upsert = useWorkspaceStore((s) => s.upsertBacklogItem);
-  const removeItem = useWorkspaceStore((s) => s.removeBacklogItem);
-
-  // Seed the deterministic defaults once, only if the user has never had a
-  // backlog (slice undefined). An explicit empty array is respected.
-  useEffect(() => {
-    if (useWorkspaceStore.getState().backlogItems === undefined) {
-      useWorkspaceStore.setState({ backlogItems: defaultItems });
-    }
-  }, []);
 
   return {
-    items: raw ?? defaultItems,
+    items: raw ?? NO_ITEMS,
     addItem: () => upsert(createDefaultItem()),
     updateItem: (id, updates) => {
-      const cur = (useWorkspaceStore.getState().backlogItems ?? defaultItems).find(
-        (item) => item.id === id
-      );
-      if (cur) upsert({ ...cur, ...updates });
+      const cur = (useWorkspaceStore.getState().backlogItems ?? []).find((item) => item.id === id);
+      if (!cur) return;
+      upsert({ ...cur, ...updates });
+      if (updates.name !== undefined && updates.name !== cur.name) {
+        renameLinkedRows(id, updates.name);
+      }
     },
-    removeItem: (id) => removeItem(id),
-    reset: () => useWorkspaceStore.setState({ backlogItems: defaultItems }),
+    removeItem: (id) => removeBacklogItemWithUndo(id),
+    loadExample: () => {
+      const have = new Set((useWorkspaceStore.getState().backlogItems ?? []).map((b) => b.id));
+      for (const item of buildExample()) if (!have.has(item.id)) upsert(item);
+    },
+    clearExample: () => {
+      const { backlogItems, removeBacklogItem } = useWorkspaceStore.getState();
+      for (const item of backlogItems ?? []) {
+        if (isExampleBacklogId(item.id)) removeBacklogItem(item.id);
+      }
+    },
   };
 }

@@ -24,6 +24,12 @@ import {
   hasExampleItems,
   isExampleId,
 } from "@/components/tool-frame/example-data";
+import {
+  BacklogRowLink,
+  ImportFromBacklog,
+  useBacklogImport,
+} from "@/components/prioritization/backlog-link";
+import { linkNewRow } from "@/lib/prioritization/backlog-links";
 import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
 
@@ -56,6 +62,17 @@ export function WsjfClient() {
   const [rrOe, setRrOe] = useState("");
   const [size, setSize] = useState("");
 
+  // "Import from backlog" (or a "Score with WSJF" link) fills the form; the
+  // next feature added links to that backlog item.
+  const backlog = useBacklogImport("wsjf", (picked, prefill) => {
+    const str = (v: number | string | undefined) => (v === undefined ? "" : String(v));
+    setTitle(picked.name);
+    setBv(str(prefill.businessValue));
+    setTc(str(prefill.timeCriticality));
+    setRrOe(str(prefill.rrOe));
+    setSize(str(prefill.jobSize));
+  });
+
   function add() {
     if (!title.trim()) return;
     const fn = (s: string, fb: number) => {
@@ -70,16 +87,20 @@ export function WsjfClient() {
     // chart. Floor jobSize at 0.5 even when the user explicitly typed 0.
     const jobSize = Math.max(0.5, fn(size, 1));
     const score = wsjfScore(businessValue, timeCriticality, rrOeVal, jobSize);
-    const item: PrioritizationItem = {
-      id: crypto.randomUUID(),
-      framework: "wsjf",
-      title: title.trim().slice(0, 200),
-      score,
-      fields: { businessValue, timeCriticality, rrOe: rrOeVal, jobSize },
-      status: "scored",
-      updatedAt: new Date().toISOString(),
-    };
+    const item: PrioritizationItem = linkNewRow(
+      {
+        id: crypto.randomUUID(),
+        framework: "wsjf",
+        title: title.trim().slice(0, 200),
+        score,
+        fields: { businessValue, timeCriticality, rrOe: rrOeVal, jobSize },
+        status: "scored",
+        updatedAt: new Date().toISOString(),
+      },
+      backlog.pending?.id
+    );
     upsert(item);
+    backlog.clear();
     log(WSJF_ACTIONS.ITEM_ADDED, { title: item.title, score });
     emitSignal({
       kind: "prioritization.scored",
@@ -120,6 +141,8 @@ export function WsjfClient() {
   function clearExample() {
     for (const x of items) if (isExampleId(x.id)) removeOne(x.id);
   }
+
+  const byId = useMemo(() => new Map(items.map((x) => [x.id, x])), [items]);
 
   const ranked = useMemo(
     () =>
@@ -195,7 +218,7 @@ export function WsjfClient() {
     >
       {hasExampleItems(items) && <ExampleNotice onClear={clearExample} />}
       <div ref={exportRef} className="space-y-4">
-        <SectionCard title="Add feature" icon={Plus}>
+        <SectionCard title="Add feature" icon={Plus} actions={<ImportFromBacklog link={backlog} />}>
           <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
             <Input
               className="sm:col-span-2"
@@ -286,7 +309,12 @@ export function WsjfClient() {
                   {ranked.map((r) => (
                     <tr key={r.id} className="border-t border-border">
                       <td className="p-2 font-mono text-xs">{r.rank}</td>
-                      <td className="p-2">{r.title}</td>
+                      <td className="p-2">
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          {r.title}
+                          <BacklogRowLink row={byId.get(r.id)} />
+                        </span>
+                      </td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.businessValue}</td>
                       <td className="p-2 text-right font-mono text-xs">
                         {r.fields.timeCriticality}

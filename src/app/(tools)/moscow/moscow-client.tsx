@@ -21,6 +21,13 @@ import type { PrioritizationItem, Workspace } from "@/lib/stores/workspace-types
 import { generateMoscowPrompts } from "@/lib/ai-prompts/moscow";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { MOSCOW_ACTIONS } from "@/lib/history/event-actions";
+import {
+  BacklogRowLink,
+  ImportFromBacklog,
+  useBacklogImport,
+} from "@/components/prioritization/backlog-link";
+import { isMoscowBucket } from "@/lib/prioritization/frameworks";
+import { linkNewRow } from "@/lib/prioritization/backlog-links";
 
 type Bucket = "must" | "should" | "could" | "wont";
 const BUCKETS: { id: Bucket; label: string; color: string }[] = [
@@ -41,17 +48,28 @@ export function MoscowClient() {
   const [title, setTitle] = useState("");
   const [bucket, setBucket] = useState<Bucket>("must");
 
+  // "Import from backlog" (or a "Score with MoSCoW" link) fills the form;
+  // the next item added links to that backlog item.
+  const backlog = useBacklogImport("moscow", (picked, prefill) => {
+    setTitle(picked.name);
+    if (isMoscowBucket(prefill.bucket)) setBucket(prefill.bucket);
+  });
+
   function add() {
     if (!title.trim()) return;
-    const item: PrioritizationItem = {
-      id: crypto.randomUUID(),
-      framework: "moscow",
-      title: title.trim().slice(0, 200),
-      fields: { bucket },
-      status: "scored",
-      updatedAt: new Date().toISOString(),
-    };
+    const item: PrioritizationItem = linkNewRow(
+      {
+        id: crypto.randomUUID(),
+        framework: "moscow",
+        title: title.trim().slice(0, 200),
+        fields: { bucket },
+        status: "scored",
+        updatedAt: new Date().toISOString(),
+      },
+      backlog.pending?.id
+    );
     upsert(item);
+    backlog.clear();
     log(MOSCOW_ACTIONS.ITEM_ADDED, { title: item.title, bucket });
     setTitle("");
   }
@@ -121,7 +139,11 @@ export function MoscowClient() {
       description="Bucket scope into Must / Should / Could / Won't to align cross-functional teams on what's in vs out."
     >
       <div ref={exportRef} className="space-y-4">
-        <SectionCard title="Add scope item" icon={Plus}>
+        <SectionCard
+          title="Add scope item"
+          icon={Plus}
+          actions={<ImportFromBacklog link={backlog} />}
+        >
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Input
               className="sm:col-span-2"
@@ -198,6 +220,7 @@ export function MoscowClient() {
                         </SelectContent>
                       </Select>
                       <span className="flex-1 truncate text-text">{it.title}</span>
+                      <BacklogRowLink row={it} />
                       <button
                         type="button"
                         onClick={() => remove(it.id)}

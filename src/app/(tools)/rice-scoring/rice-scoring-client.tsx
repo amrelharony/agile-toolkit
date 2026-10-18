@@ -24,6 +24,12 @@ import {
   hasExampleItems,
   isExampleId,
 } from "@/components/tool-frame/example-data";
+import {
+  BacklogRowLink,
+  ImportFromBacklog,
+  useBacklogImport,
+} from "@/components/prioritization/backlog-link";
+import { linkNewRow } from "@/lib/prioritization/backlog-links";
 import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
 
@@ -56,6 +62,16 @@ export function RiceScoringClient() {
   const [confidence, setConfidence] = useState("");
   const [effort, setEffort] = useState("");
 
+  // "Import from backlog" (or a "Score with RICE" link) fills the form; the
+  // next initiative added links to that backlog item.
+  const backlog = useBacklogImport("rice", (picked, prefill) => {
+    setTitle(picked.name);
+    setReach(prefill.reach === undefined ? "" : String(prefill.reach));
+    setImpact(prefill.impact === undefined ? "" : String(prefill.impact));
+    setConfidence(prefill.confidence === undefined ? "" : String(prefill.confidence));
+    setEffort(prefill.effort === undefined ? "" : String(prefill.effort));
+  });
+
   function add() {
     if (!title.trim()) return;
     // Use `Number` (strict) rather than `parseFloat` so "5abc" → NaN → fallback,
@@ -69,16 +85,20 @@ export function RiceScoringClient() {
     const c = fn(confidence, 100);
     const e = fn(effort, 1);
     const score = riceScore(r, i, c, e);
-    const item: PrioritizationItem = {
-      id: crypto.randomUUID(),
-      framework: "rice",
-      title: title.trim().slice(0, 200),
-      score,
-      fields: { reach: r, impact: i, confidence: c, effort: e },
-      status: "scored",
-      updatedAt: new Date().toISOString(),
-    };
+    const item: PrioritizationItem = linkNewRow(
+      {
+        id: crypto.randomUUID(),
+        framework: "rice",
+        title: title.trim().slice(0, 200),
+        score,
+        fields: { reach: r, impact: i, confidence: c, effort: e },
+        status: "scored",
+        updatedAt: new Date().toISOString(),
+      },
+      backlog.pending?.id
+    );
     upsert(item);
+    backlog.clear();
     log(RICE_ACTIONS.ITEM_ADDED, { title: item.title, score });
     emitSignal({
       kind: "prioritization.scored",
@@ -119,6 +139,8 @@ export function RiceScoringClient() {
   function clearExample() {
     for (const x of items) if (isExampleId(x.id)) removeOne(x.id);
   }
+
+  const byId = useMemo(() => new Map(items.map((x) => [x.id, x])), [items]);
 
   const ranked = useMemo(
     () =>
@@ -200,7 +222,11 @@ export function RiceScoringClient() {
     >
       {hasExampleItems(items) && <ExampleNotice onClear={clearExample} />}
       <div ref={exportRef} className="space-y-4">
-        <SectionCard title="Add initiative" icon={Plus}>
+        <SectionCard
+          title="Add initiative"
+          icon={Plus}
+          actions={<ImportFromBacklog link={backlog} />}
+        >
           <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
             <Input
               className="sm:col-span-2"
@@ -297,7 +323,7 @@ export function RiceScoringClient() {
                       className={`border-t border-border ${outliers.has(r.id) ? "bg-warning/5" : ""}`}
                     >
                       <td className="p-2 font-mono text-xs">{r.rank}</td>
-                      <td className="p-2 flex items-center gap-2">
+                      <td className="p-2 flex flex-wrap items-center gap-2">
                         {r.title}{" "}
                         {outliers.has(r.id) && (
                           <AlertTriangle
@@ -306,6 +332,7 @@ export function RiceScoringClient() {
                             aria-label="Outlier score, re-check inputs"
                           />
                         )}
+                        <BacklogRowLink row={byId.get(r.id)} />
                       </td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.reach}</td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.impact}</td>
