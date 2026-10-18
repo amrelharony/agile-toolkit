@@ -113,10 +113,16 @@ function useIsPhone(): boolean {
   return isPhone;
 }
 
+/** Start the 3D figure this long after load if nobody has interacted yet. */
+const MASCOT_3D_DELAY_MS = 5000;
+
 /**
- * Defer the 3D figure (three.js + the model) until the browser is idle, so it
- * never competes with the page's own content. Skipped entirely when the
- * visitor asked to save data.
+ * Defer the 3D figure (three.js, the model and its animation engine) until
+ * the visitor first interacts (pointer, key, scroll) or a few seconds after
+ * the page has loaded, whichever comes first, then wait for an idle moment.
+ * Its setup is ~0.7 s of main-thread work on a mid-range phone, and the page
+ * should be usable before that. The launcher shows until then. Skipped
+ * entirely when the visitor asked to save data.
  */
 function useDeferred3d(): boolean {
   const [ready, setReady] = useState(false);
@@ -127,12 +133,31 @@ function useDeferred3d(): boolean {
       requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
       cancelIdleCallback?: (id: number) => void;
     };
-    if (w.requestIdleCallback) {
-      const id = w.requestIdleCallback(() => setReady(true), { timeout: 3000 });
-      return () => w.cancelIdleCallback?.(id);
-    }
-    const t = window.setTimeout(() => setReady(true), 300);
-    return () => window.clearTimeout(t);
+    let idleId: number | undefined;
+    let timer: number | undefined;
+    let started = false;
+    const events = ["pointerdown", "keydown", "scroll", "touchstart"] as const;
+    const start = () => {
+      if (started) return;
+      started = true;
+      events.forEach((e) => window.removeEventListener(e, start));
+      window.clearTimeout(timer);
+      if (w.requestIdleCallback)
+        idleId = w.requestIdleCallback(() => setReady(true), { timeout: 2000 });
+      else timer = window.setTimeout(() => setReady(true), 300);
+    };
+    events.forEach((e) => window.addEventListener(e, start, { passive: true, once: true }));
+    const arm = () => {
+      timer = window.setTimeout(start, MASCOT_3D_DELAY_MS);
+    };
+    if (document.readyState === "complete") arm();
+    else window.addEventListener("load", arm, { once: true });
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, start));
+      window.removeEventListener("load", arm);
+      window.clearTimeout(timer);
+      if (idleId !== undefined) w.cancelIdleCallback?.(idleId);
+    };
   }, []);
   return ready;
 }

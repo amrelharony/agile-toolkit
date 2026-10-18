@@ -187,6 +187,10 @@ describe("MascotAssistant — comic reader", () => {
     h.pathname = pathname;
     render(<MascotAssistant />);
     expect(screen.getByRole("button", { name: "Open assistant" })).toBeInTheDocument();
+    // The 3D figure waits for the first interaction (or a few seconds after
+    // load), so it never competes with the page becoming usable.
+    expect(screen.queryByTestId("mascot-3d")).toBeNull();
+    fireEvent.pointerDown(window);
     await waitFor(() => expect(screen.getByTestId("mascot-3d")).toBeInTheDocument());
   });
 });
