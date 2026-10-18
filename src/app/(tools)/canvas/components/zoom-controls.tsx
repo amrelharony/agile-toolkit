@@ -2,7 +2,9 @@
 
 import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 import { useCanvasStore } from "../use-canvas-store";
-import { clampZoom, resetCamera } from "@/lib/whiteboard/canvas-transform";
+import { resetCamera } from "@/lib/whiteboard/canvas-transform";
+import { keepBoardFocus } from "@/lib/whiteboard/keyboard";
+import { zoomStep } from "../hooks/use-pan-zoom-controls";
 
 interface ZoomControlsProps {
   onFit?: () => void;
@@ -13,28 +15,10 @@ export function ZoomControls({ onFit, viewportSize }: ZoomControlsProps) {
   const camera = useCanvasStore((s) => s.camera);
   const setCamera = useCanvasStore((s) => s.setCamera);
 
-  const zoomIn = () => {
-    const center = viewportSize ? { x: viewportSize.w / 2, y: viewportSize.h / 2 } : { x: 0, y: 0 };
-    const next = clampZoom(camera.zoom * 1.2);
-    const worldX = camera.x + center.x / camera.zoom;
-    const worldY = camera.y + center.y / camera.zoom;
-    setCamera({
-      x: worldX - center.x / next,
-      y: worldY - center.y / next,
-      zoom: next,
-    });
-  };
-  const zoomOut = () => {
-    const center = viewportSize ? { x: viewportSize.w / 2, y: viewportSize.h / 2 } : { x: 0, y: 0 };
-    const next = clampZoom(camera.zoom / 1.2);
-    const worldX = camera.x + center.x / camera.zoom;
-    const worldY = camera.y + center.y / camera.zoom;
-    setCamera({
-      x: worldX - center.x / next,
-      y: worldY - center.y / next,
-      zoom: next,
-    });
-  };
+  // Same step as the Cmd/Ctrl + = / - shortcuts (see useKeyboardZoomActions).
+  const size = viewportSize ?? { w: 0, h: 0 };
+  const zoomIn = () => setCamera(zoomStep(camera, size, 1));
+  const zoomOut = () => setCamera(zoomStep(camera, size, -1));
   const reset = () => setCamera(resetCamera());
 
   return (
@@ -48,6 +32,7 @@ export function ZoomControls({ onFit, viewportSize }: ZoomControlsProps) {
       <button
         type="button"
         onClick={zoomOut}
+        onMouseDown={keepBoardFocus}
         aria-label="Zoom out"
         title="Zoom out (Cmd+-)"
         className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep min-touch-coarse"
@@ -57,6 +42,7 @@ export function ZoomControls({ onFit, viewportSize }: ZoomControlsProps) {
       <button
         type="button"
         onClick={reset}
+        onMouseDown={keepBoardFocus}
         title="Reset zoom (Cmd+0)"
         aria-label={`Reset zoom (currently ${Math.round(camera.zoom * 100)}%)`}
         className="text-xs font-mono text-sub hover:text-text px-2 py-1 rounded hover:bg-surface-deep min-w-[50px] text-center"
@@ -66,6 +52,7 @@ export function ZoomControls({ onFit, viewportSize }: ZoomControlsProps) {
       <button
         type="button"
         onClick={zoomIn}
+        onMouseDown={keepBoardFocus}
         aria-label="Zoom in"
         title="Zoom in (Cmd+=)"
         className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep min-touch-coarse"
@@ -77,6 +64,7 @@ export function ZoomControls({ onFit, viewportSize }: ZoomControlsProps) {
         <button
           type="button"
           onClick={onFit}
+          onMouseDown={keepBoardFocus}
           aria-label="Fit to content"
           title="Fit to content (Cmd+1)"
           className="w-7 h-7 rounded flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep min-touch-coarse"

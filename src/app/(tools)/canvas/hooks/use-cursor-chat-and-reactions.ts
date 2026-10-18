@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type RefObject } from "react";
+import { isInsideScope, isTextEntryTarget } from "@/lib/whiteboard/keyboard";
 
 // Module-scope keymap for quick emoji reactions — hoisted out of the
 // render path so the `EMOJI_KEYS` object isn't allocated on every render
@@ -27,7 +28,8 @@ type PresencePatch = {
  *
  * Modifier-bearing keys (Cmd/Ctrl/Alt) and edits inside form fields
  * are passed through so this hook never steals shortcuts from
- * undo/copy/paste or in-place text editing.
+ * undo/copy/paste or in-place text editing. Both are single-character
+ * shortcuts, so they only fire while focus is on the board (WCAG 2.1.4).
  */
 export function useCursorChatAndReactions(params: {
   chatComposerScreen: { x: number; y: number } | null;
@@ -35,9 +37,17 @@ export function useCursorChatAndReactions(params: {
   lastPointerRef: RefObject<{ x: number; y: number } | null>;
   publish: (patch: PresencePatch) => void;
   clientToWorld: (clientX: number, clientY: number) => { x: number; y: number };
+  /** The focusable board element (role="application"). */
+  viewportRef: RefObject<HTMLElement | null>;
 }) {
-  const { chatComposerScreen, setChatComposerScreen, lastPointerRef, publish, clientToWorld } =
-    params;
+  const {
+    chatComposerScreen,
+    setChatComposerScreen,
+    lastPointerRef,
+    publish,
+    clientToWorld,
+    viewportRef,
+  } = params;
 
   // BUG-T1-canvas-2: keep the latest `clientToWorld` in a ref so the
   // keydown handler always reads against the CURRENT camera. The
@@ -51,9 +61,9 @@ export function useCursorChatAndReactions(params: {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (isTextEntryTarget(e.target)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!isInsideScope(e.target, viewportRef.current)) return;
       // "/" opens cursor chat at the last known screen-pointer location.
       if (e.key === "/" && !chatComposerScreen) {
         const last = lastPointerRef.current;

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { emitSignal } from "@/lib/signals/signal-bus";
 import { wbId } from "@/lib/whiteboard/clipboard";
+import { keepBoardFocus } from "@/lib/whiteboard/keyboard";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { useCanvasStore } from "../use-canvas-store";
@@ -168,6 +169,7 @@ export function ToolbarTop() {
             {editing ? (
               <input
                 autoFocus
+                aria-label="Board name"
                 value={nameDraft}
                 onChange={(e) => setNameDraft(e.target.value)}
                 onBlur={() => {
@@ -211,7 +213,7 @@ export function ToolbarTop() {
               )}
               title={confirmingDelete ? "Click again to confirm" : `Delete "${board?.name ?? ""}"`}
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
             {confirmingDelete && (
               <span role="status" className="sr-only">
@@ -239,7 +241,9 @@ export function ToolbarTop() {
         <button
           type="button"
           onClick={() => setSnapToGridEnabled(!snapToGridEnabled)}
+          onMouseDown={keepBoardFocus}
           aria-pressed={snapToGridEnabled}
+          aria-label="Snap to grid"
           title="Snap to grid (Cmd/Ctrl toggles during drag)"
           className={cn(
             "min-touch-coarse w-7 h-7 rounded flex items-center justify-center transition-colors",
@@ -248,12 +252,14 @@ export function ToolbarTop() {
               : "text-sub hover:text-text hover:bg-text/[0.04]"
           )}
         >
-          <Grid3X3 className="w-3.5 h-3.5" />
+          <Grid3X3 className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
         <button
           type="button"
           onClick={() => setSnapToObjects(!snapToObjects)}
+          onMouseDown={keepBoardFocus}
           aria-pressed={snapToObjects}
+          aria-label="Snap to objects"
           title="Snap to objects (alignment guides)"
           className={cn(
             "min-touch-coarse w-7 h-7 rounded flex items-center justify-center transition-colors",
@@ -262,12 +268,14 @@ export function ToolbarTop() {
               : "text-sub hover:text-text hover:bg-text/[0.04]"
           )}
         >
-          <Magnet className="w-3.5 h-3.5" />
+          <Magnet className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
         <button
           type="button"
           onClick={() => setShowMiniMap(!showMiniMap)}
+          onMouseDown={keepBoardFocus}
           aria-pressed={showMiniMap}
+          aria-label="Show minimap"
           title="Toggle minimap"
           className={cn(
             "min-touch-coarse w-7 h-7 rounded flex items-center justify-center transition-colors",
@@ -276,21 +284,24 @@ export function ToolbarTop() {
               : "text-sub hover:text-text hover:bg-text/[0.04]"
           )}
         >
-          <Map className="w-3.5 h-3.5" />
+          <Map className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
         <button
           type="button"
           onClick={() => setPresentationFrameIndex(0)}
+          onMouseDown={keepBoardFocus}
           aria-label="Enter presentation mode"
           title="Present (frame-by-frame)"
           className="w-7 h-7 rounded flex items-center justify-center transition-colors text-sub hover:text-text hover:bg-text/[0.04]"
         >
-          <PlayCircle className="w-3.5 h-3.5" />
+          <PlayCircle className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
         <button
           type="button"
           onClick={() => setShowAIPanel(!showAIPanel)}
+          onMouseDown={keepBoardFocus}
           aria-pressed={showAIPanel}
+          aria-label="Show AI insights panel"
           title="Toggle AI insights panel"
           className={cn(
             "min-touch-coarse w-7 h-7 rounded flex items-center justify-center transition-colors",
@@ -299,7 +310,7 @@ export function ToolbarTop() {
               : "text-sub hover:text-text hover:bg-text/[0.04]"
           )}
         >
-          <Sparkles className="w-3.5 h-3.5" />
+          <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
       </div>
     </div>

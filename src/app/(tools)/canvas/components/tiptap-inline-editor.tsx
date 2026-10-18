@@ -47,6 +47,7 @@ import { sanitizeRichHtml } from "@/lib/utils/safe-html";
 export function TiptapInlineEditor({
   initialText,
   onCommit,
+  label = "Edit text",
   background,
   color,
   fontSize,
@@ -56,6 +57,8 @@ export function TiptapInlineEditor({
 }: {
   initialText: string;
   onCommit: (text: string) => void;
+  /** Accessible name for the editable region (it has no visible label). */
+  label?: string;
   background?: string;
   color?: string;
   fontSize?: number;
@@ -107,6 +110,12 @@ export function TiptapInlineEditor({
         // Inline padding + sizing applied via wrapper style, but
         // give Tiptap a sensible class so its content sits flush.
         class: "tiptap-canvas-editor focus:outline-none",
+        // ProseMirror renders a bare contenteditable div; give it a
+        // textbox role + name so screen readers announce what is being
+        // edited.
+        role: "textbox",
+        "aria-multiline": "true",
+        "aria-label": label,
       },
       handleKeyDown(_view, event) {
         // Enter commits unless Shift is held (Tiptap default: Enter
@@ -184,6 +193,9 @@ export function TiptapInlineEditor({
 
   return (
     <div
+      // Event isolation + blur-commit wrapper; the contenteditable inside
+      // is the control.
+      role="presentation"
       onPointerDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
       onBlur={() => wrappedOnCommit(latestRef.current)}

@@ -28,6 +28,10 @@ export function TextObject({
     : undefined;
 
   return (
+    // Pointer surface only: keyboard users select objects with Tab and
+    // edit with Enter on the board (role="application"), which announces
+    // the selection — see use-contextual-shortcuts / whiteboard-canvas.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       data-canvas-object-kind="text"
       onPointerDown={editing ? undefined : handle}
@@ -57,6 +61,7 @@ export function TextObject({
         <TiptapInlineEditor
           initialText={o.content}
           onCommit={commitEdit}
+          label="Text"
           color={o.color}
           fontSize={o.fontSize}
           fontWeight={o.fontWeight ?? 400}

@@ -9,6 +9,7 @@ import type { Rect } from "@/lib/geometry/bbox";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { wbId } from "@/lib/whiteboard/clipboard";
 import { claimNextZ, claimZRange } from "@/lib/whiteboard/z-order";
+import { describeSelection } from "@/lib/whiteboard/search";
 import { STICKY_DEFAULT } from "../constants";
 import { makeActivityId } from "../lib/whiteboard-utils";
 import { layoutMindMap, MIND_MAP_NODE_DEFAULT } from "@/lib/whiteboard/mind-map-layout";
@@ -52,8 +53,13 @@ import {
   useFrameBookmarkShortcut,
   useEnterEditShortcut,
   useCardDetailShortcut,
+  useFocusBoardOnMount,
 } from "../hooks/use-contextual-shortcuts";
-import { useSpaceHoldPan, useWheelZoom } from "../hooks/use-pan-zoom-controls";
+import {
+  useKeyboardZoomActions,
+  useSpaceHoldPan,
+  useWheelZoom,
+} from "../hooks/use-pan-zoom-controls";
 import { useCanvasShortcuts } from "../hooks/use-canvas-shortcuts";
 import { useAlignDistribute } from "../hooks/use-align-distribute";
 import { useCanvasImports } from "../hooks/use-canvas-imports";
@@ -439,7 +445,10 @@ export function WhiteboardCanvas({
 
   useFollowMode(followUserId, members, setCamera);
 
-  useSpaceHoldPan(spaceHeldRef);
+  useSpaceHoldPan(spaceHeldRef, viewportRef);
+  useFocusBoardOnMount(viewportRef);
+  // Cmd/Ctrl + = / - / 0 / 1 — wired into useCanvasShortcuts below.
+  const zoomActions = useKeyboardZoomActions({ camera, setCamera, size, objectsRef });
 
   // rAF-throttled setCamera so wheel + pan don't thrash React.
   const throttledSetCamera = useRef(rafThrottle(setCamera)).current;
@@ -460,8 +469,47 @@ export function WhiteboardCanvas({
     logActivity,
     readOnly,
   });
-  useEnterEditShortcut({ selection, objectsById, editingObjectId, setEditingObjectId, readOnly });
+  useEnterEditShortcut({
+    selection,
+    objectsById,
+    editingObjectId,
+    setEditingObjectId,
+    readOnly,
+    viewportRef,
+  });
   useCardDetailShortcut({ selection, objectsById, cardDetailId, setCardDetailId, readOnly });
+
+  // Spoken selection. Objects are pointer surfaces, not focus targets —
+  // Tab moves the selection while focus stays on the board — so without
+  // a live region a screen-reader user hears nothing as they cycle
+  // (WCAG 4.1.2). Drags rebuild the string but leave its text unchanged,
+  // so they don't re-announce.
+  const selectionAnnouncement = useMemo(
+    () =>
+      describeSelection(
+        selection.map((id) => objectsById.get(id)).filter((o): o is WhiteboardObject => !!o)
+      ),
+    [selection, objectsById]
+  );
+
+  // Hand focus back to the board when an inline editor closes with
+  // Enter / Esc. The editor unmounts while focused, focus drops to
+  // <body>, and the board's shortcuts (scoped to the viewport) would go
+  // dead until the next click (WCAG 2.4.3). Checked a frame later so a
+  // blur-commit caused by clicking another control keeps that focus.
+  const prevEditingIdRef = useRef(editingObjectId);
+  useEffect(() => {
+    const wasEditing = prevEditingIdRef.current !== null;
+    prevEditingIdRef.current = editingObjectId;
+    if (!wasEditing || editingObjectId !== null) return;
+    const raf = requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body) {
+        viewportRef.current?.focus({ preventScroll: true });
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [editingObjectId, viewportRef]);
 
   useArrowKeyNudge({
     selection,
@@ -470,6 +518,7 @@ export function WhiteboardCanvas({
     pushSnapshot,
     readOnly,
     presentationFrameIndex,
+    viewportRef,
   });
 
   // Empty React onWheel handler — the real wheel listener is attached
@@ -985,6 +1034,7 @@ export function WhiteboardCanvas({
     lastPointerRef,
     publish,
     clientToWorld,
+    viewportRef,
   });
 
   // Keyboard shortcuts wired AFTER the pointer machine so the Esc-cancel
@@ -1024,6 +1074,8 @@ export function WhiteboardCanvas({
     log,
     logActivity,
     readOnly,
+    viewportRef,
+    zoomActions,
   });
 
   const { onAlign, onDistribute } = useAlignDistribute({
@@ -1178,6 +1230,10 @@ export function WhiteboardCanvas({
   const cursor = tool === "hand" ? "grab" : tool === "select" ? "default" : "crosshair";
 
   return (
+    // role="application": the board owns its keyboard model (Tab cycles
+    // objects, letters pick tools, arrows nudge), so the drop handlers
+    // below sit on an interactive surface the lint rule doesn't model.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <div
       ref={viewportRef}
       // R9: WCAG 2.1.1 — viewport is now keyboard-focusable. Without this
@@ -1186,6 +1242,8 @@ export function WhiteboardCanvas({
       // tells SR users that arrow-key + letter shortcuts are app-mode,
       // not document-navigation.
       role="application"
+      // Lets plain toolbar buttons hand focus back here (keepBoardFocus).
+      data-canvas-board=""
       aria-label="Whiteboard canvas. Press ? for keyboard shortcuts."
       tabIndex={0}
       // R11-fix: replace `focus:outline-none` with an explicit
@@ -1236,6 +1294,10 @@ export function WhiteboardCanvas({
     >
       {/* Background grid */}
       {showGrid && <GridBackground camera={camera} viewportSize={size} />}
+
+      <div role="status" aria-live="polite" className="sr-only" data-canvas-export-ignore="true">
+        {selectionAnnouncement}
+      </div>
 
       <CanvasWorldLayer
         camera={camera}

@@ -224,17 +224,21 @@ export function CardDetailModal({ card, onPatch, onClose }: Props) {
   useFocusTrap(dialogRef, { active: true });
 
   return (
+    // Backdrop: clicking outside the panel closes (Esc does the same from
+    // the keyboard). The dialog role sits on the panel itself.
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Card details"
-      ref={dialogRef}
+      role="presentation"
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-bg/80 backdrop-blur-sm p-3"
-      onClick={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Card details"
+        ref={dialogRef}
         className="relative bg-surface border border-border rounded-xl w-[min(32rem,calc(100vw-1.5rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain-strict"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-2">

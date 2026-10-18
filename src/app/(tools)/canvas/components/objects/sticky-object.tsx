@@ -46,6 +46,10 @@ export function StickyObject({
   const stickyFontSize =
     o.fontSize ?? Math.max(16, Math.min(64, Math.floor(Math.min(o.w, o.h) / 7)));
   return (
+    // Pointer surface only: keyboard users select objects with Tab and
+    // edit with Enter on the board (role="application"), which announces
+    // the selection — see use-contextual-shortcuts / whiteboard-canvas.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       data-canvas-object-kind="sticky"
       onPointerDown={editing ? undefined : handle}
@@ -83,6 +87,7 @@ export function StickyObject({
         <TiptapInlineEditor
           initialText={o.content}
           onCommit={commitEdit}
+          label="Sticky note text"
           background="transparent"
           color={o.textColor ?? "#0b0f17"}
           fontSize={stickyFontSize}

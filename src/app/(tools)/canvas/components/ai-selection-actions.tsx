@@ -162,6 +162,7 @@ export function AiSelectionActions({
       <div className="flex items-center gap-2">
         <Languages className="w-3.5 h-3.5 text-sub shrink-0" />
         <select
+          aria-label="Target language"
           value={language}
           onChange={(e) => setLanguage(e.target.value)}
           className="text-xs bg-surface-deep border border-border rounded px-2 py-1 text-text focus:outline-none focus:border-accent flex-1"
@@ -187,6 +188,7 @@ export function AiSelectionActions({
       <div className="flex items-center gap-2">
         <Wand2 className="w-3.5 h-3.5 text-sub shrink-0" />
         <select
+          aria-label="Rewrite tone"
           value={tone}
           onChange={(e) => setTone(e.target.value as Tone)}
           className="text-xs bg-surface-deep border border-border rounded px-2 py-1 text-text focus:outline-none focus:border-accent flex-1"

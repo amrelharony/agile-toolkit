@@ -27,7 +27,13 @@ interface VotingObjectProps {
   onMutate: (patch: Partial<WhiteboardVoting>) => void;
 }
 
-function VotingObjectImpl({ object: o, selected, selfId, onPointerDown, onMutate }: VotingObjectProps) {
+function VotingObjectImpl({
+  object: o,
+  selected,
+  selfId,
+  onPointerDown,
+  onMutate,
+}: VotingObjectProps) {
   const myVote = o.votes[selfId];
 
   // Tally aggregated by option for the revealed state.
@@ -46,7 +52,10 @@ function VotingObjectImpl({ object: o, selected, selfId, onPointerDown, onMutate
     let top: string | null = null;
     let topCount = 0;
     for (const [opt, count] of Object.entries(tally)) {
-      if (count > topCount) { topCount = count; top = opt; }
+      if (count > topCount) {
+        topCount = count;
+        top = opt;
+      }
     }
     return top;
   }, [tally]);
@@ -106,14 +115,19 @@ function VotingObjectImpl({ object: o, selected, selfId, onPointerDown, onMutate
         fontFamily: "ui-sans-serif, system-ui, sans-serif",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6, marginBottom: 6 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 6,
+          marginBottom: 6,
+        }}
+      >
         <div style={{ fontSize: 13, fontWeight: 600, flex: 1, lineHeight: 1.2 }}>
           {o.question || "Untitled vote"}
         </div>
-        <div
-          style={{ display: "flex", gap: 4 }}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
+        <div style={{ display: "flex", gap: 4 }} onPointerDown={(e) => e.stopPropagation()}>
           <button
             type="button"
             onClick={() => onMutate({ revealed: !o.revealed })}
@@ -121,7 +135,11 @@ function VotingObjectImpl({ object: o, selected, selfId, onPointerDown, onMutate
             title={o.revealed ? "Hide votes" : "Reveal votes"}
             style={iconBtn}
           >
-            {o.revealed ? <EyeOff style={{ width: 12, height: 12 }} /> : <Eye style={{ width: 12, height: 12 }} />}
+            {o.revealed ? (
+              <EyeOff style={{ width: 12, height: 12 }} />
+            ) : (
+              <Eye style={{ width: 12, height: 12 }} />
+            )}
           </button>
           <button
             type="button"
@@ -136,7 +154,10 @@ function VotingObjectImpl({ object: o, selected, selfId, onPointerDown, onMutate
       </div>
       <div
         style={{
-          display: "flex", flexWrap: "wrap", gap: 4, flex: 1,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 4,
+          flex: 1,
           alignContent: "flex-start",
         }}
         onPointerDown={(e) => e.stopPropagation()}
@@ -151,13 +172,18 @@ function VotingObjectImpl({ object: o, selected, selfId, onPointerDown, onMutate
               type="button"
               onClick={() => castVote(opt)}
               aria-label={`Vote ${opt}${o.revealed ? ` (${count} votes)` : ""}`}
+              aria-pressed={isMine}
               style={{
                 minWidth: 32,
                 height: 32,
                 padding: "0 8px",
                 borderRadius: 6,
                 border: isMine ? "2px solid #00f0ff" : "1px solid #475569",
-                background: isTop ? "rgba(52, 211, 153, 0.18)" : isMine ? "rgba(0, 240, 255, 0.12)" : "#1e293b",
+                background: isTop
+                  ? "rgba(52, 211, 153, 0.18)"
+                  : isMine
+                    ? "rgba(0, 240, 255, 0.12)"
+                    : "#1e293b",
                 color: "#e5e7eb",
                 fontFamily: "ui-monospace, SFMono-Regular, monospace",
                 fontSize: 13,

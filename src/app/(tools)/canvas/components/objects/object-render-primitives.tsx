@@ -12,7 +12,7 @@
  * (sticky/shape/frame/…) can import them directly.
  */
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { Lock, StickyNote } from "lucide-react";
 import { sanitizeRichHtml, isRichHtmlEmpty } from "@/lib/utils/safe-html";
 
@@ -54,6 +54,7 @@ export function RichContent({
 export function InlineEditor({
   initialText,
   onCommit,
+  label = "Edit text",
   background,
   color,
   fontSize,
@@ -63,6 +64,8 @@ export function InlineEditor({
 }: {
   initialText: string;
   onCommit: (text: string) => void;
+  /** Accessible name — the overlay has no visible label. */
+  label?: string;
   background?: string;
   color?: string;
   fontSize?: number;
@@ -85,6 +88,7 @@ export function InlineEditor({
   return (
     <textarea
       ref={ref}
+      aria-label={label}
       // R10: maxLength matches the validator cap so a 10MB paste can't
       // sneak past inline edit, only to be silently rejected by
       // isValidObject on the next persist round-trip (losing the
@@ -167,6 +171,9 @@ export function InlineEditor({
 export function LockBadge({ z }: { z: number }) {
   return (
     <div
+      // role="img" so the name is exposed — aria-label on a bare div is
+      // ignored by assistive tech.
+      role="img"
       aria-label="Locked"
       style={{
         position: "absolute",
@@ -211,6 +218,7 @@ export function FramePresenterNotesAffordance({
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(notes);
+  const fieldId = useId();
   // Re-sync draft when notes change from upstream (peer edit, undo).
   useEffect(() => {
     setDraft(notes);
@@ -254,6 +262,9 @@ export function FramePresenterNotesAffordance({
       </button>
       {open && (
         <div
+          // Event isolation only (keeps the frame from dragging); the
+          // labelled textarea inside is the control.
+          role="presentation"
           onPointerDown={(e) => e.stopPropagation()}
           onDoubleClick={(e) => e.stopPropagation()}
           style={{
@@ -270,8 +281,10 @@ export function FramePresenterNotesAffordance({
             boxShadow: "0 6px 20px rgba(0,0,0,0.5)",
           }}
         >
-          <div
+          <label
+            htmlFor={`${fieldId}-notes`}
             style={{
+              display: "block",
               fontSize: 9,
               color: "#94a3b8",
               textTransform: "uppercase",
@@ -281,8 +294,10 @@ export function FramePresenterNotesAffordance({
             }}
           >
             Speaker notes
-          </div>
+          </label>
           <textarea
+            id={`${fieldId}-notes`}
+            aria-describedby={`${fieldId}-hint`}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={() => {
@@ -317,6 +332,7 @@ export function FramePresenterNotesAffordance({
             }}
           />
           <div
+            id={`${fieldId}-hint`}
             style={{
               fontSize: 9,
               color: "#475569",

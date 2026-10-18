@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { DiagramShapePicker } from "./diagram-shape-picker";
 import { cn } from "@/lib/utils";
+import { keepBoardFocus } from "@/lib/whiteboard/keyboard";
 import { useCanvasStore, type CanvasTool } from "../use-canvas-store";
 
 interface ToolDef {
@@ -54,36 +55,36 @@ interface ToolDef {
 const TOOL_GROUPS: ToolDef[][] = [
   [
     { id: "select", label: "Select", icon: MousePointer2, shortcut: "V" },
-    { id: "hand",   label: "Pan",    icon: Hand,          shortcut: "H" },
+    { id: "hand", label: "Pan", icon: Hand, shortcut: "H" },
   ],
   [
-    { id: "sticky", label: "Sticky", icon: StickyNote,    shortcut: "N" },
-    { id: "card",   label: "Card",   icon: CreditCard,    shortcut: "K" },
+    { id: "sticky", label: "Sticky", icon: StickyNote, shortcut: "N" },
+    { id: "card", label: "Card", icon: CreditCard, shortcut: "K" },
   ],
   [
-    { id: "rect",     label: "Rectangle", icon: Square,   shortcut: "R" },
-    { id: "ellipse",  label: "Ellipse",   icon: Circle,   shortcut: "O" },
-    { id: "diamond",  label: "Diamond",   icon: Diamond,  shortcut: "" },
-    { id: "triangle", label: "Triangle",  icon: Triangle, shortcut: "" },
+    { id: "rect", label: "Rectangle", icon: Square, shortcut: "R" },
+    { id: "ellipse", label: "Ellipse", icon: Circle, shortcut: "O" },
+    { id: "diamond", label: "Diamond", icon: Diamond, shortcut: "" },
+    { id: "triangle", label: "Triangle", icon: Triangle, shortcut: "" },
   ],
   [
-    { id: "line",      label: "Line",      icon: Slash,      shortcut: "L" },
-    { id: "arrow",     label: "Arrow",     icon: ArrowRight, shortcut: "A" },
-    { id: "connector", label: "Connector", icon: GitBranch,  shortcut: "C" },
+    { id: "line", label: "Line", icon: Slash, shortcut: "L" },
+    { id: "arrow", label: "Arrow", icon: ArrowRight, shortcut: "A" },
+    { id: "connector", label: "Connector", icon: GitBranch, shortcut: "C" },
   ],
   [
-    { id: "text",     label: "Text", icon: Type,    shortcut: "T" },
-    { id: "freehand", label: "Pen",  icon: PenTool, shortcut: "P" },
+    { id: "text", label: "Text", icon: Type, shortcut: "T" },
+    { id: "freehand", label: "Pen", icon: PenTool, shortcut: "P" },
   ],
   [
-    { id: "frame",   label: "Frame",     icon: Frame,    shortcut: "F" },
-    { id: "kanban",  label: "Kanban",    icon: Columns,  shortcut: "" },
-    { id: "table",   label: "Table",     icon: TableIcon, shortcut: "" },
-    { id: "mindMap", label: "Mind map",  icon: Network,  shortcut: "" },
+    { id: "frame", label: "Frame", icon: Frame, shortcut: "F" },
+    { id: "kanban", label: "Kanban", icon: Columns, shortcut: "" },
+    { id: "table", label: "Table", icon: TableIcon, shortcut: "" },
+    { id: "mindMap", label: "Mind map", icon: Network, shortcut: "" },
   ],
   [
-    { id: "timer",   label: "Timer",   icon: TimerIcon,     shortcut: "" },
-    { id: "voting",  label: "Vote",    icon: Vote,          shortcut: "" },
+    { id: "timer", label: "Timer", icon: TimerIcon, shortcut: "" },
+    { id: "voting", label: "Vote", icon: Vote, shortcut: "" },
     { id: "comment", label: "Comment", icon: MessageCircle, shortcut: "" },
   ],
 ];
@@ -124,12 +125,7 @@ export function ToolbarLeft() {
     >
       {TOOL_GROUPS.map((group, gi) => (
         <div key={gi} className="contents">
-          {gi > 0 && (
-            <div
-              aria-hidden="true"
-              className="h-px bg-border/50 mx-1.5 my-1"
-            />
-          )}
+          {gi > 0 && <div aria-hidden="true" className="h-px bg-border/50 mx-1.5 my-1" />}
           {group.map((t) => {
             const Icon = t.icon;
             const active = tool === t.id;
@@ -138,6 +134,9 @@ export function ToolbarLeft() {
                 key={t.id}
                 type="button"
                 onClick={() => setTool(t.id)}
+                // Keep focus on the board so N / R / Delete keep working
+                // after a mouse pick; Tab + Enter still reach the button.
+                onMouseDown={keepBoardFocus}
                 title={t.shortcut ? `${t.label} (${t.shortcut})` : t.label}
                 aria-label={t.label}
                 aria-pressed={active}
@@ -149,7 +148,7 @@ export function ToolbarLeft() {
                   "w-10 h-10 sm:w-9 sm:h-9 rounded-md flex items-center justify-center transition-colors shrink-0",
                   active
                     ? "bg-accent/20 text-accent"
-                    : "text-sub hover:text-text hover:bg-surface-deep",
+                    : "text-sub hover:text-text hover:bg-surface-deep"
                 )}
               >
                 <Icon className="w-4 h-4" aria-hidden="true" />
@@ -183,16 +182,13 @@ export function ToolbarLeft() {
           "w-10 h-10 sm:w-9 sm:h-9 rounded-md flex items-center justify-center transition-colors shrink-0",
           tool === "diagramShape"
             ? "bg-accent/20 text-accent"
-            : "text-sub hover:text-text hover:bg-surface-deep",
+            : "text-sub hover:text-text hover:bg-surface-deep"
         )}
       >
         <Boxes className="w-4 h-4" aria-hidden="true" />
       </button>
       {pickerAnchor && (
-        <DiagramShapePicker
-          anchorRect={pickerAnchor}
-          onClose={() => setPickerAnchor(null)}
-        />
+        <DiagramShapePicker anchorRect={pickerAnchor} onClose={() => setPickerAnchor(null)} />
       )}
     </div>
   );

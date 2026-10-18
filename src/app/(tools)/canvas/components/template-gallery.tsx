@@ -206,17 +206,21 @@ export function TemplateGallery({ boardId, onClose }: Props) {
   useFocusTrap(dialogRef, { active: true });
 
   return (
+    // Backdrop: clicking outside the panel closes (Esc does the same from
+    // the keyboard). The dialog role sits on the panel itself.
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Template gallery"
-      ref={dialogRef}
+      role="presentation"
       className="fixed inset-0 z-modal flex items-center justify-center bg-bg/80 backdrop-blur-sm p-3"
-      onClick={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Template gallery"
+        ref={dialogRef}
         className="relative bg-surface border border-border rounded-xl p-4 sm:p-6 w-[min(48rem,calc(100vw-1.5rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain-strict"
-        onClick={(e) => e.stopPropagation()}
       >
         <button
           type="button"

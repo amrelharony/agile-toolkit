@@ -16,6 +16,7 @@
 import { memo, useEffect } from "react";
 import { ChevronLeft, ChevronRight, X, PlayCircle } from "lucide-react";
 import type { WhiteboardFrame } from "@/lib/stores/workspace-types";
+import { controlOwnsKey } from "@/lib/whiteboard/keyboard";
 
 interface PresentationModeProps {
   frames: readonly WhiteboardFrame[];
@@ -47,6 +48,8 @@ function PresentationModeImpl({ frames, index, onPrev, onNext, onExit }: Present
       // Bail when defaultPrevented so the same ArrowRight doesn't
       // advance the frame TWICE.
       if (e.defaultPrevented) return;
+      // Space on a focused button presses it rather than advancing.
+      if (e.key === " " && controlOwnsKey(t, e.key)) return;
       if (e.key === "ArrowRight" || e.key === " ") {
         e.preventDefault();
         onNext();

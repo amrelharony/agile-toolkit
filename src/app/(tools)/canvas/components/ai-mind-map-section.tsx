@@ -108,6 +108,7 @@ export function AiMindMapSection({
             if (e.key === "Enter" && canGenerate && isReady) onGenerate();
           }}
           placeholder="Topic to explore…"
+          aria-label="Mind map topic"
           maxLength={200}
           className="w-full text-xs bg-surface-deep border border-border rounded px-2 py-1.5 text-text placeholder:text-sub focus:outline-none focus:border-accent"
         />

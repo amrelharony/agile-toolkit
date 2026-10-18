@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { X, Send, CheckCircle2 } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { WhiteboardCommentThread } from "@/lib/stores/workspace-types";
@@ -114,6 +114,9 @@ export function CommentDrawer({ thread, onClose }: Props) {
   useEffect(() => {
     setMentionActiveIdx(0);
   }, [mentionFiltered.length]);
+  // Focus stays in the textarea while the picker is open, so the active
+  // option is exposed through aria-activedescendant (WCAG 4.1.2).
+  const mentionListId = useId();
   // Two-step inline delete: first click arms the confirm state and
   // restyles the button red ("Confirm delete"); a second click within
   // 3 s actually removes the thread. Avoids the native `confirm()`
@@ -328,6 +331,7 @@ export function CommentDrawer({ thread, onClose }: Props) {
             caret is right after `@<letters>` AND the prefix matches
             at least one team member. */}
         <MentionAutocomplete
+          id={mentionListId}
           filtered={mentionFiltered}
           activeIndex={mentionActiveIdx}
           onPick={(name) => {
@@ -347,6 +351,12 @@ export function CommentDrawer({ thread, onClose }: Props) {
           }}
         />
         <textarea
+          aria-label="Reply"
+          aria-autocomplete="list"
+          aria-controls={mentionFiltered.length > 0 ? mentionListId : undefined}
+          aria-activedescendant={
+            mentionFiltered.length > 0 ? `${mentionListId}-${mentionActiveIdx}` : undefined
+          }
           value={draft}
           // R8: IME composition guard — Android/iOS Chinese/Japanese/
           // Korean keyboards fire onChange mid-composition with the
@@ -474,10 +484,12 @@ export function CommentDrawer({ thread, onClose }: Props) {
  * list and arrow keys did nothing.
  */
 function MentionAutocomplete({
+  id,
   filtered,
   activeIndex,
   onPick,
 }: {
+  id: string;
   filtered: { id: string; name: string }[];
   activeIndex: number;
   onPick: (name: string) => void;
@@ -485,6 +497,7 @@ function MentionAutocomplete({
   if (filtered.length === 0) return null;
   return (
     <div
+      id={id}
       role="listbox"
       aria-label="Mention a teammate"
       className="absolute left-3 right-3 bottom-[120px] bg-surface border border-border rounded-md shadow-lg z-10 overflow-hidden"
@@ -494,6 +507,7 @@ function MentionAutocomplete({
         return (
           <button
             key={m.id}
+            id={`${id}-${i}`}
             type="button"
             role="option"
             aria-selected={active}

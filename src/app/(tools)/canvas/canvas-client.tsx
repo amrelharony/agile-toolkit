@@ -567,6 +567,7 @@ export function CanvasClient() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [showFindBar, setShowFindBar] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [showActivity, setShowActivity] = useState(false);
@@ -599,6 +600,23 @@ export function CanvasClient() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // Esc closes the Export dropdown and puts focus back on its button —
+  // it otherwise only closed on mouse-leave or an item click, leaving
+  // keyboard users with no way to dismiss it (WCAG 2.1.1).
+  useEffect(() => {
+    if (!showExportMenu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // Captured and stopped so this Esc only closes the menu — it used
+      // to reach the board's Esc too and clear the selection.
+      e.stopPropagation();
+      setShowExportMenu(false);
+      exportTriggerRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [showExportMenu]);
 
   // R5: sanitize the board name when used as a filename. A name like
   // "Goals / Q1" produces "Goals / Q1.png" which Chrome interprets as
@@ -746,6 +764,7 @@ export function CanvasClient() {
         </Button>
         <div className="relative inline-flex">
           <Button
+            ref={exportTriggerRef}
             variant="outline"
             size="sm"
             onClick={() => setShowExportMenu((v) => !v)}
@@ -758,7 +777,12 @@ export function CanvasClient() {
             <span className="hidden sm:inline">Export</span>
           </Button>
           {showExportMenu && (
+            // Hover-out dismiss is a pointer nicety; keyboard users close
+            // it with Esc (see the effect near the top) or the Export button.
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
             <div
+              role="group"
+              aria-label="Export formats"
               className="absolute left-0 top-full mt-1 bg-surface border border-border rounded-lg shadow-lg z-30 py-1 min-w-[160px]"
               onMouseLeave={() => setShowExportMenu(false)}
             >

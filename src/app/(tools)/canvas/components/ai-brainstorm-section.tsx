@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import dynamic from "next/dynamic";
 import { Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -76,6 +76,7 @@ export function AiBrainstormSection({
   const { isReady, openSettings } = useActiveLlm();
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(10);
+  const countId = useId();
   const [runTrigger, setRunTrigger] = useState(0);
   const [armedPrompt, setArmedPrompt] = useState<string | null>(null);
 
@@ -117,12 +118,16 @@ export function AiBrainstormSection({
             if (e.key === "Enter" && canGenerate && isReady) onGenerate();
           }}
           placeholder="What should we brainstorm about?"
+          aria-label="Brainstorm topic"
           maxLength={200}
           className="w-full text-xs bg-surface-deep border border-border rounded px-2 py-1.5 text-text placeholder:text-sub focus:outline-none focus:border-accent"
         />
         <div className="flex items-center gap-2">
-          <label className="text-xs text-sub font-mono uppercase">Count</label>
+          <label htmlFor={countId} className="text-xs text-sub font-mono uppercase">
+            Count
+          </label>
           <input
+            id={countId}
             type="number"
             value={count}
             onChange={(e) => {
