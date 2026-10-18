@@ -37,20 +37,22 @@ export function FormatSelector({
         <h2 className="text-lg font-display font-bold text-text">Choose a Format</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {retroFormats.map((fmt) => (
-            // A real button so the picker works from the keyboard. Named by
-            // the format alone; the description is read as its description.
-            <button
-              key={fmt.id}
-              type="button"
-              onClick={() => onSelect(fmt)}
-              aria-label={fmt.name}
-              aria-describedby={`retro-format-${fmt.id}-desc`}
-              className="group block w-full h-full text-left rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-            >
+            // The format name is a real button, stretched over the card, so
+            // the picker works from the keyboard and its accessible name is
+            // exactly its visible label; the description is read as its
+            // description.
+            <div key={fmt.id} className="group relative h-full">
               <Card className="h-full bg-card border-border group-hover:border-accent-cyan/40 transition-all duration-200">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-bold text-text group-hover:text-accent transition-colors">
-                    {fmt.name}
+                    <button
+                      type="button"
+                      onClick={() => onSelect(fmt)}
+                      aria-describedby={`retro-format-${fmt.id}-desc`}
+                      className="text-left after:absolute after:inset-0 after:rounded-xl after:content-[''] focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-accent focus-visible:after:ring-offset-2 focus-visible:after:ring-offset-bg"
+                    >
+                      {fmt.name}
+                    </button>
                   </CardTitle>
                   <CardDescription
                     id={`retro-format-${fmt.id}-desc`}
@@ -77,7 +79,7 @@ export function FormatSelector({
                   </div>
                 </CardContent>
               </Card>
-            </button>
+            </div>
           ))}
         </div>
 

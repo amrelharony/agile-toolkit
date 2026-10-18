@@ -21,7 +21,7 @@
     --sub: #8a95a8;
     --accent: #00e1ff;
     --accent2: #6366f1;
-    --accent3: #a855f7;
+    --accent3: #b066f8;
     /* Solid (was rgba(12,16,24,0.65)): the particle field at z:-1 bled
        through every Card/.glass surface. Glassmorphism utilities still
        use backdrop-filter — harmless no-op on an opaque base. */
