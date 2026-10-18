@@ -90,9 +90,10 @@ export function ImpedimentCard({ impediment }: { impediment: Impediment }) {
           variant="danger-ghost"
           size="icon"
           onClick={handleRemove}
+          aria-label={`Delete ${impediment.title}`}
           className="min-touch-coarse h-7 w-7 flex-shrink-0"
         >
-          <Trash2 className="w-3.5 h-3.5" />
+          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
         </Button>
       </div>
 
@@ -128,7 +129,10 @@ export function ImpedimentCard({ impediment }: { impediment: Impediment }) {
       {impediment.status !== "Resolved" && (
         <div className="flex items-center gap-2 pt-1 border-t border-border">
           <Select value={impediment.status} onValueChange={(v) => handleStatusChange(v as Status)}>
-            <SelectTrigger className="min-touch-coarse h-7 text-xs bg-surface-deep border-border text-text w-36">
+            <SelectTrigger
+              aria-label={`Status for ${impediment.title}`}
+              className="min-touch-coarse h-7 text-xs bg-surface-deep border-border text-text w-36"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-surface border-border">

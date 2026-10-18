@@ -141,6 +141,7 @@ export function HundredDollarTestClient() {
           <div className="flex gap-2">
             <Input
               placeholder="Item to vote on"
+              aria-label="Item to vote on"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
@@ -188,17 +189,19 @@ export function HundredDollarTestClient() {
                       type="number"
                       value={a}
                       onChange={(e) => setAlloc(it, parseFloat(e.target.value) || 0)}
+                      aria-label={`Dollars allocated to ${it.title}`}
                       className="h-8 w-20 text-xs"
                     />
                     <button
+                      type="button"
                       onClick={() => {
                         removeOne(it.id);
                         log(HUNDRED_DOLLAR_ACTIONS.ITEM_REMOVED, { id: it.id });
                       }}
-                      aria-label="Remove item"
+                      aria-label={`Remove ${it.title}`}
                       className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-4 h-4" aria-hidden="true" />
                     </button>
                   </li>
                 );

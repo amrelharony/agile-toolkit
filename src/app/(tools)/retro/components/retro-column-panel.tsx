@@ -69,7 +69,9 @@ export function RetroColumnPanel({
         style={{ borderTopColor: themed(column.color) }}
       >
         <div className="flex items-center gap-2">
-          <span className="text-base">{column.icon}</span>
+          <span className="text-base" aria-hidden="true">
+            {column.icon}
+          </span>
           <span
             className="text-sm font-bold"
             style={{ color: themed(column.color), textShadow: `0 0 8px ${tint(column.color, 33)}` }}
@@ -139,6 +141,7 @@ export function RetroColumnPanel({
                 if (e.key === "Enter") handleSubmit();
               }}
               placeholder="Add a card…"
+              aria-label={`New card for ${column.label}`}
               className="h-8 text-xs bg-cardH border-border text-text placeholder:text-sub focus:border-accent-cyan/50"
             />
             <Button
@@ -149,7 +152,7 @@ export function RetroColumnPanel({
               aria-label={`Add card to ${column.label}`}
               className="min-touch-coarse h-8 w-8 p-0 text-sub hover:text-accent hover:bg-accent-cyan/10"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4" aria-hidden="true" />
             </Button>
           </div>
         )}

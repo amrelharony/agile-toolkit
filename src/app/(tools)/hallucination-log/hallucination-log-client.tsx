@@ -235,6 +235,7 @@ export function HallucinationLogClient() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Input
               placeholder="Feature (optional)"
+              aria-label="Feature (optional)"
               value={feature}
               onChange={(e) => setFeature(e.target.value)}
             />
@@ -242,7 +243,7 @@ export function HallucinationLogClient() {
               value={severity}
               onValueChange={(v) => setSeverity(v as Hallucination["severity"])}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Severity">
                 <SelectValue placeholder="Severity" />
               </SelectTrigger>
               <SelectContent>
@@ -259,7 +260,7 @@ export function HallucinationLogClient() {
                 setRootCause(v === "unknown" ? "" : (v as NonNullable<Hallucination["rootCause"]>))
               }
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Root cause">
                 <SelectValue placeholder="Root cause" />
               </SelectTrigger>
               <SelectContent>
@@ -274,6 +275,7 @@ export function HallucinationLogClient() {
           </div>
           <Textarea
             placeholder="Input (what was sent to the model)"
+            aria-label="Input (what was sent to the model)"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             className="mt-2"
@@ -301,7 +303,7 @@ export function HallucinationLogClient() {
               aria-expanded={reproduceOpen}
               className="gap-1"
             >
-              <Beaker className="w-3.5 h-3.5" />
+              <Beaker className="w-3.5 h-3.5" aria-hidden="true" />
               {reproduceOpen ? "Hide reproduce" : "Reproduce with BYOK"}
             </Button>
             {!llm.isReady && (
@@ -328,6 +330,7 @@ export function HallucinationLogClient() {
           )}
           <Textarea
             placeholder="Actual response (the bad output)"
+            aria-label="Actual response (the bad output)"
             value={actual}
             onChange={(e) => setActual(e.target.value)}
             className="mt-2"
@@ -335,6 +338,7 @@ export function HallucinationLogClient() {
           />
           <Textarea
             placeholder="Expected (optional — what should have happened)"
+            aria-label="Expected (optional)"
             value={expected}
             onChange={(e) => setExpected(e.target.value)}
             className="mt-2"
@@ -458,19 +462,21 @@ export function HallucinationLogClient() {
                       <span className="flex items-center gap-2 shrink-0">
                         {!x.resolvedAt && (
                           <button
+                            type="button"
                             onClick={() => resolve(x.id)}
                             className="text-success hover:text-success min-touch-coarse inline-flex items-center justify-center"
-                            aria-label="Mark resolved"
+                            aria-label={`Mark resolved: ${x.feature || x.input.slice(0, 40)}`}
                           >
-                            <CheckCircle2 className="w-4 h-4" />
+                            <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
                           </button>
                         )}
                         <button
+                          type="button"
                           onClick={() => remove(x.id)}
                           className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
-                          aria-label="Remove"
+                          aria-label={`Remove hallucination: ${x.feature || x.input.slice(0, 40)}`}
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4" aria-hidden="true" />
                         </button>
                       </span>
                     </div>

@@ -95,7 +95,9 @@ function FilterChip({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={`min-touch-coarse inline-flex items-center justify-center px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 border ${
         active
           ? "bg-accent-cyan/20 text-accent border-accent-cyan shadow-neon-cyan"
@@ -387,10 +389,13 @@ export function IceBreakerClient() {
         <Card className="bg-card border-border">
           <CardContent className="p-5 space-y-4">
             {/* Time */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-sub uppercase tracking-wider flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5" /> Time
-              </label>
+            <div className="space-y-2" role="group" aria-labelledby="icebreaker-filter-time">
+              <span
+                id="icebreaker-filter-time"
+                className="text-xs font-semibold text-sub uppercase tracking-wider flex items-center gap-1.5"
+              >
+                <Clock className="w-3.5 h-3.5" aria-hidden="true" /> Time
+              </span>
               <div className="flex flex-wrap gap-2">
                 {(
                   [
@@ -412,10 +417,13 @@ export function IceBreakerClient() {
             </div>
 
             {/* Team Size */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-sub uppercase tracking-wider flex items-center gap-1.5">
-                <Users className="w-3.5 h-3.5" /> Team Size
-              </label>
+            <div className="space-y-2" role="group" aria-labelledby="icebreaker-filter-size">
+              <span
+                id="icebreaker-filter-size"
+                className="text-xs font-semibold text-sub uppercase tracking-wider flex items-center gap-1.5"
+              >
+                <Users className="w-3.5 h-3.5" aria-hidden="true" /> Team Size
+              </span>
               <div className="flex flex-wrap gap-2">
                 {(
                   [
@@ -436,10 +444,13 @@ export function IceBreakerClient() {
             </div>
 
             {/* Energy Level */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-sub uppercase tracking-wider flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5" /> Energy Level
-              </label>
+            <div className="space-y-2" role="group" aria-labelledby="icebreaker-filter-energy">
+              <span
+                id="icebreaker-filter-energy"
+                className="text-xs font-semibold text-sub uppercase tracking-wider flex items-center gap-1.5"
+              >
+                <Zap className="w-3.5 h-3.5" aria-hidden="true" /> Energy Level
+              </span>
               <div className="flex flex-wrap gap-2">
                 {(
                   [
@@ -460,10 +471,13 @@ export function IceBreakerClient() {
             </div>
 
             {/* Category */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-sub uppercase tracking-wider flex items-center gap-1.5">
-                <Tag className="w-3.5 h-3.5" /> Category
-              </label>
+            <div className="space-y-2" role="group" aria-labelledby="icebreaker-filter-category">
+              <span
+                id="icebreaker-filter-category"
+                className="text-xs font-semibold text-sub uppercase tracking-wider flex items-center gap-1.5"
+              >
+                <Tag className="w-3.5 h-3.5" aria-hidden="true" /> Category
+              </span>
               <div className="flex flex-wrap gap-2">
                 {(
                   [

@@ -69,7 +69,9 @@ export function DataEntryTable({
                   <th className="text-left py-2 px-3 text-xs text-sub font-medium uppercase tracking-wider whitespace-nowrap">
                     Note
                   </th>
-                  <th className="w-8" />
+                  <th className="w-8">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -103,6 +105,7 @@ export function DataEntryTable({
                             }
                           }}
                           className="h-8 w-20 mx-auto bg-surface-deep border-border text-text font-data text-center focus:border-accent/50"
+                          aria-label={`${col.name} count on ${entry.date}`}
                         />
                       </td>
                     ))}
@@ -122,11 +125,12 @@ export function DataEntryTable({
                     </td>
                     <td className="py-2">
                       <button
+                        type="button"
                         onClick={() => onRemoveEntry(entry.id)}
                         aria-label={`Remove snapshot for ${entry.date}`}
                         className="text-sub hover:text-danger transition-colors p-1"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-4 h-4" aria-hidden="true" />
                       </button>
                     </td>
                   </tr>

@@ -69,13 +69,17 @@ export function ShowcaseChecklistTab() {
               className="flex items-center gap-3 p-3 rounded-lg border border-border bg-surface-deep/40 group hover:bg-surface-deep/70 transition-colors"
             >
               <button
+                type="button"
+                role="checkbox"
+                aria-checked={item.checked}
+                aria-label={item.label || "Checklist item"}
                 onClick={() => toggleChecklist(item.id)}
-                className={`flex-shrink-0 w-5 h-5 rounded border transition-all ${
+                className={`flex-shrink-0 w-5 h-5 rounded border transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                   item.checked ? "bg-accent border-accent" : "border-border hover:border-accent/50"
                 }`}
               >
                 {item.checked && (
-                  <svg viewBox="0 0 20 20" fill="none" className="w-full h-full">
+                  <svg viewBox="0 0 20 20" fill="none" className="w-full h-full" aria-hidden="true">
                     <path
                       d="M5 10l4 4 6-6"
                       stroke="#0a0e1a"
@@ -89,6 +93,7 @@ export function ShowcaseChecklistTab() {
               <BlurInput
                 value={item.label}
                 onCommit={(v) => updateChecklistLabel(item.id, v)}
+                aria-label={`Edit checklist item: ${item.label || "untitled"}`}
                 className={`flex-1 border-none bg-transparent p-0 h-auto text-sm focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 ${
                   item.checked ? "line-through text-sub" : "text-text"
                 }`}
@@ -97,9 +102,10 @@ export function ShowcaseChecklistTab() {
                 variant="danger-ghost"
                 size="icon"
                 onClick={() => removeChecklistItem(item.id)}
+                aria-label={`Delete checklist item: ${item.label || "untitled"}`}
                 className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
               </Button>
             </div>
           ))}
@@ -112,6 +118,7 @@ export function ShowcaseChecklistTab() {
             onChange={(e) => setNewItem(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleAdd()}
             placeholder="Add checklist item..."
+            aria-label="New checklist item"
             className="input-toolkit"
           />
           <Button

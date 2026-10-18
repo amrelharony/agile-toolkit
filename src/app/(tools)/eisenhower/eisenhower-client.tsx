@@ -130,11 +130,12 @@ export function EisenhowerClient() {
             <Input
               className="sm:col-span-2"
               placeholder="Task"
+              aria-label="Task"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
             <Select value={quadrant} onValueChange={(v) => setQuadrant(v as Quadrant)}>
-              <SelectTrigger>
+              <SelectTrigger aria-label="Quadrant">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -184,7 +185,10 @@ export function EisenhowerClient() {
                         value={(it.fields?.quadrant as Quadrant) ?? "do"}
                         onValueChange={(v) => move(it.id, v as Quadrant)}
                       >
-                        <SelectTrigger className="h-7 w-24 text-xs">
+                        <SelectTrigger
+                          aria-label={`Quadrant for ${it.title}`}
+                          className="h-7 w-24 text-xs"
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -197,14 +201,15 @@ export function EisenhowerClient() {
                       </Select>
                       <span className="flex-1 truncate text-text min-w-0">{it.title}</span>
                       <button
+                        type="button"
                         onClick={() => {
                           removeOne(it.id);
                           log(EISENHOWER_ACTIONS.TASK_REMOVED, { id: it.id });
                         }}
-                        aria-label="Remove task"
+                        aria-label={`Remove task: ${it.title}`}
                         className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-4 h-4" aria-hidden="true" />
                       </button>
                     </li>
                   ))}

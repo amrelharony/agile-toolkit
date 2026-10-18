@@ -156,12 +156,14 @@ export function RiceScoringClient() {
             <Input
               className="sm:col-span-2"
               placeholder="Initiative title"
+              aria-label="Initiative title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
             <Input
               type="number"
               placeholder="Reach (people/qtr)"
+              aria-label="Reach (people per quarter)"
               value={reach}
               onChange={(e) => setReach(e.target.value)}
             />
@@ -169,12 +171,14 @@ export function RiceScoringClient() {
               type="number"
               step="0.1"
               placeholder="Impact 0.25–3"
+              aria-label="Impact (0.25–3)"
               value={impact}
               onChange={(e) => setImpact(e.target.value)}
             />
             <Input
               type="number"
               placeholder="Confidence 0–100%"
+              aria-label="Confidence (0–100%)"
               value={confidence}
               onChange={(e) => setConfidence(e.target.value)}
             />
@@ -182,6 +186,7 @@ export function RiceScoringClient() {
               type="number"
               step="0.5"
               placeholder="Effort (person-mo)"
+              aria-label="Effort (person-months)"
               value={effort}
               onChange={(e) => setEffort(e.target.value)}
             />
@@ -241,7 +246,9 @@ export function RiceScoringClient() {
                     <th className="p-2 text-right">C%</th>
                     <th className="p-2 text-right">E</th>
                     <th className="p-2 text-right">Score</th>
-                    <th className="p-2 w-10"></th>
+                    <th className="p-2 w-10">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -253,7 +260,13 @@ export function RiceScoringClient() {
                       <td className="p-2 font-mono text-xs">{r.rank}</td>
                       <td className="p-2 flex items-center gap-2">
                         {r.title}{" "}
-                        {outliers.has(r.id) && <AlertTriangle className="w-3 h-3 text-warning" />}
+                        {outliers.has(r.id) && (
+                          <AlertTriangle
+                            className="w-3 h-3 text-warning"
+                            role="img"
+                            aria-label="Outlier score, re-check inputs"
+                          />
+                        )}
                       </td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.reach}</td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.impact}</td>
@@ -262,11 +275,12 @@ export function RiceScoringClient() {
                       <td className="p-2 text-right font-mono">{r.score.toFixed(2)}</td>
                       <td className="p-2">
                         <button
+                          type="button"
                           onClick={() => remove(r.id)}
-                          aria-label="Remove item"
+                          aria-label={`Remove ${r.title}`}
                           className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4" aria-hidden="true" />
                         </button>
                       </td>
                     </tr>

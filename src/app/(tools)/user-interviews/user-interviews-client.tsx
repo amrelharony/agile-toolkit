@@ -48,7 +48,15 @@ function parseTags(input: string): string[] {
  *  isn't dropped while the user is mid-type. Commits parsed tags to the
  *  parent on blur or Enter. Re-syncs from props when the underlying tag
  *  array changes (e.g. another quote update overrides). */
-function TagInput({ tags, onCommit }: { tags: string[]; onCommit: (next: string[]) => void }) {
+function TagInput({
+  tags,
+  onCommit,
+  ariaLabel,
+}: {
+  tags: string[];
+  onCommit: (next: string[]) => void;
+  ariaLabel?: string;
+}) {
   const [draft, setDraft] = useState(tags.join(", "));
   // Re-sync from props only when the joined external value differs from our
   // current draft — otherwise we'd clobber the user's in-progress typing.
@@ -75,6 +83,7 @@ function TagInput({ tags, onCommit }: { tags: string[]; onCommit: (next: string[
         }
       }}
       placeholder="tags, comma-separated"
+      aria-label={ariaLabel ?? "Tags, comma-separated"}
       className="bg-surface border-border text-xs flex-1"
     />
   );
@@ -308,7 +317,8 @@ export function UserInterviewsClient() {
               key={i.id}
               type="button"
               onClick={() => setEditing(i.id)}
-              className={`w-full text-left rounded-lg border p-3 transition hover:border-accent/40 ${editing === i.id ? "border-accent/60 bg-accent/5" : "border-border bg-surface"}`}
+              aria-pressed={editing === i.id}
+              className={`w-full text-left rounded-lg border p-3 transition hover:border-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${editing === i.id ? "border-accent/60 bg-accent/5" : "border-border bg-surface"}`}
             >
               <div className="text-sm font-semibold text-text truncate">
                 {i.participant || "(unnamed)"}
@@ -329,12 +339,14 @@ export function UserInterviewsClient() {
                     value={active.participant}
                     onCommit={(v) => update(active.id, { participant: v })}
                     placeholder="Participant name or pseudonym"
+                    aria-label="Participant name or pseudonym"
                     className="bg-bg border-border"
                   />
                   <BlurInput
                     type="date"
                     value={active.date}
                     onCommit={(v) => update(active.id, { date: v })}
+                    aria-label="Interview date"
                     className="bg-bg border-border"
                   />
                 </div>
@@ -343,33 +355,37 @@ export function UserInterviewsClient() {
                   value={active.context ?? ""}
                   onCommit={(v) => update(active.id, { context: v })}
                   placeholder="Context (role, product use, what we were exploring)"
+                  aria-label="Context"
                   className="bg-bg border-border"
                 />
                 <div className="space-y-2">
                   <div className="text-xs uppercase text-sub flex items-center gap-1">
-                    <Quote className="w-3.5 h-3.5" /> Quotes
+                    <Quote className="w-3.5 h-3.5" aria-hidden="true" /> Quotes
                   </div>
-                  {active.quotes.map((q) => (
+                  {active.quotes.map((q, qIdx) => (
                     <div key={q.id} className="rounded-md border border-border bg-bg p-2 space-y-2">
                       <BlurTextarea
                         rows={2}
                         value={q.text}
                         onCommit={(v) => updateQuote(active.id, q.id, { text: v })}
                         placeholder='"..."'
+                        aria-label={`Quote ${qIdx + 1}`}
                         className="bg-surface border-border text-sm"
                       />
                       <div className="flex items-center gap-2">
                         <TagInput
                           tags={q.tags}
                           onCommit={(next) => updateQuote(active.id, q.id, { tags: next })}
+                          ariaLabel={`Tags for quote ${qIdx + 1}, comma-separated`}
                         />
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => removeQuote(active.id, q.id)}
+                          aria-label={`Remove quote ${qIdx + 1}`}
                           className="text-sub hover:text-danger"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                         </Button>
                       </div>
                     </div>

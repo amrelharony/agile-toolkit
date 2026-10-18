@@ -149,7 +149,7 @@ export function SixHatsClient() {
         <SectionCard title="Add thought" icon={Plus}>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Select value={hat} onValueChange={(v) => setHat(v as SixHatsThought["hat"])}>
-              <SelectTrigger>
+              <SelectTrigger aria-label="Hat">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -162,6 +162,7 @@ export function SixHatsClient() {
             </Select>
             <Textarea
               placeholder="Your thought (one per hat at a time)"
+              aria-label="Your thought"
               value={text}
               onChange={(e) => setText(e.target.value)}
               rows={2}
@@ -204,14 +205,15 @@ export function SixHatsClient() {
                     <li key={t.id} className="flex items-start gap-2 text-sm">
                       <span className="flex-1 text-text">{t.text}</span>
                       <button
+                        type="button"
                         onClick={() => {
                           removeOne(t.id);
                           log(SIX_HATS_ACTIONS.THOUGHT_REMOVED, { id: t.id });
                         }}
-                        aria-label="Remove thought"
+                        aria-label={`Remove ${h.label} thought: ${t.text.slice(0, 40)}`}
                         className="text-sub hover:text-danger min-touch-coarse"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                       </button>
                     </li>
                   ))}

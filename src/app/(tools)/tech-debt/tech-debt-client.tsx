@@ -80,9 +80,11 @@ function priorityScore(item: TechDebtItem): number {
 function InterestRateInput({
   value,
   commit,
+  itemLabel,
 }: {
   value: number | undefined;
   commit: (next: number) => void;
+  itemLabel: string;
 }) {
   const isUnset = value === undefined || value === 0;
   const [draft, setDraft] = useState<string>(isUnset ? "" : String(value));
@@ -130,7 +132,7 @@ function InterestRateInput({
             }}
             placeholder={ghost ?? "Int/sprint"}
             className="bg-bg border-border font-data"
-            aria-label="Interest per sprint"
+            aria-label={`Interest per sprint for ${itemLabel}`}
           />
           {draft === "" && chip}
         </div>
@@ -149,9 +151,11 @@ function InterestRateInput({
 function DescriptionEditor({
   value,
   commit,
+  itemLabel,
 }: {
   value: string;
   commit: (next: string | undefined) => void;
+  itemLabel: string;
 }) {
   const [draft, setDraft] = useState(value);
   const lastCommittedRef = useRef(value);
@@ -177,7 +181,7 @@ function DescriptionEditor({
       placeholder="Description (optional)..."
       rows={2}
       className="bg-bg border-border resize-none text-xs"
-      aria-label="Debt item description"
+      aria-label={`Description for ${itemLabel}`}
     />
   );
 }
@@ -524,12 +528,14 @@ export function TechDebtClient() {
                   value={i.title}
                   onCommit={(v) => update(i.id, { title: v })}
                   placeholder="Debt item"
+                  aria-label="Debt item"
                   className="bg-bg border-border"
                 />
                 <BlurInput
                   value={i.area ?? ""}
                   onCommit={(v) => update(i.id, { area: v })}
                   placeholder="Area"
+                  aria-label={`Area for ${i.title || "debt item"}`}
                   className="bg-bg border-border"
                 />
                 <Select
@@ -538,7 +544,10 @@ export function TechDebtClient() {
                     update(i.id, { impact: Number(v) as TechDebtItem["impact"] })
                   }
                 >
-                  <SelectTrigger className="bg-bg border-border font-data">
+                  <SelectTrigger
+                    aria-label={`Impact for ${i.title || "debt item"}`}
+                    className="bg-bg border-border font-data"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -555,7 +564,10 @@ export function TechDebtClient() {
                     update(i.id, { effort: Number(v) as TechDebtItem["effort"] })
                   }
                 >
-                  <SelectTrigger className="bg-bg border-border font-data">
+                  <SelectTrigger
+                    aria-label={`Effort for ${i.title || "debt item"}`}
+                    className="bg-bg border-border font-data"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -569,6 +581,7 @@ export function TechDebtClient() {
                 <InterestRateInput
                   value={i.interestRate}
                   commit={(next) => update(i.id, { interestRate: next })}
+                  itemLabel={i.title || "debt item"}
                 />
                 <div className="font-data text-sm text-accent text-center">
                   {priorityScore(i).toFixed(0)}
@@ -577,15 +590,16 @@ export function TechDebtClient() {
                   variant="ghost"
                   size="sm"
                   onClick={() => remove(i.id)}
-                  aria-label="Remove debt item"
+                  aria-label={`Remove debt item: ${i.title || "untitled"}`}
                   className="text-sub hover:text-danger min-touch-coarse"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                 </Button>
               </div>
               <DescriptionEditor
                 value={i.description ?? ""}
                 commit={(next) => update(i.id, { description: next })}
+                itemLabel={i.title || "debt item"}
               />
             </CardContent>
           </Card>

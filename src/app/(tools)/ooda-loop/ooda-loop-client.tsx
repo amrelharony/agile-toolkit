@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Activity, Plus, Trash2, CheckCircle2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -29,11 +29,13 @@ function StageTextarea({
   placeholder,
   rows = 2,
   onCommit,
+  id,
 }: {
   value: string;
   placeholder?: string;
   rows?: number;
   onCommit: (next: string) => void;
+  id?: string;
 }) {
   const [draft, setDraft] = useState(value);
   const committedRef = useRef(value);
@@ -53,6 +55,7 @@ function StageTextarea({
   };
   return (
     <Textarea
+      id={id}
       rows={rows}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
@@ -68,6 +71,7 @@ export function OodaLoopClient() {
   const removeOne = useWorkspaceStore((s) => s.removeOODACycle);
   const { log } = useHistoryLogger("ooda-loop");
   const exportRef = useRef<HTMLDivElement>(null);
+  const uid = useId();
 
   const [topic, setTopic] = useState("");
 
@@ -157,6 +161,7 @@ export function OodaLoopClient() {
           <div className="flex gap-2">
             <Input
               placeholder="Topic / situation"
+              aria-label="Topic / situation"
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
             />
@@ -199,53 +204,79 @@ export function OodaLoopClient() {
                         </span>
                         {!c.completedAt && (
                           <button
+                            type="button"
                             onClick={() => complete(c)}
-                            aria-label="Mark cycle complete"
+                            aria-label={`Mark cycle complete: ${c.topic}`}
                             className="min-touch-coarse inline-flex items-center justify-center text-success hover:text-success"
                           >
-                            <CheckCircle2 className="w-4 h-4" />
+                            <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
                           </button>
                         )}
                         <button
+                          type="button"
                           onClick={() => {
                             removeOne(c.id);
                             log(OODA_ACTIONS.CYCLE_REMOVED, { id: c.id });
                           }}
-                          aria-label="Remove cycle"
+                          aria-label={`Remove cycle: ${c.topic}`}
                           className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4" aria-hidden="true" />
                         </button>
                       </span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                       <div>
-                        <label className="block text-cyan-400 font-bold mb-1">Observe</label>
+                        <label
+                          htmlFor={`${uid}-${c.id}-observe`}
+                          className="block text-cyan-400 font-bold mb-1"
+                        >
+                          Observe
+                        </label>
                         <StageTextarea
+                          id={`${uid}-${c.id}-observe`}
                           value={c.observe ?? ""}
                           onCommit={(v) => update(c, "observe", v)}
                           placeholder="What's happening?"
                         />
                       </div>
                       <div>
-                        <label className="block text-success font-bold mb-1">Orient</label>
+                        <label
+                          htmlFor={`${uid}-${c.id}-orient`}
+                          className="block text-success font-bold mb-1"
+                        >
+                          Orient
+                        </label>
                         <StageTextarea
+                          id={`${uid}-${c.id}-orient`}
                           value={c.orient ?? ""}
                           onCommit={(v) => update(c, "orient", v)}
                           placeholder="What does it mean? Context, biases, mental models."
                         />
                       </div>
                       <div>
-                        <label className="block text-warning font-bold mb-1">Decide</label>
+                        <label
+                          htmlFor={`${uid}-${c.id}-decide`}
+                          className="block text-warning font-bold mb-1"
+                        >
+                          Decide
+                        </label>
                         <StageTextarea
+                          id={`${uid}-${c.id}-decide`}
                           value={c.decide ?? ""}
                           onCommit={(v) => update(c, "decide", v)}
                           placeholder="What's the call?"
                         />
                       </div>
                       <div>
-                        <label className="block text-pink-400 font-bold mb-1">Act</label>
+                        <label
+                          htmlFor={`${uid}-${c.id}-act`}
+                          className="block text-pink-400 font-bold mb-1"
+                        >
+                          Act
+                        </label>
                         <StageTextarea
+                          id={`${uid}-${c.id}-act`}
                           value={c.act ?? ""}
                           onCommit={(v) => update(c, "act", v)}
                           placeholder="What did we do? Outcome."

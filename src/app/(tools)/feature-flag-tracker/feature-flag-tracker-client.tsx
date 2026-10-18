@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -119,6 +119,7 @@ export function FeatureFlagTrackerClient() {
   const [flags, setFlags] = usePersisted<Flag[]>("agile-toolkit:feature-flag-tracker", []);
   const { log } = useHistoryLogger("feature-flag-tracker");
 
+  const uid = useId();
   const [name, setName] = useState("");
   const [owner, setOwner] = useState("");
   const [environment, setEnvironment] = useState<FlagEnv>("prod");
@@ -535,29 +536,35 @@ export function FeatureFlagTrackerClient() {
         <CardContent className="p-4 space-y-2">
           <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_140px_160px_auto] gap-2">
             <div>
-              <Label className="text-xs text-sub">Name</Label>
+              <Label htmlFor={`${uid}-name`} className="text-xs text-sub">
+                Name
+              </Label>
               <Input
+                id={`${uid}-name`}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="checkout_v2_rollout"
                 className="bg-bg border-border font-data"
-                aria-label="Flag name"
               />
             </div>
             <div>
-              <Label className="text-xs text-sub">Owner</Label>
+              <Label htmlFor={`${uid}-owner`} className="text-xs text-sub">
+                Owner
+              </Label>
               <Input
+                id={`${uid}-owner`}
                 value={owner}
                 onChange={(e) => setOwner(e.target.value)}
                 placeholder="Owner (optional)"
                 className="bg-bg border-border"
-                aria-label="Owner"
               />
             </div>
             <div>
-              <Label className="text-xs text-sub">Environment</Label>
+              <Label htmlFor={`${uid}-env`} className="text-xs text-sub">
+                Environment
+              </Label>
               <Select value={environment} onValueChange={(v) => setEnvironment(v as FlagEnv)}>
-                <SelectTrigger className="bg-bg border-border">
+                <SelectTrigger id={`${uid}-env`} className="bg-bg border-border">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -570,9 +577,11 @@ export function FeatureFlagTrackerClient() {
               </Select>
             </div>
             <div>
-              <Label className="text-xs text-sub">Purpose</Label>
+              <Label htmlFor={`${uid}-purpose`} className="text-xs text-sub">
+                Purpose
+              </Label>
               <Select value={purpose} onValueChange={(v) => setPurpose(v as FlagPurpose)}>
-                <SelectTrigger className="bg-bg border-border">
+                <SelectTrigger id={`${uid}-purpose`} className="bg-bg border-border">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

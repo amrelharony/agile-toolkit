@@ -394,13 +394,16 @@ export function ImpedimentsClient() {
 
           {/* Filters */}
           <div className="flex items-center gap-2 flex-wrap">
-            <Filter className="w-4 h-4 text-sub" />
+            <Filter className="w-4 h-4 text-sub" aria-hidden="true" />
 
             <Select
               value={filterStatus}
               onValueChange={(v) => setFilterStatus(v as Status | "All")}
             >
-              <SelectTrigger className="h-8 text-xs bg-surface border-border text-text w-28">
+              <SelectTrigger
+                aria-label="Filter by status"
+                className="h-8 text-xs bg-surface border-border text-text w-28"
+              >
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent className="bg-surface border-border">
@@ -415,7 +418,10 @@ export function ImpedimentsClient() {
               value={filterCategory}
               onValueChange={(v) => setFilterCategory(v as Category | "All")}
             >
-              <SelectTrigger className="h-8 text-xs bg-surface border-border text-text w-36">
+              <SelectTrigger
+                aria-label="Filter by category"
+                className="h-8 text-xs bg-surface border-border text-text w-36"
+              >
                 <SelectValue placeholder="Category" />
               </SelectTrigger>
               <SelectContent className="bg-surface border-border">
@@ -432,7 +438,10 @@ export function ImpedimentsClient() {
               value={filterSeverity}
               onValueChange={(v) => setFilterSeverity(v as Severity | "All")}
             >
-              <SelectTrigger className="h-8 text-xs bg-surface border-border text-text w-32">
+              <SelectTrigger
+                aria-label="Filter by severity"
+                className="h-8 text-xs bg-surface border-border text-text w-32"
+              >
                 <SelectValue placeholder="Severity" />
               </SelectTrigger>
               <SelectContent className="bg-surface border-border">

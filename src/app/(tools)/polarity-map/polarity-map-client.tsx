@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { CircuitBoard, Plus, Trash2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -28,11 +28,13 @@ function PoleListTextarea({
   rows = 3,
   placeholder,
   onCommit,
+  id,
 }: {
   initial: string[];
   rows?: number;
   placeholder?: string;
   onCommit: (lines: string[]) => void;
+  id?: string;
 }) {
   const joined = initial.join("\n");
   const [draft, setDraft] = useState(joined);
@@ -54,6 +56,7 @@ function PoleListTextarea({
   };
   return (
     <Textarea
+      id={id}
       rows={rows}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
@@ -71,6 +74,7 @@ export function PolarityMapClient() {
   const upsertPole = useWorkspaceStore((s) => s.upsertPolarityPole);
   const { log } = useHistoryLogger("polarity-map");
   const exportRef = useRef<HTMLDivElement>(null);
+  const uid = useId();
 
   const [title, setTitle] = useState("");
   const [leftLabel, setLeftLabel] = useState("");
@@ -177,29 +181,34 @@ export function PolarityMapClient() {
         <SectionCard title="New polarity" icon={Plus}>
           <Input
             placeholder="Polarity title (e.g. Autonomy ↔ Standardisation)"
+            aria-label="Polarity title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
             <Input
               placeholder="Left pole label"
+              aria-label="Left pole label"
               value={leftLabel}
               onChange={(e) => setLeftLabel(e.target.value)}
             />
             <Input
               placeholder="Right pole label"
+              aria-label="Right pole label"
               value={rightLabel}
               onChange={(e) => setRightLabel(e.target.value)}
             />
           </div>
           <Input
             placeholder="Greater purpose (above both poles)"
+            aria-label="Greater purpose (above both poles)"
             value={greater}
             onChange={(e) => setGreater(e.target.value)}
             className="mt-2"
           />
           <Input
             placeholder="Deeper fear (below both poles)"
+            aria-label="Deeper fear (below both poles)"
             value={deeper}
             onChange={(e) => setDeeper(e.target.value)}
             className="mt-2"
@@ -221,11 +230,12 @@ export function PolarityMapClient() {
               icon={CircuitBoard}
               actions={
                 <button
+                  type="button"
                   onClick={() => remove(pol.id)}
-                  aria-label="Remove polarity"
+                  aria-label={`Remove polarity: ${pol.title}`}
                   className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="w-4 h-4" aria-hidden="true" />
                 </button>
               }
             >
@@ -244,20 +254,28 @@ export function PolarityMapClient() {
                     >
                       {p.label}
                     </div>
-                    <label className="block text-xs uppercase text-success mb-1">
+                    <label
+                      htmlFor={`${uid}-${p.id}-up`}
+                      className="block text-xs uppercase text-success mb-1"
+                    >
                       Upsides (one per line)
                     </label>
                     <PoleListTextarea
                       key={`up-${p.id}`}
+                      id={`${uid}-${p.id}-up`}
                       initial={p.upsides ?? []}
                       onCommit={(lines) => updatePoleLines(p, "upsides", lines)}
                       placeholder="What goes well at this pole?"
                     />
-                    <label className="block text-xs uppercase text-danger mt-2 mb-1">
+                    <label
+                      htmlFor={`${uid}-${p.id}-dn`}
+                      className="block text-xs uppercase text-danger mt-2 mb-1"
+                    >
                       Downsides (one per line)
                     </label>
                     <PoleListTextarea
                       key={`dn-${p.id}`}
+                      id={`${uid}-${p.id}-dn`}
                       initial={p.downsides ?? []}
                       onCommit={(lines) => updatePoleLines(p, "downsides", lines)}
                       placeholder="What goes wrong when over-focused on this pole?"

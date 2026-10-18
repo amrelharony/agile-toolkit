@@ -161,11 +161,13 @@ export function AgenticWorkflowClient() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Input
               placeholder="Workflow name"
+              aria-label="Workflow name"
               value={wfName}
               onChange={(e) => setWfName(e.target.value)}
             />
             <Input
               placeholder="Description (optional)"
+              aria-label="Workflow description (optional)"
               value={wfDesc}
               onChange={(e) => setWfDesc(e.target.value)}
             />
@@ -182,12 +184,15 @@ export function AgenticWorkflowClient() {
                   className={`inline-flex items-center text-xs rounded border ${wf.id === activeWfId ? "bg-accent/20 border-accent text-accent" : "bg-surface-deep border-border text-sub"}`}
                 >
                   <button
+                    type="button"
                     onClick={() => setActiveWfId(wf.id)}
+                    aria-pressed={wf.id === activeWfId}
                     className="px-2 py-1 hover:text-text"
                   >
                     {wf.name}
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
                       removeWf(wf.id);
                       log(AGENTIC_WORKFLOW_ACTIONS.WORKFLOW_REMOVED, { id: wf.id });
@@ -196,7 +201,7 @@ export function AgenticWorkflowClient() {
                     className="pr-2 py-1 text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                     aria-label={`Remove workflow ${wf.name}`}
                   >
-                    <Trash2 className="w-3 h-3 inline" />
+                    <Trash2 className="w-3 h-3 inline" aria-hidden="true" />
                   </button>
                 </div>
               ))}
@@ -223,11 +228,12 @@ export function AgenticWorkflowClient() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <Input
                 placeholder="Step label"
+                aria-label="Step label"
                 value={nodeLabel}
                 onChange={(e) => setNodeLabel(e.target.value)}
               />
               <Select value={nodeKind} onValueChange={(v) => setNodeKind(v as AgentNode["kind"])}>
-                <SelectTrigger>
+                <SelectTrigger aria-label="Step kind">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -245,6 +251,7 @@ export function AgenticWorkflowClient() {
             </div>
             <Textarea
               placeholder="Description (optional)"
+              aria-label="Step description (optional)"
               value={nodeDesc}
               onChange={(e) => setNodeDesc(e.target.value)}
               className="mt-2"
@@ -283,6 +290,7 @@ export function AgenticWorkflowClient() {
                           are reactive; branches are routers). */}
                       {isAgent && (
                         <button
+                          type="button"
                           onClick={() => setTestingNodeId(isTesting ? null : n.id)}
                           disabled={!llm.isReady}
                           className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded border border-border text-sub hover:text-accent hover:border-accent/40 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-sub disabled:hover:border-border"
@@ -297,24 +305,25 @@ export function AgenticWorkflowClient() {
                           aria-expanded={isTesting}
                         >
                           {isTesting ? (
-                            <ChevronDown className="w-3 h-3" />
+                            <ChevronDown className="w-3 h-3" aria-hidden="true" />
                           ) : (
-                            <ChevronRight className="w-3 h-3" />
+                            <ChevronRight className="w-3 h-3" aria-hidden="true" />
                           )}
-                          <Beaker className="w-3 h-3" />
+                          <Beaker className="w-3 h-3" aria-hidden="true" />
                           Test
                         </button>
                       )}
                       <button
+                        type="button"
                         onClick={() => {
                           removeNode(n.id);
                           log(AGENTIC_WORKFLOW_ACTIONS.NODE_REMOVED, { id: n.id });
                           if (testingNodeId === n.id) setTestingNodeId(null);
                         }}
-                        aria-label="Remove step"
+                        aria-label={`Remove step: ${n.label}`}
                         className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-4 h-4" aria-hidden="true" />
                       </button>
                     </div>
                     {isAgent && isTesting && llm.isReady && (

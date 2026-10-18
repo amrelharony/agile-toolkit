@@ -6,7 +6,7 @@
  * with an export button.
  */
 
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { Plus, Trash2, Presentation, Clock } from "lucide-react";
 import { ExportButton } from "@/components/shared/export-button";
 import { SectionCard } from "@/components/shared/section-card";
@@ -19,6 +19,7 @@ import { useSprintReviewStore } from "../use-sprint-review-store";
 import { SectionLabel, NumCell } from "./form-fields";
 
 export function DemoScriptTab() {
+  const uid = useId();
   const {
     sprintName,
     sprintNumber,
@@ -69,8 +70,11 @@ export function DemoScriptTab() {
         contentClassName="grid grid-cols-1 sm:grid-cols-2 gap-4"
       >
         <div className="space-y-1.5">
-          <Label className="text-sub text-xs">Sprint Name</Label>
+          <Label htmlFor={`${uid}-sprint-name`} className="text-sub text-xs">
+            Sprint Name
+          </Label>
           <BlurInput
+            id={`${uid}-sprint-name`}
             value={sprintName}
             onCommit={setSprintName}
             placeholder="e.g. Sprint Alpha"
@@ -78,8 +82,11 @@ export function DemoScriptTab() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-sub text-xs">Sprint Number</Label>
+          <Label htmlFor={`${uid}-sprint-number`} className="text-sub text-xs">
+            Sprint Number
+          </Label>
           <BlurInput
+            id={`${uid}-sprint-number`}
             value={sprintNumber}
             onCommit={setSprintNumber}
             placeholder="e.g. 12"
@@ -115,15 +122,17 @@ export function DemoScriptTab() {
                 variant="danger-ghost"
                 size="icon"
                 onClick={() => removeFeature(f.id)}
+                aria-label={`Delete feature ${i + 1}`}
                 className="min-touch-coarse h-7 w-7"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
               </Button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
               <div className="space-y-1.5">
-                <SectionLabel>Feature Name</SectionLabel>
+                <SectionLabel htmlFor={`${uid}-${f.id}-name`}>Feature Name</SectionLabel>
                 <BlurInput
+                  id={`${uid}-${f.id}-name`}
                   value={f.name}
                   onCommit={(v) => updateFeature(f.id, { name: v })}
                   placeholder="e.g. User Login Flow"
@@ -131,8 +140,9 @@ export function DemoScriptTab() {
                 />
               </div>
               <div className="space-y-1.5 w-28">
-                <SectionLabel>Time (min)</SectionLabel>
+                <SectionLabel htmlFor={`${uid}-${f.id}-time`}>Time (min)</SectionLabel>
                 <NumCell
+                  id={`${uid}-${f.id}-time`}
                   value={f.timeMinutes}
                   onCommit={(n) => updateFeature(f.id, { timeMinutes: n })}
                   min={1}
@@ -141,8 +151,9 @@ export function DemoScriptTab() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <SectionLabel>Brief Description</SectionLabel>
+              <SectionLabel htmlFor={`${uid}-${f.id}-description`}>Brief Description</SectionLabel>
               <BlurInput
+                id={`${uid}-${f.id}-description`}
                 value={f.description}
                 onCommit={(v) => updateFeature(f.id, { description: v })}
                 placeholder="What was built?"
@@ -150,8 +161,9 @@ export function DemoScriptTab() {
               />
             </div>
             <div className="space-y-1.5">
-              <SectionLabel>Acceptance Criteria</SectionLabel>
+              <SectionLabel htmlFor={`${uid}-${f.id}-criteria`}>Acceptance Criteria</SectionLabel>
               <BlurTextarea
+                id={`${uid}-${f.id}-criteria`}
                 value={f.acceptanceCriteria}
                 onCommit={(v) => updateFeature(f.id, { acceptanceCriteria: v })}
                 placeholder="Given... When... Then..."

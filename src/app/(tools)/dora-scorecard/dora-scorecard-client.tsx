@@ -377,7 +377,11 @@ export function DoraScorecardClient() {
             />
           </KpiGrid>
           {trends && (
-            <div className="flex flex-wrap gap-2 -mt-2 mb-2" aria-label="DORA metric trends">
+            <div
+              role="group"
+              className="flex flex-wrap gap-2 -mt-2 mb-2"
+              aria-label="DORA metric trends"
+            >
               <TrendChip
                 label="Deploy/wk"
                 trend={trends.deploy.trend}

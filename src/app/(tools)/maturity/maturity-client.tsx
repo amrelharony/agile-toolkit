@@ -313,6 +313,8 @@ export function MaturityClient() {
                     step={1}
                     value={[level]}
                     onValueChange={([v]) => setScore(dim.id, v)}
+                    aria-label={dim.name}
+                    thumbProps={{ "aria-valuetext": `${level} — ${levelData.label}` }}
                     className="w-full"
                   />
                   <p className="text-xs text-sub leading-relaxed">{levelData.description}</p>
@@ -371,13 +373,16 @@ export function MaturityClient() {
           headerClassName="pb-4"
           actions={
             <>
-              <span className="text-sm text-sub">Target level:</span>
-              <div className="flex gap-1">
+              <span id="maturity-target-level" className="text-sm text-sub">
+                Target level:
+              </span>
+              <div className="flex gap-1" role="group" aria-labelledby="maturity-target-level">
                 {[2, 3, 4, 5].map((l) => (
                   <button
                     key={l}
                     type="button"
                     onClick={() => setTargetLevel(l)}
+                    aria-pressed={targetLevel === l}
                     className={`min-touch-coarse w-8 h-8 rounded text-sm font-medium transition-all ${
                       targetLevel === l
                         ? "bg-accent text-[#0a0f1e] font-bold"

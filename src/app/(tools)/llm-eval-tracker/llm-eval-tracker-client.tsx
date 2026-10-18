@@ -351,11 +351,13 @@ export function LLMEvalTrackerClient() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
                 <Input
                   placeholder="Dataset name (e.g. faithfulness-v2)"
+                  aria-label="Dataset name"
                   value={liveDataset}
                   onChange={(e) => setLiveDataset(e.target.value)}
                 />
                 <Input
                   placeholder="Prompt version (optional, e.g. greet@1.4.0)"
+                  aria-label="Prompt version (optional)"
                   value={livePromptVersion}
                   onChange={(e) => setLivePromptVersion(e.target.value)}
                 />
@@ -364,6 +366,7 @@ export function LLMEvalTrackerClient() {
                 value={livePrompt}
                 onChange={(e) => setLivePrompt(e.target.value)}
                 placeholder="The prompt to test…"
+                aria-label="Prompt to test"
                 rows={4}
                 className="font-mono text-xs"
               />
@@ -412,16 +415,19 @@ export function LLMEvalTrackerClient() {
           <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
             <Input
               placeholder="Model (e.g. gpt-5)"
+              aria-label="Model"
               value={model}
               onChange={(e) => setModel(e.target.value)}
             />
             <Input
               placeholder="Dataset (e.g. faithfulness-v2)"
+              aria-label="Dataset"
               value={dataset}
               onChange={(e) => setDataset(e.target.value)}
             />
             <Input
               placeholder="Prompt version (optional)"
+              aria-label="Prompt version (optional)"
               value={promptVersion}
               onChange={(e) => setPromptVersion(e.target.value)}
             />
@@ -431,6 +437,7 @@ export function LLMEvalTrackerClient() {
               min="0"
               max="1"
               placeholder="Score 0–1"
+              aria-label="Score 0–1"
               value={score}
               onChange={(e) => setScore(e.target.value)}
             />
@@ -506,7 +513,9 @@ export function LLMEvalTrackerClient() {
                     <th className="p-2">Dataset</th>
                     <th className="p-2">Prompt v</th>
                     <th className="p-2 text-right">Score</th>
-                    <th className="p-2 w-10"></th>
+                    <th className="p-2 w-10">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -523,11 +532,12 @@ export function LLMEvalTrackerClient() {
                         <td className="p-2 text-right font-mono">{(e.score * 100).toFixed(1)}%</td>
                         <td className="p-2">
                           <button
+                            type="button"
                             onClick={() => remove(e.id)}
                             className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
-                            aria-label="Remove eval"
+                            aria-label={`Remove eval: ${e.model} on ${e.dataset}`}
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-4 h-4" aria-hidden="true" />
                           </button>
                         </td>
                       </tr>

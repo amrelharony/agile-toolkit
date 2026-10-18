@@ -5,7 +5,7 @@
  * note) under a meeting date, then render a category-grouped summary.
  */
 
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { Plus, Trash2, MessageSquare } from "lucide-react";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ export function FeedbackTab() {
     removeFeedback,
     updateFeedback,
   } = useSprintReviewStore();
+  const uid = useId();
   // BUG-T8-sprint-review-1: log FEEDBACK_ADDED on add. Cross-tool
   // consumers (the "Last 30 days: N feedback items captured" banner)
   // read this event via selectEvents; without the log call, the
@@ -70,8 +71,11 @@ export function FeedbackTab() {
       >
         {/* Meeting date */}
         <div className="flex items-center gap-3 pb-2 border-b border-border">
-          <Label className="text-sub text-xs whitespace-nowrap">Meeting Date</Label>
+          <Label htmlFor={`${uid}-meeting-date`} className="text-sub text-xs whitespace-nowrap">
+            Meeting Date
+          </Label>
           <Input
+            id={`${uid}-meeting-date`}
             type="date"
             value={meetingDate}
             onChange={(e) => setMeetingDate(e.target.value)}
@@ -90,8 +94,9 @@ export function FeedbackTab() {
           >
             <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
               <div className="space-y-1.5">
-                <SectionLabel>Stakeholder</SectionLabel>
+                <SectionLabel htmlFor={`${uid}-${item.id}-stakeholder`}>Stakeholder</SectionLabel>
                 <BlurInput
+                  id={`${uid}-${item.id}-stakeholder`}
                   value={item.stakeholder}
                   onCommit={(v) => updateFeedback(item.id, { stakeholder: v })}
                   placeholder="Name / Role"
@@ -99,7 +104,7 @@ export function FeedbackTab() {
                 />
               </div>
               <div className="space-y-1.5">
-                <SectionLabel>Category</SectionLabel>
+                <SectionLabel htmlFor={`${uid}-${item.id}-category`}>Category</SectionLabel>
                 <Select
                   value={item.category}
                   onValueChange={(v) =>
@@ -108,7 +113,7 @@ export function FeedbackTab() {
                     })
                   }
                 >
-                  <SelectTrigger className="input-toolkit">
+                  <SelectTrigger id={`${uid}-${item.id}-category`} className="input-toolkit">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="bg-surface border-border">
@@ -122,14 +127,16 @@ export function FeedbackTab() {
                 variant="danger-ghost"
                 size="icon"
                 onClick={() => removeFeedback(item.id)}
+                aria-label={`Delete feedback from ${item.stakeholder || "unnamed stakeholder"}`}
                 className="h-9 w-9"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-4 h-4" aria-hidden="true" />
               </Button>
             </div>
             <div className="space-y-1.5">
-              <SectionLabel>Feedback</SectionLabel>
+              <SectionLabel htmlFor={`${uid}-${item.id}-feedback`}>Feedback</SectionLabel>
               <BlurTextarea
+                id={`${uid}-${item.id}-feedback`}
                 value={item.feedback}
                 onCommit={(v) => updateFeedback(item.id, { feedback: v })}
                 placeholder="What did they say?"

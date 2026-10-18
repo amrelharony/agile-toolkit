@@ -283,6 +283,8 @@ export function SpacePulseClient() {
                   step={1}
                   value={[draft[dim.key]]}
                   onValueChange={([v]) => setDraft((d) => ({ ...d, [dim.key]: v }))}
+                  aria-label={dim.label}
+                  thumbProps={{ "aria-valuetext": `${draft[dim.key]} of 5` }}
                   className="w-full"
                 />
               </div>

@@ -156,12 +156,13 @@ export function KanoModelClient() {
         <SectionCard title="Classify feature" icon={Plus}>
           <Input
             placeholder="Feature title"
+            aria-label="Feature title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
             <Select value={category} onValueChange={(v) => setCategory(v as Category)}>
-              <SelectTrigger>
+              <SelectTrigger aria-label="Kano category">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -177,6 +178,7 @@ export function KanoModelClient() {
               min="0"
               max="5"
               placeholder="Sat if present (0-5)"
+              aria-label="Satisfaction if present (0-5)"
               value={satIfPresent}
               onChange={(e) => setSatIfPresent(e.target.value)}
             />
@@ -185,6 +187,7 @@ export function KanoModelClient() {
               min="0"
               max="5"
               placeholder="Dissat if absent (0-5)"
+              aria-label="Dissatisfaction if absent (0-5)"
               value={dissatIfAbsent}
               onChange={(e) => setDissatIfAbsent(e.target.value)}
             />
@@ -225,11 +228,12 @@ export function KanoModelClient() {
                     <li key={it.id} className="flex items-center gap-2">
                       <span className="flex-1 truncate text-text">{it.title}</span>
                       <button
+                        type="button"
                         onClick={() => remove(it.id)}
-                        aria-label="Remove feature"
+                        aria-label={`Remove ${it.title}`}
                         className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-4 h-4" aria-hidden="true" />
                       </button>
                     </li>
                   ))}

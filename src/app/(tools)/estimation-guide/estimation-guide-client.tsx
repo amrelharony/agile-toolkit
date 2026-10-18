@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useMemo } from "react";
+import { useEffect, useId, useRef, useCallback, useMemo } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -83,6 +83,7 @@ function decodeSharedState(encoded: string): unknown {
 export function EstimationGuideClient() {
   const store = useEstimationGuideStore();
   const gridRef = useRef<HTMLDivElement>(null);
+  const uid = useId();
   const { log } = useHistoryLogger("estimation-guide");
 
   // Hydrate persisted store on mount, then apply any URL-shared state so the
@@ -273,7 +274,10 @@ export function EstimationGuideClient() {
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center gap-3 mb-6">
         <Select value={store.selectedScale} onValueChange={handleScaleChange}>
-          <SelectTrigger className="w-[200px] border-border bg-card text-text hover:border-accent-cyan/30">
+          <SelectTrigger
+            aria-label="Estimation scale"
+            className="w-[200px] border-border bg-card text-text hover:border-accent-cyan/30"
+          >
             <SelectValue placeholder="Select scale" />
           </SelectTrigger>
           <SelectContent className="bg-card border-border">
@@ -338,10 +342,14 @@ export function EstimationGuideClient() {
 
                 {/* Description */}
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-sub uppercase tracking-wider">
+                  <label
+                    htmlFor={`${uid}-${key}-description`}
+                    className="text-xs font-medium text-sub uppercase tracking-wider"
+                  >
                     Description
                   </label>
                   <Textarea
+                    id={`${uid}-${key}-description`}
                     value={store.descriptions[key] ?? ""}
                     onChange={(e) => handleDescriptionChange(key, e.target.value)}
                     placeholder="Describe what this estimate means..."
@@ -352,10 +360,14 @@ export function EstimationGuideClient() {
 
                 {/* Example */}
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-sub uppercase tracking-wider">
+                  <label
+                    htmlFor={`${uid}-${key}-example`}
+                    className="text-xs font-medium text-sub uppercase tracking-wider"
+                  >
                     Example
                   </label>
                   <Textarea
+                    id={`${uid}-${key}-example`}
                     value={store.examples[key] ?? ""}
                     onChange={(e) => handleExampleChange(key, e.target.value)}
                     placeholder="Add a team-specific example..."

@@ -285,6 +285,7 @@ export function ModelComparisonClient() {
                 value={livePrompt}
                 onChange={(e) => setLivePrompt(e.target.value)}
                 placeholder="Paste or type a prompt to test across all selected providers…"
+                aria-label="Prompt to test"
                 rows={4}
                 className="font-mono text-xs"
               />
@@ -366,11 +367,13 @@ export function ModelComparisonClient() {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
             <Input
               placeholder="Model name"
+              aria-label="Model name"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
             <Input
               placeholder="Vendor"
+              aria-label="Vendor"
               value={vendor}
               onChange={(e) => setVendor(e.target.value)}
             />
@@ -378,6 +381,7 @@ export function ModelComparisonClient() {
               type="number"
               step="0.001"
               placeholder="Input $/1k tok"
+              aria-label="Input cost ($ per 1k tokens)"
               value={inputCost}
               onChange={(e) => setInputCost(e.target.value)}
             />
@@ -385,24 +389,28 @@ export function ModelComparisonClient() {
               type="number"
               step="0.001"
               placeholder="Output $/1k tok"
+              aria-label="Output cost ($ per 1k tokens)"
               value={outputCost}
               onChange={(e) => setOutputCost(e.target.value)}
             />
             <Input
               type="number"
               placeholder="Context window"
+              aria-label="Context window (tokens)"
               value={contextWin}
               onChange={(e) => setContextWin(e.target.value)}
             />
             <Input
               type="number"
               placeholder="Latency p50 ms"
+              aria-label="Latency p50 (ms)"
               value={latencyP50}
               onChange={(e) => setLatencyP50(e.target.value)}
             />
             <Input
               type="number"
               placeholder="Latency p95 ms"
+              aria-label="Latency p95 (ms)"
               value={latencyP95}
               onChange={(e) => setLatencyP95(e.target.value)}
             />
@@ -410,11 +418,12 @@ export function ModelComparisonClient() {
               type="number"
               step="0.001"
               placeholder="Eval score 0-1"
+              aria-label="Eval score (0-1)"
               value={evalScore}
               onChange={(e) => setEvalScore(e.target.value)}
             />
             <Select value={status} onValueChange={(v) => setStatus(v as ModelEntry["status"])}>
-              <SelectTrigger>
+              <SelectTrigger aria-label="Status">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -461,7 +470,9 @@ export function ModelComparisonClient() {
                     <th className="p-2 text-right">p95</th>
                     <th className="p-2 text-right">Eval</th>
                     <th className="p-2">Status</th>
-                    <th className="p-2 w-10"></th>
+                    <th className="p-2 w-10">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -490,11 +501,12 @@ export function ModelComparisonClient() {
                       <td className="p-2 text-xs text-sub">{m.status}</td>
                       <td className="p-2">
                         <button
+                          type="button"
                           onClick={() => remove(m.id)}
-                          aria-label="Remove model"
+                          aria-label={`Remove ${m.name}`}
                           className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4" aria-hidden="true" />
                         </button>
                       </td>
                     </tr>

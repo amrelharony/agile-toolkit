@@ -5,6 +5,10 @@
  * group-with in Write, vote heart in Vote/Discuss/Actions, click-to-focus in
  * Discuss, and the action-item checkbox + assignee input in Actions. Grouped
  * child cards render indented under their parent and inherit its visual state.
+ *
+ * Click-to-focus: in Discuss the card text is a button whose ::after stretches
+ * over the whole card, so the card stays clickable while the vote button sits
+ * above it (a role="button" card can't contain the vote button).
  */
 
 import { motion } from "framer-motion";
@@ -67,36 +71,6 @@ export function RetroCardItem({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.2 }}
-      onClick={
-        isDiscussClickable
-          ? (e) => {
-              // Skip when the click bubbled from an inner interactive control
-              // (vote button, delete, etc.) — we only want bare-card clicks
-              // to toggle the discussing focus.
-              if (
-                (e.target as HTMLElement).closest("button, input, select, [role='button']") !==
-                e.currentTarget
-              ) {
-                const targetEl = e.target as HTMLElement;
-                if (targetEl.closest("button, input, select, a")) return;
-              }
-              onToggleDiscussing(card.id);
-            }
-          : undefined
-      }
-      role={isDiscussClickable ? "button" : undefined}
-      tabIndex={isDiscussClickable ? 0 : undefined}
-      onKeyDown={
-        isDiscussClickable
-          ? (e) => {
-              if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
-                e.preventDefault();
-                onToggleDiscussing(card.id);
-              }
-            }
-          : undefined
-      }
-      aria-pressed={isDiscussClickable ? isDiscussing : undefined}
       className={`group relative rounded-lg border p-3 transition-all duration-200 ${
         isDiscussClickable ? "cursor-pointer" : ""
       } ${
@@ -125,28 +99,41 @@ export function RetroCardItem({
             className="mt-0.5 shrink-0 text-sub hover:text-accent transition-colors"
           >
             {card.isActionItem ? (
-              <CheckSquare className="w-4 h-4 text-accent" />
+              <CheckSquare className="w-4 h-4 text-accent" aria-hidden="true" />
             ) : (
-              <Square className="w-4 h-4" />
+              <Square className="w-4 h-4" aria-hidden="true" />
             )}
           </button>
         )}
 
-        <p
-          className={`flex-1 text-sm leading-relaxed ${
-            card.isActionItem && phase === "actions" ? "text-accent" : "text-text"
-          }`}
-        >
-          {card.text}
-        </p>
+        {isDiscussClickable ? (
+          <button
+            type="button"
+            onClick={() => onToggleDiscussing(card.id)}
+            aria-pressed={isDiscussing}
+            className="flex-1 text-left text-sm leading-relaxed text-text focus-visible:outline-none after:absolute after:inset-0 after:rounded-[inherit] after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-accent"
+          >
+            {card.text}
+          </button>
+        ) : (
+          <p
+            className={`flex-1 text-sm leading-relaxed ${
+              card.isActionItem && phase === "actions" ? "text-accent" : "text-text"
+            }`}
+          >
+            {card.text}
+          </p>
+        )}
 
         <div className="flex items-center gap-1 shrink-0">
           {/* Vote button */}
           {(phase === "vote" || phase === "discuss" || phase === "actions") && (
             <button
+              type="button"
               onClick={() => onVote(card.id)}
               disabled={!canVote && phase === "vote"}
-              className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-all ${
+              aria-label={`${card.votes} ${card.votes === 1 ? "vote" : "votes"}, vote for this card`}
+              className={`relative z-10 flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-all ${
                 phase === "vote" && canVote
                   ? "text-sub hover:text-accent-magenta hover:bg-accent-magenta/10 cursor-pointer"
                   : phase === "vote" && !canVote
@@ -158,6 +145,7 @@ export function RetroCardItem({
                 className={`w-3.5 h-3.5 ${
                   card.votes > 0 ? "fill-accent-magenta text-accent-magenta" : ""
                 }`}
+                aria-hidden="true"
               />
               <span>{card.votes}</span>
             </button>
@@ -171,7 +159,7 @@ export function RetroCardItem({
               aria-label="Delete card"
               className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100 p-1 text-sub hover:text-status-red transition-all"
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
           )}
         </div>
@@ -184,7 +172,10 @@ export function RetroCardItem({
             value={card.groupedWith ?? "__none__"}
             onValueChange={(val) => onGroup(card.id, val === "__none__" ? null : val)}
           >
-            <SelectTrigger className="min-touch-coarse h-6 text-xs bg-cardH border-border text-sub">
+            <SelectTrigger
+              aria-label="Group with another card"
+              className="min-touch-coarse h-6 text-xs bg-cardH border-border text-sub"
+            >
               <SelectValue placeholder="Group with…" />
             </SelectTrigger>
             <SelectContent className="bg-card border-border">
@@ -208,6 +199,7 @@ export function RetroCardItem({
             value={card.assignee}
             onChange={(e) => onAssigneeChange(card.id, e.target.value)}
             placeholder="Assign to…"
+            aria-label="Assignee"
             className="h-6 text-xs bg-cardH border-border text-sub placeholder:text-sub"
           />
         </div>

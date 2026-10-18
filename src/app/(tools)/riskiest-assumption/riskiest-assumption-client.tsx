@@ -553,9 +553,9 @@ export function RiskiestAssumptionClient() {
                   size="sm"
                   onClick={() => removeAssumption(a.id)}
                   className="text-sub hover:text-danger h-6 w-6 p-0 shrink-0 min-touch-coarse"
-                  aria-label="Remove assumption"
+                  aria-label={`Remove assumption #${idx + 1}`}
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                 </Button>
               </div>
               {a.description && (
@@ -567,7 +567,7 @@ export function RiskiestAssumptionClient() {
                   <NumDraftInput
                     value={a.riskLevel}
                     onCommit={(n) => updateRisk(a.id, n as Level)}
-                    ariaLabel="Risk"
+                    ariaLabel={`Risk for assumption #${idx + 1}`}
                   />
                 </div>
                 <div className="flex items-center gap-1">
@@ -575,13 +575,13 @@ export function RiskiestAssumptionClient() {
                   <NumDraftInput
                     value={a.evidenceLevel}
                     onCommit={(n) => updateEvidence(a.id, n as Level)}
-                    ariaLabel="Evidence"
+                    ariaLabel={`Evidence for assumption #${idx + 1}`}
                   />
                 </div>
                 <Select value={a.status} onValueChange={(v) => updateStatus(a.id, v as Status)}>
                   <SelectTrigger
                     className={`h-8 text-xs w-32 border ${STATUS_TONE[a.status]}`}
-                    aria-label="Status"
+                    aria-label={`Status for assumption #${idx + 1}`}
                   >
                     <SelectValue />
                   </SelectTrigger>
