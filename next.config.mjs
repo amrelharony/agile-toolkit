@@ -108,6 +108,12 @@ const nextConfig = {
         source: "/mascot/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
+      // Service worker: always revalidate so a new deploy's worker is picked
+      // up on the next visit instead of whenever the HTTP cache expires.
+      {
+        source: "/sw.js",
+        headers: [{ key: "Cache-Control", value: "no-cache" }],
+      },
       // Comic PDFs: matching rules stack, so the security headers above still
       // apply. Not `immutable` — the filename is stable and the owner may
       // replace the file; the reader's `?v=<hash>` URL handles cache busting.
