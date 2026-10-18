@@ -111,6 +111,7 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
 
   const bar = (
     <header
+      data-chrome="header"
       className={cn(
         // Mobile-first: tight 8 px gap on the smallest phones, growing as the
         // viewport widens. Padding scales 12 → 16 → 24 px to match the

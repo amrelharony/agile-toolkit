@@ -6,6 +6,7 @@ import { UndoRedoControls } from "@/components/history/undo-redo-controls";
 import { SavedChip } from "@/components/data/saved-chip";
 import { HowItWorks } from "@/components/tool-frame/how-it-works";
 import { RelatedTools } from "@/components/tool-frame/related-tools";
+import { PresentButton } from "@/components/presentation/presentation-mode";
 
 interface ToolPageWrapperProps {
   title: string;
@@ -60,7 +61,8 @@ export function ToolPageWrapper({
           <p className="text-fluid-body text-sub max-w-prose">{description}</p>
         </div>
         {toolId && (
-          <div className="shrink-0 flex items-center gap-2 flex-wrap">
+          <div data-chrome="tool-toolbar" className="shrink-0 flex items-center gap-2 flex-wrap">
+            <PresentButton />
             {/* Where this tool's data lives, and the way to back it up. */}
             <SavedChip />
             {showToolbar && (
@@ -80,7 +82,11 @@ export function ToolPageWrapper({
       </header>
 
       {toolId && <HowItWorks toolId={toolId} />}
-      {showInsights && toolId && <InsightsEngine toolId={toolId} limit={2} />}
+      {showInsights && toolId && (
+        <div data-chrome="insights">
+          <InsightsEngine toolId={toolId} limit={2} />
+        </div>
+      )}
       {children}
       {toolId && <RelatedTools toolId={toolId} />}
     </div>

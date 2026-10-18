@@ -7,6 +7,7 @@ import { MotionConfig } from "framer-motion";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { BackupReminder } from "@/components/data/backup-reminder";
 import { DockedTimer } from "@/components/timer/docked-timer";
+import { PresentationController } from "@/components/presentation/presentation-mode";
 import { StorageHealthBanner } from "@/components/data/storage-health-banner";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
@@ -169,6 +170,7 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                               <div className="flex-1 flex flex-col min-w-0">
                                 <StorageHealthBanner />
                                 <BackupReminder />
+                                <PresentationController />
                                 <DockedTimer />
                                 <Header
                                   onOpenSearch={() => setSearchOpen(true)}
