@@ -5,28 +5,65 @@ best-practices / SEO baselines for the app's **public routes**.
 
 ## What's covered
 
-`lighthouserc.json` baselines three public routes:
+`lighthouserc.json` runs Lighthouse's default **mobile** profile (a mid-range
+phone on slow 4G): most visitors arrive on phones, and it's the harder target.
+It covers five public routes:
 
 | URL                 | Why                                                                                                                        |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `/`                 | The landing page (hero, featured comic banner when the PDF exists, tool index).                                            |
-| `/capacity-planner` | A representative tool. Every tool route is public and browser-only, so a visitor sees exactly what Lighthouse measures.    |
+| `/`                 | The landing page (search, jobs, tool index by section).                                                                    |
+| `/retro`            | The most-used ceremony tool.                                                                                               |
+| `/capacity-planner` | A representative form-style tool. Every tool route is public and browser-only, so a visitor sees what Lighthouse measures. |
+| `/burndown`         | A chart tool: shows whether Recharts stays out of the first load (charts load lazily).                                     |
 | `/agile-at-work`    | The comic reader. Until `public/comics/agile-at-work.pdf` is committed it renders the "coming soon" state, not the reader. |
 
-The category-score + Core-Web-Vitals assertions are configured as **warnings**,
-so the first run records the numbers without failing the build. Tighten them to
-`error` once the known-good scores are established.
+**Accessibility is a hard gate.** Every tool passed a jsx-a11y sweep, and the
+interaction and labelling rules are lint errors. Everything else warns until
+the mobile baseline below is known-good.
 
-| Assertion                | Threshold (warn) |
-| ------------------------ | ---------------- |
-| Performance              | ≥ 0.80           |
-| Accessibility            | ≥ 0.90           |
-| Best Practices           | ≥ 0.90           |
-| SEO                      | ≥ 0.90           |
-| First Contentful Paint   | ≤ 2000 ms        |
-| Largest Contentful Paint | ≤ 3000 ms        |
-| Cumulative Layout Shift  | ≤ 0.1            |
-| Total Blocking Time      | ≤ 300 ms         |
+| Assertion                | Threshold                                        |
+| ------------------------ | ------------------------------------------------ |
+| Accessibility            | ≥ 0.95 (**error**)                               |
+| Performance              | ≥ 0.70 (warn)                                    |
+| Best Practices           | ≥ 0.90 (warn)                                    |
+| SEO                      | ≥ 0.90 (warn)                                    |
+| First Contentful Paint   | ≤ 2500 ms (warn)                                 |
+| Largest Contentful Paint | ≤ 4000 ms (warn)                                 |
+| Cumulative Layout Shift  | ≤ 0.1 (warn)                                     |
+| Total Blocking Time      | ≤ 400 ms (warn)                                  |
+| JavaScript transferred   | ≤ 350 KB (warn)                                  |
+| Total transferred        | ≤ 4.6 MB (warn): 1.5 MB page + ~2.7 MB 3D mascot |
+
+The mascot model is content-hashed and served `immutable`, so the 2.7 MB is
+paid once per browser; budgets count it because Lighthouse runs cold.
+
+## Baseline (mobile, 19 Oct 2026, local production build, 1 run each)
+
+| Route               | Perf | A11y | BP  | SEO | FCP   | LCP   | TBT    | CLS   |
+| ------------------- | ---- | ---- | --- | --- | ----- | ----- | ------ | ----- |
+| `/`                 | 74   | 100  | 100 | 100 | 2.1 s | 5.3 s | 227 ms | 0     |
+| `/retro`            | 71   | 100  | 100 | 100 | 2.1 s | 5.6 s | 275 ms | 0.011 |
+| `/capacity-planner` | 73   | 100  | 100 | 100 | 2.1 s | 5.6 s | 239 ms | 0.013 |
+| `/burndown`         | 63   | 100  | 100 | 100 | 2.3 s | 7.1 s | 441 ms | 0.017 |
+| `/agile-at-work`    | 70   | 100  | 100 | 100 | 2.1 s | 5.5 s | 324 ms | 0     |
+
+How it got here (same build profile, before → after the UX overhaul's fixes):
+
+- **Layout shift** on tool pages was 0.41–0.73. The method-guide panel loaded
+  late and opened on first visit; its header now renders at once, collapsed.
+- **Total Blocking Time** was 600–1,200 ms. The 3D mascot's engine (~0.7 s of
+  main-thread work on this profile) now starts on the first interaction or
+  5 s after load instead of on the first idle moment.
+- **Accessibility** was 94–98: a contrast miss on the retro format chips,
+  guide headings out of order, a dangling `aria-controls`, and format cards
+  whose names didn't match their text.
+- **Chart tools** load Recharts with the chart, so their first-load JS
+  dropped ~120 KB each.
+
+Still open: LCP is 5–7 s on this throttled profile (FCP is ~2.1 s), and the
+"JS transferred" figure includes the route prefetches `<Link>` makes for
+tools in view. The next steps are lazy-loading Supabase for visitors (~61 KB
+gzipped of the initial JS) and the LCP element's font.
 
 ## What's NOT covered (and why)
 
@@ -38,9 +75,8 @@ so the first run records the numbers without failing the build. Tighten them to
 - **The comic reader with a real PDF.** CI only has the PDF once the owner
   commits it; after that, `/agile-at-work` measures the reader itself (pdf.js
   load and first-page render count toward LCP / TBT).
-- **The other tool routes.** They share the app shell measured on `/` and
-  `/capacity-planner`; add a URL to `collect.url` when a tool's own UI is worth
-  a separate baseline.
+- **The other tool routes.** They share the app shell measured above; add a
+  URL to `collect.url` when a tool's own UI is worth a separate baseline.
 
 ## Running it
 
