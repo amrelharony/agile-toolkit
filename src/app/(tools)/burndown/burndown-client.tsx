@@ -20,6 +20,7 @@ import { SectionCard } from "@/components/shared/section-card";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { SmartInput } from "@/components/shared/smart-input";
 import { CausalLine } from "@/components/charts/causal-annotation";
 import { generateBurndownPrompts } from "@/lib/ai-prompts/burndown";
@@ -27,6 +28,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { BURNDOWN_ACTIONS } from "@/lib/history/event-actions";
 import { withTimeTravel } from "@/lib/stores/with-time-travel";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { undoable } from "@/lib/utils/undoable";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
 import { cusum } from "@/lib/analytics/changepoint";
@@ -221,6 +223,30 @@ const useBurndownStore = create<BurndownStore>()(
 );
 
 /* -------------------------------------------------------------------------- */
+/*  Undo                                                                       */
+/* -------------------------------------------------------------------------- */
+
+// The toast's Undo writes with `setState`, which goes around withTimeTravel's
+// wrapped `set`, so restoring is not a new time-travel step. The delete is
+// one, and the two can't fight: Ctrl+Z after a toast Undo lands on the
+// pre-delete snapshot, which already has the day (nothing visibly changes),
+// and a toast Undo after Ctrl+Z finds the day already back and does nothing.
+// Either order leaves exactly one copy.
+function restoreEntry(entry: DayEntry, index: number) {
+  const { entries } = useBurndownStore.getState();
+  if (entries.some((e) => e.id === entry.id)) return;
+  // "Add Day" may have reused the day number with a blank row: take its
+  // place. A row with anything logged on it wins.
+  const sameDay = entries.find((e) => e.day === entry.day);
+  if (sameDay && (sameDay.remaining !== null || sameDay.description || sameDay.scopeChange)) {
+    return;
+  }
+  const next = entries.filter((e) => e !== sameDay);
+  next.splice(Math.min(index, next.length), 0, entry);
+  useBurndownStore.setState({ entries: next });
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
@@ -350,9 +376,17 @@ export function BurndownClient() {
     log(BURNDOWN_ACTIONS.DAY_LOGGED, { entryId: created?.id, day: created?.day });
   };
   const removeEntry: typeof removeEntryRaw = (id) => {
-    const entry = entries.find((e) => e.id === id);
-    removeEntryRaw(id);
-    log(BURNDOWN_ACTIONS.DAY_REMOVED, { day: entry?.day });
+    const index = entries.findIndex((e) => e.id === id);
+    const entry = entries[index];
+    if (!entry) return;
+    undoable({
+      label: `Removed day ${entry.day}`,
+      apply: () => {
+        removeEntryRaw(id);
+        log(BURNDOWN_ACTIONS.DAY_REMOVED, { day: entry.day });
+      },
+      revert: () => restoreEntry(entry, index),
+    });
   };
   const toggleScopeChange: typeof toggleScopeChangeRaw = (id) => {
     toggleScopeChangeRaw(id);
@@ -363,9 +397,23 @@ export function BurndownClient() {
     });
   };
   const reset = () => {
-    resetRaw();
-    log(BURNDOWN_ACTIONS.BURNDOWN_RESET, {});
+    const { config: prevConfig, entries: prevEntries } = useBurndownStore.getState();
+    undoable({
+      label: "Reset the burndown",
+      apply: () => {
+        resetRaw();
+        log(BURNDOWN_ACTIONS.BURNDOWN_RESET, {});
+      },
+      // Same `setState` route as restoreEntry, and the same refs the
+      // time-travel snapshot holds, so Ctrl+Z and Undo agree.
+      revert: () => useBurndownStore.setState({ config: prevConfig, entries: prevEntries }),
+    });
   };
+  // Reset asks first once anything has been logged past the day-0 scope.
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+  const loggedDays = entries.filter(
+    (e) => (e.day > 0 && e.remaining !== null) || e.description || e.scopeChange
+  ).length;
 
   // First run: start the sprint today instead of on the static default.
   // `setState` goes around withTimeTravel's wrapped `set`, so this isn't an
@@ -879,7 +927,11 @@ export function BurndownClient() {
           headerClassName="pb-4"
           actions={
             <>
-              <Button variant="danger-ghost" size="sm" onClick={reset}>
+              <Button
+                variant="danger-ghost"
+                size="sm"
+                onClick={() => (loggedDays > 0 ? setConfirmResetOpen(true) : reset())}
+              >
                 Reset
               </Button>
               <Button size="sm" variant="toolkit" onClick={addEntry} className="gap-1.5">
@@ -979,6 +1031,15 @@ export function BurndownClient() {
           </p>
         </SectionCard>
       </div>
+
+      <ConfirmDialog
+        open={confirmResetOpen}
+        onOpenChange={setConfirmResetOpen}
+        title="Reset the burndown?"
+        description={`The ${loggedDays} logged day${loggedDays === 1 ? " is" : "s are"} cleared, and the sprint goes back to ${makeDefaultConfig().totalPoints} points over ${makeDefaultConfig().sprintDays} days, starting today.`}
+        confirmLabel="Reset burndown"
+        onConfirm={reset}
+      />
     </ToolPageWrapper>
   );
 }

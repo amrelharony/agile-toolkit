@@ -4,7 +4,9 @@ import { useRef, useMemo, useState, useEffect, useId } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { generateCapacityPrompts } from "@/lib/ai-prompts/capacity-planner";
+import { undoable } from "@/lib/utils/undoable";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CAPACITY_ACTIONS } from "@/lib/history/event-actions";
 import { SectionCard } from "@/components/shared/section-card";
@@ -135,6 +137,23 @@ function useCapacityStore(): CapacityStore {
 useCapacityStore.getState = (): Pick<CapacityStore, "members"> => ({
   members: currentPlan().members,
 });
+
+/* -- Undo helpers ---------------------------------------------------------- */
+
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
+
+/** Put a removed member back at its old position; a no-op if already back. */
+function restoreMember(member: TeamMember, index: number) {
+  const plan = currentPlan();
+  if (plan.members.some((m) => m.id === member.id)) return;
+  const members = [...plan.members];
+  members.splice(Math.min(index, members.length), 0, member);
+  useWorkspaceStore.getState().upsertCapacityPlan({ ...plan, members });
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Helpers                                                                   */
@@ -434,9 +453,19 @@ export function CapacityPlannerClient() {
     log(CAPACITY_ACTIONS.MEMBER_ADDED, { memberId: created?.id, name: created?.name });
   };
   const removeMember: typeof removeMemberRaw = (id) => {
-    const member = members.find((m) => m.id === id);
-    removeMemberRaw(id);
-    log(CAPACITY_ACTIONS.MEMBER_REMOVED, { memberId: id, name: member?.name });
+    const index = members.findIndex((m) => m.id === id);
+    const member = members[index];
+    if (!member) return;
+    undoable({
+      label: member.name.trim()
+        ? `Removed “${shortName(member.name)}”`
+        : "Removed an unnamed member",
+      apply: () => {
+        removeMemberRaw(id);
+        log(CAPACITY_ACTIONS.MEMBER_REMOVED, { memberId: id, name: member.name });
+      },
+      revert: () => restoreMember(member, index),
+    });
   };
   // Wrap updateConfig so config changes (sprintDays, ceremony, focus, hours)
   // also surface in the history drawer — mirrors the burndown/burnup pattern.
@@ -445,9 +474,21 @@ export function CapacityPlannerClient() {
     log(CAPACITY_ACTIONS.CONFIG_UPDATED, updates as Record<string, unknown>);
   };
   const reset = () => {
-    resetRaw();
-    log(CAPACITY_ACTIONS.CAPACITY_RESET, {});
+    const prev = currentPlan();
+    undoable({
+      label: "Reset the capacity plan",
+      apply: () => {
+        resetRaw();
+        log(CAPACITY_ACTIONS.CAPACITY_RESET, {});
+      },
+      revert: () => useWorkspaceStore.getState().upsertCapacityPlan(prev),
+    });
   };
+  // Reset drops every member, so it asks first once anyone has been entered.
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+  const hasMembers =
+    members.length > 1 ||
+    members.some((m) => m.name.trim() || m.role.trim() || m.description?.trim());
 
   const exportRef = useRef<HTMLDivElement>(null);
 
@@ -710,7 +751,11 @@ export function CapacityPlannerClient() {
                 jsonData={jsonData}
                 targetRef={exportRef}
               />
-              <Button variant="danger-ghost" size="sm" onClick={reset}>
+              <Button
+                variant="danger-ghost"
+                size="sm"
+                onClick={() => (hasMembers ? setConfirmResetOpen(true) : reset())}
+              >
                 Reset
               </Button>
               <Button size="sm" variant="toolkit" onClick={addMember} className="gap-1.5">
@@ -819,6 +864,15 @@ export function CapacityPlannerClient() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmResetOpen}
+        onOpenChange={setConfirmResetOpen}
+        title="Reset the capacity plan?"
+        description={`All ${members.length} team member${members.length === 1 ? " is" : "s are"} removed and the sprint settings go back to their defaults.`}
+        confirmLabel="Reset plan"
+        onConfirm={reset}
+      />
     </ToolPageWrapper>
   );
 }

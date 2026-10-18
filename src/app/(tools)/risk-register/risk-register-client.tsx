@@ -51,6 +51,13 @@ import type { PredictedValue } from "@/lib/predictions/registry";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { undoable } from "@/lib/utils/undoable";
+
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
 
 function emptyRisk(): Risk {
   return {
@@ -211,9 +218,24 @@ export function RiskRegisterClient() {
     log(RISK_ACTIONS.RISK_UPDATED, { riskId: id, fields: Object.keys(patch) });
   };
   const remove = (id: string) => {
-    const risk = risks.find((x) => x.id === id);
-    setRisks((r) => r.filter((x) => x.id !== id));
-    log(RISK_ACTIONS.RISK_REMOVED, { riskId: id, title: risk?.title });
+    const index = risks.findIndex((x) => x.id === id);
+    const risk = risks[index];
+    if (!risk) return;
+    undoable({
+      label: risk.title.trim() ? `Removed “${shortName(risk.title)}”` : "Removed an untitled risk",
+      apply: () => {
+        setRisks((r) => r.filter((x) => x.id !== id));
+        log(RISK_ACTIONS.RISK_REMOVED, { riskId: id, title: risk.title });
+      },
+      // Back at its old position (unless something already put it back).
+      revert: () =>
+        setRisks((r) => {
+          if (r.some((x) => x.id === id)) return r;
+          const next = [...r];
+          next.splice(Math.min(index, next.length), 0, risk);
+          return next;
+        }),
+    });
   };
 
   const matrix = useMemo(() => {

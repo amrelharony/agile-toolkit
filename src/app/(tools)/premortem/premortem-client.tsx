@@ -18,6 +18,13 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PREMORTEM_ACTIONS } from "@/lib/history/event-actions";
 import { ActionRow } from "@/components/shared/action-row";
 import { usePersisted } from "@/lib/utils/use-persisted";
+import { undoable } from "@/lib/utils/undoable";
+
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
 
 interface Cause {
   id: string;
@@ -140,10 +147,30 @@ export function PremortemClient() {
     });
   };
   const remove = (id: string) => {
-    const cause = state.causes.find((c) => c.id === id);
-    preventionLoggedRef.current.delete(id);
-    setState((s) => ({ ...s, causes: s.causes.filter((c) => c.id !== id) }));
-    log(PREMORTEM_ACTIONS.CAUSE_REMOVED, { causeId: id, text: cause?.text });
+    const index = state.causes.findIndex((c) => c.id === id);
+    const cause = state.causes[index];
+    if (!cause) return;
+    const preventionLogged = preventionLoggedRef.current.has(id);
+    undoable({
+      label: cause.text.trim()
+        ? `Removed “${shortName(cause.text)}”`
+        : `Removed cause ${index + 1}`,
+      apply: () => {
+        preventionLoggedRef.current.delete(id);
+        setState((s) => ({ ...s, causes: s.causes.filter((c) => c.id !== id) }));
+        log(PREMORTEM_ACTIONS.CAUSE_REMOVED, { causeId: id, text: cause.text });
+      },
+      // Back in its ranked slot (unless something already put it back).
+      revert: () => {
+        if (preventionLogged) preventionLoggedRef.current.add(id);
+        setState((s) => {
+          if (s.causes.some((c) => c.id === id)) return s;
+          const causes = [...s.causes];
+          causes.splice(Math.min(index, causes.length), 0, cause);
+          return { ...s, causes };
+        });
+      },
+    });
   };
   const move = (id: string, dir: -1 | 1) =>
     setState((s) => {

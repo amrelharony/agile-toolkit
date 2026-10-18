@@ -33,6 +33,7 @@ import {
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { HEALTH_CHECK_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { undoable } from "@/lib/utils/undoable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
@@ -311,10 +312,24 @@ export function HealthCheckClient() {
       scores: pre?.scores,
     });
   };
+  // Clear All is confirmed (with the count) and undoable: Undo puts back the
+  // saved checks, the check in progress and which of its lights were rated.
   const reset = () => {
-    resetRaw();
-    clearRated(0);
-    log(HEALTH_CHECK_ACTIONS.HEALTH_CHECK_RESET, {});
+    const prevDoc = peekDoc();
+    const prevRated = useRatedDims.getState();
+    const n = prevDoc.history.length;
+    undoable({
+      label: `Cleared ${n} saved health check${n === 1 ? "" : "s"}`,
+      apply: () => {
+        resetRaw();
+        clearRated(0);
+        log(HEALTH_CHECK_ACTIONS.HEALTH_CHECK_RESET, {});
+      },
+      revert: () => {
+        useWorkspaceStore.getState().upsertHealthCheck(prevDoc);
+        useRatedDims.setState(prevRated);
+      },
+    });
   };
 
   const workspace = useWorkspaceStore(
