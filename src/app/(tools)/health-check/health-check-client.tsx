@@ -38,7 +38,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
 import { BlurInput } from "@/components/shared/blur-fields";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
 import { HeartPulse } from "lucide-react";
+import { buildExample } from "./example";
+import { toMarkdown } from "./markdown";
 
 /* -------------------------------------------------------------------------- */
 /*  Constants                                                                 */
@@ -168,6 +176,58 @@ function markRated(dim: Dimension, historyLength: number) {
 
 function clearRated(historyLength: number) {
   useRatedDims.setState({ historyLength, rated: {} });
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Example                                                                   */
+/* -------------------------------------------------------------------------- */
+// Neither is logged: the example isn't the user's own work.
+
+/** The example's saved checks and a fully rated current check. Only offered on a blank tool. */
+function loadExample() {
+  const { current, history } = buildExample();
+  const doc = peekDoc();
+  const nextHistory = [...history, ...doc.history];
+  useWorkspaceStore
+    .getState()
+    .upsertHealthCheck({ ...doc, id: HEALTH_CHECK_ID, current, history: nextHistory });
+  // Its greens are ratings, not the draft's placeholder green.
+  useRatedDims.setState({
+    historyLength: nextHistory.length,
+    rated: Object.fromEntries(DIMENSIONS.map((d) => [d, true])) as RatedDims["rated"],
+  });
+}
+
+function sameSnapshot(a: CurrentCheck, b: CurrentCheck): boolean {
+  return (
+    a.sprintName === b.sprintName &&
+    DIMENSIONS.every(
+      (d) => a.scores[d]?.light === b.scores[d]?.light && a.scores[d]?.trend === b.scores[d]?.trend
+    )
+  );
+}
+
+/**
+ * Drop the example's saved checks. The check in progress goes back to blank
+ * only if it is still exactly the example's; once edited, it is the user's.
+ */
+function clearExampleChecks() {
+  const doc = peekDoc();
+  const history = doc.history.filter((h) => !isExampleId(h.id));
+  const resetCurrent = sameSnapshot(doc.current, buildExample().current);
+  useWorkspaceStore.getState().upsertHealthCheck({
+    ...doc,
+    id: HEALTH_CHECK_ID,
+    history,
+    current: resetCurrent ? emptySnapshot() : doc.current,
+  });
+  // The rated flags are tied to the history length (see useRatedDims): move
+  // them along with the shorter history so a kept draft stays rated.
+  const flags = useRatedDims.getState();
+  if (resetCurrent) clearRated(history.length);
+  else if (flags.historyLength === doc.history.length) {
+    useRatedDims.setState({ historyLength: history.length, rated: flags.rated });
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -332,6 +392,21 @@ export function HealthCheckClient() {
     });
   };
 
+  const clearExample = () => {
+    const prevDoc = peekDoc();
+    const prevRated = useRatedDims.getState();
+    undoable({
+      label: "Cleared the example",
+      apply: clearExampleChecks,
+      revert: () => {
+        useWorkspaceStore.getState().upsertHealthCheck(prevDoc);
+        useRatedDims.setState(prevRated);
+      },
+    });
+  };
+  // Nothing saved, rated or named yet.
+  const isBlank = history.length === 0 && ratedCount === 0 && !current.sprintName.trim();
+
   const workspace = useWorkspaceStore(
     useShallow(
       (s): Workspace => ({
@@ -354,6 +429,11 @@ export function HealthCheckClient() {
       prompts: generateHealthCheckPrompts({ current, history }, workspace),
     }),
     [current, history, workspace]
+  );
+
+  const markdown = useMemo(
+    () => toMarkdown({ current, history, lights }),
+    [current, history, lights]
   );
 
   /* -- CSV export ---------------------------------------------------------- */
@@ -408,6 +488,7 @@ export function HealthCheckClient() {
       description="Spotify-model health check — rate each dimension with traffic lights and track trends over time."
       category="Team Health & Maturity"
     >
+      {hasExampleItems(history) && <ExampleNotice onClear={clearExample} />}
       <div className="space-y-6">
         {/* ---- Current Check ---- */}
         <SectionCard
@@ -536,7 +617,7 @@ export function HealthCheckClient() {
             actions={
               <>
                 <AiPromptGenerator config={promptConfig} />
-                <ExportButton filename="squad-health-check" csvData={csvData} />
+                <ExportButton filename="squad-health-check" csvData={csvData} markdown={markdown} />
               </>
             }
           >
@@ -665,6 +746,11 @@ export function HealthCheckClient() {
             <CardContent className="py-12 text-center text-sub">
               No history yet — fill in the Current Check above and click{" "}
               <span className="text-text font-medium">Save Check</span>.
+              {isBlank && (
+                <div className="mt-4 flex justify-center">
+                  <LoadExampleButton onLoad={loadExample} />
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
