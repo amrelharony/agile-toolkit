@@ -67,15 +67,48 @@ const MAX_CONTEXT_RECOVERIES = 2;
  */
 const MODEL_TOP = 50;
 const MODEL_BOTTOM = 155;
+/**
+ * How much of that empty canvas may sit past the screen edge: most of the
+ * space below the feet when parked at the bottom, most of the headroom when
+ * parked at the top. The figure keeps its size; it just stands closer to the
+ * edge, so it covers less of the page. A margin is left for the float
+ * animation and reactions.
+ */
+const FEET_TRIM = 45;
+const HEAD_TRIM = 35;
+/**
+ * The part of the canvas that takes clicks: the figure, not the transparent
+ * space around it. Fractions of the box width are left clear on each side.
+ */
+const HIT_SIDE = 0.18;
 /** Breathing room between the mascot's silhouette and the panel. */
 const PANEL_GAP = 6;
 
+/** Distance of the button's edge from its corner (negative: past the edge). */
+function edgeInset(c: Corner, figure: boolean, boxH: number): number {
+  if (!figure) return BUTTON_INSET;
+  const scale = boxH / MASCOT_BOX.h;
+  return BUTTON_INSET - (c.startsWith("top") ? HEAD_TRIM : FEET_TRIM) * scale;
+}
+
 /** Fixed-position style for the float button at a corner (default ≈ bottom-1 right-2). */
-function buttonPos(c: Corner): CSSProperties {
+function buttonPos(c: Corner, figure: boolean, boxH: number): CSSProperties {
+  const inset = edgeInset(c, figure, boxH);
   return {
     position: "fixed",
-    ...(c.startsWith("top") ? { top: BUTTON_INSET } : { bottom: BUTTON_INSET }),
+    ...(c.startsWith("top") ? { top: inset } : { bottom: inset }),
     ...(c.endsWith("Left") ? { left: 8 } : { right: 8 }),
+  };
+}
+
+/** Where clicks land inside the figure's canvas (see HIT_SIDE). */
+function hitBox(box: { w: number; h: number }): CSSProperties {
+  const scale = box.h / MASCOT_BOX.h;
+  return {
+    top: MODEL_TOP * scale,
+    bottom: box.h - MODEL_BOTTOM * scale,
+    left: box.w * HIT_SIDE,
+    right: box.w * HIT_SIDE,
   };
 }
 
@@ -89,12 +122,13 @@ function panelPos(c: Corner, figure: boolean, boxH: number): CSSProperties {
   const top = figure ? MODEL_TOP * scale : 0;
   const bottom = figure ? MODEL_BOTTOM * scale : LAUNCHER_SIZE;
   const height = figure ? boxH : LAUNCHER_SIZE;
+  const inset = edgeInset(c, figure, boxH);
   return {
     ...(c.startsWith("top")
       ? // Parked up top: clear the model's feet.
-        { top: BUTTON_INSET + bottom + PANEL_GAP }
+        { top: inset + bottom + PANEL_GAP }
       : // Parked at the bottom: clear its head.
-        { bottom: BUTTON_INSET + (height - top) + PANEL_GAP }),
+        { bottom: inset + (height - top) + PANEL_GAP }),
     ...(c.endsWith("Left") ? { left: 16 } : { right: 16 }),
   };
 }
@@ -480,16 +514,27 @@ export function MascotAssistant() {
           style={
             dragPos
               ? { position: "fixed", left: dragPos.left, top: dragPos.top }
-              : buttonPos(corner)
+              : buttonPos(corner, showFigure, box.h)
           }
           className={cn(
             "z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
             !dragPos && styles.float,
+            // The figure's canvas is mostly transparent: let clicks there
+            // reach the page, and take them only on the figure (below).
+            showFigure && "pointer-events-none",
             !showFigure &&
               "flex h-12 w-12 items-center justify-center border border-border bg-card shadow-lg"
           )}
         >
           {!showFigure && <Sparkles className="h-5 w-5 text-accent" aria-hidden="true" />}
+          {showFigure && (
+            <span
+              aria-hidden="true"
+              data-mascot-hit
+              className="pointer-events-auto absolute z-10 rounded-full"
+              style={hitBox(box)}
+            />
+          )}
           {mount3d && (
             <div
               aria-hidden="true"

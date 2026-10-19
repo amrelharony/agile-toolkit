@@ -60,10 +60,29 @@ How it got here (same build profile, before → after the UX overhaul's fixes):
 - **Chart tools** load Recharts with the chart, so their first-load JS
   dropped ~120 KB each.
 
-Still open: LCP is 5–7 s on this throttled profile (FCP is ~2.1 s), and the
-"JS transferred" figure includes the route prefetches `<Link>` makes for
-tools in view. The next steps are lazy-loading Supabase for visitors (~61 KB
-gzipped of the initial JS) and the LCP element's font.
+The "JS transferred" figure includes the route prefetches `<Link>` makes for
+tools in view.
+
+### Reading LCP and TBT on this profile
+
+The LCP column above (5–7 s) is Lighthouse's **simulated** throttling, and on
+these pages it is an artifact. The unthrottled trace shows the LCP element
+painting with the first paint (`observedLargestContentfulPaint` equals
+`observedFirstContentfulPaint`, about 0.8 s). The simulation charges the
+scripts requested early to LCP. With real throttling
+(`--settings.throttlingMethod=devtools`), LCP is 2.2 s on `/retro`, the same
+as FCP, and 3.2 s on `/`.
+
+Real throttling shows the cost that matters, which is main-thread work. TBT is
+about 2 s and TTI about 20 s, mostly from the 3D mascot starting up about 5 s
+after load. Its chunk accounts for most of the script bootup, with three.js
+and the shader compile on top. The mascot stays (a product decision). Since
+19 Oct 2026 it draws idle frames at 30 fps and caps the pixel ratio at 1.5,
+which took real-throttled TBT on `/retro` from 2.65 s to 2.18 s.
+
+Next steps: lazy-loading Supabase for visitors (~61 KB gzipped of the
+initial JS; it needs an owner sign-in check before merging) and splitting the
+mascot's start-up work.
 
 ## What's NOT covered (and why)
 
