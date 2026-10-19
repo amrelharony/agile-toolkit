@@ -43,18 +43,40 @@ export function createSprint(fields: Omit<Sprint, "id"> & { id?: string }): Spri
 }
 
 /**
- * Remove a sprint and its series together, returning what's needed to put
- * both back (for an Undo toast).
+ * Remove a sprint and its series together, returning a function that puts
+ * everything back (for an Undo toast): the sprint, its series, and the links
+ * `removeSprint` cleared, i.e. stories planned into it and canvas cards
+ * pointing at it. A link is only restored if nothing re-pointed it since.
  */
 export function removeSprintWithSeries(id: string): (() => void) | null {
   const ws = useWorkspaceStore.getState();
   const sprint = ws.sprints.find((s) => s.id === id);
   if (!sprint) return null;
   const series = ws.sprintSeries?.find((s) => s.id === id);
+  const storyIds = ws.stories.filter((s) => s.sprintId === id).map((s) => s.id);
+  const cardRefs = (ws.whiteboardObjects ?? [])
+    .filter((o) => o.sourceRef?.tool === "sprint" && o.sourceRef.entityId === id)
+    .map((o) => ({ id: o.id, sourceRef: o.sourceRef }));
   ws.removeSprint(id);
   return () => {
     const now = useWorkspaceStore.getState();
     now.upsertSprint(sprint);
     if (series) now.upsertSprintSeries(series);
+    for (const storyId of storyIds) {
+      const story = now.stories.find((s) => s.id === storyId);
+      if (story && story.sprintId === undefined) now.upsertStory({ ...story, sprintId: id });
+    }
+    if (cardRefs.length > 0) {
+      const at = new Date().toISOString();
+      const objects = useWorkspaceStore.getState().whiteboardObjects ?? [];
+      const relinked = cardRefs.flatMap(({ id: objectId, sourceRef }) => {
+        const o = objects.find((x) => x.id === objectId);
+        // version + updatedAt bump so peers accept the change (last write wins).
+        return o && !o.sourceRef
+          ? [{ ...o, sourceRef, version: o.version + 1, updatedAt: at }]
+          : [];
+      });
+      if (relinked.length > 0) useWorkspaceStore.getState().upsertWhiteboardObjects(relinked);
+    }
   };
 }

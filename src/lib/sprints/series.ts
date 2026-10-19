@@ -211,6 +211,38 @@ export function completedAt(
   return null;
 }
 
+/**
+ * Points remaining on the latest day before `day` that has a number (typed
+ * in either tool), else the scope the sprint started with.
+ */
+export function remainingBefore(
+  sprint: Pick<Sprint, "pointsPlanned">,
+  series: SprintSeries | undefined,
+  day: number
+): number {
+  for (let d = day - 1; d >= 0; d--) {
+    const r = remainingAt(sprint, series, d);
+    if (r !== null) return r;
+  }
+  return day > 0 ? scopeAt(sprint, series, 0) : sprint.pointsPlanned;
+}
+
+/**
+ * The scope Burndown records on a day flagged as a scope change: the scope
+ * before that day plus however much the remaining points rose. Null when
+ * remaining didn't rise (nothing to add to Burnup's scope line).
+ */
+export function scopeFromRise(
+  sprint: Pick<Sprint, "pointsPlanned">,
+  series: SprintSeries | undefined,
+  day: number
+): number | null {
+  const remaining = dayEntry(series, day)?.remaining;
+  if (remaining == null) return null;
+  const rise = remaining - remainingBefore(sprint, series, day);
+  return rise > 0 ? Math.round((scopeAt(sprint, series, day - 1) + rise) * 10) / 10 : null;
+}
+
 /** The last day with a remaining or completed number, or null. */
 export function lastLoggedDay(series: SprintSeries | undefined): number | null {
   let last: number | null = null;

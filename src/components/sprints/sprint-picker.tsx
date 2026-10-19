@@ -57,6 +57,8 @@ export interface SprintPickerProps {
   label?: string;
   /** Hide "New sprint" (for read-only views). */
   allowCreate?: boolean;
+  /** Called with a sprint made through "New sprint" (after it is selected). */
+  onCreated?: (sprint: Sprint) => void;
   className?: string;
 }
 
@@ -70,6 +72,7 @@ export function SprintPicker({
   onSelect,
   label = "Sprint",
   allowCreate = true,
+  onCreated,
   className,
 }: SprintPickerProps) {
   const [creating, setCreating] = useState(false);
@@ -106,7 +109,10 @@ export function SprintPicker({
             open={creating}
             onOpenChange={setCreating}
             defaultName={nextSprintName(sprints)}
-            onCreated={(sprint) => onSelect(sprint.id)}
+            onCreated={(sprint) => {
+              onSelect(sprint.id);
+              onCreated?.(sprint);
+            }}
           />
         </>
       )}

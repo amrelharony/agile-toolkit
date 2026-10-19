@@ -8,7 +8,12 @@
 import type { Sprint, SprintSeries } from "@/lib/stores/workspace-types";
 import { SPRINT_RATING_DIMENSIONS, endDateFor, todayIso } from "./series";
 
-export const EXAMPLE_SPRINT_PREFIX = "example-sprint-";
+/**
+ * Not "example-sprint-": the old Velocity tool's seed rows used ids
+ * `example-sprint-1..3`, and edited ones were copied into the workspace as
+ * real sprints (and synced). Those must stay editable.
+ */
+export const EXAMPLE_SPRINT_PREFIX = "example-preview-sprint-";
 
 export function isExampleSprintId(id: string): boolean {
   return id.startsWith(EXAMPLE_SPRINT_PREFIX);
