@@ -23,6 +23,7 @@ import { denseSeries } from "@/lib/sprints/metrics";
 import { dayDate, dayForDate, todayIso } from "@/lib/sprints/series";
 import type { SprintDay } from "@/lib/stores/workspace-types";
 import { undoable } from "@/lib/utils/undoable";
+import { burndownChartText } from "./chart-text";
 import { toMarkdown } from "./markdown";
 import {
   clearDay,
@@ -224,6 +225,9 @@ function BurndownSprint({ sprint, series, readOnly, log }: SprintToolContext & {
     [entries, config, forecastByDay]
   );
 
+  // The chart in words: a summary sentence and the plotted series as a table.
+  const chartText = useMemo(() => burndownChartText(chartData), [chartData]);
+
   const todayDay = useMemo(() => {
     const d = dayForDate(sprint, todayIso());
     return d !== null && d >= 0 && d <= config.sprintDays ? d : null;
@@ -332,6 +336,8 @@ function BurndownSprint({ sprint, series, readOnly, log }: SprintToolContext & {
         icon={BarChart3}
         height={chartHeight}
         chartContainerRef={chartRef}
+        summary={chartText.summary}
+        table={chartText.table}
         headerExtras={
           <>
             <AiPromptGenerator config={promptConfig} />

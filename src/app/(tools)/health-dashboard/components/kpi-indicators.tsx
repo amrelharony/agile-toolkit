@@ -3,14 +3,22 @@
 /**
  * Small visual primitives for KPI cards: a direction-aware trend arrow, a
  * Mann-Kendall monotonic-trend chip (rendered only for series of length >= 5
- * with a detectable trend), and the traffic-light circle.
+ * with a detectable trend), and the traffic-light circle. The arrow and a
+ * labelled circle are images with a text name, so the colour isn't the only
+ * cue.
  */
 
 import { useMemo } from "react";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import type { TrafficStatus, TrendDir } from "../types";
-import { STATUS_COLOR } from "../status-config";
+import { STATUS_COLOR, STATUS_LABEL } from "../status-config";
+
+const TREND_LABEL: Record<TrendDir, string> = {
+  up: "Trending up",
+  down: "Trending down",
+  same: "No change",
+};
 
 export function TrendIcon({
   trend,
@@ -19,15 +27,21 @@ export function TrendIcon({
   trend: TrendDir;
   positiveIsUp?: boolean;
 }) {
+  let icon: React.ReactNode;
   if (trend === "up") {
     const color = positiveIsUp ? "#22c55e" : "#ef4444";
-    return <TrendingUp className="w-4 h-4" style={{ color }} />;
-  }
-  if (trend === "down") {
+    icon = <TrendingUp className="w-4 h-4" style={{ color }} aria-hidden="true" />;
+  } else if (trend === "down") {
     const color = positiveIsUp ? "#ef4444" : "#22c55e";
-    return <TrendingDown className="w-4 h-4" style={{ color }} />;
+    icon = <TrendingDown className="w-4 h-4" style={{ color }} aria-hidden="true" />;
+  } else {
+    icon = <Minus className="w-4 h-4 text-sub/70" aria-hidden="true" />;
   }
-  return <Minus className="w-4 h-4 text-sub/70" />;
+  return (
+    <span role="img" aria-label={TREND_LABEL[trend]} className="inline-flex">
+      {icon}
+    </span>
+  );
 }
 
 export function MannKendallChip({
@@ -62,10 +76,22 @@ export function MannKendallChip({
   );
 }
 
-export function TrafficCircle({ status, size = 48 }: { status: TrafficStatus; size?: number }) {
+export function TrafficCircle({
+  status,
+  size = 48,
+  labelled = false,
+}: {
+  status: TrafficStatus;
+  size?: number;
+  /** Name the circle by its status ("On Track"); otherwise it's decoration. */
+  labelled?: boolean;
+}) {
   const color = STATUS_COLOR[status];
   return (
     <div
+      {...(labelled
+        ? { role: "img", "aria-label": STATUS_LABEL[status] }
+        : { "aria-hidden": true })}
       className="rounded-full flex-shrink-0"
       style={{
         width: size,

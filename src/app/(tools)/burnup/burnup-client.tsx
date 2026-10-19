@@ -40,6 +40,7 @@ import {
   type SprintSettingsChange,
   type SprintToolContext,
 } from "../burndown/sprint-shell";
+import { burnupChartText } from "./chart-text";
 import { burnupView } from "./view";
 
 // Recharts loads with the chart, not the page. ChartCard reserves the
@@ -214,6 +215,9 @@ function BurnupSprint({ sprint, series, readOnly, log }: SprintToolContext & { l
     [entries, config.sprintDays, forecastByDay]
   );
 
+  // The chart in words: a summary sentence and the plotted series as a table.
+  const chartText = useMemo(() => burnupChartText(chartData), [chartData]);
+
   const todayDay = useMemo(() => {
     const d = dayForDate(sprint, todayIso());
     return d !== null && d >= 0 && d <= config.sprintDays ? d : null;
@@ -324,6 +328,8 @@ function BurnupSprint({ sprint, series, readOnly, log }: SprintToolContext & { l
         icon={BarChart2}
         height={400}
         chartContainerRef={chartRef}
+        summary={chartText.summary}
+        table={chartText.table}
         headerExtras={
           <>
             <AiPromptGenerator config={promptConfig} />

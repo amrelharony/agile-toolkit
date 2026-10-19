@@ -8,6 +8,7 @@
 
 export const RETRO_ACTIONS = {
   CARD_ADDED: "card_added",
+  CARD_EDITED: "card_edited",
   CARD_REMOVED: "card_removed",
   CARD_VOTED: "card_voted",
   CARDS_GROUPED: "cards_grouped",

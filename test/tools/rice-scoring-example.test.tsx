@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { PrioritizationItem } from "@/lib/stores/workspace-types";
@@ -141,7 +141,13 @@ describe("RICE example", () => {
     fireEvent.change(screen.getByLabelText("Reach (people per quarter)"), {
       target: { value: "800" },
     });
-    fireEvent.change(screen.getByLabelText("Impact (0.25–3)"), { target: { value: "1" } });
+    const pick = (group: string, option: string) =>
+      fireEvent.click(
+        within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name: option })
+      );
+    pick("Impact", "1 Medium");
+    pick("Confidence", "100% High");
+    fireEvent.change(screen.getByLabelText("Effort (person-months)"), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: /Add & score/ }));
 
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));

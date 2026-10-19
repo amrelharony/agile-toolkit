@@ -44,6 +44,9 @@ export function DoraTrendChart({
       height={height}
       data={data}
       margin={{ top: 8, right: 12, left: -16, bottom: 4 }}
+      // ChartCard hides the plot from assistive tech behind its summary and
+      // table, so the SVG mustn't be a tab stop.
+      accessibilityLayer={false}
     >
       <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
       <XAxis dataKey="quarter" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />

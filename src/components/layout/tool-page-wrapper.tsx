@@ -7,6 +7,7 @@ import { SavedChip } from "@/components/data/saved-chip";
 import { HowItWorks } from "@/components/tool-frame/how-it-works";
 import { RelatedTools } from "@/components/tool-frame/related-tools";
 import { PresentButton } from "@/components/presentation/presentation-mode";
+import { FavoriteButton } from "@/components/tool-frame/favorite-button";
 
 interface ToolPageWrapperProps {
   title: string;
@@ -62,6 +63,7 @@ export function ToolPageWrapper({
         </div>
         {toolId && (
           <div data-chrome="tool-toolbar" className="shrink-0 flex items-center gap-2 flex-wrap">
+            <FavoriteButton toolId={toolId} toolName={title} />
             <PresentButton />
             {/* Where this tool's data lives, and the way to back it up. */}
             <SavedChip />

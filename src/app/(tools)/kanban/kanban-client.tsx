@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -40,6 +40,10 @@ import { emit as sonify } from "@/lib/sonification/emit";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { KANBAN_ACTIONS } from "@/lib/history/event-actions";
 import { undoable } from "@/lib/utils/undoable";
+import { toast } from "@/lib/utils/toast";
+import { PASTE_LINE_CAP, leftOutMessage, splitPastedLines } from "@/lib/utils/paste-lines";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import type { ItemText } from "@/components/shared/inline-item-editor";
 import {
   ExampleNotice,
   LoadExampleButton,
@@ -48,6 +52,7 @@ import {
 } from "@/components/tool-frame/example-data";
 import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
+import { KANBAN_DESCRIPTION_MAX, KANBAN_TITLE_MAX, KanbanCardText } from "./card-text";
 
 // Recharts loads with the throughput chart, not the page.
 const WeeklyThroughputChart = dynamic(
@@ -204,29 +209,71 @@ export function KanbanClient() {
   };
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
+  const newTitleRef = useRef<HTMLInputElement>(null);
   const { log } = useHistoryLogger("kanban");
+  const announce = useAnnounce();
 
+  // New cards land in Backlog. Cap free-text card fields: Kanban boards
+  // routinely accumulate hundreds of cards over weeks; without these bounds
+  // a single mega-paste would push the persisted state past the 5 MB origin
+  // quota and silently kill writes for every other tool on this domain.
+  const insertCards = (items: { title: string; description?: string }[]) => {
+    const now = new Date().toISOString();
+    const added: KCard[] = items.map(({ title, description }) => ({
+      id: nanoid(8),
+      title: title.trim().slice(0, KANBAN_TITLE_MAX),
+      description: description?.trim().slice(0, KANBAN_DESCRIPTION_MAX) || undefined,
+      column: "backlog",
+      class: "standard",
+      createdAt: now,
+    }));
+    if (added.length === 0) return added;
+    sonify("kanban", "card-add");
+    setState((s) => ({ ...s, cards: [...s.cards, ...added] }));
+    for (const c of added) {
+      log(KANBAN_ACTIONS.CARD_ADDED, { cardId: c.id, title: c.title, description: c.description });
+    }
+    return added;
+  };
+
+  // Enter or Add: one card, and the cursor stays in the title box.
   const addCard = () => {
     if (!newTitle.trim()) return;
-    sonify("kanban", "card-add");
-    const now = new Date().toISOString();
-    const cardId = nanoid(8);
-    // Cap free-text card fields. Kanban boards routinely accumulate
-    // hundreds of cards over weeks; without these bounds a single mega-
-    // paste would push the persisted state past the 5 MB origin quota and
-    // silently kill writes for every other tool on this domain.
-    const title = newTitle.trim().slice(0, 240);
-    const description = newDescription.trim().slice(0, 4000) || undefined;
-    setState((s) => ({
-      ...s,
-      cards: [
-        ...s.cards,
-        { id: cardId, title, description, column: "backlog", class: "standard", createdAt: now },
-      ],
-    }));
-    log(KANBAN_ACTIONS.CARD_ADDED, { cardId, title, description });
+    insertCards([{ title: newTitle, description: newDescription }]);
     setNewTitle("");
     setNewDescription("");
+    newTitleRef.current?.focus();
+  };
+
+  // Several lines pasted into the title box: one card per line. What's
+  // already typed stays in the boxes.
+  const pasteCards = (e: ClipboardEvent<HTMLInputElement>) => {
+    const pasted = splitPastedLines(e.clipboardData.getData("text"));
+    if (!pasted) return;
+    e.preventDefault();
+    const added = insertCards(pasted.lines.map((title) => ({ title })));
+    announce(`Added ${added.length} cards to Backlog.`);
+    if (pasted.dropped > 0) {
+      toast.info(`Added ${added.length} cards.`, {
+        description: `${leftOutMessage(pasted.dropped)} One paste adds up to ${PASTE_LINE_CAP}.`,
+      });
+    }
+  };
+
+  // Title and description after adding. An emptied description is removed.
+  const editCard = (id: string, next: ItemText) => {
+    const title = next.title.slice(0, KANBAN_TITLE_MAX);
+    const description = next.description?.slice(0, KANBAN_DESCRIPTION_MAX) || undefined;
+    setState((s) => ({
+      ...s,
+      cards: s.cards.map((c) => {
+        if (c.id !== id) return c;
+        const edited: KCard = { ...c, title, description };
+        if (!description) delete edited.description;
+        return edited;
+      }),
+    }));
+    log(KANBAN_ACTIONS.CARD_UPDATED, { cardId: id, title, description });
   };
 
   const moveCard = (id: string, col: ColumnId) => {
@@ -639,9 +686,12 @@ export function KanbanClient() {
       <div className="flex flex-col gap-2 mb-4">
         <div className="flex flex-col xs:flex-row gap-2">
           <Input
+            ref={newTitleRef}
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addCard()}
+            onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && addCard()}
+            onPaste={pasteCards}
+            maxLength={KANBAN_TITLE_MAX}
             placeholder="New card title..."
             className="bg-surface border-border"
             aria-label="New card title"
@@ -660,6 +710,7 @@ export function KanbanClient() {
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addCard();
           }}
+          maxLength={KANBAN_DESCRIPTION_MAX}
           placeholder="Description (optional)..."
           rows={2}
           className="bg-surface border-border resize-none text-xs"
@@ -780,13 +831,11 @@ export function KanbanClient() {
                       borderLeftWidth: 3,
                     }}
                   >
-                    <div className="text-text font-medium break-words">{c.title}</div>
-                    {c.description && (
-                      <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
-                        {c.description}
-                      </div>
-                    )}
-                    {!c.description && <div className="mb-1.5" />}
+                    <KanbanCardText
+                      title={c.title}
+                      description={c.description}
+                      onSave={(next) => editCard(c.id, next)}
+                    />
                     {/* Sent here from another tool (a retro action). */}
                     <SourceLink sourceRef={c.sourceRef} className="mb-1.5" />
                     {/* Card controls. Stacked on mobile (one per row) so each

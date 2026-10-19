@@ -6,7 +6,10 @@
  * defined bucket, plus a legend.
  */
 
+import { useMemo } from "react";
 import dynamic from "next/dynamic";
+import { ChartFigure } from "@/components/shared/chart-card";
+import { histogramText } from "../chart-text";
 import type { CycleStats, HistogramDatum } from "../types";
 
 // Recharts loads with the chart, not the page. The placeholder keeps the
@@ -30,13 +33,19 @@ export function HistogramTab({
   stats: CycleStats;
   percentileMap: Record<number, number>;
 }) {
+  const text = useMemo(
+    () => histogramText(histogramData, stats, percentileMap[95]),
+    [histogramData, stats, percentileMap]
+  );
   return (
     <>
-      <CycleTimeHistogramChart
-        histogramData={histogramData}
-        stats={stats}
-        percentileMap={percentileMap}
-      />
+      <ChartFigure label="Cycle time histogram" summary={text.summary} table={text.table}>
+        <CycleTimeHistogramChart
+          histogramData={histogramData}
+          stats={stats}
+          percentileMap={percentileMap}
+        />
+      </ChartFigure>
       <div className="flex items-center gap-4 mt-3 text-xs text-sub">
         <span className="flex items-center gap-1.5">
           <span className="w-5 border-t border-dashed border-accent" />

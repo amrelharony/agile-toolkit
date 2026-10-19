@@ -15,11 +15,12 @@
  * politely. The 3-hour limit is enforced here, per client, by the hook.
  *
  * Participants add cards in Write and vote in Vote. They don't edit, delete,
- * un-vote or group cards, and cards aren't hidden during Write.
+ * un-vote or group cards, and cards aren't hidden during Write. A pasted
+ * list adds one card per line.
  *
  * If the host leaves for good, the member every peer elects carries on
  * hosting from the last snapshot (still in memory) and gets the phase, timer,
- * member and End room controls here.
+ * member and End room controls here, and can fix a card's text.
  */
 
 import { useEffect, useRef, useState, type JSX } from "react";
@@ -195,9 +196,16 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
   }, [hostId, hostName, room.selfId, announce]);
 
   // ── Actions ──────────────────────────────────────────────────────
+  // One toast id: a pasted list that fails line after line shows one message.
   const handleAdd = (columnKey: string, text: string) => {
     const error = addCardError(room.addCard(columnKey, text));
-    if (error) toast.error(error);
+    if (error) toast.error(error, { id: "retro-room-add" });
+  };
+
+  const handleEdit = (cardId: string, text: string) => {
+    if (!room.editCard(cardId, text)) {
+      toast.error("Couldn't save the card. It may contain hidden formatting characters.");
+    }
   };
 
   const handleVote = (cardId: string) => {
@@ -358,6 +366,7 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
             canAct={active && room.admitted}
             onAdd={handleAdd}
             onVote={handleVote}
+            onEdit={hosting ? handleEdit : undefined}
           />
 
           {active && (

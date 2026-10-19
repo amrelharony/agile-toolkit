@@ -29,6 +29,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { DoraSample } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DORA_ACTIONS } from "@/lib/history/event-actions";
+import { doraTrendText } from "./chart-text";
 
 // Recharts loads with the trend chart, not the page. ChartCard reserves the
 // chart's height while the chunk loads.
@@ -239,6 +240,9 @@ export function DoraScorecardClient() {
       })),
     [sorted]
   );
+
+  // The trend chart in words: a summary sentence and the series as a table.
+  const chartText = useMemo(() => doraTrendText(chartData), [chartData]);
 
   // ── XmR control limits on deploy frequency (most actionable DORA SPC) ──
   // Anchors UCL / CenterLine / LCL on the trend chart so out-of-control
@@ -506,7 +510,12 @@ export function DoraScorecardClient() {
           </div>
         </SectionCard>
 
-        <ChartCard title="Trend across quarters" height={320}>
+        <ChartCard
+          title="Trend across quarters"
+          height={320}
+          summary={chartText.summary}
+          table={chartText.table}
+        >
           <DoraTrendChart
             data={chartData}
             deployControl={deployControl}

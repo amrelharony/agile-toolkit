@@ -53,7 +53,9 @@
     /* #dc2626 so white button text reaches 4.8:1 (#ef4444 + #f0f2f5 was 3.4:1). */
     --destructive: #dc2626;
     --destructive-foreground: #ffffff;
-    --input: var(--border);
+    /* Field and outline-button edges: ≥ 3:1 on bg, card and surface (WCAG
+       1.4.11). The 8% --border is fine for dividers, too faint for controls. */
+    --input: #646e88;
     --ring: var(--accent);
     --radius: 0.625rem;
     --chart-1: #00e1ff;
@@ -105,6 +107,8 @@
     --card: #ffffff;
     --cardH: rgba(255, 255, 255, 0.95);
     --border: rgba(0, 0, 0, 0.06);
+    /* ≥ 3:1 on white, --bg and --surface-deep. */
+    --input: #7d8699;
     --glow: rgba(0, 102, 255, 0.08);
     --glowS: rgba(0, 102, 255, 0.2);
     --surface: rgba(255, 255, 255, 0.8);
@@ -151,6 +155,7 @@
     --card: #0a0a0a;
     --cardH: #1a1a1a;
     --border: #ffffff;
+    --input: #ffffff;
     --glow: rgba(255, 212, 0, 0.4);
     --glowS: rgba(255, 212, 0, 0.7);
     --surface: #0a0a0a;
@@ -1127,4 +1132,15 @@ html[data-presenting="true"] {
 }
 html[data-presenting="true"] [data-chrome] {
   display: none !important;
+}
+
+/* Form controls keep a 3:1 edge (WCAG 1.4.11) even where a tool passes the
+   faint divider colour (`border-border`) to Input, Textarea or a select
+   trigger. One class plus the element outranks the plain class; hover and
+   focus colours (two classes) still win. */
+input.border-border,
+textarea.border-border,
+select.border-border,
+[role="combobox"].border-border {
+  border-color: var(--input);
 }

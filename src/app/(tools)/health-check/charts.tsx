@@ -41,7 +41,13 @@ export type HealthTrendRow = { name: string } & Record<string, string | number>;
 export function HealthTrendChart({ data }: { data: HealthTrendRow[] }) {
   return (
     <ResponsiveContainer width="100%" height={360}>
-      <LineChart data={data} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+      {/* ChartFigure hides the plot from assistive tech behind its summary and
+          table, so the SVG mustn't be a tab stop. */}
+      <LineChart
+        data={data}
+        margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+        accessibilityLayer={false}
+      >
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
         <XAxis
           dataKey="name"

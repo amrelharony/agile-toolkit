@@ -37,7 +37,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import type { RetroCard as StoredRetroCard } from "@/lib/stores/workspace-types";
 import type { HandoffLink } from "@/lib/handoffs/types";
-import { type BoardState, MAX_VOTES, PHASES } from "../types";
+import { type BoardState, type RetroCard, MAX_VOTES, PHASES } from "../types";
 import { carriedOverCard } from "../archive";
 import {
   makeId,
@@ -66,6 +66,20 @@ import { themed, tint } from "@/lib/utils/theme-color";
 function shortName(name: string, max = 40): string {
   const t = name.trim();
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
+
+/** A fresh card in `columnKey`. */
+function newCard(columnKey: string, text: string): RetroCard {
+  return {
+    id: makeId(),
+    columnKey,
+    text,
+    votes: 0,
+    groupedWith: null,
+    isActionItem: false,
+    assignee: "",
+    discussing: false,
+  };
 }
 
 export function Board({
@@ -155,24 +169,37 @@ export function Board({
   const handleAddCard = useCallback(
     (columnKey: string, text: string) => {
       sonify("retro", "card-add");
-      const cardId = makeId();
+      const card = newCard(columnKey, text);
+      onUpdate((prev) => ({ ...prev, cards: [...prev.cards, card] }));
+      log(RETRO_ACTIONS.CARD_ADDED, { cardId: card.id, columnKey, text });
+    },
+    [onUpdate, log]
+  );
+
+  // A multi-line paste: one card per line, in one update and one sound.
+  const handleAddCards = useCallback(
+    (columnKey: string, texts: string[]) => {
+      if (texts.length === 0) return;
+      sonify("retro", "card-add");
+      const added = texts.map((text) => newCard(columnKey, text));
+      onUpdate((prev) => ({ ...prev, cards: [...prev.cards, ...added] }));
+      for (const card of added) {
+        log(RETRO_ACTIONS.CARD_ADDED, { cardId: card.id, columnKey, text: card.text });
+      }
+      const column = state.format.columns.find((c) => c.key === columnKey)?.label ?? "the column";
+      announce(`Added ${added.length} cards to ${column}.`);
+    },
+    [onUpdate, log, announce, state.format.columns]
+  );
+
+  // Fix a card's text after adding it. Not logged: history has no edit event.
+  const handleEditCard = useCallback(
+    (id: string, text: string) => {
       onUpdate((prev) => ({
         ...prev,
-        cards: [
-          ...prev.cards,
-          {
-            id: cardId,
-            columnKey,
-            text,
-            votes: 0,
-            groupedWith: null,
-            isActionItem: false,
-            assignee: "",
-            discussing: false,
-          },
-        ],
+        cards: prev.cards.map((c) => (c.id === id ? { ...c, text } : c)),
       }));
-      log(RETRO_ACTIONS.CARD_ADDED, { cardId, columnKey, text });
+      log(RETRO_ACTIONS.CARD_EDITED, { cardId: id, text });
     },
     [onUpdate, log]
   );
@@ -635,6 +662,8 @@ export function Board({
                 votesUsed={votesUsed}
                 clusterByCardId={clusters?.byCardId}
                 onAdd={handleAddCard}
+                onAddMany={handleAddCards}
+                onEdit={handleEditCard}
                 onVote={handleVote}
                 onDelete={handleDelete}
                 onGroup={handleGroup}

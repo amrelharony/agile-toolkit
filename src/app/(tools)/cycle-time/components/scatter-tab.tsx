@@ -5,8 +5,11 @@
  * reference lines and CUSUM regime-shift markers.
  */
 
+import { useMemo } from "react";
 import dynamic from "next/dynamic";
 import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
+import { ChartFigure } from "@/components/shared/chart-card";
+import { scatterText } from "../chart-text";
 import type { CycleStats, ScatterDatum } from "../types";
 
 // Recharts loads with the chart, not the page. The placeholder keeps the
@@ -32,12 +35,15 @@ export function ScatterTab({
   percentileMap: Record<number, number>;
   cusumAnnotations: CausalAnnotationData[];
 }) {
+  const text = useMemo(() => scatterText(scatterData, stats), [scatterData, stats]);
   return (
-    <CycleTimeScatterChart
-      scatterData={scatterData}
-      stats={stats}
-      percentileMap={percentileMap}
-      cusumAnnotations={cusumAnnotations}
-    />
+    <ChartFigure label="Cycle time scatter plot" summary={text.summary} table={text.table}>
+      <CycleTimeScatterChart
+        scatterData={scatterData}
+        stats={stats}
+        percentileMap={percentileMap}
+        cusumAnnotations={cusumAnnotations}
+      />
+    </ChartFigure>
   );
 }

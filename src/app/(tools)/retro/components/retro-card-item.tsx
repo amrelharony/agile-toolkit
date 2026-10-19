@@ -13,11 +13,18 @@
  * `canModerate={false}` (a visitor-room participant) keeps only the vote
  * button in the Vote phase. Votes, action items and assignees still show,
  * read-only; delete, group, discuss focus and Send to are gone.
+ *
+ * Editing: with `onEdit`, the card text is click-to-edit in every phase
+ * (Enter saves, Escape cancels, an emptied card reverts). In Discuss, where
+ * a click on the card focuses it, an Edit button opens the editor instead.
+ * Without `onEdit` (a participant) the text is read-only.
  */
 
 import { motion } from "framer-motion";
-import { Heart, Trash2, CheckSquare, Square } from "lucide-react";
+import { Heart, Trash2, CheckSquare, Square, Pencil } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { IconButton } from "@/components/ui/icon-button";
+import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
 import {
   Select,
   SelectContent,
@@ -49,6 +56,8 @@ export function RetroCardItem({
   onAssigneeChange,
   onToggleDiscussing,
   onLinksChange,
+  onEdit,
+  maxCardLength,
   assigneeListId,
   canModerate = true,
 }: {
@@ -69,11 +78,16 @@ export function RetroCardItem({
     id: string,
     update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
   ) => void;
+  /** Change the card's text. Without it the text is read-only (a room participant). */
+  onEdit?: (id: string, text: string) => void;
+  /** Longest card text the editor accepts, as the add box does. */
+  maxCardLength?: number;
   /** Id of a <datalist> of team members for the assignee field. */
   assigneeListId?: string;
   /** False for a visitor-room participant: vote in Vote, everything else read-only. */
   canModerate?: boolean;
 }) {
+  const edit = useInlineEdit();
   const otherCards = allCards.filter(
     (c) => c.id !== card.id && c.columnKey === card.columnKey && c.groupedWith === null
   );
@@ -136,12 +150,36 @@ export function RetroCardItem({
           </button>
         )}
 
-        {isDiscussClickable ? (
+        {edit.editing && onEdit ? (
+          <InlineItemEditor
+            className="flex-1"
+            label="Edit card"
+            title={card.text}
+            titleLabel="Card text"
+            titleMaxLength={maxCardLength}
+            onDone={(next, { refocus }) => {
+              edit.stop({ refocus });
+              if (next) onEdit(card.id, next.title);
+            }}
+          />
+        ) : isDiscussClickable ? (
           <button
             type="button"
             onClick={() => onToggleDiscussing(card.id)}
             aria-pressed={isDiscussing}
             className="flex-1 text-left text-sm leading-relaxed text-text focus-visible:outline-none after:absolute after:inset-0 after:rounded-[inherit] after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-accent"
+          >
+            {card.text}
+          </button>
+        ) : onEdit ? (
+          <button
+            ref={edit.triggerRef}
+            type="button"
+            onClick={edit.start}
+            title="Click to edit"
+            className={`flex-1 min-w-0 break-words rounded-sm text-left text-sm leading-relaxed cursor-text transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
+              card.isActionItem && phase === "actions" ? "text-accent" : "text-text"
+            }`}
           >
             {card.text}
           </button>
@@ -156,6 +194,18 @@ export function RetroCardItem({
         )}
 
         <div className="flex items-center gap-1 shrink-0">
+          {/* Edit, in Discuss: a click on the card text focuses the card there */}
+          {isDiscussClickable && onEdit && !edit.editing && (
+            <IconButton
+              ref={edit.triggerRef}
+              label="Edit card"
+              icon={<Pencil aria-hidden="true" />}
+              tooltip={false}
+              onClick={edit.start}
+              className="relative z-10 h-6 w-6 md:h-6 md:w-6 p-1 text-sub hover:text-accent opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100 [&_svg]:size-3.5"
+            />
+          )}
+
           {/* Vote count, read-only for participants outside the Vote phase */}
           {!canModerate && (phase === "discuss" || phase === "actions") && (
             <span className="flex items-center gap-1 px-1.5 py-0.5 text-xs text-sub">

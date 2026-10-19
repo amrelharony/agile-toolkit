@@ -42,7 +42,13 @@ export function CumulativeFlowAreaChart({
   const workflowIndex = (name: unknown) => columns.findIndex((c) => c.name === name);
   return (
     <ResponsiveContainer width="100%" height={400}>
-      <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+      {/* ChartFigure hides the plot from assistive tech behind its summary and
+          table, so the SVG mustn't be a tab stop. */}
+      <AreaChart
+        data={chartData}
+        margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+        accessibilityLayer={false}
+      >
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
         <XAxis
           dataKey="date"
@@ -97,7 +103,12 @@ export function WipControlLineChart({
 }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={wipSeries} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+      {/* ChartFigure hides the plot from assistive tech (see above). */}
+      <LineChart
+        data={wipSeries}
+        margin={{ top: 10, right: 16, left: 0, bottom: 0 }}
+        accessibilityLayer={false}
+      >
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
         <XAxis
           dataKey="date"

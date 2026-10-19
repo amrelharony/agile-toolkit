@@ -32,6 +32,7 @@ import { createSprint, removeSprintWithSeries, updateSprint } from "@/lib/sprint
 import { useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { toMarkdown } from "./markdown";
 import { changepointMarkers as buildChangepointMarkers } from "./changepoints";
+import { velocityChartText } from "./chart-text";
 import { SprintRow } from "./sprint-row";
 import {
   commitmentAccuracy,
@@ -253,6 +254,7 @@ export function VelocityClient() {
       forecast?: number;
       band80Lower?: number;
       band80Upper?: number;
+      forecastOnly?: boolean;
     };
 
     // rolling/trendLine are indexed over the FINISHED series; planned and
@@ -297,6 +299,7 @@ export function VelocityClient() {
           forecast: round(fc.yHat, 1),
           band80Lower: round(Math.max(0, fc.lower80), 1),
           band80Upper: round(Math.max(0, fc.upper80), 1),
+          forecastOnly: true,
         });
       }
     }
@@ -321,6 +324,9 @@ export function VelocityClient() {
       stats: { avgVelocity, predictability: accuracy.pct, sd, trendDir },
     };
   }, [chartRows, finished, completedSeries, forecast, accuracy]);
+
+  // The chart in words: a summary sentence and the plotted series as a table.
+  const chartText = useMemo(() => velocityChartText(chartData), [chartData]);
 
   /* -- Export data --------------------------------------------------------- */
 
@@ -479,6 +485,8 @@ export function VelocityClient() {
             title="Velocity Chart"
             icon={Activity}
             height={350}
+            summary={chartText.summary}
+            table={chartText.table}
             headerExtras={
               <>
                 <AiPromptGenerator config={promptConfig} />

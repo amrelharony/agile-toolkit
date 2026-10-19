@@ -6,12 +6,13 @@
  *   * the current `session` (state-synced via realtime)
  *   * an `onUpdateSession` callback that broadcasts the new state
  *   * `localParticipant` — who the user is (used to vote, label cards)
- *   * `isHost` — gates host-only actions (reveal, advance, commit)
+ *   * `isHost` — gates host-only actions (reveal, advance, commit, and
+ *     adding, editing and deleting stories)
  *   * `extraHeaderActions` — owner adds a SessionShareButton; guest
  *     leaves it empty
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus,
@@ -36,6 +37,9 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { undoable } from "@/lib/utils/undoable";
+import { toast } from "@/lib/utils/toast";
+import { PASTE_LINE_CAP, leftOutMessage, splitPastedLines } from "@/lib/utils/paste-lines";
+import type { ItemText } from "@/components/shared/inline-item-editor";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PLANNING_POKER_ACTIONS } from "@/lib/history/event-actions";
 import { SCALE_LABELS, type Session, type Participant } from "./types";
@@ -52,6 +56,17 @@ import {
   voteFor,
 } from "./players";
 import { AddPlayers, PassScreen, PlayerDeck, VotedMark } from "./facilitator-controls";
+import {
+  MAX_STORIES,
+  STORY_DESCRIPTION_MAX,
+  STORY_TITLE_MAX,
+  appendStories,
+  editStory,
+  newStory as makeStory,
+  removeStory,
+  restoreStory,
+} from "./stories";
+import { StoryQueueItem } from "./story-queue-item";
 
 interface Props {
   session: Session;
@@ -96,6 +111,14 @@ interface Props {
 }
 
 const NO_LOG = () => {};
+
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
+
+const QUEUE_FULL = `The story queue is full (${MAX_STORIES} stories).`;
 
 // ─── helpers (duplicated minimal subset; original copies remain in
 // planning-poker-client.tsx for the lobby tour-of-features) ────────
@@ -362,16 +385,61 @@ export function SessionScreen({
 
   const addStory = () => {
     if (!isHost) return;
-    const title = newStory.trim();
-    if (!title) return;
-    const description = newDescription.trim() || undefined;
-    onUpdateSession((s) => ({
-      ...s,
-      stories: [...s.stories, { id: crypto.randomUUID(), title, description, finalEstimate: null }],
-    }));
+    if (!newStory.trim()) return;
+    if (session.stories.length >= MAX_STORIES) {
+      toast.error(QUEUE_FULL);
+      return;
+    }
+    const story = makeStory(newStory, newDescription);
+    onUpdateSession((s) => appendStories(s, [story]));
     setNewStory("");
     setNewDescription("");
     newStoryRef.current?.focus();
+  };
+
+  // Several lines pasted into "Story title": one story per line, as many as
+  // the queue still holds. What's already typed stays in the boxes.
+  const pasteStories = (e: ClipboardEvent<HTMLInputElement>) => {
+    if (!isHost) return;
+    const room = Math.max(0, MAX_STORIES - session.stories.length);
+    const cap = Math.min(PASTE_LINE_CAP, room);
+    const pasted = splitPastedLines(e.clipboardData.getData("text"), cap);
+    if (!pasted) return;
+    e.preventDefault();
+    if (pasted.lines.length === 0) {
+      toast.error(QUEUE_FULL);
+      return;
+    }
+    const added = pasted.lines.map((title) => makeStory(title));
+    onUpdateSession((s) => appendStories(s, added));
+    announce(`Added ${added.length} stories.`);
+    if (pasted.dropped > 0) {
+      toast.info(`Added ${added.length} stories.`, {
+        description: `${leftOutMessage(pasted.dropped)} ${
+          cap < PASTE_LINE_CAP ? QUEUE_FULL : `One paste adds up to ${PASTE_LINE_CAP}.`
+        }`,
+      });
+    }
+  };
+
+  const editStoryText = (id: string, next: ItemText) => {
+    if (!isHost) return;
+    onUpdateSession((s) => editStory(s, id, next));
+  };
+
+  // Undo puts the story back in its place in the queue.
+  const deleteStory = (id: string) => {
+    if (!isHost) return;
+    const index = session.stories.findIndex((st) => st.id === id);
+    if (index === -1) return;
+    const story = session.stories[index];
+    const wasCurrent = index === session.currentStoryIdx;
+    if (wasCurrent) closeDecks();
+    undoable({
+      label: `Deleted “${shortName(story.title)}”`,
+      apply: () => onUpdateSession((s) => removeStory(s, id)),
+      revert: () => onUpdateSession((s) => restoreStory(s, story, index, wasCurrent)),
+    });
   };
 
   const goToStory = (idx: number) => {
@@ -922,7 +990,9 @@ export function SessionScreen({
                     ref={newStoryRef}
                     value={newStory}
                     onChange={(e) => setNewStory(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addStory()}
+                    onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && addStory()}
+                    onPaste={pasteStories}
+                    maxLength={STORY_TITLE_MAX}
                     placeholder="Story title…"
                     aria-label="New story title"
                     className="h-9 text-sm bg-surface-deep border-border text-text"
@@ -945,6 +1015,7 @@ export function SessionScreen({
                   }}
                   placeholder="Description (optional)..."
                   rows={2}
+                  maxLength={STORY_DESCRIPTION_MAX}
                   className="bg-surface-deep border-border resize-none text-xs text-text"
                   aria-label="New story description"
                 />
@@ -970,37 +1041,15 @@ export function SessionScreen({
             ) : (
               <div className="flex flex-col gap-1 max-h-60 overflow-y-auto pr-1">
                 {session.stories.map((story, idx) => (
-                  <button
+                  <StoryQueueItem
                     key={story.id}
-                    onClick={() => goToStory(idx)}
-                    disabled={!isHost}
-                    aria-current={idx === session.currentStoryIdx ? "true" : undefined}
-                    className={[
-                      "flex items-start justify-between gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors",
-                      idx === session.currentStoryIdx
-                        ? "bg-accent/10 border border-accent/30 text-accent"
-                        : "text-sub hover:bg-surface-hover hover:text-text",
-                      !isHost && "cursor-default",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="truncate">{story.title}</div>
-                      {story.description && (
-                        <div className="text-sub text-xs mt-0.5 whitespace-pre-wrap break-words font-normal opacity-80">
-                          {story.description}
-                        </div>
-                      )}
-                    </div>
-                    {story.finalEstimate !== null ? (
-                      <span className="font-data shrink-0 text-accent-green">
-                        {story.finalEstimate}
-                      </span>
-                    ) : idx === session.currentStoryIdx ? (
-                      <span className="shrink-0 opacity-60">now</span>
-                    ) : null}
-                  </button>
+                    story={story}
+                    current={idx === session.currentStoryIdx}
+                    isHost={isHost}
+                    onSelect={() => goToStory(idx)}
+                    onEdit={(next) => editStoryText(story.id, next)}
+                    onDelete={() => deleteStory(story.id)}
+                  />
                 ))}
               </div>
             )}

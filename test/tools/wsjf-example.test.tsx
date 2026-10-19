@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { PrioritizationItem } from "@/lib/stores/workspace-types";
@@ -136,8 +136,14 @@ describe("WSJF example", () => {
 
     // The user adds their own feature alongside the example.
     fireEvent.change(screen.getByLabelText("Feature title"), { target: { value: "Gift cards" } });
-    fireEvent.change(screen.getByLabelText("Business Value"), { target: { value: "5" } });
-    fireEvent.change(screen.getByLabelText("Job Size"), { target: { value: "3" } });
+    const pick = (group: string, option: string) =>
+      fireEvent.click(
+        within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name: option })
+      );
+    pick("Business value", "5");
+    pick("Time criticality", "3");
+    pick("Risk reduction / opportunity enablement", "1");
+    pick("Job size", "3");
     fireEvent.click(screen.getByRole("button", { name: /Add & score/ }));
 
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
