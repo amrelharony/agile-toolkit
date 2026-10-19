@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2, Pencil, Check, X, MessageSquare, Search, Download } from "lucide-react";
 import { getAuthBrowserClient } from "@/lib/auth/supabase-browser";
+import { ownerFeedChannel } from "@/lib/realtime/private-rooms";
 import { useAgentStore } from "@/lib/agent/store";
 import {
   listConversations,
@@ -65,12 +66,17 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
       if (!document.hidden) refresh();
     };
     document.addEventListener("visibilitychange", onVisible);
+    // Private with NEXT_PUBLIC_PRIVATE_ROOMS=1: the owner's session JWT on
+    // this client passes the realtime policy for this topic.
     const channel = supabase
-      ?.channel("agent-conversations-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "agent_conversations" }, () =>
-        refresh()
-      )
-      .subscribe();
+      ? ownerFeedChannel(supabase, "agent-conversations-live")
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "agent_conversations" },
+            () => refresh()
+          )
+          .subscribe()
+      : undefined;
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
       if (channel) void supabase?.removeChannel(channel);

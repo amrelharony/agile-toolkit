@@ -2,6 +2,7 @@
 
 import type { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { getClientId, resetClientId } from "./lww";
+import { ownerFeedChannel } from "@/lib/realtime/private-rooms";
 
 /**
  * Supabase realtime payloads carry `eventType` as a string. Narrow it
@@ -408,8 +409,10 @@ class SyncEngine {
     if (this.state.kind !== "running" || this.state.userId !== userId || this.state.channel) {
       return;
     }
-    const channel = supabase
-      .channel(channelName)
+    // Private with NEXT_PUBLIC_PRIVATE_ROOMS=1 (this client carries the
+    // owner's session JWT, which the realtime policy admits to their own
+    // `user-sync:<id>`); public, exactly as before, with it unset.
+    const channel = ownerFeedChannel(supabase, channelName)
       .on(
         "postgres_changes" as never,
         {

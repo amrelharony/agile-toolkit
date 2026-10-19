@@ -1,6 +1,7 @@
 "use client";
 
 import { getAuthBrowserClient } from "@/lib/auth/supabase-browser";
+import { ownerFeedChannel } from "@/lib/realtime/private-rooms";
 import type { HistoryEvent } from "./types";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
@@ -211,8 +212,9 @@ export function subscribeToHistory(opts: RealtimeOptions): () => void {
   const supabase = getAuthBrowserClient();
   if (!supabase) return () => {};
   let hadDisconnect = false;
-  const channel: RealtimeChannel = supabase
-    .channel(`history:${opts.userId}`)
+  // Private with NEXT_PUBLIC_PRIVATE_ROOMS=1 (the owner's session JWT on
+  // this client passes the realtime policy for `history:<their id>`).
+  const channel: RealtimeChannel = ownerFeedChannel(supabase, `history:${opts.userId}`)
     .on(
       "postgres_changes",
       {

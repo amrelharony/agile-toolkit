@@ -18,6 +18,11 @@ import { getSupabaseClient, isRealtimeAvailable } from "@/lib/realtime/supabase-
 import type { SimplePresence } from "@/lib/realtime/use-presence";
 import { usePresenceIdentityOverride } from "@/lib/realtime/presence-identity";
 import { useRealtimeAllowed } from "@/lib/realtime/use-realtime-allowed";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
+import { useGuestProfile } from "@/lib/auth/guest-profile-provider";
+import { privateRoomsEnabled } from "@/lib/realtime/private-rooms";
+import { acquireRoomAuth, roomAuthKind } from "@/lib/realtime/room-auth";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { throttle, type Throttled } from "@/lib/utils/throttle";
 
 const AVATAR_COLORS = [
@@ -185,6 +190,12 @@ export interface CanvasPresenceHook {
   publish: (patch: Partial<Omit<SimplePresence, "id">>) => void;
   /** Self identity used in publish — exposed for cursor color rendering. */
   self: { id: string; name: string; color: string };
+  /**
+   * Private rooms only (`NEXT_PUBLIC_PRIVATE_ROOMS=1`): the server would
+   * not issue a token for this presence channel, so the hook joined
+   * nothing (no public fallback). Always false with the flag off.
+   */
+  authFailed: boolean;
 }
 
 const CURSOR_THROTTLE_MS = 60;
@@ -196,6 +207,18 @@ export function useCanvasPresence(
   // Same gate as useRoom: public visitors never join a presence channel.
   const channelName = useRealtimeAllowed() ? requestedChannelName : null;
   const [members, setMembers] = useState<SimplePresence[]>([]);
+  // Private rooms (NEXT_PUBLIC_PRIVATE_ROOMS=1): the room token this viewer
+  // joins with, as in useRoom. Always null with the flag off, so the
+  // channel effect below keeps exactly its old inputs.
+  const isOwner = useIsOwner();
+  const guestProfile = useGuestProfile();
+  const privateRooms = privateRoomsEnabled();
+  const authKind = privateRooms
+    ? roomAuthKind({ visitor: false, isOwner, isGuest: guestProfile !== null })
+    : null;
+  const [authFailedFor, setAuthFailedFor] = useState<string | null>(null);
+  const authKey = authKind && channelName ? `${authKind}|${channelName}` : null;
+  const authFailed = authKey !== null && authFailedFor === authKey;
   // Identity precedence: explicit `hint` > tree-scoped PresenceIdentity
   // context > "Anonymous". Symmetric with useRoom so the canvas presence
   // layer and the room layer agree on who this peer is when the caller
@@ -230,65 +253,101 @@ export function useCanvasPresence(
     const supabase = getSupabaseClient();
     if (!supabase) return;
 
-    const channel = supabase.channel(channelName, {
-      config: { presence: { key: self.id } },
-    });
+    /** Wire up `channel`, subscribe, and return its teardown. */
+    const joinChannel = (channel: RealtimeChannel): (() => void) => {
+      channel
+        .on("presence", { event: "sync" }, () => {
+          const state = channel.presenceState<SimplePresence>();
+          const list: SimplePresence[] = [];
+          for (const key of Object.keys(state)) {
+            const metas = state[key];
+            const first = Array.isArray(metas) ? metas[0] : undefined;
+            // Run every peer record through the same sanitizer the
+            // basic usePresence hook uses. Without this, the canvas
+            // path skipped validation entirely — a hostile peer could
+            // broadcast 1000-id selections, malformed cursors with
+            // string x/y, or an RTL-spoofed name and the canvas would
+            // render it.
+            const clean = sanitizeCanvasPresence(first);
+            if (clean) list.push(clean);
+          }
+          setMembers(list);
+        })
+        .subscribe(async (status) => {
+          if (status === "SUBSCRIBED") {
+            trackRef.current = (p) => channel.track(p);
+            await channel.track(stateRef.current);
+          }
+        });
 
-    channel
-      .on("presence", { event: "sync" }, () => {
-        const state = channel.presenceState<SimplePresence>();
-        const list: SimplePresence[] = [];
-        for (const key of Object.keys(state)) {
-          const metas = state[key];
-          const first = Array.isArray(metas) ? metas[0] : undefined;
-          // Run every peer record through the same sanitizer the
-          // basic usePresence hook uses. Without this, the canvas
-          // path skipped validation entirely — a hostile peer could
-          // broadcast 1000-id selections, malformed cursors with
-          // string x/y, or an RTL-spoofed name and the canvas would
-          // render it.
-          const clean = sanitizeCanvasPresence(first);
-          if (clean) list.push(clean);
+      // Throttle outbound track() calls so a 60fps cursor only sends ~16/sec.
+      throttledTrackRef.current = throttle((p: SimplePresence) => {
+        void trackRef.current?.(p);
+      }, CURSOR_THROTTLE_MS);
+
+      return () => {
+        throttledTrackRef.current?.cancel();
+        throttledTrackRef.current = null;
+        trackRef.current = null;
+        // R9: chain untrack → unsubscribe → removeChannel. The previous
+        // path called .unsubscribe() but NEVER .removeChannel(); the
+        // Supabase v2 client retained the channel in its internal
+        // channels[] map for the page lifetime. Canvas presence churns
+        // hard — every board change / share-link nav leaked a channel
+        // plus all its sanitizer + setMembers closures. After a few
+        // hours of board-hopping this dominated session memory growth.
+        void Promise.resolve(channel.untrack())
+          .then(() => channel.unsubscribe())
+          .catch(() => {});
+        try {
+          void getSupabaseClient()?.removeChannel(channel);
+        } catch {
+          /* client torn down */
         }
-        setMembers(list);
-      })
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
-          trackRef.current = (p) => channel.track(p);
-          await channel.track(stateRef.current);
-        }
-      });
-
-    // Throttle outbound track() calls so a 60fps cursor only sends ~16/sec.
-    throttledTrackRef.current = throttle((p: SimplePresence) => {
-      void trackRef.current?.(p);
-    }, CURSOR_THROTTLE_MS);
-
-    return () => {
-      throttledTrackRef.current?.cancel();
-      throttledTrackRef.current = null;
-      trackRef.current = null;
-      // R9: chain untrack → unsubscribe → removeChannel. The previous
-      // path called .unsubscribe() but NEVER .removeChannel(); the
-      // Supabase v2 client retained the channel in its internal
-      // channels[] map for the page lifetime. Canvas presence churns
-      // hard — every board change / share-link nav leaked a channel
-      // plus all its sanitizer + setMembers closures. After a few
-      // hours of board-hopping this dominated session memory growth.
-      void Promise.resolve(channel.untrack())
-        .then(() => channel.unsubscribe())
-        .catch(() => {});
-      try {
-        void getSupabaseClient()?.removeChannel(channel);
-      } catch {
-        /* client torn down */
-      }
-      // Drop the old channel's peers so cursors don't linger when the
-      // channel goes away without a replacement (e.g. owner sign-out).
-      setMembers([]);
+        // Drop the old channel's peers so cursors don't linger when the
+        // channel goes away without a replacement (e.g. owner sign-out).
+        setMembers([]);
+      };
     };
+
+    // Flag off: the public channel, opened right away as it always was.
+    if (!privateRooms) {
+      return joinChannel(
+        supabase.channel(channelName, {
+          config: { presence: { key: self.id } },
+        })
+      );
+    }
+
+    // Flag on: room token first, then the private channel. No kind or a
+    // refused token means no channel at all: never a public fallback.
+    if (!authKind) return;
+    const failKey = `${authKind}|${channelName}`;
+    const lease = acquireRoomAuth(authKind, channelName);
+    let cancelled = false;
+    let leaveChannel: (() => void) | null = null;
+    void lease.ready.then((ok) => {
+      if (cancelled) return;
+      if (!ok) {
+        setAuthFailedFor(failKey);
+        return;
+      }
+      setAuthFailedFor((prev) => (prev === failKey ? null : prev));
+      leaveChannel = joinChannel(
+        supabase.channel(channelName, {
+          config: { private: true, presence: { key: self.id } },
+        })
+      );
+    });
+    return () => {
+      cancelled = true;
+      leaveChannel?.();
+      lease.release();
+    };
+    // `authKind` is null with the flag off; with it on, a change of kind
+    // re-joins with the right token.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channelName]);
+  }, [channelName, authKind]);
 
   // R11-fix: memoise `publish` so consumers' deps lists stay stable.
   // The previous bare `const publish = (...) => {...}` recreated the
@@ -341,5 +400,5 @@ export function useCanvasPresence(
     }
   }, []);
 
-  return { members, publish, self };
+  return { members, publish, self, authFailed };
 }
