@@ -12,6 +12,12 @@ import { generateSprintGoalPrompts } from "@/lib/ai-prompts/sprint-goal";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPRINT_GOAL_ACTIONS } from "@/lib/history/event-actions";
 import { undoable } from "@/lib/utils/undoable";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
 import { selectEvents } from "@/lib/history/selectors";
 import { useHistoryStore } from "@/lib/history/history-store";
 import { CalloutAlert } from "@/components/shared/callout-alert";
@@ -30,75 +36,9 @@ import {
   Lightbulb,
   BarChart3,
 } from "lucide-react";
-
-// ─── Types ──────────────────────────────────────────────────────────────────
-
-interface AcceptanceCriterion {
-  id: string;
-  text: string;
-  relevantChecked: boolean;
-}
-
-interface SmartResult {
-  specific: boolean;
-  measurable: boolean;
-  achievable: boolean;
-  relevant: boolean;
-  timeBound: boolean;
-}
-
-// ─── SMART validation helpers ───────────────────────────────────────────────
-
-const VAGUE_WORDS = [
-  "improve",
-  "better",
-  "good",
-  "nice",
-  "fine",
-  "some",
-  "various",
-  "stuff",
-  "things",
-  "enhance",
-  "optimize",
-  "miscellaneous",
-];
-
-const QUANTIFIABLE_PATTERNS =
-  /\d+|percent|%|percentage|count|total|average|ratio|rate|score|increase by|decrease by|reduce by|at least|no more than|minimum|maximum/i;
-
-const TIME_PATTERNS =
-  /by end of sprint|by sprint end|deadline|before|after|within \d|by \w+day|by \d{1,2}\/|by \d{4}|end of day|EOD|end of week|EOW|by close|due date|sprint \d|week \d|day \d|hours?|days?|date/i;
-
-function validateSmart(criterion: AcceptanceCriterion): SmartResult {
-  const text = criterion.text.trim();
-  const words = text.toLowerCase().split(/\s+/);
-
-  // Match by stem so "improving" / "optimization" / "enhanced" still trip
-  // the vague-word detector. Strip simple verb/noun suffixes before testing.
-  const stem = (w: string) => w.replace(/(?:ing|ed|es|s|ation|ment|ly)$/, "");
-  // BUG-T8-sprint-goal-1: the prior `s === vague || s.startsWith(vague)`
-  // never matched plural VAGUE_WORDS entries like "things" or "various"
-  // because the word's plural-s gets stripped to "thing"/"variou", which
-  // neither equals "things" nor starts with it. Compare with the
-  // ALSO-stemmed vague word too, so plural list entries fire.
-  const hasVague = words.some((w) => {
-    const s = stem(w);
-    return VAGUE_WORDS.some((vague) => {
-      const v = stem(vague);
-      return s === vague || s === v || s.startsWith(v);
-    });
-  });
-  const hasConcreteNoun = text.length > 10 && !hasVague;
-
-  const specific = hasConcreteNoun;
-  const measurable = QUANTIFIABLE_PATTERNS.test(text);
-  const achievable = text.length >= 20 && text.length <= 300;
-  const relevant = criterion.relevantChecked;
-  const timeBound = TIME_PATTERNS.test(text);
-
-  return { specific, measurable, achievable, relevant, timeBound };
-}
+import { buildExample } from "./example";
+import { toMarkdown } from "./markdown";
+import { validateSmart, type AcceptanceCriterion } from "./smart";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -192,6 +132,41 @@ export function SprintGoalClient() {
   ) => patchGoal("criteria", v);
   const setKeyResults = (v: string[] | ((p: string[]) => string[])) => patchGoal("keyResults", v);
   const { log } = useHistoryLogger("sprint-goal");
+  const isEmpty =
+    !businessObjective.trim() &&
+    !sprintGoal.trim() &&
+    criteria.every((c) => !c.text.trim()) &&
+    keyResults.every((kr) => !kr.trim());
+  // The goal is a singleton, so the example's criteria carry its ids.
+  const showsExample = hasExampleItems(criteria);
+
+  // Written like any edit but never logged: loading an example isn't the
+  // user's own goal.
+  const loadExample = () => {
+    const d =
+      (useWorkspaceStore.getState().sprintGoals ?? []).find((g) => g.id === SG_ID) ??
+      DEFAULT_SPRINT_GOAL;
+    upsertSprintGoal({ ...d, ...buildExample() });
+  };
+
+  // Drop the example criteria, and the objective, goal and key results
+  // while they still read as the example's; anything the user typed stays.
+  const clearExample = () => {
+    const d =
+      (useWorkspaceStore.getState().sprintGoals ?? []).find((g) => g.id === SG_ID) ??
+      DEFAULT_SPRINT_GOAL;
+    const ex = buildExample();
+    const ownCriteria = d.criteria.filter((c) => !isExampleId(c.id));
+    const ownKeyResults = d.keyResults.filter((kr) => !ex.keyResults.includes(kr));
+    upsertSprintGoal({
+      ...d,
+      businessObjective: d.businessObjective === ex.businessObjective ? "" : d.businessObjective,
+      goal: d.goal === ex.goal ? "" : d.goal,
+      criteria: ownCriteria.length > 0 ? ownCriteria : DEFAULT_SPRINT_GOAL.criteria,
+      keyResults: ownKeyResults.length > 0 ? ownKeyResults : [""],
+    });
+  };
+
   // Track whether we've already logged a GOAL_SAVED milestone for this
   // session of edits. Reset whenever the user mutates the goal/objective so
   // saving a *changed* goal logs a fresh milestone, but ping-ponging back
@@ -217,7 +192,7 @@ export function SprintGoalClient() {
       criteria: criteria.map((c) => c.text),
       keyResults,
     });
-    if (goalSavedSnapshotRef.current === contentKey) return;
+    if (goalSavedSnapshotRef.current === contentKey || showsExample) return;
     goalSavedSnapshotRef.current = contentKey;
     log(SPRINT_GOAL_ACTIONS.GOAL_SAVED, {
       objective: businessObjective,
@@ -310,6 +285,11 @@ export function SprintGoalClient() {
     [businessObjective, sprintGoal, criteria, keyResults]
   );
 
+  const markdown = useMemo(
+    () => toMarkdown({ businessObjective, goal: sprintGoal, criteria, keyResults }),
+    [businessObjective, sprintGoal, criteria, keyResults]
+  );
+
   const jsonData = useMemo(
     () => ({
       businessObjective,
@@ -395,6 +375,7 @@ export function SprintGoalClient() {
       description="Craft focused, SMART sprint goals with acceptance criteria and measurable key results."
       category="Sprint Planning & Estimation"
     >
+      {showsExample && <ExampleNotice onClear={clearExample} />}
       {recentSprintAdds.length >= 1 && (
         <CalloutAlert tone="info" className="mb-3">
           {recentSprintAdds.length} sprint{recentSprintAdds.length === 1 ? " was" : "s were"} logged
@@ -687,6 +668,7 @@ export function SprintGoalClient() {
                   filename="sprint-goal"
                   clipboardText={clipboardText}
                   jsonData={jsonData}
+                  markdown={markdown}
                   targetRef={previewRef}
                 />
               </div>
@@ -756,6 +738,12 @@ export function SprintGoalClient() {
                 )}
               </div>
             </div>
+            {isEmpty && (
+              <div className="mt-4 flex flex-col items-start gap-2 text-sm text-sub">
+                <p>Not sure what a good sprint goal looks like?</p>
+                <LoadExampleButton onLoad={loadExample} />
+              </div>
+            )}
           </Card>
         </div>
       </div>

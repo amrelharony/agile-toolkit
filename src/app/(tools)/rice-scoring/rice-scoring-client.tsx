@@ -18,6 +18,14 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { RICE_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
 import { undoable } from "@/lib/utils/undoable";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { buildExample } from "./example";
+import { toMarkdown } from "./markdown";
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -93,6 +101,16 @@ export function RiceScoringClient() {
     });
   }
 
+  // Example rows are written like any other item but never logged or
+  // signalled: loading an example isn't the user's own scoring work.
+  function loadExample() {
+    for (const item of buildExample()) upsert(item);
+  }
+
+  function clearExample() {
+    for (const x of items) if (isExampleId(x.id)) removeOne(x.id);
+  }
+
   const ranked = useMemo(
     () =>
       rank(
@@ -150,6 +168,8 @@ export function RiceScoringClient() {
     [ranked, outliers, workspace]
   );
 
+  const markdown = useMemo(() => toMarkdown(items), [items]);
+
   const csvData = {
     headers: ["Rank", "Title", "Reach", "Impact", "Confidence%", "Effort", "Score"],
     rows: ranked.map((r) => [
@@ -169,6 +189,7 @@ export function RiceScoringClient() {
       title="RICE Scoring Calculator"
       description="Score initiatives by Reach × Impact × Confidence ÷ Effort. Outliers (suspicious scores) are flagged for re-check."
     >
+      {hasExampleItems(items) && <ExampleNotice onClear={clearExample} />}
       <div ref={exportRef} className="space-y-4">
         <SectionCard title="Add initiative" icon={Plus}>
           <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
@@ -210,10 +231,13 @@ export function RiceScoringClient() {
               onChange={(e) => setEffort(e.target.value)}
             />
           </div>
-          <Button onClick={add} className="mt-3 gap-1">
-            <Plus className="w-4 h-4" />
-            Add & score
-          </Button>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button onClick={add} className="gap-1">
+              <Plus className="w-4 h-4" />
+              Add & score
+            </Button>
+            {items.length === 0 && <LoadExampleButton onLoad={loadExample} />}
+          </div>
         </SectionCard>
 
         {chartData.length > 0 && (
@@ -227,6 +251,7 @@ export function RiceScoringClient() {
                   filename="rice-scores"
                   csvData={csvData}
                   jsonData={ranked}
+                  markdown={markdown}
                   targetRef={exportRef}
                 />
               </>

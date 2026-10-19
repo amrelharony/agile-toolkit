@@ -250,7 +250,13 @@ function xpForEvent(name: string): { amount: number; source: XpSource } {
   // The export helpers (utils/export.ts) dispatch the format-specific
   // names so `export-master` can count per-format; all of them are worth
   // the same 5 XP as the legacy bare "export".
-  if (name === "export" || name === "export-png" || name === "export-csv" || name === "export-json")
+  if (
+    name === "export" ||
+    name === "export-png" ||
+    name === "export-csv" ||
+    name === "export-json" ||
+    name === "export-markdown"
+  )
     return { amount: 5, source: "click" };
   if (name === "prompt-copied") return { amount: 10, source: "click" };
   if (name.startsWith("secret:")) return { amount: 100, source: "secret" };
@@ -538,7 +544,8 @@ export function dispatch(event: GamificationEvent) {
       name === "hover" ||
       name === "export-png" ||
       name === "export-csv" ||
-      name === "export-json"
+      name === "export-json" ||
+      name === "export-markdown"
     ) {
       useVDnaStore.getState().bumpCounter(name, 1);
     }
@@ -597,7 +604,12 @@ export function dispatch(event: GamificationEvent) {
     // format-specific names (so `export-master` can count per-format), but
     // the challenge trigger is the bare `export` — bridge it, same pattern
     // as secret-found above.
-    if (name === "export-png" || name === "export-csv" || name === "export-json") {
+    if (
+      name === "export-png" ||
+      name === "export-csv" ||
+      name === "export-json" ||
+      name === "export-markdown"
+    ) {
       advanceChallenges("export", meta);
     }
     // Wire the mood-log day streak: `mood-streak` reads

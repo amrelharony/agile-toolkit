@@ -54,7 +54,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
 import { Plus, Trash2, GripVertical, Pencil, Map, ArrowRightLeft } from "lucide-react";
+import { buildExampleSlices, buildExampleSteps } from "./example";
+import { toMarkdown } from "./markdown";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                      */
@@ -120,63 +127,13 @@ function makeId() {
   return crypto.randomUUID();
 }
 
-// R5: deterministic ids for the seed steps so server-render and
-// client-hydrate produce the same DOM. Random UUIDs at module-eval time
-// produced an SSR/client mismatch on the very first visit (before any
-// persisted state existed). User-added steps continue to use makeId().
-function buildDefaultSteps(): Step[] {
-  return [
-    { id: "story-mapper-step-discover", name: "Discover" },
-    { id: "story-mapper-step-learn", name: "Learn" },
-    { id: "story-mapper-step-use", name: "Use" },
-  ];
-}
-
-// R5: deterministic seed ids so SSR + CSR produce identical DOM.
-function buildDefaultSlices(steps: Step[]): Slice[] {
-  const [s1, s2, s3] = steps;
-  return [
-    {
-      id: "story-mapper-slice-skeleton",
-      name: "Walking Skeleton",
-      cards: {
-        [s1.id]: [
-          {
-            id: "story-mapper-card-browse",
-            title: "Browse product catalog",
-            description: "Users can view available products in a list.",
-            color: "#00f0ff",
-          },
-        ],
-        [s2.id]: [
-          {
-            id: "story-mapper-card-details",
-            title: "Read product details",
-            description: "Users can click a product to see full details.",
-            color: "#a78bfa",
-          },
-        ],
-        [s3.id]: [],
-      },
-    },
-    {
-      id: "story-mapper-slice-mvp",
-      name: "MVP",
-      cards: {
-        [s1.id]: [],
-        [s2.id]: [],
-        [s3.id]: [
-          {
-            id: "story-mapper-card-cart",
-            title: "Add to cart",
-            description: "Users can add items to a shopping cart.",
-            color: "#34d399",
-          },
-        ],
-      },
-    },
-  ];
-}
+// The default map is the example map (./example). R5: its ids are fixed, so
+// server-render and client-hydrate produce the same DOM; random UUIDs at
+// module-eval time produced an SSR/client mismatch on the very first visit
+// (before any persisted state existed). User-added rows use makeId(). Maps
+// saved before the ids gained their `example-` prefix keep their old ids.
+const buildDefaultSteps: () => Step[] = buildExampleSteps;
+const buildDefaultSlices: (steps: Step[]) => Slice[] = buildExampleSlices;
 
 /* -------------------------------------------------------------------------- */
 /*  Store                                                                      */
@@ -410,6 +367,65 @@ function restoreSlice(slice: Slice, index: number) {
   const slices = [...cur.slices];
   slices.splice(Math.min(index, slices.length), 0, { ...slice, cards });
   set({ slices });
+}
+
+/* -- Example map ----------------------------------------------------------- */
+
+/**
+ * Put the example map in front of the (card-less) steps and slices already
+ * there, so nothing the user named is lost: "Load an example" only shows
+ * while the map has no stories.
+ */
+function loadExampleMap() {
+  const cur = currentStoryMap();
+  const exSteps = buildExampleSteps();
+  const exSlices = buildExampleSlices(exSteps);
+  const steps = [...exSteps, ...cur.steps.filter((st) => !exSteps.some((e) => e.id === st.id))];
+  const withCells = (sl: Slice): Slice => ({
+    ...sl,
+    cards: Object.fromEntries(steps.map((st) => [st.id, sl.cards[st.id] ?? []])),
+  });
+  set({
+    steps,
+    slices: [...exSlices, ...cur.slices.filter((sl) => !exSlices.some((e) => e.id === sl.id))].map(
+      withCells
+    ),
+  });
+}
+
+/**
+ * The map without its example rows: every example card, then each example
+ * step or slice left with no stories. A step or slice holding the user's own
+ * cards stays, whatever its id. Can leave the map with no steps or slices,
+ * which is its empty state.
+ */
+function withoutExample(map: { steps: Step[]; slices: Slice[] }): {
+  steps: Step[];
+  slices: Slice[];
+} {
+  const slices = map.slices.map((sl) => ({
+    ...sl,
+    cards: Object.fromEntries(
+      Object.entries(sl.cards).map(([stepId, cards]) => [
+        stepId,
+        cards.filter((c) => !isExampleId(c.id)),
+      ])
+    ),
+  }));
+  const steps = map.steps.filter(
+    (st) => !isExampleId(st.id) || slices.some((sl) => (sl.cards[st.id] ?? []).length > 0)
+  );
+  const removedSteps = map.steps.filter((st) => !steps.includes(st)).map((st) => st.id);
+  return {
+    steps,
+    slices: slices
+      .filter((sl) => !isExampleId(sl.id) || steps.some((st) => (sl.cards[st.id] ?? []).length > 0))
+      .map((sl) => {
+        const cards = { ...sl.cards };
+        for (const id of removedSteps) delete cards[id];
+        return { ...sl, cards };
+      }),
+  };
 }
 
 // Selector-overload hook mirroring the prior zustand store: callable bare
@@ -985,7 +1001,7 @@ export function StoryMapperClient() {
   };
 
   // Reset replaces the whole map, so it asks first, unless the map is still
-  // the untouched example and there is nothing to lose.
+  // the untouched example or empty, and there is nothing to lose.
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
   const storyCount = slices.reduce(
     (acc, sl) => acc + steps.reduce((a, st) => a + (sl.cards[st.id]?.length ?? 0), 0),
@@ -998,6 +1014,24 @@ export function StoryMapperClient() {
       JSON.stringify(example.slices) === JSON.stringify(slices)
     );
   }, [steps, slices]);
+  const isEmptyMap = steps.length === 0 && slices.length === 0;
+
+  // Example cards on the map. Their steps and slices don't count: those can
+  // end up holding the user's own cards, and the notice would never go away.
+  const hasExampleCards = slices.some((sl) =>
+    steps.some((st) => (sl.cards[st.id] ?? []).some((c) => isExampleId(c.id)))
+  );
+  // Neither is logged: the example isn't the user's own work.
+  const clearExample = () => {
+    const prev = { steps, slices };
+    undoable({
+      label: "Cleared the example",
+      apply: () => set(withoutExample(currentStoryMap())),
+      revert: () => set(prev),
+    });
+  };
+
+  const markdown = useMemo(() => toMarkdown({ steps, slices }), [steps, slices]);
 
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
@@ -1167,6 +1201,7 @@ export function StoryMapperClient() {
       description="Map user journeys horizontally as steps, slice vertically by release priority, and fill cells with story cards."
       category="Sprint Planning & Estimation"
     >
+      {hasExampleCards && <ExampleNotice onClear={clearExample} />}
       <DndContext
         sensors={sensors}
         accessibility={accessibility}
@@ -1189,16 +1224,27 @@ export function StoryMapperClient() {
                 filename="story-map"
                 clipboardText={clipboardText}
                 jsonData={jsonData}
+                markdown={markdown}
               />
               <Button
                 variant="danger-ghost"
                 size="sm"
-                onClick={() => (isExampleMap ? reset() : setConfirmResetOpen(true))}
+                onClick={() => (isExampleMap || isEmptyMap ? reset() : setConfirmResetOpen(true))}
               >
                 Reset
               </Button>
             </div>
           </div>
+
+          {storyCount === 0 && (
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-sub">
+              <p className="min-w-0 flex-1">
+                No stories yet. Add the steps of the user&apos;s journey along the top, release
+                slices down the side, then fill the cells with story cards.
+              </p>
+              <LoadExampleButton onLoad={loadExampleMap} />
+            </div>
+          )}
 
           {/* ---- Board ---- */}
           <ScrollArea className="w-full rounded-xl border border-border bg-surface">

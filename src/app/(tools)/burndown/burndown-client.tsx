@@ -39,6 +39,12 @@ import { Label } from "@/components/ui/label";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { useChartHeight } from "@/hooks/use-chart-height";
 import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import {
   BarChart3,
   Plus,
   Trash2,
@@ -48,6 +54,8 @@ import {
   Minus,
   Flag,
 } from "lucide-react";
+import { buildExample } from "./example";
+import { toMarkdown } from "./markdown";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                       */
@@ -247,6 +255,43 @@ function restoreEntry(entry: DayEntry, index: number) {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Example                                                                    */
+/* -------------------------------------------------------------------------- */
+
+// Both write with `setState`, like the undo restores above, so neither is a
+// time-travel step, and neither is logged: the example isn't the user's work.
+
+/** Swap the blank sprint for the example. Only offered while nothing is logged. */
+function loadExample() {
+  useBurndownStore.setState(buildExample());
+}
+
+/**
+ * Drop the example days and refill the sprint with blank ones (day 0 holds the
+ * scope, as on a fresh sprint). The user's own days stay. The example moved
+ * the start date back six days, so the sprint starts today again.
+ */
+function clearExampleDays() {
+  const { config, entries } = useBurndownStore.getState();
+  const kept = entries.filter((e) => !isExampleId(e.id));
+  const days = new Set(kept.map((e) => e.day));
+  const blank: DayEntry[] = [];
+  for (let day = 0; day <= config.sprintDays; day++) {
+    if (days.has(day)) continue;
+    blank.push({
+      id: crypto.randomUUID(),
+      day,
+      remaining: day === 0 ? config.totalPoints : null,
+      scopeChange: false,
+    });
+  }
+  useBurndownStore.setState({
+    config: { ...config, sprintStartDate: todayLocalISO() },
+    entries: [...blank, ...kept].sort((a, b) => a.day - b.day),
+  });
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
@@ -414,6 +459,15 @@ export function BurndownClient() {
   const loggedDays = entries.filter(
     (e) => (e.day > 0 && e.remaining !== null) || e.description || e.scopeChange
   ).length;
+
+  const clearExample = () => {
+    const { config: prevConfig, entries: prevEntries } = useBurndownStore.getState();
+    undoable({
+      label: "Cleared the example",
+      apply: clearExampleDays,
+      revert: () => useBurndownStore.setState({ config: prevConfig, entries: prevEntries }),
+    });
+  };
 
   // First run: start the sprint today instead of on the static default.
   // `setState` goes around withTimeTravel's wrapped `set`, so this isn't an
@@ -613,6 +667,8 @@ export function BurndownClient() {
     [chartData]
   );
 
+  const markdown = useMemo(() => toMarkdown({ config, entries }), [config, entries]);
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Burndown Chart",
@@ -644,7 +700,18 @@ export function BurndownClient() {
       description="Track sprint progress with ideal vs. actual remaining points, today marker, and scope change annotations."
       category="Metrics & Dashboards"
     >
+      {hasExampleItems(entries) && <ExampleNotice onClear={clearExample} />}
       <div className="space-y-6">
+        {loggedDays === 0 && (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-sub">
+            <p className="min-w-0 flex-1">
+              No days logged yet. Set up the sprint below, then log the points remaining at the end
+              of each day.
+            </p>
+            <LoadExampleButton onLoad={loadExample} />
+          </div>
+        )}
+
         {/* ---- Summary Stats ---- */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="Total Points" value={config.totalPoints} unit="pts" icon={BarChart3} />
@@ -771,7 +838,12 @@ export function BurndownClient() {
           headerExtras={
             <>
               <AiPromptGenerator config={promptConfig} />
-              <ExportButton filename="burndown-chart" csvData={csvData} targetRef={chartRef} />
+              <ExportButton
+                filename="burndown-chart"
+                csvData={csvData}
+                markdown={markdown}
+                targetRef={chartRef}
+              />
             </>
           }
         >

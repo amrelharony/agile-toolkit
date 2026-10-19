@@ -15,6 +15,12 @@ import { STANDUP_ACTIONS } from "@/lib/history/event-actions";
 import { undoable } from "@/lib/utils/undoable";
 import { selectEvents } from "@/lib/history/selectors";
 import { useHistoryStore } from "@/lib/history/history-store";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
@@ -33,6 +39,8 @@ import {
   Calendar,
   FileText,
 } from "lucide-react";
+import { buildExample } from "./example";
+import { toMarkdown } from "./markdown";
 
 /* -------------------------------------------------------------------------- */
 /*  Helpers                                                                   */
@@ -506,6 +514,7 @@ export function StandupClient() {
   const entries = useWorkspaceStore(useShallow((s) => s.standupEntries ?? []));
   const teamMembers = useWorkspaceStore(useShallow((s) => s.teamMembers ?? []));
   const upsertStandupEntry = useWorkspaceStore((s) => s.upsertStandupEntry);
+  const removeStandupEntry = useWorkspaceStore((s) => s.removeStandupEntry);
   const upsertTeamMember = useWorkspaceStore((s) => s.upsertTeamMember);
   const removeTeamMember = useWorkspaceStore((s) => s.removeTeamMember);
 
@@ -567,6 +576,15 @@ export function StandupClient() {
     if (e) upsertStandupEntry({ ...e, blockerResolved: true });
   };
   const resetRaw = () => useWorkspaceStore.setState({ standupEntries: [] });
+  // Example entries are written like any other entry but never logged, so
+  // they don't count as a submitted standup in history, XP or streaks. The
+  // shared team roster is left alone; clearing removes only example entries.
+  const loadExample = () => {
+    for (const e of buildExample()) upsertStandupEntry(e);
+  };
+  const clearExample = () => {
+    for (const e of entries) if (isExampleId(e.id)) removeStandupEntry(e.id);
+  };
   const { log } = useHistoryLogger("standup");
 
   // Form state — split into two non-fighting fields: a select for picking an
@@ -701,6 +719,9 @@ export function StandupClient() {
   /* -- Weekly digest text -------------------------------------------------- */
   const weeklyDigest = useMemo(() => generateWeeklyDigest(entries), [entries]);
 
+  /* -- Today's standup as Markdown ----------------------------------------- */
+  const markdown = useMemo(() => toMarkdown(entries), [entries]);
+
   /* -- AI prompt config --------------------------------------------------- */
   const promptConfig = useMemo(
     () => ({
@@ -733,6 +754,7 @@ export function StandupClient() {
       description="Log daily standups, track blockers, and generate digests for async teams."
       category="Ceremonies"
     >
+      {hasExampleItems(entries) && <ExampleNotice onClear={clearExample} />}
       <div className="space-y-6">
         {/* ---- Top controls ---- */}
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -756,7 +778,12 @@ export function StandupClient() {
               Clear Entries
             </Button>
             <AiPromptGenerator config={promptConfig} />
-            <ExportButton filename="standup-all" csvData={csvData} clipboardText={weeklyDigest} />
+            <ExportButton
+              filename="standup-all"
+              csvData={csvData}
+              clipboardText={weeklyDigest}
+              markdown={markdown}
+            />
           </div>
         </div>
 
@@ -887,6 +914,11 @@ export function StandupClient() {
                   <p id="standup-submit-hint" className="text-xs text-sub text-center">
                     {submitBlockedReason}
                   </p>
+                )}
+                {entries.length === 0 && (
+                  <div className="flex justify-center pt-1">
+                    <LoadExampleButton onLoad={loadExample} />
+                  </div>
                 )}
               </div>
             </SectionCard>

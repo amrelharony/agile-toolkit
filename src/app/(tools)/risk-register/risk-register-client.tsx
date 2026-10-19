@@ -52,6 +52,14 @@ import { emit as sonify } from "@/lib/sonification/emit";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { undoable } from "@/lib/utils/undoable";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { buildExample } from "./example";
+import { toMarkdown } from "./markdown";
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -238,6 +246,32 @@ export function RiskRegisterClient() {
     });
   };
 
+  // Loading is offered only on an empty register. Neither is logged: the
+  // example isn't the user's own work.
+  const loadExample = () => setRisks((r) => [...buildExample(), ...r]);
+  const clearExample = () => {
+    const removed = risks
+      .map((risk, index) => ({ risk, index }))
+      .filter(({ risk }) => isExampleId(risk.id));
+    undoable({
+      label: "Cleared the example",
+      apply: () => setRisks((r) => r.filter((x) => !isExampleId(x.id))),
+      // Each back at its old position (unless something already put it back).
+      revert: () =>
+        setRisks((r) => {
+          const next = [...r];
+          for (const { risk, index } of removed) {
+            if (!next.some((x) => x.id === risk.id)) {
+              next.splice(Math.min(index, next.length), 0, risk);
+            }
+          }
+          return next;
+        }),
+    });
+  };
+
+  const markdown = useMemo(() => toMarkdown(risks), [risks]);
+
   const matrix = useMemo(() => {
     const grid = Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => 0));
     // Exclude "closed" AND "accepted" — accepted risks are explicitly
@@ -396,6 +430,7 @@ export function RiskRegisterClient() {
       description="Track risks on a 5×5 probability × impact matrix with mitigation plans and time-to-mitigate survival analysis."
       category="Risk & Governance"
     >
+      {hasExampleItems(risks) && <ExampleNotice onClear={clearExample} />}
       <ActionRow>
         <WorkspaceSyncButton toolName="Risk Register" onImport={handleImport} onPush={handlePush} />
         <AiPromptGenerator config={promptConfig} />
@@ -426,6 +461,7 @@ export function RiskRegisterClient() {
             ]),
           }}
           jsonData={risks}
+          markdown={markdown}
         />
         <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
           <Plus className="w-4 h-4" />
@@ -760,7 +796,7 @@ export function RiskRegisterClient() {
             );
           })}
         {risks.length === 0 && (
-          <EmptyState icon={ShieldAlert}>
+          <EmptyState icon={ShieldAlert} action={<LoadExampleButton onLoad={loadExample} />}>
             No risks logged. Click &ldquo;New Risk&rdquo; to start.
           </EmptyState>
         )}

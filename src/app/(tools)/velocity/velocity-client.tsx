@@ -38,7 +38,16 @@ import { mannKendall } from "@/lib/analytics/trend-test";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BlurInput } from "@/components/shared/blur-fields";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  exampleId,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
 import { Plus, Trash2, Activity, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { buildExampleSprints } from "./example";
+import { toMarkdown } from "./markdown";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -64,31 +73,31 @@ interface VelocityStore {
 /*  Default data                                                              */
 /* -------------------------------------------------------------------------- */
 
-// Deterministic default IDs so server-rendered HTML matches client-rendered
-// HTML at hydration time. Calling `crypto.randomUUID()` at module load
-// produced distinct values on server vs client and triggered React's
+// The default rows are the example sprints (./example). Their ids are
+// deterministic so server-rendered HTML matches client-rendered HTML at
+// hydration time. Calling `crypto.randomUUID()` at module load produced
+// distinct values on server vs client and triggered React's
 // hydration-mismatch warning on every fresh visit.
 //
-// User-added sprints still get proper UUIDs (see `createSprint`); these
-// `default:` prefixed IDs only live until the user edits or resets, at
-// which point they're either replaced piecewise or wholesale.
-function buildDefaultSprints(): Sprint[] {
-  return [
-    { id: "default:sprint-1", name: "Sprint 1", committed: 34, completed: 28 },
-    { id: "default:sprint-2", name: "Sprint 2", committed: 30, completed: 32 },
-    { id: "default:sprint-3", name: "Sprint 3", committed: 36, completed: 35 },
-  ];
-}
+// User-added sprints still get proper UUIDs (see `createSprint`); the
+// example ids only live until the user clears, deletes or resets them.
+const buildDefaultSprints: () => Sprint[] = buildExampleSprints;
+
+// Rows saved before the example ids existed carry `default:sprint-N`.
+const LEGACY_SEED_PREFIX = "default:";
 
 // A row still carrying the exact demo-seed values (and no description) is
 // presentation-only: it must never be bridged into the workspace store as
 // real velocity history. Editing any field makes it "real". Matching by
-// value (not just the `default:` id prefix) means an edited seed row IS
-// bridged — updateSprint keeps the original id.
+// value (not just the id prefix) means an edited seed row IS bridged —
+// updateSprint keeps the original id.
 function isUntouchedSeedSprint(s: Sprint): boolean {
+  const id = s.id.startsWith(LEGACY_SEED_PREFIX)
+    ? exampleId(s.id.slice(LEGACY_SEED_PREFIX.length))
+    : s.id;
   return buildDefaultSprints().some(
     (d) =>
-      d.id === s.id &&
+      d.id === id &&
       d.name === s.name &&
       d.committed === s.committed &&
       d.completed === s.completed &&
@@ -456,10 +465,28 @@ export function VelocityClient() {
     });
   };
   // Reset replaces every row with the example sprints, so it asks first,
-  // unless the rows are still exactly those examples.
+  // unless there are none or the rows are still exactly those examples.
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
   const isExampleData =
-    sprints.length === buildDefaultSprints().length && sprints.every(isUntouchedSeedSprint);
+    sprints.length === 0 ||
+    (sprints.length === buildDefaultSprints().length && sprints.every(isUntouchedSeedSprint));
+
+  // Loading is Reset's write, offered only when there are no sprints to
+  // replace. Neither is logged: the example isn't the user's own work.
+  const loadExample = () => resetRaw();
+  const clearExample = () => {
+    const prevSprints = useVelocityStore.getState().sprints;
+    undoable({
+      label: "Cleared the example",
+      // Same `setState` route as restoreSprint; the bridge drops the rows
+      // from the workspace too.
+      apply: () =>
+        useVelocityStore.setState({
+          sprints: useVelocityStore.getState().sprints.filter((s) => !isExampleId(s.id)),
+        }),
+      revert: () => useVelocityStore.setState({ sprints: prevSprints }),
+    });
+  };
 
   const logSprintCommit = (
     id: string,
@@ -621,6 +648,8 @@ export function VelocityClient() {
     [sprints]
   );
 
+  const markdown = useMemo(() => toMarkdown(sprints), [sprints]);
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Velocity Tracker",
@@ -650,6 +679,7 @@ export function VelocityClient() {
       description="Track your team's sprint velocity with rolling averages and trend analysis."
       category="Metrics & Dashboards"
     >
+      {hasExampleItems(sprints) && <ExampleNotice onClear={clearExample} />}
       <div ref={exportRef} className="space-y-6">
         {/* ---- Stats Cards ---- */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -690,7 +720,12 @@ export function VelocityClient() {
           headerExtras={
             <>
               <AiPromptGenerator config={promptConfig} />
-              <ExportButton filename="velocity-tracker" csvData={csvData} targetRef={exportRef} />
+              <ExportButton
+                filename="velocity-tracker"
+                csvData={csvData}
+                markdown={markdown}
+                targetRef={exportRef}
+              />
             </>
           }
         >
@@ -918,6 +953,15 @@ export function VelocityClient() {
             <span className="text-xs text-sub font-medium uppercase tracking-wider">Completed</span>
             <span className="w-9" />
           </div>
+
+          {sprints.length === 0 && (
+            <div className="flex flex-col items-center gap-3 py-6 text-center text-sm text-sub">
+              <p>
+                No sprints yet. Add each finished sprint with its committed and completed points.
+              </p>
+              <LoadExampleButton onLoad={loadExample} />
+            </div>
+          )}
 
           {sprints.map((sp) => (
             <div

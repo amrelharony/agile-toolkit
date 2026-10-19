@@ -47,6 +47,14 @@ import { emit as sonify } from "@/lib/sonification/emit";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { KANBAN_ACTIONS } from "@/lib/history/event-actions";
 import { undoable } from "@/lib/utils/undoable";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { buildExample } from "./example";
+import { toMarkdown } from "./markdown";
 
 type ColumnId = "backlog" | "ready" | "in_progress" | "review" | "done";
 
@@ -299,6 +307,14 @@ export function KanbanClient() {
         [col]: Number.isFinite(n) ? Math.max(0, Math.min(999, Math.floor(n))) : 0,
       },
     }));
+  // Example cards go through the same setter but are never logged or
+  // sonified: loading an example isn't the user's own work. The board is a
+  // singleton, so clearing drops only the example cards and keeps the
+  // user's cards and WIP limits.
+  const loadExample = () => setState((s) => ({ ...s, cards: [...s.cards, ...buildExample()] }));
+  const clearExample = () =>
+    setState((s) => ({ ...s, cards: s.cards.filter((c) => !isExampleId(c.id)) }));
+
   const setClass = (id: string, cls: ClassOfService) => {
     setState((s) => ({
       ...s,
@@ -492,6 +508,11 @@ export function KanbanClient() {
     [state.cards, state.wipLimits, cycleAvg, cycleP85, throughputLast7]
   );
 
+  const markdown = useMemo(
+    () => toMarkdown({ cards: state.cards, wipLimits: state.wipLimits }),
+    [state.cards, state.wipLimits]
+  );
+
   return (
     <ToolPageWrapper
       toolId="kanban"
@@ -499,6 +520,7 @@ export function KanbanClient() {
       description="WIP-limited flow with classes of service, cycle-time analysis, and throughput forecasting."
       category="Flow & Delivery"
     >
+      {hasExampleItems(state.cards) && <ExampleNotice onClear={clearExample} />}
       <ActionRow>
         <AiPromptGenerator config={promptConfig} />
         <ExportButton
@@ -526,6 +548,7 @@ export function KanbanClient() {
             ]),
           }}
           jsonData={state}
+          markdown={markdown}
         />
       </ActionRow>
 
@@ -709,6 +732,14 @@ export function KanbanClient() {
           className="bg-surface border-border resize-none text-xs"
           aria-label="New card description"
         />
+        {state.cards.length === 0 && (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-xs text-sub">
+              No cards yet. Add your first one, or load an example board to see WIP limits at work.
+            </p>
+            <LoadExampleButton onLoad={loadExample} />
+          </div>
+        )}
       </div>
 
       {/* Column grid — mobile-first.

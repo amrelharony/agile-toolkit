@@ -24,6 +24,14 @@ import { bayesianForecastConfidence } from "@/lib/analytics/forecasting-bayesian
 import { hasRecentChangepoint } from "@/lib/analytics/changepoint";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { SmartInput } from "@/components/shared/smart-input";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { buildExampleMembers } from "./example";
+import { toMarkdown } from "./markdown";
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -153,6 +161,33 @@ function restoreMember(member: TeamMember, index: number) {
   const members = [...plan.members];
   members.splice(Math.min(index, members.length), 0, member);
   useWorkspaceStore.getState().upsertCapacityPlan({ ...plan, members });
+}
+
+/* -- Example --------------------------------------------------------------- */
+// Neither is logged: the example isn't the user's own work.
+
+/** A member with nothing typed in: the blank row a fresh plan starts with. */
+function isBlankMember(m: TeamMember): boolean {
+  return !m.name.trim() && !m.role.trim() && !m.description?.trim();
+}
+
+/** The example team, in place of the blank starter row. Settings are kept. */
+function loadExampleTeam() {
+  const plan = currentPlan();
+  useWorkspaceStore.getState().upsertCapacityPlan({
+    ...plan,
+    members: [...buildExampleMembers(), ...plan.members.filter((m) => !isBlankMember(m))],
+  });
+}
+
+/** The plan without its example members; an emptied plan gets a blank row, as after Reset. */
+function clearExampleTeam() {
+  const plan = currentPlan();
+  const members = plan.members.filter((m) => !isExampleId(m.id));
+  useWorkspaceStore.getState().upsertCapacityPlan({
+    ...plan,
+    members: members.length > 0 ? members : [createMember()],
+  });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -490,6 +525,15 @@ export function CapacityPlannerClient() {
     members.length > 1 ||
     members.some((m) => m.name.trim() || m.role.trim() || m.description?.trim());
 
+  const clearExample = () => {
+    const prev = currentPlan();
+    undoable({
+      label: "Cleared the example",
+      apply: clearExampleTeam,
+      revert: () => useWorkspaceStore.getState().upsertCapacityPlan(prev),
+    });
+  };
+
   const exportRef = useRef<HTMLDivElement>(null);
 
   const calculations = useMemo(() => {
@@ -553,6 +597,8 @@ export function CapacityPlannerClient() {
     return lines.join("\n");
   }, [config, calculations]);
 
+  const markdown = useMemo(() => toMarkdown({ members, config }), [members, config]);
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Capacity Planner",
@@ -570,6 +616,7 @@ export function CapacityPlannerClient() {
       description="Calculate your team's effective sprint capacity based on availability, time off, ceremony overhead, and focus factor."
       category="Sprint Planning & Estimation"
     >
+      {hasExampleItems(members) && <ExampleNotice onClear={clearExample} />}
       <div ref={exportRef} className="space-y-6">
         {/* ---- Summary Cards ---- */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -749,6 +796,7 @@ export function CapacityPlannerClient() {
                 clipboardText={clipboardText}
                 csvData={csvData}
                 jsonData={jsonData}
+                markdown={markdown}
                 targetRef={exportRef}
               />
               <Button
@@ -765,6 +813,16 @@ export function CapacityPlannerClient() {
             </>
           }
         >
+          {!hasMembers && (
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-sub">
+              <p className="min-w-0 flex-1">
+                No team yet. Add each member&apos;s availability and days off to see the
+                sprint&apos;s real capacity.
+              </p>
+              <LoadExampleButton onLoad={loadExampleTeam} />
+            </div>
+          )}
+
           {/* Column headers (visible on md+) */}
           <div className="hidden md:grid grid-cols-[1fr_1fr_0.6fr_0.5fr_0.6fr_auto] gap-3 px-1 pb-1 border-b border-border">
             <span className="text-xs text-sub font-medium uppercase tracking-wider">Name</span>

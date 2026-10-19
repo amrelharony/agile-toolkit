@@ -37,6 +37,15 @@ import { OKR_ACTIONS } from "@/lib/history/event-actions";
 import { ActionRow } from "@/components/shared/action-row";
 import { EmptyState } from "@/components/shared/empty-state";
 import { undoable } from "@/lib/utils/undoable";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
+import { buildExample } from "./example";
+import { toMarkdown } from "./markdown";
+import { krProgress, objectiveHealth } from "./progress";
 // usePersisted no longer used — workspace store is the single source of truth.
 
 /** A name short enough for a one-line toast. */
@@ -116,23 +125,6 @@ function emptyOkr(): Okr {
 function currentQuarter(): string {
   const now = new Date();
   return `${now.getFullYear()} Q${Math.floor(now.getMonth() / 3) + 1}`;
-}
-
-function krProgress(kr: KeyResult): number {
-  // Guard against bad data: NaN/Infinity from `current` divided by `target`,
-  // negative targets (the UI may allow them via free-form input), and
-  // legitimate zero targets. Without these, a single corrupted KR (e.g.,
-  // imported from JSON) used to NaN-propagate into the radar chart.
-  if (!Number.isFinite(kr.target) || kr.target === 0) return 0;
-  if (!Number.isFinite(kr.current)) return 0;
-  const pct = kr.current / kr.target;
-  if (!Number.isFinite(pct)) return 0;
-  return Math.max(0, Math.min(1, pct));
-}
-
-function objectiveHealth(okr: Okr): number {
-  if (okr.keyResults.length === 0) return 0;
-  return okr.keyResults.reduce((a, kr) => a + krProgress(kr), 0) / okr.keyResults.length;
 }
 
 export function OkrsClient() {
@@ -226,6 +218,17 @@ export function OkrsClient() {
     });
   };
 
+  // Example objectives are written like any other but never logged: loading
+  // an example isn't the user's own planning work.
+  const loadExample = () => {
+    for (const o of buildExample()) upsertOkr(o);
+  };
+  const clearExample = () => {
+    for (const o of okrs) if (isExampleId(o.id)) removeOkr(o.id);
+  };
+
+  const markdown = useMemo(() => toMarkdown(okrs), [okrs]);
+
   const promptConfig = useMemo(
     () => ({
       toolName: "OKR Tracker",
@@ -294,6 +297,7 @@ export function OkrsClient() {
       description="Track quarterly Objectives and Key Results with confidence scores and trajectory forecasts."
       category="Outcomes & Pulse"
     >
+      {hasExampleItems(okrs) && <ExampleNotice onClear={clearExample} />}
       <ActionRow>
         <AiPromptGenerator config={promptConfig} />
         <ExportButton
@@ -325,6 +329,7 @@ export function OkrsClient() {
             ),
           }}
           jsonData={okrs}
+          markdown={markdown}
         />
         <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
           <Plus className="w-4 h-4" />
@@ -334,7 +339,7 @@ export function OkrsClient() {
 
       <div className="space-y-4">
         {okrs.length === 0 && (
-          <EmptyState icon={Flag}>
+          <EmptyState icon={Flag} action={<LoadExampleButton onLoad={loadExample} />}>
             No objectives yet. Click &ldquo;New Objective&rdquo; to start.
           </EmptyState>
         )}

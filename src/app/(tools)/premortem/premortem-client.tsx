@@ -17,8 +17,17 @@ import type { Workspace } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PREMORTEM_ACTIONS } from "@/lib/history/event-actions";
 import { ActionRow } from "@/components/shared/action-row";
+import { EmptyState } from "@/components/shared/empty-state";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { undoable } from "@/lib/utils/undoable";
+import { EXAMPLE_SCENARIO, buildExample } from "./example";
+import { toMarkdown } from "./markdown";
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -172,6 +181,52 @@ export function PremortemClient() {
       },
     });
   };
+  // Loading is offered only on a blank premortem. Neither is logged: the
+  // example isn't the user's own work.
+  const loadExample = () => {
+    const example = buildExample();
+    // Its preventive actions are already written: blurring one later must
+    // not log PREVENTION_ADDED as the user's.
+    for (const c of example.causes) {
+      if (c.preventiveAction?.trim()) preventionLoggedRef.current.add(c.id);
+    }
+    setState((s) => ({
+      scenario: s.scenario.trim() ? s.scenario : example.scenario,
+      causes: [...s.causes, ...example.causes],
+    }));
+  };
+  // Removes the example causes, and the example scenario unless it was edited.
+  const clearExample = () => {
+    const removed = state.causes
+      .map((cause, index) => ({ cause, index }))
+      .filter(({ cause }) => isExampleId(cause.id));
+    const scenarioWasExample = state.scenario === EXAMPLE_SCENARIO;
+    undoable({
+      label: "Cleared the example",
+      apply: () =>
+        setState((s) => ({
+          scenario: s.scenario === EXAMPLE_SCENARIO ? "" : s.scenario,
+          causes: s.causes.filter((c) => !isExampleId(c.id)),
+        })),
+      // Each back in its slot (unless something already put it back).
+      revert: () =>
+        setState((s) => {
+          const causes = [...s.causes];
+          for (const { cause, index } of removed) {
+            if (!causes.some((c) => c.id === cause.id)) {
+              causes.splice(Math.min(index, causes.length), 0, cause);
+            }
+          }
+          return {
+            scenario: scenarioWasExample && !s.scenario.trim() ? EXAMPLE_SCENARIO : s.scenario,
+            causes,
+          };
+        }),
+    });
+  };
+
+  const markdown = useMemo(() => toMarkdown(state), [state]);
+
   const move = (id: string, dir: -1 | 1) =>
     setState((s) => {
       const idx = s.causes.findIndex((c) => c.id === id);
@@ -222,6 +277,7 @@ export function PremortemClient() {
       description="Imagine this project failed — what would have caused it? Rank causes and turn them into preventive actions."
       category="Risk & Governance"
     >
+      {hasExampleItems(state.causes) && <ExampleNotice onClear={clearExample} />}
       <ActionRow>
         <AiPromptGenerator config={promptConfig} />
         <ExportButton
@@ -250,6 +306,7 @@ export function PremortemClient() {
             ]),
           }}
           jsonData={state}
+          markdown={markdown}
         />
         <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
           <Plus className="w-4 h-4" />
@@ -275,6 +332,15 @@ export function PremortemClient() {
       </Card>
 
       <div className="space-y-2">
+        {state.causes.length === 0 && (
+          <EmptyState
+            icon={ScrollText}
+            action={state.scenario.trim() ? undefined : <LoadExampleButton onLoad={loadExample} />}
+          >
+            No causes yet. Imagine the project has failed, then click &ldquo;Add Cause&rdquo; for
+            each reason why.
+          </EmptyState>
+        )}
         {state.causes.map((c, idx) => {
           const score = c.likelihood * c.impact;
           return (

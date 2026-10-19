@@ -1,7 +1,15 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
+import { ActionRow } from "@/components/shared/action-row";
+import { ExportButton } from "@/components/shared/export-button";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  hasExampleItems,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
 import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +30,8 @@ import { useToolSonification } from "@/lib/sonification/use-sonification";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CEREMONY_TIMER_ACTIONS } from "@/lib/history/event-actions";
 import { undoable } from "@/lib/utils/undoable";
+import { buildExample } from "./example";
+import { toMarkdown, type Participant } from "./markdown";
 
 // ---------------------------------------------------------------------------
 // Types & constants
@@ -159,7 +169,7 @@ export function CeremonyTimerClient() {
 
   // Rotation mode
   const [rotationMode, setRotationMode] = useState(false);
-  const [participants, setParticipants] = useState<string[]>([]);
+  const [participants, setParticipants] = useState<Participant[]>([]);
   const [nameInput, setNameInput] = useState("");
   const [currentPerson, setCurrentPerson] = useState(0);
   const prevPersonRef = useRef(0);
@@ -228,7 +238,7 @@ export function CeremonyTimerClient() {
       : totalSeconds;
 
   const currentPersonName =
-    rotationMode && participants.length > 0 ? participants[currentPerson] : null;
+    rotationMode && participants.length > 0 ? (participants[currentPerson]?.name ?? null) : null;
 
   // ---------------------------------------------------------------------------
   // Timer tick
@@ -427,14 +437,15 @@ export function CeremonyTimerClient() {
 
   const addParticipant = () => {
     const name = nameInput.trim();
-    if (name && !participants.includes(name)) {
-      setParticipants((prev) => [...prev, name]);
+    if (name && !participants.some((p) => p.name === name)) {
+      setParticipants((prev) => [...prev, { id: crypto.randomUUID(), name }]);
       setNameInput("");
     }
   };
 
-  const removeParticipant = (name: string) => {
-    const index = participants.indexOf(name);
+  const removeParticipant = (participant: Participant) => {
+    const { id, name } = participant;
+    const index = participants.findIndex((p) => p.id === id);
     if (index < 0) return;
     undoable({
       label: `Removed “${shortName(name)}”`,
@@ -444,7 +455,7 @@ export function CeremonyTimerClient() {
         // that was fixed in the timer-tick effect (React 18 StrictMode invokes
         // updaters twice; nested setState + ref mutation in an updater is
         // unsafe).
-        const nextLen = Math.max(0, participants.filter((p) => p !== name).length);
+        const nextLen = Math.max(0, participants.filter((p) => p.id !== id).length);
         const max = Math.max(0, nextLen - 1);
         const newCp = Math.min(currentPerson, max);
         const newPrev = Math.min(prevPersonRef.current, max);
@@ -456,19 +467,67 @@ export function CeremonyTimerClient() {
         }
         prevPersonRef.current = newPrev;
         setCurrentPerson(newCp);
-        setParticipants((prev) => prev.filter((p) => p !== name));
+        setParticipants((prev) => prev.filter((p) => p.id !== id));
       },
       // Back in their speaking slot, unless they were re-added meanwhile
       // (names are unique, see addParticipant).
       revert: () =>
         setParticipants((prev) => {
-          if (prev.includes(name)) return prev;
+          if (prev.some((p) => p.id === id || p.name === name)) return prev;
           const next = [...prev];
-          next.splice(Math.min(index, next.length), 0, name);
+          next.splice(Math.min(index, next.length), 0, participant);
           return next;
         }),
     });
   };
+
+  // ---------------------------------------------------------------------------
+  // Example
+  // ---------------------------------------------------------------------------
+
+  // Offered only on an untouched timer. Not logged (selectPreset would log a
+  // preset change): the example isn't the user's own choice.
+  const loadExample = () => {
+    const { minutes, participants: speakers } = buildExample();
+    setTotalSeconds(minutes * 60);
+    setRemaining(minutes * 60);
+    setRunning(false);
+    setStarted(false);
+    setCurrentPerson(0);
+    prevPersonRef.current = 0;
+    setShowCustom(false);
+    setRotationMode(true);
+    setParticipants(speakers);
+  };
+
+  // Removes the example speakers. With none of the user's left and the timer
+  // not yet started, it also goes back to the blank timer the example was
+  // loaded into, where "Load an example" is offered again: no Undo needed.
+  const clearExample = () => {
+    const kept = participants.filter((p) => !isExampleId(p.id));
+    if (currentPerson !== 0 || prevPersonRef.current !== 0) {
+      suppressRotateSonifyRef.current = true;
+    }
+    prevPersonRef.current = 0;
+    setCurrentPerson(0);
+    setParticipants(kept);
+    if (kept.length === 0 && !started) {
+      setTotalSeconds(0);
+      setRemaining(0);
+      setRotationMode(false);
+    }
+  };
+
+  const markdown = useMemo(
+    () =>
+      toMarkdown({
+        ceremony: PRESETS.find((p) => p.minutes * 60 === totalSeconds)?.label,
+        totalSeconds,
+        rotationMode,
+        participants,
+      }),
+    [totalSeconds, rotationMode, participants]
+  );
 
   // ---------------------------------------------------------------------------
   // Render
@@ -481,6 +540,10 @@ export function CeremonyTimerClient() {
       description="Time-box agile ceremonies with preset or custom durations. Optional per-person rotation for standups."
       category="Ceremonies"
     >
+      {hasExampleItems(participants) && <ExampleNotice onClear={clearExample} />}
+      <ActionRow>
+        <ExportButton filename="ceremony-agenda" markdown={markdown} />
+      </ActionRow>
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
         {/* ----------------------------------------------------------------- */}
         {/* Left column -- Timer display */}
@@ -627,13 +690,20 @@ export function CeremonyTimerClient() {
               </Button>
             </div>
 
+            {totalSeconds === 0 && participants.length === 0 && !isFullscreen && (
+              <div className="flex flex-col items-center gap-2 text-center text-sm text-sub">
+                <p>Pick a ceremony preset to start, or see a standup set up for five speakers.</p>
+                <LoadExampleButton onLoad={loadExample} />
+              </div>
+            )}
+
             {/* Rotation status bar */}
             {rotationMode && participants.length > 0 && started && (
               <div className="w-full max-w-xs">
                 <div className="flex gap-1">
                   {participants.map((p, i) => (
                     <div
-                      key={`${i}-${p}`}
+                      key={p.id}
                       className="flex-1 h-2 rounded-full transition-colors duration-300"
                       style={{
                         backgroundColor:
@@ -769,12 +839,9 @@ export function CeremonyTimerClient() {
                 {/* Participant list */}
                 {participants.length > 0 && (
                   <div className="flex flex-col gap-1">
-                    {participants.map((name, i) => (
+                    {participants.map((p, i) => (
                       <div
-                        // Index participates in the key so a list of two
-                        // identical names (rare but possible after a future
-                        // rename or paste) doesn't collapse into one row.
-                        key={`${i}-${name}`}
+                        key={p.id}
                         aria-current={started && i === currentPerson ? "step" : undefined}
                         className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${
                           started && i === currentPerson ? "bg-accent/10 text-accent" : "text-sub"
@@ -782,14 +849,14 @@ export function CeremonyTimerClient() {
                       >
                         <span className="flex items-center gap-2">
                           <span className="font-data text-xs opacity-50">{i + 1}.</span>
-                          {name}
+                          {p.name}
                         </span>
                         <Button
                           size="icon"
                           variant="ghost"
-                          onClick={() => removeParticipant(name)}
+                          onClick={() => removeParticipant(p)}
                           disabled={started && running}
-                          aria-label={`Remove ${name}`}
+                          aria-label={`Remove ${p.name}`}
                           className="min-touch-coarse h-6 w-6 opacity-40 hover:opacity-100 hover:text-[var(--destructive)]"
                         >
                           <X className="h-3 w-3" aria-hidden="true" />

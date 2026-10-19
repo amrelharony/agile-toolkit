@@ -9,11 +9,13 @@
  */
 
 import { useState, useCallback, useEffect, useMemo } from "react";
-import { Download, RotateCcw, Check, Eraser } from "lucide-react";
+import { RotateCcw, Eraser } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { ExportButton } from "@/components/shared/export-button";
+import { ExampleNotice, hasExampleItems, isExampleId } from "@/components/tool-frame/example-data";
 import { generateRetroPrompts } from "@/lib/ai-prompts/retro";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -27,7 +29,6 @@ import {
   CLUSTER_MIN_CARDS,
   CLUSTER_COLORS,
   extractCardFeatures,
-  buildExportText,
   buildExportJson,
   removeCardWithGroup,
   restoreRemovedCards,
@@ -35,6 +36,7 @@ import {
 import { PhaseIndicator } from "./phase-indicator";
 import { TimerWidget } from "./timer-widget";
 import { RetroColumnPanel } from "./retro-column-panel";
+import { toMarkdown } from "../markdown";
 import { themed, tint } from "@/lib/utils/theme-color";
 
 /** A name short enough for a one-line toast. */
@@ -47,15 +49,17 @@ export function Board({
   state,
   onUpdate,
   onReset,
+  onClearExample,
   logger,
 }: {
   state: BoardState;
   onUpdate: (updater: (prev: BoardState) => BoardState) => void;
   onReset: () => void;
+  /** Removes the example cards; the notice shows while any are on the board. */
+  onClearExample?: () => void;
   logger: HistoryLogger;
 }) {
   const { log } = logger;
-  const [copied, setCopied] = useState(false);
   const [confirmNewOpen, setConfirmNewOpen] = useState(false);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
 
@@ -296,34 +300,16 @@ export function Board({
     return { byCardId, counts, k: result.k };
   }, [state.cards]);
 
-  const handleExport = useCallback(async () => {
-    const text = buildExportText(state);
-    const json = buildExportJson(state);
-
-    // Copy to clipboard
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // ignore clipboard errors
-    }
-
-    // Download JSON. Revoke is deferred — Firefox/Safari can cancel the
-    // download if the blob URL is revoked synchronously after click().
-    const blob = new Blob([JSON.stringify(json, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    // Use the user's LOCAL date in the filename — `toISOString().slice(0,10)`
-    // emits UTC and stamps "tomorrow" for users west of UTC after their
-    // local evening, confusing later when sorting downloads by name.
-    a.download = `retro-${state.format.id}-${todayLocalISO()}.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, [state]);
+  // Exports read only the format and cards, so the timer's per-second ticks
+  // don't rebuild them.
+  const markdown = useMemo(
+    () => toMarkdown({ format: state.format, cards: state.cards }),
+    [state.format, state.cards]
+  );
+  const exportJson = useMemo(
+    () => buildExportJson({ format: state.format, cards: state.cards }),
+    [state.format, state.cards]
+  );
 
   const clearBoard = useCallback(() => {
     onUpdate((prev) => ({
@@ -340,8 +326,11 @@ export function Board({
   // they act at once; otherwise they confirm first.
   const cardCount = state.cards.length;
   const cardsLabel = `${cardCount} card${cardCount !== 1 ? "s" : ""}`;
+  // Example cards aren't kept under Past retros, so only the team's own count.
+  const ownCount = state.cards.filter((c) => !isExampleId(c.id)).length;
+  const ownCardsLabel = `${ownCount} card${ownCount !== 1 ? "s" : ""}`;
   const requestNewRetro = () => {
-    if (cardCount === 0) onReset();
+    if (ownCount === 0) onReset();
     else setConfirmNewOpen(true);
   };
   const requestClearBoard = () => {
@@ -388,6 +377,7 @@ export function Board({
       description={state.format.description}
       category="Ceremonies"
     >
+      {onClearExample && hasExampleItems(state.cards) && <ExampleNotice onClear={onClearExample} />}
       <div className="space-y-5">
         {/* ── Board Header ─────────────────────────────────── */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -500,21 +490,13 @@ export function Board({
         {/* ── Footer actions ───────────────────────────────── */}
         <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-border">
           <AiPromptGenerator config={promptConfig} />
-          <Button
-            onClick={handleExport}
-            variant="outline"
-            className="border-border text-sub hover:border-accent-cyan/50 hover:text-accent"
-          >
-            {copied ? (
-              <>
-                <Check className="w-4 h-4 mr-2 text-accent-green" /> Copied!
-              </>
-            ) : (
-              <>
-                <Download className="w-4 h-4 mr-2" /> Export Board
-              </>
-            )}
-          </Button>
+          {/* The user's LOCAL date in the filename: `toISOString()` is UTC and
+              stamps "tomorrow" for users west of UTC in their evening. */}
+          <ExportButton
+            filename={`retro-${state.format.id}-${todayLocalISO()}`}
+            markdown={markdown}
+            jsonData={exportJson}
+          />
           <Button
             onClick={requestNewRetro}
             variant="ghost"
@@ -533,7 +515,7 @@ export function Board({
         open={confirmNewOpen}
         onOpenChange={setConfirmNewOpen}
         title="Start a new retro?"
-        description={`This ${state.format.name} board and its ${cardsLabel} move to Past retros, below the format picker, and you start a new board.`}
+        description={`This ${state.format.name} board and its ${ownCardsLabel} move to Past retros, below the format picker, and you start a new board.`}
         confirmLabel="Start new retro"
         onConfirm={onReset}
       />
