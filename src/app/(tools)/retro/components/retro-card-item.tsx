@@ -9,6 +9,10 @@
  * Click-to-focus: in Discuss the card text is a button whose ::after stretches
  * over the whole card, so the card stays clickable while the vote button sits
  * above it (a role="button" card can't contain the vote button).
+ *
+ * `canModerate={false}` (a visitor-room participant) keeps only the vote
+ * button in the Vote phase. Votes, action items and assignees still show,
+ * read-only; delete, group, discuss focus and Send to are gone.
  */
 
 import { motion } from "framer-motion";
@@ -46,6 +50,7 @@ export function RetroCardItem({
   onToggleDiscussing,
   onLinksChange,
   assigneeListId,
+  canModerate = true,
 }: {
   card: RetroCard;
   allCards: RetroCard[];
@@ -66,6 +71,8 @@ export function RetroCardItem({
   ) => void;
   /** Id of a <datalist> of team members for the assignee field. */
   assigneeListId?: string;
+  /** False for a visitor-room participant: vote in Vote, everything else read-only. */
+  canModerate?: boolean;
 }) {
   const otherCards = allCards.filter(
     (c) => c.id !== card.id && c.columnKey === card.columnKey && c.groupedWith === null
@@ -74,7 +81,8 @@ export function RetroCardItem({
   const isDiscussing = card.discussing;
   // Only top-level cards in the Discuss phase get the click-to-focus affordance.
   // Grouped child cards inherit visual state from the parent and aren't toggled.
-  const isDiscussClickable = phase === "discuss" && card.groupedWith === null;
+  const isDiscussClickable = canModerate && phase === "discuss" && card.groupedWith === null;
+  const votesLabel = `${card.votes} ${card.votes === 1 ? "vote" : "votes"}`;
   const clusterColor =
     clusterId !== undefined && clusterId >= 0
       ? CLUSTER_COLORS[clusterId % CLUSTER_COLORS.length]
@@ -105,8 +113,14 @@ export function RetroCardItem({
       }
     >
       <div className="flex items-start gap-2">
-        {/* Action item checkbox in actions phase */}
-        {phase === "actions" && card.groupedWith === null && (
+        {/* Action item checkbox in actions phase (a read-only mark for participants) */}
+        {phase === "actions" && card.groupedWith === null && !canModerate && card.isActionItem && (
+          <span className="-m-1 p-1 mt-0.5 shrink-0">
+            <CheckSquare className="w-4 h-4 text-accent" aria-hidden="true" />
+            <span className="sr-only">Action item</span>
+          </span>
+        )}
+        {phase === "actions" && card.groupedWith === null && canModerate && (
           <button
             type="button"
             onClick={() => onToggleAction(card.id)}
@@ -142,13 +156,27 @@ export function RetroCardItem({
         )}
 
         <div className="flex items-center gap-1 shrink-0">
+          {/* Vote count, read-only for participants outside the Vote phase */}
+          {!canModerate && (phase === "discuss" || phase === "actions") && (
+            <span className="flex items-center gap-1 px-1.5 py-0.5 text-xs text-sub">
+              <Heart
+                className={`w-3.5 h-3.5 ${
+                  card.votes > 0 ? "fill-accent-magenta text-accent-magenta" : ""
+                }`}
+                aria-hidden="true"
+              />
+              <span aria-hidden="true">{card.votes}</span>
+              <span className="sr-only">{votesLabel}</span>
+            </span>
+          )}
+
           {/* Vote button */}
-          {(phase === "vote" || phase === "discuss" || phase === "actions") && (
+          {(phase === "vote" || (canModerate && (phase === "discuss" || phase === "actions"))) && (
             <button
               type="button"
               onClick={() => onVote(card.id)}
               disabled={!canVote && phase === "vote"}
-              aria-label={`${card.votes} ${card.votes === 1 ? "vote" : "votes"}, vote for this card`}
+              aria-label={`${votesLabel}, vote for this card`}
               className={`relative z-10 flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-all ${
                 phase === "vote" && canVote
                   ? "text-sub hover:text-accent-magenta hover:bg-accent-magenta/10 cursor-pointer"
@@ -168,7 +196,7 @@ export function RetroCardItem({
           )}
 
           {/* Delete */}
-          {phase === "write" && (
+          {phase === "write" && canModerate && (
             <button
               type="button"
               onClick={() => onDelete(card.id)}
@@ -182,7 +210,7 @@ export function RetroCardItem({
       </div>
 
       {/* Group with selector */}
-      {phase === "write" && otherCards.length > 0 && (
+      {phase === "write" && canModerate && otherCards.length > 0 && (
         <div className="mt-2 pt-2 border-t border-border">
           <Select
             value={card.groupedWith ?? "__none__"}
@@ -208,8 +236,15 @@ export function RetroCardItem({
         </div>
       )}
 
+      {/* Assignee, read-only for participants */}
+      {phase === "actions" && card.isActionItem && !canModerate && card.assignee && (
+        <p className="mt-2 pt-2 border-t border-accent-cyan/20 text-xs text-sub">
+          Assigned to {card.assignee}
+        </p>
+      )}
+
       {/* Assignee input, and Send to, in actions phase */}
-      {phase === "actions" && card.isActionItem && (
+      {phase === "actions" && card.isActionItem && canModerate && (
         <div className="mt-2 pt-2 border-t border-accent-cyan/20 flex items-center gap-1.5">
           <Input
             value={card.assignee}

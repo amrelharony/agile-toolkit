@@ -11,9 +11,13 @@
  * belongs to, each person with their own MAX_VOTES (`votesBy`); "Me" keeps
  * the single `userVotes` budget. The facilitator can step back a phase
  * (votes are kept) and add a card in any phase.
+ *
+ * Visitor live room: with NEXT_PUBLIC_VISITOR_ROOMS=1, a visitor (never the
+ * owner) can "Go live" from the header. Participants' cards and votes arrive
+ * through `onUpdate` like any other edit; ending the room keeps the board.
  */
 
-import { useState, useCallback, useEffect, useId, useMemo } from "react";
+import { useState, useCallback, useEffect, useId, useMemo, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { RotateCcw, Eraser } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -39,6 +43,7 @@ import {
   makeId,
   CLUSTER_MIN_CARDS,
   CLUSTER_COLORS,
+  columnGridClass,
   extractCardFeatures,
   buildExportJson,
   removeCardWithGroup,
@@ -54,6 +59,7 @@ import { RetroColumnPanel } from "./retro-column-panel";
 import { LastRetroActions } from "./last-retro-actions";
 import { SINGLE_VOTER, VoterPicker } from "./voter-picker";
 import { toMarkdown } from "../markdown";
+import { RetroGoLive, type LiveRoomHandle } from "../room/host-live-room";
 import { themed, tint } from "@/lib/utils/theme-color";
 
 /** A name short enough for a one-line toast. */
@@ -80,6 +86,8 @@ export function Board({
   const [confirmNewOpen, setConfirmNewOpen] = useState(false);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const announce = useAnnounce();
+  // Set while a visitor live room runs, so "New Retro" can end it first.
+  const liveRoomRef = useRef<LiveRoomHandle | null>(null);
 
   // Team names for "Voting as" and the assignee field (Actions phase).
   const assigneeListId = useId();
@@ -450,8 +458,13 @@ export function Board({
   // Example cards aren't kept under Past retros, so only the team's own count.
   const ownCount = state.cards.filter((c) => !isExampleId(c.id)).length;
   const ownCardsLabel = `${ownCount} card${ownCount !== 1 ? "s" : ""}`;
+  // A new retro closes a live room first: the board it shares is going away.
+  const startNewRetro = () => {
+    liveRoomRef.current?.end();
+    onReset();
+  };
   const requestNewRetro = () => {
-    if (ownCount === 0) onReset();
+    if (ownCount === 0) startNewRetro();
     else setConfirmNewOpen(true);
   };
   const requestClearBoard = () => {
@@ -483,16 +496,7 @@ export function Board({
 
   const totalCards = state.cards.filter((c) => c.groupedWith === null).length;
   const actionCount = state.cards.filter((c) => c.isActionItem).length;
-  const colCount = state.format.columns.length;
-
-  const gridClass =
-    colCount <= 2
-      ? "grid-cols-1 sm:grid-cols-2"
-      : colCount === 3
-        ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
-        : colCount === 4
-          ? "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4"
-          : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5";
+  const gridClass = columnGridClass(state.format.columns.length);
 
   return (
     <ToolPageWrapper
@@ -529,6 +533,7 @@ export function Board({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <RetroGoLive board={state} onUpdate={onUpdate} handleRef={liveRoomRef} />
             <TimerWidget
               seconds={state.timerSeconds}
               running={state.timerRunning}
@@ -682,7 +687,7 @@ export function Board({
         title="Start a new retro?"
         description={`This ${state.format.name} board and its ${ownCardsLabel} move to Past retros, below the format picker, and you start a new board.`}
         confirmLabel="Start new retro"
-        onConfirm={onReset}
+        onConfirm={startNewRetro}
       />
       <ConfirmDialog
         open={confirmClearOpen}

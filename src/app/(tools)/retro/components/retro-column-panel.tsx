@@ -6,6 +6,10 @@
  * input. The input is always open in the Write phase; in later phases it sits
  * behind an "Add a card" button so a late idea can still land on the board.
  * Cards are vote-sorted in Discuss/Actions.
+ *
+ * `canModerate={false}` is the visitor-room participant view: cards can be
+ * added in Write and voted on in Vote, nothing else (no late cards, no
+ * delete, group, action items, assignees or Send to).
  */
 
 import { useEffect, useState, useRef } from "react";
@@ -37,6 +41,9 @@ export function RetroColumnPanel({
   onToggleDiscussing,
   onLinksChange,
   assigneeListId,
+  canModerate = true,
+  canAdd = true,
+  maxCardLength,
 }: {
   column: RetroColumn;
   cards: RetroCard[];
@@ -57,6 +64,12 @@ export function RetroColumnPanel({
     update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
   ) => void;
   assigneeListId?: string;
+  /** False for a visitor-room participant: add in Write, vote in Vote, nothing else. */
+  canModerate?: boolean;
+  /** False hides the add-card input (e.g. a participant without a seat yet). */
+  canAdd?: boolean;
+  /** Longest card text the input accepts. */
+  maxCardLength?: number;
 }) {
   const [inputVal, setInputVal] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -66,7 +79,7 @@ export function RetroColumnPanel({
   const [addingIn, setAddingIn] = useState<BoardPhase | null>(null);
   if (addingIn !== null && addingIn !== phase) setAddingIn(null);
   const isWrite = phase === "write";
-  const showInput = isWrite || addingIn === phase;
+  const showInput = canAdd && (isWrite || (canModerate && addingIn === phase));
   const canVote = votesUsed < MAX_VOTES;
 
   // Opening the input from the button puts the cursor in it.
@@ -146,6 +159,7 @@ export function RetroColumnPanel({
                     onToggleDiscussing={onToggleDiscussing}
                     onLinksChange={onLinksChange}
                     assigneeListId={assigneeListId}
+                    canModerate={canModerate}
                   />
                   {children.map((child) => (
                     <RetroCardItem
@@ -164,6 +178,7 @@ export function RetroColumnPanel({
                       onToggleDiscussing={onToggleDiscussing}
                       onLinksChange={onLinksChange}
                       assigneeListId={assigneeListId}
+                      canModerate={canModerate}
                     />
                   ))}
                 </div>
@@ -172,7 +187,7 @@ export function RetroColumnPanel({
         </AnimatePresence>
 
         {/* Add a card after Write: a button that opens the input */}
-        {!isWrite && (
+        {!isWrite && canModerate && canAdd && (
           <Button
             ref={toggleRef}
             size="sm"
@@ -198,6 +213,7 @@ export function RetroColumnPanel({
                 else if (e.key === "Escape" && !isWrite) closeAdd();
               }}
               placeholder="Add a card…"
+              maxLength={maxCardLength}
               aria-label={`New card for ${column.label}`}
               className="h-8 text-xs bg-cardH border-border text-text placeholder:text-sub focus:border-accent-cyan/50"
             />

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { AuthContextValue } from "@/lib/auth/types";
@@ -28,6 +28,10 @@ function guestWrapper({ children }: { children: ReactNode }) {
 
 beforeEach(() => {
   h.auth = null;
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("useRealtimeAllowed", () => {
@@ -62,5 +66,46 @@ describe("useRealtimeAllowed", () => {
       ),
     });
     expect(result.current).toBe(false);
+  });
+});
+
+describe("useRealtimeAllowed({ visitorRoom })", () => {
+  it("lets a visitor into a room they opted into when the flag is on", () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_ROOMS", "1");
+    h.auth = { status: "anonymous", user: null };
+    expect(renderHook(() => useRealtimeAllowed({ visitorRoom: true })).result.current).toBe(true);
+  });
+
+  it.each(["", "0", "true", "yes"])("refuses the visitor when the flag is %j", (flag) => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_ROOMS", flag);
+    h.auth = { status: "anonymous", user: null };
+    expect(renderHook(() => useRealtimeAllowed({ visitorRoom: true })).result.current).toBe(false);
+  });
+
+  it("refuses the visitor when the flag is unset", () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_ROOMS", undefined);
+    h.auth = { status: "anonymous", user: null };
+    expect(renderHook(() => useRealtimeAllowed({ visitorRoom: true })).result.current).toBe(false);
+  });
+
+  it("refuses a visitor who did not opt in, even with the flag on", () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_ROOMS", "1");
+    h.auth = { status: "anonymous", user: null };
+    expect(renderHook(() => useRealtimeAllowed()).result.current).toBe(false);
+    expect(renderHook(() => useRealtimeAllowed({ visitorRoom: false })).result.current).toBe(false);
+  });
+
+  it("leaves the owner and an invited guest allowed whatever the flag says", () => {
+    for (const flag of ["1", ""]) {
+      vi.stubEnv("NEXT_PUBLIC_VISITOR_ROOMS", flag);
+      h.auth = { status: "authenticated", user: owner };
+      expect(renderHook(() => useRealtimeAllowed()).result.current).toBe(true);
+      expect(renderHook(() => useRealtimeAllowed({ visitorRoom: true })).result.current).toBe(true);
+      h.auth = null;
+      expect(
+        renderHook(() => useRealtimeAllowed({ visitorRoom: false }), { wrapper: guestWrapper })
+          .result.current
+      ).toBe(true);
+    }
   });
 });

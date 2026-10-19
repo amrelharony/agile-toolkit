@@ -27,6 +27,10 @@ describe("robots", () => {
     );
   });
 
+  it("keeps visitor live-room join links out of the index", () => {
+    expect(rule().disallow).toEqual(expect.arrayContaining(["/join/"]));
+  });
+
   it("does not block any tool route", () => {
     const disallow = [rule().disallow ?? []].flat();
     for (const path of ["/", "/planning-poker", "/retro", "/agile-at-work", "/history"]) {

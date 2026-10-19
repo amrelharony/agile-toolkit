@@ -66,14 +66,17 @@ import { RecentToolTracker } from "@/lib/tools/tool-prefs";
 // Routes that bypass the full app chrome (sidebar/header/providers).
 // Every page is reachable signed-out now, so that is no longer what sets
 // these apart: they are the auth flow itself (sign-in, sign-out, callback,
-// not-authorized) and the guest tree, which has its own layout. They must
-// render without depending on auth state, workspace store rehydration, etc.
+// not-authorized), the guest tree, which has its own layout, and the
+// visitor live-room join page (/join/<tool>/<code>), which must not mount
+// the owner's auth, cloud sync or workspace store. They must render
+// without depending on auth state, workspace store rehydration, etc.
 const BARE_ROUTE_PREFIXES = [
   "/auth/sign-in",
   "/auth/sign-out",
   "/auth/callback",
   "/not-authorized",
   "/guest",
+  "/join",
 ];
 
 function isBareRoute(pathname: string | null): boolean {
