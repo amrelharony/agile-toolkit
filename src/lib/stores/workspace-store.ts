@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { reportStorageWriteFailure } from "./storage-health";
 import type {
   Workspace,
   TeamMember,
@@ -1694,6 +1695,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
                 "[workspace-store] localStorage quota exceeded — workspace held in memory only. Export to JSON to back it up.",
                 err
               );
+              reportStorageWriteFailure();
             }
           },
           removeItem: (k: string) => {

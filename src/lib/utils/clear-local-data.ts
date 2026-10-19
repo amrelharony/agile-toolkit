@@ -182,8 +182,15 @@ export function installLocalDataChannelListener(
   const ch = getChannel();
   if (!ch) return () => {};
   const onMessage = (event: MessageEvent<unknown>) => {
-    const data = event.data as Partial<ClearedMessage> | null;
-    if (!data || typeof data !== "object" || data.type !== "cleared") return;
+    const data = event.data as { type?: string; at?: number } | null;
+    if (!data || typeof data !== "object") return;
+    // Another tab restored a backup (lib/data/backup-meta): reload so this
+    // tab picks the restored data up instead of writing its old state back.
+    if (data.type === "restored") {
+      window.location.reload();
+      return;
+    }
+    if (data.type !== "cleared") return;
     // Same machine, same clock. A message without a timestamp (an older
     // build in another tab) counts as fresh.
     const fresh = typeof data.at !== "number" || Math.abs(Date.now() - data.at) < FRESH_CLEAR_MS;

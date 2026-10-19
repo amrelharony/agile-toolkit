@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useCloudPersisted } from "@/lib/sync/use-cloud-persisted";
+import { reportStorageWriteFailure } from "@/lib/stores/storage-health";
 
 /**
  * Persists state to localStorage under `key` AND mirrors to Supabase
@@ -22,10 +23,7 @@ export const usePersisted = useCloudPersisted;
  * Most code should keep using `usePersisted` — the cloud-aware shim
  * above. This export is the escape hatch.
  */
-export function usePersistedLocal<T>(
-  key: string,
-  initial: T
-): [T, Dispatch<SetStateAction<T>>] {
+export function usePersistedLocal<T>(key: string, initial: T): [T, Dispatch<SetStateAction<T>>] {
   const [state, setState] = useState<T>(initial);
   const [hydratedKey, setHydratedKey] = useState<string | null>(null);
   // Track the initial value once so callers that pass a new object literal on
@@ -93,12 +91,13 @@ export function usePersistedLocal<T>(
     try {
       localStorage.setItem(key, JSON.stringify(state));
     } catch (e) {
-      // Quota / serialization errors. Log in dev so caller notices; prod
-      // accepts the lost save silently.
+      // Quota / serialization errors. The state lives on in memory; the
+      // shell's storage banner tells the user and offers a backup.
       if (process.env.NODE_ENV !== "production") {
         // eslint-disable-next-line no-console
         console.warn(`[usePersisted] failed to persist key=${key}`, e);
       }
+      reportStorageWriteFailure();
     }
   }, [key, state, hydratedKey]);
 

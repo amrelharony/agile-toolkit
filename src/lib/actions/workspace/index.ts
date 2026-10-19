@@ -1663,6 +1663,7 @@ const RetroBoardSchema = z.object({
   timerSeconds: z.number(),
   timerRunning: z.boolean(),
   discussingIndex: z.number(),
+  archivedAt: z.string().optional(),
 }) as unknown as z.ZodType<RetroBoard>;
 
 const SprintGoalSchema = z.object({

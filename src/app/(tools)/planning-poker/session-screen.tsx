@@ -440,7 +440,7 @@ export function SessionScreen({
   const storyCount = session.stories.length;
   const storyNoun = storyCount === 1 ? "story" : "stories";
   const leaveDescription = leaveClearsSession
-    ? `This session's ${storyCount} ${storyNoun} and their estimates will be cleared from this browser. This can't be undone.`
+    ? `This session's ${storyCount} ${storyNoun} and their estimates will be cleared from this browser.`
     : isHost
       ? `You'll leave the live room and your squad will see that the host has left. This session's ${storyCount} ${storyNoun} and their estimates will be cleared from this browser.`
       : "You'll leave the live room. The session carries on for everyone else.";

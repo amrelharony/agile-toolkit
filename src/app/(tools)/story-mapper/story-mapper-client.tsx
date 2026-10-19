@@ -25,7 +25,9 @@ import { CSS } from "@dnd-kit/utilities";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { generateStoryMapperPrompts } from "@/lib/ai-prompts/story-mapper";
+import { undoable } from "@/lib/utils/undoable";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace, StoryMap } from "@/lib/stores/workspace-types";
@@ -354,6 +356,62 @@ const storyMapApi: Omit<StoryMapState, "steps" | "slices"> = {
   },
 };
 
+/* -- Undo helpers ---------------------------------------------------------- */
+// Put a removed card, step or slice back where it was. Each reads the freshest
+// doc and does nothing if the item is already back, so a toast Undo can never
+// duplicate it.
+
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
+
+function restoreCard(sliceId: string, stepId: string, card: StoryCard, index: number) {
+  const cur = currentStoryMap();
+  const present = cur.slices.some((sl) =>
+    Object.values(sl.cards).some((cards) => cards.some((c) => c.id === card.id))
+  );
+  // Its cell is gone if the slice or step was removed meanwhile.
+  const cellExists =
+    cur.slices.some((sl) => sl.id === sliceId) && cur.steps.some((st) => st.id === stepId);
+  if (present || !cellExists) return;
+  set({
+    slices: cur.slices.map((sl) => {
+      if (sl.id !== sliceId) return sl;
+      const cards = [...(sl.cards[stepId] ?? [])];
+      cards.splice(Math.min(index, cards.length), 0, card);
+      return { ...sl, cards: { ...sl.cards, [stepId]: cards } };
+    }),
+  });
+}
+
+function restoreStep(step: Step, index: number, cardsBySlice: Record<string, StoryCard[]>) {
+  const cur = currentStoryMap();
+  if (cur.steps.some((st) => st.id === step.id)) return;
+  const steps = [...cur.steps];
+  steps.splice(Math.min(index, steps.length), 0, step);
+  set({
+    steps,
+    slices: cur.slices.map((sl) => ({
+      ...sl,
+      cards: { ...sl.cards, [step.id]: cardsBySlice[sl.id] ?? [] },
+    })),
+  });
+}
+
+function restoreSlice(slice: Slice, index: number) {
+  const cur = currentStoryMap();
+  if (cur.slices.some((sl) => sl.id === slice.id)) return;
+  // Re-key its cells to today's steps: steps added since get an empty cell,
+  // steps removed since don't come back as orphaned keys.
+  const cards: StepCards = {};
+  for (const st of cur.steps) cards[st.id] = slice.cards[st.id] ?? [];
+  const slices = [...cur.slices];
+  slices.splice(Math.min(index, slices.length), 0, { ...slice, cards });
+  set({ slices });
+}
+
 // Selector-overload hook mirroring the prior zustand store: callable bare
 // (returns the full state) or with a selector (returns the selected slice).
 // steps/slices come from the reactive synced doc; the mutators are stable
@@ -665,6 +723,13 @@ function DraggableCard({
   const removeCard = useStoryMapStore((s) => s.removeCard);
   const dragId = encodeDragId(sliceId, stepId, card.id);
 
+  const deleteCard = () =>
+    undoable({
+      label: `Deleted “${shortName(card.title)}”`,
+      apply: () => removeCard(sliceId, stepId, card.id),
+      revert: () => restoreCard(sliceId, stepId, card, index),
+    });
+
   const {
     attributes,
     listeners,
@@ -749,7 +814,7 @@ function DraggableCard({
         />
         <button
           type="button"
-          onClick={() => removeCard(sliceId, stepId, card.id)}
+          onClick={deleteCard}
           className="btn-danger-ghost min-touch-coarse p-1 rounded inline-flex items-center justify-center"
           title="Delete card"
           aria-label={`Delete ${card.title}`}
@@ -867,28 +932,72 @@ export function StoryMapperClient() {
     addStepRaw(...args);
     log(STORY_MAPPER_ACTIONS.STEP_ADDED, {});
   };
+  // Removing a step takes its cards in every slice with it; Undo puts the
+  // step back at its position with those cards.
   const removeStep: typeof removeStepRaw = (id) => {
-    const step = steps.find((s) => s.id === id);
-    removeStepRaw(id);
-    log(STORY_MAPPER_ACTIONS.STEP_REMOVED, { stepId: id, name: step?.name });
+    const index = steps.findIndex((s) => s.id === id);
+    const step = steps[index];
+    if (!step) return;
+    const cardsBySlice = Object.fromEntries(slices.map((sl) => [sl.id, sl.cards[id] ?? []]));
+    const cardCount = Object.values(cardsBySlice).reduce((n, cards) => n + cards.length, 0);
+    undoable({
+      label:
+        `Removed step “${shortName(step.name)}”` +
+        (cardCount > 0 ? ` and ${cardCount} card${cardCount === 1 ? "" : "s"}` : ""),
+      apply: () => {
+        removeStepRaw(id);
+        log(STORY_MAPPER_ACTIONS.STEP_REMOVED, { stepId: id, name: step.name });
+      },
+      revert: () => restoreStep(step, index, cardsBySlice),
+    });
   };
   const addSlice: typeof addSliceRaw = (...args) => {
     addSliceRaw(...args);
     log(STORY_MAPPER_ACTIONS.SLICE_ADDED, {});
   };
   const removeSlice: typeof removeSliceRaw = (id) => {
-    const slice = slices.find((s) => s.id === id);
-    removeSliceRaw(id);
-    log(STORY_MAPPER_ACTIONS.SLICE_REMOVED, { sliceId: id, name: slice?.name });
+    const index = slices.findIndex((s) => s.id === id);
+    const slice = slices[index];
+    if (!slice) return;
+    undoable({
+      label: `Removed slice “${shortName(slice.name)}”`,
+      apply: () => {
+        removeSliceRaw(id);
+        log(STORY_MAPPER_ACTIONS.SLICE_REMOVED, { sliceId: id, name: slice.name });
+      },
+      revert: () => restoreSlice(slice, index),
+    });
   };
   const moveCard: typeof moveCardRaw = (...args) => {
     moveCardRaw(...args);
     log(STORY_MAPPER_ACTIONS.CARD_MOVED, {});
   };
   const reset = () => {
-    resetRaw();
-    log(STORY_MAPPER_ACTIONS.STORY_MAP_RESET, {});
+    const prev = { steps, slices };
+    undoable({
+      label: "Reset the story map",
+      apply: () => {
+        resetRaw();
+        log(STORY_MAPPER_ACTIONS.STORY_MAP_RESET, {});
+      },
+      revert: () => set(prev),
+    });
   };
+
+  // Reset replaces the whole map, so it asks first, unless the map is still
+  // the untouched example and there is nothing to lose.
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+  const storyCount = slices.reduce(
+    (acc, sl) => acc + steps.reduce((a, st) => a + (sl.cards[st.id]?.length ?? 0), 0),
+    0
+  );
+  const isExampleMap = useMemo(() => {
+    const example = defaultStoryMap();
+    return (
+      JSON.stringify(example.steps) === JSON.stringify(steps) &&
+      JSON.stringify(example.slices) === JSON.stringify(slices)
+    );
+  }, [steps, slices]);
 
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
@@ -1071,12 +1180,7 @@ export function StoryMapperClient() {
             <div className="flex items-center gap-2 text-sub text-sm">
               <Map className="w-4 h-4 text-accent" />
               <span>
-                {steps.length} steps · {slices.length} slices ·{" "}
-                {slices.reduce(
-                  (acc, sl) => acc + steps.reduce((a, st) => a + (sl.cards[st.id]?.length ?? 0), 0),
-                  0
-                )}{" "}
-                stories
+                {steps.length} steps · {slices.length} slices · {storyCount} stories
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -1086,7 +1190,11 @@ export function StoryMapperClient() {
                 clipboardText={clipboardText}
                 jsonData={jsonData}
               />
-              <Button variant="danger-ghost" size="sm" onClick={reset}>
+              <Button
+                variant="danger-ghost"
+                size="sm"
+                onClick={() => (isExampleMap ? reset() : setConfirmResetOpen(true))}
+              >
                 Reset
               </Button>
             </div>
@@ -1209,6 +1317,15 @@ export function StoryMapperClient() {
         {/* Drag overlay */}
         <DragOverlay>{activeCard ? <StaticCard card={activeCard} /> : null}</DragOverlay>
       </DndContext>
+
+      <ConfirmDialog
+        open={confirmResetOpen}
+        onOpenChange={setConfirmResetOpen}
+        title="Reset the story map?"
+        description={`Its ${storyCount} ${storyCount === 1 ? "story" : "stories"}, ${steps.length} step${steps.length === 1 ? "" : "s"} and ${slices.length} slice${slices.length === 1 ? "" : "s"} are replaced with the example map.`}
+        confirmLabel="Reset map"
+        onConfirm={reset}
+      />
     </ToolPageWrapper>
   );
 }

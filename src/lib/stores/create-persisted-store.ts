@@ -1,5 +1,6 @@
 import { create, type StateCreator } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { reportStorageWriteFailure } from "./storage-health";
 
 export interface PersistedStoreActions {
   exportJSON: () => string;
@@ -20,7 +21,11 @@ export interface PersistedStoreActions {
 function registerForCloudSync(
   storeKey: string,
   allowedKeys: Set<string>,
-  store: { getState: () => unknown; setState: (next: unknown) => void; subscribe: (cb: () => void) => () => void }
+  store: {
+    getState: () => unknown;
+    setState: (next: unknown) => void;
+    subscribe: (cb: () => void) => () => void;
+  }
 ): void {
   if (typeof window === "undefined") return;
   void import("@/lib/sync/register").then(({ registerBlobStore }) => {
@@ -101,7 +106,8 @@ function shapeMatches(expected: unknown, actual: unknown): boolean {
   if (expected === null || expected === undefined) return true; // permissive
   if (Array.isArray(expected)) return Array.isArray(actual);
   const eType = typeof expected;
-  if (eType === "object") return typeof actual === "object" && actual !== null && !Array.isArray(actual);
+  if (eType === "object")
+    return typeof actual === "object" && actual !== null && !Array.isArray(actual);
   return typeof actual === eType;
 }
 
@@ -126,9 +132,7 @@ export function createPersistedStore<T extends object>(
             // Reject obvious DoS payloads before invoking the parser; a 200MB
             // string in JSON.parse will freeze the UI thread for seconds.
             if (typeof json !== "string" || json.length > MAX_IMPORT_BYTES) {
-              throw new Error(
-                `Import payload too large (max ${MAX_IMPORT_BYTES} bytes)`
-              );
+              throw new Error(`Import payload too large (max ${MAX_IMPORT_BYTES} bytes)`);
             }
             // Parse first; on failure, throw so callers can surface a toast.
             // The reviver drops __proto__/constructor/prototype keys to
@@ -177,7 +181,10 @@ export function createPersistedStore<T extends object>(
                 return localStorage.getItem(k);
               } catch (err) {
                 // eslint-disable-next-line no-console
-                console.warn(`[${name}] localStorage.getItem blocked — starting with defaults.`, err);
+                console.warn(
+                  `[${name}] localStorage.getItem blocked — starting with defaults.`,
+                  err
+                );
                 return null;
               }
             },
@@ -186,7 +193,11 @@ export function createPersistedStore<T extends object>(
                 localStorage.setItem(k, v);
               } catch (err) {
                 // eslint-disable-next-line no-console
-                console.warn(`[${name}] localStorage write failed (quota / private mode) — state held in memory only.`, err);
+                console.warn(
+                  `[${name}] localStorage write failed (quota / private mode) — state held in memory only.`,
+                  err
+                );
+                reportStorageWriteFailure();
               }
             },
             removeItem: (k: string) => {
@@ -204,11 +215,15 @@ export function createPersistedStore<T extends object>(
     )
   );
 
-  registerForCloudSync(storeKey, allowedKeys, store as unknown as {
-    getState: () => unknown;
-    setState: (next: unknown) => void;
-    subscribe: (cb: () => void) => () => void;
-  });
+  registerForCloudSync(
+    storeKey,
+    allowedKeys,
+    store as unknown as {
+      getState: () => unknown;
+      setState: (next: unknown) => void;
+      subscribe: (cb: () => void) => () => void;
+    }
+  );
 
   return store;
 }

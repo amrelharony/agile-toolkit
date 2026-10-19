@@ -19,6 +19,7 @@ import {
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { ChartCard } from "@/components/shared/chart-card";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatCard } from "@/components/shared/stat-card";
@@ -29,6 +30,7 @@ import { generateVelocityPrompts } from "@/lib/ai-prompts/velocity";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { VELOCITY_ACTIONS } from "@/lib/history/event-actions";
 import { withTimeTravel } from "@/lib/stores/with-time-travel";
+import { undoable } from "@/lib/utils/undoable";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
 import { cusum } from "@/lib/analytics/changepoint";
@@ -148,6 +150,31 @@ const useVelocityStore = create<VelocityStore>()(
     }
   )
 );
+
+/* -------------------------------------------------------------------------- */
+/*  Undo                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
+
+// The toast's Undo writes with `setState`, which goes around withTimeTravel's
+// wrapped `set`, so restoring is not a new time-travel step. The delete is
+// one, and the two can't fight: Ctrl+Z after a toast Undo lands on the
+// pre-delete snapshot, which already has the sprint (nothing visibly
+// changes), and a toast Undo after Ctrl+Z finds the sprint already back and
+// does nothing. Either order leaves exactly one copy. The workspace bridge
+// subscribes to the store, so a restored sprint is re-bridged too.
+function restoreSprint(sprint: Sprint, index: number) {
+  const { sprints } = useVelocityStore.getState();
+  if (sprints.some((s) => s.id === sprint.id)) return;
+  const next = [...sprints];
+  next.splice(Math.min(index, next.length), 0, sprint);
+  useVelocityStore.setState({ sprints: next });
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Math helpers                                                              */
@@ -399,18 +426,40 @@ export function VelocityClient() {
   };
 
   const removeSprint = (id: string) => {
-    const sprint = sprints.find((s) => s.id === id);
-    removeSprintRaw(id);
-    log(VELOCITY_ACTIONS.SPRINT_REMOVED, {
-      sprintId: id,
-      name: sprint?.name,
+    const index = sprints.findIndex((s) => s.id === id);
+    const sprint = sprints[index];
+    if (!sprint) return;
+    undoable({
+      label: sprint.name.trim() ? `Removed “${shortName(sprint.name)}”` : "Removed a sprint",
+      apply: () => {
+        removeSprintRaw(id);
+        log(VELOCITY_ACTIONS.SPRINT_REMOVED, {
+          sprintId: id,
+          name: sprint.name,
+        });
+      },
+      revert: () => restoreSprint(sprint, index),
     });
   };
 
   const reset = () => {
-    resetRaw();
-    log(VELOCITY_ACTIONS.VELOCITY_RESET, {});
+    const prevSprints = useVelocityStore.getState().sprints;
+    undoable({
+      label: "Reset velocity data",
+      apply: () => {
+        resetRaw();
+        log(VELOCITY_ACTIONS.VELOCITY_RESET, {});
+      },
+      // Same `setState` route as restoreSprint, and the same ref the
+      // time-travel snapshot holds, so Ctrl+Z and Undo agree.
+      revert: () => useVelocityStore.setState({ sprints: prevSprints }),
+    });
   };
+  // Reset replaces every row with the example sprints, so it asks first,
+  // unless the rows are still exactly those examples.
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+  const isExampleData =
+    sprints.length === buildDefaultSprints().length && sprints.every(isUntouchedSeedSprint);
 
   const logSprintCommit = (
     id: string,
@@ -846,7 +895,11 @@ export function VelocityClient() {
           contentClassName="space-y-3"
           actions={
             <>
-              <Button variant="danger-ghost" size="sm" onClick={reset}>
+              <Button
+                variant="danger-ghost"
+                size="sm"
+                onClick={() => (isExampleData ? reset() : setConfirmResetOpen(true))}
+              >
                 Reset
               </Button>
               <Button size="sm" variant="toolkit" onClick={addSprint} className="gap-1.5">
@@ -955,6 +1008,15 @@ export function VelocityClient() {
           </div>
         </SectionCard>
       </div>
+
+      <ConfirmDialog
+        open={confirmResetOpen}
+        onOpenChange={setConfirmResetOpen}
+        title="Reset velocity data?"
+        description={`All ${sprints.length} sprint${sprints.length === 1 ? "" : "s"} are replaced with the ${buildDefaultSprints().length} example sprints.`}
+        confirmLabel="Reset sprints"
+        onConfirm={reset}
+      />
     </ToolPageWrapper>
   );
 }

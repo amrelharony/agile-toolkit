@@ -1,0 +1,85 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  backupFilename,
+  collectBackup,
+  isBackupKey,
+  parseBackup,
+  restoreBackup,
+  serializeBackup,
+} from "@/lib/data/backup";
+
+beforeEach(() => localStorage.clear());
+
+describe("toolkit backup", () => {
+  it("includes tool data and preferences but never secrets or identity", () => {
+    expect(isBackupKey("agile-toolkit:workspace")).toBe(true);
+    expect(isBackupKey("agile-toolkit:burndown")).toBe(true);
+    expect(isBackupKey("ae-theme")).toBe(true);
+    expect(isBackupKey("agile-toolkit:llm")).toBe(false);
+    expect(isBackupKey("agile-toolkit:user")).toBe(false);
+    expect(isBackupKey("agile-toolkit:sync:unsynced-blobs")).toBe(false);
+    expect(isBackupKey("someone-else:key")).toBe(false);
+  });
+
+  it("round-trips the toolkit's data through a file", () => {
+    localStorage.setItem("agile-toolkit:workspace", JSON.stringify({ state: { okrs: [1] } }));
+    localStorage.setItem("agile-toolkit:burndown", JSON.stringify({ state: { points: 40 } }));
+    localStorage.setItem("agile-toolkit:llm", JSON.stringify({ apiKey: "sk-secret" }));
+    const file = serializeBackup(collectBackup(localStorage, new Date("2026-10-16T10:00:00Z")));
+    expect(file).not.toContain("sk-secret");
+
+    localStorage.clear();
+    localStorage.setItem("agile-toolkit:retro", "stale");
+    const parsed = parseBackup(file);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const result = restoreBackup(parsed.backup, localStorage);
+    expect(result).toEqual({ written: 2, removed: 1 });
+    expect(JSON.parse(localStorage.getItem("agile-toolkit:workspace")!)).toEqual({
+      state: { okrs: [1] },
+    });
+    expect(localStorage.getItem("agile-toolkit:retro")).toBeNull();
+  });
+
+  it("leaves excluded keys alone on restore", () => {
+    localStorage.setItem("agile-toolkit:llm", "keep-me");
+    const parsed = parseBackup(
+      JSON.stringify({ format: "agile-toolkit-backup", version: 1, createdAt: "", keys: {} })
+    );
+    if (!parsed.ok) throw new Error(parsed.error);
+    restoreBackup(parsed.backup, localStorage);
+    expect(localStorage.getItem("agile-toolkit:llm")).toBe("keep-me");
+  });
+
+  it("rejects files that aren't backups", () => {
+    expect(parseBackup("not json").ok).toBe(false);
+    expect(parseBackup(JSON.stringify({ hello: 1 })).ok).toBe(false);
+    expect(
+      parseBackup(JSON.stringify({ format: "agile-toolkit-backup", version: 99, keys: {} })).ok
+    ).toBe(false);
+  });
+
+  it("drops foreign keys, secrets and prototype-polluting payloads", () => {
+    const text = JSON.stringify({
+      format: "agile-toolkit-backup",
+      version: 1,
+      createdAt: "",
+      keys: {
+        "agile-toolkit:llm": "smuggled",
+        "evil:key": "x",
+        "agile-toolkit:workspace": '{"__proto__":{"polluted":true},"state":{}}',
+      },
+    });
+    const parsed = parseBackup(text);
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(Object.keys(parsed.backup.keys)).toEqual(["agile-toolkit:workspace"]);
+    expect(parsed.backup.keys["agile-toolkit:workspace"]).toBe('{"state":{}}');
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it("names files by local date", () => {
+    expect(backupFilename(new Date(2026, 9, 16, 23, 30))).toBe(
+      "agile-toolkit-backup-2026-10-16.json"
+    );
+  });
+});

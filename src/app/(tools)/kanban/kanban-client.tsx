@@ -46,6 +46,7 @@ import { cn } from "@/lib/utils";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { KANBAN_ACTIONS } from "@/lib/history/event-actions";
+import { undoable } from "@/lib/utils/undoable";
 
 type ColumnId = "backlog" | "ready" | "in_progress" | "review" | "done";
 
@@ -145,6 +146,12 @@ const DEFAULT_STATE: KanbanState = {
 // Singleton id for the one kanban board. MUST match KB_ID in
 // src/lib/actions/tools/kanban.ts so agent writes hit the same row.
 const KB_ID = "kanban:current";
+
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
 
 function cycleTimeDays(c: KCard): number | null {
   if (!c.startedAt || !c.completedAt) return null;
@@ -251,18 +258,34 @@ export function KanbanClient() {
   };
 
   const removeCard = (id: string) => {
-    // BUG-RD3-kanban-1 (same pattern as moveCard): capture title /
-    // description from the freshest state inside the updater.
-    let logPayload: { title?: string; description?: string } = {};
-    setState((s) => {
-      const before = s.cards.find((c) => c.id === id);
-      logPayload = { title: before?.title, description: before?.description };
-      return { ...s, cards: s.cards.filter((c) => c.id !== id) };
-    });
-    log(KANBAN_ACTIONS.CARD_REMOVED, {
-      cardId: id,
-      title: logPayload.title,
-      description: logPayload.description,
+    const index = state.cards.findIndex((c) => c.id === id);
+    if (index === -1) return;
+    const card = state.cards[index];
+    undoable({
+      label: `Deleted “${shortName(card.title)}”`,
+      apply: () => {
+        // BUG-RD3-kanban-1 (same pattern as moveCard): capture title /
+        // description from the freshest state inside the updater.
+        let logPayload: { title?: string; description?: string } = {};
+        setState((s) => {
+          const before = s.cards.find((c) => c.id === id);
+          logPayload = { title: before?.title, description: before?.description };
+          return { ...s, cards: s.cards.filter((c) => c.id !== id) };
+        });
+        log(KANBAN_ACTIONS.CARD_REMOVED, {
+          cardId: id,
+          title: logPayload.title,
+          description: logPayload.description,
+        });
+      },
+      // Back at its old position, so it keeps its place in the column.
+      revert: () =>
+        setState((s) => {
+          if (s.cards.some((c) => c.id === id)) return s;
+          const cards = [...s.cards];
+          cards.splice(Math.min(index, cards.length), 0, card);
+          return { ...s, cards };
+        }),
     });
   };
   const setWip = (col: ColumnId, n: number) =>

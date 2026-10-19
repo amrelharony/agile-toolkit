@@ -12,6 +12,7 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { reportStorageWriteFailure } from "@/lib/stores/storage-health";
 import type { Camera, Rect, Vec2 } from "@/lib/geometry/bbox";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import type { AlignmentGuide } from "@/lib/whiteboard/snap";
@@ -209,14 +210,15 @@ export const useCanvasStore = create<CanvasUiState>()(
       setCamera: (c) => set({ camera: c }),
       setTool: (t) => set({ tool: t }),
       setSelection: (ids) => set({ selection: ids }),
-      toggleSelection: (id, additive) => set((state) => {
-        const cur = state.selection;
-        if (!additive) {
-          return { selection: cur.includes(id) && cur.length === 1 ? [] : [id] };
-        }
-        if (cur.includes(id)) return { selection: cur.filter((x) => x !== id) };
-        return { selection: [...cur, id] };
-      }),
+      toggleSelection: (id, additive) =>
+        set((state) => {
+          const cur = state.selection;
+          if (!additive) {
+            return { selection: cur.includes(id) && cur.length === 1 ? [] : [id] };
+          }
+          if (cur.includes(id)) return { selection: cur.filter((x) => x !== id) };
+          return { selection: [...cur, id] };
+        }),
       clearSelection: () => set({ selection: [] }),
       setStickyColor: (c) => set({ stickyColor: c }),
       setShowGrid: (v) => set({ showGrid: v }),
@@ -243,11 +245,12 @@ export const useCanvasStore = create<CanvasUiState>()(
       },
       setPresentationFrameIndex: (i) => set({ presentationFrameIndex: i }),
       setTagFilter: (tags) => set({ tagFilter: tags }),
-      toggleTagFilter: (tag) => set((state) => ({
-        tagFilter: (state.tagFilter ?? []).includes(tag)
-          ? (state.tagFilter ?? []).filter((t) => t !== tag)
-          : [...(state.tagFilter ?? []), tag],
-      })),
+      toggleTagFilter: (tag) =>
+        set((state) => ({
+          tagFilter: (state.tagFilter ?? []).includes(tag)
+            ? (state.tagFilter ?? []).filter((t) => t !== tag)
+            : [...(state.tagFilter ?? []), tag],
+        })),
       setPickedDiagramShape: (kind) => set({ pickedDiagramShape: kind }),
     }),
     {
@@ -272,7 +275,7 @@ export const useCanvasStore = create<CanvasUiState>()(
               // eslint-disable-next-line no-console
               console.warn(
                 "[canvas-store] localStorage.getItem blocked — starting with default UI state.",
-                err,
+                err
               );
               return null;
             }
@@ -284,8 +287,9 @@ export const useCanvasStore = create<CanvasUiState>()(
               // eslint-disable-next-line no-console
               console.warn(
                 "[canvas-store] localStorage write failed — UI state held in memory only.",
-                err,
+                err
               );
+              reportStorageWriteFailure();
             }
           },
           removeItem: (k: string) => {
@@ -312,8 +316,8 @@ export const useCanvasStore = create<CanvasUiState>()(
         frameBookmarks: s.frameBookmarks,
         pickedDiagramShape: s.pickedDiagramShape,
       }),
-    },
-  ),
+    }
+  )
 );
 
 // ── Cross-device sync ─────────────────────────────────────────────────

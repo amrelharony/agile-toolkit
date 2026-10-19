@@ -21,6 +21,7 @@ import {
 import { useToolSonification } from "@/lib/sonification/use-sonification";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CEREMONY_TIMER_ACTIONS } from "@/lib/history/event-actions";
+import { undoable } from "@/lib/utils/undoable";
 
 // ---------------------------------------------------------------------------
 // Types & constants
@@ -47,6 +48,12 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** A name short enough for a one-line toast. */
+function shortName(name: string, max = 40): string {
+  const t = name.trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
 
 function formatTime(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
@@ -427,23 +434,40 @@ export function CeremonyTimerClient() {
   };
 
   const removeParticipant = (name: string) => {
-    // Compute the post-removal state outside any setState updater so we
-    // don't fall back into the "setState inside setState" anti-pattern that
-    // was fixed in the timer-tick effect (React 18 StrictMode invokes
-    // updaters twice; nested setState + ref mutation in an updater is unsafe).
-    const nextLen = Math.max(0, participants.filter((p) => p !== name).length);
-    const max = Math.max(0, nextLen - 1);
-    const newCp = Math.min(currentPerson, max);
-    const newPrev = Math.min(prevPersonRef.current, max);
-    // Mark the next rotation index change as remove-driven so the rotation
-    // effect doesn't play a "rotate" sound for what is structurally a
-    // participant deletion.
-    if (newCp !== currentPerson || newPrev !== prevPersonRef.current) {
-      suppressRotateSonifyRef.current = true;
-    }
-    prevPersonRef.current = newPrev;
-    setCurrentPerson(newCp);
-    setParticipants((prev) => prev.filter((p) => p !== name));
+    const index = participants.indexOf(name);
+    if (index < 0) return;
+    undoable({
+      label: `Removed “${shortName(name)}”`,
+      apply: () => {
+        // Compute the post-removal state outside any setState updater so we
+        // don't fall back into the "setState inside setState" anti-pattern
+        // that was fixed in the timer-tick effect (React 18 StrictMode invokes
+        // updaters twice; nested setState + ref mutation in an updater is
+        // unsafe).
+        const nextLen = Math.max(0, participants.filter((p) => p !== name).length);
+        const max = Math.max(0, nextLen - 1);
+        const newCp = Math.min(currentPerson, max);
+        const newPrev = Math.min(prevPersonRef.current, max);
+        // Mark the next rotation index change as remove-driven so the
+        // rotation effect doesn't play a "rotate" sound for what is
+        // structurally a participant deletion.
+        if (newCp !== currentPerson || newPrev !== prevPersonRef.current) {
+          suppressRotateSonifyRef.current = true;
+        }
+        prevPersonRef.current = newPrev;
+        setCurrentPerson(newCp);
+        setParticipants((prev) => prev.filter((p) => p !== name));
+      },
+      // Back in their speaking slot, unless they were re-added meanwhile
+      // (names are unique, see addParticipant).
+      revert: () =>
+        setParticipants((prev) => {
+          if (prev.includes(name)) return prev;
+          const next = [...prev];
+          next.splice(Math.min(index, next.length), 0, name);
+          return next;
+        }),
+    });
   };
 
   // ---------------------------------------------------------------------------
