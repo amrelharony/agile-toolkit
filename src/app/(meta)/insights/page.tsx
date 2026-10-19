@@ -119,7 +119,7 @@ export default function InsightsPage() {
           </div>
           <div>
             <h1 className="text-fluid-h2 font-display font-bold text-text leading-tight">
-              {greeting} insights
+              {greeting} activity
             </h1>
             <p className="text-fluid-body text-sub mt-1">
               Cross-tool analytics, streaks, and AI-powered digests.

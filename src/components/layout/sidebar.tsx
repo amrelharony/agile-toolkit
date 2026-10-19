@@ -6,46 +6,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { usePersisted } from "@/lib/utils/use-persisted";
-import { getToolById, type ToolCategory, type ToolDefinition } from "@/lib/constants/tools";
-import { getVisibleCategories, getVisibleToolsByCategory } from "@/lib/tools/catalog";
+import { getToolById, getToolByPath, type ToolDefinition } from "@/lib/constants/tools";
+import { getVisibleTools } from "@/lib/tools/catalog";
+import { SECTIONS, getSectionForTool } from "@/lib/constants/sections";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronLeft, History, Activity, Star, Clock } from "lucide-react";
 import { useSwipeToClose } from "@/hooks/use-swipe-to-close";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";
-
-/**
- * Compact display label for each category header in the sidebar. The full
- * name lives in the registry (used by breadcrumbs, search, AI prompts);
- * the sidebar gets a shorter version so 18 categories all fit in the
- * column without truncation or wrap.
- *
- * Any category missing from this map falls back to the registry name.
- */
-const SHORT_CATEGORY: Partial<Record<ToolCategory, string>> = {
-  "Sprint Planning & Estimation": "Sprint Planning",
-  "Metrics & Dashboards": "Metrics",
-  "Team Health & Maturity": "Team Health",
-  "Portfolio & Scaling": "Portfolio",
-  "Product Discovery": "Discovery",
-  "Risk & Governance": "Risk",
-  "Flow & Delivery": "Flow",
-  "Outcomes & Pulse": "Outcomes",
-  "Engineering Excellence": "Engineering",
-  "Incidents & Reliability": "Incidents",
-  "Security & Compliance": "Security",
-  "Quality Engineering": "Quality",
-  "Workshops & Facilitation": "Workshops",
-  "AI / LLM Product Management": "AI / LLM",
-  "Prioritization Frameworks": "Prioritization",
-  "Decision Frameworks": "Decisions",
-  "Visual Collaboration": "Whiteboard",
-};
-
-function categoryLabel(category: ToolCategory): string {
-  return SHORT_CATEGORY[category] ?? category;
-}
 
 interface SidebarProps {
   /** Mobile drawer open state (parent-controlled). */
@@ -162,16 +131,10 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
   // persisted `collapsed` preference must be ignored — otherwise the wide
   // drawer renders rail-mode contents (icons only, no labels/triggers).
   const expanded = mobileOpen || !collapsed || hoverExpanded;
-  // Default to ALL categories collapsed. The sidebar is the user's primary
-  // navigation surface; with 18 visible categories every one open at once
-  // forces a long scroll just to find Burndown or Retro. Categories the
-  // user opens are persisted, so opening Sprint Planning once keeps it
-  // open across reloads.
-  //
-  // Storage key bumped to ":v2" so the previously-persisted "all open"
-  // state is ignored — this is the one-shot reset that gives the
-  // collapsed-by-default UX to existing users without each having to
-  // manually close 17 categories.
+  // Sections (lib/constants/sections) start collapsed, except the one
+  // holding the current tool. Sections the user opens or closes are
+  // persisted. The key predates sections: old entries are category names,
+  // which no section id matches, so they are simply ignored.
   const [openCategories, setOpenCategories] = usePersisted<Record<string, boolean>>(
     "agile-toolkit:sidebar:openCategories:v2",
     {}
@@ -198,17 +161,23 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
     onClose: handleClose,
   });
 
-  const toggleCategory = (category: string) => {
+  // `isOpen` is what's on screen: the current tool's section opens by
+  // itself, so toggling flips the displayed state, not the stored one.
+  const toggleCategory = (category: string, isOpen = !!openCategories[category]) => {
     // Use dedicated sidebar palette entries — `category-open` /
     // `category-close` are piano tones (step 3 P5 → step 0 root) instead
     // of the generic `toggle-on/off` so the sidebar plays as a small
     // musical phrase. The default `click-generic` from the global
     // event-router is suppressed via `data-no-sound="true"` on the
     // trigger so we don't double-emit.
-    const next = !openCategories[category];
+    const next = !isOpen;
     sonify("ui", next ? "category-open" : "category-close");
-    setOpenCategories((prev) => ({ ...prev, [category]: !prev[category] }));
+    setOpenCategories((prev) => ({ ...prev, [category]: next }));
   };
+
+  // The section holding the page you're on opens and is marked current.
+  const activeSectionId = getSectionForTool(getToolByPath(pathname ?? "")?.id ?? "")?.id;
+  const visibleTools = new Map(getVisibleTools().map((t) => [t.id, t]));
 
   // Single handler shared by every Link in the sidebar (brand, meta
   // links, tool links). Emits the piano `sidebar-nav` tone — step 2
@@ -448,7 +417,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
           <div className="space-y-0.5 mb-3 pb-3 border-b border-border">
             {[
               { href: "/history", label: "History", icon: History },
-              { href: "/insights", label: "Insights", icon: Activity },
+              { href: "/insights", label: "My activity", icon: Activity },
             ].map(({ href, label, icon: Icon }) => {
               const isActive = pathname === href;
               return (
@@ -569,27 +538,46 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
               )}
             </div>
           )}
-          {getVisibleCategories().map((category) => {
-            const categoryTools = getVisibleToolsByCategory(category);
-            // Skip categories with no tools — the registry lists 37 categories
-            // for future Phase 23+ tool batches, but rendering an empty
-            // Collapsible looks broken (chevron toggles open → reveals nothing,
-            // so users think the category isn't collapsible at all).
-            if (categoryTools.length === 0) return null;
-            const label = categoryLabel(category);
-            // Rail mode forces every category open so the user sees tool
-            // icons in the collapsed sidebar. The trigger (with its
-            // category label) is hidden in rail mode below — only the
-            // tool icons render in the narrow rail. The persisted
-            // open/closed preference is only consulted in expanded
-            // mode, where the trigger is visible.
-            const isOpen = !expanded || !!openCategories[category];
+          {SECTIONS.map((section) => {
+            const sectionTools = section.toolIds.flatMap((id) => visibleTools.get(id) ?? []);
+            if (sectionTools.length === 0) return null;
+            const SectionIcon = section.icon;
+            const isActiveSection = section.id === activeSectionId;
 
+            // Rail mode: one icon per job instead of all 110 tool icons.
+            // Clicking pins the sidebar open on that section.
+            if (!expanded) {
+              return (
+                <button
+                  key={section.id}
+                  type="button"
+                  data-no-sound="true"
+                  onClick={() => {
+                    setOpenCategories((prev) => ({ ...prev, [section.id]: true }));
+                    setCollapsed(false);
+                  }}
+                  aria-label={`${section.label}, ${sectionTools.length} tools`}
+                  aria-current={isActiveSection ? "true" : undefined}
+                  title={section.label}
+                  className={cn(
+                    "flex w-full items-center justify-center rounded-lg py-2.5 transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                    isActiveSection
+                      ? "bg-accent/10 text-accent"
+                      : "text-sub hover:bg-accent/10 hover:text-text"
+                  )}
+                >
+                  <SectionIcon className="h-4 w-4" aria-hidden="true" />
+                </button>
+              );
+            }
+
+            const isOpen = openCategories[section.id] ?? isActiveSection;
             return (
               <Collapsible
-                key={category}
+                key={section.id}
                 open={isOpen}
-                onOpenChange={() => toggleCategory(category)}
+                onOpenChange={() => toggleCategory(section.id, isOpen)}
                 // CRITICAL: the global event-router has a MutationObserver
                 // on [data-state] attribute changes that emits `state-open`
                 // / `state-close` (a chord at default velocity 1.0). Radix
@@ -603,36 +591,32 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
                 // from either child finds it.
                 data-no-sound="true"
               >
-                {/* Trigger only renders in expanded mode. In rail mode the
-                    Collapsible is force-open (isOpen=true above) and the
-                    category structure is implicit — only tool icons show.
-                    The previous 3-letter railTag ("POR", "TEA", "AI ")
-                    was crowding the rail without adding navigation value;
-                    the tool icons themselves are the actionable affordance. */}
-                {expanded && (
-                  <CollapsibleTrigger
-                    // Suppress the loud `click-generic` sound that the
-                    // global event-router would otherwise emit. The
-                    // toggleCategory handler emits the piano category-open
-                    // / category-close tones instead.
-                    data-no-sound="true"
-                    className="flex items-center w-full px-3 py-2 text-xs font-semibold uppercase tracking-wider text-sub hover:text-text transition-colors rounded-lg"
-                  >
-                    <span className="truncate">{label}</span>
-                    <ChevronDown
-                      className={cn(
-                        // Rotate the chevron 180° when the category is open
-                        // so users get a visual confirmation that clicking
-                        // toggled the state.
-                        "ml-auto w-3 h-3 transition-transform duration-default",
-                        isOpen ? "rotate-180" : "rotate-0"
-                      )}
-                      aria-hidden="true"
-                    />
-                  </CollapsibleTrigger>
-                )}
+                <CollapsibleTrigger
+                  // Suppress the loud `click-generic` sound that the
+                  // global event-router would otherwise emit. The
+                  // toggleCategory handler emits the piano category-open
+                  // / category-close tones instead.
+                  data-no-sound="true"
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold uppercase tracking-wider transition-colors",
+                    isActiveSection ? "text-accent" : "text-sub hover:text-text"
+                  )}
+                >
+                  <SectionIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{section.label}</span>
+                  <ChevronDown
+                    className={cn(
+                      // Rotate the chevron 180° when the section is open
+                      // so users get a visual confirmation that clicking
+                      // toggled the state.
+                      "ml-auto h-3 w-3 transition-transform duration-default",
+                      isOpen ? "rotate-180" : "rotate-0"
+                    )}
+                    aria-hidden="true"
+                  />
+                </CollapsibleTrigger>
                 <CollapsibleContent className="space-y-0.5">
-                  {categoryTools.map((tool) => (
+                  {sectionTools.map((tool) => (
                     <SidebarToolLink
                       key={tool.id}
                       tool={tool}

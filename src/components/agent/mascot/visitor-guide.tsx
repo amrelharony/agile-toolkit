@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowRight, KeyRound, Search } from "lucide-react";
@@ -9,29 +9,42 @@ import { Input } from "@/components/ui/input";
 import { getToolById, getToolByPath } from "@/lib/constants/tools";
 import { searchTools } from "@/lib/search/tool-search";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
+import { JOBS } from "@/lib/constants/jobs";
+import { getGuide, type ToolGuide } from "@/lib/tools/guides";
 
-/** Common jobs, shown before the visitor types anything. */
-const STARTERS: { label: string; toolId: string }[] = [
-  { label: "Run a retro", toolId: "retro" },
-  { label: "Estimate stories", toolId: "planning-poker" },
-  { label: "Prioritise a backlog", toolId: "prioritizer" },
-  { label: "Plan sprint capacity", toolId: "capacity-planner" },
-  { label: "Check team health", toolId: "health-check" },
-  { label: "Track sprint progress", toolId: "burndown" },
-];
+/** Common jobs, shown before the visitor types anything (same list as the home page). */
+const STARTERS = JOBS.map((job) => ({ label: job.title, toolId: job.primaryToolId }));
+
+/** The current tool's "How this works" guide, loaded on demand. */
+function useToolGuide(toolId: string | undefined): ToolGuide | null {
+  const [guide, setGuide] = useState<ToolGuide | null>(null);
+  useEffect(() => {
+    setGuide(null);
+    if (!toolId) return;
+    let cancelled = false;
+    void getGuide(toolId).then((g) => {
+      if (!cancelled) setGuide(g ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [toolId]);
+  return guide;
+}
 
 /**
  * What the mascot's panel shows a visitor.
  *
  * The agent chat is the owner's (it runs on the owner's server key), so a
- * visitor's panel helps them find the right tool instead: a task search, a
- * reminder of what the current tool is for, and the bring-your-own-key AI
+ * visitor's panel helps them find the right tool instead: a task search, how
+ * to run the current tool's method (its guide), and the bring-your-own-key AI
  * settings that power every tool's built-in prompts. It makes no network
  * requests.
  */
 export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const current = pathname ? getToolByPath(pathname) : undefined;
+  const guide = useToolGuide(current?.id);
   const openSettings = useLlmUiStore((s) => s.openSettings);
   const [query, setQuery] = useState("");
   const trimmed = query.trim();
@@ -50,7 +63,19 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
         >
           <p className="text-xs text-sub">You&apos;re in</p>
           <p className="text-sm font-semibold text-text">{current.name}</p>
-          <p className="mt-0.5 text-sm text-sub">{current.description}</p>
+          <p className="mt-0.5 text-sm text-sub">{guide?.summary ?? current.description}</p>
+          {guide && (
+            <>
+              <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-sub">
+                How to run it
+              </p>
+              <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-text">
+                {guide.steps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+            </>
+          )}
         </section>
       )}
 
@@ -68,7 +93,7 @@ export function VisitorGuide({ onNavigate }: { onNavigate?: () => void }) {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="e.g. run a retro, prioritise a backlog"
+            placeholder="e.g. run a retro, prioritize a backlog"
             className="pl-9"
             autoComplete="off"
           />

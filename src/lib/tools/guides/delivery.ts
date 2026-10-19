@@ -108,7 +108,7 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "health-dashboard",
     summary:
-      "The Agile Health Dashboard pulls headline numbers from other toolkit tools into one traffic-light view, so you can check team health without opening each tool.",
+      "The Team Dashboard pulls headline numbers from other toolkit tools into one traffic-light view, so you can check team health without opening each tool.",
     whenToUse: [
       "Before a sprint review or a check-in with leadership.",
       "Deciding which area needs attention first.",

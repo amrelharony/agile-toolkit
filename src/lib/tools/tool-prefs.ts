@@ -16,7 +16,7 @@ export interface ToolPrefs {
 }
 
 const STORAGE_KEY = "agile-toolkit:tool-prefs:v1";
-const RECENT_LIMIT = 5;
+const RECENT_LIMIT = 8;
 
 const EMPTY: ToolPrefs = { favorites: [], recent: [] };
 
