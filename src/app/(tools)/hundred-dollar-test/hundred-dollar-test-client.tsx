@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Vote, Plus, Trash2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -15,6 +15,22 @@ import { generateHundredDollarPrompts } from "@/lib/ai-prompts/hundred-dollar-te
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { HUNDRED_DOLLAR_ACTIONS } from "@/lib/history/event-actions";
 
+const usd = (n: number) => `$${n.toFixed(2)}`;
+
+/**
+ * Why an amount typed for `title` was changed before saving, or null when
+ * it went in as typed. `typed` is the parsed input, `saved` what was stored
+ * and `headroom` the money not given to other items.
+ */
+function capNote(title: string, typed: number, saved: number, headroom: number): string | null {
+  if (!Number.isFinite(typed) || typed === saved) return null;
+  if (typed < 0) return `Amounts can't be negative, so ${title} is set to $0.00.`;
+  if (headroom >= 100) {
+    return `The whole budget is $100, so ${title} got ${usd(saved)}, not ${usd(typed)}.`;
+  }
+  return `Only ${usd(headroom)} was left, so ${title} got ${usd(saved)}, not ${usd(typed)}. Lower another item first to move money here.`;
+}
+
 export function HundredDollarTestClient() {
   const all = useWorkspaceStore((s) => s.prioritizations ?? []);
   const items = useMemo(() => all.filter((x) => x.framework === "hundred-dollar"), [all]);
@@ -24,6 +40,9 @@ export function HundredDollarTestClient() {
   const exportRef = useRef<HTMLDivElement>(null);
 
   const [title, setTitle] = useState("");
+  // Why the last amount typed was changed, shown under that item.
+  const [allocNote, setAllocNote] = useState<{ id: string; text: string } | null>(null);
+  const noteId = useId();
 
   function add() {
     if (!title.trim()) return;
@@ -43,8 +62,8 @@ export function HundredDollarTestClient() {
 
   function setAlloc(it: PrioritizationItem, n: number) {
     // Clamp per-item to [0, 100]: negative values invert the bar fill,
-    // values >100 on a single line item make no sense — both silently
-    // capped. NaN from `parseFloat("abc")` also coerces to 0.
+    // values >100 on a single line item make no sense — both capped, with
+    // a note under the item. NaN from `parseFloat("abc")` also coerces to 0.
     // R11-fix: ALSO enforce the aggregate $100 budget. The tool's core
     // premise is "you have $100, allocate it" — without this guard,
     // users could set every item to 100 and "spend" $1000 across N
@@ -58,6 +77,10 @@ export function HundredDollarTestClient() {
     }, 0);
     const headroom = Math.max(0, 100 - otherTotal);
     const safe = Math.min(requested, headroom);
+    // The cap used to be silent: typing $60 with $50 left just showed $50.
+    // Say what happened, next to the amount.
+    const note = capNote(it.title, n, safe, headroom);
+    setAllocNote(note ? { id: it.id, text: note } : null);
     upsert({
       ...it,
       score: safe,
@@ -171,6 +194,7 @@ export function HundredDollarTestClient() {
             <ul className="space-y-2">
               {sorted.map((it) => {
                 const a = Number(it.fields?.allocation) || 0;
+                const note = allocNote?.id === it.id ? allocNote.text : null;
                 return (
                   <li
                     key={it.id}
@@ -184,12 +208,18 @@ export function HundredDollarTestClient() {
                           style={{ width: `${Math.min(100, a)}%` }}
                         />
                       </div>
+                      {note && (
+                        <p id={noteId} role="alert" className="mt-1 text-xs text-warning">
+                          {note}
+                        </p>
+                      )}
                     </div>
                     <Input
                       type="number"
                       value={a}
                       onChange={(e) => setAlloc(it, parseFloat(e.target.value) || 0)}
                       aria-label={`Dollars allocated to ${it.title}`}
+                      aria-describedby={note ? noteId : undefined}
                       className="h-8 w-20 text-xs"
                     />
                     <button

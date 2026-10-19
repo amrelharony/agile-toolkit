@@ -222,36 +222,44 @@ export function CynefinClient() {
                 <p className="text-xs text-sub italic mb-2">{d.recipe}</p>
                 <ul className="space-y-1.5 text-sm">
                   {grouped[d.id].map((it) => (
-                    <li key={it.id} className="flex items-center gap-2">
-                      <Select
-                        value={it.domain}
-                        onValueChange={(v) => reclassify(it.id, v as CynefinItem["domain"])}
-                      >
-                        <SelectTrigger
-                          className="h-7 w-32 text-xs"
-                          aria-label={`Cynefin domain for ${it.title}`}
+                    <li key={it.id}>
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={it.domain}
+                          onValueChange={(v) => reclassify(it.id, v as CynefinItem["domain"])}
                         >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {DOMAINS.map((opt) => (
-                            <SelectItem key={opt.id} value={opt.id}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <span className="flex-1 truncate text-text min-w-0">{it.title}</span>
-                      <button
-                        onClick={() => {
-                          removeOne(it.id);
-                          log(CYNEFIN_ACTIONS.ITEM_REMOVED, { id: it.id });
-                        }}
-                        aria-label={`Remove ${it.title}`}
-                        className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                          <SelectTrigger
+                            className="h-7 w-32 text-xs"
+                            aria-label={`Cynefin domain for ${it.title}`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {DOMAINS.map((opt) => (
+                              <SelectItem key={opt.id} value={opt.id}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <span className="flex-1 truncate text-text min-w-0">{it.title}</span>
+                        <button
+                          onClick={() => {
+                            removeOne(it.id);
+                            log(CYNEFIN_ACTIONS.ITEM_REMOVED, { id: it.id });
+                          }}
+                          aria-label={`Remove ${it.title}`}
+                          className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      {it.rationale && (
+                        <p className="mt-0.5 text-xs text-sub whitespace-pre-wrap break-words">
+                          <span className="sr-only">Rationale: </span>
+                          {it.rationale}
+                        </p>
+                      )}
                     </li>
                   ))}
                 </ul>

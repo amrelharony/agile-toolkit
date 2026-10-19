@@ -38,6 +38,9 @@ const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), {
   ),
 });
 
+/** The Pairs list shows this many of the most recent pairs. */
+const PAIRS_SHOWN = 30;
+
 // A single (provider, model) pick that the user can switch independently
 // for the A side and the B side of a pair.
 interface PairPick {
@@ -431,10 +434,16 @@ export function RlhfLogClient() {
               </>
             }
           >
+            {list.length > PAIRS_SHOWN && (
+              <p className="mb-2 text-xs text-sub">
+                Showing the latest {PAIRS_SHOWN} of {list.length} pairs. The win counts and the
+                export include them all.
+              </p>
+            )}
             <ul className="space-y-2">
               {[...list]
                 .sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime())
-                .slice(0, 30)
+                .slice(0, PAIRS_SHOWN)
                 .map((x) => (
                   <li
                     key={x.id}

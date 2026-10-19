@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { INCIDENT_ACTIONS } from "@/lib/history/event-actions";
+import { undoable } from "@/lib/utils/undoable";
 import { generateIncidentCommanderPrompts } from "@/lib/ai-prompts/incident-commander";
 import { kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
@@ -132,12 +133,27 @@ export function IncidentCommanderClient() {
     }
   };
 
+  // Deleting an incident (with its whole timeline) was instant and
+  // permanent; it now offers Undo.
   const removeIncident = (id: string) => {
-    const inc = state.incidents.find((i) => i.id === id);
-    setState((s) => ({ incidents: s.incidents.filter((i) => i.id !== id) }));
-    log(INCIDENT_ACTIONS.INCIDENT_RESET, {
-      incidentId: id,
-      title: inc?.title,
+    const index = state.incidents.findIndex((i) => i.id === id);
+    const inc = state.incidents[index];
+    if (!inc) return;
+    const name = inc.title.length > 40 ? `${inc.title.slice(0, 39)}…` : inc.title;
+    undoable({
+      label: `Deleted “${name}”`,
+      apply: () => {
+        setState((s) => ({ incidents: s.incidents.filter((i) => i.id !== id) }));
+        log(INCIDENT_ACTIONS.INCIDENT_RESET, { incidentId: id, title: inc.title });
+      },
+      // Back at its old position (unless something already put it back).
+      revert: () =>
+        setState((s) => {
+          if (s.incidents.some((i) => i.id === id)) return s;
+          const incidents = [...s.incidents];
+          incidents.splice(Math.min(index, incidents.length), 0, inc);
+          return { incidents };
+        }),
     });
   };
 

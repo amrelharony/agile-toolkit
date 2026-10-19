@@ -41,6 +41,12 @@ interface AgendaItem {
   action?: string;
   owner?: string;
   dueDate?: string;
+  /**
+   * Id of the item in an earlier 1:1 that this one was carried over from.
+   * The earlier item is then superseded: the follow-up lives here, so it
+   * isn't counted twice in "Action items overdue".
+   */
+  carriedFrom?: string;
 }
 
 interface Meeting {
@@ -134,13 +140,24 @@ export function OneOnOneClient() {
     const newest = candidates.sort((a, b) => b.date.localeCompare(a.date))[0];
     const prior = populated ?? newest;
     if (prior) {
-      const carry = prior.agenda
-        .filter((a) => a.status === "open")
-        .map((a) => ({
-          id: crypto.randomUUID(),
-          text: a.text,
-          status: "open" as AgendaStatus,
-        }));
+      // Carry over everything still unfinished: Open topics, and Actions
+      // with their action, owner and due date so the follow-up doesn't drop
+      // off. An Action stops carrying over once it is set to Discussed.
+      const carry: AgendaItem[] = prior.agenda
+        .filter((a) => a.status === "open" || a.status === "action_required")
+        .map((a) =>
+          a.status === "open"
+            ? { id: crypto.randomUUID(), text: a.text, status: "open", carriedFrom: a.id }
+            : {
+                id: crypto.randomUUID(),
+                text: a.text,
+                status: "action_required",
+                action: a.action,
+                owner: a.owner,
+                dueDate: a.dueDate,
+                carriedFrom: a.id,
+              }
+        );
       newMeeting.agenda = carry;
     }
     setMeetings((s) => [...s, newMeeting]);
@@ -280,9 +297,13 @@ export function OneOnOneClient() {
 
   const overdueActions = useMemo(() => {
     const today = todayLocalISO();
-    return meetings
-      .flatMap((m) => m.agenda)
-      .filter((a) => a.status === "action_required" && a.dueDate && a.dueDate < today).length;
+    const items = meetings.flatMap((m) => m.agenda);
+    // An action carried over to a later 1:1 is counted there, not twice.
+    const superseded = new Set(items.map((a) => a.carriedFrom).filter(Boolean));
+    return items.filter(
+      (a) =>
+        a.status === "action_required" && a.dueDate && a.dueDate < today && !superseded.has(a.id)
+    ).length;
   }, [meetings]);
 
   const discussedPct = useMemo(() => {

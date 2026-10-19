@@ -112,6 +112,17 @@ function ageDays(iso: string): number {
   return Math.floor((Date.now() - d.getTime()) / 86400000);
 }
 
+/**
+ * Change a flag's status, keeping the retired date in step. Choosing
+ * Deprecated from the dropdown retires the flag the same way the Retire
+ * button does (records today, unless a date is already set); moving it back
+ * to a live status clears the date, so it isn't counted as retired.
+ */
+function withStatus(f: Flag, status: FlagStatus): Flag {
+  if (status === "deprecated") return { ...f, status, retiredAt: f.retiredAt ?? todayLocalISO() };
+  return { ...f, status, retiredAt: undefined };
+}
+
 function isStale(f: Flag): boolean {
   if (f.retiredAt) return false;
   if (f.status === "deprecated") return false;
@@ -174,11 +185,17 @@ export function FeatureFlagTrackerClient() {
   };
 
   const setStatus = (id: string, status: FlagStatus) => {
-    setFlags((prev) => prev.map((f) => (f.id === id ? { ...f, status } : f)));
-    log(FEATURE_FLAG_ACTIONS.FLAG_UPDATED, {
-      flagId: id,
-      fields: ["status"],
-    });
+    const flag = flags.find((f) => f.id === id);
+    if (!flag || flag.status === status) return;
+    setFlags((prev) => prev.map((f) => (f.id === id ? withStatus(f, status) : f)));
+    if (status === "deprecated" && !flag.retiredAt) {
+      log(FEATURE_FLAG_ACTIONS.FLAG_RETIRED, { flagId: id });
+    } else {
+      log(FEATURE_FLAG_ACTIONS.FLAG_UPDATED, {
+        flagId: id,
+        fields: flag.retiredAt && status !== "deprecated" ? ["status", "retiredAt"] : ["status"],
+      });
+    }
   };
 
   const retireFlag = (id: string) => {

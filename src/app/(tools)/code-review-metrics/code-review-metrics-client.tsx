@@ -389,14 +389,10 @@ export function CodeReviewMetricsClient() {
     [merged]
   );
 
-  // Top reviewers by total comment volume across PRs they touched. We use
-  // commentCount as a proxy for "review effort"; the brief only logs total
-  // comments per PR (not per reviewer), so we credit each reviewer-on-the-PR
-  // with the per-PR comment count averaged by reviewerCount. When
-  // reviewerCount is 0 we credit the author's PR to nobody.
-  // Practical alternative: bar by author + comments, since author is the only
-  // per-row identity. Use that — matches the brief's "top reviewers by
-  // comment count" intent without inventing data.
+  // Top PR authors by total comments received on their PRs. Comments are
+  // logged per PR, not per reviewer, and author is the only per-row
+  // identity, so this is NOT reviewer load (reviews given) and the page
+  // must not describe it as such.
   const topAuthors = useMemo(() => {
     const map = new Map<string, number>();
     for (const s of state.samples) {
@@ -495,7 +491,7 @@ export function CodeReviewMetricsClient() {
     <ToolPageWrapper
       toolId="code-review-metrics"
       title="Code Review Metrics"
-      description="Log PRs by hand or paste CSV — surface cycle time, review depth, PR size, and reviewer load."
+      description="Log PRs by hand or paste CSV — surface cycle time, review depth, PR size, and which authors' PRs draw the most review comments."
       category="Quality Engineering"
     >
       <ActionRow>

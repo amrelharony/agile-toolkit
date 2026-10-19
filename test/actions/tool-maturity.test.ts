@@ -44,17 +44,19 @@ describe("tool.maturity lifecycle", () => {
       targetLevel: number;
       averageLevel: number;
       percentage: number;
+      level: number;
       label: string;
       roadmap: { dimensionId: string }[];
     };
     expect(r.exists).toBe(true);
     expect(r.scores["scrum-practices"]).toBe(5);
     expect(r.targetLevel).toBe(4); // default
-    // one dim at 5, the other seven at 1 => 12/8 = 1.5 => 30% => "Emerging"
-    // (getMaturityScore: <30 Ad-hoc, <50 Emerging, <65 Developing, ...).
+    // one dim at 5, the other seven at 1 => 12/8 = 1.5 => 30%, and the rounded
+    // level 2 is named like the per-dimension levels: "Developing".
     expect(r.averageLevel).toBeCloseTo(1.5, 5);
     expect(r.percentage).toBe(30);
-    expect(r.label).toBe("Emerging");
+    expect(r.level).toBe(2);
+    expect(r.label).toBe("Developing");
     // 7 dims still below the target-4 line.
     expect(r.roadmap).toHaveLength(7);
     expect(r.roadmap.some((x) => x.dimensionId === "scrum-practices")).toBe(false);

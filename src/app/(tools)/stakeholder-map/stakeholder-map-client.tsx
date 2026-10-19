@@ -180,7 +180,7 @@ function StakeholderForm({ onAdd }: StakeholderFormProps) {
               id="stakeholder-new-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="VP of Marketing"
+              placeholder="Priya Shah"
               className="bg-bg border-border"
               aria-label="Stakeholder name"
             />
@@ -193,7 +193,7 @@ function StakeholderForm({ onAdd }: StakeholderFormProps) {
               id="stakeholder-new-role"
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              placeholder="Sponsor / Customer / Exec..."
+              placeholder="VP of Marketing"
               className="bg-bg border-border"
               aria-label="Role"
             />
