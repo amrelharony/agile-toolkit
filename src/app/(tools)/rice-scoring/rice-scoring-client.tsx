@@ -1,15 +1,19 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
 import dynamic from "next/dynamic";
-import { Calculator, Plus, Trash2, AlertTriangle } from "lucide-react";
+import { Calculator, Plus, Trash2, AlertTriangle, Pencil } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { ExportButton } from "@/components/shared/export-button";
+import { EditableName } from "@/components/shared/editable-name";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { PrioritizationItem, Workspace } from "@/lib/stores/workspace-types";
 import { riceScore, rank, detectOutliers } from "@/lib/analytics/scoring-rubric";
@@ -29,9 +33,27 @@ import {
   ImportFromBacklog,
   useBacklogImport,
 } from "@/components/prioritization/backlog-link";
+import { ScaleValue, focusFirstInvalid } from "@/components/prioritization/scale-picker";
 import { linkNewRow } from "@/lib/prioritization/backlog-links";
 import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
+import {
+  CONFIDENCE_STEPS,
+  EMPTY_RICE_DRAFT,
+  IMPACT_STEPS,
+  NO_CUSTOM,
+  RiceInputs,
+  RiceRowEditor,
+  confidenceOf,
+  riceCustomFrom,
+  riceDraftFrom,
+  sameRiceValues,
+  validateRice,
+  withRiceValues,
+  type RiceDraft,
+  type RiceErrors,
+  type RiceValues,
+} from "./rice-inputs";
 
 // Recharts loads with the chart, not the page; the placeholder fills the
 // chart's fixed-height box while it does.
@@ -48,6 +70,10 @@ function shortName(name: string, max = 40): string {
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 }
 
+type AddErrors = RiceErrors & { title?: string };
+
+const COLUMNS = 8;
+
 export function RiceScoringClient() {
   const all = useWorkspaceStore((s) => s.prioritizations ?? []);
   const items = useMemo(() => all.filter((x) => x.framework === "rice"), [all]);
@@ -55,43 +81,72 @@ export function RiceScoringClient() {
   const removeOne = useWorkspaceStore((s) => s.removePrioritization);
   const { log } = useHistoryLogger("rice-scoring");
   const exportRef = useRef<HTMLDivElement>(null);
+  const addFormRef = useRef<HTMLFormElement>(null);
 
   const [title, setTitle] = useState("");
-  const [reach, setReach] = useState("");
-  const [impact, setImpact] = useState("");
-  const [confidence, setConfidence] = useState("");
-  const [effort, setEffort] = useState("");
+  const [draft, setDraft] = useState<RiceDraft>(EMPTY_RICE_DRAFT);
+  // Off-scale values a backlog prefill brought in, kept on offer as "Custom".
+  const [custom, setCustom] = useState(NO_CUSTOM);
+  const [errors, setErrors] = useState<AddErrors>({});
+  const [attempt, setAttempt] = useState(0);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editButtons = useRef(new Map<string, HTMLButtonElement>());
+  const refocusEdit = useRef<string | null>(null);
 
   // "Import from backlog" (or a "Score with RICE" link) fills the form; the
   // next initiative added links to that backlog item.
   const backlog = useBacklogImport("rice", (picked, prefill) => {
+    const next = riceDraftFrom(prefill);
     setTitle(picked.name);
-    setReach(prefill.reach === undefined ? "" : String(prefill.reach));
-    setImpact(prefill.impact === undefined ? "" : String(prefill.impact));
-    setConfidence(prefill.confidence === undefined ? "" : String(prefill.confidence));
-    setEffort(prefill.effort === undefined ? "" : String(prefill.effort));
+    setDraft(next);
+    setCustom(riceCustomFrom(next));
+    setErrors({});
   });
 
-  function add() {
-    if (!title.trim()) return;
-    // Use `Number` (strict) rather than `parseFloat` so "5abc" → NaN → fallback,
-    // not "5abc" → 5. Empty string → NaN → fallback.
-    const fn = (s: string, fb: number) => {
-      const v = s.trim() === "" ? NaN : Number(s);
-      return Number.isFinite(v) ? v : fb;
-    };
-    const r = fn(reach, 0);
-    const i = fn(impact, 0);
-    const c = fn(confidence, 100);
-    const e = fn(effort, 1);
-    const score = riceScore(r, i, c, e);
+  // After a failed add, focus the first field that needs attention.
+  useEffect(() => {
+    if (attempt > 0) focusFirstInvalid(addFormRef.current);
+  }, [attempt]);
+
+  // A saved or cancelled row edit hands focus back to that row's Edit
+  // button, wherever the new score ranked it.
+  useEffect(() => {
+    const id = refocusEdit.current;
+    if (!id) return;
+    refocusEdit.current = null;
+    editButtons.current.get(id)?.focus();
+  });
+
+  function changeDraft(patch: Partial<RiceDraft>) {
+    setDraft((d) => ({ ...d, ...patch }));
+    setErrors((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(patch)) delete next[key as keyof RiceDraft];
+      return next;
+    });
+  }
+
+  function add(e: FormEvent) {
+    e.preventDefault();
+    const name = title.trim();
+    const result = validateRice(draft);
+    const found: AddErrors = result.ok ? {} : { ...result.errors };
+    if (!name) found.title = "Enter a title.";
+    if (!result.ok || !name) {
+      setErrors(found);
+      setAttempt((n) => n + 1);
+      return;
+    }
+    const { reach, impact, confidence, effort } = result.values;
+    const score = riceScore(reach, impact, confidence, effort);
     const item: PrioritizationItem = linkNewRow(
       {
         id: crypto.randomUUID(),
         framework: "rice",
-        title: title.trim().slice(0, 200),
+        title: name.slice(0, 200),
         score,
-        fields: { reach: r, impact: i, confidence: c, effort: e },
+        fields: { reach, impact, confidence, effort },
         status: "scored",
         updatedAt: new Date().toISOString(),
       },
@@ -107,16 +162,55 @@ export function RiceScoringClient() {
       payload: { framework: "rice", id: item.id, score },
     });
     setTitle("");
-    setReach("");
-    setImpact("");
-    setConfidence("");
-    setEffort("");
+    setDraft(EMPTY_RICE_DRAFT);
+    setCustom(NO_CUSTOM);
+    setErrors({});
+  }
+
+  /** The freshest copy of a row, so an edit never overwrites a newer write. */
+  const freshRow = (id: string) =>
+    (useWorkspaceStore.getState().prioritizations ?? []).find((x) => x.id === id);
+
+  function rename(id: string, next: string) {
+    const cur = freshRow(id);
+    const name = next.trim().slice(0, 200);
+    if (!cur || !name || name === cur.title) return;
+    upsert({ ...cur, title: name, updatedAt: new Date().toISOString() });
+    log(RICE_ACTIONS.ITEM_UPDATED, { id, title: name });
+  }
+
+  function closeEditor(id: string) {
+    refocusEdit.current = id;
+    setEditingId(null);
+  }
+
+  function saveScores(id: string, values: RiceValues) {
+    const cur = freshRow(id);
+    closeEditor(id);
+    // Saving without a change leaves the row (and any custom value) as it was.
+    if (!cur || sameRiceValues(cur.fields, values)) return;
+    const score = riceScore(values.reach, values.impact, values.confidence, values.effort);
+    const next: PrioritizationItem = {
+      ...cur,
+      fields: withRiceValues(cur.fields, values),
+      score,
+      updatedAt: new Date().toISOString(),
+    };
+    upsert(next);
+    log(RICE_ACTIONS.ITEM_UPDATED, { id, score });
+    emitSignal({
+      kind: "prioritization.scored",
+      at: next.updatedAt,
+      toolId: "rice-scoring",
+      payload: { framework: "rice", id, score },
+    });
   }
 
   // The table is ranked by score, so the restored item finds its own place.
   function remove(id: string) {
     const item = items.find((x) => x.id === id);
     if (!item) return;
+    if (editingId === id) setEditingId(null);
     undoable({
       label: `Deleted “${shortName(item.title)}”`,
       apply: () => {
@@ -208,7 +302,7 @@ export function RiceScoringClient() {
       r.title,
       r.fields.reach ?? "",
       r.fields.impact ?? "",
-      r.fields.confidence ?? "",
+      confidenceOf(r.fields) ?? "",
       r.fields.effort ?? "",
       r.score.toFixed(2),
     ]),
@@ -227,52 +321,35 @@ export function RiceScoringClient() {
           icon={Plus}
           actions={<ImportFromBacklog link={backlog} />}
         >
-          <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
-            <Input
-              className="sm:col-span-2"
-              placeholder="Initiative title"
-              aria-label="Initiative title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-            <Input
-              type="number"
-              placeholder="Reach (people/qtr)"
-              aria-label="Reach (people per quarter)"
-              value={reach}
-              onChange={(e) => setReach(e.target.value)}
-            />
-            <Input
-              type="number"
-              step="0.1"
-              placeholder="Impact 0.25–3"
-              aria-label="Impact (0.25–3)"
-              value={impact}
-              onChange={(e) => setImpact(e.target.value)}
-            />
-            <Input
-              type="number"
-              placeholder="Confidence 0–100%"
-              aria-label="Confidence (0–100%)"
-              value={confidence}
-              onChange={(e) => setConfidence(e.target.value)}
-            />
-            <Input
-              type="number"
-              step="0.5"
-              placeholder="Effort (person-mo)"
-              aria-label="Effort (person-months)"
-              value={effort}
-              onChange={(e) => setEffort(e.target.value)}
-            />
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button onClick={add} className="gap-1">
-              <Plus className="w-4 h-4" />
-              Add & score
-            </Button>
-            {items.length === 0 && <LoadExampleButton onLoad={loadExample} />}
-          </div>
+          <form
+            ref={addFormRef}
+            aria-label="Add initiative"
+            onSubmit={add}
+            noValidate
+            className="space-y-3"
+          >
+            <Field label="Initiative title" error={errors.title}>
+              {(props) => (
+                <Input
+                  {...props}
+                  value={title}
+                  maxLength={200}
+                  onChange={(e) => {
+                    setTitle(e.target.value);
+                    if (errors.title) setErrors((prev) => ({ ...prev, title: undefined }));
+                  }}
+                />
+              )}
+            </Field>
+            <RiceInputs draft={draft} onChange={changeDraft} errors={errors} custom={custom} />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="submit" className="gap-1">
+                <Plus className="w-4 h-4" aria-hidden="true" />
+                Add & score
+              </Button>
+              {items.length === 0 && <LoadExampleButton onLoad={loadExample} />}
+            </div>
+          </form>
         </SectionCard>
 
         {chartData.length > 0 && (
@@ -301,60 +378,106 @@ export function RiceScoringClient() {
 
         {ranked.length > 0 && (
           <SectionCard title={`Initiatives (${ranked.length}, sorted by RICE)`}>
-            <div className="table-wrap-responsive">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-sub uppercase">
-                    <th className="p-2">#</th>
-                    <th className="p-2">Title</th>
-                    <th className="p-2 text-right">R</th>
-                    <th className="p-2 text-right">I</th>
-                    <th className="p-2 text-right">C%</th>
-                    <th className="p-2 text-right">E</th>
-                    <th className="p-2 text-right">Score</th>
-                    <th className="p-2 w-10">
-                      <span className="sr-only">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ranked.map((r) => (
-                    <tr
-                      key={r.id}
-                      className={`border-t border-border ${outliers.has(r.id) ? "bg-warning/5" : ""}`}
-                    >
-                      <td className="p-2 font-mono text-xs">{r.rank}</td>
-                      <td className="p-2 flex flex-wrap items-center gap-2">
-                        {r.title}{" "}
-                        {outliers.has(r.id) && (
-                          <AlertTriangle
-                            className="w-3 h-3 text-warning"
-                            role="img"
-                            aria-label="Outlier score, re-check inputs"
-                          />
-                        )}
-                        <BacklogRowLink row={byId.get(r.id)} />
-                      </td>
-                      <td className="p-2 text-right font-mono text-xs">{r.fields.reach}</td>
-                      <td className="p-2 text-right font-mono text-xs">{r.fields.impact}</td>
-                      <td className="p-2 text-right font-mono text-xs">{r.fields.confidence}</td>
-                      <td className="p-2 text-right font-mono text-xs">{r.fields.effort}</td>
-                      <td className="p-2 text-right font-mono">{r.score.toFixed(2)}</td>
-                      <td className="p-2">
-                        <button
-                          type="button"
-                          onClick={() => remove(r.id)}
-                          aria-label={`Remove ${r.title}`}
-                          className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
-                        >
-                          <Trash2 className="w-4 h-4" aria-hidden="true" />
-                        </button>
-                      </td>
+            <p className="mb-2 text-xs text-sub">
+              Click a title to rename it. Use Edit to change its scores.
+            </p>
+            <TooltipProvider delayDuration={300}>
+              <div className="table-wrap-responsive">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-sub uppercase">
+                      <th className="p-2">#</th>
+                      <th className="p-2">Title</th>
+                      <th className="p-2 text-right">R</th>
+                      <th className="p-2 text-right">I</th>
+                      <th className="p-2 text-right">C%</th>
+                      <th className="p-2 text-right">E</th>
+                      <th className="p-2 text-right">Score</th>
+                      <th className="p-2 w-20">
+                        <span className="sr-only">Actions</span>
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {ranked.map((r) => {
+                      const row = byId.get(r.id);
+                      const editing = editingId === r.id && row !== undefined;
+                      const editorId = `rice-edit-${r.id}`;
+                      return (
+                        <Fragment key={r.id}>
+                          <tr
+                            className={`border-t border-border ${outliers.has(r.id) ? "bg-warning/5" : ""}`}
+                          >
+                            <td className="p-2 font-mono text-xs">{r.rank}</td>
+                            <td className="p-2">
+                              <span className="flex flex-wrap items-center gap-2">
+                                <EditableName
+                                  value={r.title}
+                                  onChange={(next) => rename(r.id, next)}
+                                  ariaLabel={`Rename ${r.title}`}
+                                  className="max-w-full"
+                                />
+                                {outliers.has(r.id) && (
+                                  <AlertTriangle
+                                    className="w-3 h-3 text-warning"
+                                    role="img"
+                                    aria-label="Outlier score, re-check inputs"
+                                  />
+                                )}
+                                <BacklogRowLink row={row} />
+                              </span>
+                            </td>
+                            <td className="p-2 text-right font-mono text-xs">{r.fields.reach}</td>
+                            <td className="p-2 text-right font-mono text-xs">
+                              <ScaleValue steps={IMPACT_STEPS} value={r.fields.impact} />
+                            </td>
+                            <td className="p-2 text-right font-mono text-xs">
+                              <ScaleValue steps={CONFIDENCE_STEPS} value={confidenceOf(r.fields)} />
+                            </td>
+                            <td className="p-2 text-right font-mono text-xs">{r.fields.effort}</td>
+                            <td className="p-2 text-right font-mono">{r.score.toFixed(2)}</td>
+                            <td className="p-2">
+                              <span className="flex items-center justify-end gap-1">
+                                <IconButton
+                                  ref={(el) => {
+                                    if (el) editButtons.current.set(r.id, el);
+                                    else editButtons.current.delete(r.id);
+                                  }}
+                                  label={`Edit scores for ${r.title}`}
+                                  icon={<Pencil aria-hidden="true" />}
+                                  aria-expanded={editing}
+                                  aria-controls={editing ? editorId : undefined}
+                                  onClick={() => (editing ? closeEditor(r.id) : setEditingId(r.id))}
+                                  className="h-7 w-7 md:h-7 md:w-7 text-sub hover:text-accent min-touch-coarse"
+                                />
+                                <IconButton
+                                  label={`Remove ${r.title}`}
+                                  icon={<Trash2 aria-hidden="true" />}
+                                  variant="danger-ghost"
+                                  onClick={() => remove(r.id)}
+                                  className="h-7 w-7 md:h-7 md:w-7 min-touch-coarse"
+                                />
+                              </span>
+                            </td>
+                          </tr>
+                          {editing && (
+                            <tr id={editorId}>
+                              <td colSpan={COLUMNS} className="p-2 pt-0">
+                                <RiceRowEditor
+                                  row={row}
+                                  onSave={(values) => saveScores(r.id, values)}
+                                  onCancel={() => closeEditor(r.id)}
+                                />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </TooltipProvider>
           </SectionCard>
         )}
       </div>

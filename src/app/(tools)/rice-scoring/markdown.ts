@@ -41,14 +41,15 @@ export function toMarkdown(items: readonly PrioritizationItem[], now: Date = new
     "",
     "| # | Initiative | Reach | Impact | Confidence | Effort | RICE |",
     "|---:|---|---:|---:|---:|---:|---:|",
-    ...ranked.map(
-      (r) =>
-        `| ${r.rank} | ${cell(r.title)}${outliers.has(r.id) ? " (outlier)" : ""} | ${field(
-          r.fields.reach
-        )} | ${field(r.fields.impact)} | ${field(r.fields.confidence, "%")} | ${field(
-          r.fields.effort
-        )} | ${r.score.toFixed(2)} |`
-    ),
+    ...ranked.map((r) => {
+      // Rows saved through the MCP actions keep confidence as `confidencePct`.
+      const confidence = r.fields.confidence ?? r.fields.confidencePct;
+      return `| ${r.rank} | ${cell(r.title)}${outliers.has(r.id) ? " (outlier)" : ""} | ${field(
+        r.fields.reach
+      )} | ${field(r.fields.impact)} | ${field(confidence, "%")} | ${field(
+        r.fields.effort
+      )} | ${r.score.toFixed(2)} |`;
+    }),
     "",
     `**Do first:** ${top.map((r) => cell(r.title)).join(", ")} (RICE ${top[0].score.toFixed(2)})`,
   ];

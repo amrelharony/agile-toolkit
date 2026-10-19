@@ -123,8 +123,11 @@ describe("RICE: Import from backlog", () => {
 
     expect(screen.getByLabelText("Initiative title")).toHaveValue("Saved searches");
     expect(screen.getByLabelText("Reach (people per quarter)")).toHaveValue(500);
-    expect(screen.getByLabelText("Impact (0.25–3)")).toHaveValue(2);
-    expect(screen.getByLabelText("Confidence (0–100%)")).toHaveValue(90);
+    const scale = (group: string, option: string) =>
+      within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name: option });
+    expect(scale("Impact", "2 High")).toBeChecked();
+    // 90% isn't on the confidence scale: it's kept, as a custom value.
+    expect(scale("Confidence", "Custom: 90%")).toBeChecked();
     expect(screen.getByLabelText("Effort (person-months)")).toHaveValue(3);
     expect(screen.getByText("Linked to Saved searches")).toBeInTheDocument();
 

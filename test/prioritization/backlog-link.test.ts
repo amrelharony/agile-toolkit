@@ -165,6 +165,12 @@ describe("mappers", () => {
       impact: 1,
       confidence: 60,
       effort: 2,
+    }); // A row saved by the MCP action keeps its confidence as confidencePct.
+    expect(f("rice").toBacklog!({ reach: 10, impact: 2, confidencePct: 80, effort: 1 })).toEqual({
+      reach: 10,
+      impact: 2,
+      confidence: 80,
+      effort: 1,
     });
   });
 

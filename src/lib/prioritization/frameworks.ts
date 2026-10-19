@@ -146,7 +146,8 @@ export const FRAMEWORKS: readonly PrioritizationFramework[] = [
       compact({
         reach: num(fields?.reach),
         impact: num(fields?.impact) === undefined ? undefined : snapImpact(fields?.impact),
-        confidence: num(fields?.confidence),
+        // Rows saved by the MCP action store `confidencePct`; the UI stores `confidence`.
+        confidence: num(fields?.confidence) ?? num(fields?.confidencePct),
         effort: num(fields?.effort),
       }),
   },
