@@ -2,7 +2,7 @@
 
 Everything required to bring the toolkit online, in roughly the order you'll touch each system. Five steps, ~30 min start-to-finish if you've never used Supabase before; ~10 min if you have.
 
-**Access model in one paragraph.** The site is public: every tool page works without signing in, and a visitor's data stays in their browser. Only the owner — a Google account listed in `AUTHORIZED_EMAILS`, with a verified email — gets cloud and history sync, the agent's server path, MCP, personal access tokens, the kudos/squads/sessions APIs and realtime multiplayer. The middleware lets pages through and answers every non-bypassed `/api/*` request without an owner session with JSON (`401 unauthenticated`, `403 not_authorized | wrong_provider | email_unverified`, `503 auth_unavailable | auth_unreachable`), never a redirect. The owner-only pages (`OWNER_ONLY_PAGES` in `src/lib/auth/owner-routes.ts`: `/settings/access-tokens`, `/settings/squads`) redirect to `/auth/sign-in` or `/not-authorized`. The browser asks `GET /api/auth/owner` before starting anything owner-only.
+**Access model in one paragraph.** The site is public: every tool page works without signing in, and a visitor's data stays in their browser. Only the owner — a Google account listed in `AUTHORIZED_EMAILS`, with a verified email — gets cloud and history sync, the agent's server path, MCP, personal access tokens, the kudos/squads/sessions APIs and realtime multiplayer (the one exception is the opt-in [visitor live rooms](#visitor-live-rooms), off unless `NEXT_PUBLIC_VISITOR_ROOMS=1`). The middleware lets pages through and answers every non-bypassed `/api/*` request without an owner session with JSON (`401 unauthenticated`, `403 not_authorized | wrong_provider | email_unverified`, `503 auth_unavailable | auth_unreachable`), never a redirect. The owner-only pages (`OWNER_ONLY_PAGES` in `src/lib/auth/owner-routes.ts`: `/settings/access-tokens`, `/settings/squads`) redirect to `/auth/sign-in` or `/not-authorized`. The browser asks `GET /api/auth/owner` before starting anything owner-only.
 
 ---
 
@@ -195,6 +195,54 @@ Known behaviour worth knowing:
 - Signing out clears the toolkit data in that browser (your cloud copy stays) unless you tick **Keep a copy on this browser**. If a visitor used the browser before you sign in, you're asked to **Merge** their work into your cloud workspace or **Discard** it; sync waits for the answer.
 - Signing out while offline (or while Supabase is down) still removes the session from that browser; the next page warns that your other devices may still be signed in. If even that fails, the dialog says you're still signed in and nothing is cleared — try again.
 - **Merge** for list-style tools (risk register, decision log, 1:1s, …) combines the browser's rows with the cloud's by id; a row deleted while signed out comes back from the cloud. The same applies to your own edits after a session lapse.
+
+---
+
+## Visitor live rooms
+
+Visitors (no sign-in, no squad invite) can run **Planning Poker** or a **Retro** live with their team. A room is a temporary Supabase Realtime broadcast + presence channel, `visitor:<tool>:<12-character code>`, joined through `/join/<tool>/<code>`. Nothing is written to a database, no server secret is involved, and the channel uses the same public anon key as owner rooms. Before any channel opens, the visitor gives a name and ticks a consent box under this text: _"What you type passes through our realtime provider (Supabase) to everyone with the link. We don't store it; the room disappears when everyone leaves. Share the link only with your team."_ Owners don't get visitor rooms (strangers' cards would sync into the owner's workspace); they keep using squad invites.
+
+The feature is **off** unless the build has `NEXT_PUBLIC_VISITOR_ROOMS=1`.
+
+### Turning it on or off
+
+1. **Vercel → Settings → Environment Variables:** set `NEXT_PUBLIC_VISITOR_ROOMS` to `1` for Production (to turn it off, delete it or set it to anything else). Add it to Preview only if you want to try it there.
+2. **Redeploy** (Deployments → ⋯ → Redeploy, or push a commit). `NEXT_PUBLIC_*` values are inlined at build time, so changing the variable without a redeploy does nothing. Locally, edit `.env.local` and restart `npm run dev`.
+3. Verify from a signed-out window: the "Start a live room" / "Go live" buttons appear (or disappear), and `/join/planning-poker/ABCDEFGHJKMN` shows the name and consent step (or "Live rooms are off").
+
+What turning it **off** does: hides the entry points, makes `/join/…` say live rooms are off, and makes the client gate refuse to open any `visitor:` channel. What it does **not** do: close tabs that already have a room open (they keep going until everyone leaves or the 3-hour limit), or stop anyone who calls Supabase directly with the public anon key. For that, use the emergency brake below.
+
+### Limits built into every room
+
+- **20 people** per room, host included. A joiner who finds 20 already there gets "room full" and leaves.
+- **3-hour hard limit:** every client disconnects 3 hours after the room started, whatever happens, so a forgotten tab can't run up usage forever.
+- **30 minutes idle:** the host is asked whether to keep the room; with no answer it ends.
+- **Message limits:** inbound broadcasts are rate-limited per sender (a burst of 20, then 4 a second) and per event across the room (100, then 25 a second); anything over 100,000 characters is dropped. Names and card text with control or bidi characters are rejected, and nothing a peer sends is rendered as HTML.
+- **Traffic:** the host sends its state when someone joins and every 30 s otherwise (no 5-second heartbeat), roughly 2.4k message deliveries per hour for a 20-person room.
+
+### Watching the quota (Supabase free tier)
+
+Visitor rooms share the project's Realtime quota with owner rooms, squad-guest rooms and the live sync feeds (`user_state`, history, agent conversations). The free plan allows about **200 concurrent connections** and **2 million messages a month**; check current figures at supabase.com/pricing.
+
+- **Supabase → Project → Reports (or Usage) → Realtime:** check peak concurrent connections and messages weekly while the feature is new, and after anything that might drive traffic (a post, a talk).
+- Supabase sends usage notices to the organization's billing email; make sure it reaches you. On a paid plan, keep the **spend cap** on.
+- If usage climbs with no matching activity of yours, assume someone is abusing the anon key: turn the flag off and redeploy, and use the brake if it doesn't stop.
+
+### Emergency brake
+
+**Supabase → Realtime → Settings → Allow public access: off.** Supabase then refuses joins on public channels: no new visitor room can connect, nobody can rejoin one, and scripts using the anon key are shut out too. A tab that is already connected may keep its room until it reconnects or reaches the 3-hour limit.
+
+It also stops **everything else that uses Realtime**, because all of the app's channels are public: owner Poker/canvas/kudos rooms, squad-guest rooms, and the live push of sync, history and agent-conversation updates between your devices. Saving still works (it goes through the API, not Realtime); other devices just stop getting changes pushed until you turn it back on. Turn it back on once the flag is off and redeployed.
+
+### Residual risks (accepted for v1)
+
+- **Anyone with the link is a full member.** They see everything in the room, can claim to be the host to other participants (the host's own copy is never overwritten), and can take seats up to the 20-person cap. Removing someone is soft: they can rejoin under a new id. The firm fix is to end the room and share a new link.
+- **The host election can be rigged:** members state their own join time, so a member can make sure they take over if the host leaves.
+- **Anyone with the public anon key can burn Realtime quota**, with or without this feature. Rate limits only protect the people in a room, not the quota.
+- **Room codes are visible** in browser history, Vercel request logs (`/join/<tool>/<code>`), and wherever the link is pasted. A code is useless once its room has ended.
+- Turning the flag off needs a redeploy and doesn't close open tabs; they end by themselves within 3 hours.
+
+If abuse shows up, the planned next step is short-lived room tokens minted by a server route with Realtime Authorization on private channels (that needs "Allow public access" off and the owner rooms moved to private channels first).
 
 ---
 

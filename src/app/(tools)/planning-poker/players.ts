@@ -12,20 +12,19 @@
  * Never used for a live room: a guest there votes from their own device.
  */
 
+import { cleanPlayerName } from "@/lib/realtime/sanitize";
 import type { Participant, Session } from "./types";
+
+// The name cap and cleaner live with the other realtime text checks, which
+// the visitor live rooms share. Re-exported so existing imports keep working.
+export { MAX_NAME_LENGTH, cleanPlayerName } from "@/lib/realtime/sanitize";
 
 /** `isValidSession`'s caps: a session over them would fail to restore. */
 export const MAX_PARTICIPANTS = 100;
-export const MAX_NAME_LENGTH = 80;
 
 /** Matches names across the roster and the table: trimmed, case-insensitive. */
 export function playerKey(name: string): string {
   return name.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-/** A name as it's stored: one line, single spaces, within the validator's cap. */
-export function cleanPlayerName(name: string): string {
-  return name.trim().replace(/\s+/g, " ").slice(0, MAX_NAME_LENGTH).trim();
 }
 
 function newPlayerId(): string {

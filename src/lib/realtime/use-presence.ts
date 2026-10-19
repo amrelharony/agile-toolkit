@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getSupabaseClient, isRealtimeAvailable } from "./supabase-client";
+import { CONTROL_OR_BIDI_RE } from "./sanitize";
 
 export interface SimplePresence {
   id: string;
@@ -9,10 +10,10 @@ export interface SimplePresence {
   color: string;
   // Canvas-tool extensions (Phase 22). All optional so existing tools that
   // don't track them produce an identical presence record.
-  cursor?: { x: number; y: number };               // world coords
+  cursor?: { x: number; y: number }; // world coords
   viewport?: { x: number; y: number; zoom: number; w: number; h: number };
-  selection?: string[];                            // object IDs the peer has selected
-  tool?: string;                                   // current toolbar choice ("select", "sticky", ...)
+  selection?: string[]; // object IDs the peer has selected
+  tool?: string; // current toolbar choice ("select", "sticky", ...)
   // Phase 23 — ephemeral expressive presence:
   /** Cursor-chat bubble. Renders next to the cursor; expires at the
    * given epoch-ms (sender clears it client-side after a few seconds
@@ -24,38 +25,24 @@ export interface SimplePresence {
   reaction?: { emoji: string; x: number; y: number; expiresAt: number };
 }
 
-const AVATAR_COLORS = ["#00f0ff", "#a78bfa", "#34d399", "#f59e0b", "#f87171", "#60a5fa", "#fb923c", "#e879f9"];
+const AVATAR_COLORS = [
+  "#00f0ff",
+  "#a78bfa",
+  "#34d399",
+  "#f59e0b",
+  "#f87171",
+  "#60a5fa",
+  "#fb923c",
+  "#e879f9",
+];
 
 /**
- * RTL / LTR override codepoints — Unicode bidi format characters that can
- * flip rendering direction inside a benign-looking string. Using explicit
- * `\u` escapes here keeps the regex stable across file encodings (the raw
- * characters are invisible in most editors and frequently get mangled by
- * normalisation passes / git filters).
- *
- *   U+202A  LRE  Left-to-Right Embedding
- *   U+202B  RLE  Right-to-Left Embedding
- *   U+202C  PDF  Pop Directional Formatting
- *   U+202D  LRO  Left-to-Right Override
- *   U+202E  RLO  Right-to-Left Override
- *   U+2066  LRI  Left-to-Right Isolate
- *   U+2067  RLI  Right-to-Left Isolate
- *   U+2068  FSI  First Strong Isolate
- *   U+2069  PDI  Pop Directional Isolate
+ * C0 controls, bidi embeddings/overrides/isolates and directional marks
+ * (U+0000-U+001F, U+007F, U+061C, U+200E/F, U+202A-U+202E, U+2066-U+2069).
+ * The pattern and its history now live in `./sanitize`, shared with the
+ * visitor live rooms; this alias keeps the checks below unchanged.
  */
-// R5: built from a string literal with `\u` escapes so the source
-// stays pure ASCII. The regex-literal form embedded raw bidi chars
-// which the comment itself warns get "mangled by normalisation
-// passes / git filters".
-// R11-fix: also reject C0 control characters (U+0000..U+001F, U+007F).
-// Previously a peer could broadcast `name: "system‪alert"`
-// — the U+202A would have been caught but the bell + other controls
-// slipped through, mangling cursor nameplates and devtools readouts.
-// Additionally reject directional marks (U+200E/F, U+061C) which flip
-// individual character runs even though they aren't overrides.
-const RTL_OVERRIDE_RE = new RegExp(
-  "[\\u0000-\\u001F\\u007F\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]",
-);
+const RTL_OVERRIDE_RE = CONTROL_OR_BIDI_RE;
 
 function randomColor(seed: string): string {
   let hash = 0;
@@ -67,7 +54,10 @@ function randomColor(seed: string): string {
   return AVATAR_COLORS[((hash % len) + len) % len];
 }
 
-export function usePresence(channelName: string | null, self?: Partial<SimplePresence>): SimplePresence[] {
+export function usePresence(
+  channelName: string | null,
+  self?: Partial<SimplePresence>
+): SimplePresence[] {
   const [members, setMembers] = useState<SimplePresence[]>([]);
 
   useEffect(() => {
@@ -82,16 +72,18 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
     // consumer that joins them. Generate the id ONCE per channel mount
     // and reuse for both.
     // R8: prefer crypto.randomUUID → crypto.getRandomValues (also
-     // available on Safari < 15.4) → Math.random as a last resort.
-     // The Math.random fallback alone collides among same-second
-     // joiners on Safari < 15.4.
+    // available on Safari < 15.4) → Math.random as a last resort.
+    // The Math.random fallback alone collides among same-second
+    // joiners on Safari < 15.4.
     const generateAnonId = (): string => {
-      const c = (typeof crypto !== "undefined" ? crypto : undefined);
+      const c = typeof crypto !== "undefined" ? crypto : undefined;
       if (c?.randomUUID) return c.randomUUID();
       if (c?.getRandomValues) {
         const bytes = new Uint8Array(16);
         c.getRandomValues(bytes);
-        return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+        return Array.from(bytes)
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
       }
       return `anon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
     };
@@ -110,7 +102,7 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
     // record rather than rejecting the whole peer — better partial UX
     // than no UX.
     const SELECTION_CAP = 100; // ids; caps payload while still showing intent
-    const NAME_CAP = 200;      // display name; caps DoS and bidi-spoof surface
+    const NAME_CAP = 200; // display name; caps DoS and bidi-spoof surface
     const ID_CAP = 200;
     const COLOR_CAP = 64;
     const sanitize = (v: unknown): SimplePresence | null => {
@@ -126,12 +118,16 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
       // in the cursor list. ID and color get the same length cap to
       // bound the presence-state map's worst case.
       if (
-        r.id.length === 0 || r.id.length > ID_CAP ||
-        r.name.length === 0 || r.name.length > NAME_CAP ||
-        r.color.length === 0 || r.color.length > COLOR_CAP ||
+        r.id.length === 0 ||
+        r.id.length > ID_CAP ||
+        r.name.length === 0 ||
+        r.name.length > NAME_CAP ||
+        r.color.length === 0 ||
+        r.color.length > COLOR_CAP ||
         RTL_OVERRIDE_RE.test(r.name) ||
         RTL_OVERRIDE_RE.test(r.id)
-      ) return null;
+      )
+        return null;
       // SECURITY: `color` flows directly into inline-style properties
       // (border-color, background, color) on multiple cursor-overlay
       // elements. React's inline-style API does NOT sanitize CSS
@@ -144,23 +140,35 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
       // hsla() function calls (numbers + %, no urls), or a short
       // letters-only named-color token. Anything else falls back to a
       // safe default so the peer still appears but can't steer styles.
-      const COLOR_SAFE_RE = /^(?:#[0-9a-fA-F]{3,8}|rgba?\([0-9.,%\s]+\)|hsla?\([0-9.,%\s]+\)|[a-zA-Z]{1,32})$/;
+      const COLOR_SAFE_RE =
+        /^(?:#[0-9a-fA-F]{3,8}|rgba?\([0-9.,%\s]+\)|hsla?\([0-9.,%\s]+\)|[a-zA-Z]{1,32})$/;
       const safeColor = COLOR_SAFE_RE.test(r.color.trim()) ? r.color.trim() : "#94a3b8";
       const out: SimplePresence = { id: r.id, name: r.name, color: safeColor };
       if (r.cursor && typeof r.cursor === "object") {
         const c = r.cursor as { x?: unknown; y?: unknown };
-        if (typeof c.x === "number" && Number.isFinite(c.x) &&
-            typeof c.y === "number" && Number.isFinite(c.y)) {
+        if (
+          typeof c.x === "number" &&
+          Number.isFinite(c.x) &&
+          typeof c.y === "number" &&
+          Number.isFinite(c.y)
+        ) {
           out.cursor = { x: c.x, y: c.y };
         }
       }
       if (r.viewport && typeof r.viewport === "object") {
         const vp = r.viewport as Record<string, unknown>;
-        if (typeof vp.x === "number" && Number.isFinite(vp.x) &&
-            typeof vp.y === "number" && Number.isFinite(vp.y) &&
-            typeof vp.zoom === "number" && Number.isFinite(vp.zoom) &&
-            typeof vp.w === "number" && Number.isFinite(vp.w) &&
-            typeof vp.h === "number" && Number.isFinite(vp.h)) {
+        if (
+          typeof vp.x === "number" &&
+          Number.isFinite(vp.x) &&
+          typeof vp.y === "number" &&
+          Number.isFinite(vp.y) &&
+          typeof vp.zoom === "number" &&
+          Number.isFinite(vp.zoom) &&
+          typeof vp.w === "number" &&
+          Number.isFinite(vp.w) &&
+          typeof vp.h === "number" &&
+          Number.isFinite(vp.h)
+        ) {
           out.viewport = { x: vp.x, y: vp.y, zoom: vp.zoom, w: vp.w, h: vp.h };
         }
       }
@@ -182,9 +190,12 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
       if (r.chatBubble && typeof r.chatBubble === "object") {
         const cb = r.chatBubble as { text?: unknown; expiresAt?: unknown };
         if (
-          typeof cb.text === "string" && cb.text.length > 0 && cb.text.length <= 200 &&
+          typeof cb.text === "string" &&
+          cb.text.length > 0 &&
+          cb.text.length <= 200 &&
           !RTL_OVERRIDE_RE.test(cb.text) &&
-          typeof cb.expiresAt === "number" && Number.isFinite(cb.expiresAt)
+          typeof cb.expiresAt === "number" &&
+          Number.isFinite(cb.expiresAt)
         ) {
           const cap = Date.now() + 30_000;
           out.chatBubble = { text: cb.text, expiresAt: Math.min(cb.expiresAt, cap) };
@@ -200,17 +211,26 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
       if (r.reaction && typeof r.reaction === "object") {
         const re = r.reaction as { emoji?: unknown; x?: unknown; y?: unknown; expiresAt?: unknown };
         const emojiStr = typeof re.emoji === "string" ? re.emoji : null;
-        const hasControlCodes = emojiStr
-          ? RTL_OVERRIDE_RE.test(emojiStr)
-          : false;
+        const hasControlCodes = emojiStr ? RTL_OVERRIDE_RE.test(emojiStr) : false;
         if (
-          emojiStr && emojiStr.length > 0 && emojiStr.length <= 8 && !hasControlCodes &&
-          typeof re.x === "number" && Number.isFinite(re.x) &&
-          typeof re.y === "number" && Number.isFinite(re.y) &&
-          typeof re.expiresAt === "number" && Number.isFinite(re.expiresAt)
+          emojiStr &&
+          emojiStr.length > 0 &&
+          emojiStr.length <= 8 &&
+          !hasControlCodes &&
+          typeof re.x === "number" &&
+          Number.isFinite(re.x) &&
+          typeof re.y === "number" &&
+          Number.isFinite(re.y) &&
+          typeof re.expiresAt === "number" &&
+          Number.isFinite(re.expiresAt)
         ) {
           const cap = Date.now() + 10_000;
-          out.reaction = { emoji: emojiStr, x: re.x, y: re.y, expiresAt: Math.min(re.expiresAt, cap) };
+          out.reaction = {
+            emoji: emojiStr,
+            x: re.x,
+            y: re.y,
+            expiresAt: Math.min(re.expiresAt, cap),
+          };
         }
       }
       return out;
@@ -254,7 +274,11 @@ export function usePresence(channelName: string | null, self?: Partial<SimplePre
       void Promise.resolve(channel.untrack())
         .then(() => channel.unsubscribe())
         .catch(() => {});
-      try { void getSupabaseClient()?.removeChannel(channel); } catch { /* client torn down */ }
+      try {
+        void getSupabaseClient()?.removeChannel(channel);
+      } catch {
+        /* client torn down */
+      }
     };
     // self is intentionally excluded from deps — callers usually pass an
     // inline object that re-creates each render. Re-subscribing on every

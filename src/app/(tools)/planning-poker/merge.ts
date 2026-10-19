@@ -148,11 +148,6 @@ export function mergePokerState(inp: MergeInputs): Session | null {
   return { ...prev, participants: Array.from(ours.values()) };
 }
 
-export function electNewHost<T extends PresenceLike>(
-  members: T[],
-  missingHostId: string
-): T | null {
-  const candidates = members.filter((m) => m.id !== missingHostId);
-  if (candidates.length === 0) return null;
-  return candidates.reduce((earliest, m) => (m.joinedAt < earliest.joinedAt ? m : earliest));
-}
+// Host election is shared with the visitor Retro room; re-exported so the
+// poker hook and its tests keep importing it from here.
+export { electNewHost } from "@/lib/realtime/host-election";
