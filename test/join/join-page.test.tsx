@@ -155,12 +155,14 @@ describe("joining with the flag on", () => {
     expect(h.client.channel).not.toHaveBeenCalled();
   });
 
-  it("connects to the visitor channel only after consent", () => {
+  it("connects to the visitor channel only after consent", async () => {
     renderPage("planning-poker", CODE);
     consent("Pat");
+    expect(
+      await screen.findByText("Waiting for the host to share the session…")
+    ).toBeInTheDocument();
     expect(h.client.channel).toHaveBeenCalledTimes(1);
     expect(h.client.channel.mock.calls[0][0]).toBe(`visitor:planning-poker:${CODE}`);
-    expect(screen.getByText("Waiting for the host to share the session…")).toBeInTheDocument();
     // The identity is kept for this tab only, under this room's code.
     const stored = JSON.parse(
       window.sessionStorage.getItem(`agile-toolkit:visitor-room:${CODE}`) ?? "null"
@@ -169,12 +171,12 @@ describe("joining with the flag on", () => {
     expect(stored.id).toMatch(/^[A-Za-z0-9_-]{16}$/);
   });
 
-  it("mounts the retro room for /join/retro", () => {
+  it("mounts the retro room for /join/retro", async () => {
     renderPage("retro", CODE);
     expect(screen.getByRole("dialog", { name: "Join the live Retro room" })).toBeInTheDocument();
     expect(screen.queryByTestId("visitor-retro-room")).toBeNull();
     consent("Sam");
-    expect(screen.getByTestId("visitor-retro-room")).toHaveTextContent(`${CODE} Sam`);
+    expect(await screen.findByTestId("visitor-retro-room")).toHaveTextContent(`${CODE} Sam`);
   });
 
   it("cancelling consent opens nothing and moves focus to a way back in", () => {
@@ -200,10 +202,10 @@ describe("joining with the flag on", () => {
     expect(h.client.channel).not.toHaveBeenCalled();
   });
 
-  it("leaving the room closes the channel and offers to join again", () => {
+  it("leaving the room closes the channel and offers to join again", async () => {
     renderPage("planning-poker", CODE);
     consent("Pat");
-    fireEvent.click(screen.getByRole("button", { name: "Leave" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Leave" }));
     expect(h.client.removeChannel).toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "You left the room" })).toHaveFocus();
     expect(screen.getByRole("button", { name: "Join again" })).toBeInTheDocument();

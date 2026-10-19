@@ -8,9 +8,13 @@
  *
  * `/join` is a bare route (no app shell), so this mounts the live-region
  * announcer and reduced-motion config the shell would otherwise provide.
+ *
+ * The rooms (and the Realtime client they bring) load only after consent,
+ * and only the one this link is for: the page itself stays small.
  */
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { MotionConfig } from "framer-motion";
 import { Radio } from "lucide-react";
@@ -23,8 +27,25 @@ import {
   type VisitorIdentity,
   type VisitorTool,
 } from "@/lib/realtime/visitor-rooms";
-import { VisitorPokerRoom } from "@/app/(tools)/planning-poker/visitor-poker-room";
-import { VisitorRetroRoom } from "@/app/(tools)/retro/room/visitor-retro-room";
+
+const VisitorPokerRoom = dynamic(
+  () => import("@/app/(tools)/planning-poker/visitor-poker-room").then((m) => m.VisitorPokerRoom),
+  { ssr: false, loading: RoomLoading }
+);
+const VisitorRetroRoom = dynamic(
+  () => import("@/app/(tools)/retro/room/visitor-retro-room").then((m) => m.VisitorRetroRoom),
+  { ssr: false, loading: RoomLoading }
+);
+
+function RoomLoading() {
+  return (
+    <main className="min-h-screen flex items-center justify-center px-4">
+      <p role="status" className="text-sm text-sub">
+        Opening the room…
+      </p>
+    </main>
+  );
+}
 
 const TOOL_NAMES: Record<VisitorTool, string> = {
   "planning-poker": "Planning Poker",
