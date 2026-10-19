@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { customAlphabet } from "nanoid";
 import { ListChecks, Loader2, Radio, WifiOff } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -60,20 +59,12 @@ import {
   isExampleSession,
 } from "./example";
 import { toMarkdown } from "./markdown";
+import { generateRoomCode } from "./room-code";
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
   const t = name.trim();
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
-}
-
-// 6-char codes from a 32-symbol unambiguous alphabet (no 0/O/1/I/L). Backed
-// by a CSPRNG via nanoid — Math.random was predictable and could collide
-// across concurrent rooms.
-const roomCodeGenerator = customAlphabet("23456789ABCDEFGHJKMNPQRSTUVWXYZ", 6);
-
-function generateRoomCode(): string {
-  return roomCodeGenerator();
 }
 
 const ROOM_TTL_HOURS = Math.round(VISITOR_LIMITS.hardTtlMs / 3_600_000);

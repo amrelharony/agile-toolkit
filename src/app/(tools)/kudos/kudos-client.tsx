@@ -32,7 +32,7 @@ import { KudosForm, type RecipientOption } from "./components/kudos-form";
 import { KudosWall } from "./components/kudos-wall";
 import { KudosBeacon } from "./components/kudos-beacon";
 import { KudosSettings } from "./components/kudos-settings";
-import { useKudosRoom } from "./use-kudos-room";
+import { useKudosRoom, useOwnerKudosRoomKey } from "./use-kudos-room";
 import { useKudosReactions } from "./use-kudos-reactions";
 import { KUDOS_ENTITY_ID, KUDOS_TOOL_ID } from "./types";
 
@@ -81,25 +81,29 @@ export function KudosClient() {
   const teamName = useWorkspaceStore((s) => s.teamName);
 
   // Owner mode: persist via the workspace store (single source of
-  // truth across reloads). Scope the realtime channel by the owner's
-  // auth user id so different workspaces on the same Supabase project
-  // don't share the channel.
+  // truth across reloads). The realtime channel is scoped by a room key
+  // the server derives from the owner's id, so different workspaces don't
+  // share it and nobody can guess it from the (non-secret) owner id.
   const ownerId = isOwner ? (auth?.user?.id ?? null) : null;
+  const kudosRoomKey = useOwnerKudosRoomKey(ownerId);
   const room = useKudosRoom({
     isHost: true,
-    ownerId,
+    roomKey: kudosRoomKey,
     persistence: "workspace",
     role: "editor",
   });
   const { log } = useHistoryLogger(KUDOS_TOOL_ID);
 
-  // Sender identity for the form. The previous chain treated an empty
-  // string `display_name` as falsy and fell through to email; we keep
-  // that behaviour (a blank display_name shouldn't render as a blank
-  // signature). When email is also missing we fall back to a label —
-  // for the owner only: a visitor isn't the "Workspace owner".
-  const emailLocal = typeof auth?.user?.email === "string" ? auth.user.email.split("@")[0] : null;
-  const fromName = isOwner ? auth?.profile?.display_name || emailLocal || "Workspace owner" : "";
+  // Sender identity for the form: display name, else the account's full
+  // name, else a label (owner only: a visitor isn't the "Workspace owner").
+  // A blank display_name falls through rather than signing as "". Never the
+  // email address, whose local part used to be used: the name travels with
+  // every kudos on the shared channel.
+  const metaName =
+    typeof auth?.user?.user_metadata === "object" && auth?.user?.user_metadata
+      ? ((auth.user.user_metadata as Record<string, unknown>).full_name as string | undefined)
+      : undefined;
+  const fromName = isOwner ? auth?.profile?.display_name || metaName || "Workspace owner" : "";
   // A visitor types their own name; it lives only in this component.
   const [visitorName, setVisitorName] = useState("");
   const senderName = isOwner ? fromName : visitorName;

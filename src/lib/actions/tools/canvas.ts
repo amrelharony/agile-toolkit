@@ -355,7 +355,7 @@ registry.register({
   handler: async (params: { name: string; template?: string }) => {
     const now = nowIso();
     const board: Whiteboard = {
-      id: `wb_${nanoid(8)}`,
+      id: `wb_${nanoid()}`,
       name: params.name,
       template: params.template,
       createdAt: now,
@@ -367,7 +367,7 @@ registry.register({
   mcpHandler: async (params, ctx) => {
     const now = nowIso();
     const board: Whiteboard = {
-      id: `wb_${nanoid(8)}`,
+      id: `wb_${nanoid()}`,
       name: params.name,
       template: params.template,
       createdAt: now,

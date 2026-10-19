@@ -41,6 +41,8 @@ interface Props {
     squadId: string;
     squadOwnerId: string;
   };
+  /** The workspace's kudos room key, derived on the server for this invite. */
+  roomKey: string | null;
 }
 
 interface SquadProfileSummary {
@@ -49,22 +51,23 @@ interface SquadProfileSummary {
   color: string;
 }
 
-export function GuestKudosClient({ role, profile }: Props) {
+export function GuestKudosClient({ role, profile, roomKey }: Props) {
   const isViewer = role === "viewer";
   // Guest mode:
   //   * Ephemeral state — DO NOT persist incoming kudos to the shared
   //     `agile-toolkit:workspace` localStorage slot. Without this, a
   //     guest session on a browser later used by an owner would
   //     contaminate the owner's dashboard with stray kudos.
-  //   * Channel scoped by squadOwnerId so different workspaces on the
-  //     same Supabase project don't share the kudos channel.
+  //   * Channel scoped by the workspace's room key (derived on the server
+  //     from the squad owner's id) so workspaces don't share the channel
+  //     and nobody can name it without an invite.
   //   * Role passed through so the hook can enforce the viewer-cannot-
   //     broadcast invariant at the broadcast layer (defence-in-depth
   //     against any client patch / hot-reload race that mounts the form
   //     for a viewer).
   const room = useKudosRoom({
     isHost: false,
-    ownerId: profile.squadOwnerId,
+    roomKey,
     persistence: "ephemeral",
     role,
   });

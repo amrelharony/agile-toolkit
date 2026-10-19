@@ -3,10 +3,10 @@
 /**
  * Realtime sync for the workspace kudos wall.
  *
- * Channel scope: `tool:kudos:room:workspace-${ownerId}`. Per-workspace,
- * NOT global — without the ownerId in the room name, every workspace
- * on the same Supabase project would share one channel and squad A
- * would receive squad B's kudos.
+ * Channel scope: `tool:kudos:room:workspace-${roomKey}`. Per-workspace,
+ * NOT global, so squad A never receives squad B's kudos. The key is derived
+ * on the server from the owner's id (lib/realtime/room-keys): it used to be
+ * the owner id itself, which isn't secret, so anyone could join.
  *
  * State source-of-truth depends on mode:
  *   * Owner — workspace store (persists across reloads, syncs to cloud)
@@ -48,15 +48,45 @@ const GUEST_CAP = 500;
 
 export type KudosRole = "editor" | "viewer" | "commenter";
 
+/** Shape of a room key from the server (base64url, as room-keys derives it). */
+const ROOM_KEY_RE = /^[A-Za-z0-9_-]{16,64}$/;
+
+/**
+ * The owner's kudos room key, fetched from the server. `null` until it has
+ * loaded, if the server can't derive keys, or when there's no owner: the
+ * wall then works locally and joins the channel once the key arrives.
+ */
+export function useOwnerKudosRoomKey(ownerId: string | null): string | null {
+  const [roomKey, setRoomKey] = useState<string | null>(null);
+  useEffect(() => {
+    setRoomKey(null);
+    if (!ownerId) return;
+    let alive = true;
+    fetch("/api/realtime/kudos-room", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: unknown) => {
+        const key = (body as { roomKey?: unknown } | null)?.roomKey;
+        if (alive && typeof key === "string" && ROOM_KEY_RE.test(key)) setRoomKey(key);
+      })
+      .catch(() => {
+        /* offline or not the owner: stay local-only */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [ownerId]);
+  return roomKey;
+}
+
 export interface UseKudosRoomOptions {
   /** Whether this peer is the room host (the workspace owner). Hosts
    *  emit the keepalive snapshot; guests don't. */
   isHost: boolean;
-  /** Auth user id (owner) or `squadOwnerId` from the guest profile.
-   *  Scopes the realtime channel so different workspaces don't
-   *  cross-pollute. `null` keeps the hook local-only (e.g. before the
-   *  owner-side auth subscription resolves). */
-  ownerId: string | null;
+  /** The workspace's kudos room key, from the server (the owner fetches it
+   *  from /api/realtime/kudos-room; a guest's invite page renders it).
+   *  Scopes the realtime channel per workspace. `null` keeps the hook
+   *  local-only (e.g. before the key has loaded). */
+  roomKey: string | null;
   /** Persistence mode:
    *   * `"workspace"` — owner side: kudos flow through the workspace
    *     store (persist + cloud sync).
@@ -95,8 +125,8 @@ function dedupAndAppend(list: Kudos[], k: Kudos): Kudos[] {
 }
 
 export function useKudosRoom(opts: UseKudosRoomOptions): KudosRoomHook {
-  // Scoped channel — without ownerId we run local-only.
-  const roomId = opts.ownerId ? `workspace-${opts.ownerId}` : null;
+  // Scoped channel — without a room key we run local-only.
+  const roomId = opts.roomKey ? `workspace-${opts.roomKey}` : null;
   const room = useRoom<unknown>(KUDOS_TOOL_ID, roomId, null, {
     validateState: (_raw): _raw is unknown => false,
   });
