@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useId, useMemo, useState, useRef } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -33,6 +33,8 @@ import { NPS_CSAT_ACTIONS } from "@/lib/history/event-actions";
 import { ActionRow } from "@/components/shared/action-row";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
+import { ChartFigure } from "@/components/shared/chart-card";
+import { scoreTrendText } from "./chart-text";
 import { buildScoreTrend } from "./trend";
 
 // Recharts loads with the score trend chart, not the page. The placeholder
@@ -158,6 +160,9 @@ export function NpsCsatClient() {
 
   // Per-date NPS (% promoters − % detractors) and average CSAT.
   const trendData = useMemo(() => buildScoreTrend(entries), [entries]);
+  // The trend chart in words: a summary sentence and the scores as a table.
+  const trendText = useMemo(() => scoreTrendText(trendData), [trendData]);
+  const trendTitleId = useId();
 
   const anomalies = useMemo(() => {
     const scores = entries.filter((e) => e.kind === "nps").map((e) => e.score);
@@ -357,7 +362,9 @@ export function NpsCsatClient() {
           <CardContent className="p-4" ref={chartRef as React.RefObject<HTMLDivElement>}>
             <div className="flex items-center gap-2 mb-3 flex-wrap">
               <BarIcon className="w-4 h-4 text-accent" />
-              <h3 className="text-sm font-semibold text-text">Score Trend</h3>
+              <h3 id={trendTitleId} className="text-sm font-semibold text-text">
+                Score Trend
+              </h3>
               {npsTrend?.significant && (
                 <span
                   className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
@@ -386,11 +393,17 @@ export function NpsCsatClient() {
                 </span>
               )}
             </div>
-            <ScoreTrendChart
-              data={trendData}
-              npsChangepoints={npsChangepoints}
-              csatChangepoints={csatChangepoints}
-            />
+            <ChartFigure
+              labelledBy={trendTitleId}
+              summary={trendText.summary}
+              table={trendText.table}
+            >
+              <ScoreTrendChart
+                data={trendData}
+                npsChangepoints={npsChangepoints}
+                csatChangepoints={csatChangepoints}
+              />
+            </ChartFigure>
           </CardContent>
         </Card>
       )}

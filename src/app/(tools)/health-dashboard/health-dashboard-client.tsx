@@ -526,9 +526,13 @@ export function HealthDashboardClient() {
           {kpis.map((kpi) => (
             <div key={kpi.id} className="flex flex-col items-center gap-2 min-w-[80px]">
               {kpi.value !== null ? (
-                <TrafficCircle status={kpi.status} size={40} />
+                <TrafficCircle status={kpi.status} size={40} labelled />
               ) : (
-                <div className="w-10 h-10 rounded-full border-2 border-dashed border-border" />
+                <div
+                  role="img"
+                  aria-label="No data"
+                  className="w-10 h-10 rounded-full border-2 border-dashed border-border"
+                />
               )}
               <span className="text-xs text-sub text-center leading-tight max-w-[80px]">
                 {kpi.name}

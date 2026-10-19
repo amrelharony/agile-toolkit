@@ -23,7 +23,9 @@ interface ScoreTrendChartProps {
 export function ScoreTrendChart({ data, npsChangepoints, csatChangepoints }: ScoreTrendChartProps) {
   return (
     <ResponsiveContainer width="100%" height={240}>
-      <LineChart data={data}>
+      {/* ChartFigure hides the plot from assistive tech behind its summary and
+          table, so the SVG mustn't be a tab stop. */}
+      <LineChart data={data} accessibilityLayer={false}>
         <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
         <XAxis dataKey="date" stroke={chartTheme.axisColor} />
         {/* NPS (−100..+100) and CSAT (1–5) need their own scales: on one

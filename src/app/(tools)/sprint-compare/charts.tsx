@@ -35,6 +35,9 @@ export function SprintRadarChart({ data, series, width, height }: SprintRadarCha
       height={height}
       data={data}
       margin={{ top: 10, right: 30, left: 30, bottom: 10 }}
+      // ChartCard hides the plot from assistive tech behind its summary and
+      // table, so the SVG mustn't be a tab stop.
+      accessibilityLayer={false}
     >
       <PolarGrid stroke="rgba(255,255,255,0.1)" />
       <PolarAngleAxis dataKey="dimension" tick={{ fill: "#94a3b8", fontSize: 12 }} />

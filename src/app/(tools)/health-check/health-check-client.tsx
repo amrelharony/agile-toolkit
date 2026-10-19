@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { create } from "zustand";
 import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -28,6 +28,7 @@ import { undoable } from "@/lib/utils/undoable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
+import { ChartFigure } from "@/components/shared/chart-card";
 import { BlurInput } from "@/components/shared/blur-fields";
 import {
   ExampleNotice,
@@ -36,6 +37,7 @@ import {
   isExampleId,
 } from "@/components/tool-frame/example-data";
 import { HeartPulse } from "lucide-react";
+import { healthTrendText } from "./chart-text";
 import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
 
@@ -460,6 +462,10 @@ export function HealthCheckClient() {
   const currentGreen = DIMENSIONS.filter((d) => lights[d] === "green").length;
   const currentHealth = ratedCount > 0 ? Math.round((currentGreen / ratedCount) * 100) : null;
 
+  // The trend chart in words: a summary sentence and the lights as a table.
+  const chartText = useMemo(() => healthTrendText(chartData), [chartData]);
+  const trendTitleId = useId();
+
   const reversedHistory = useMemo(() => [...history].reverse(), [history]);
 
   /* -- Render -------------------------------------------------------------- */
@@ -593,7 +599,7 @@ export function HealthCheckClient() {
         {/* ---- Trend Chart ---- */}
         {history.length > 0 && (
           <SectionCard
-            title="Trend Chart"
+            title={<span id={trendTitleId}>Trend Chart</span>}
             titleSize="lg"
             headerClassName="pb-2"
             actions={
@@ -606,7 +612,13 @@ export function HealthCheckClient() {
             <p className="text-xs text-sub mb-3">
               2 = Green &nbsp;·&nbsp; 1 = Yellow &nbsp;·&nbsp; 0 = Red
             </p>
-            <HealthTrendChart data={chartData} />
+            <ChartFigure
+              labelledBy={trendTitleId}
+              summary={chartText.summary}
+              table={chartText.table}
+            >
+              <HealthTrendChart data={chartData} />
+            </ChartFigure>
           </SectionCard>
         )}
 

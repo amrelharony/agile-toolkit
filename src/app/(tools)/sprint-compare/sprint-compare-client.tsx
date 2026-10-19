@@ -50,6 +50,7 @@ import {
   type Dimension,
   type Ratings,
 } from "./view";
+import { sprintRadarText } from "./chart-text";
 import { toMarkdown } from "./markdown";
 
 // Recharts loads with the chart, not the page; ChartCard's fixed-height box
@@ -281,6 +282,11 @@ export function SprintCompareClient() {
     () => ratedRows.map((r) => ({ id: r.id, name: r.name, color: r.color })),
     [ratedRows]
   );
+  // The radar in words: a summary sentence and the ratings as a table.
+  const chartText = useMemo(
+    () => sprintRadarText(chartData, chartSeries),
+    [chartData, chartSeries]
+  );
 
   const jsonData = useMemo(
     () => ({
@@ -415,6 +421,8 @@ export function SprintCompareClient() {
         title="Sprint Radar"
         icon={GitCompare}
         height={400}
+        summary={chartText.summary}
+        table={chartText.table}
         headerExtras={chartActions}
         footer={
           chartSeries.length === 0 ? (

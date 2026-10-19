@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useCallback } from "react";
+import { useCallback, useId, useMemo, useRef } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
@@ -21,6 +21,7 @@ import { RELEASE_PLANNER_ACTIONS } from "@/lib/history/event-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
+import { ChartFigure } from "@/components/shared/chart-card";
 import { CalloutAlert } from "@/components/shared/callout-alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,6 +42,7 @@ import {
   sprintVelocities,
   type VelocitySource,
 } from "./velocity-source";
+import { simulationHistogramText } from "./chart-text";
 
 // Recharts loads with the chart, not the page; the placeholder holds the
 // chart's 350px height while it does.
@@ -371,6 +373,21 @@ export function ReleasePlannerClient() {
     }),
     [effectiveConfig, sim]
   );
+
+  // The histogram in words: a summary sentence and the bars as a table.
+  const histogramText = useMemo(
+    () =>
+      simulationHistogramText({
+        histogram: sim.histogram,
+        total: ITERATIONS,
+        p50: sim.p50,
+        p85: sim.p85,
+        p95: sim.p95,
+        target: pinnedTarget,
+      }),
+    [sim, pinnedTarget]
+  );
+  const histogramTitleId = useId();
 
   const confidenceRows = useMemo(() => {
     if (sim.p50 === 0) return [];
@@ -756,7 +773,7 @@ export function ReleasePlannerClient() {
 
         {/* Histogram chart */}
         <SectionCard
-          title="Simulation Histogram"
+          title={<span id={histogramTitleId}>Simulation Histogram</span>}
           icon={BarChart3}
           titleSize="lg"
           titleSuffix={`(${ITERATIONS.toLocaleString()} iterations)`}
@@ -767,7 +784,13 @@ export function ReleasePlannerClient() {
               Enter velocity data to run simulation.
             </div>
           ) : (
-            <div ref={chartRef} className="w-full pt-2">
+            <ChartFigure
+              labelledBy={histogramTitleId}
+              summary={histogramText.summary}
+              table={histogramText.table}
+              plotRef={chartRef}
+              plotClassName="w-full pt-2"
+            >
               <SimulationHistogramChart
                 histogram={sim.histogram}
                 total={ITERATIONS}
@@ -777,7 +800,7 @@ export function ReleasePlannerClient() {
                 bootstrapPoint={bootstrapResult ? bootstrapResult.point : null}
                 target={pinnedTarget}
               />
-            </div>
+            </ChartFigure>
           )}
         </SectionCard>
 

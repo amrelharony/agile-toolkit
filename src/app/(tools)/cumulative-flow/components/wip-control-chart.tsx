@@ -6,13 +6,16 @@
  * Western-Electric out-of-control dots, and the team's WIP limit if set.
  */
 
+import { useId, useMemo } from "react";
 import dynamic from "next/dynamic";
+import { ChartFigure } from "@/components/shared/chart-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Activity } from "lucide-react";
 import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import type { WipLimits, WipSeriesPoint, WipSignal } from "../types";
 import { MIN_XMR_SAMPLES } from "../constants";
+import { wipChartText } from "../chart-text";
 
 // Recharts loads with the chart, not the page. The fixed-height box below
 // reserves the chart's space while the chunk loads.
@@ -36,12 +39,17 @@ export function WipControlChart({
   cusumAnnotations: CausalAnnotationData[];
   signals: WipSignal[];
 }) {
+  const titleId = useId();
+  const text = useMemo(
+    () => wipChartText(wipSeries, signals, wipLimit),
+    [wipSeries, signals, wipLimit]
+  );
   return (
     <Card className="bg-surface border-border">
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-base font-display text-text flex-wrap">
-          <Activity className="w-4 h-4 text-accent" />
-          WIP control chart
+          <Activity className="w-4 h-4 text-accent" aria-hidden="true" />
+          <span id={titleId}>WIP control chart</span>
           <span className="text-xs text-sub font-normal ml-1">
             · XmR limits + CUSUM regime shifts
           </span>
@@ -61,7 +69,12 @@ export function WipControlChart({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="-mx-2" style={{ height: 240 }}>
+        <ChartFigure
+          labelledBy={titleId}
+          summary={text.summary}
+          table={text.table}
+          plotClassName="-mx-2 h-60"
+        >
           <WipControlLineChart
             wipSeries={wipSeries}
             wipLimits={wipLimits}
@@ -69,7 +82,7 @@ export function WipControlChart({
             cusumAnnotations={cusumAnnotations}
             signals={signals}
           />
-        </div>
+        </ChartFigure>
       </CardContent>
     </Card>
   );

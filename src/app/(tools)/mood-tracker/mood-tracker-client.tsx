@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -25,6 +25,8 @@ import { MOOD_ACTIONS } from "@/lib/history/event-actions";
 import { ActionRow } from "@/components/shared/action-row";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
+import { ChartFigure } from "@/components/shared/chart-card";
+import { dailyMoodText } from "./chart-text";
 
 // Recharts loads with the daily-average chart, not the page. The placeholder
 // matches the chart's fixed 220px height so the card doesn't jump.
@@ -268,6 +270,9 @@ export function MoodTrackerClient() {
     [averageByDay]
   );
   const dailyValues = useMemo(() => dailySeries.map((d) => d.avg), [dailySeries]);
+  // The daily-average chart in words: a summary sentence and a table.
+  const dailyText = useMemo(() => dailyMoodText(dailySeries), [dailySeries]);
+  const dailyTitleId = useId();
 
   // CUSUM regime-shift markers on the daily-average series. Drop any
   // changepoint that doesn't map to a date in `dailySeries` — the chart's
@@ -512,7 +517,9 @@ export function MoodTrackerClient() {
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-3 flex-wrap">
               <Heart className="w-4 h-4 text-accent" />
-              <h3 className="text-sm font-semibold text-text">Daily-average mood</h3>
+              <h3 id={dailyTitleId} className="text-sm font-semibold text-text">
+                Daily-average mood
+              </h3>
               {moodTrend?.significant && (
                 <span
                   className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
@@ -528,7 +535,13 @@ export function MoodTrackerClient() {
                 </span>
               )}
             </div>
-            <DailyMoodChart data={dailySeries} changepoints={dailyChangepoints} />
+            <ChartFigure
+              labelledBy={dailyTitleId}
+              summary={dailyText.summary}
+              table={dailyText.table}
+            >
+              <DailyMoodChart data={dailySeries} changepoints={dailyChangepoints} />
+            </ChartFigure>
           </CardContent>
         </Card>
       )}

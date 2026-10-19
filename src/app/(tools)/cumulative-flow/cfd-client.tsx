@@ -80,6 +80,7 @@ export function CFDClient() {
   const [newColDescription, setNewColDescription] = useState("");
   const [wipInput, setWipInput] = useState(wipLimit?.toString() ?? "");
   const wipInputId = useId();
+  const flowTitleId = useId();
 
   // Sync wipInput whenever wipLimit changes from a source other than this
   // input (initial hydration, Clear button, undo/redo). The previous version
@@ -304,7 +305,10 @@ export function CFDClient() {
         <Card className="bg-surface border-border">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <CardTitle className="flex items-center gap-2 text-lg font-display text-text">
+              <CardTitle
+                id={flowTitleId}
+                className="flex items-center gap-2 text-lg font-display text-text"
+              >
                 <Layers className="w-5 h-5 text-accent" />
                 Flow Diagram
               </CardTitle>
@@ -323,7 +327,7 @@ export function CFDClient() {
             </div>
           </CardHeader>
           <CardContent>
-            <FlowChart chartData={chartData} columns={columns} />
+            <FlowChart chartData={chartData} columns={columns} labelledBy={flowTitleId} />
           </CardContent>
         </Card>
 

@@ -22,7 +22,13 @@ interface DailyMoodChartProps {
 export function DailyMoodChart({ data, changepoints }: DailyMoodChartProps) {
   return (
     <ResponsiveContainer width="100%" height={220}>
-      <LineChart data={data} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
+      {/* ChartFigure hides the plot from assistive tech behind its summary and
+          table, so the SVG mustn't be a tab stop. */}
+      <LineChart
+        data={data}
+        margin={{ top: 10, right: 16, left: 0, bottom: 0 }}
+        accessibilityLayer={false}
+      >
         <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" vertical={false} />
         <XAxis
           dataKey="date"

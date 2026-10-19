@@ -32,7 +32,13 @@ export function CycleTimeHistogramChart({
 }) {
   return (
     <ResponsiveContainer width="100%" height={380}>
-      <BarChart data={histogramData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+      {/* ChartFigure hides the plot from assistive tech behind its summary and
+          table, so the SVG mustn't be a tab stop. */}
+      <BarChart
+        data={histogramData}
+        margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
+        accessibilityLayer={false}
+      >
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
         <XAxis
           dataKey="bucket"
@@ -115,7 +121,8 @@ export function CycleTimeScatterChart({
 }) {
   return (
     <ResponsiveContainer width="100%" height={380}>
-      <ScatterChart margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
+      {/* ChartFigure hides the plot from assistive tech (see above). */}
+      <ScatterChart margin={{ top: 10, right: 20, left: 0, bottom: 20 }} accessibilityLayer={false}>
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
         <XAxis
           dataKey="idx"
