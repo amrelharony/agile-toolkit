@@ -46,7 +46,7 @@ const obj = (v: unknown): Record<string, unknown> | null =>
 
 // ── Retro ────────────────────────────────────────────────────────────────
 
-function readRetro(state: unknown): RetroBoard | null {
+export function readRetro(state: unknown): RetroBoard | null {
   const s = obj(state);
   const format = obj(s?.format);
   if (!s || !format || !isStr(format.name, 200) || !isArr(format.columns, 12) || !isArr(s.cards)) {

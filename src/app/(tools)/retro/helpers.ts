@@ -18,6 +18,17 @@ export function formatTimer(s: number) {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
+/** Tailwind grid classes for a board with `count` columns. */
+export function columnGridClass(count: number): string {
+  return count <= 2
+    ? "grid-cols-1 sm:grid-cols-2"
+    : count === 3
+      ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+      : count === 4
+        ? "grid-cols-1 sm:grid-cols-2 xl:grid-cols-4"
+        : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5";
+}
+
 export function sortedByVotes(cards: RetroCard[]) {
   return [...cards].sort((a, b) => b.votes - a.votes);
 }
