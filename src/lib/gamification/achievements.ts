@@ -506,7 +506,7 @@ export const achievements: Achievement[] = [
   {
     id: "fair-witness",
     title: "Fair Witness",
-    description: "Pick the LLM-suggested under-recognised teammate.",
+    description: "Pick the LLM-suggested under-recognized teammate.",
     category: "collaboration",
     xp: 400,
     icon: "Scale",

@@ -57,7 +57,7 @@ export const GUIDES: ToolGuide[] = [
       "Set the status to review and ask someone else to read it.",
       "If you've added your own provider key in AI settings, click Test to run the prompt and check the output.",
       "When it passes your evals, publish it with the check icon, or set its status to production.",
-      "Set the version it replaces to deprecated, so only one version of each prompt is live.",
+      "Publishing moves the version it replaces to deprecated, so only one version of each prompt is live.",
     ],
     tips: [
       "Bump the version for every change, even one word. Use a new major number when the output's behavior or format changes.",
@@ -78,7 +78,7 @@ export const GUIDES: ToolGuide[] = [
       "Set a status: production, evaluation, experimental or deprecated, then click Add model.",
       "The Models table sorts by eval score. Read it against cost and p95 latency, not on score alone.",
       "To compare real outputs, use Live Compare (BYOK): type a prompt, tick the providers you've set up in AI settings and click Run all.",
-      "To update a model, add it again with the same Model name; its row is replaced.",
+      "To update a model, add it again with the same Model name. The form warns that its row will be replaced, and you can undo it.",
     ],
     tips: [
       "Use the same dataset and grading for every model's eval score, or the column isn't comparable. The LLM Eval Tracker keeps the history.",
@@ -276,7 +276,7 @@ export const GUIDES: ToolGuide[] = [
       "Optionally, paste the prompt into Generate first pass (BYOK) to see the model's output. The output isn't saved.",
       "Under Log review, enter the Feature and Reviewer and pick a Rating. Untick “Reviewer agreed with the model output” if they overruled it.",
       "Add a reason, especially for low ratings and disagreements, then click Log.",
-      "Each week, check Mean rating, Agreement rate and the Mean rating over time chart.",
+      "Each week, check Mean rating, Reviewer–model agreement (how often reviewers agreed with the model) and the Mean rating over time chart.",
       "Export the log to read the reasons behind disagreements, and turn repeated ones into prompt fixes or eval cases.",
     ],
     scales: [
@@ -291,7 +291,7 @@ export const GUIDES: ToolGuide[] = [
     ],
     tips: [
       "Agree what each rating means with reviewers up front, with an example for each, or ratings will drift between people.",
-      "A very high agreement rate can mean reviewers are rubber-stamping. Spot-check a sample yourself.",
+      "Very high reviewer–model agreement can mean reviewers are rubber-stamping. Spot-check a sample yourself.",
     ],
   },
   {

@@ -336,7 +336,7 @@ export function KudosClient() {
   const predictedRecipientId =
     predicted.confidence !== "none" && predicted.value ? predicted.value : undefined;
 
-  // Find the first under-recognised teammate that matches a recipient
+  // Find the first under-recognized teammate that matches a recipient
   // we can actually pick — drops phantom ids the model produced for
   // people who aren't in the form's recipient list (race against a
   // squad-profile refresh).
@@ -350,7 +350,7 @@ export function KudosClient() {
   }, [fairness, recipients]);
 
   // Map the fairness target to its score so we can stamp
-  // `fairnessScoreAtSend` when the sender picks an under-recognised
+  // `fairnessScoreAtSend` when the sender picks an under-recognized
   // recipient (a click on the hint button, or a manual pick of the
   // same person before the hint disappears).
   const fairnessScoreByProfileId = useMemo(() => {
@@ -392,9 +392,9 @@ export function KudosClient() {
         <p className="text-sm text-text">
           <span className="font-semibold">{fairnessHintTarget.opt.displayName}</span>{" "}
           <span className="text-sub">
-            {fairnessHintTarget.suggestion.reason || "looks under-recognised this month"}
+            {fairnessHintTarget.suggestion.reason || "looks under-recognized this month"}
           </span>
-          {" — recognise them?"}
+          {" — recognize them?"}
         </p>
       </div>
       <Button

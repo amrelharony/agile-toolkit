@@ -29,9 +29,9 @@
  *                                 auto-demote any OTHER version of the
  *                                 same `name` from production to
  *                                 deprecated. Enforces the
- *                                 single-production-per-name invariant
- *                                 that the in-app dropdown does NOT
- *                                 enforce. requiresConfirmation:true
+ *                                 single-production-per-name invariant,
+ *                                 the same rule the in-app Publish button
+ *                                 and status menu apply. requiresConfirmation:true
  *                                 (default for `write`) — this is a real
  *                                 production cut-over.
  *   4. deprecate                — write: set status="deprecated", append
@@ -48,15 +48,16 @@
  *                                 except this metric).
  *
  * ─── PRODUCTION INVARIANT ────────────────────────────────────────────
- * The in-app status dropdown will happily let a user park TWO versions
- * of the same prompt name in `production` simultaneously (publish v1.4.0,
- * then publish v1.5.0 without first deprecating v1.4.0). For agent
- * usage we want a stronger invariant: at most one production version
- * per `name`. `promote_to_production` enforces this by demoting any
- * existing production version of the same name to `deprecated` before
- * setting the target to `production`. `get_production_prompt` is
- * defensive against the legacy multi-production state — it picks the
- * row with the latest `publishedAt` as a deterministic tiebreaker.
+ * At most one production version per `name`. `promote_to_production`
+ * enforces this by demoting any existing production version of the same
+ * name to `deprecated` before setting the target to `production`. The
+ * in-app Publish button and status menu do the same (`promote` in
+ * prompt-registry-client.tsx); keep the two in step. Older data can still
+ * hold TWO production versions of one name (the UI used to allow it:
+ * publish v1.4.0, then v1.5.0 without deprecating v1.4.0), so
+ * `get_production_prompt` stays defensive against that legacy state — it
+ * picks the row with the latest `publishedAt` as a deterministic
+ * tiebreaker.
  *
  * ─── ID NAMING ───────────────────────────────────────────────────────
  * Namespace is `tool.prompt_registry` (snake_case to round-trip cleanly
@@ -225,7 +226,8 @@ registry.register({
 // ──────── tool.prompt_registry.get_production_prompt ────────
 // {name} → the version currently in production for that name, or null.
 // Defensive against multi-production state: if more than one row
-// somehow ended up tagged production (the in-app dropdown allows it),
+// ended up tagged production (the in-app UI allowed it before it
+// enforced one production version per name),
 // the row with the latest publishedAt wins. Returns the full
 // PromptVersion so the caller can grab .body directly without a
 // follow-up workspace.prompt.get.
@@ -272,10 +274,12 @@ function pickProduction(candidates: PromptVersion[]): PromptVersion | null {
 // ──────── tool.prompt_registry.promote_to_production ────────
 // Set status="production" on the target AND auto-demote any OTHER
 // version of the same `name` from production to deprecated, enforcing
-// the single-production-per-name invariant the in-app UI does not.
+// the single-production-per-name invariant. The in-app Publish button
+// and status menu apply the same rule (`promote` in
+// prompt-registry-client.tsx).
 //
 // Stamps publishedAt to now if the target doesn't already carry one
-// (matches the in-app publish() helper's behaviour exactly).
+// (as the in-app status menu does; the Publish button always restamps).
 //
 // requiresConfirmation defaults to true for `write` — this is a real
 // production cut-over and the agent should pause before executing it.

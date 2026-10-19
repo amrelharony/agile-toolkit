@@ -80,14 +80,14 @@ interface Props {
   predictedRecipientId?: string;
   /**
    * Phase 3 — inline hint shown above the form. The parent (owner-side
-   * only) renders an under-recognised teammate suggestion here with a
+   * only) renders an under-recognized teammate suggestion here with a
    * one-click "send to them" button. Free-form ReactNode keeps the form
    * agnostic to whether the hint came from fairness, LLM, or a manual
    * prompt.
    */
   fairnessHintSlot?: React.ReactNode;
   /**
-   * Phase 3 — when the parent's "send to under-recognised X" button
+   * Phase 3 — when the parent's "send to under-recognized X" button
    * fires it bumps a counter via this callback shape: `{recipientId, token}`.
    * The token monotonically increases per click; the form treats a bump
    * as a forced override of the auto-select latch and snaps the picker
@@ -161,7 +161,7 @@ export function KudosForm({
   }, [recipientId, recipients, predictedRecipientId]);
 
   // Phase 3 — forced recipient override (fires when the parent's
-  // under-recognised hint button is clicked). Re-runs ONLY when the
+  // under-recognized hint button is clicked). Re-runs ONLY when the
   // monotonic token changes; the latch is intentionally not consulted
   // here because the user explicitly clicked the hint.
   const lastForcedTokenRef = useRef<number>(forcedRecipient?.token ?? -1);

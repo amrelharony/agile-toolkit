@@ -2,8 +2,8 @@
 
 /**
  * WIP control chart card: WIP over time with XmR UCL/LCL bands (suppressed
- * with a notice below the sample floor), CUSUM regime-shift markers, and
- * Western-Electric out-of-control dots.
+ * with a notice below the sample floor), CUSUM regime-shift markers,
+ * Western-Electric out-of-control dots, and the team's WIP limit if set.
  */
 
 import dynamic from "next/dynamic";
@@ -26,11 +26,13 @@ const WipControlLineChart = dynamic(() => import("../charts").then((m) => m.WipC
 export function WipControlChart({
   wipSeries,
   wipLimits,
+  wipLimit = null,
   cusumAnnotations,
   signals,
 }: {
   wipSeries: WipSeriesPoint[];
   wipLimits: WipLimits | null;
+  wipLimit?: number | null;
   cusumAnnotations: CausalAnnotationData[];
   signals: WipSignal[];
 }) {
@@ -63,6 +65,7 @@ export function WipControlChart({
           <WipControlLineChart
             wipSeries={wipSeries}
             wipLimits={wipLimits}
+            wipLimit={wipLimit}
             cusumAnnotations={cusumAnnotations}
             signals={signals}
           />

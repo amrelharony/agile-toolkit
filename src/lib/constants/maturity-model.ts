@@ -311,19 +311,31 @@ export const MATURITY_LEVEL_LABELS: Record<number, string> = {
 
 export interface MaturityScore {
   percentage: number;
+  /** The rounded average level, 1-5. */
+  level: number;
+  /** The same name the per-dimension levels use (Initial … Optimizing). */
   label: string;
   color: string;
 }
 
+const LEVEL_COLORS: Record<number, string> = {
+  1: "#ef4444",
+  2: "#f97316",
+  3: "#eab308",
+  4: "#22c55e",
+  5: "#00f0ff",
+};
+
+/**
+ * The overall score names the rounded average level with the level labels.
+ * It used to use its own bands (Ad-hoc / Emerging / Developing / Proficient /
+ * Optimizing), so "Developing" meant one thing on a slider and another on the
+ * overall badge.
+ */
 export function getMaturityScore(averageLevel: number): MaturityScore {
   const percentage = Math.round((averageLevel / 5) * 100);
-  if (percentage < 30)
-    return { percentage, label: "Ad-hoc", color: "#ef4444" };
-  if (percentage < 50)
-    return { percentage, label: "Emerging", color: "#f97316" };
-  if (percentage < 65)
-    return { percentage, label: "Developing", color: "#eab308" };
-  if (percentage < 80)
-    return { percentage, label: "Proficient", color: "#22c55e" };
-  return { percentage, label: "Optimizing", color: "#00f0ff" };
+  const level = Number.isFinite(averageLevel)
+    ? Math.min(5, Math.max(1, Math.round(averageLevel)))
+    : 1;
+  return { percentage, level, label: MATURITY_LEVEL_LABELS[level], color: LEVEL_COLORS[level] };
 }

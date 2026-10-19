@@ -45,3 +45,25 @@ export function isOverdue(a: ActionItem): boolean {
   const today = todayIso();
   return a.dueDate < today;
 }
+
+/** Milliseconds for a timeline timestamp; unparseable ones sort first. */
+function eventMs(ts: string): number {
+  const t = Date.parse(ts);
+  return Number.isFinite(t) ? t : 0;
+}
+
+/**
+ * Put a timeline entry in event-time order. Entries can be back-dated, so
+ * appending would leave the timeline out of order. Equal times keep the
+ * order they were added in.
+ */
+export function insertByEventTime<T extends { ts: string }>(timeline: T[], entry: T): T[] {
+  const t = eventMs(entry.ts);
+  const i = timeline.findIndex((e) => eventMs(e.ts) > t);
+  return i === -1 ? [...timeline, entry] : [...timeline.slice(0, i), entry, ...timeline.slice(i)];
+}
+
+/** A copy of the timeline in event-time order (stable for equal times). */
+export function sortByEventTime<T extends { ts: string }>(timeline: T[]): T[] {
+  return [...timeline].sort((a, b) => eventMs(a.ts) - eventMs(b.ts));
+}

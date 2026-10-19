@@ -82,8 +82,25 @@ export function PolarityMapClient() {
   const [greater, setGreater] = useState("");
   const [deeper, setDeeper] = useState("");
 
+  // Create polarity used to do nothing, silently, when the title or a pole
+  // label was empty. After a failed attempt the empty fields are flagged and
+  // a message names them; it updates as they're filled in.
+  const [attempted, setAttempted] = useState(false);
+  const missing = [
+    ...(title.trim() ? [] : ["a polarity title"]),
+    ...(leftLabel.trim() ? [] : ["a left pole label"]),
+    ...(rightLabel.trim() ? [] : ["a right pole label"]),
+  ];
+  const showError = attempted && missing.length > 0;
+  const errorId = `${uid}-create-error`;
+  const flag = (empty: boolean) =>
+    showError && empty ? { "aria-invalid": true as const, "aria-describedby": errorId } : {};
+
   function add() {
-    if (!title.trim() || !leftLabel.trim() || !rightLabel.trim()) return;
+    if (missing.length > 0) {
+      setAttempted(true);
+      return;
+    }
     const pol: Polarity = {
       id: crypto.randomUUID(),
       title: title.trim(),
@@ -118,6 +135,7 @@ export function PolarityMapClient() {
     setRightLabel("");
     setGreater("");
     setDeeper("");
+    setAttempted(false);
   }
 
   function updatePoleLines(p: PolarityPole, kind: "upsides" | "downsides", lines: string[]) {
@@ -184,6 +202,7 @@ export function PolarityMapClient() {
             aria-label="Polarity title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            {...flag(!title.trim())}
           />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
             <Input
@@ -191,12 +210,14 @@ export function PolarityMapClient() {
               aria-label="Left pole label"
               value={leftLabel}
               onChange={(e) => setLeftLabel(e.target.value)}
+              {...flag(!leftLabel.trim())}
             />
             <Input
               placeholder="Right pole label"
               aria-label="Right pole label"
               value={rightLabel}
               onChange={(e) => setRightLabel(e.target.value)}
+              {...flag(!rightLabel.trim())}
             />
           </div>
           <Input
@@ -213,6 +234,15 @@ export function PolarityMapClient() {
             onChange={(e) => setDeeper(e.target.value)}
             className="mt-2"
           />
+          {showError && (
+            <p id={errorId} role="alert" className="mt-2 text-xs text-danger">
+              Enter{" "}
+              {missing.length === 1
+                ? missing[0]
+                : `${missing.slice(0, -1).join(", ")} and ${missing[missing.length - 1]}`}{" "}
+              to create the polarity.
+            </p>
+          )}
           <Button onClick={add} className="mt-3 gap-1">
             <Plus className="w-4 h-4" />
             Create polarity

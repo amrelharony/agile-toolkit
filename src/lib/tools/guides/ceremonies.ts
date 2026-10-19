@@ -64,7 +64,7 @@ export const GUIDES: ToolGuide[] = [
       "When a meeting needs an energy lift or the room is quiet.",
     ],
     steps: [
-      "Set the filters: Time (2, 5, 10 or 15 min), Team Size, Energy Level and Category.",
+      "Set the filters: Time (up to 2, 5, 10 or 15 min), Team Size, Energy Level and Category.",
       "Click Random Pick, or click one of the matching cards under Browse All.",
       "Read the Instructions aloud, then go first yourself to show how it works.",
       "Keep to the time on the card. Tap the heart on activities that worked so you can spot them later.",
@@ -95,7 +95,7 @@ export const GUIDES: ToolGuide[] = [
       "When follow-ups from past 1:1s keep getting lost.",
     ],
     steps: [
-      "Enter the Manager, Report and Date, then click Start meeting. Open items from your last 1:1 with the same person carry over automatically.",
+      "Enter the Manager, Report and Date, then click Start meeting. Open items and Actions from your last 1:1 with the same person carry over automatically.",
       "Add agenda items before or during the meeting. Let the report bring most of them.",
       "Click an item's status to cycle it from Open to Discussed to Action. For an Action, fill in the action, Owner and due date.",
       "Write Notes as you talk. They save when you click out of the box.",
@@ -107,13 +107,17 @@ export const GUIDES: ToolGuide[] = [
         values: [
           { value: "Open", meaning: "not covered yet; carries over to the next 1:1" },
           { value: "Discussed", meaning: "covered, nothing more to do" },
-          { value: "Action", meaning: "needs follow-up with an owner and due date" },
+          {
+            value: "Action",
+            meaning:
+              "needs follow-up with an owner and due date; carries over until set to Discussed",
+          },
         ],
       },
     ],
     tips: [
       "It's the report's meeting. Talk about growth and blockers, not a status update.",
-      "Only Open items carry over. Follow up Actions from Past meetings, or re-add them.",
+      "Actions carry over with their owner and due date. When one is done, set it to Discussed so it stops carrying over.",
       "Mention “growth” in career topics; the Growth themes count picks up that word.",
     ],
     timebox: "30–60 minutes",
@@ -131,7 +135,7 @@ export const GUIDES: ToolGuide[] = [
       "Add a Team name and purpose, then pick rules from the Starter catalog or add your own under Add custom rule.",
       "Discuss each rule and reword it until everyone can live with it. Remove rules nobody will follow.",
       "Enter names in Agreed by, then click Publish to save a new version (v1, v2…).",
-      "Every month or so, run a check-in: click each rule's status to mark it Working or Not working, and watch Adherence.",
+      "Every month or so, run a check-in: click New check-in round to reset every status to Check in, then click each rule's status to mark it Working or Not working, and watch Adherence.",
       "Rewrite or drop the rules that aren't working and publish the next version.",
     ],
     scales: [

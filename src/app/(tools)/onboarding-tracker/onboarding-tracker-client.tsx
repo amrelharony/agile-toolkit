@@ -85,33 +85,47 @@ function daysBetween(a: string, b: string): number {
   return Math.round((bDate.getTime() - aDate.getTime()) / 86400000);
 }
 
-function daysSince(iso: string): number {
+/** Whole calendar days from the start date to `nowMs`'s local day ("Day N"). */
+function daysSince(iso: string, nowMs: number): number {
   const start = parseLocalDate(iso);
   if (!start) return 0;
-  const today = new Date();
-  const todayLocal = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const now = new Date(nowMs);
+  const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   return Math.round((todayLocal.getTime() - start.getTime()) / 86400000);
 }
 
+type MilestoneStatus = "done" | "overdue" | "at-risk" | "on-track";
+
 /**
- * Centralized at-risk check. A milestone is at-risk if it's incomplete and
- * the elapsed days since the person's start are >50% of the target.
- * Mirrored in `src/lib/ai-prompts/onboarding-tracker.ts` — keep in sync.
+ * Where a milestone stands, used by both the KPIs and the milestone cards so
+ * they always agree. An incomplete milestone is:
+ *   - "overdue" once the days since start pass its target, and
+ *   - "at risk" once more than half of its target time has passed, until it
+ *     becomes overdue. At-risk and overdue never overlap.
+ * The AI prompt (`src/lib/ai-prompts/onboarding-tracker.ts`) lists both
+ * together as at-risk; the client passes it the combined count.
  */
-function isAtRisk(
-  startDate: string,
-  milestone: { targetDays: number; completedAt?: string },
-  todayMs: number
-): boolean {
-  if (milestone.completedAt) return false;
+function milestoneStatus(
+  elapsedDays: number,
+  milestone: { targetDays: number; completedAt?: string }
+): MilestoneStatus {
+  if (milestone.completedAt) return "done";
   // Guard against targetDays <= 0 (legacy / imported data, or an accidental
-  // 0-day milestone). Without this, `elapsed > 0` triggers "at risk" the
-  // instant the person starts.
-  if (!Number.isFinite(milestone.targetDays) || milestone.targetDays <= 0) return false;
-  const start = parseLocalDate(startDate);
-  if (!start) return false;
-  const elapsed = (todayMs - start.getTime()) / 86400000;
-  return elapsed > milestone.targetDays * 0.5;
+  // 0-day milestone). Without this, it reads as late the instant the person
+  // starts.
+  if (!Number.isFinite(milestone.targetDays) || milestone.targetDays <= 0) return "on-track";
+  if (elapsedDays > milestone.targetDays) return "overdue";
+  if (elapsedDays > milestone.targetDays * 0.5) return "at-risk";
+  return "on-track";
+}
+
+/** Finished = every milestone done. Someone with no milestones is still active. */
+function isFinished(person: Onboardee): boolean {
+  return person.milestones.length > 0 && person.milestones.every((m) => Boolean(m.completedAt));
+}
+
+function plural(n: number, one: string, many: string): string {
+  return n === 1 ? one : many;
 }
 
 export function OnboardingTrackerClient() {
@@ -248,11 +262,16 @@ export function OnboardingTrackerClient() {
     let productivityTotal = 0;
     let productivityCount = 0;
     let atRisk = 0;
-    const today = nowTick;
+    let overdue = 0;
+    let finished = 0;
     for (const p of onboardees) {
+      if (isFinished(p)) finished += 1;
+      const elapsed = daysSince(p.startDate, nowTick);
       for (const m of p.milestones) {
         if (!m.completedAt) {
-          if (isAtRisk(p.startDate, m, today)) atRisk += 1;
+          const status = milestoneStatus(elapsed, m);
+          if (status === "overdue") overdue += 1;
+          else if (status === "at-risk") atRisk += 1;
           continue;
         }
         const days = daysBetween(p.startDate, m.completedAt);
@@ -270,6 +289,9 @@ export function OnboardingTrackerClient() {
       avgFirstPR: firstPRCount > 0 ? firstPRTotal / firstPRCount : null,
       avgProductivity: productivityCount > 0 ? productivityTotal / productivityCount : null,
       atRiskCount: atRisk,
+      overdueCount: overdue,
+      finishedCount: finished,
+      activeCount: onboardees.length - finished,
     };
   }, [onboardees, nowTick]);
 
@@ -314,7 +336,9 @@ export function OnboardingTrackerClient() {
           })),
           avgTimeToFirstPR: stats.avgFirstPR,
           avgTimeToProductivity: stats.avgProductivity,
-          atRiskCount: stats.atRiskCount,
+          // The prompt's own at-risk table includes overdue milestones, so
+          // its headline count does too.
+          atRiskCount: stats.atRiskCount + stats.overdueCount,
         },
         workspace
       ),
@@ -368,7 +392,8 @@ export function OnboardingTrackerClient() {
           variant="compact"
           icon={UserPlus}
           label="Active onboardees"
-          value={onboardees.length}
+          value={stats.activeCount}
+          hint={stats.finishedCount > 0 ? `${stats.finishedCount} finished` : undefined}
           valueClassName="text-accent"
         />
         <StatCard
@@ -387,17 +412,30 @@ export function OnboardingTrackerClient() {
         <StatCard
           variant="compact"
           icon={AlertTriangle}
-          label="At-risk milestones"
-          value={stats.atRiskCount}
-          tone={stats.atRiskCount > 0 ? "warning" : "default"}
+          label="Overdue / at-risk milestones"
+          value={`${stats.overdueCount} / ${stats.atRiskCount}`}
+          hint="past target / over half its time used"
+          tone={stats.overdueCount > 0 ? "danger" : stats.atRiskCount > 0 ? "warning" : "default"}
         />
       </KpiGrid>
 
-      {stats.atRiskCount > 0 && (
-        <CalloutAlert tone="warning" className="mb-4">
-          <strong>{stats.atRiskCount}</strong> milestone
-          {stats.atRiskCount === 1 ? " is" : "s are"} more than 50% past their target days without
-          completion. Consider a check-in.
+      {(stats.overdueCount > 0 || stats.atRiskCount > 0) && (
+        <CalloutAlert tone={stats.overdueCount > 0 ? "danger" : "warning"} className="mb-4">
+          {stats.overdueCount > 0 && (
+            <>
+              <strong>{stats.overdueCount}</strong>{" "}
+              {plural(stats.overdueCount, "milestone is", "milestones are")} overdue: past the
+              target day without completion.{" "}
+            </>
+          )}
+          {stats.atRiskCount > 0 && (
+            <>
+              <strong>{stats.atRiskCount}</strong>{" "}
+              {plural(stats.atRiskCount, "milestone is", "milestones are")} at risk: more than half
+              the target time has passed without completion.{" "}
+            </>
+          )}
+          Consider a check-in.
         </CalloutAlert>
       )}
 
@@ -475,7 +513,7 @@ export function OnboardingTrackerClient() {
       ) : (
         <div className="space-y-3 mb-6">
           {onboardees.map((p) => {
-            const ageDays = daysSince(p.startDate);
+            const ageDays = daysSince(p.startDate, nowTick);
             const completedCount = p.milestones.filter((m) => m.completedAt).length;
             return (
               <Card key={p.id} className="bg-surface border-border">
@@ -510,9 +548,9 @@ export function OnboardingTrackerClient() {
                   <div className="space-y-2">
                     {p.milestones.map((m) => {
                       const completed = Boolean(m.completedAt);
-                      const elapsed = ageDays;
-                      const overdue = !completed && elapsed > m.targetDays;
-                      const atRisk = !completed && elapsed > m.targetDays * 0.5;
+                      const status = milestoneStatus(ageDays, m);
+                      const overdue = status === "overdue";
+                      const atRisk = status === "at-risk";
                       const completedDays = completed
                         ? daysBetween(p.startDate, m.completedAt!)
                         : null;

@@ -71,6 +71,33 @@ const QUADRANT_INDEX: Record<Quadrant, number> = {
   techniques: 3,
 };
 
+type Corner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+// Sector index → the corner of the radar it is drawn in. Must follow the
+// angle maths in projectBlip / quadrantWedge (index 0 starts at -90°, top).
+const SECTOR_CORNER: Corner[] = ["top-right", "bottom-right", "bottom-left", "top-left"];
+
+const CORNER_ARROW: Record<Corner, string> = {
+  "top-left": "↖",
+  "top-right": "↗",
+  "bottom-left": "↙",
+  "bottom-right": "↘",
+};
+
+// The quadrant key under the radar is a 2×2 grid read left to right, top to
+// bottom, so it is ordered by corner and derived from QUADRANT_INDEX. It used
+// to list QUADRANTS in declaration order, which put Languages & Frameworks
+// top-left, Tools top-right and Techniques bottom-right, while their blips
+// were drawn top-right, bottom-right and top-left.
+const QUADRANT_LEGEND: { id: Quadrant; label: string; corner: Corner }[] = (
+  ["top-left", "top-right", "bottom-left", "bottom-right"] as Corner[]
+).flatMap((corner) =>
+  QUADRANTS.filter((q) => SECTOR_CORNER[QUADRANT_INDEX[q.id]] === corner).map((q) => ({
+    ...q,
+    corner,
+  }))
+);
+
 const RADAR_SIZE = 300;
 const RADAR_CENTER = RADAR_SIZE / 2;
 const RADAR_RADIUS = RADAR_CENTER - 6;
@@ -276,8 +303,14 @@ export function TechRadarClient() {
     [blips]
   );
 
-  // Pre-project all blips for the SVG.
-  const projected = useMemo(() => blips.map((b) => ({ blip: b, ...projectBlip(b) })), [blips]);
+  // Pre-project all blips for the SVG. Each blip gets a number (its place in
+  // the list, i.e. the order it was added) drawn on its dot and shown next to
+  // its name in the ring lists, so the radar reads without hovering.
+  const projected = useMemo(
+    () => blips.map((b, i) => ({ blip: b, num: i + 1, ...projectBlip(b) })),
+    [blips]
+  );
+  const blipNumber = useMemo(() => new Map(blips.map((b, i) => [b.id, i + 1])), [blips]);
 
   return (
     <ToolPageWrapper
@@ -438,16 +471,26 @@ export function TechRadarClient() {
                     </text>
                   );
                 })}
-                {/* Blip dots */}
-                {projected.map(({ blip, x, y }) => {
+                {/* Blip dots, numbered to match the ring lists. */}
+                {projected.map(({ blip, num, x, y }) => {
                   const color = RINGS.find((r) => r.id === blip.ring)?.color ?? "#00f0ff";
                   return (
-                    <g key={blip.id}>
-                      <circle cx={x} cy={y} r={5} fill={color} stroke="#0a0a0f" strokeWidth={1}>
-                        <title>
-                          {blip.name} — {blip.ring}
-                        </title>
-                      </circle>
+                    <g key={blip.id} data-blip-id={blip.id}>
+                      <title>{`${num}. ${blip.name} — ${blip.ring}`}</title>
+                      <circle cx={x} cy={y} r={7} fill={color} stroke="#0a0a0f" strokeWidth={1} />
+                      <text
+                        x={x}
+                        y={y}
+                        fontSize={num >= 100 ? 5.5 : 7.5}
+                        fontWeight={700}
+                        fill="#0a0a0f"
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                        pointerEvents="none"
+                        className="font-data"
+                      >
+                        {num}
+                      </text>
                     </g>
                   );
                 })}
@@ -464,13 +507,35 @@ export function TechRadarClient() {
                 </span>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-1 mt-3 text-xs text-sub">
-              {QUADRANTS.map((q) => (
-                <div key={q.id} className="border border-border rounded px-1.5 py-0.5">
-                  {q.label}
-                </div>
-              ))}
-            </div>
+            {/* Quadrant key, laid out in the corners the blips are drawn in. */}
+            <ul
+              className="grid grid-cols-2 gap-1 mt-3 text-xs text-sub"
+              aria-label="Quadrants by position on the radar"
+            >
+              {QUADRANT_LEGEND.map((q) => {
+                const right = q.corner.endsWith("right");
+                return (
+                  <li
+                    key={q.id}
+                    data-corner={q.corner}
+                    className={`border border-border rounded px-1.5 py-0.5 ${right ? "text-right" : ""}`}
+                  >
+                    {!right && (
+                      <span aria-hidden="true" className="mr-1">
+                        {CORNER_ARROW[q.corner]}
+                      </span>
+                    )}
+                    {q.label}
+                    <span className="sr-only">{` (${q.corner.replace("-", " ")})`}</span>
+                    {right && (
+                      <span aria-hidden="true" className="ml-1">
+                        {CORNER_ARROW[q.corner]}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           </div>
 
           {/* Blip list grouped by ring */}
@@ -490,6 +555,13 @@ export function TechRadarClient() {
                     {blipsByRing[r.id].map((b) => (
                       <div key={b.id} className="rounded-md border border-border bg-bg p-2 text-xs">
                         <div className="flex items-start gap-2">
+                          <span
+                            className="shrink-0 min-w-[1.25rem] h-5 px-1 rounded-full text-xs font-bold font-data flex items-center justify-center text-bg"
+                            style={{ background: r.color }}
+                            title={`Blip ${blipNumber.get(b.id)} on the radar`}
+                          >
+                            {blipNumber.get(b.id)}
+                          </span>
                           <div className="flex-1 min-w-0">
                             <div className="text-text font-medium break-words">{b.name}</div>
                             <div className="text-sub">

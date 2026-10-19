@@ -394,7 +394,13 @@ export function ReleasePlannerClient() {
           <StatCard
             label="Effective Backlog"
             value={`${effectiveBacklog} pts`}
-            sub={`${config.backlogSize} pts + ${config.scopeBuffer}% buffer`}
+            // Name every input to the number: the backlog, the buffer and,
+            // when it's moved, the Scope Sensitivity slider.
+            sub={`${config.backlogSize} pts + ${config.scopeBuffer}% buffer${
+              config.scopeAdjustment !== 0
+                ? `, ${config.scopeAdjustment > 0 ? "+" : ""}${config.scopeAdjustment}% scope adjustment`
+                : ""
+            }`}
             icon={BarChart3}
             color="#00f0ff"
           />
@@ -418,18 +424,17 @@ export function ReleasePlannerClient() {
           />
           <StatCard
             label="85% Confidence"
-            value={
-              sim.p85 > 0
-                ? bootstrapResult
-                  ? `MC ${sim.p85} · Boot ${bootstrapResult.point} sprints`
-                  : `${sim.p85} sprints`
-                : "—"
-            }
+            // Same shape as the 50% card: sprints, then the date. With 3+
+            // velocities a second estimate (resampling the velocities) runs
+            // too; it's mentioned only when it disagrees.
+            value={sim.p85 > 0 ? `${sim.p85} sprints` : "—"}
             sub={
               sim.p85 > 0
-                ? bootstrapResult
-                  ? `MC P85 vs non-parametric Bootstrap P85 — wider gap = noisier velocity`
-                  : sprintToDate(config.startDate, sim.p85, config.sprintLengthDays)
+                ? `${sprintToDate(config.startDate, sim.p85, config.sprintLengthDays)}${
+                    bootstrapResult && bootstrapResult.point !== sim.p85
+                      ? ` · cross-check: ${bootstrapResult.point} sprints`
+                      : ""
+                  }`
                 : undefined
             }
             icon={Calendar}

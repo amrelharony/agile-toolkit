@@ -6,7 +6,7 @@
  * the parent-supplied callbacks (the parent owns the synced store).
  */
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +23,7 @@ import {
 import { Plus, Trash2, ScrollText, ListChecks, X } from "lucide-react";
 import type { ActionItem, PMStatus, PostMortem } from "../types";
 import { STATUS_BADGE } from "../constants";
-import { isOverdue } from "../helpers";
+import { isOverdue, sortByEventTime } from "../helpers";
 import { ActionItemRow } from "./action-item-row";
 
 export function PostMortemEditor({
@@ -45,7 +45,8 @@ export function PostMortemEditor({
   onRemove: () => void;
   onAddFactor: (text: string) => void;
   onRemoveFactor: (idx: number) => void;
-  onAddTimelineEntry: (author: string, text: string) => void;
+  /** `eventTime` is a `datetime-local` value; undefined means now. */
+  onAddTimelineEntry: (author: string, text: string, eventTime?: string) => void;
   onRemoveTimelineEntry: (id: string) => void;
   onAddAction: (text: string) => void;
   onUpdateAction: (id: string, patch: Partial<ActionItem>) => void;
@@ -58,9 +59,20 @@ export function PostMortemEditor({
   const [factorDraft, setFactorDraft] = useState("");
   const [tlAuthor, setTlAuthor] = useState("");
   const [tlText, setTlText] = useState("");
+  // When the event happened (datetime-local). Blank = now.
+  const [tlTime, setTlTime] = useState("");
+  const tlTimeHintId = useId();
   const [actionDraft, setActionDraft] = useState("");
 
   const openCount = pm.actions.filter((a) => a.status !== "done").length;
+  const timeline = useMemo(() => sortByEventTime(pm.timeline), [pm.timeline]);
+
+  const submitTimelineEntry = () => {
+    if (!tlText.trim()) return;
+    onAddTimelineEntry(tlAuthor, tlText, tlTime || undefined);
+    setTlText("");
+    setTlTime("");
+  };
 
   return (
     <SectionCard
@@ -203,9 +215,9 @@ export function PostMortemEditor({
               Reconstruct the incident timeline. One line per significant event.
             </p>
           )}
-          {pm.timeline.length > 0 && (
+          {timeline.length > 0 && (
             <ul className="space-y-1.5 mb-2 max-h-48 overflow-y-auto pr-2">
-              {pm.timeline.map((e) => (
+              {timeline.map((e) => (
                 <li
                   key={e.id}
                   className="text-xs border-l-2 border-accent/40 pl-2 flex items-start gap-2"
@@ -239,29 +251,35 @@ export function PostMortemEditor({
               aria-label="Timeline entry author"
             />
             <Input
+              type="datetime-local"
+              value={tlTime}
+              onChange={(e) => setTlTime(e.target.value)}
+              className="bg-surface border-border font-data sm:w-52"
+              aria-label="Event time"
+              aria-describedby={tlTimeHintId}
+            />
+            <Input
               value={tlText}
               onChange={(e) => setTlText(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  onAddTimelineEntry(tlAuthor, tlText);
-                  setTlText("");
-                }
+                if (e.key === "Enter") submitTimelineEntry();
               }}
               placeholder="What happened…"
               className="bg-surface border-border flex-1"
               aria-label="Timeline entry text"
             />
             <Button
-              onClick={() => {
-                onAddTimelineEntry(tlAuthor, tlText);
-                setTlText("");
-              }}
+              onClick={submitTimelineEntry}
               variant="outline"
               className="border-border text-sub hover:text-accent hover:border-accent/40"
             >
               <Plus className="w-4 h-4 mr-1" aria-hidden="true" /> Entry
             </Button>
           </div>
+          <p id={tlTimeHintId} className="text-xs text-sub mt-1">
+            Event time is when it happened. Leave it blank to use the current time. The timeline
+            sorts by event time.
+          </p>
         </div>
 
         <div>
