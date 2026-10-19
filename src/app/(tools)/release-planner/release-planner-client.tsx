@@ -5,6 +5,13 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import dynamic from "next/dynamic";
+import Link from "next/link";
+import {
+  selectActiveSprint,
+  selectCompletedSprints,
+  useWorkspaceStore,
+} from "@/lib/stores/workspace-store";
+import type { Workspace } from "@/lib/stores/workspace-types";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -18,6 +25,7 @@ import { CalloutAlert } from "@/components/shared/callout-alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import { ToggleGroup } from "@/components/ui/toggle-group";
 import { TrendingUp, Calendar, BarChart3, Settings2, RefreshCw } from "lucide-react";
 import { addDays, format } from "date-fns";
 import { simulateThroughputCompletion } from "@/lib/analytics/monte-carlo";
@@ -25,6 +33,14 @@ import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 import { hasRecentChangepoint } from "@/lib/analytics/changepoint";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { SmartInput } from "@/components/shared/smart-input";
+import {
+  DEFAULT_VELOCITY_INPUT,
+  effectiveStartDate,
+  parseVelocities,
+  resolveVelocitySource,
+  sprintVelocities,
+  type VelocitySource,
+} from "./velocity-source";
 
 // Recharts loads with the chart, not the page; the placeholder holds the
 // chart's 350px height while it does.
@@ -47,6 +63,10 @@ interface ReleasePlannerConfig {
   velocityInput: string;
   scopeBuffer: number;
   sprintLengthDays: number;
+  /**
+   * First day to plan from (YYYY-MM-DD). Empty = not set: the day after the
+   * active sprint ends, else today.
+   */
   startDate: string;
   scopeAdjustment: number; // -50 to +50
   /**
@@ -55,6 +75,12 @@ interface ReleasePlannerConfig {
    * default sourced from the Bayesian forecast over completed sprints.
    */
   sprintsToReleaseTarget: string;
+  /**
+   * Where velocities come from: the typed list ("manual") or the completed
+   * shared sprints ("sprints"). Unset until the user picks one (configs saved
+   * before it existed don't have it): see `resolveVelocitySource`.
+   */
+  velocitySource?: VelocitySource;
 }
 
 interface ReleasePlannerStore {
@@ -67,20 +93,16 @@ interface ReleasePlannerStore {
 /*  Defaults                                                                   */
 /* -------------------------------------------------------------------------- */
 
-// Defaults are computed lazily so the start-date is bound to when the user
-// actually opens the page — not when the bundle was loaded. Persisted state
-// rehydrates over the top of these defaults; first-visit users get today.
+// The start date is left unset, so it follows the active sprint (or today)
+// each time the page opens until the user picks one. Persisted state
+// rehydrates over the top of these defaults.
 function makeDefaultConfig(): ReleasePlannerConfig {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
   return {
     backlogSize: 120,
-    velocityInput: "18, 22, 19, 25, 21, 17, 23, 20",
+    velocityInput: DEFAULT_VELOCITY_INPUT,
     scopeBuffer: 10,
     sprintLengthDays: 14,
-    startDate: `${y}-${m}-${day}`,
+    startDate: "",
     scopeAdjustment: 0,
     sprintsToReleaseTarget: "",
   };
@@ -147,13 +169,6 @@ function runSimulation(effectiveBacklog: number, velocities: number[]): Simulati
 /* -------------------------------------------------------------------------- */
 /*  Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
-
-function parseVelocities(input: string): number[] {
-  return input
-    .split(/[\n,]+/)
-    .map((s) => parseFloat(s.trim()))
-    .filter((n) => !isNaN(n) && n > 0);
-}
 
 function sprintToDate(startDate: string, sprintCount: number, sprintLengthDays: number): string {
   try {
@@ -245,7 +260,37 @@ export function ReleasePlannerClient() {
 
   const chartRef = useRef<HTMLDivElement>(null);
 
-  const velocities = useMemo(() => parseVelocities(config.velocityInput), [config.velocityInput]);
+  /* -- Velocities: typed, or from the completed shared sprints -------------- */
+  const workspaceSprints = useWorkspaceStore((s) => s.sprints);
+  const { fromSprints, activeSprint } = useMemo(() => {
+    // Both selectors read only `sprints`.
+    const ws = { sprints: workspaceSprints ?? [] } as Workspace;
+    return {
+      fromSprints: sprintVelocities(selectCompletedSprints(ws)),
+      activeSprint: selectActiveSprint(ws),
+    };
+  }, [workspaceSprints]);
+  const velocitySource = resolveVelocitySource(config, fromSprints);
+  const typedVelocities = useMemo(
+    () => parseVelocities(config.velocityInput),
+    [config.velocityInput]
+  );
+  const velocities = velocitySource === "sprints" ? fromSprints : typedVelocities;
+
+  const start = useMemo(
+    () => effectiveStartDate(config.startDate, activeSprint),
+    [config.startDate, activeSprint]
+  );
+  const startDate = start.date;
+  // What the simulation, the AI prompts and the export actually use.
+  const effectiveConfig = useMemo(
+    () => ({
+      ...config,
+      startDate,
+      velocityInput: velocitySource === "sprints" ? fromSprints.join(", ") : config.velocityInput,
+    }),
+    [config, startDate, velocitySource, fromSprints]
+  );
 
   const avgVelocity = useMemo(
     () =>
@@ -320,11 +365,11 @@ export function ReleasePlannerClient() {
     () => ({
       toolName: "Release Planner",
       prompts: generateReleasePlannerPrompts({
-        config,
+        config: effectiveConfig,
         results: sim.p50 > 0 ? { p50: sim.p50, p75: sim.p75, p85: sim.p85, p95: sim.p95 } : null,
       }),
     }),
-    [config, sim]
+    [effectiveConfig, sim]
   );
 
   const confidenceRows = useMemo(() => {
@@ -336,9 +381,9 @@ export function ReleasePlannerClient() {
       { pct: 95, sprints: sim.p95, color: "#ef4444" },
     ].map((row) => ({
       ...row,
-      date: sprintToDate(config.startDate, row.sprints, config.sprintLengthDays),
+      date: sprintToDate(startDate, row.sprints, config.sprintLengthDays),
     }));
-  }, [sim, config.startDate, config.sprintLengthDays]);
+  }, [sim, startDate, config.sprintLengthDays]);
 
   const clipboardText = useMemo(() => {
     if (confidenceRows.length === 0) return undefined;
@@ -346,13 +391,13 @@ export function ReleasePlannerClient() {
       `Release Forecast (Monte Carlo — ${ITERATIONS.toLocaleString()} iterations)`,
       `Backlog: ${config.backlogSize} pts | Buffer: ${config.scopeBuffer}% | Scope adj: ${config.scopeAdjustment > 0 ? "+" : ""}${config.scopeAdjustment}%`,
       `Effective backlog: ${effectiveBacklog} pts | Avg velocity: ${avgVelocity} pts/sprint`,
-      `Sprint length: ${config.sprintLengthDays} days | Start: ${config.startDate}`,
+      `Sprint length: ${config.sprintLengthDays} days | Start: ${startDate}`,
       "",
       "Confidence  Sprints  Target Date",
       ...confidenceRows.map((r) => `${r.pct}%         ${String(r.sprints).padStart(7)}  ${r.date}`),
     ];
     return lines.join("\n");
-  }, [confidenceRows, config, effectiveBacklog, avgVelocity]);
+  }, [confidenceRows, config, startDate, effectiveBacklog, avgVelocity]);
 
   // BUG-T7-release-planner-1: quiet per-tick during the drag, ONE
   // logged event on release.
@@ -415,9 +460,7 @@ export function ReleasePlannerClient() {
             label="50% Confidence"
             value={sim.p50 > 0 ? `${sim.p50} sprints` : "—"}
             sub={
-              sim.p50 > 0
-                ? sprintToDate(config.startDate, sim.p50, config.sprintLengthDays)
-                : undefined
+              sim.p50 > 0 ? sprintToDate(startDate, sim.p50, config.sprintLengthDays) : undefined
             }
             icon={Calendar}
             color="#00f0ff"
@@ -430,7 +473,7 @@ export function ReleasePlannerClient() {
             value={sim.p85 > 0 ? `${sim.p85} sprints` : "—"}
             sub={
               sim.p85 > 0
-                ? `${sprintToDate(config.startDate, sim.p85, config.sprintLengthDays)}${
+                ? `${sprintToDate(startDate, sim.p85, config.sprintLengthDays)}${
                     bootstrapResult && bootstrapResult.point !== sim.p85
                       ? ` · cross-check: ${bootstrapResult.point} sprints`
                       : ""
@@ -546,10 +589,18 @@ export function ReleasePlannerClient() {
               <Input
                 id="rp-start"
                 type="date"
-                value={config.startDate}
+                value={startDate}
                 onChange={(e) => updateConfig({ startDate: e.target.value })}
+                aria-describedby={start.from === "user" ? undefined : "rp-start-hint"}
                 className={inputCls}
               />
+              {start.from !== "user" && (
+                <p id="rp-start-hint" className="text-xs text-sub">
+                  {start.from === "sprint" && activeSprint
+                    ? `The day after ${activeSprint.name} ends.`
+                    : "Today."}
+                </p>
+              )}
             </div>
           </div>
 
@@ -592,29 +643,72 @@ export function ReleasePlannerClient() {
             />
           </div>
 
-          <div className="mt-5 space-y-1.5">
-            <Label htmlFor="rp-velocities" className="text-sub text-xs">
-              Historical Velocities (comma-separated or one per line)
-            </Label>
-            <textarea
-              id="rp-velocities"
-              value={config.velocityInput}
-              // Quiet on keystroke, logged on blur — typing a long comma list
-              // shouldn't write one RELEASE_UPDATED event per character.
-              onChange={(e) => updateConfigQuiet({ velocityInput: e.target.value })}
-              onBlur={(e) => updateConfig({ velocityInput: e.target.value })}
-              rows={3}
-              placeholder="18, 22, 19, 25, 21, 17, 23, 20"
-              className="w-full px-3 py-2 rounded-md text-sm bg-surface-deep border border-border text-text font-data focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 resize-none"
+          <div className="mt-5 space-y-2">
+            <span className="block text-sub text-xs" aria-hidden="true">
+              Historical Velocities
+            </span>
+            <ToggleGroup<VelocitySource>
+              label="Historical velocities"
+              size="sm"
+              value={velocitySource}
+              onValueChange={(v) => updateConfig({ velocitySource: v })}
+              options={[
+                { value: "sprints", label: "From completed sprints" },
+                { value: "manual", label: "Type them" },
+              ]}
             />
-            {velocities.length === 0 && (
-              <p className="text-xs text-danger">Enter at least one positive velocity value.</p>
-            )}
-            {velocities.length > 0 && (
-              <p className="text-xs text-sub">
-                {velocities.length} data point{velocities.length !== 1 ? "s" : ""} — avg{" "}
-                {avgVelocity} pts/sprint
-              </p>
+            {velocitySource === "sprints" ? (
+              fromSprints.length === 0 ? (
+                <p className="text-xs text-sub">
+                  No completed sprints with points yet. Log them in{" "}
+                  <Link href="/velocity" className="text-accent underline-offset-2 hover:underline">
+                    Velocity
+                  </Link>
+                  , or type the numbers instead.
+                </p>
+              ) : (
+                <div className="space-y-1 text-xs text-sub">
+                  <p className="font-data text-sm text-text">{fromSprints.join(", ")}</p>
+                  <p>
+                    {fromSprints.length} completed sprint{fromSprints.length !== 1 ? "s" : ""} — avg{" "}
+                    {avgVelocity} pts/sprint.{" "}
+                    <Link
+                      href="/velocity"
+                      className="text-accent underline-offset-2 hover:underline"
+                    >
+                      Edit in Velocity
+                    </Link>
+                  </p>
+                </div>
+              )
+            ) : (
+              <>
+                <Label htmlFor="rp-velocities" className="sr-only">
+                  Historical velocities (comma-separated or one per line)
+                </Label>
+                <textarea
+                  id="rp-velocities"
+                  value={config.velocityInput}
+                  // Quiet on keystroke, logged on blur — typing a long comma list
+                  // shouldn't write one RELEASE_UPDATED event per character.
+                  onChange={(e) => updateConfigQuiet({ velocityInput: e.target.value })}
+                  onBlur={(e) => updateConfig({ velocityInput: e.target.value })}
+                  rows={3}
+                  placeholder={DEFAULT_VELOCITY_INPUT}
+                  aria-describedby="rp-velocities-hint"
+                  className="w-full px-3 py-2 rounded-md text-sm bg-surface-deep border border-border text-text font-data focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 resize-none"
+                />
+                {velocities.length === 0 ? (
+                  <p id="rp-velocities-hint" className="text-xs text-danger">
+                    Enter at least one positive velocity value.
+                  </p>
+                ) : (
+                  <p id="rp-velocities-hint" className="text-xs text-sub">
+                    Comma-separated or one per line. {velocities.length} data point
+                    {velocities.length !== 1 ? "s" : ""} — avg {avgVelocity} pts/sprint
+                  </p>
+                )}
+              </>
             )}
           </div>
         </SectionCard>
