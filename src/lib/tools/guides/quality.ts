@@ -17,7 +17,7 @@ export const GUIDES: ToolGuide[] = [
       "Enter the interest per sprint: roughly how many velocity points the debt costs each sprint it stays.",
       "The list ranks itself by score. Impact counts most, effort lowers the score, and interest adds more the longer an item stays.",
       "Use the Impact × Effort Heatmap: top-left cells (high impact, low effort) are the best paydown targets. Top Hotspot shows the area with the most impact points.",
-      "Review the list at refinement each sprint, pull one or two items into the sprint, and remove items once they're paid down.",
+      "Review the list at refinement each sprint and pull one or two items into the sprint. Click Mark resolved once an item is paid down: it leaves Open Items, moves to the bottom of the list and feeds the Resolution survival curve.",
     ],
     tips: [
       "Write each item as the problem it causes (“deploys take 40 minutes because…”), not just the code smell.",
@@ -180,7 +180,7 @@ export const GUIDES: ToolGuide[] = [
     steps: [
       "Under Create a post-mortem, enter a Title, the Incident date and a one-line description, then click Create post-mortem.",
       "Write the Summary: what happened and how users were affected, in plain language.",
-      "Rebuild the Timeline, one entry per significant event. Entries are stamped when you add them, so put the real event time in the text.",
+      "Rebuild the Timeline, one entry per significant event. Set Event time to when it happened (leave it blank for now); the timeline sorts itself by event time.",
       "Add Contributing factors. Aim for at least two or three; a single root cause usually hides part of the story.",
       "Add Action items with an owner and due date, and move each through Open, In progress and Done.",
       "Move the status from Draft to In review to Published, and check Overdue actions at every review.",
@@ -204,7 +204,7 @@ export const GUIDES: ToolGuide[] = [
       "Under Add shift, enter the Person, Start date and End date for each rotation slot, with handover notes if useful.",
       "Set Expected pages per week as the team's agreed baseline load.",
       "Each time someone is paged, use Log a page: pick the Severity and note what fired. The page goes to the shift covering today.",
-      "Read the Rotation calendar (burnout heatmap): each shift is colored by its page count.",
+      "Read the Rotation calendar (burnout heatmap): each shift is colored by its pages per 7 days on call, so a short shift and a long one compare fairly.",
       "Each month, review Per-person paging stats and the Paging frequency by week chart, then rebalance shifts or fix noisy alerts.",
     ],
     tips: [
@@ -214,7 +214,7 @@ export const GUIDES: ToolGuide[] = [
     ],
     scales: [
       {
-        name: "Pages per shift",
+        name: "Pages per 7 days on call",
         values: [
           { value: "Green (under 3)", meaning: "sustainable" },
           { value: "Amber (3–5)", meaning: "heavy; keep an eye on it" },
@@ -236,7 +236,7 @@ export const GUIDES: ToolGuide[] = [
       "Under Add a runbook, enter its Name and Owner, then click Add runbook.",
       "In Per-runbook detail, set Freshness (does it match the system today?) and Completeness (does it cover diagnosis, fix and escalation?) from 1 to 5.",
       "Turn on Tested recently only if someone has followed it in a drill or a real incident.",
-      "Set Last reviewed to the date of the check. Hygiene averages Freshness, Completeness and Tested (5 if yes, 1 if not).",
+      "Set Last reviewed to the date of the check. This also sets Freshness from the review's age (up to 30 days = 5, 90 = 4, 180 = 3, a year = 2, older = 1); move the slider if the runbook is fresher or staler than that. Hygiene averages Freshness, Completeness and Tested (5 if yes, 1 if not).",
       "Sort the Runbooks table by Hygiene, fix the lowest first, and re-score after each review.",
     ],
     tips: [

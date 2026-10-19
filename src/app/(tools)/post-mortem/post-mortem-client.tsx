@@ -20,7 +20,7 @@ import { POST_MORTEM_ACTIONS } from "@/lib/history/event-actions";
 import { generatePostMortemPrompts } from "@/lib/ai-prompts/post-mortem";
 import { durationsFromTimeRanges, kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import type { ActionItem, PMStatus, PostMortem, TimelineEntry } from "./types";
-import { isOverdue, isThisQuarter, todayIso } from "./helpers";
+import { insertByEventTime, isOverdue, isThisQuarter, todayIso } from "./helpers";
 import { usePostMortemLog } from "./use-post-mortem-log";
 import { PostMortemEditor } from "./components/post-mortem-editor";
 
@@ -146,18 +146,25 @@ export function PostMortemClient() {
     });
   };
 
-  const addTimelineEntry = (id: string, author: string, text: string) => {
+  /**
+   * `eventTime` is a `datetime-local` value (local time) for when the event
+   * happened; blank means now. Entries used to be stamped with the time they
+   * were typed in, so a timeline rebuilt after the incident had every event
+   * at "now".
+   */
+  const addTimelineEntry = (id: string, author: string, text: string, eventTime?: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    const at = eventTime ? new Date(eventTime) : new Date();
     const entry: TimelineEntry = {
       id: crypto.randomUUID(),
-      ts: new Date().toISOString(),
+      ts: (Number.isFinite(at.getTime()) ? at : new Date()).toISOString(),
       author: author.trim() || "anonymous",
       text: trimmed,
     };
     setState((s) => ({
       postmortems: s.postmortems.map((p) =>
-        p.id === id ? { ...p, timeline: [...p.timeline, entry] } : p
+        p.id === id ? { ...p, timeline: insertByEventTime(p.timeline, entry) } : p
       ),
     }));
     log(POST_MORTEM_ACTIONS.TIMELINE_ADDED, {
@@ -496,7 +503,9 @@ export function PostMortemClient() {
               onRemove={() => removePostMortem(pm.id)}
               onAddFactor={(t) => addContributingFactor(pm.id, t)}
               onRemoveFactor={(i) => removeContributingFactor(pm.id, i)}
-              onAddTimelineEntry={(author, text) => addTimelineEntry(pm.id, author, text)}
+              onAddTimelineEntry={(author, text, eventTime) =>
+                addTimelineEntry(pm.id, author, text, eventTime)
+              }
               onRemoveTimelineEntry={(eId) => removeTimelineEntry(pm.id, eId)}
               onAddAction={(t) => addAction(pm.id, t)}
               onUpdateAction={(aId, patch) => updateAction(pm.id, aId, patch)}

@@ -179,10 +179,34 @@ function burnoutTone(count: number): "default" | "warning" | "danger" {
   return "default";
 }
 
-function burnoutClasses(count: number): string {
-  if (count > 5) return "border-danger/40 bg-danger/10 text-danger";
-  if (count >= 3) return "border-warning/40 bg-warning/10 text-warning";
+/**
+ * Colour for a paging rate in pages per 7 days on call. The thresholds were
+ * applied to raw per-shift counts, so 4 pages read the same on a 1-day and
+ * a 14-day shift; they now apply to a rate normalized to a one-week shift.
+ */
+function burnoutClasses(pagesPerWeek: number): string {
+  if (pagesPerWeek > 5) return "border-danger/40 bg-danger/10 text-danger";
+  if (pagesPerWeek >= 3) return "border-warning/40 bg-warning/10 text-warning";
   return "border-success/40 bg-success/10 text-success";
+}
+
+/**
+ * Calendar days a shift has been on call: start to end inclusive, or start
+ * to today while it's still running (its pages so far cover only those days).
+ * At least 1, so a shift that hasn't started can't divide by zero.
+ */
+function shiftDaysOnCall(shift: OncallShift, now: number): number {
+  const start = parseLocalDate(shift.startDate);
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  const end = Math.min(parseLocalDate(shift.endDate), today.getTime());
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 1;
+  // Round, not floor: a DST change makes one day 23 or 25 hours long.
+  return Math.max(1, Math.round((end - start) / 86_400_000) + 1);
+}
+
+function pagesPerWeek(pages: number, days: number): number {
+  return (pages * 7) / Math.max(1, days);
 }
 
 interface ShiftDraft {
@@ -377,24 +401,30 @@ export function OncallRosterClient() {
 
   // Per-person aggregates.
   const personStats = useMemo(() => {
-    const map = new Map<string, { person: string; totalPages: number; shifts: number }>();
+    const map = new Map<
+      string,
+      { person: string; totalPages: number; shifts: number; daysOnCall: number }
+    >();
     for (const s of state.shifts) {
       const cur = map.get(s.person) ?? {
         person: s.person,
         totalPages: 0,
         shifts: 0,
+        daysOnCall: 0,
       };
       cur.shifts += 1;
       cur.totalPages += pageCountByShift.get(s.id) ?? 0;
+      cur.daysOnCall += shiftDaysOnCall(s, now);
       map.set(s.person, cur);
     }
     return Array.from(map.values())
       .map((p) => ({
         ...p,
         pagesPerShift: p.shifts > 0 ? p.totalPages / p.shifts : 0,
+        pagesPerWeek: pagesPerWeek(p.totalPages, p.daysOnCall),
       }))
       .sort((a, b) => b.totalPages - a.totalPages);
-  }, [state.shifts, pageCountByShift]);
+  }, [state.shifts, pageCountByShift, now]);
 
   const topPagedPerson = personStats[0]?.person ?? null;
 
@@ -773,17 +803,18 @@ export function OncallRosterClient() {
           className="mb-6"
         >
           <p className="text-xs text-sub mb-3">
-            Each shift is colored by page count. Green &lt; 3 · amber 3-5 · red &gt; 5.
+            Each shift is colored by pages per 7 days on call, so short and long shifts compare
+            fairly. Green &lt; 3 · amber 3-5 · red &gt; 5.
           </p>
           <div className="space-y-2">
             {sortedShifts.map((s) => {
               const count = pageCountByShift.get(s.id) ?? 0;
+              const rate = pagesPerWeek(count, shiftDaysOnCall(s, now));
               return (
                 <div
                   key={s.id}
-                  className={`p-3 rounded-md border ${burnoutClasses(
-                    count
-                  )} flex items-start gap-3`}
+                  data-testid={`shift-${s.id}`}
+                  className={`p-3 rounded-md border ${burnoutClasses(rate)} flex items-start gap-3`}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2 mb-0.5">
@@ -809,6 +840,7 @@ export function OncallRosterClient() {
                   <div className="text-right shrink-0">
                     <div className="font-data text-lg leading-tight">{count}</div>
                     <div className="text-xs uppercase tracking-wider opacity-70">pages</div>
+                    <div className="text-xs font-data opacity-70">{rate.toFixed(1)} / 7 days</div>
                   </div>
                   <Button
                     variant="ghost"
@@ -836,6 +868,7 @@ export function OncallRosterClient() {
                   <th className="py-2 pr-3">Shifts</th>
                   <th className="py-2 pr-3">Pages</th>
                   <th className="py-2 pr-3">Pages / shift</th>
+                  <th className="py-2 pr-3">Pages / 7 days</th>
                 </tr>
               </thead>
               <tbody>
@@ -844,11 +877,12 @@ export function OncallRosterClient() {
                     <td className="py-2 pr-3 text-text">{p.person}</td>
                     <td className="py-2 pr-3 font-data">{p.shifts}</td>
                     <td className="py-2 pr-3 font-data">
-                      <Badge variant="outline" className={burnoutClasses(p.pagesPerShift)}>
+                      <Badge variant="outline" className={burnoutClasses(p.pagesPerWeek)}>
                         {p.totalPages}
                       </Badge>
                     </td>
                     <td className="py-2 pr-3 font-data">{p.pagesPerShift.toFixed(2)}</td>
+                    <td className="py-2 pr-3 font-data">{p.pagesPerWeek.toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
