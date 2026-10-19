@@ -59,7 +59,7 @@ function summarize(doc: MaturityAssessment | null) {
   const targetLevel = doc?.targetLevel ?? DEFAULT_TARGET;
   const levels = MATURITY_DIMENSIONS.map((d) => clampLevel(scores[d.id] ?? 1));
   const averageLevel = levels.reduce((a, b) => a + b, 0) / levels.length;
-  const { percentage, label } = getMaturityScore(averageLevel);
+  const { percentage, level, label } = getMaturityScore(averageLevel);
 
   const clampedTarget = clampLevel(targetLevel);
   const roadmap = MATURITY_DIMENSIONS.filter(
@@ -77,7 +77,16 @@ function summarize(doc: MaturityAssessment | null) {
     };
   });
 
-  return { exists: doc !== null, scores, targetLevel, averageLevel, percentage, label, roadmap };
+  return {
+    exists: doc !== null,
+    scores,
+    targetLevel,
+    averageLevel,
+    percentage,
+    level,
+    label,
+    roadmap,
+  };
 }
 
 // ──────── tool.maturity.list_state ────────

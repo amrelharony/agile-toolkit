@@ -45,13 +45,13 @@ export function generateKudosPrompts(workspace?: Workspace | null): PromptDefini
         },
         {
           id: "kudos-sprint-goal",
-          title: "Recognise a sprint goal landing",
+          title: "Recognize a sprint goal landing",
           description:
             "Write a kudos for a teammate who pushed the active sprint goal across the line.",
           prompt:
             buildPreamble(
               "Kudos",
-              "Help the user recognise a teammate's contribution to the active sprint goal."
+              "Help the user recognize a teammate's contribution to the active sprint goal."
             ) +
             `${context}\n\n## What I want\n\nWrite 3 short kudos messages (25–50 words each). Reference the active sprint goal and the teammate's specific role. Keep it warm and specific — avoid "great job overall".`,
         },
@@ -68,7 +68,7 @@ export function generateKudosPrompts(workspace?: Workspace | null): PromptDefini
     : [];
   const fairnessRefs =
     topUnderRecognised.length > 0
-      ? `\n## Under-recognised teammates (top ${topUnderRecognised.length})\n` +
+      ? `\n## Under-recognized teammates (top ${topUnderRecognised.length})\n` +
         topUnderRecognised.map((id) => `- ${sanitizePromptCell(id, 64)}`).join("\n")
       : "";
 
@@ -111,15 +111,15 @@ export function generateKudosPrompts(workspace?: Workspace | null): PromptDefini
   const intelligence: PromptDefinition[] = [
     {
       id: "kudos-under-recognised",
-      title: "Recognise the under-recognised",
+      title: "Recognize the under-recognized",
       description:
         "Draft kudos for teammates who've been shipping work but haven't received many cards lately.",
       prompt:
         buildPreamble(
           "Kudos",
-          "Help the user write kudos for teammates flagged as under-recognised by the fairness analyser."
+          "Help the user write kudos for teammates flagged as under-recognized by the fairness analyzer."
         ) +
-        `${context}${fairnessRefs}\n\n## What I want\n\nWrite 3 short kudos messages (25-50 words each) aimed at the under-recognised profile ids above. Each should:\n  • Reference a specific recent contribution if context allows\n  • Sound warm and personal, not corporate\n  • Avoid generic praise ("great job") in favour of named impact\n\nIf no under-recognised teammates were flagged, write 3 generic but specific templates the user can adapt.\n\nReturn just the messages, separated by a blank line.`,
+        `${context}${fairnessRefs}\n\n## What I want\n\nWrite 3 short kudos messages (25-50 words each) aimed at the under-recognized profile ids above. Each should:\n  • Reference a specific recent contribution if context allows\n  • Sound warm and personal, not corporate\n  • Avoid generic praise ("great job") in favor of named impact\n\nIf no under-recognized teammates were flagged, write 3 generic but specific templates the user can adapt.\n\nReturn just the messages, separated by a blank line.`,
     },
     {
       id: "kudos-this-weeks-wins",
@@ -150,7 +150,7 @@ export function generateKudosPrompts(workspace?: Workspace | null): PromptDefini
       id: "kudos-handoff",
       title: "Smooth handoff thanks",
       description:
-        "Recognise a teammate who set you up for success by leaving great docs / context.",
+        "Recognize a teammate who set you up for success by leaving great docs / context.",
       prompt:
         buildPreamble("Kudos", "Help me thank a teammate for an unusually clean handoff.") +
         `\n## What I want\n\nWrite 3 short kudos (25–50 words each) thanking someone for clear docs / a well-structured handoff. Specifically reference: notes left, runbook quality, or anticipating an edge case. Keep it conversational.`,
@@ -159,7 +159,7 @@ export function generateKudosPrompts(workspace?: Workspace | null): PromptDefini
       id: "kudos-unblocked",
       title: "Unblocked me — thank you",
       description:
-        "Recognise a teammate who paused their own work to help you past a wall (debugging, an env issue, a quirky tool).",
+        "Recognize a teammate who paused their own work to help you past a wall (debugging, an env issue, a quirky tool).",
       prompt:
         buildPreamble("Kudos", "Help me thank a teammate who stopped to help me past a blocker.") +
         `\n## What I want\n\n3 short kudos (25–50 words each). Each:\n  • Names the kind of blocker (debugging, env, dependency, etc.)\n  • Says what their help unlocked (e.g. "shipped my PR by EOD")\n  • Reads like one human writing to another, not a performance review.`,

@@ -123,7 +123,7 @@ function AiFeaturesSection() {
       />
       <ToggleRow
         label="Fairness suggestions"
-        hint="Highlights teammates who haven't been recognised recently."
+        hint="Highlights teammates who haven't been recognized recently."
         checked={aiFairness}
         onChange={setAiFairness}
       />
@@ -141,7 +141,7 @@ function BeaconSection() {
     <section className="flex flex-col gap-2">
       <SectionHeading
         title="Beacon visibility"
-        hint="The kudos beacon nudges you when teammates are under-recognised."
+        hint="The kudos beacon nudges you when teammates are under-recognized."
       />
       <ToggleRow
         label="Ambient beacon"

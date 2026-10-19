@@ -199,8 +199,8 @@ export const GUIDES: ToolGuide[] = [
     steps: [
       "List the activities as rows and the roles as columns. Use Add Activity and Add role, and click a name to rename it.",
       "In each cell, pick R, A, C, I or None.",
-      "Give every activity exactly one A. The validation box flags any activity with none or more than one.",
-      "Check that each activity has at least one R, and keep the C and I lists short.",
+      "Give every activity exactly one A and at least one R. The validation box flags any activity with no A, more than one A, or no R.",
+      "Keep the C and I lists short.",
       "Review the matrix with everyone named in it, and update it when roles change.",
     ],
     scales: [
