@@ -102,6 +102,41 @@ function makeBurnDraft(defaultSloId: string): BurnDraft {
 }
 
 /**
+ * Why a draft SLO can't be added yet, one message per problem (empty when
+ * it's valid). "Add SLO" used to return silently on any of these, and a
+ * blank target parsed as `Number("") === 0`, i.e. a 0 % SLO.
+ */
+function sloDraftErrors(d: SloDraft): string[] {
+  const errors: string[] = [];
+  if (!d.name.trim()) errors.push("Name is required.");
+  if (!d.sliDescription.trim()) errors.push("SLI description is required.");
+  const target = Number(d.targetPct);
+  if (!d.targetPct.trim() || !Number.isFinite(target) || target < 0 || target > 100) {
+    errors.push("Target must be a percentage from 0 to 100, e.g. 99.9.");
+  }
+  const windowDays = Number(d.windowDays);
+  if (!d.windowDays.trim() || !Number.isFinite(windowDays) || windowDays < 1) {
+    errors.push("Window must be at least 1 day.");
+  }
+  return errors;
+}
+
+/**
+ * Why a draft burn can't be logged yet. A blank "Error minutes" used to log
+ * a 0-minute burn (`Number("") === 0`); invalid values were dropped silently.
+ */
+function burnDraftErrors(d: BurnDraft): string[] {
+  const errors: string[] = [];
+  if (!d.sloId) errors.push("Pick an SLO.");
+  if (!d.date) errors.push("Pick a date.");
+  const minutes = Number(d.errorMinutes);
+  if (!d.errorMinutes.trim() || !Number.isFinite(minutes) || minutes < 0) {
+    errors.push("Error minutes must be a number of 0 or more, e.g. 4.5.");
+  }
+  return errors;
+}
+
+/**
  * Total error budget in minutes for a given SLO.
  *
  * Window-minutes × (1 - target). Example: 99.9 % over 30 days =>
@@ -171,6 +206,12 @@ export function SloBuilderClient() {
   const [state, setState] = useSloBuilder();
   const [sloDraft, setSloDraft] = useState<SloDraft>(makeSloDraft);
   const [burnDraft, setBurnDraft] = useState<BurnDraft>(() => makeBurnDraft(""));
+  // Validation shows after the first failed submit, then tracks the draft
+  // live so each message clears as soon as its field is fixed.
+  const [sloTried, setSloTried] = useState(false);
+  const [burnTried, setBurnTried] = useState(false);
+  const sloErrors = sloTried ? sloDraftErrors(sloDraft) : [];
+  const burnErrors = burnTried ? burnDraftErrors(burnDraft) : [];
   const { log } = useHistoryLogger("slo-builder");
 
   // When the SLO list changes (or starts empty), make sure the burn-draft has
@@ -193,9 +234,10 @@ export function SloBuilderClient() {
     const sli = sloDraft.sliDescription.trim();
     const targetPctNum = Number(sloDraft.targetPct);
     const windowDaysNum = Number(sloDraft.windowDays);
-    if (!name || !sli) return;
-    if (!Number.isFinite(targetPctNum) || targetPctNum < 0 || targetPctNum > 100) return;
-    if (!Number.isFinite(windowDaysNum) || windowDaysNum <= 0) return;
+    if (sloDraftErrors(sloDraft).length > 0) {
+      setSloTried(true);
+      return;
+    }
     const slo: SloDefinition = {
       id: crypto.randomUUID(),
       name,
@@ -214,6 +256,7 @@ export function SloBuilderClient() {
       description: slo.description,
     });
     setSloDraft(makeSloDraft());
+    setSloTried(false);
   };
 
   const removeSlo = (id: string) => {
@@ -231,10 +274,11 @@ export function SloBuilderClient() {
   };
 
   const addBurn = () => {
-    if (!burnDraft.sloId) return;
+    if (burnDraftErrors(burnDraft).length > 0) {
+      setBurnTried(true);
+      return;
+    }
     const minutes = Number(burnDraft.errorMinutes);
-    if (!Number.isFinite(minutes) || minutes < 0) return;
-    if (!burnDraft.date) return;
     const burn: SloBurn = {
       id: crypto.randomUUID(),
       sloId: burnDraft.sloId,
@@ -251,6 +295,7 @@ export function SloBuilderClient() {
       errorMinutes: burn.errorMinutes,
     });
     setBurnDraft((b) => ({ ...b, errorMinutes: "" }));
+    setBurnTried(false);
   };
 
   // Per-SLO snapshot: budget, consumed, remaining %.
@@ -545,7 +590,12 @@ export function SloBuilderClient() {
                 className="bg-surface border-border resize-none text-xs"
               />
             </div>
-            <Button onClick={addSlo} className="gap-2 bg-accent text-bg hover:bg-accent/90 w-full">
+            <FormErrors id="slo-errors" errors={sloErrors} />
+            <Button
+              onClick={addSlo}
+              aria-describedby={sloErrors.length > 0 ? "slo-errors" : undefined}
+              className="gap-2 bg-accent text-bg hover:bg-accent/90 w-full"
+            >
               <Plus className="w-4 h-4" aria-hidden="true" />
               Add SLO
             </Button>
@@ -598,8 +648,10 @@ export function SloBuilderClient() {
                   placeholder="e.g. 4.5"
                 />
               </div>
+              <FormErrors id="burn-errors" errors={burnErrors} />
               <Button
                 onClick={addBurn}
+                aria-describedby={burnErrors.length > 0 ? "burn-errors" : undefined}
                 className="gap-2 bg-accent text-bg hover:bg-accent/90 w-full"
               >
                 <Plus className="w-4 h-4" aria-hidden="true" />
@@ -738,6 +790,18 @@ export function SloBuilderClient() {
         </>
       )}
     </ToolPageWrapper>
+  );
+}
+
+/** Why the form above can't be submitted yet; renders nothing when valid. */
+function FormErrors({ id, errors }: { id: string; errors: string[] }) {
+  if (errors.length === 0) return null;
+  return (
+    <div id={id} role="alert" className="text-xs text-danger space-y-0.5">
+      {errors.map((e) => (
+        <p key={e}>{e}</p>
+      ))}
+    </div>
   );
 }
 

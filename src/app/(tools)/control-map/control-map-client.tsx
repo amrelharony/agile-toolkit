@@ -86,11 +86,10 @@ const STATUS_OPTIONS: { value: Status; label: string }[] = [
   { value: "verified", label: "Verified" },
 ];
 
-const STATUS_TONE: Record<Status, "default" | "warning" | "success"> = {
-  not_started: "default",
-  in_progress: "warning",
-  implemented: "success",
-  verified: "success",
+/** One line under a done control. Verified has passed audit; Implemented is waiting for it. */
+const STATUS_NOTE: Partial<Record<Status, string>> = {
+  implemented: "Implemented & ready for audit review.",
+  verified: "Verified: audited, evidence checked.",
 };
 
 /* ── Local draft hook ───────────────────────────────────────────────────── */
@@ -325,8 +324,8 @@ function ControlRow({
             </Button>
           </div>
         </div>
-        {STATUS_TONE[c.status] === "success" && (
-          <div className="text-xs text-success/80">Implemented &amp; ready for audit review.</div>
+        {STATUS_NOTE[c.status] && (
+          <div className="text-xs text-success/80">{STATUS_NOTE[c.status]}</div>
         )}
       </CardContent>
     </Card>

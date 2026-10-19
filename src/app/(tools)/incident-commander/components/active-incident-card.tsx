@@ -284,6 +284,7 @@ export function ActiveIncidentCard({
             size="sm"
             onClick={() => onRemove(incident.id)}
             className="ml-auto text-sub hover:text-danger"
+            aria-label={`Delete ${incident.title}`}
           >
             <Trash2 className="w-4 h-4 mr-1" aria-hidden="true" /> Delete
           </Button>

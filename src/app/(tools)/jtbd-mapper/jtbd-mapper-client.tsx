@@ -8,6 +8,8 @@ import { ActionRow } from "@/components/shared/action-row";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { StatCard } from "@/components/shared/stat-card";
 import { EmptyState } from "@/components/shared/empty-state";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { undoable } from "@/lib/utils/undoable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,6 +39,26 @@ interface JobStory {
 
 function renderJobLabel(j: JobStory): string {
   return `When ${j.situation || "(situation)"}, I want to ${j.motivation || "(motivation)"}, so I can ${j.outcome || "(outcome)"}.`;
+}
+
+/**
+ * Ids of every job nested under `id` (children, grandchildren, ...), not
+ * including `id`. Stops on cycles.
+ */
+function descendantIds(jobs: JobStory[], id: string): Set<string> {
+  const found = new Set<string>([id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const j of jobs) {
+      if (j.parentJobId && found.has(j.parentJobId) && !found.has(j.id)) {
+        found.add(j.id);
+        grew = true;
+      }
+    }
+  }
+  found.delete(id);
+  return found;
 }
 
 /**
@@ -181,29 +203,52 @@ export function JtbdMapperClient() {
     log(JTBD_ACTIONS.JOB_STORY_UPDATED, { jobId: id, patch });
   };
 
+  // Removing a job also removes everything nested under it, so a job with
+  // children asks first (with the count). Either way Undo puts the removed
+  // stories back where they were.
+  const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
+  const pendingJob = pendingRemoveId ? jobs.find((j) => j.id === pendingRemoveId) : undefined;
+  const pendingNested = pendingRemoveId ? descendantIds(jobs, pendingRemoveId).size : 0;
+
+  const requestRemoveJob = (id: string) => {
+    if (descendantIds(jobs, id).size > 0) setPendingRemoveId(id);
+    else removeJob(id);
+  };
+
   const removeJob = (id: string) => {
-    const job = jobs.find((j) => j.id === id);
-    // Remove this job and any descendants. Walk inside the updater to read
-    // the freshest state; bail on cycles via a visited set.
-    setJobs((s) => {
-      const toDelete = new Set<string>([id]);
-      let grew = true;
-      while (grew) {
-        grew = false;
-        for (const j of s) {
-          if (j.parentJobId && toDelete.has(j.parentJobId) && !toDelete.has(j.id)) {
-            toDelete.add(j.id);
-            grew = true;
+    const current = useWorkspaceStore.getState().jobStories ?? [];
+    const job = current.find((j) => j.id === id);
+    if (!job) return;
+    const toDelete = descendantIds(current, id);
+    toDelete.add(id);
+    // Remember each removed story's position for Undo.
+    const removed = current.flatMap((j, index) => (toDelete.has(j.id) ? [{ job: j, index }] : []));
+    const nested = removed.length - 1;
+    undoable({
+      label:
+        nested > 0
+          ? `Removed a job story and ${nested} nested ${nested === 1 ? "story" : "stories"}`
+          : "Removed a job story",
+      description: renderJobLabel(job),
+      apply: () => {
+        setJobs((s) => s.filter((j) => !toDelete.has(j.id)));
+        log(JTBD_ACTIONS.JOB_STORY_REMOVED, {
+          jobId: id,
+          situation: job.situation,
+          motivation: job.motivation,
+          outcome: job.outcome,
+        });
+      },
+      revert: () =>
+        setJobs((s) => {
+          const out = [...s];
+          const present = new Set(s.map((j) => j.id));
+          for (const r of removed) {
+            if (present.has(r.job.id)) continue;
+            out.splice(Math.min(r.index, out.length), 0, r.job);
           }
-        }
-      }
-      return s.filter((j) => !toDelete.has(j.id));
-    });
-    log(JTBD_ACTIONS.JOB_STORY_REMOVED, {
-      jobId: id,
-      situation: job?.situation,
-      motivation: job?.motivation,
-      outcome: job?.outcome,
+          return out;
+        }),
     });
   };
 
@@ -303,7 +348,7 @@ export function JtbdMapperClient() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => removeJob(job.id)}
+                  onClick={() => requestRemoveJob(job.id)}
                   className="h-7 w-7 p-0 text-sub hover:text-danger"
                   aria-label={`Remove job story: when ${job.situation || "(situation)"}`}
                 >
@@ -420,6 +465,23 @@ export function JtbdMapperClient() {
       ) : (
         <div className="space-y-2">{rootJobs.map((j) => renderRow(j, 0))}</div>
       )}
+
+      <ConfirmDialog
+        open={pendingRemoveId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingRemoveId(null);
+        }}
+        title="Remove this job and everything under it?"
+        description={
+          pendingJob
+            ? `“${renderJobLabel(pendingJob)}” and the ${pendingNested} job ${pendingNested === 1 ? "story" : "stories"} nested under it will be removed.`
+            : undefined
+        }
+        confirmLabel={`Remove ${pendingNested + 1} job ${pendingNested === 0 ? "story" : "stories"}`}
+        onConfirm={() => {
+          if (pendingRemoveId) removeJob(pendingRemoveId);
+        }}
+      />
     </ToolPageWrapper>
   );
 }

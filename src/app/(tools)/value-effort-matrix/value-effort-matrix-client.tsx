@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import dynamic from "next/dynamic";
 import { Grid3X3, Plus, Trash2 } from "lucide-react";
@@ -46,6 +46,17 @@ function quadrantOf(
   if (!hiV && !hiE) return "Fill-Ins";
   return "Time Wasters";
 }
+/** What's missing before an item can be plotted. */
+function missingMessage(titleMissing: boolean, missingScores: readonly string[]): string {
+  const parts = [...(titleMissing ? ["a title"] : []), ...missingScores];
+  const joined =
+    parts.length <= 1
+      ? parts.join("")
+      : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  const range = missingScores.length > 0 ? " Value and Effort each run from 1 to 10." : "";
+  return `Enter ${joined} to plot this item.${range}`;
+}
+
 const QUAD_COLORS: Record<string, string> = {
   "Quick Wins": "#00ff88",
   "Big Bets": "#00f0ff",
@@ -73,18 +84,32 @@ export function ValueEffortMatrixClient() {
     setEffort(prefill.effort === undefined ? "" : String(prefill.effort));
   });
 
+  // An empty Value or Effort used to become 5 without a word — the exact
+  // quadrant boundary — so an unscored item landed in Big Bets. Both are
+  // required; after a failed Plot the empty fields are flagged and named.
+  const errorId = useId();
+  const [attempted, setAttempted] = useState(false);
+  const titleMissing = !title.trim();
+  const missingScores = (
+    [
+      ["Value", value],
+      ["Effort", effort],
+    ] as const
+  )
+    .filter(([, raw]) => !Number.isFinite(parseFloat(raw)))
+    .map(([label]) => label);
+  const showError = attempted && (titleMissing || missingScores.length > 0);
+  const flag = (missing: boolean) =>
+    showError && missing ? { "aria-invalid": true as const, "aria-describedby": errorId } : {};
+
   function add() {
-    if (!title.trim()) return;
-    // parseFloat("0") returns 0, which falls through `|| 5` to 5 — meaning a
-    // user who explicitly enters 0 silently gets value=5/effort=5 and ends
-    // up in the wrong quadrant. Coerce to a finite number first, then clamp
-    // into the documented 1-10 range so out-of-range typos can't drag the
-    // ReferenceLine math off-axis either.
-    const clamp = (raw: string) => {
-      const n = parseFloat(raw);
-      if (!Number.isFinite(n)) return 5;
-      return Math.min(10, Math.max(1, n));
-    };
+    if (titleMissing || missingScores.length > 0) {
+      setAttempted(true);
+      return;
+    }
+    // Clamp into the documented 1-10 range so out-of-range typos can't drag
+    // the ReferenceLine math off-axis.
+    const clamp = (raw: string) => Math.min(10, Math.max(1, parseFloat(raw)));
     const v = clamp(value),
       e = clamp(effort);
     const item: PrioritizationItem = linkNewRow(
@@ -111,6 +136,7 @@ export function ValueEffortMatrixClient() {
     setTitle("");
     setValue("");
     setEffort("");
+    setAttempted(false);
   }
 
   // Memoize derived shapes — without this, both `scatterData` and `grouped`
@@ -197,6 +223,7 @@ export function ValueEffortMatrixClient() {
               aria-label="Item title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              {...flag(titleMissing)}
             />
             <Input
               type="number"
@@ -206,6 +233,7 @@ export function ValueEffortMatrixClient() {
               aria-label="Value (1-10)"
               value={value}
               onChange={(e) => setValue(e.target.value)}
+              {...flag(missingScores.includes("Value"))}
             />
             <Input
               type="number"
@@ -215,8 +243,14 @@ export function ValueEffortMatrixClient() {
               aria-label="Effort (1-10)"
               value={effort}
               onChange={(e) => setEffort(e.target.value)}
+              {...flag(missingScores.includes("Effort"))}
             />
           </div>
+          {showError && (
+            <p id={errorId} role="alert" className="mt-2 text-xs text-danger">
+              {missingMessage(titleMissing, missingScores)}
+            </p>
+          )}
           <Button onClick={add} className="mt-3 gap-1">
             <Plus className="w-4 h-4" />
             Plot

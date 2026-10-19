@@ -4,7 +4,7 @@
  * Phase 4 — ambient HUD pill.
  *
  * Fixed bottom-right of the kudos page. Glows when Phase 3 raises a
- * `kudos.fairness_alert` (somebody on the squad is being under-recognised),
+ * `kudos.fairness_alert` (somebody on the squad is being under-recognized),
  * pulses + counts when a kudos addressed to the local viewer lands.
  * Click opens a small popover; from there an idle-glow state offers
  * one-click "scroll to form" so the user can act on the hint without
@@ -114,7 +114,7 @@ export function KudosBeacon() {
               unread > 0
                 ? `Kudos beacon — ${unread} new`
                 : idleGlow
-                  ? "Recognise someone — kudos beacon fairness hint"
+                  ? "Recognize someone — kudos beacon fairness hint"
                   : "Kudos beacon"
             }
             className={cn(
@@ -144,14 +144,14 @@ export function KudosBeacon() {
               </motion.span>
             )}
             <span className="text-xs font-medium">
-              {unread > 0 ? `${unread} new` : idleGlow ? "Recognise someone" : "Kudos beacon"}
+              {unread > 0 ? `${unread} new` : idleGlow ? "Recognize someone" : "Kudos beacon"}
             </span>
           </button>
         </PopoverTrigger>
         <PopoverContent align="end" side="top" className="w-72 p-0">
           <div className="px-3 py-2 border-b border-border">
             <span className="text-sm font-semibold text-text">
-              {candidates.length > 0 ? "Under-recognised teammates" : "Beacon"}
+              {candidates.length > 0 ? "Under-recognized teammates" : "Beacon"}
             </span>
           </div>
           <div className="px-3 py-3 space-y-2">

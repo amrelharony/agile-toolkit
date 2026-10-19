@@ -270,8 +270,10 @@ function validateMatrix(
   for (const activity of activities) {
     const row = matrix[activity.id] || {};
     let aCount = 0;
+    let rCount = 0;
     for (const role of roles) {
       if (row[role.id] === "A") aCount++;
+      if (row[role.id] === "R") rCount++;
     }
     if (aCount === 0) {
       issues.push({
@@ -284,6 +286,14 @@ function validateMatrix(
         activityId: activity.id,
         activityName: activity.name,
         message: `"${activity.name}" has ${aCount} Accountable (A) roles. Must be exactly 1.`,
+      });
+    }
+    // Someone has to do the work: every activity needs at least one R.
+    if (rCount === 0) {
+      issues.push({
+        activityId: activity.id,
+        activityName: activity.name,
+        message: `"${activity.name}" has no Responsible (R) role assigned. Add at least one R.`,
       });
     }
   }
@@ -601,7 +611,8 @@ export function RACIClient() {
                 <div className="flex items-center gap-2 text-success">
                   <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
                   <span className="text-sm font-medium">
-                    All activities have exactly one Accountable (A) role.
+                    Every activity has exactly one Accountable (A) and at least one Responsible (R)
+                    role.
                   </span>
                 </div>
               )}

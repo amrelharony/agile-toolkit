@@ -20,16 +20,26 @@ import { CausalLine, type CausalAnnotationData } from "@/components/charts/causa
 import type { StatusColumn, WipLimits, WipSeriesPoint, WipSignal } from "./types";
 import { CFDTooltip } from "./components/cfd-tooltip";
 
-/** The stacked cumulative-flow area chart (one Area per status column). */
+/**
+ * The stacked cumulative-flow area chart (one Area per status column).
+ *
+ * Recharts stacks areas in render order, first at the bottom. A CFD puts Done
+ * at the bottom and the first (start) column on top, so the columns render in
+ * reverse workflow order. The legend still lists them in workflow order.
+ *
+ * There's no WIP-limit line here: the stack's height is every item on the
+ * board, not the WIP band, so a limit drawn against it reads wrong. The limit
+ * is drawn on the WIP control chart instead.
+ */
 export function CumulativeFlowAreaChart({
   chartData,
   columns,
-  wipLimit,
 }: {
   chartData: Record<string, string | number>[];
   columns: StatusColumn[];
-  wipLimit: number | null;
 }) {
+  const stackOrder = [...columns].reverse();
+  const workflowIndex = (name: unknown) => columns.findIndex((c) => c.name === name);
   return (
     <ResponsiveContainer width="100%" height={400}>
       <AreaChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
@@ -47,16 +57,11 @@ export function CumulativeFlowAreaChart({
           allowDecimals={false}
         />
         <Tooltip content={<CFDTooltip />} />
-        <Legend wrapperStyle={{ fontSize: 12, color: "#94a3b8", paddingTop: 12 }} />
-        {wipLimit !== null && (
-          <ReferenceLine
-            y={wipLimit}
-            stroke="#ef4444"
-            strokeDasharray="6 3"
-            label={{ value: `WIP Limit: ${wipLimit}`, fill: "#ef4444", fontSize: 11 }}
-          />
-        )}
-        {columns.map((col) => (
+        <Legend
+          wrapperStyle={{ fontSize: 12, color: "#94a3b8", paddingTop: 12 }}
+          itemSorter={(item) => workflowIndex(item.value)}
+        />
+        {stackOrder.map((col) => (
           <Area
             key={col.id}
             type="monotone"
@@ -73,15 +78,20 @@ export function CumulativeFlowAreaChart({
   );
 }
 
-/** WIP over time with XmR limits, CUSUM markers and out-of-control dots. */
+/**
+ * WIP over time with XmR limits, CUSUM markers and out-of-control dots, plus
+ * the team's WIP limit when one is set (drawn on the series it limits).
+ */
 export function WipControlLineChart({
   wipSeries,
   wipLimits,
+  wipLimit = null,
   cusumAnnotations,
   signals,
 }: {
   wipSeries: WipSeriesPoint[];
   wipLimits: WipLimits | null;
+  wipLimit?: number | null;
   cusumAnnotations: CausalAnnotationData[];
   signals: WipSignal[];
 }) {
@@ -146,6 +156,20 @@ export function WipControlLineChart({
               }}
             />
           </>
+        )}
+        {wipLimit !== null && (
+          <ReferenceLine
+            y={wipLimit}
+            stroke="#f59e0b"
+            strokeDasharray="6 3"
+            ifOverflow="extendDomain"
+            label={{
+              value: `WIP limit ${wipLimit}`,
+              fill: "#f59e0b",
+              fontSize: 10,
+              position: "insideTopLeft",
+            }}
+          />
         )}
         {cusumAnnotations.map((a, i) => (
           <CausalLine key={i} annotation={a} />

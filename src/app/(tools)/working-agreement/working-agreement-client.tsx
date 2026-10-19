@@ -30,7 +30,9 @@ import {
   XCircle,
   CircleDashed,
   Send,
+  RotateCcw,
 } from "lucide-react";
+import { undoable } from "@/lib/utils/undoable";
 import { generateWorkingAgreementPrompts } from "@/lib/ai-prompts/working-agreement";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { WORKING_AGREEMENT_ACTIONS } from "@/lib/history/event-actions";
@@ -325,6 +327,31 @@ export function WorkingAgreementClient() {
     });
   };
 
+  // The status toggle only flips Working ↔ Not working once a rule has been
+  // checked in, so a new round needs an explicit reset back to "Check in".
+  const checkedInCount = state.rules.filter((r) => r.stillWorking !== undefined).length;
+  const startNewCheckInRound = () => {
+    const previous = new Map(state.rules.map((r) => [r.id, r.stillWorking]));
+    const cleared = checkedInCount;
+    if (cleared === 0) return;
+    undoable({
+      label: "Started a new check-in round",
+      description: `Reset ${cleared} rule ${cleared === 1 ? "status" : "statuses"} to Check in.`,
+      apply: () =>
+        setState((s) => ({
+          ...s,
+          rules: s.rules.map((r) => ({ ...r, stillWorking: undefined })),
+        })),
+      revert: () =>
+        setState((s) => ({
+          ...s,
+          rules: s.rules.map((r) =>
+            previous.has(r.id) ? { ...r, stillWorking: previous.get(r.id) } : r
+          ),
+        })),
+    });
+  };
+
   const publishCharter = () => {
     if (state.rules.length === 0) return;
     // Compute the new version once and use the same value for both the
@@ -603,6 +630,26 @@ export function WorkingAgreementClient() {
           />
         </CardContent>
       </Card>
+
+      {state.rules.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <span className="text-xs text-sub">
+            {checkedInCount} of {state.rules.length} {state.rules.length === 1 ? "rule" : "rules"}{" "}
+            checked in this round
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={startNewCheckInRound}
+            disabled={checkedInCount === 0}
+            className="gap-1.5 border-border"
+          >
+            <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+            New check-in round
+          </Button>
+        </div>
+      )}
 
       {/* Rule list grouped by category */}
       <div className="space-y-6">

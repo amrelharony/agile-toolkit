@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * The stacked cumulative-flow area chart (one Area per status column), with an
- * optional WIP-limit reference line. Renders an empty-state when there are no
- * snapshots yet.
+ * The stacked cumulative-flow area chart (one Area per status column, Done at
+ * the bottom). Renders an empty-state when there are no snapshots yet. The WIP
+ * limit is drawn on the WIP control chart, not here.
  */
 
 import dynamic from "next/dynamic";
@@ -25,11 +25,9 @@ const CumulativeFlowAreaChart = dynamic(
 export function FlowChart({
   chartData,
   columns,
-  wipLimit,
 }: {
   chartData: Record<string, string | number>[];
   columns: StatusColumn[];
-  wipLimit: number | null;
 }) {
   if (chartData.length === 0) {
     return (
@@ -40,5 +38,5 @@ export function FlowChart({
     );
   }
 
-  return <CumulativeFlowAreaChart chartData={chartData} columns={columns} wipLimit={wipLimit} />;
+  return <CumulativeFlowAreaChart chartData={chartData} columns={columns} />;
 }

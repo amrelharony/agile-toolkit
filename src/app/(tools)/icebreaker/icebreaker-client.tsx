@@ -310,7 +310,9 @@ export function IceBreakerClient() {
 
   const filtered = useMemo(() => {
     return icebreakers.filter((ib) => {
-      if (timeFilter !== "all" && ib.timeMinutes !== timeFilter) return false;
+      // "Up to N min": an activity fits if it takes N minutes or less, so
+      // picking 10 min still offers the 2- and 5-minute ones.
+      if (timeFilter !== "all" && ib.timeMinutes > timeFilter) return false;
       if (sizeFilter !== "all" && ib.teamSize !== sizeFilter) return false;
       if (energyFilter !== "all" && ib.energyLevel !== energyFilter) return false;
       if (categoryFilter !== "all" && ib.category !== categoryFilter) return false;
@@ -400,10 +402,10 @@ export function IceBreakerClient() {
                 {(
                   [
                     ["all", "All"],
-                    [2, "2 min"],
-                    [5, "5 min"],
-                    [10, "10 min"],
-                    [15, "15 min"],
+                    [2, "Up to 2 min"],
+                    [5, "Up to 5 min"],
+                    [10, "Up to 10 min"],
+                    [15, "Up to 15 min"],
                   ] as [TimeFilter, string][]
                 ).map(([val, label]) => (
                   <FilterChip

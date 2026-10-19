@@ -21,15 +21,7 @@ export function generateCodeReviewPrompts(data: {
   if (data.samples.length === 0) return [];
 
   const table = formatTable(
-    [
-      "PR",
-      "Author",
-      "Cycle (h)",
-      "Reviewers",
-      "Comments",
-      "Lines",
-      "Description",
-    ],
+    ["PR", "Author", "Cycle (h)", "Reviewers", "Comments", "Lines", "Description"],
     data.samples
       .slice(-30)
       .map((s) => [
@@ -53,7 +45,7 @@ export function generateCodeReviewPrompts(data: {
       id: "code-review-bottlenecks",
       title: "Review Bottleneck Analysis",
       description:
-        "Surface where reviews are getting stuck — by author, reviewer load, PR size, or specific PRs.",
+        "Surface where reviews are getting stuck — by author, review comments, PR size, or specific PRs.",
       prompt:
         buildPreamble(
           "Code Review Metrics",
@@ -64,8 +56,7 @@ export function generateCodeReviewPrompts(data: {
     {
       id: "code-review-pr-size",
       title: "PR-Size Guidance",
-      description:
-        "Use PR size and cycle time to recommend an upper-bound size policy.",
+      description: "Use PR size and cycle time to recommend an upper-bound size policy.",
       prompt:
         buildPreamble(
           "Code Review Metrics",

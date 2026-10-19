@@ -202,9 +202,8 @@ export function MoodTrackerClient() {
         // existing `log` flow later merges the user's chosen score
         // onto this entry (carrying the note forward via the
         // `next[idx].note` preservation in log's setEntries updater).
-        // Tradeoff: a single Neutral score appears in analytics for
-        // members who only typed a note — preferable to silent data
-        // loss.
+        // The stand-in score is never shown or counted: the UI renders
+        // a placeholder as "no mood" and analytics skip it.
         if (trimmed === "") return e;
         // BUG-T5-mood-tracker-1: tag the row as a placeholder so
         // analytics filter it out until the user clicks a real face.
@@ -220,6 +219,8 @@ export function MoodTrackerClient() {
           },
         ];
       }
+      // Clearing the note of a note-only placeholder leaves nothing to keep.
+      if (e[idx].isPlaceholder && trimmed === "") return e.filter((_, i) => i !== idx);
       return e.map((x, i) => (i === idx ? { ...x, note: trimmed || undefined } : x));
     });
   };
@@ -306,12 +307,17 @@ export function MoodTrackerClient() {
     [rollingWeek]
   );
 
+  // Entries with a real mood. A note-first placeholder carries a stand-in
+  // score of 3 that must never read as "Neutral" (heatmap, buttons, notes,
+  // counts, export, AI prompt).
+  const scoredEntries = useMemo(() => entries.filter((e) => !e.isPlaceholder), [entries]);
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Team Mood Tracker",
-      prompts: generateMoodTrackerPrompts({ entries, days, overallAvg }),
+      prompts: generateMoodTrackerPrompts({ entries: scoredEntries, days, overallAvg }),
     }),
-    [entries, days, overallAvg]
+    [scoredEntries, days, overallAvg]
   );
 
   return (
@@ -329,7 +335,7 @@ export function MoodTrackerClient() {
             headers: ["Date", "Member", "Score", "Note"],
             rows: entries.map((e) => {
               const m = members.find((x) => x.id === e.memberId);
-              return [e.date, m?.name ?? e.memberId, e.score, e.note ?? ""];
+              return [e.date, m?.name ?? e.memberId, e.isPlaceholder ? "" : e.score, e.note ?? ""];
             }),
           }}
           jsonData={entries}
@@ -367,7 +373,7 @@ export function MoodTrackerClient() {
             </>
           }
         />
-        <StatCard variant="compact" label="Check-ins" value={entries.length} />
+        <StatCard variant="compact" label="Check-ins" value={scoredEntries.length} />
       </KpiGrid>
 
       <Card className="bg-surface border-border mb-6">
@@ -393,10 +399,12 @@ export function MoodTrackerClient() {
           ) : (
             <div className="space-y-2">
               {members.map((m) => {
-                const todays = entries.find((e) => e.memberId === m.id && e.date === todayISO);
+                const todaysEntry = entries.find((e) => e.memberId === m.id && e.date === todayISO);
+                // A note-only placeholder has no mood yet: no face is pressed.
+                const todays = todaysEntry?.isPlaceholder ? undefined : todaysEntry;
                 // Prefer the in-flight draft so the user's typing isn't
                 // clobbered by the persisted entry's note on every keystroke.
-                const noteValue = noteDrafts[m.id] ?? todays?.note ?? "";
+                const noteValue = noteDrafts[m.id] ?? todaysEntry?.note ?? "";
                 return (
                   <div key={m.id} className="rounded-lg border border-border bg-bg p-2 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
@@ -435,6 +443,11 @@ export function MoodTrackerClient() {
                       className="bg-surface border-border resize-none text-xs"
                       aria-label={`Note for ${m.name}`}
                     />
+                    {todaysEntry?.isPlaceholder && (
+                      <p className="text-xs text-sub">
+                        Note saved. Pick a face to log {m.name}&apos;s mood for today.
+                      </p>
+                    )}
                   </div>
                 );
               })}
@@ -473,11 +486,11 @@ export function MoodTrackerClient() {
                 .slice(0, 5)
                 .map((e) => {
                   const m = members.find((x) => x.id === e.memberId);
-                  const face = FACES.find((f) => f.score === e.score);
+                  const face = e.isPlaceholder ? undefined : FACES.find((f) => f.score === e.score);
                   return (
                     <li key={e.id} className="rounded-md border border-border bg-bg p-2">
                       <div className="flex items-center gap-2 text-xs text-sub font-data">
-                        <span style={{ color: face?.color }}>{face?.label}</span>
+                        <span style={{ color: face?.color }}>{face?.label ?? "No mood"}</span>
                         <span>·</span>
                         <span>{m?.name ?? e.memberId}</span>
                         <span>·</span>
@@ -552,7 +565,10 @@ export function MoodTrackerClient() {
                     <div className="text-xs text-text/80 truncate py-1">{m.name}</div>
                     {days.map((d) => {
                       const entry = entries.find((e) => e.memberId === m.id && e.date === d);
-                      const score = entry?.score ?? null;
+                      // A note-only placeholder renders as "no mood", not as
+                      // its stand-in Neutral score.
+                      const noteOnly = entry?.isPlaceholder === true;
+                      const score = entry && !noteOnly ? entry.score : null;
                       const color = score
                         ? FACES.find((f) => f.score === score)?.color
                         : "transparent";
@@ -563,12 +579,17 @@ export function MoodTrackerClient() {
                         ? entry?.note
                           ? `${m.name} — ${d} — ${score}/5\n${entry.note}`
                           : `${m.name} — ${d} — ${score}/5`
-                        : "No entry";
+                        : noteOnly
+                          ? `${m.name} — ${d} — no mood picked\n${entry?.note ?? ""}`
+                          : "No entry";
                       return (
                         <div
                           key={d}
                           title={tooltip}
-                          className="h-6 rounded border border-border"
+                          data-mood={score ?? (noteOnly ? "note-only" : "none")}
+                          className={`h-6 rounded border ${
+                            noteOnly ? "border-dashed border-sub/60" : "border-border"
+                          }`}
                           style={{ background: color ?? "transparent" }}
                         />
                       );

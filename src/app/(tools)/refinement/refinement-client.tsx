@@ -11,6 +11,8 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { CalloutAlert } from "@/components/shared/callout-alert";
 import { ChartCard } from "@/components/shared/chart-card";
 import { SectionCard } from "@/components/shared/section-card";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { undoable } from "@/lib/utils/undoable";
 import { generateRefinementPrompts } from "@/lib/ai-prompts/refinement";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { REFINEMENT_ACTIONS } from "@/lib/history/event-actions";
@@ -415,6 +417,25 @@ export function RefinementClient() {
     log(REFINEMENT_ACTIONS.REFINEMENT_RESET, {});
   };
 
+  // Clearing Story History asks first (with the count), then offers Undo.
+  // Undo puts the cleared saves back below any saved since.
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const historyCount = history.length;
+  const storiesLabel = `${historyCount} saved ${historyCount === 1 ? "story" : "stories"}`;
+  const confirmClearHistory = () => {
+    const cleared = useRefinementStore.getState().history;
+    if (cleared.length === 0) return;
+    undoable({
+      label: `Cleared ${cleared.length} saved ${cleared.length === 1 ? "story" : "stories"}`,
+      apply: clearHistory,
+      revert: () =>
+        useRefinementStore.setState((s) => {
+          const kept = new Set(s.history.map((h) => h.id));
+          return { history: [...s.history, ...cleared.filter((h) => !kept.has(h.id))] };
+        }),
+    });
+  };
+
   const metCount = criteria.filter((c) => currentChecks[c.id]).length;
   const pct = criteria.length > 0 ? Math.round((metCount / criteria.length) * 100) : 0;
 
@@ -708,7 +729,8 @@ export function RefinementClient() {
                     <Button
                       variant="danger-ghost"
                       size="sm"
-                      onClick={clearHistory}
+                      onClick={() => setConfirmClearOpen(true)}
+                      aria-label="Clear story history"
                       className="text-xs"
                     >
                       Clear
@@ -797,6 +819,15 @@ export function RefinementClient() {
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmClearOpen}
+        onOpenChange={setConfirmClearOpen}
+        title="Clear story history?"
+        description={`All ${storiesLabel} will be removed, and the pass-rate chart with them.`}
+        confirmLabel="Clear history"
+        onConfirm={confirmClearHistory}
+      />
     </ToolPageWrapper>
   );
 }

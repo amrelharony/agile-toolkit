@@ -1,10 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { undoable } from "@/lib/utils/undoable";
 import { ActionRow } from "@/components/shared/action-row";
 import { SectionCard } from "@/components/shared/section-card";
 import { ChartCard } from "@/components/shared/chart-card";
@@ -130,6 +132,15 @@ const DIMENSIONS: DimensionDef[] = [
   },
 ];
 
+/**
+ * What a score means for one dimension, shown while scoring. Levels 2-5
+ * reuse the roadmap's criteria; level 1 is the starting point below them.
+ */
+function levelMeaning(d: DimensionDef, level: number): string {
+  if (level <= 1) return "Ad hoc or missing; not yet at level 2.";
+  return d.nextLevelCriteria[Math.min(5, level) as 2 | 3 | 4 | 5];
+}
+
 interface PlatformAssessment {
   dimensions: Record<string, number>;
   /** Per-dimension free-text notes — described in the spec. */
@@ -201,9 +212,23 @@ export function PlatformMaturityClient() {
     );
   };
 
+  // Reset wiped every score and note with one click; it now asks first
+  // (ConfirmDialog below) and offers Undo.
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+  const noteCount = DIMENSIONS.filter((d) => state.notes[d.id]?.trim()).length;
   const resetAssessment = () => {
-    setState(DEFAULT_STATE);
-    log(PLATFORM_MATURITY_ACTIONS.PLATFORM_RESET, {});
+    const prev: PlatformAssessment = {
+      dimensions: { ...state.dimensions },
+      notes: { ...state.notes },
+    };
+    undoable({
+      label: "Reset the assessment",
+      apply: () => {
+        setState(DEFAULT_STATE);
+        log(PLATFORM_MATURITY_ACTIONS.PLATFORM_RESET, {});
+      },
+      revert: () => setState(prev),
+    });
   };
 
   // Clamp persisted scores into [1, 5] at read time so a corrupted import
@@ -305,7 +330,7 @@ export function PlatformMaturityClient() {
         <Button
           variant="outline"
           size="sm"
-          onClick={resetAssessment}
+          onClick={() => setConfirmResetOpen(true)}
           className="gap-2 border-border hover:border-danger/40 text-sub hover:text-danger"
         >
           <RotateCcw className="w-4 h-4" aria-hidden="true" />
@@ -324,6 +349,7 @@ export function PlatformMaturityClient() {
           <div className="space-y-5">
             {DIMENSIONS.map((d) => {
               const score = Math.min(5, Math.max(1, state.dimensions[d.id] ?? 1));
+              const meaning = levelMeaning(d, score);
               return (
                 <div key={d.id} className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -338,8 +364,11 @@ export function PlatformMaturityClient() {
                     onValueChange={(vals) => setScore(d.id, vals[0] ?? 1)}
                     className="w-full"
                     aria-label={`${d.label} maturity score`}
-                    thumbProps={{ "aria-valuetext": `${score} of 5` }}
+                    thumbProps={{ "aria-valuetext": `${score} of 5: ${meaning}` }}
                   />
+                  <p className="text-xs text-sub leading-relaxed" data-testid={`level-${d.id}`}>
+                    <span className="font-medium text-text">Level {score}:</span> {meaning}
+                  </p>
                   <div>
                     <Label htmlFor={`platform-note-${d.id}`} className="text-xs text-sub sr-only">
                       {d.label} description
@@ -394,6 +423,17 @@ export function PlatformMaturityClient() {
           </div>
         )}
       </SectionCard>
+
+      <ConfirmDialog
+        open={confirmResetOpen}
+        onOpenChange={setConfirmResetOpen}
+        title="Reset the assessment?"
+        description={`All ${DIMENSIONS.length} scores go back to level 1${
+          noteCount > 0 ? ` and ${noteCount} note${noteCount === 1 ? " is" : "s are"} cleared` : ""
+        }. Saved snapshots in history are kept.`}
+        confirmLabel="Reset assessment"
+        onConfirm={resetAssessment}
+      />
     </ToolPageWrapper>
   );
 }

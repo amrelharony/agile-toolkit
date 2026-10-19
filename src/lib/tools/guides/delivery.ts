@@ -67,7 +67,7 @@ export const GUIDES: ToolGuide[] = [
       "Click Add Date for today's snapshot and enter how many items sit in each column. Done is the running total of finished items.",
       "Add a snapshot at the same time every day, or at least weekly. Change a row's date to fill in past days.",
       "Read the Flow Diagram: a band that keeps widening means work arrives in that stage faster than it leaves.",
-      "Optionally set a WIP Limit. The WIP control chart adds control limits once you have 8 or more snapshots.",
+      "Optionally set a WIP Limit. It shows as a dashed line on the WIP control chart, which adds control limits once you have 8 or more snapshots.",
     ],
     tips: [
       "Count items, not points, so the bands stay comparable.",
@@ -170,7 +170,7 @@ export const GUIDES: ToolGuide[] = [
       "Tick each gate as it passes: A11y audit, Perf baseline, Monitoring dashboards, Alerts tuned, Rollback tested, Runbook linked, SRE review, Security review and Feature flag ready.",
       "Click Ship on release day. If gates are still open you'll be asked to confirm, and the number left open is saved.",
       "If the release is reverted, click Mark rolled back; use Reopen for planning when you're ready to try again.",
-      "Every few releases, review % on time, Avg gates open at ship and the Most-skipped gates chart.",
+      "Every few releases, review % on time (it counts releases that were later rolled back), Avg gates open at ship and the Most-skipped gates chart.",
     ],
     tips: [
       "Gates lock once a release ships, so tick them as you go.",
@@ -189,7 +189,7 @@ export const GUIDES: ToolGuide[] = [
     steps: [
       "Add each flag with its Name, Owner, Environment (Dev, Staging, Prod or All) and Purpose (Rollout, Experiment, Kill switch or Permission).",
       "Keep its status current: Active, On, Off or Deprecated.",
-      "Click Retire when the flag is removed from the code. This records the date and counts toward Retired this quarter.",
+      "Click Retire when the flag is removed from the code (or set its status to Deprecated). This records the date and counts toward Retired this quarter.",
       "Review the list every sprint or two. Flags older than 90 days are marked stale; agree with each owner whether to remove them.",
       "Use Flags by age and, once a few flags are retired, the survival curve to see how long flags usually live.",
     ],

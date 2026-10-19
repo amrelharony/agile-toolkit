@@ -298,10 +298,10 @@ export function QualityCostClient() {
           />
           <MoneyField
             id="coq-detection"
-            label="Detection"
+            label="Detection (appraisal)"
             value={state.detectionCost}
             onChange={(n) => update({ detectionCost: n })}
-            hint="Testing, inspection, audits"
+            hint="Testing, inspection, audits. Textbooks call this appraisal."
           />
           <MoneyField
             id="coq-internal"
@@ -360,9 +360,13 @@ export function QualityCostClient() {
 
       <CalloutAlert tone="info">
         <strong>COQ framework:</strong> Cost of Quality splits into <em>conformance</em> (prevention
-        + detection) and <em>non-conformance</em> (internal + external failure). Mature orgs
-        typically run ~70/30 conformance to non-conformance. The classic Crosby rule of thumb:{" "}
-        <strong>$1 invested in prevention saves about $100 in eventual failure cost.</strong>{" "}
+        + detection, the textbook &ldquo;appraisal&rdquo; category) and <em>non-conformance</em>{" "}
+        (internal + external failure). Mature orgs typically run ~70/30 conformance to
+        non-conformance. The 1-10-100 rule of thumb, usually credited to Labovitz and Chang:{" "}
+        <strong>
+          a defect that costs $1 to prevent costs about $10 to fix in-house and $100 once it fails
+          in the field.
+        </strong>{" "}
         External failures (the ones customers see) are usually 4-10× more expensive than internal
         ones — so &ldquo;ship faster, fix later&rdquo; rarely pencils out.
       </CalloutAlert>

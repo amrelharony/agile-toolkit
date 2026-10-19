@@ -372,6 +372,16 @@ export function DaciClient() {
                         </div>
                       )}
                     </div>
+                    {d.options && d.options.length > 0 && (
+                      <div className="text-xs mt-2">
+                        <span className="text-sub">Options considered:</span>
+                        <ul className="mt-0.5 list-disc pl-5 text-text">
+                          {d.options.map((opt, i) => (
+                            <li key={i}>{opt}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     {d.recommendation && (
                       <p className="text-xs text-text mt-2">
                         <span className="text-sub">Rec:</span> {d.recommendation}

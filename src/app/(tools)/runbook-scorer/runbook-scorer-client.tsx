@@ -73,6 +73,30 @@ function clampScore(v: number): ScoreValue {
   return n as ScoreValue;
 }
 
+/** Whole days since a YYYY-MM-DD review date (local dates), or null if unparseable. */
+function daysSinceReview(iso: string | undefined, now: Date = new Date()): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? "");
+  if (!m) return null;
+  const reviewed = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  // Round: a DST change makes one day 23 or 25 hours long. A future date
+  // (a typo) counts as reviewed today.
+  return Math.max(0, Math.round((today - reviewed) / 86_400_000));
+}
+
+/**
+ * Freshness suggested by review age: ≤30 days 5, ≤90 4, ≤180 3, ≤365 2,
+ * older 1. Freshness used to be a manual slider with no link to Last
+ * reviewed; setting the date now applies this, and the slider overrides it.
+ */
+function freshnessFromReviewAge(days: number): ScoreValue {
+  if (days <= 30) return 5;
+  if (days <= 90) return 4;
+  if (days <= 180) return 3;
+  if (days <= 365) return 2;
+  return 1;
+}
+
 function hygieneScore(r: Runbook): number {
   return (r.freshness + r.completeness + (r.testedRecently ? 5 : 1)) / 3;
 }
@@ -524,6 +548,8 @@ function RunbookEditor({
   const [reviewedDraft, setReviewedDraft] = useState(runbook.lastReviewedAt ?? "");
   useEffect(() => setDescriptionDraft(runbook.description ?? ""), [runbook.description]);
   useEffect(() => setReviewedDraft(runbook.lastReviewedAt ?? ""), [runbook.lastReviewedAt]);
+  const reviewAgeDays = daysSinceReview(runbook.lastReviewedAt);
+  const suggestedFreshness = reviewAgeDays === null ? null : freshnessFromReviewAge(reviewAgeDays);
 
   return (
     <div className="rounded-md border border-border bg-bg p-3">
@@ -560,7 +586,15 @@ function RunbookEditor({
               value={[runbook.freshness]}
               onValueChange={(vals) => onUpdate({ freshness: clampScore(vals[0] ?? 3) })}
               aria-label={`Freshness for ${runbook.name}`}
+              thumbProps={{ "aria-describedby": `${uid}-freshness-hint` }}
             />
+            <p id={`${uid}-freshness-hint`} className="text-xs text-sub mt-1">
+              {suggestedFreshness === null
+                ? "Set Last reviewed to get a suggested freshness."
+                : `Suggested ${suggestedFreshness} from Last reviewed ${reviewAgeDays} day${
+                    reviewAgeDays === 1 ? "" : "s"
+                  } ago. Move the slider to override.`}
+            </p>
           </div>
           <div>
             <Label className="text-xs text-sub mb-1 block">
@@ -599,7 +633,13 @@ function RunbookEditor({
               onChange={(e) => setReviewedDraft(e.target.value)}
               onBlur={() => {
                 if (reviewedDraft !== (runbook.lastReviewedAt ?? "")) {
-                  onUpdate({ lastReviewedAt: reviewedDraft || undefined });
+                  // A new review date re-derives freshness from its age;
+                  // the slider still overrides afterwards.
+                  const days = daysSinceReview(reviewedDraft);
+                  onUpdate({
+                    lastReviewedAt: reviewedDraft || undefined,
+                    ...(days === null ? {} : { freshness: freshnessFromReviewAge(days) }),
+                  });
                 }
               }}
               className="bg-surface border-border font-data"

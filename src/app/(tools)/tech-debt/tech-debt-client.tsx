@@ -19,7 +19,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Wrench, Activity } from "lucide-react";
+import { Plus, Trash2, Wrench, Activity, CheckCircle2, RotateCcw } from "lucide-react";
+import { undoable } from "@/lib/utils/undoable";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { TechDebtItem } from "@/lib/stores/workspace-types";
 import { generateTechDebtPrompts } from "@/lib/ai-prompts/tech-debt";
@@ -233,6 +234,21 @@ export function TechDebtClient() {
     }
     log(TECH_DEBT_ACTIONS.ITEM_REMOVED, { itemId: id, title: item?.title });
   };
+  // Nothing in the UI used to set `resolvedAt`, so "Open Items" counted
+  // everything and the resolution survival curve never had data.
+  const resolve = (id: string) => {
+    const item = items.find((x) => x.id === id);
+    if (!item || item.resolvedAt) return;
+    const title = item.title.trim();
+    undoable({
+      label: title
+        ? `Resolved “${title.length > 40 ? `${title.slice(0, 39)}…` : title}”`
+        : "Resolved an untitled item",
+      apply: () => update(id, { resolvedAt: todayLocalISO() }),
+      revert: () => update(id, { resolvedAt: undefined }),
+    });
+  };
+  const reopen = (id: string) => update(id, { resolvedAt: undefined });
 
   const handleImport = () => {
     // Merge by id with workspace-as-newer-wins: existing items are replaced
@@ -271,8 +287,17 @@ export function TechDebtClient() {
     return n;
   };
 
+  // Open items by priority, then resolved ones (their score no longer
+  // matters) at the bottom.
   const ranked = useMemo(
-    () => items.slice().sort((a, b) => priorityScore(b) - priorityScore(a)),
+    () =>
+      items
+        .slice()
+        .sort(
+          (a, b) =>
+            Number(Boolean(a.resolvedAt)) - Number(Boolean(b.resolvedAt)) ||
+            priorityScore(b) - priorityScore(a)
+        ),
     [items]
   );
   const totalInterestPerSprint = useMemo(
@@ -548,19 +573,51 @@ export function TechDebtClient() {
                   commit={(next) => update(i.id, { interestRate: next })}
                   itemLabel={i.title || "debt item"}
                 />
-                <div className="font-data text-sm text-accent text-center">
-                  {priorityScore(i).toFixed(0)}
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => remove(i.id)}
-                  aria-label={`Remove debt item: ${i.title || "untitled"}`}
-                  className="text-sub hover:text-danger min-touch-coarse"
+                <div
+                  className="text-center"
+                  title="Priority score: impact × 4 − effort + interest per sprint × age in days ÷ 2"
                 >
-                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                </Button>
+                  <div className="text-xs uppercase tracking-wider text-sub">Score</div>
+                  <div className="font-data text-sm text-accent">{priorityScore(i).toFixed(0)}</div>
+                </div>
+                <div className="flex items-center justify-end gap-1">
+                  {i.resolvedAt ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => reopen(i.id)}
+                      aria-label={`Reopen debt item: ${i.title || "untitled"}`}
+                      className="gap-1 text-xs text-sub hover:text-text min-touch-coarse"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+                      Reopen
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => resolve(i.id)}
+                      aria-label={`Mark resolved: ${i.title || "untitled"}`}
+                      className="gap-1 text-xs text-sub hover:text-success min-touch-coarse"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
+                      Mark resolved
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => remove(i.id)}
+                    aria-label={`Remove debt item: ${i.title || "untitled"}`}
+                    className="text-sub hover:text-danger min-touch-coarse"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                  </Button>
+                </div>
               </div>
+              {i.resolvedAt && (
+                <div className="text-xs text-success">Resolved {i.resolvedAt.slice(0, 10)}</div>
+              )}
               <DescriptionEditor
                 value={i.description ?? ""}
                 commit={(next) => update(i.id, { description: next })}
