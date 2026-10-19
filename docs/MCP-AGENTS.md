@@ -120,6 +120,31 @@ Anything else → `-32601 method not found`.
 }}}
 ```
 
+### Log a sprint's day (shared by Burndown, Burnup and Sprint Metrics)
+
+A sprint's daily log and ratings live in `workspace.sprint_series`, one row per sprint whose `id` **is the sprint's id**. A create without an `id` is rejected. Day 0 is the sprint's `startDate`, counted in calendar days. Burndown records `remaining`, Burnup records `completed` and `scope`, and each tool derives the other's number, so write the one you have.
+
+```jsonc
+// create the series for sprint_x with day 0 and day 1
+{"method":"tools/call","params":{"name":"workspace.sprint_series.create","arguments":{
+  "entity": {"id":"sprint_x", "days":[{"day":0,"remaining":40},{"day":1,"remaining":37}]}
+}}}
+
+// later: replace the days (update writes the fields you pass; send the whole days array)
+{"method":"tools/call","params":{"name":"workspace.sprint_series.update","arguments":{
+  "id":"sprint_x",
+  "patch": {"days":[{"day":0,"remaining":40},{"day":1,"remaining":37},
+                    {"day":2,"remaining":38,"scope":43,"scopeChange":true,"note":"Refunds added"}]}
+}}}
+
+// Sprint Comparison ratings (1-10) by dimension
+{"method":"tools/call","params":{"name":"workspace.sprint_series.update","arguments":{
+  "id":"sprint_x", "patch": {"ratings":{"Velocity":7,"Quality":8,"Predictability":6}}
+}}}
+```
+
+Deleting a sprint in the app also deletes its series. `workspace.sprint.delete` over MCP removes only the sprint row. Delete the series too (`workspace.sprint_series.delete`), or leave it: the app ignores a series whose sprint is gone.
+
 ### Run a retro for a sprint (composed intent)
 
 ```jsonc

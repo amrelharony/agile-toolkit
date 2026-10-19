@@ -265,6 +265,26 @@ If abuse shows up, the planned next step is short-lived room tokens minted by a 
 
 ---
 
+## Shared sprints (the one-time data move)
+
+Burndown, Burnup, Velocity, Sprint Comparison and Sprint Metrics share one list of sprints: the workspace `sprints`, plus `sprintSeries`, one row per sprint holding its daily log and ratings. These tools used to keep their own data in four browser keys. The first time the app loads after this change, it moves that data into the shared sprints, in each browser that has it, and shows one toast ("Moved N sprints from … into shared sprints").
+
+- **When it runs:**
+  - for a visitor, straight away;
+  - for the owner, only after the first cloud pull finishes;
+  - never while the "merge or discard this browser's data?" question is open, or while discarding.
+- **How it merges:** it only fills gaps. Values already in the workspace win, and running it again changes nothing.
+- **Matching:**
+  - Burndown and Burnup data joins the sprint with the same start date, or creates one.
+  - Velocity rows keep their ids.
+  - Sprint Comparison rows match by name.
+- **Ids:** sprints the move creates have ids starting `sprint_legacy_`, and `migratedFrom` on their series lists the source. Sprint Metrics flags them under "Worth checking".
+- **Backups:** the old data stays in that browser, under `agile-toolkit:burndown:migrated` (and `burnup`, `velocity`, `sprint-compare`). If a backup already exists, the name gets a `:<timestamp>` suffix.
+- **To re-run it** (for example after restoring an old backup), copy a backup back to its original key and reload.
+- **If the browser can't store the backup** (storage full), it keeps the old key and tries again on the next load.
+
+---
+
 ## Publishing the "Agile at Work" comic
 
 The reader at `/agile-at-work` shows "Coming soon" until the PDF exists, and the home banner and sitemap entry stay hidden. Availability is decided at build time (`scripts/comic-asset.mjs` → `NEXT_PUBLIC_COMIC_PDF_SIZE` / `NEXT_PUBLIC_COMIC_PDF_VERSION`).
