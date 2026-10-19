@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, type RefObject } from "react";
 import { fitToRects } from "@/lib/whiteboard/canvas-transform";
 import type { Camera } from "@/lib/geometry/bbox";
 
@@ -15,6 +15,12 @@ type ObjectLike = { id: string; x: number; y: number; w: number; h: number; z: n
  * the camera pans to keep the new selection visible (zoom is only
  * reduced, never increased — so a Tab through small distant objects
  * doesn't zoom the whole board out repeatedly).
+ *
+ * Only while focus is inside the board viewport: the handler used to sit on
+ * `window` and cancel every Tab on the page once the board had one object,
+ * trapping keyboard users away from the toolbars, header and sidebar
+ * (WCAG 2.1.2). Tabbing past the last object (or Shift+Tab before the
+ * first) clears the selection and lets focus leave the board normally.
  */
 export function useTabNavigation(params: {
   objects: readonly ObjectLike[];
@@ -23,25 +29,34 @@ export function useTabNavigation(params: {
   camera: Camera;
   setSelection: (ids: string[]) => void;
   setCamera: (cam: Camera) => void;
+  /** The focusable board element (role="application"). */
+  viewportRef: RefObject<HTMLElement | null>;
 }) {
-  const { objects, selection, size, camera, setSelection, setCamera } = params;
+  const { objects, selection, size, camera, setSelection, setCamera, viewportRef } = params;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Tab") return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const viewport = viewportRef.current;
+      if (!viewport || !t || !viewport.contains(t)) return;
       if (objects.length === 0) return;
-      e.preventDefault();
       const ordered = objects.slice().sort((a, b) => a.z - b.z);
-      const currentIdx = selection.length === 1
-        ? ordered.findIndex((o) => o.id === selection[0])
-        : -1;
+      const currentIdx =
+        selection.length === 1 ? ordered.findIndex((o) => o.id === selection[0]) : -1;
+      // Past either end: let the browser move focus out of the board.
+      const atEnd = e.shiftKey ? currentIdx === 0 : currentIdx === ordered.length - 1;
+      if (atEnd) {
+        setSelection([]);
+        return;
+      }
+      e.preventDefault();
       let nextIdx: number;
       if (e.shiftKey) {
         nextIdx = currentIdx <= 0 ? ordered.length - 1 : currentIdx - 1;
       } else {
-        nextIdx = currentIdx >= ordered.length - 1 ? 0 : currentIdx + 1;
+        nextIdx = currentIdx + 1;
       }
       const next = ordered[nextIdx];
       if (!next) return;
@@ -49,11 +64,16 @@ export function useTabNavigation(params: {
       // Pan to keep the selection visible (10% margin around the
       // object's bbox). Don't override zoom unless we're way off.
       if (size.w > 0) {
-        const cam = fitToRects([{ x: next.x, y: next.y, w: next.w, h: next.h }], size.w, size.h, 1.0);
+        const cam = fitToRects(
+          [{ x: next.x, y: next.y, w: next.w, h: next.h }],
+          size.w,
+          size.h,
+          1.0
+        );
         if (cam) setCamera({ x: cam.x, y: cam.y, zoom: Math.min(cam.zoom, camera.zoom) });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [objects, selection, size.w, size.h, camera.zoom, setSelection, setCamera]);
+  }, [objects, selection, size.w, size.h, camera.zoom, setSelection, setCamera, viewportRef]);
 }

@@ -449,7 +449,7 @@ export function WhiteboardCanvas({
   // `.cancel()` method that drops the pending frame.
   useEffect(() => () => throttledSetCamera.cancel?.(), [throttledSetCamera]);
 
-  useTabNavigation({ objects, selection, size, camera, setSelection, setCamera });
+  useTabNavigation({ objects, selection, size, camera, setSelection, setCamera, viewportRef });
 
   const toggleFrameBookmark = useCanvasStore((s) => s.toggleFrameBookmark);
   useFrameBookmarkShortcut({

@@ -30,17 +30,7 @@ export function RetroClient() {
 
   const handleSelectFormat = useCallback(
     (format: RetroFormat) => {
-      // Switching formats wipes every card — confirm first when there's work to lose.
-      if (
-        boardState &&
-        boardState.cards.length > 0 &&
-        typeof window !== "undefined" &&
-        !window.confirm(
-          `Switching to "${format.name}" will clear all ${boardState.cards.length} cards on the current board. Continue?`
-        )
-      ) {
-        return;
-      }
+      // The picker only shows when there is no board, so nothing is lost here.
       upsertRetroBoard({
         id: RB_ID,
         format,
@@ -53,7 +43,7 @@ export function RetroClient() {
       });
       logger.log(RETRO_ACTIONS.FORMAT_CHANGED, { format: format.name });
     },
-    [logger, boardState, upsertRetroBoard]
+    [logger, upsertRetroBoard]
   );
 
   const handleReset = useCallback(() => {

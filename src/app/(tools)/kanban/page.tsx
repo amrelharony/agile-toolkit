@@ -1,7 +1,7 @@
 import { KanbanClient } from "./kanban-client";
 
 export const metadata = {
-  title: "Kanban Board — Agile Toolkit",
+  title: "Kanban Board",
   description: "WIP-limited Kanban board with throughput forecasting and cycle-time analysis.",
 };
 

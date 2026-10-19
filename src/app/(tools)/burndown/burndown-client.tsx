@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo, useState } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
@@ -82,23 +82,26 @@ interface BurndownStore {
 /* -------------------------------------------------------------------------- */
 
 // Defaults use a STATIC sprint start date so server-rendered HTML matches
-// client-rendered HTML at hydration. Previously we read `new Date()` here,
-// which:
-//   1. Differs between server and client when the JS bundle and the user
-//      land in different timezones, producing distinct ISO strings → React
-//      hydration warning.
-//   2. Causes the default to silently drift each day for users without
-//      persisted state, so a "fresh" burndown opened on Monday vs Tuesday
-//      shows different ideal-line starts.
-// The first action a user takes (typing in any field, or hitting Reset)
-// re-sets the date to today via the `reset()` action, which runs client-only.
+// client-rendered HTML at hydration. Reading `new Date()` here would differ
+// between server and client when they land in different timezones (React
+// hydration warning), and the server's module-level store would freeze the
+// date at boot. Instead, a first run (nothing saved yet) swaps this for
+// today's local date once the page mounts — see `needsFirstRunStartDate`.
+// Reset also starts the sprint today.
+const DEFAULT_SPRINT_START = "2026-01-01";
+
 function makeDefaultConfig(): BurndownConfig {
   return {
     totalPoints: 40,
     sprintDays: 10,
-    sprintStartDate: "2026-01-01",
+    sprintStartDate: DEFAULT_SPRINT_START,
   };
 }
+
+// True until the persisted burndown is restored from storage (see `merge`
+// below) or the first-run start date has been applied, so a saved sprint's
+// start date is never overwritten.
+let needsFirstRunStartDate = true;
 
 function createDefaultEntries(sprintDays: number, totalPoints: number): DayEntry[] {
   // Use deterministic ids for the initial entries so the server-rendered
@@ -197,6 +200,13 @@ const useBurndownStore = create<BurndownStore>()(
       // Wrap localStorage so Safari Private Browsing / corporate-managed
       // Chromes don't crash page-load via persist.rehydrate().
       storage: safeJSONStorage("burndown"),
+      // Same shallow merge as the default; it also records whether a saved
+      // burndown existed, which decides the first-run start date.
+      merge: (persisted, current) => {
+        if (!persisted || typeof persisted !== "object") return current;
+        needsFirstRunStartDate = false;
+        return { ...current, ...(persisted as Partial<BurndownStore>) };
+      },
       partialize: (state) => {
         const { _ttPast, _ttFuture, ...rest } = state as BurndownStore & {
           _ttPast?: unknown;
@@ -357,6 +367,17 @@ export function BurndownClient() {
     log(BURNDOWN_ACTIONS.BURNDOWN_RESET, {});
   };
 
+  // First run: start the sprint today instead of on the static default.
+  // `setState` goes around withTimeTravel's wrapped `set`, so this isn't an
+  // undo step, and it persists the date for the next visit.
+  useEffect(() => {
+    if (!needsFirstRunStartDate) return;
+    needsFirstRunStartDate = false;
+    const current = useBurndownStore.getState().config;
+    if (current.sprintStartDate !== DEFAULT_SPRINT_START) return;
+    useBurndownStore.setState({ config: { ...current, sprintStartDate: todayLocalISO() } });
+  }, []);
+
   const chartRef = useRef<HTMLDivElement>(null);
   const chartHeight = useChartHeight({ min: 260, max: 420 });
 
@@ -494,8 +515,17 @@ export function BurndownClient() {
   const stats = useMemo(() => {
     // Last filled actual entry
     const filledEntries = sortedEntries.filter((e) => e.remaining !== null);
-    if (filledEntries.length === 0) {
-      return { variance: 0, trend: "neutral" as const, completionRate: 0, lastDay: 0 };
+    // Day 0 comes pre-filled with the sprint scope, so a single point is only
+    // the starting line. Until a second day is logged there's no trend to
+    // report — the KPIs show "no data" rather than "On track" / 0%.
+    if (filledEntries.length < 2) {
+      return {
+        hasData: false,
+        variance: 0,
+        trend: "neutral" as const,
+        completionRate: 0,
+        lastDay: 0,
+      };
     }
     const last = filledEntries[filledEntries.length - 1];
     const idealAtLastDay = getIdealValue(last.day, config.totalPoints, config.sprintDays);
@@ -511,7 +541,7 @@ export function BurndownClient() {
       config.totalPoints > 0
         ? Math.max(0, Math.min(100, Math.round((completed / config.totalPoints) * 100)))
         : 0;
-    return { variance, trend, completionRate, lastDay: last.day };
+    return { hasData: true, variance, trend, completionRate, lastDay: last.day };
   }, [sortedEntries, config]);
 
   const scopeChangeDays = useMemo(
@@ -549,8 +579,9 @@ export function BurndownClient() {
     stats.trend === "ahead" ? TrendingDown : stats.trend === "behind" ? TrendingUp : Minus;
   const trendColor =
     stats.trend === "ahead" ? "#00ff88" : stats.trend === "behind" ? "#ef4444" : "#94a3b8";
-  const trendLabel =
-    stats.trend === "ahead"
+  const trendLabel = !stats.hasData
+    ? "No data yet"
+    : stats.trend === "ahead"
       ? "Ahead of ideal"
       : stats.trend === "behind"
         ? "Behind ideal"
@@ -571,15 +602,17 @@ export function BurndownClient() {
           <StatCard label="Total Points" value={config.totalPoints} unit="pts" icon={BarChart3} />
           <StatCard
             label="Variance from Ideal"
-            value={stats.variance > 0 ? `+${stats.variance}` : stats.variance}
-            unit="pts"
+            value={
+              !stats.hasData ? "—" : stats.variance > 0 ? `+${stats.variance}` : stats.variance
+            }
+            unit={stats.hasData ? "pts" : undefined}
             icon={TrendIcon}
             color={trendColor}
           />
           <StatCard
             label="Completion Rate"
-            value={stats.completionRate}
-            unit="%"
+            value={stats.hasData ? stats.completionRate : "—"}
+            unit={stats.hasData ? "%" : undefined}
             icon={TrendingDown}
             color="#00f0ff"
           />
@@ -867,7 +900,7 @@ export function BurndownClient() {
             {sortedEntries.map((entry) => (
               <div
                 key={entry.id}
-                className="grid grid-cols-[1fr_auto] sm:grid-cols-[80px_1fr_1.2fr_120px_auto] gap-2 sm:gap-3 sm:items-center rounded-md border border-border/40 sm:border-0 p-2 sm:p-0"
+                className="grid grid-cols-[1fr_auto] sm:grid-cols-[80px_1fr_1.2fr_120px_auto] gap-2 sm:gap-3 sm:items-center rounded-md border border-border sm:border-0 p-2 sm:p-0"
               >
                 {/* Day label + trash form a header row on mobile */}
                 <div className="flex items-center sm:contents">

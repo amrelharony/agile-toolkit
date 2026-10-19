@@ -35,10 +35,11 @@
  *           /mascot-* slash commands + Konami (engine/customization/commands.ts),
  *           appearance persisted to localStorage.
  *
- * Mount lazily (next/dynamic, ssr:false) — ~16MB GLB + WebGL.
+ * Mount lazily (next/dynamic, ssr:false) — ~2.7 MB GLB + WebGL.
  */
 
 import { useEffect, useRef } from "react";
+import { MASCOT_GLB_URL } from "./mascot-asset";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { useMascotStore, type MascotReaction, type HatId } from "@/lib/agent/mascot/store";
@@ -64,8 +65,12 @@ interface Mascot3DProps {
   width?: number;
   height?: number;
   className?: string;
-  /** GLB url (kept in public/mascot, gitignored for now — see .gitignore). */
+  /** GLB url — defaults to the committed, content-hashed model. */
   src?: string;
+  /** The GPU dropped the WebGL context (memory pressure, driver reset…). */
+  onContextLost?: () => void;
+  /** No WebGL, or the model failed to load. */
+  onLoadError?: () => void;
 }
 
 /** Clip names that loop rather than play once (from the source). */
@@ -153,13 +158,14 @@ export default function Mascot3D({
   width = 160,
   height = 280,
   className,
-  // The GLB (~2.7 MB after `npm run optimize:mascot`) is gitignored, so
-  // production serves it from a CDN/LFS host set via NEXT_PUBLIC_MASCOT_GLB_URL
-  // (its origin is whitelisted in the CSP connect-src by next.config.mjs).
-  // Falls back to the local dev copy.
-  src = process.env.NEXT_PUBLIC_MASCOT_GLB_URL || "/mascot/mascot.glb",
+  src = MASCOT_GLB_URL,
+  onContextLost,
+  onLoadError,
 }: Mascot3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // The scene effect runs once, so it reads the latest callbacks via a ref.
+  const callbacksRef = useRef({ onContextLost, onLoadError });
+  callbacksRef.current = { onContextLost, onLoadError };
   const weatherSysRef = useRef<WeatherParticles | null>(null);
 
   // Current weather → particle type (the source reads localStorage; we use the
@@ -237,6 +243,7 @@ export default function Mascot3D({
         powerPreference: "default",
       });
     } catch {
+      callbacksRef.current.onLoadError?.();
       return; // No WebGL — render nothing rather than crashing the shell.
     }
     renderer.setSize(W, H);
@@ -245,6 +252,18 @@ export default function Mascot3D({
     renderer.toneMappingExposure = 1.6;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
+
+    // A lost context leaves a blank (or garbage-filled) canvas on screen —
+    // seen as a grey box over the page. Stop drawing, report it, and let the
+    // parent remount or fall back.
+    const onContextLostEvent = (e: Event) => {
+      e.preventDefault();
+      cancelAnimationFrame(raf);
+      raf = 0;
+      useMascotStore.getState().setReady(false);
+      callbacksRef.current.onContextLost?.();
+    };
+    renderer.domElement.addEventListener("webglcontextlost", onContextLostEvent);
 
     // ── Lighting (desktop set from the source) ──
     const hemi = new THREE.HemisphereLight(0xffffff, 0x887766, 1.0);
@@ -445,7 +464,9 @@ export default function Mascot3D({
       },
       undefined,
       () => {
-        /* load error — leave the scene empty; the chat panel still works. */
+        // Load error — leave the scene empty; the parent shows its launcher
+        // and the chat panel still works.
+        callbacksRef.current.onLoadError?.();
       }
     );
 
@@ -683,6 +704,7 @@ export default function Mascot3D({
         else if (mat) disposeMaterial(mat);
       });
       if (renderer) {
+        renderer.domElement.removeEventListener("webglcontextlost", onContextLostEvent);
         renderer.dispose();
         renderer.forceContextLoss();
         renderer.domElement.remove();

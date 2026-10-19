@@ -461,22 +461,30 @@ export function LiberatingStructuresClient() {
             return (
               <Card
                 key={s.id}
-                className={`bg-surface border-border transition cursor-pointer ${
+                className={`relative bg-surface border-border transition cursor-pointer ${
                   isExpanded ? "border-accent/40" : "hover:border-accent/30"
                 }`}
-                onClick={() => handleExpand(s.id)}
               >
                 <CardContent className="p-4 space-y-2">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="text-sm font-semibold text-text">{s.name}</div>
+                    {/* Title button stretches over the card (see icebreaker). */}
+                    <button
+                      type="button"
+                      onClick={() => handleExpand(s.id)}
+                      aria-expanded={isExpanded}
+                      className="text-sm font-semibold text-text text-left focus-visible:outline-none after:absolute after:inset-0 after:rounded-[inherit] after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-accent"
+                    >
+                      {s.name}
+                    </button>
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleFavorite(s.id);
                       }}
-                      aria-label={isFav ? "Remove favorite" : "Add favorite"}
-                      className="shrink-0 p-1 -m-1 min-touch-coarse inline-flex items-center justify-center"
+                      aria-label={`${isFav ? "Remove" : "Add"} ${s.name} ${isFav ? "from" : "to"} favorites`}
+                      aria-pressed={isFav}
+                      className="relative z-10 shrink-0 p-1 -m-1 min-touch-coarse inline-flex items-center justify-center"
                     >
                       <Heart
                         className={`w-4 h-4 transition ${
@@ -497,7 +505,9 @@ export function LiberatingStructuresClient() {
                     </Badge>
                   </div>
                   {isExpanded && (
-                    <div className="pt-2 border-t border-border space-y-2">
+                    // Above the title's stretched hit area, so the text is
+                    // selectable and the Save button clickable.
+                    <div className="relative z-10 pt-2 border-t border-border space-y-2">
                       <p className="text-xs text-text leading-relaxed">{s.description}</p>
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] text-sub">Source: {s.source}</span>

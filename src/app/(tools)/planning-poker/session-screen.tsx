@@ -20,10 +20,12 @@ import { SectionCard } from "@/components/shared/section-card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PLANNING_POKER_ACTIONS } from "@/lib/history/event-actions";
 import { SCALE_LABELS, type Session, type Participant } from "./types";
+import { REDACTED_VOTE } from "./merge";
 
 interface Props {
   session: Session;
@@ -39,6 +41,12 @@ interface Props {
    *  are always "Live" if reachable. */
   connectionLabel?: string;
   connectionTone?: "live" | "warn";
+  /** Show the room code (only meaningful when others can join). */
+  showRoomCode?: boolean;
+  /** Leaving discards the session from this browser (a local-only
+   *  session) rather than just disconnecting from a live room. Only
+   *  changes the wording of the leave confirmation. */
+  leaveClearsSession?: boolean;
 }
 
 // ─── helpers (duplicated minimal subset; original copies remain in
@@ -74,6 +82,28 @@ function isNumeric(v: string): boolean {
   if (v.trim() === "") return false;
   if (!/^-?\d+(\.\d+)?$/.test(v.trim())) return false;
   return !isNaN(Number(v));
+}
+
+/**
+ * The values the host can commit as a story's estimate: every distinct
+ * vote except the "no estimate" cards ("?" / "∞") and the pre-reveal
+ * redaction sentinel. Numbers sort ascending; anything else (T-shirt
+ * sizes, custom labels) follows in scale order, so XS…XXL reads naturally.
+ */
+function acceptableEstimates(votes: string[], scale: string[]): string[] {
+  const rank = (v: string) => {
+    const i = scale.indexOf(v);
+    return i === -1 ? scale.length : i;
+  };
+  return Array.from(new Set(votes))
+    .filter((v) => v.trim() !== "" && v !== "?" && v !== "∞" && v !== REDACTED_VOTE)
+    .sort((a, b) => {
+      const an = isNumeric(a);
+      const bn = isNumeric(b);
+      if (an && bn) return Number(a) - Number(b);
+      if (an !== bn) return an ? -1 : 1;
+      return rank(a) - rank(b);
+    });
 }
 
 function calcStats(votes: string[]): {
@@ -133,61 +163,108 @@ const CONSENSUS_LABELS: Record<Consensus, string> = {
   spread: "Discussion needed",
 };
 
+function CardFace({
+  value,
+  faceDown,
+  selected,
+  small,
+}: {
+  value: string;
+  faceDown: boolean;
+  selected: boolean;
+  small: boolean;
+}) {
+  return faceDown ? (
+    <div
+      className="absolute inset-1 rounded-lg overflow-hidden"
+      style={{
+        background:
+          "repeating-linear-gradient(45deg, #1e2540 0px, #1e2540 4px, #151a30 4px, #151a30 8px)",
+      }}
+    />
+  ) : (
+    <span
+      className={[
+        "font-display font-bold tabular-nums leading-none z-10",
+        small ? "text-sm" : "text-2xl",
+        selected ? "text-accent" : "text-text",
+      ].join(" ")}
+    >
+      {value}
+    </span>
+  );
+}
+
+/**
+ * A card in the voting deck when `onSelect` is given — a real button with
+ * radio semantics inside the "Your vote" radiogroup, so it's reachable
+ * and operable from the keyboard. Without `onSelect` it's a read-only
+ * card (other participants' face-down or revealed votes).
+ */
 function PlayingCard({
   value,
   faceDown = false,
   selected = false,
-  onClick,
+  onSelect,
   small = false,
   rotation = 0,
+  tabIndex,
+  buttonRef,
 }: {
   value: string;
   faceDown?: boolean;
   selected?: boolean;
-  onClick?: () => void;
+  onSelect?: () => void;
   small?: boolean;
   rotation?: number;
+  tabIndex?: number;
+  buttonRef?: (el: HTMLButtonElement | null) => void;
 }) {
   const w = small ? 48 : 64;
   const h = small ? 68 : 90;
+  const className = [
+    "relative rounded-xl border-2 flex items-center justify-center shrink-0 select-none",
+    onSelect
+      ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+      : "cursor-default",
+    faceDown
+      ? "bg-surface border-border"
+      : selected
+        ? "bg-surface-deep border-accent shadow-[0_0_18px_#00f0ffaa,0_0_36px_#00f0ff44]"
+        : "bg-surface-hover border-border hover:border-[#00f0ff66]",
+  ].join(" ");
+  const face = <CardFace value={value} faceDown={faceDown} selected={selected} small={small} />;
+
+  if (!onSelect) {
+    return (
+      <motion.div
+        animate={{ rotate: rotation, scale: selected ? 1.12 : 1 }}
+        transition={{ type: "spring", stiffness: 300, damping: 20 }}
+        style={{ width: w, height: h, rotate: rotation }}
+        className={className}
+      >
+        {face}
+      </motion.div>
+    );
+  }
+
   return (
-    <motion.div
-      onClick={onClick}
-      whileHover={onClick ? { y: -8, scale: 1.05 } : undefined}
-      whileTap={onClick ? { scale: 0.97 } : undefined}
+    <motion.button
+      ref={buttonRef}
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      tabIndex={tabIndex}
+      onClick={onSelect}
+      whileHover={{ y: -8, scale: 1.05 }}
+      whileTap={{ scale: 0.97 }}
       animate={{ rotate: rotation, scale: selected ? 1.12 : 1 }}
       transition={{ type: "spring", stiffness: 300, damping: 20 }}
       style={{ width: w, height: h, rotate: rotation }}
-      className={[
-        "relative rounded-xl border-2 flex items-center justify-center shrink-0 select-none",
-        onClick ? "cursor-pointer" : "cursor-default",
-        faceDown
-          ? "bg-surface border-border"
-          : selected
-            ? "bg-surface-deep border-accent shadow-[0_0_18px_#00f0ffaa,0_0_36px_#00f0ff44]"
-            : "bg-surface-hover border-border hover:border-[#00f0ff66]",
-      ].join(" ")}
+      className={className}
     >
-      {faceDown ? (
-        <div
-          className="absolute inset-1 rounded-lg overflow-hidden"
-          style={{
-            background:
-              "repeating-linear-gradient(45deg, #1e2540 0px, #1e2540 4px, #151a30 4px, #151a30 8px)",
-          }}
-        />
-      ) : (
-        <span
-          className={[
-            "font-display font-bold tabular-nums leading-none z-10",
-            small ? "text-sm" : "text-2xl",
-            selected ? "text-accent" : "text-text",
-          ].join(" ")}
-        >
-          {value}
-        </span>
-      )}
-    </motion.div>
+      {face}
+    </motion.button>
   );
 }
 
@@ -219,10 +296,14 @@ export function SessionScreen({
   extraHeaderActions,
   connectionLabel,
   connectionTone = "live",
+  showRoomCode = true,
+  leaveClearsSession = false,
 }: Props) {
   const [newStory, setNewStory] = useState("");
   const [newDescription, setNewDescription] = useState("");
+  const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
   const newStoryRef = useRef<HTMLInputElement>(null);
+  const voteCardRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const { log } = useHistoryLogger("planning-poker");
 
   const currentStory = session.stories[session.currentStoryIdx] ?? null;
@@ -351,6 +432,49 @@ export function SessionScreen({
     }
   };
 
+  // Nothing to lose before the first story exists — leave straight away.
+  const requestLeave = () => {
+    if (session.stories.length === 0) onLeave();
+    else setConfirmLeaveOpen(true);
+  };
+  const storyCount = session.stories.length;
+  const storyNoun = storyCount === 1 ? "story" : "stories";
+  const leaveDescription = leaveClearsSession
+    ? `This session's ${storyCount} ${storyNoun} and their estimates will be cleared from this browser. This can't be undone.`
+    : isHost
+      ? `You'll leave the live room and your squad will see that the host has left. This session's ${storyCount} ${storyNoun} and their estimates will be cleared from this browser.`
+      : "You'll leave the live room. The session carries on for everyone else.";
+
+  // Roving focus for the voting deck: arrows move between cards (wrapping),
+  // Home/End jump to the ends. Space/Enter casts the vote — moving focus
+  // alone never does, since every vote is broadcast to the room.
+  const handleDeckKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const count = session.scale.length;
+    const current = voteCardRefs.current.indexOf(e.target as HTMLButtonElement);
+    if (current === -1 || count === 0) return;
+    let next: number;
+    switch (e.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        next = (current + 1) % count;
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        next = (current - 1 + count) % count;
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = count - 1;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    voteCardRefs.current[next]?.focus();
+  };
+
   const votes = session.revealed
     ? session.participants.map((p) => p.vote).filter((v): v is string => v !== null)
     : [];
@@ -359,6 +483,9 @@ export function SessionScreen({
   const consensus = session.revealed && votes.length > 0 ? consensusLevel(votes) : null;
 
   const myVote = localParticipant?.vote ?? null;
+  // The checked card takes the deck's single tab stop; with no vote yet
+  // it falls to the first card.
+  const tabStopIdx = Math.max(0, myVote === null ? 0 : session.scale.indexOf(myVote));
   const votedCount = session.participants.filter((p) => p.vote !== null).length;
   const cardCount = session.scale.length;
   const maxRotation = Math.min(20, cardCount * 1.5);
@@ -374,14 +501,16 @@ export function SessionScreen({
   return (
     <div className="flex flex-col gap-6">
       {/* Header bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/40 bg-surface px-5 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface px-5 py-3">
         <div className="flex items-center gap-3">
           <div className="flex flex-col">
             <span className="text-sm font-semibold text-text">{session.sessionName}</span>
-            <span className="text-xs text-sub">
-              Room:{" "}
-              <span className="font-data text-accent tracking-widest">{session.roomCode}</span>
-            </span>
+            {showRoomCode && (
+              <span className="text-xs text-sub">
+                Room:{" "}
+                <span className="font-data text-accent tracking-widest">{session.roomCode}</span>
+              </span>
+            )}
           </div>
           <Badge className="bg-accent/10 text-accent border-accent/30 text-xs">
             {SCALE_LABELS[session.scaleType] ?? "Custom"}
@@ -397,7 +526,7 @@ export function SessionScreen({
           <Button
             variant="ghost"
             size="sm"
-            onClick={onLeave}
+            onClick={requestLeave}
             className="text-sub hover:text-text text-xs h-8"
           >
             Leave Session
@@ -405,9 +534,19 @@ export function SessionScreen({
         </div>
       </div>
 
+      <ConfirmDialog
+        open={confirmLeaveOpen}
+        onOpenChange={setConfirmLeaveOpen}
+        title="Leave this session?"
+        description={leaveDescription}
+        confirmLabel="Leave session"
+        tone={leaveClearsSession || isHost ? "danger" : "default"}
+        onConfirm={onLeave}
+      />
+
       <div className="grid gap-6 lg:grid-cols-[1fr_260px]">
         <div className="flex flex-col gap-5">
-          <Card className="border-border/40 bg-surface">
+          <Card className="border-border bg-surface">
             <CardContent className="pt-5 pb-5">
               {currentStory ? (
                 <div className="flex flex-col gap-2">
@@ -419,6 +558,7 @@ export function SessionScreen({
                         className="min-touch-coarse h-7 w-7 shrink-0 text-sub hover:text-text"
                         onClick={prevStory}
                         disabled={!isHost || session.currentStoryIdx === 0}
+                        aria-label="Previous story"
                       >
                         <ChevronLeft className="h-4 w-4" />
                       </Button>
@@ -431,6 +571,7 @@ export function SessionScreen({
                         className="min-touch-coarse h-7 w-7 shrink-0 text-sub hover:text-text"
                         onClick={nextStory}
                         disabled={!isHost || session.currentStoryIdx >= session.stories.length - 1}
+                        aria-label="Next story"
                       >
                         <ChevronRight className="h-4 w-4" />
                       </Button>
@@ -452,7 +593,7 @@ export function SessionScreen({
                           variant="outline"
                           onClick={resetVotes}
                           disabled={!isHost}
-                          className="border-border/40 text-sub hover:text-text h-8 px-4 text-xs"
+                          className="border-border text-sub hover:text-text h-8 px-4 text-xs"
                         >
                           <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
                           Vote Again
@@ -496,7 +637,7 @@ export function SessionScreen({
               iconClassName="text-sub"
               titleSize="sm"
               titleSuffix={!session.revealed ? "— face down until revealed" : undefined}
-              className="border-border/40 bg-surface"
+              className="border-border bg-surface"
               contentClassName="pb-5"
             >
               <div className="flex flex-wrap gap-4">
@@ -588,13 +729,13 @@ export function SessionScreen({
                     {isHost && (
                       <div className="flex flex-wrap gap-2">
                         <span className="text-xs text-sub self-center">Accept estimate:</span>
-                        {Array.from(new Set(votes.filter(isNumeric))).map((v) => (
+                        {acceptableEstimates(votes, session.scale).map((v) => (
                           <Button
                             key={v}
                             size="sm"
                             variant="outline"
                             onClick={() => saveEstimate(v)}
-                            className="h-8 px-3 text-xs border-border/40 text-sub hover:border-accent/60 hover:text-accent"
+                            className="h-8 px-3 text-xs border-border text-sub hover:border-accent/60 hover:text-accent"
                           >
                             {v}
                           </Button>
@@ -611,10 +752,15 @@ export function SessionScreen({
             <SectionCard
               title="Your vote"
               titleSize="sm"
-              className="border-border/40 bg-surface"
+              className="border-border bg-surface"
               contentClassName="pb-6"
             >
-              <div className="flex flex-wrap justify-center gap-3 pt-2 pb-2">
+              <div
+                role="radiogroup"
+                aria-label="Your vote"
+                onKeyDown={handleDeckKeyDown}
+                className="flex flex-wrap justify-center gap-3 pt-2 pb-2"
+              >
                 {session.scale.map((value, i) => {
                   const mid = (cardCount - 1) / 2;
                   const rotation = cardCount > 1 ? ((i - mid) / mid) * maxRotation : 0;
@@ -623,8 +769,12 @@ export function SessionScreen({
                       key={value}
                       value={value}
                       selected={myVote === value}
-                      onClick={() => castVote(value)}
+                      onSelect={() => castVote(value)}
                       rotation={rotation}
+                      tabIndex={i === tabStopIdx ? 0 : -1}
+                      buttonRef={(el) => {
+                        voteCardRefs.current[i] = el;
+                      }}
                     />
                   );
                 })}
@@ -644,7 +794,7 @@ export function SessionScreen({
             icon={Clock}
             iconClassName="text-sub"
             titleSize="sm"
-            className="border-border/40 bg-surface"
+            className="border-border bg-surface"
             contentClassName="flex flex-col gap-3"
           >
             {isHost && (
@@ -656,12 +806,13 @@ export function SessionScreen({
                     onChange={(e) => setNewStory(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && addStory()}
                     placeholder="Story title…"
-                    className="h-9 text-sm bg-surface-deep border-border/40 text-text"
+                    className="h-9 text-sm bg-surface-deep border-border text-text"
                   />
                   <Button
                     size="icon"
                     onClick={addStory}
                     disabled={!newStory.trim()}
+                    aria-label="Add story"
                     className="h-9 w-9 shrink-0 bg-accent text-[#0a0e1a] hover:bg-accent/80"
                   >
                     <Plus className="h-4 w-4" />
@@ -675,7 +826,7 @@ export function SessionScreen({
                   }}
                   placeholder="Description (optional)..."
                   rows={2}
-                  className="bg-surface-deep border-border/40 resize-none text-xs text-text"
+                  className="bg-surface-deep border-border resize-none text-xs text-text"
                   aria-label="New story description"
                 />
               </div>
@@ -733,7 +884,7 @@ export function SessionScreen({
                 {votedCount}/{session.participants.length} voted
               </span>
             }
-            className="border-border/40 bg-surface"
+            className="border-border bg-surface"
             contentClassName="flex flex-col gap-2 pb-4"
           >
             {session.participants.map((p) => (
@@ -755,7 +906,7 @@ export function SessionScreen({
                     <Check className="h-4 w-4 text-accent-green shrink-0" />
                   )
                 ) : (
-                  <span className="h-4 w-4 rounded-full border-2 border-border/40 shrink-0" />
+                  <span className="h-4 w-4 rounded-full border-2 border-border shrink-0" />
                 )}
               </div>
             ))}

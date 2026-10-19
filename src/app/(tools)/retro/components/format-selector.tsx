@@ -15,44 +15,54 @@ export function FormatSelector({ onSelect }: { onSelect: (format: RetroFormat) =
     <ToolPageWrapper
       toolId="retro"
       title="Retro Board"
-      description="Run collaborative retrospectives with your team. Choose a format to get started — multiplayer sync coming soon."
+      description="Pick a format and run the retro on a shared screen: write cards, dot-vote, discuss the top items and agree actions."
       category="Ceremonies"
     >
       <div className="space-y-6">
         <h2 className="text-lg font-display font-bold text-text">Choose a Format</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {retroFormats.map((fmt) => (
-            <Card
+            // A real button so the picker works from the keyboard. Named by
+            // the format alone; the description is read as its description.
+            <button
               key={fmt.id}
-              className="bg-card border-border hover:border-accent-cyan/40 transition-all duration-200 cursor-pointer group"
+              type="button"
               onClick={() => onSelect(fmt)}
+              aria-label={fmt.name}
+              aria-describedby={`retro-format-${fmt.id}-desc`}
+              className="group block w-full h-full text-left rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-bold text-text group-hover:text-accent transition-colors">
-                  {fmt.name}
-                </CardTitle>
-                <CardDescription className="text-xs text-sub line-clamp-2">
-                  {fmt.description}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="flex flex-wrap gap-1">
-                  {fmt.columns.map((col) => (
-                    <span
-                      key={col.key}
-                      className="text-[10px] px-2 py-0.5 rounded-full border font-medium"
-                      style={{
-                        color: col.color,
-                        borderColor: `${col.color}55`,
-                        backgroundColor: `${col.color}15`,
-                      }}
-                    >
-                      {col.icon} {col.label}
-                    </span>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+              <Card className="h-full bg-card border-border group-hover:border-accent-cyan/40 transition-all duration-200">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-bold text-text group-hover:text-accent transition-colors">
+                    {fmt.name}
+                  </CardTitle>
+                  <CardDescription
+                    id={`retro-format-${fmt.id}-desc`}
+                    className="text-xs text-sub line-clamp-2"
+                  >
+                    {fmt.description}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="flex flex-wrap gap-1">
+                    {fmt.columns.map((col) => (
+                      <span
+                        key={col.key}
+                        className="text-[10px] px-2 py-0.5 rounded-full border font-medium"
+                        style={{
+                          color: col.color,
+                          borderColor: `${col.color}55`,
+                          backgroundColor: `${col.color}15`,
+                        }}
+                      >
+                        {col.icon} {col.label}
+                      </span>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </button>
           ))}
         </div>
 

@@ -12,7 +12,18 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import Link from "next/link";
-import { Search, Moon, Sun, Menu, Contrast, MessageSquare, CloudOff, X } from "lucide-react";
+import {
+  Search,
+  Moon,
+  Sun,
+  Menu,
+  Contrast,
+  MessageSquare,
+  CloudOff,
+  X,
+  CircleHelp,
+} from "lucide-react";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { SonificationToggle } from "@/components/shared/sonification-toggle";
 import { LlmStatusChip } from "@/components/ai/llm-status-chip";
 import { useAgentStore } from "@/lib/agent/store";
@@ -43,6 +54,9 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
   const pathname = usePathname();
   const tool = getToolByPath(pathname);
   const openAgent = useAgentStore((s) => s.openSheet);
+  // The agent and the Cairo weather are the owner's; visitors get the
+  // mascot's help panel behind the same button instead.
+  const isOwner = useIsOwner();
   // Kudos settings → "Header beacon". The store defers its localStorage
   // read (skipHydration), so SSR and the first client render both see
   // the `true` default and the gate can't cause a hydration mismatch.
@@ -166,9 +180,11 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
 
       {/* Weather — only when there's room (md+). The 320 px viewport
           can't fit anything secondary alongside the breadcrumb. */}
-      <div className="hidden md:flex items-center gap-2 shrink-0">
-        <WeatherWidget />
-      </div>
+      {isOwner && (
+        <div className="hidden md:flex items-center gap-2 shrink-0">
+          <WeatherWidget />
+        </div>
+      )}
 
       {/* Breadcrumb. `overflow-hidden` on the wrapper clips any internal
           overflow defensively — without it, when the search pill +
@@ -272,10 +288,14 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
           onClick={openAgent}
           data-no-sound="true"
           className="w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
-          aria-label="Open agent chat"
-          title="Open agent (Cmd/Ctrl+J)"
+          aria-label={isOwner ? "Open agent chat" : "Open help"}
+          title={isOwner ? "Open agent (Cmd/Ctrl+J)" : "Find a tool or get help (Cmd/Ctrl+J)"}
         >
-          <MessageSquare className="w-4 h-4" aria-hidden="true" />
+          {isOwner ? (
+            <MessageSquare className="w-4 h-4" aria-hidden="true" />
+          ) : (
+            <CircleHelp className="w-4 h-4" aria-hidden="true" />
+          )}
         </button>
         <button
           onClick={cycleTheme}

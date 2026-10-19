@@ -1,7 +1,7 @@
 import { RiskiestAssumptionClient } from "./riskiest-assumption-client";
 
 export const metadata = {
-  title: "Riskiest Assumption Canvas — Agile Toolkit",
+  title: "Riskiest Assumption Canvas",
   description:
     "Lean canvas variant — list assumptions, rank by risk × evidence, and generate test cards.",
 };

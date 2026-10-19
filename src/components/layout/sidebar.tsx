@@ -1,17 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { usePersisted } from "@/lib/utils/use-persisted";
-import {
-  categories,
-  getToolById,
-  getToolsByCategory,
-  type ToolCategory,
-  type ToolDefinition,
-} from "@/lib/constants/tools";
+import { getToolById, type ToolCategory, type ToolDefinition } from "@/lib/constants/tools";
+import { getVisibleCategories, getVisibleToolsByCategory } from "@/lib/tools/catalog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronLeft, History, Activity, Star, Clock } from "lucide-react";
@@ -94,7 +90,7 @@ function SidebarToolLink({
         <div
           className="
             absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100
-            bg-gradient-to-r from-transparent via-glow to-transparent
+            bg-gradient-to-r from-transparent via-glow-color to-transparent
             -translate-x-full group-hover:animate-shimmer
           "
         />
@@ -276,6 +272,18 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
   // Without this, keyboard / SR users tab past the drawer into the
   // backdrop DOM, and closing leaves focus on `<body>` (WCAG 2.4.3
   // failure).
+  // Below md the closed drawer is only translated off-screen, so its
+  // ~100 links stayed in the tab order and the accessibility tree ahead of
+  // the page (also at 400% desktop zoom). `inert` removes them while it's
+  // closed. React 18 has no boolean `inert` prop, so set the attribute.
+  const isDesktop = useMediaQuery("(min-width: 768px)");
+  useEffect(() => {
+    const aside = asideRef.current;
+    if (!aside) return;
+    if (!isDesktop && !mobileOpen) aside.setAttribute("inert", "");
+    else aside.removeAttribute("inert");
+  }, [isDesktop, mobileOpen]);
+
   useEffect(() => {
     if (!mobileOpen) return;
     if (typeof document === "undefined") return;
@@ -548,8 +556,8 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
               )}
             </div>
           )}
-          {categories.map((category) => {
-            const categoryTools = getToolsByCategory(category);
+          {getVisibleCategories().map((category) => {
+            const categoryTools = getVisibleToolsByCategory(category);
             // Skip categories with no tools — the registry lists 37 categories
             // for future Phase 23+ tool batches, but rendering an empty
             // Collapsible looks broken (chevron toggles open → reveals nothing,

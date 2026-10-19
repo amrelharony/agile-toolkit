@@ -243,7 +243,7 @@ export function KudosForm({
       emoji: t.emoji,
       // Custom themes ship a hex, not Tailwind classes — the selected
       // ring is applied inline below.
-      accent: "border-border/60 text-text",
+      accent: "border-border text-text",
       hex: t.hex,
       custom: true,
     }));
@@ -337,7 +337,7 @@ export function KudosForm({
       {fairnessHintSlot}
       <SectionCard
         title="Compose kudos"
-        className="border-border/40 bg-surface"
+        className="border-border bg-surface"
         headerClassName="pb-3"
         contentClassName="flex flex-col gap-4"
       >
@@ -360,7 +360,7 @@ export function KudosForm({
                     "flex items-center gap-1.5 justify-center",
                     isSelected
                       ? `${t.accent} bg-accent/5`
-                      : "border-border/40 bg-surface-deep text-sub hover:border-border hover:text-text",
+                      : "border-border bg-surface-deep text-sub hover:border-border hover:text-text",
                   ].join(" ")}
                 >
                   <span aria-hidden="true">{t.emoji}</span>
@@ -381,7 +381,7 @@ export function KudosForm({
             id="kudos-to"
             value={recipientId}
             onChange={(e) => setRecipientId(e.target.value)}
-            className="h-10 [@media(pointer:coarse)]:h-11 rounded-md bg-surface-deep border border-border/40 px-3 text-sm text-text"
+            className="h-10 [@media(pointer:coarse)]:h-11 rounded-md bg-surface-deep border border-border px-3 text-sm text-text"
           >
             {recipients.length === 0 && <option value="">No teammates yet</option>}
             {recipients.length > 0 && <option value="">Pick a recipient…</option>}
@@ -416,7 +416,7 @@ export function KudosForm({
               onChange={(e) => setFreeRecipient(e.target.value)}
               maxLength={64}
               autoFocus
-              className="bg-surface-deep border-border/40 text-text mt-1"
+              className="bg-surface-deep border-border text-text mt-1"
             />
           )}
           {!toOk && selectedRecipient && (
@@ -438,7 +438,7 @@ export function KudosForm({
                   value={defaultFromName}
                   onChange={(e) => onFromNameChange(e.target.value)}
                   maxLength={48}
-                  className="bg-surface-deep border-border/40 text-text"
+                  className="bg-surface-deep border-border text-text"
                 />
               </>
             ) : (
@@ -447,7 +447,7 @@ export function KudosForm({
                 <Input
                   value={defaultFromName}
                   readOnly
-                  className="bg-surface-deep border-border/40 text-text/80"
+                  className="bg-surface-deep border-border text-text/80"
                 />
               </>
             )}
@@ -463,7 +463,7 @@ export function KudosForm({
               value={teamName}
               onChange={(e) => setTeamName(e.target.value)}
               maxLength={48}
-              className="bg-surface-deep border-border/40 text-text"
+              className="bg-surface-deep border-border text-text"
             />
           </div>
         </div>
@@ -480,7 +480,7 @@ export function KudosForm({
             onChange={(e) => setMessage(e.target.value)}
             rows={4}
             className={
-              "bg-surface-deep border-border/40 resize-none text-sm text-text" +
+              "bg-surface-deep border-border resize-none text-sm text-text" +
               (!messageOk && messageWords > KUDOS_WORD_LIMITS.message ? " border-red-500/60" : "")
             }
           />
@@ -541,7 +541,7 @@ export function KudosForm({
             variant="outline"
             onClick={handleDownload}
             disabled={!messageOk || !toOk}
-            className="border-border/40 text-sub hover:text-text gap-2"
+            className="border-border text-sub hover:text-text gap-2"
           >
             <Download className="h-4 w-4" aria-hidden="true" />
             Download PNG
@@ -551,7 +551,7 @@ export function KudosForm({
 
       <SectionCard
         title="Live preview"
-        className="border-border/40 bg-surface"
+        className="border-border bg-surface"
         headerClassName="pb-3"
         contentClassName="flex justify-center"
       >

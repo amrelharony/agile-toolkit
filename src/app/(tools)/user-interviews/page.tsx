@@ -1,7 +1,7 @@
 import { UserInterviewsClient } from "./user-interviews-client";
 
 export const metadata = {
-  title: "User Interview Log — Agile Toolkit",
+  title: "User Interview Log",
   description: "Capture research interviews with quotes, themes, and tag-frequency heatmap.",
 };
 

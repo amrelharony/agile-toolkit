@@ -5,7 +5,7 @@ import { isValidGuestPathSegment } from "@/lib/squads/validate";
 import { GuestPokerClient } from "./guest-poker-client";
 
 export const metadata = {
-  title: "Planning Poker — Agile Toolkit",
+  title: "Planning Poker",
 };
 
 interface Params {

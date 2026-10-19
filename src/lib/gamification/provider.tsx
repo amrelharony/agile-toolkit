@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 import { installEventBridge } from "./event-bridge";
 import { installSecretDetector } from "./secrets";
@@ -11,6 +12,7 @@ import { achievements } from "./achievements";
 import { toast } from "@/lib/utils/toast";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
 import type { XpEvent } from "./types";
+import { mayCelebrate } from "./quiet";
 
 /**
  * Must sit under <AuthProvider>: the leaderboard upsert to Supabase is
@@ -21,6 +23,13 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
   const [mounted, setMounted] = useState(false);
   const silentMode = useVDnaStore((s) => s.silentMode);
   const isOwner = useIsOwner();
+  // Celebration toasts stay out of live ceremonies and are throttled
+  // elsewhere (lib/gamification/quiet.ts). Read through refs so the
+  // subscription isn't torn down on every navigation.
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+  const lastCelebrationRef = useRef(0);
 
   useEffect(() => {
     useVDnaStore.persist.rehydrate();
@@ -46,6 +55,13 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     if (!mounted) return;
+    const celebrate = (show: () => void) => {
+      if (silentMode) return;
+      const now = Date.now();
+      if (!mayCelebrate(pathnameRef.current, now, lastCelebrationRef.current)) return;
+      lastCelebrationRef.current = now;
+      show();
+    };
     const unsub = subscribe((effect) => {
       if (effect.kind === "xp") {
         const xpEvt = effect.payload as unknown as XpEvent;
@@ -54,21 +70,21 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
         if (isOwner) scheduleProfileSync();
       } else if (effect.kind === "level-up") {
         const { level } = effect.payload as { level: number };
-        if (!silentMode) {
-          toast.success(`Level ${level}!`, { description: "New milestone unlocked." });
-        }
+        celebrate(() =>
+          toast.success(`Level ${level}!`, { description: "New milestone unlocked." })
+        );
         if (isOwner) scheduleProfileSync();
       } else if (effect.kind === "achievement") {
         const { id, title, xp } = effect.payload as { id: string; title: string; xp: number };
         const ach = achievements.find((a) => a.id === id);
-        if (!silentMode) {
+        celebrate(() =>
           toast.success(`Achievement: ${title}`, {
             description: `+${xp} XP${ach?.description ? ` · ${ach.description}` : ""}`,
-          });
-        }
+          })
+        );
       } else if (effect.kind === "challenge-complete") {
         const { xp } = effect.payload as { xp: number };
-        if (!silentMode) toast.info(`Challenge complete!`, { description: `+${xp} XP` });
+        celebrate(() => toast.info(`Challenge complete!`, { description: `+${xp} XP` }));
       } else if (effect.kind === "prestige") {
         if (!silentMode)
           toast.success("Prestige!", {

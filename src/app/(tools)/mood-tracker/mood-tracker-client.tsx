@@ -5,7 +5,6 @@ import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { WorkspaceSyncButton } from "@/components/shared/workspace-sync-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -323,7 +322,6 @@ export function MoodTrackerClient() {
       category="Outcomes & Pulse"
     >
       <ActionRow>
-        <WorkspaceSyncButton toolName="Mood Tracker" hasImport={false} onPush={() => 0} />
         <AiPromptGenerator config={promptConfig} />
         <ExportButton
           filename="mood-tracker"

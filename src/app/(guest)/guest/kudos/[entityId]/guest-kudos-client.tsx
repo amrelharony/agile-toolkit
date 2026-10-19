@@ -223,7 +223,7 @@ export function GuestKudosClient({ role, profile }: Props) {
         {isViewer ? (
           // Viewers can read but not send. Skip the form entirely.
           <div className="grid gap-4">
-            <div className="rounded border border-border/40 bg-surface/60 px-4 py-3 text-xs text-sub flex items-center gap-2">
+            <div className="rounded border border-border bg-surface/60 px-4 py-3 text-xs text-sub flex items-center gap-2">
               <Users className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               You&apos;re a viewer — kudos others send to the wall appear here live.
             </div>

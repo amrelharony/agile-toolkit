@@ -469,7 +469,7 @@ function RunbookRow({
           : "bg-accent/10 text-accent border-accent/30";
 
   return (
-    <tr className="border-b border-border/40">
+    <tr className="border-b border-border">
       <td className="py-2 pr-3 text-text">{runbook.name}</td>
       <td className="py-2 pr-3 text-sub">{runbook.owner ?? "—"}</td>
       <td className="py-2 pr-3 font-data">{runbook.freshness}</td>

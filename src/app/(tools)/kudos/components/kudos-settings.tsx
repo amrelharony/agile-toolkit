@@ -49,7 +49,7 @@ interface Props {
 export function KudosSettings({ open, onOpenChange }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl bg-surface border-border/40 max-h-[85dvh] overflow-y-auto">
+      <DialogContent className="max-w-xl bg-surface border-border max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-text">Kudos settings</DialogTitle>
           <DialogDescription className="text-sub">
@@ -85,7 +85,7 @@ interface ToggleRowProps {
 }
 function ToggleRow({ label, hint, checked, onChange }: ToggleRowProps) {
   return (
-    <label className="flex items-start justify-between gap-3 rounded-md border border-border/40 bg-surface-deep/40 px-3 py-2.5 cursor-pointer">
+    <label className="flex items-start justify-between gap-3 rounded-md border border-border bg-surface-deep/40 px-3 py-2.5 cursor-pointer">
       <span className="flex flex-col gap-0.5">
         <span className="text-sm text-text">{label}</span>
         {hint && <span className="text-xs text-sub/70">{hint}</span>}
@@ -177,7 +177,7 @@ function CustomThemesSection() {
         {customThemes.map((t) => (
           <li
             key={t.id}
-            className="flex items-center justify-between gap-3 rounded-md border border-border/40 bg-surface-deep/40 px-3 py-2"
+            className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface-deep/40 px-3 py-2"
           >
             <div className="flex items-center gap-3 min-w-0">
               <span
@@ -277,7 +277,7 @@ function CustomThemeCreator({ onAdd }: CreatorProps) {
   const canSubmit = id.length > 0 && title.length > 0 && emoji.length > 0 && hex.length > 0;
 
   return (
-    <div className="rounded-md border border-dashed border-border/40 bg-surface-deep/40 px-3 py-3 flex flex-col gap-2">
+    <div className="rounded-md border border-dashed border-border bg-surface-deep/40 px-3 py-3 flex flex-col gap-2">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div className="flex flex-col gap-1">
           <Label className="text-xs text-sub" htmlFor="kudos-theme-id">
@@ -289,7 +289,7 @@ function CustomThemeCreator({ onAdd }: CreatorProps) {
             onChange={(e) => setId(e.target.value)}
             placeholder="ship-day"
             maxLength={32}
-            className="bg-surface border-border/40 text-text"
+            className="bg-surface border-border text-text"
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -302,7 +302,7 @@ function CustomThemeCreator({ onAdd }: CreatorProps) {
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Ship Day"
             maxLength={64}
-            className="bg-surface border-border/40 text-text"
+            className="bg-surface border-border text-text"
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -315,7 +315,7 @@ function CustomThemeCreator({ onAdd }: CreatorProps) {
             onChange={(e) => setEmoji(e.target.value)}
             placeholder="🚢"
             maxLength={8}
-            className="bg-surface border-border/40 text-text"
+            className="bg-surface border-border text-text"
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -328,14 +328,14 @@ function CustomThemeCreator({ onAdd }: CreatorProps) {
               type="color"
               value={hex}
               onChange={(e) => setHex(e.target.value)}
-              className="h-9 w-12 cursor-pointer rounded border border-border/40 bg-surface"
+              className="h-9 w-12 cursor-pointer rounded border border-border bg-surface"
               aria-label="Theme color"
             />
             <Input
               value={hex}
               onChange={(e) => setHex(e.target.value)}
               maxLength={9}
-              className="bg-surface border-border/40 text-text font-mono text-xs flex-1"
+              className="bg-surface border-border text-text font-mono text-xs flex-1"
               aria-label="Theme color hex"
             />
           </div>

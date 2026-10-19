@@ -9,10 +9,11 @@
  */
 
 import { useState, useCallback, useEffect, useMemo } from "react";
-import { Download, RotateCcw, Check, ArrowLeft } from "lucide-react";
+import { Download, RotateCcw, Check, Eraser } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { generateRetroPrompts } from "@/lib/ai-prompts/retro";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -45,6 +46,8 @@ export function Board({
 }) {
   const { log } = logger;
   const [copied, setCopied] = useState(false);
+  const [confirmNewOpen, setConfirmNewOpen] = useState(false);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
 
   // Timer tick — only depend on timerRunning, not timerSeconds, to avoid
   // interval churn on every tick. Functional updater accesses latest state.
@@ -308,6 +311,30 @@ export function Board({
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [state]);
 
+  const clearBoard = useCallback(() => {
+    onUpdate((prev) => ({
+      ...prev,
+      cards: [],
+      userVotes: 0,
+      phase: "write",
+      timerRunning: false,
+      timerSeconds: 300,
+    }));
+  }, [onUpdate]);
+
+  // Both resets discard every card. An empty board has nothing to lose, so
+  // they act at once; otherwise they confirm first.
+  const cardCount = state.cards.length;
+  const cardsLabel = `${cardCount} card${cardCount !== 1 ? "s" : ""}`;
+  const requestNewRetro = () => {
+    if (cardCount === 0) onReset();
+    else setConfirmNewOpen(true);
+  };
+  const requestClearBoard = () => {
+    if (cardCount === 0) clearBoard();
+    else setConfirmClearOpen(true);
+  };
+
   const totalCards = state.cards.filter((c) => c.groupedWith === null).length;
   const actionCount = state.cards.filter((c) => c.isActionItem).length;
   const colCount = state.format.columns.length;
@@ -456,31 +483,35 @@ export function Board({
             )}
           </Button>
           <Button
-            onClick={onReset}
+            onClick={requestNewRetro}
             variant="ghost"
             className="text-sub hover:text-status-red hover:bg-status-red/10"
           >
             <RotateCcw className="w-4 h-4 mr-2" /> New Retro
           </Button>
-          <Button
-            onClick={() =>
-              onUpdate((prev) => ({
-                ...prev,
-                cards: [],
-                userVotes: 0,
-                phase: "write",
-                timerRunning: false,
-                timerSeconds: 300,
-              }))
-            }
-            variant="ghost"
-            className="text-sub hover:text-sub"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" /> Clear Board
+          <Button onClick={requestClearBoard} variant="ghost" className="text-sub hover:text-sub">
+            <Eraser className="w-4 h-4 mr-2" /> Clear Board
           </Button>
           <span className="ml-auto text-xs text-sub">{state.format.name} · Local session</span>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmNewOpen}
+        onOpenChange={setConfirmNewOpen}
+        title="Start a new retro?"
+        description={`This ${state.format.name} board and its ${cardsLabel} will be discarded so you can pick a format again. This can't be undone.`}
+        confirmLabel="Start new retro"
+        onConfirm={onReset}
+      />
+      <ConfirmDialog
+        open={confirmClearOpen}
+        onOpenChange={setConfirmClearOpen}
+        title="Clear all cards?"
+        description={`All ${cardsLabel} and their votes will be removed and the board goes back to the Write phase. This can't be undone.`}
+        confirmLabel="Clear board"
+        onConfirm={clearBoard}
+      />
     </ToolPageWrapper>
   );
 }

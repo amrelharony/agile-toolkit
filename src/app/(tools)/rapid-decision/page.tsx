@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { RapidDecisionClient } from "./rapid-decision-client";
 
 export const metadata: Metadata = {
-  title: "RAPID Decision Matrix — Agile Toolkit",
+  title: "RAPID Decision Matrix",
   description:
     "Bain's Recommend / Agree / Perform / Input / Decide model for governance-heavy decisions.",
 };

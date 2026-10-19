@@ -540,7 +540,7 @@ export function KudosClient() {
             variant="outline"
             size="sm"
             onClick={() => setSettingsOpen(true)}
-            className="border-border/40 text-sub hover:text-text gap-1.5"
+            className="border-border text-sub hover:text-text gap-1.5"
             aria-label="Open kudos settings"
           >
             <Settings className="h-4 w-4" aria-hidden="true" />

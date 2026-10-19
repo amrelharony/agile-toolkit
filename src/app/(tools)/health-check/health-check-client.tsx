@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { create } from "zustand";
 import {
   LineChart,
   Line,
@@ -14,6 +15,7 @@ import {
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { generateHealthCheckPrompts } from "@/lib/ai-prompts/health-check";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -138,6 +140,36 @@ function useHealthCheck() {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Which dimensions the user has rated (UI-only)                             */
+/* -------------------------------------------------------------------------- */
+
+// The synced entity needs a light for every dimension, so the draft holds a
+// placeholder green that must not read as a rating (a fresh check used to
+// show "Health 100%" and save as all-green). "Rated" lives here instead,
+// module-scoped so it survives in-app navigation. Yellow/red are always a
+// deliberate choice, so those count as rated even after a reload; only a
+// green has to be (re)confirmed. `historyLength` ties the flags to the draft
+// they were set on: a save or clear anywhere (another tab, the agent) moves
+// it and retires them.
+interface RatedDims {
+  historyLength: number;
+  rated: Partial<Record<Dimension, true>>;
+}
+
+const useRatedDims = create<RatedDims>(() => ({ historyLength: 0, rated: {} }));
+
+function markRated(dim: Dimension, historyLength: number) {
+  useRatedDims.setState((s) => ({
+    historyLength,
+    rated: s.historyLength === historyLength ? { ...s.rated, [dim]: true } : { [dim]: true },
+  }));
+}
+
+function clearRated(historyLength: number) {
+  useRatedDims.setState({ historyLength, rated: {} });
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Helper components                                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -175,6 +207,7 @@ function TrafficButton({
   return (
     <button
       onClick={onClick}
+      aria-pressed={active}
       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-all border ${
         active
           ? "bg-card border-border text-text"
@@ -235,13 +268,40 @@ export function HealthCheckClient() {
     reset: resetRaw,
   } = useHealthCheck();
   const { log } = useHistoryLogger("health-check");
+  const ratedDims = useRatedDims();
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+
+  /* -- Ratings for the current check --------------------------------------- */
+  // null = not rated yet (see useRatedDims). A missing/legacy dimension in
+  // persisted state is unrated too, so it has to be rated before saving.
+  const lights = useMemo(() => {
+    const flagsApply = ratedDims.historyLength === history.length;
+    return Object.fromEntries(
+      DIMENSIONS.map((d) => {
+        const light = current.scores[d]?.light;
+        const isLight = light === "green" || light === "yellow" || light === "red";
+        const rated = isLight && (light !== "green" || (flagsApply && !!ratedDims.rated[d]));
+        return [d, rated ? light : null];
+      })
+    ) as Record<Dimension, TrafficLight | null>;
+  }, [current.scores, history.length, ratedDims]);
+  const ratedCount = DIMENSIONS.filter((d) => lights[d] !== null).length;
+  const allRated = ratedCount === DIMENSIONS.length;
+
+  const rate = (dim: Dimension, light: TrafficLight) => {
+    setLight(dim, light);
+    markRated(dim, peekDoc().history.length);
+  };
 
   const saveCheck = () => {
+    // Saving with unrated dimensions would record their placeholder green.
+    if (!allRated) return;
     // Read latest store snapshot synchronously so we don't log a stale
     // `current` from a previous render (the destructured `current` above
     // can lag the most recent edit).
     const pre = peekDoc().current;
     saveCheckRaw();
+    clearRated(peekDoc().history.length);
     log(HEALTH_CHECK_ACTIONS.CHECK_SAVED, {
       sprintName: pre?.sprintName,
       scores: pre?.scores,
@@ -249,6 +309,7 @@ export function HealthCheckClient() {
   };
   const reset = () => {
     resetRaw();
+    clearRated(0);
     log(HEALTH_CHECK_ACTIONS.HEALTH_CHECK_RESET, {});
   };
 
@@ -314,11 +375,9 @@ export function HealthCheckClient() {
   );
 
   /* -- Overall health for current check ------------------------------------ */
-  const currentGreen = useMemo(
-    () => DIMENSIONS.filter((d) => current.scores[d]?.light === "green").length,
-    [current.scores]
-  );
-  const currentHealth = Math.round((currentGreen / DIMENSIONS.length) * 100);
+  // Share of the RATED dimensions that are green; null until one is rated.
+  const currentGreen = DIMENSIONS.filter((d) => lights[d] === "green").length;
+  const currentHealth = ratedCount > 0 ? Math.round((currentGreen / ratedCount) * 100) : null;
 
   const reversedHistory = useMemo(() => [...history].reverse(), [history]);
 
@@ -339,27 +398,42 @@ export function HealthCheckClient() {
           headerClassName="pb-4"
           actions={
             <>
-              <div className="text-sm text-sub">
+              <div className="text-sm text-sub" data-testid="health-check-score">
                 Health:{" "}
                 <span
                   className={`font-data font-bold ${
-                    currentHealth >= 75
-                      ? "text-[#22c55e]"
-                      : currentHealth >= 50
-                        ? "text-[#eab308]"
-                        : "text-[#ef4444]"
+                    currentHealth === null
+                      ? "text-sub"
+                      : currentHealth >= 75
+                        ? "text-[#22c55e]"
+                        : currentHealth >= 50
+                          ? "text-[#eab308]"
+                          : "text-[#ef4444]"
                   }`}
                 >
-                  {currentHealth}%
+                  {currentHealth === null ? "—" : `${currentHealth}%`}
                 </span>
               </div>
-              <Button size="sm" variant="toolkit" onClick={saveCheck}>
+              <Button
+                size="sm"
+                variant="toolkit"
+                onClick={saveCheck}
+                disabled={!allRated}
+                aria-describedby={allRated ? undefined : "health-check-save-hint"}
+              >
                 Save Check
               </Button>
             </>
           }
           contentClassName="space-y-4"
         >
+          {!allRated && (
+            <p id="health-check-save-hint" className="text-xs text-sub">
+              Rate all {DIMENSIONS.length} dimensions to save this check ({ratedCount} of{" "}
+              {DIMENSIONS.length} rated).
+            </p>
+          )}
+
           {/* Sprint name */}
           <div className="flex items-center gap-3">
             <label className="text-sm text-sub w-24 shrink-0">Sprint name</label>
@@ -393,18 +467,15 @@ export function HealthCheckClient() {
               >
                 <span className="text-sm text-text font-medium">{dim}</span>
                 <div className="flex gap-1.5 w-52 justify-center">
-                  {/* R11-fix: optional-chain on current.scores[dim].
-                      Persisted state from an older build that's missing
-                      a recently-added dimension would crash on the
-                      direct member access. Default to "red" (worst light)
-                      so a missing/legacy dimension surfaces visibly
-                      rather than silently rendering as no-active. */}
+                  {/* No light is active until the dimension is rated —
+                      including a missing/legacy dimension in persisted
+                      state (R11), which `lights` treats as unrated. */}
                   {(["green", "yellow", "red"] as TrafficLight[]).map((l) => (
                     <TrafficButton
                       key={l}
                       light={l}
-                      active={(current.scores[dim]?.light ?? "red") === l}
-                      onClick={() => setLight(dim, l)}
+                      active={lights[dim] === l}
+                      onClick={() => rate(dim, l)}
                     />
                   ))}
                 </div>
@@ -488,7 +559,7 @@ export function HealthCheckClient() {
             titleSize="lg"
             headerClassName="pb-4"
             actions={
-              <Button variant="danger-ghost" size="sm" onClick={reset}>
+              <Button variant="danger-ghost" size="sm" onClick={() => setConfirmClearOpen(true)}>
                 Clear All
               </Button>
             }
@@ -568,6 +639,15 @@ export function HealthCheckClient() {
           </Card>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmClearOpen}
+        onOpenChange={setConfirmClearOpen}
+        title={`Delete all ${history.length} saved health check${history.length === 1 ? "" : "s"}?`}
+        description="The history and trend chart are cleared, along with the check in progress."
+        confirmLabel="Clear history"
+        onConfirm={reset}
+      />
     </ToolPageWrapper>
   );
 }

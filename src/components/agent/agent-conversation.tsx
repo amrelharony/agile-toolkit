@@ -242,7 +242,7 @@ export function AgentConversation() {
 function MessageBubble({ message }: { message: ChatMessage }) {
   if (message.role === "tool") {
     return (
-      <div className="text-xs text-sub bg-card/50 rounded-md p-2 border border-border/60">
+      <div className="text-xs text-sub bg-card/50 rounded-md p-2 border border-border">
         {message.content.map((c, i) =>
           c.type === "tool_result" ? (
             <div key={i} className="flex gap-2 items-start">

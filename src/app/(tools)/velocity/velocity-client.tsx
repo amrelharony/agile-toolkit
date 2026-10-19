@@ -865,7 +865,7 @@ export function VelocityClient() {
           {sprints.map((sp) => (
             <div
               key={sp.id}
-              className="grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_0.6fr_0.6fr_auto] gap-2 sm:gap-3 sm:items-center rounded-md border border-border/40 sm:border-0 p-2 sm:p-0"
+              className="grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_0.6fr_0.6fr_auto] gap-2 sm:gap-3 sm:items-center rounded-md border border-border sm:border-0 p-2 sm:p-0"
             >
               {/* Single-line Input chosen over Textarea here — sprint rows are
                   in a tight 4-column data grid, so a multi-line description

@@ -666,7 +666,7 @@ export function IncidentCommanderClient() {
                 {recent.map((i) => {
                   const m = mttrHours(i);
                   return (
-                    <tr key={i.id} className="border-b border-border/40">
+                    <tr key={i.id} className="border-b border-border">
                       <td className="py-2 pr-3 text-text">
                         <span className="line-clamp-1">{i.title}</span>
                       </td>

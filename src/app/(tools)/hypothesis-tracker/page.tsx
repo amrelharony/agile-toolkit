@@ -1,7 +1,7 @@
 import { HypothesisTrackerClient } from "./hypothesis-tracker-client";
 
 export const metadata = {
-  title: "Hypothesis Tracker — Agile Toolkit",
+  title: "Hypothesis Tracker",
   description: "Track lean-startup hypotheses with experiments, metrics, and validation rate.",
 };
 

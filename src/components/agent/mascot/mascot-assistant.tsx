@@ -10,11 +10,14 @@
  * shell is new. The mascot "talks" (Talking clip) while the agent streams.
  *
  * The agent itself is owner-only. Visitors keep the mascot (clicks, Konami,
- * Cmd/Ctrl+J) but the panel shows <AgentVisitorNotice/> instead of the chat,
- * so their panel never touches /api/agent/* or the agent tables in Supabase.
+ * Cmd/Ctrl+J) but the panel shows <VisitorGuide/> — a tool finder — instead
+ * of the chat, so their panel never touches /api/agent/* or the agent tables
+ * in Supabase. The chat (and the action registry it needs) is a separate
+ * dynamic chunk, owner-agent-panel, so visitors never download it either.
  */
 
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -23,20 +26,17 @@ import {
 } from "react";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
-import { X, Plus, History } from "lucide-react";
+import { X, Plus, History, Sparkles } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { isComicRoute } from "@/lib/comic/agile-at-work";
 import { useMascotStore } from "@/lib/agent/mascot/store";
-import { abortInFlight } from "@/lib/agent/client";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { createClickInteraction } from "./engine/interactions/clicks";
 import { installKonami } from "./engine/customization/commands";
 import { playMascotSound } from "./engine/audio/mascot-audio";
-import { RateLimitBar } from "./rate-limit-bar";
-import { AgentConversation } from "../agent-conversation";
-import { ConversationList } from "../conversation-list";
-import { AgentVisitorNotice } from "../agent-visitor-notice";
+import { VisitorGuide } from "./visitor-guide";
 import styles from "./mascot-assistant.module.css";
 
 /** Award XP via the gamification window bridge (no-op if unavailable). */
@@ -49,8 +49,14 @@ type Corner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 
 /** Inset of the float button from its corner. */
 const BUTTON_INSET = 4;
-/** Height of the Mascot3D canvas inside that button (see <Mascot3D height>). */
-const MASCOT_BOX_H = 220;
+/** Size of the Mascot3D canvas inside that button (see <Mascot3D height>). */
+const MASCOT_BOX = { w: 130, h: 220 };
+/** Phones get a smaller figure so it covers less of the page. */
+const MASCOT_BOX_PHONE = { w: 96, h: 162 };
+/** The round launcher shown until the 3D figure is ready (or if it can't run). */
+const LAUNCHER_SIZE = 48;
+/** Remount attempts after the GPU drops the WebGL context. */
+const MAX_CONTEXT_RECOVERIES = 2;
 /**
  * Where the figure actually lands inside that 220px canvas. The 3D framing
  * (fov 62, camera at z 2.5 — mascot-3d.tsx) renders the model across rows
@@ -73,19 +79,105 @@ function buttonPos(c: Corner): CSSProperties {
   };
 }
 
-/** Chat-panel style for a corner — hugs the mascot's silhouette, not its canvas. */
-function panelPos(c: Corner): CSSProperties {
+/**
+ * Chat-panel style for a corner — hugs the mascot's silhouette, not its canvas.
+ * `boxH` is the rendered canvas height (the model rows scale with it); with
+ * the launcher showing, the panel clears the launcher instead.
+ */
+function panelPos(c: Corner, figure: boolean, boxH: number): CSSProperties {
+  const scale = boxH / MASCOT_BOX.h;
+  const top = figure ? MODEL_TOP * scale : 0;
+  const bottom = figure ? MODEL_BOTTOM * scale : LAUNCHER_SIZE;
+  const height = figure ? boxH : LAUNCHER_SIZE;
   return {
     ...(c.startsWith("top")
-      ? // Parked up top: clear the model's feet (row 155 of the canvas).
-        { top: BUTTON_INSET + MODEL_BOTTOM + PANEL_GAP }
-      : // Parked at the bottom: clear its head (row 50 from the canvas top).
-        { bottom: BUTTON_INSET + (MASCOT_BOX_H - MODEL_TOP) + PANEL_GAP }),
+      ? // Parked up top: clear the model's feet.
+        { top: BUTTON_INSET + bottom + PANEL_GAP }
+      : // Parked at the bottom: clear its head.
+        { bottom: BUTTON_INSET + (height - top) + PANEL_GAP }),
     ...(c.endsWith("Left") ? { left: 16 } : { right: 16 }),
   };
 }
 
+/** True below the `sm` breakpoint (640px). */
+function useIsPhone(): boolean {
+  const [isPhone, setIsPhone] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia?.("(max-width: 639px)");
+    if (!mq) return;
+    const update = () => setIsPhone(mq.matches);
+    update();
+    mq.addEventListener?.("change", update);
+    return () => mq.removeEventListener?.("change", update);
+  }, []);
+  return isPhone;
+}
+
+/**
+ * Defer the 3D figure (three.js + the model) until the browser is idle, so it
+ * never competes with the page's own content. Skipped entirely when the
+ * visitor asked to save data.
+ */
+function useDeferred3d(): boolean {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const nav = navigator as Navigator & { connection?: { saveData?: boolean } };
+    if (nav.connection?.saveData) return;
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (w.requestIdleCallback) {
+      const id = w.requestIdleCallback(() => setReady(true), { timeout: 3000 });
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(() => setReady(true), 300);
+    return () => window.clearTimeout(t);
+  }, []);
+  return ready;
+}
+
+/** On phones, step aside while the visitor is typing (the keyboard is up). */
+function useTypingOnPhone(isPhone: boolean): boolean {
+  const [typing, setTyping] = useState(false);
+  useEffect(() => {
+    if (!isPhone) {
+      setTyping(false);
+      return;
+    }
+    const isField = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      return (
+        !!el &&
+        (el.isContentEditable ||
+          el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.tagName === "SELECT")
+      );
+    };
+    const onIn = (e: FocusEvent) => {
+      // Typing inside the assistant panel itself keeps the figure in place.
+      const inPanel = (e.target as HTMLElement | null)?.closest?.("[data-agent-sheet-root]");
+      if (isField(e.target) && !inPanel) setTyping(true);
+    };
+    const onOut = (e: FocusEvent) => {
+      if (isField(e.target)) setTyping(false);
+    };
+    document.addEventListener("focusin", onIn);
+    document.addEventListener("focusout", onOut);
+    return () => {
+      document.removeEventListener("focusin", onIn);
+      document.removeEventListener("focusout", onOut);
+    };
+  }, [isPhone]);
+  return typing;
+}
+
 const Mascot3D = dynamic(() => import("./mascot-3d"), { ssr: false });
+const OwnerAgentPanel = dynamic(() => import("./owner-agent-panel"), {
+  ssr: false,
+  loading: () => <div className="min-h-0 flex-1" aria-busy="true" />,
+});
 
 export function MascotAssistant() {
   const open = useAgentStore((s) => s.open);
@@ -100,10 +192,36 @@ export function MascotAssistant() {
   // hit box — on phones and desktops alike. The figure steps aside on that
   // route; the header button and Cmd/Ctrl+J still open the chat.
   const pathname = usePathname();
-  const hideFigure = isComicRoute(pathname);
+  const isPhone = useIsPhone();
+  const typingOnPhone = useTypingOnPhone(isPhone);
+  const hideFigure = isComicRoute(pathname) || typingOnPhone;
+  const box = isPhone ? MASCOT_BOX_PHONE : MASCOT_BOX;
 
-  // Owner signed out mid-session: stop any in-flight agent turn (its tool
-  // calls run in this tab) and drop the conversation from memory.
+  // The 3D figure loads after the page is idle; until it's ready (or if
+  // WebGL can't run) a small launcher keeps the assistant one click away
+  // without an invisible 130×220 hit box over the page.
+  const load3d = useDeferred3d();
+  const figureReady = useMascotStore((s) => s.ready);
+  const [figureFailed, setFigureFailed] = useState(false);
+  const [contextLosses, setContextLosses] = useState(0);
+  const [figureKey, setFigureKey] = useState(0);
+  const onContextLost = useCallback(() => setContextLosses((n) => n + 1), []);
+  const onFigureError = useCallback(() => setFigureFailed(true), []);
+  useEffect(() => {
+    if (contextLosses === 0) return;
+    if (contextLosses > MAX_CONTEXT_RECOVERIES) {
+      setFigureFailed(true);
+      return;
+    }
+    // Give the GPU a moment, then rebuild the scene from scratch.
+    const t = window.setTimeout(() => setFigureKey((k) => k + 1), 1000);
+    return () => window.clearTimeout(t);
+  }, [contextLosses]);
+  const mount3d = load3d && !figureFailed;
+  const showFigure = mount3d && figureReady;
+
+  // Owner signed out mid-session: drop the conversation from memory. (The
+  // chat panel unmounts at the same moment, which aborts any in-flight turn.)
   const wasOwnerRef = useRef(false);
   useEffect(() => {
     if (isOwner) {
@@ -112,7 +230,6 @@ export function MascotAssistant() {
     }
     if (!wasOwnerRef.current) return;
     wasOwnerRef.current = false;
-    abortInFlight();
     useAgentStore.getState().reset();
     setShowHistory(false);
   }, [isOwner]);
@@ -217,12 +334,6 @@ export function MascotAssistant() {
   // react to tool results, shift mood to the reply's sentiment.
   useMascotChatReactions();
 
-  // Abort any in-flight stream when the panel closes/unmounts (from agent-sheet).
-  useEffect(() => {
-    if (!open) abortInFlight();
-  }, [open]);
-  useEffect(() => () => abortInFlight(), []);
-
   // Cmd/Ctrl+J toggles — the de-facto AI-chat shortcut (moved from agent-sheet).
   // Skip when typing in an editable element so it can't steal focus mid-edit.
   useEffect(() => {
@@ -271,14 +382,14 @@ export function MascotAssistant() {
           role="dialog"
           aria-label="ElharonyClaw assistant"
           aria-modal={false}
-          style={panelPos(corner)}
+          style={panelPos(corner, showFigure, box.h)}
           className="fixed z-50 flex h-[min(68vh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden rounded-2xl border border-border bg-surface-deep/95 shadow-2xl backdrop-blur"
         >
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
             <div>
               <p className="text-sm font-semibold text-text">✦ ElharonyClaw</p>
-              <p className="text-[11px] text-sub">
-                {isOwner ? "Drive every tool · " : ""}Cmd/Ctrl+J to toggle
+              <p className="text-xs text-sub">
+                {isOwner ? "Drive every tool · " : "Find the right tool · "}Cmd/Ctrl+J
               </p>
             </div>
             <div className="flex items-center gap-0.5">
@@ -322,19 +433,13 @@ export function MascotAssistant() {
           </div>
           {!isOwner ? (
             <div className="min-h-0 flex-1" aria-busy={!settled}>
-              {settled && <AgentVisitorNotice onAction={closeSheet} />}
-            </div>
-          ) : showHistory ? (
-            <div className="min-h-0 flex-1">
-              <ConversationList onClose={() => setShowHistory(false)} />
+              {settled && <VisitorGuide onNavigate={closeSheet} />}
             </div>
           ) : (
-            <>
-              <RateLimitBar />
-              <div className="min-h-0 flex-1 px-3 py-2">
-                <AgentConversation />
-              </div>
-            </>
+            <OwnerAgentPanel
+              showHistory={showHistory}
+              onCloseHistory={() => setShowHistory(false)}
+            />
           )}
         </div>
       )}
@@ -352,11 +457,30 @@ export function MascotAssistant() {
               ? { position: "fixed", left: dragPos.left, top: dragPos.top }
               : buttonPos(corner)
           }
-          className={`z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-            dragPos ? "" : styles.float
-          }`}
+          className={cn(
+            "z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+            !dragPos && styles.float,
+            !showFigure &&
+              "flex h-12 w-12 items-center justify-center border border-border bg-card shadow-lg"
+          )}
         >
-          <Mascot3D width={130} height={220} />
+          {!showFigure && <Sparkles className="h-5 w-5 text-accent" aria-hidden="true" />}
+          {mount3d && (
+            <div
+              aria-hidden="true"
+              className={
+                showFigure ? undefined : "pointer-events-none absolute bottom-0 right-0 opacity-0"
+              }
+            >
+              <Mascot3D
+                key={`${figureKey}-${box.w}`}
+                width={box.w}
+                height={box.h}
+                onContextLost={onContextLost}
+                onLoadError={onFigureError}
+              />
+            </div>
+          )}
         </button>
       )}
     </>

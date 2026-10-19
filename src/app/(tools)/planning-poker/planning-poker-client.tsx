@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { customAlphabet } from "nanoid";
 import { WifiOff } from "lucide-react";
@@ -10,7 +10,7 @@ import { generatePlanningPokerPrompts } from "@/lib/ai-prompts/planning-poker";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
-import { useIsOwner } from "@/lib/auth/use-is-owner";
+import { useOwnerState } from "@/lib/auth/use-is-owner";
 import type { Workspace } from "@/lib/stores/workspace-types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,12 @@ import { SectionCard } from "@/components/shared/section-card";
 import { SessionShareButton } from "@/components/collab/session-share-button";
 import { SessionScreen } from "./session-screen";
 import { usePokerSession } from "./use-poker-session";
+import {
+  adoptLocalSession,
+  clearLocalSession,
+  loadLocalSession,
+  saveLocalSession,
+} from "./local-session";
 import { SCALES, SCALE_LABELS, type ScaleType, type Session } from "./types";
 
 // 6-char codes from a 32-symbol unambiguous alphabet (no 0/O/1/I/L). Backed
@@ -71,7 +77,7 @@ function LobbyScreen({
     <div className="max-w-xl mx-auto flex flex-col gap-6">
       <SectionCard
         title="Start a Session"
-        className="border-border/40 bg-surface"
+        className="border-border bg-surface"
         headerClassName="pb-4"
         contentClassName="flex flex-col gap-5"
       >
@@ -84,7 +90,7 @@ function LobbyScreen({
             value={sessionName}
             onChange={(e) => setSessionName(e.target.value)}
             placeholder="e.g. Sprint 42 Planning"
-            className="bg-surface-deep border-border/40 text-text"
+            className="bg-surface-deep border-border text-text"
           />
         </div>
 
@@ -99,7 +105,7 @@ function LobbyScreen({
                   "flex-1 rounded-lg border py-2 px-3 text-sm font-medium transition-colors",
                   scaleType === s
                     ? "border-accent/60 bg-accent/10 text-accent"
-                    : "border-border/40 bg-surface-deep text-sub hover:border-border hover:text-text",
+                    : "border-border bg-surface-deep text-sub hover:border-border hover:text-text",
                 ].join(" ")}
               >
                 {SCALE_LABELS[s]}
@@ -111,14 +117,14 @@ function LobbyScreen({
               value={customInput}
               onChange={(e) => setCustomInput(e.target.value)}
               placeholder="Comma-separated values, e.g. 1, 2, 4, 8"
-              className="bg-surface-deep border-border/40 text-text text-sm"
+              className="bg-surface-deep border-border text-text text-sm"
             />
           )}
           <div className="flex flex-wrap gap-1.5 pt-1">
             {resolvedScale.map((v) => (
               <span
                 key={v}
-                className="rounded-md border border-border/40 bg-surface-deep px-2 py-0.5 text-xs text-sub"
+                className="rounded-md border border-border bg-surface-deep px-2 py-0.5 text-xs text-sub"
               >
                 {v}
               </span>
@@ -135,7 +141,7 @@ function LobbyScreen({
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             placeholder="e.g. Alice"
-            className="bg-surface-deep border-border/40 text-text"
+            className="bg-surface-deep border-border text-text"
           />
         </div>
 
@@ -149,15 +155,15 @@ function LobbyScreen({
       </SectionCard>
 
       <SectionCard
-        title="Join a Session"
-        className="border-border/40 bg-surface"
+        title={isOwner ? "Invite your squad" : "Running it with your team"}
+        className="border-border bg-surface"
         headerClassName="pb-4"
         contentClassName="flex flex-col gap-2"
       >
-        <p className="text-xs text-sub">
+        <p className="text-sm text-sub">
           {isOwner
             ? "Guest joiners use a squad invite (Settings → Squads). Once you start a session you can invite your squad from the header."
-            : "Sessions run in this browser. Multiplayer invites are available to the workspace owner."}
+            : "This session runs on your screen. Share it in your meeting, read each story aloud, let everyone pick a card, then reveal together and agree the estimate."}
         </p>
       </SectionCard>
     </div>
@@ -168,7 +174,7 @@ function LobbyScreen({
 export function PlanningPokerClient() {
   // Visitors get a solo session: useRoom keeps them off Realtime and the
   // squad invite button hides itself, so the copy says so instead.
-  const isOwner = useIsOwner();
+  const { isOwner, visitor } = useOwnerState();
   const [activeRoomCode, setActiveRoomCode] = useState<string | null>(null);
   // isLocalOnly from usePokerSession is true whenever roomCode is null
   // (lobby) — so it can't distinguish "lobby, env is fine" from "lobby,
@@ -193,6 +199,34 @@ export function PlanningPokerClient() {
     setSession(pendingInitial);
     setPendingInitial(null);
   }, [pendingInitial, isConnected, isLocalOnly, setSession]);
+
+  // Local-only sessions (visitors, or the owner without Realtime env)
+  // survive a refresh or a trip to another tool: restore the stored one
+  // once auth says which kind of viewer this is. Checked once per mount
+  // so leaving a session doesn't bring it straight back. A live room is
+  // never restored — the owner with Realtime keeps today's behavior.
+  const restoreCheckedRef = useRef(false);
+  useEffect(() => {
+    if (restoreCheckedRef.current) return;
+    // Still loading, or an owner re-check is pending: wait for a verdict.
+    if (!visitor && !isOwner) return;
+    restoreCheckedRef.current = true;
+    if (isOwner && isRealtimeAvailable()) return;
+    if (session || pendingInitial) return;
+    const stored = loadLocalSession();
+    if (!stored) return;
+    setPendingInitial(adoptLocalSession(stored, userId));
+    setActiveRoomCode(stored.roomCode);
+  }, [visitor, isOwner, session, pendingInitial, userId]);
+
+  // Mirror every change of a local-only session into storage. A session
+  // that turns out to be live (an owner who started before auth
+  // verified them) drops its stale local copy instead.
+  useEffect(() => {
+    if (!session) return;
+    if (isLocalOnly) saveLocalSession(session);
+    else clearLocalSession();
+  }, [session, isLocalOnly]);
 
   const handleStart = ({
     sessionName,
@@ -223,6 +257,7 @@ export function PlanningPokerClient() {
   };
 
   const handleLeave = () => {
+    clearLocalSession();
     broadcastSessionEnded();
     setActiveRoomCode(null);
     setPendingInitial(null);
@@ -331,6 +366,9 @@ export function PlanningPokerClient() {
                       : "Connecting…"
               }
               connectionTone={isLocalOnly ? "warn" : "live"}
+              // Nobody can join a local-only room, so don't show its code.
+              showRoomCode={!isLocalOnly}
+              leaveClearsSession={isLocalOnly}
             />
           </motion.div>
         )}

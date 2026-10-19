@@ -85,7 +85,7 @@ export function XpBar({ onOpenTrophyCase }: XpBarProps) {
         {info.atMax && <span className="text-[9px] text-accent">MAX</span>}
       </span>
       <div
-        className="relative h-1.5 rounded-full bg-bg border border-border/60 overflow-hidden shrink-0 w-16 sm:w-24 md:w-28"
+        className="relative h-1.5 rounded-full bg-bg border border-border overflow-hidden shrink-0 w-16 sm:w-24 md:w-28"
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}

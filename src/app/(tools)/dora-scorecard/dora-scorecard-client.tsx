@@ -628,7 +628,7 @@ export function DoraScorecardClient() {
               </thead>
               <tbody>
                 {[...sorted].reverse().map((s) => (
-                  <tr key={s.id} className="border-b border-border/40">
+                  <tr key={s.id} className="border-b border-border">
                     <td className="py-2 pr-3 font-data text-text">{s.quarter}</td>
                     <td className="py-2 pr-3 font-data">{s.deployFreqPerWeek.toFixed(2)}</td>
                     <td className="py-2 pr-3 font-data">{s.leadTimeHours.toFixed(1)}</td>

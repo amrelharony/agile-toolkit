@@ -52,7 +52,7 @@ export function Markdown({ source }: { source: string }) {
             return (
               <pre
                 key={i}
-                className="overflow-x-auto rounded-md border border-border/60 bg-card p-2 text-xs"
+                className="overflow-x-auto rounded-md border border-border bg-card p-2 text-xs"
               >
                 <code className="font-mono">{b.text}</code>
               </pre>

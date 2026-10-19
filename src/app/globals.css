@@ -221,13 +221,10 @@
    TYPOGRAPHY UTILITIES
    ═══════════════════════════════════════════════════════════════════════════════ */
 
-.font-mono {
-  font-family: "JetBrains Mono", monospace;
-}
-
-.font-serif {
-  font-family: "Source Serif 4", Georgia, serif;
-}
+/* `font-mono` / `font-serif` come from the Tailwind config, which points at
+   the next/font variables. Literal family names here used to override them,
+   but next/font registers hashed names ("__JetBrains_Mono_…"), so those
+   elements fell back to the system monospace / Georgia. */
 
 .gradient-text {
   background: linear-gradient(135deg, var(--accent), var(--accent2), var(--accent3));
@@ -255,7 +252,7 @@
 
 /* Label pattern — used for section headers, badges, tags */
 .label-mono {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-mono), monospace;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 2px;
@@ -264,7 +261,7 @@
 }
 
 .tag-mono {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-mono), monospace;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 1.5px;
@@ -820,10 +817,13 @@
 
   /* Kill iOS auto-zoom on input focus — any input < 16px triggers it */
   @media (max-width: 768px) {
+    /* `!important` because these base-layer selectors lose to utility
+       classes: 78 textareas/inputs with `text-xs`/`text-sm` stayed at
+       12–14px and iOS zoomed the page on every focus. */
     input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
     textarea,
     select {
-      font-size: max(16px, 1rem);
+      font-size: max(16px, 1rem) !important;
     }
   }
 

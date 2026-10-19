@@ -100,6 +100,14 @@ const nextConfig = {
         source: "/(.*)",
         headers: securityHeaders,
       },
+      // Mascot model: committed under a content-hashed name
+      // (components/agent/mascot/mascot-asset.ts), so a changed model always
+      // gets a new URL and the current one can be cached forever. The
+      // Supabase-hosted copy it replaces was served with `no-cache`.
+      {
+        source: "/mascot/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
       // Comic PDFs: matching rules stack, so the security headers above still
       // apply. Not `immutable` — the filename is stable and the owner may
       // replace the file; the reader's `?v=<hash>` URL handles cache busting.

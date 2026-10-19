@@ -120,22 +120,31 @@ function IceBreakerCard({
   onSelect: (ib: IceBreaker) => void;
 }) {
   return (
-    <Card
-      className="bg-card border-border hover:border-accent-cyan/30 transition-all duration-200 cursor-pointer group"
-      onClick={() => onSelect(icebreaker)}
-    >
+    // The title is the card's button; its ::after stretches over the whole
+    // card so the card stays clickable, while the favourite toggle sits above
+    // it (a clickable <Card> div was mouse-only, and a button can't contain
+    // the favourite button).
+    <Card className="relative bg-card border-border hover:border-accent-cyan/30 transition-all duration-200 cursor-pointer group">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <CardTitle className="text-sm font-semibold text-text group-hover:text-accent transition-colors">
-            {icebreaker.name}
+            <button
+              type="button"
+              onClick={() => onSelect(icebreaker)}
+              className="text-left focus-visible:outline-none after:absolute after:inset-0 after:rounded-[inherit] after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-accent"
+            >
+              {icebreaker.name}
+            </button>
           </CardTitle>
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               onToggleFavorite(icebreaker.id);
             }}
-            aria-label={isFavorite ? "Unfavorite" : "Favorite"}
-            className="min-touch-coarse shrink-0 p-1 -m-1 inline-flex items-center justify-center transition-colors"
+            aria-label={`${isFavorite ? "Remove" : "Add"} ${icebreaker.name} ${isFavorite ? "from" : "to"} favorites`}
+            aria-pressed={isFavorite}
+            className="relative z-10 min-touch-coarse shrink-0 p-1 -m-1 inline-flex items-center justify-center transition-colors"
           >
             <Heart
               className={`w-4 h-4 transition-all duration-200 ${

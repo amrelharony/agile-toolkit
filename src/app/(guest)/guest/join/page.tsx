@@ -4,7 +4,7 @@ import { isSafeGuestNextUrl } from "@/lib/auth/guest-next-url";
 import { JoinClient } from "./join-client";
 
 export const metadata = {
-  title: "Join — Agile Toolkit",
+  title: "Join",
   description: "Enter a squad code to join.",
 };
 

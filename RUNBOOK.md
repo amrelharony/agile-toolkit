@@ -218,43 +218,29 @@ After bumping `pdfjs-dist`, run `npm run pdf:worker` (copies the matching worker
 
 ## Deploy hardening (the ElharonyClaw mascot + agent gateway)
 
-Three things must be handled **before the mascot/agent ships publicly**. The
-code side of #1 is already wired (one env var drives the loader + CSP); #2 and
-#3 run against infrastructure you control and need your SSH / dashboard login,
-so they're documented here rather than automated.
+Three things must be handled **before the mascot/agent ships publicly**. #1 is
+done in the repo; #2 and #3 run against infrastructure you control and need
+your SSH / dashboard login, so they're documented here rather than automated.
 
-### 1. Host the mascot GLB off a CDN
+### 1. The mascot GLB is committed (no CDN needed)
 
-The model (`/public/mascot/mascot.glb`, ~2.7 MB after
-[optimisation](#optimising-the-mascot-glb) — 16.3 MB straight out of Blender) is
-**gitignored** — it is not in the repo and won't be on Vercel. Serve it from any
-static host and point the app at it with one variable; the loader **and** the
-Content-Security-Policy both follow it (`next.config.mjs` whitelists the URL's
-origin in `connect-src` automatically — no manual CSP edit).
+The optimised model ([~2.7 MB](#optimising-the-mascot-glb), 16.3 MB straight out
+of Blender) is committed as `public/mascot/mascot.<sha256-prefix>.glb` and loaded
+from `MASCOT_GLB_URL` in `src/components/agent/mascot/mascot-asset.ts`.
+`next.config.mjs` serves `/mascot/*` with
+`Cache-Control: public, max-age=31536000, immutable`, which is safe because a
+changed model gets a new file name. The raw Blender export stays gitignored.
 
-1. Upload `mascot.glb` to a CDN / object store (Cloudflare R2, S3+CloudFront,
-   Vercel Blob, Supabase Storage public bucket, or even a GitHub Release asset).
-   - Set `Content-Type: model/gltf-binary` and a long `Cache-Control`
-     (`public, max-age=31536000, immutable`); add a `?v=N` query when you
-     replace it.
-   - The host must send permissive CORS (`Access-Control-Allow-Origin: *` or your
-     app origin) since GLTFLoader `fetch()`es it cross-origin.
-2. Set the env var (locally in `.env.local`, and in **Vercel → Settings →
-   Environment Variables**):
-   ```bash
-   NEXT_PUBLIC_MASCOT_GLB_URL=https://cdn.example.com/mascot/mascot.glb
-   ```
-3. Redeploy. Verify in the browser: Network tab shows the `.glb` 200ing from the
-   CDN, no CSP `connect-src`/`Refused to connect` console error, mascot renders
-   textured (not white).
-
-> Alternative — **Git LFS**: `git lfs track "*.glb"`, remove the `.gitignore`
-> entry, commit, push to an LFS-enabled remote, then set
-> `NEXT_PUBLIC_MASCOT_GLB_URL` to the LFS raw URL (or just serve `/mascot/…`
-> from `public/` if the LFS file lands there at build). At the optimised 2.7 MB
-> the file is also small enough to simply commit (drop the `.gitignore` line and
-> leave `NEXT_PUBLIC_MASCOT_GLB_URL` unset) — a CDN still wins on cache headers
-> and on keeping binaries out of git history, but it is no longer forced.
+- **Remove `NEXT_PUBLIC_MASCOT_GLB_URL` from Vercel** (Settings → Environment
+  Variables). The loader no longer reads it; the old Supabase-hosted copy was
+  the 16 MB export served with `no-cache`.
+- To replace the model: run `npm run optimize:mascot` on the new export, rename
+  the output to `mascot.<first 8 hex chars of its sha256>.glb`, update
+  `MASCOT_GLB_URL`, delete the old file. `test/agent/mascot-asset.test.ts`
+  fails if the name doesn't match the bytes or the file is over 3.5 MB.
+- The mascot loads after the page is idle (a small launcher shows until then),
+  is skipped for visitors with Save-Data on, and falls back to the launcher if
+  the GPU drops the WebGL context more than twice.
 
 ### Optimising the mascot GLB
 
@@ -280,9 +266,8 @@ relocated byte-for-byte; only the image bufferViews change.
   texture on a non-opaque material are resized but deliberately kept as PNG.
 - Needs one raster encoder — `sharp` (`npm i -D sharp`) or Python + Pillow
   (`pip install Pillow`), whichever is present.
-- Re-upload to the CDN afterwards and bump the `?v=N` on
-  `NEXT_PUBLIC_MASCOT_GLB_URL`, or year-long `immutable` caching will keep
-  serving the old file to anyone who already visited.
+- Then commit it under its new content-hash name (see #1). Never overwrite the
+  existing hashed file: browsers that already cached it will keep it for a year.
 
 ### 2. Raise the OpenClaw gateway upload limit (nginx → 413 fix)
 
@@ -347,7 +332,7 @@ rewrite is needed; just regenerate them and update env.
 
 Hardening checklist:
 
-- [ ] `NEXT_PUBLIC_MASCOT_GLB_URL` set to the CDN URL (local + Vercel); mascot loads textured in prod
+- [ ] `NEXT_PUBLIC_MASCOT_GLB_URL` removed from Vercel; mascot loads textured in prod from `/mascot/mascot.<hash>.glb`
 - [ ] Gateway `client_max_body_size 10M`; `nginx -t` clean + reloaded; agent no longer 413s
 - [ ] Supabase `service_role` (and `anon` if JWT rotated) regenerated + env updated everywhere
 - [ ] OpenClaw `OPENCLAW_API_KEY` regenerated, old key invalidated, env updated

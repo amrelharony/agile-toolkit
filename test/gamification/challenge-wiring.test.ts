@@ -140,13 +140,13 @@ describe("gamification challenge wiring (regression: previously-dead triggers)",
 
   it("combo-reached-3 fires once when a fresh chain reaches x3", () => {
     // Warm up, then jump >3s so the next chain starts fresh (combo depth → 1).
-    dispatch({ name: "click" });
+    dispatch({ name: "tool:retro:card-added" });
     useVDnaStore.getState().setDailyChallenges([daily("d-combo-3", 1)]);
     useVDnaStore.getState().setWeeklyChallenges([weekly("w-combos-10", 10)]);
     vi.setSystemTime(new Date("2026-06-15T12:00:10Z"));
-    dispatch({ name: "click" }); // depth 1
-    dispatch({ name: "click" }); // depth 2
-    dispatch({ name: "click" }); // depth 3 → combo-reached-3 fires exactly once
+    dispatch({ name: "tool:retro:card-added" }); // depth 1
+    dispatch({ name: "tool:retro:card-added" }); // depth 2
+    dispatch({ name: "tool:retro:card-added" }); // depth 3 → combo-reached-3 fires exactly once
     expect(dailyById("d-combo-3")?.completed).toBe(true);
     expect(weeklyById("w-combos-10")?.progress).toBe(1);
   });
