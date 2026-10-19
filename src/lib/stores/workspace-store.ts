@@ -7,6 +7,7 @@ import type {
   Workspace,
   TeamMember,
   Sprint,
+  SprintSeries,
   Story,
   Impediment,
   Risk,
@@ -119,6 +120,8 @@ interface WorkspaceActions {
   removeTeamMember: (id: string) => void;
   upsertSprint: (s: Sprint) => void;
   removeSprint: (id: string) => void;
+  upsertSprintSeries: (x: SprintSeries) => void;
+  removeSprintSeries: (id: string) => void;
   upsertStory: (s: Story) => void;
   removeStory: (id: string) => void;
   upsertImpediment: (i: Impediment) => void;
@@ -446,6 +449,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           return next;
         }),
       upsertSprint: (s) => set((_st) => ({ sprints: replaceById(_st.sprints, s) })),
+      upsertSprintSeries: (x) =>
+        set((_st) => ({ sprintSeries: replaceById(_st.sprintSeries ?? [], x) })),
+      removeSprintSeries: (id) =>
+        set((s) => ({ sprintSeries: (s.sprintSeries ?? []).filter((y) => y.id !== id) })),
       removeSprint: (id) =>
         set((s) => {
           // Stories that pointed at this sprint are now stranded — clear
@@ -459,6 +466,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           const next: Partial<Workspace> = {
             sprints: s.sprints.filter((x) => x.id !== id),
           };
+          // Its daily log and ratings go with it.
+          if ((s.sprintSeries ?? []).some((x) => x.id === id)) {
+            next.sprintSeries = (s.sprintSeries ?? []).filter((x) => x.id !== id);
+          }
           if (storyAffected) {
             next.stories = s.stories.map((st) =>
               st.sprintId === id ? { ...st, sprintId: undefined } : st
@@ -1368,6 +1379,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         const data: Workspace = {
           teamMembers: s.teamMembers,
           sprints: s.sprints,
+          sprintSeries: s.sprintSeries,
           stories: s.stories,
           impediments: s.impediments,
           risks: s.risks,
@@ -1494,6 +1506,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         const sanitized: Partial<Workspace> = {
           teamMembers: sanitizeArray<TeamMember>(p.teamMembers),
           sprints: sanitizeArray<Sprint>(p.sprints),
+          sprintSeries: sanitizeArray<SprintSeries>(p.sprintSeries),
           stories: sanitizeArray<Story>(p.stories),
           impediments: sanitizeArray<Impediment>(p.impediments),
           risks: sanitizeArray<Risk>(p.risks),
@@ -1832,6 +1845,7 @@ if (typeof window !== "undefined") {
 
     registerCollection("teamMember", "teamMembers");
     registerCollection("sprint", "sprints");
+    registerCollection("sprintSeries", "sprintSeries");
     registerCollection("story", "stories");
     registerCollection("impediment", "impediments");
     registerCollection("risk", "risks");
@@ -1979,6 +1993,7 @@ export function getWorkspaceSnapshot(): Workspace {
   return {
     teamMembers: state.teamMembers,
     sprints: state.sprints,
+    sprintSeries: state.sprintSeries,
     stories: state.stories,
     impediments: state.impediments,
     risks: state.risks,

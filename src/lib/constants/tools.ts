@@ -85,6 +85,7 @@ import {
   Repeat,
   PenLine,
   BookImage,
+  Gauge,
   type LucideIcon,
 } from "lucide-react";
 
@@ -1010,6 +1011,27 @@ export const tools: ToolDefinition[] = [
       {
         kinds: ["story.statusChanged"],
         reason: "lead-time and flow-efficiency reflect story flow",
+      },
+    ],
+  },
+  {
+    id: "sprint-metrics",
+    code: "B10",
+    name: "Sprint Metrics",
+    description:
+      "Every sprint in one place: progress against the plan and the ideal line, data checks, and links into each sprint tool",
+    category: "Metrics & Dashboards",
+    path: "/sprint-metrics",
+    icon: Gauge,
+    requiresAuth: false,
+    isRealtime: false,
+    phase: 5,
+    usesWorkspace: true,
+    analyticsTier: 2,
+    crossToolSubscriptions: [
+      {
+        kinds: ["sprint.completed", "sprint.started"],
+        reason: "hub status refreshes on sprint lifecycle",
       },
     ],
   },

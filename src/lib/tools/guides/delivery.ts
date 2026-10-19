@@ -3,6 +3,29 @@ import type { ToolGuide } from "./types";
 /** Guides for the "Track delivery" tools. Loaded on demand (see ./index.ts). */
 export const GUIDES: ToolGuide[] = [
   {
+    toolId: "sprint-metrics",
+    summary:
+      "Sprint Metrics is the home of your shared sprints. Pick a sprint to see what was committed, how much is done and left, how it tracks against the ideal line, and when it's likely to finish. Burndown, Burnup, Velocity and Sprint Comparison all use the same sprints.",
+    whenToUse: [
+      "Checking where the current sprint stands at stand-up or mid-sprint.",
+      "Closing a sprint with the points the team finished, so Velocity and forecasts use it.",
+      "Cleaning up sprint data: missing completed points, placeholder dates, or sprints moved in from older tool data.",
+    ],
+    steps: [
+      "Pick a sprint, or click New sprint and enter its name, first and last day, and planned points.",
+      "Log the daily numbers in Burndown or Burnup. The tiles here update from the same log.",
+      "Read the tiles: Pace vs ideal shows how far ahead or behind the sprint is, and Projected finish shows the day the trend reaches zero.",
+      "Use Edit details to change the name, goal, status, committed points or dates.",
+      "On the last day, click Close sprint. The completed points are suggested from the daily log; change them if needed.",
+      "Fix anything under Worth checking, then open a sprint tool from its card. It opens on the same sprint.",
+    ],
+    tips: [
+      "Day 0 is the first day of the sprint, as in Burndown.",
+      "Plan vs average compares this sprint's commitment with what your last three sprints delivered. Committing well above it is a risk.",
+      "Cumulative Flow and Cycle Time track your board, not a sprint, so they are linked separately.",
+    ],
+  },
+  {
     toolId: "burnup",
     summary:
       "A burnup chart shows two lines: total scope and work completed. The gap between them is the work left, and a rising scope line makes scope creep easy to see.",
@@ -11,15 +34,14 @@ export const GUIDES: ToolGuide[] = [
       "Showing stakeholders how added work moves the finish date.",
     ],
     steps: [
-      "Set the Sprint Length (days) and Sprint Start Date. Day 0 is the start of the sprint.",
-      "On Day 0, enter the total Scope in points and 0 Completed.",
+      "Pick a sprint, or create one with its first day, last day and planned points. The planned points are the scope on Day 0.",
       "Each day, enter the Completed (pts) total so far. Enter Scope only on days it changes; the chart carries the last value forward.",
       "Add a Note when something explains a jump or a flat spell, such as an outage or new work from a stakeholder.",
       "Watch the Scope Creep and Projected Done cards. If Projected Done reads “After sprint”, discuss scope early.",
     ],
     tips: [
       "Completed is a running total, not the points finished that day.",
-      "Fill in days without gaps. The 80% forecast band only uses the unbroken run of days from Day 0.",
+      "Numbers logged in the Burndown Generator show dimmed here; type over one to use your own.",
       "Only need the work remaining in a sprint? Use the Burndown Generator.",
     ],
   },
@@ -84,8 +106,8 @@ export const GUIDES: ToolGuide[] = [
       "Reviewing a quarter's sprints to spot patterns.",
     ],
     steps: [
-      "Name each sprint, and click Add Sprint for more (up to five).",
-      "As a team, score each dimension from 1 to 10: Velocity, Quality, Scope Stability, Team Happiness, Goal Achievement and Predictability.",
+      "Pin up to five sprints from the Sprints list, or create one with New sprint.",
+      "As a team, score each dimension from 1 to 10: Velocity, Quality, Scope Stability, Team Happiness, Goal Achievement and Predictability. Leave a box empty if you haven't rated it.",
       "Look at the Sprint Radar for shapes that shrink or grow from one sprint to the next.",
       "Use the Dimension Comparison table and its Average row to pick one dimension to improve next sprint.",
     ],
@@ -103,6 +125,7 @@ export const GUIDES: ToolGuide[] = [
       "Agree what a 5 and a 10 mean for each dimension, and keep that the same every sprint.",
       "Base scores on data where you can, such as the Velocity Tracker or Squad Health Check.",
       "Talk about the biggest drop, not the average.",
+      "Ratings are saved on the shared sprint, so Sprint Metrics shows the average too.",
     ],
   },
   {

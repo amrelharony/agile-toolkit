@@ -1,36 +1,46 @@
 "use client";
 
-import { useRef, useMemo, useState } from "react";
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { safeJSONStorage } from "@/lib/stores/safe-storage";
+import { useId, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ChartCard } from "@/components/shared/chart-card";
-import { SectionCard } from "@/components/shared/section-card";
+import { AlertTriangle, BarChart2, CalendarDays, Target, Trash2, TrendingUp } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
-import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { generateBurnupPrompts } from "@/lib/ai-prompts/burnup";
-import { useHistoryLogger } from "@/lib/history/use-history-logger";
-import { BURNUP_ACTIONS } from "@/lib/history/event-actions";
-import { todayLocalISO } from "@/lib/utils/formatters";
-import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
-import { cusum } from "@/lib/analytics/changepoint";
-import { mannKendall } from "@/lib/analytics/trend-test";
+import { ChartCard } from "@/components/shared/chart-card";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { ExportButton } from "@/components/shared/export-button";
+import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { IconButton } from "@/components/ui/icon-button";
+import { generateBurnupPrompts } from "@/lib/ai-prompts/burnup";
+import { cusum } from "@/lib/analytics/changepoint";
+import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
+import { mannKendall } from "@/lib/analytics/trend-test";
+import { BURNUP_ACTIONS } from "@/lib/history/event-actions";
+import { useHistoryLogger, type HistoryLogger } from "@/lib/history/use-history-logger";
+import { useToolSonification } from "@/lib/sonification/use-sonification";
+import { denseSeries } from "@/lib/sprints/metrics";
+import { dayDate, dayForDate, todayIso } from "@/lib/sprints/series";
+import type { SprintDay } from "@/lib/stores/workspace-types";
+import { undoable } from "@/lib/utils/undoable";
 import {
-  BarChart2,
-  Plus,
-  Trash2,
-  Settings2,
-  TrendingUp,
-  AlertTriangle,
-  Target,
-  CalendarDays,
-} from "lucide-react";
+  clearDay,
+  clearLog,
+  restoreDay,
+  restoreLog,
+  writeBurnupDay,
+} from "../burndown/series-writes";
+import {
+  DerivedCaption,
+  DraftInput,
+  SprintSettings,
+  SprintToolShell,
+  formatPoints,
+  shortDate,
+  type SprintSettingsChange,
+  type SprintToolContext,
+} from "../burndown/sprint-shell";
+import { burnupView } from "./view";
 
 // Recharts loads with the chart, not the page. ChartCard reserves the
 // chart's height while the chunk loads.
@@ -38,165 +48,18 @@ const BurnupChart = dynamic(() => import("./charts").then((m) => m.BurnupChart),
   ssr: false,
 });
 
-/* -------------------------------------------------------------------------- */
-/*  Types                                                                      */
-/* -------------------------------------------------------------------------- */
+type Log = HistoryLogger["log"];
+type ForecastPoint = ReturnType<typeof forecastBayesianHolt>[number];
 
-interface DayEntry {
-  id: string;
-  day: number;
-  scope: number | null;
-  completed: number | null;
-  /** Optional per-day note (e.g. "Demo prep", "Outage"). */
-  description?: string;
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/** A typed number, or null for a blank field; undefined when it isn't a number of 0 or more. */
+function parsePoints(raw: string): number | null | undefined {
+  const text = raw.trim();
+  if (text === "") return null;
+  const n = Number(text);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
-
-interface BurnupConfig {
-  sprintDays: number;
-  sprintStartDate: string;
-}
-
-interface BurnupStore {
-  config: BurnupConfig;
-  entries: DayEntry[];
-  updateConfig: (updates: Partial<BurnupConfig>) => void;
-  updateEntry: (id: string, updates: Partial<Omit<DayEntry, "id">>) => void;
-  addEntry: () => void;
-  removeEntry: (id: string) => void;
-  reset: () => void;
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Default data                                                               */
-/* -------------------------------------------------------------------------- */
-
-// Static default start date — must match between SSR and CSR. Using
-// `todayLocalISO()` here produced a fresh string per render call, so
-// the server-rendered HTML and client-rendered HTML disagreed on
-// `sprintStartDate` whenever no persisted state existed → React
-// emitted a hydration mismatch warning on every cold visit. Sibling
-// burndown tool uses a static date for the same reason. Users still
-// see today's date populated as soon as they edit the field; this
-// constant only affects the very first render before hydration.
-function makeDefaultConfig(): BurnupConfig {
-  return {
-    sprintDays: 10,
-    sprintStartDate: "2026-01-01",
-  };
-}
-
-function createDefaultEntries(sprintDays: number): DayEntry[] {
-  // Deterministic IDs so SSR HTML matches client HTML at hydration. User
-  // edits replace these via the resize/add handlers, which mint real UUIDs.
-  return Array.from({ length: sprintDays + 1 }, (_, i) => ({
-    id: `default:day-${i}`,
-    day: i,
-    scope: i === 0 ? 40 : null,
-    completed: i === 0 ? 0 : null,
-  }));
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Store                                                                      */
-/* -------------------------------------------------------------------------- */
-
-const useBurnupStore = create<BurnupStore>()(
-  persist(
-    (set) => {
-      // Compute defaults once so config and entries share the same sprintDays
-      // — the previous version called makeDefaultConfig() twice, allowing the
-      // two values to drift if the helper ever became non-deterministic.
-      const initialConfig = makeDefaultConfig();
-      return {
-        config: initialConfig,
-        entries: createDefaultEntries(initialConfig.sprintDays),
-
-        updateConfig: (updates) =>
-          set((s) => {
-            const newConfig = { ...s.config, ...updates };
-            // Resize entries when sprint length changes — preserve user-entered
-            // values for days that still exist, drop days past the new end, and
-            // append blank entries for new days. The previous implementation
-            // wiped ALL user data whenever the user nudged the sprint length.
-            if (updates.sprintDays !== undefined && updates.sprintDays !== s.config.sprintDays) {
-              const target = Math.max(1, updates.sprintDays);
-              const byDay = new Map(s.entries.map((e) => [e.day, e]));
-              const next = Array.from({ length: target + 1 }, (_, i) => {
-                const existing = byDay.get(i);
-                if (existing) return existing;
-                return {
-                  id: crypto.randomUUID(),
-                  day: i,
-                  scope: i === 0 ? 40 : null,
-                  completed: i === 0 ? 0 : null,
-                };
-              });
-              return { config: newConfig, entries: next };
-            }
-            return { config: newConfig };
-          }),
-
-        updateEntry: (id, updates) =>
-          set((s) => ({
-            entries: s.entries.map((e) => (e.id === id ? { ...e, ...updates } : e)),
-          })),
-
-        addEntry: () =>
-          set((s) => {
-            const maxDay = s.entries.reduce((m, e) => Math.max(m, e.day), 0);
-            return {
-              entries: [
-                ...s.entries,
-                { id: crypto.randomUUID(), day: maxDay + 1, scope: null, completed: null },
-              ],
-            };
-          }),
-
-        removeEntry: (id) => set((s) => ({ entries: s.entries.filter((e) => e.id !== id) })),
-
-        reset: () => {
-          // Use today's local date when resetting — `makeDefaultConfig`
-          // returns a STATIC date (for hydration safety on first paint), but
-          // a user clicking Reset expects "today" not "January 1st 2026".
-          // Sibling burndown does the same.
-          const cfg = { ...makeDefaultConfig(), sprintStartDate: todayLocalISO() };
-          set({
-            config: cfg,
-            entries: createDefaultEntries(cfg.sprintDays),
-          });
-        },
-      };
-    },
-    { name: "agile-toolkit:burnup", storage: safeJSONStorage("burnup") }
-  )
-);
-
-/* -------------------------------------------------------------------------- */
-/*  Helpers                                                                    */
-/* -------------------------------------------------------------------------- */
-
-function computeTodayDay(sprintStartDate: string, sprintDays: number): number | null {
-  // Parse "YYYY-MM-DD" as a LOCAL calendar date and compare against today's
-  // local calendar date. The previous implementation parsed the ISO string
-  // (UTC midnight) and then called setHours (local), which mis-aligned the
-  // "Today" marker by a day for users east of UTC.
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(sprintStartDate.trim());
-  if (!m) return null;
-  const startY = Number(m[1]);
-  const startM = Number(m[2]) - 1;
-  const startD = Number(m[3]);
-  const start = new Date(startY, startM, startD).getTime();
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(today)) return null;
-  const diffDays = Math.round((today - start) / (1000 * 60 * 60 * 24));
-  if (diffDays < 0 || diffDays > sprintDays) return null;
-  return diffDays;
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Stat Card                                                                  */
-/* -------------------------------------------------------------------------- */
 
 function StatCard({
   label,
@@ -216,7 +79,7 @@ function StatCard({
       <CardContent className="p-5">
         <div className="flex items-center gap-3 mb-3">
           <div className="p-2 rounded-lg" style={{ background: `${color}18` }}>
-            <Icon className="w-5 h-5" style={{ color }} />
+            <Icon className="w-5 h-5" style={{ color }} aria-hidden="true" />
           </div>
           <span className="text-sm text-sub">{label}</span>
         </div>
@@ -230,285 +93,416 @@ function StatCard({
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Main Client Component                                                      */
+/*  One sprint                                                                 */
 /* -------------------------------------------------------------------------- */
 
-export function BurnupClient() {
-  const {
-    config,
-    entries,
-    updateConfig: updateConfigRaw,
-    updateEntry,
-    addEntry: addEntryRaw,
-    removeEntry: removeEntryRaw,
-    reset: resetRaw,
-  } = useBurnupStore();
-  const { log } = useHistoryLogger("burnup");
-
-  const updateConfig: typeof updateConfigRaw = (updates) => {
-    updateConfigRaw(updates);
-    log(BURNUP_ACTIONS.CONFIG_UPDATED, updates as Record<string, unknown>);
-  };
-  const addEntry: typeof addEntryRaw = () => {
-    addEntryRaw();
-    const fresh = useBurnupStore.getState().entries;
-    const created = fresh[fresh.length - 1];
-    log(BURNUP_ACTIONS.DAY_LOGGED, { entryId: created?.id, day: created?.day });
-  };
-  const removeEntry: typeof removeEntryRaw = (id) => {
-    const entry = entries.find((e) => e.id === id);
-    removeEntryRaw(id);
-    log(BURNUP_ACTIONS.DAY_REMOVED, { day: entry?.day });
-  };
-  const reset = () => {
-    resetRaw();
-    log(BURNUP_ACTIONS.BURNUP_RESET, {});
-  };
-
+function BurnupSprint({ sprint, series, readOnly, log }: SprintToolContext & { log: Log }) {
+  const sonify = useToolSonification("burnup");
+  const rowsId = useId();
   const chartRef = useRef<HTMLDivElement>(null);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
 
-  // Draft buffer for the sprint-length field. Committing on every keystroke
-  // is destructive: updateConfig resizes `entries` when sprintDays changes,
-  // so a transient intermediate value (typing "21" passes through 2, clearing
-  // the field passes through Number("") === 0 → clamped to 1) permanently
-  // drops the logged days past the transient length. Keystrokes stay local;
-  // commit once on blur (which also keeps CONFIG_UPDATED out of the audit
-  // log for every keystroke).
-  const [sprintDaysDraft, setSprintDaysDraft] = useState<string | null>(null);
+  const view = useMemo(() => burnupView(sprint, series), [sprint, series]);
+  const { config, entries } = view;
+  const loggedDays = entries.filter((e) => e.stored).length;
 
-  /* -- Sorted entries ------------------------------------------------------ */
+  /* -- Writes -------------------------------------------------------------- */
 
-  const sortedEntries = useMemo(() => [...entries].sort((a, b) => a.day - b.day), [entries]);
+  const setScope = (day: number, raw: string, scopeBefore: number) => {
+    if (readOnly) return;
+    const n = parsePoints(raw);
+    if (n === undefined) return;
+    if (!writeBurnupDay(sprint.id, day, { scope: n })) return;
+    log(BURNUP_ACTIONS.SCOPE_CHANGED, { sprintId: sprint.id, day, scope: n });
+    if (n !== null && n > scopeBefore) sonify("scope-increase");
+  };
 
-  /* -- Carry-forward scope (scope persists until changed) ------------------ */
-
-  // Numeric series of completed points at filled days. Drops holes — Holt
-  // expects an evenly-spaced sequence and we'd rather forecast from real
-  // samples than synthesise zeros.
-  const completedSeries = useMemo(
-    () =>
-      sortedEntries
-        .filter((e) => e.completed !== null && Number.isFinite(e.completed))
-        .map((e) => e.completed as number),
-    [sortedEntries]
-  );
-
-  // Bayesian forecast for the days remaining in the sprint after the last
-  // logged completed point. Returns [] when n<2 — band area then renders
-  // BUG-T1-burnup-1: use the contiguous-prefix last-filled-day so Holt's
-  // smoothing isn't fit against a discontinuous series. Burndown already
-  // does this; the prior `Math.max(...filledDays)` accepted skipped
-  // days (e.g. 0,1,5) and produced a misleading projection band.
-  const contiguousLastFilledDay = useMemo(() => {
-    // Walk from day 0 upward, stop at the first hole.
-    const filledSet = new Set(
-      sortedEntries
-        .filter((e) => e.completed !== null && Number.isFinite(e.completed))
-        .map((e) => e.day)
-    );
-    let last = -1;
-    for (let d = 0; d <= config.sprintDays; d++) {
-      if (filledSet.has(d)) last = d;
-      else if (last >= 0) break; // first gap after some fill
+  const setCompleted = (day: number, raw: string) => {
+    if (readOnly) return;
+    const n = parsePoints(raw);
+    if (n === undefined) return;
+    const write = writeBurnupDay(sprint.id, day, { completed: n });
+    if (write && n !== null && write.before?.completed == null) {
+      log(BURNUP_ACTIONS.DAY_LOGGED, { sprintId: sprint.id, day, completed: n });
+      sonify("day-logged");
     }
-    return last >= 0 ? last : 0;
-  }, [sortedEntries, config.sprintDays]);
+  };
 
-  const forecast = useMemo(() => {
-    // Fit Holt on the SAME contiguous prefix the forecast is plotted from —
-    // Holt extrapolates from the last element of its input, so feeding the
-    // full filled series (which may contain post-hole samples) while plotting
-    // from contiguousLastFilledDay drew a projection that contradicted real
-    // datapoints sitting to its right.
-    const series = sortedEntries
-      .filter(
-        (e) =>
-          e.completed !== null && Number.isFinite(e.completed) && e.day <= contiguousLastFilledDay
-      )
-      .map((e) => e.completed as number);
-    if (series.length < 2) return [];
-    const horizon = Math.max(1, config.sprintDays - contiguousLastFilledDay);
-    return forecastBayesianHolt(series, horizon);
-  }, [sortedEntries, contiguousLastFilledDay, config.sprintDays]);
+  const setNote = (day: number, note: string) => {
+    if (!readOnly) writeBurnupDay(sprint.id, day, { note });
+  };
 
-  // Forecast lookup keyed by sprint-day.
-  const forecastByDay = useMemo(() => {
-    if (forecast.length === 0) return new Map<number, (typeof forecast)[number]>();
-    const m = new Map<number, (typeof forecast)[number]>();
-    forecast.forEach((fp, i) => {
-      m.set(contiguousLastFilledDay + i + 1, fp);
+  const clearOneDay = (day: number) => {
+    if (readOnly) return;
+    let removed: SprintDay | undefined;
+    undoable({
+      label: `Cleared day ${day}`,
+      apply: () => {
+        removed = clearDay(sprint.id, day);
+        if (removed) log(BURNUP_ACTIONS.DAY_REMOVED, { sprintId: sprint.id, day });
+      },
+      revert: () => {
+        if (removed) restoreDay(sprint.id, removed);
+      },
     });
+  };
+
+  const clearWholeLog = () => {
+    if (readOnly) return;
+    let previous: SprintDay[] = [];
+    undoable({
+      label: `Cleared the log of ${sprint.name}`,
+      apply: () => {
+        previous = clearLog(sprint.id);
+        log(BURNUP_ACTIONS.BURNUP_RESET, { sprintId: sprint.id, days: previous.length });
+      },
+      revert: () => restoreLog(sprint.id, previous),
+    });
+  };
+
+  const onSettingsChanged = (change: SprintSettingsChange) =>
+    log(BURNUP_ACTIONS.CONFIG_UPDATED, { sprintId: sprint.id, ...change });
+
+  /* -- Forecast, change points and trend ------------------------------------ */
+
+  // Points done for days 0..last logged day, a missed day carrying the
+  // previous reading forward, so Holt and CUSUM see evenly spaced samples.
+  const dense = useMemo(() => denseSeries(sprint, series).completed, [sprint, series]);
+  const lastDenseDay = dense.length - 1;
+
+  const forecastByDay = useMemo(() => {
+    const m = new Map<number, ForecastPoint>();
+    if (dense.length < 2) return m;
+    const horizon = Math.max(1, config.sprintDays - lastDenseDay);
+    forecastBayesianHolt(dense, horizon).forEach((fp, i) => m.set(lastDenseDay + i + 1, fp));
     return m;
-  }, [forecast, contiguousLastFilledDay]);
+  }, [dense, lastDenseDay, config.sprintDays]);
 
-  // CUSUM on completed-points series. Useful for spotting "team unblocked"
-  // (sustained acceleration) or "delivery stalled" (sustained flatten).
-  const changepoints = useMemo(() => {
-    if (completedSeries.length < 4) return [];
-    return cusum(completedSeries);
-  }, [completedSeries]);
-
+  // CUSUM on points done: "team unblocked" (sustained speed-up) or
+  // "delivery stalled". The dense run starts at day 0, so an index is a day.
   const changepointDays = useMemo(() => {
-    if (changepoints.length === 0) return [] as Array<{ day: number; direction: "up" | "down" }>;
-    const filledDays = sortedEntries
-      .filter((e) => e.completed !== null && Number.isFinite(e.completed))
-      .map((e) => e.day);
-    return changepoints
-      .map((cp) => ({ day: filledDays[cp.index], direction: cp.direction }))
-      .filter((x): x is { day: number; direction: "up" | "down" } => Number.isFinite(x.day));
-  }, [changepoints, sortedEntries]);
+    if (dense.length < 4) return [] as Array<{ day: number; direction: "up" | "down" }>;
+    return cusum(dense)
+      .map((cp) => ({ day: cp.index, direction: cp.direction }))
+      .filter((x) => x.day >= 0 && x.day <= config.sprintDays);
+  }, [dense, config.sprintDays]);
 
-  // Mann-Kendall trend test on completed-points series. Needs n>=5 to be
-  // informative; renders as a chip near the chart title only when the trend
-  // is statistically significant at α=0.05 (matching kanban/velocity).
-  const trendTest = useMemo(() => {
-    if (completedSeries.length < 5) return null;
-    return mannKendall(completedSeries);
-  }, [completedSeries]);
+  // Mann-Kendall needs 5 or more samples; the chip shows only a significant trend.
+  const trendTest = useMemo(() => (dense.length < 5 ? null : mannKendall(dense)), [dense]);
 
-  const chartData = useMemo(() => {
-    const map = new Map<number, DayEntry>();
-    sortedEntries.forEach((e) => map.set(e.day, e));
+  /* -- Chart data ---------------------------------------------------------- */
 
-    // Two-pass build so the forecast band's upper-cap reads the explicit
-    // carry-forward scope from the row we're about to emit — not a value
-    // captured by closure that could go stale if the iteration order ever
-    // changed (e.g. parallel/lazy callback variants of Array.from).
-    type Row = {
-      day: number;
-      scope: number | null;
-      completed: number | null;
-      forecast: number | undefined;
-      band80Lower: number | undefined;
-      band80Upper: number | undefined;
-      description: string;
-    };
-
-    const rows: Row[] = [];
-    let lastScope: number | null = null;
-    for (let day = 0; day <= config.sprintDays; day++) {
-      const entry = map.get(day);
-      if (entry?.scope !== null && entry?.scope !== undefined) {
-        lastScope = entry.scope;
-      }
-      const fc = forecastByDay.get(day);
-      // Read the carry-forward scope for THIS row before applying the upper
-      // cap — this is the same value we're about to write into `scope`, not
-      // a stale upstream variable.
-      const rowScope = lastScope;
-      rows.push({
-        day,
-        scope: rowScope,
-        completed: entry?.completed ?? null,
-        forecast: fc ? parseFloat(fc.yHat.toFixed(1)) : undefined,
-        // Clamp lower band at 0 — completed points can't be negative; clamp
-        // upper band at the carried-forward scope when known so the band
-        // doesn't visually exceed total scope (which would mislead).
-        band80Lower: fc ? parseFloat(Math.max(0, fc.lower80).toFixed(1)) : undefined,
-        band80Upper: fc
-          ? parseFloat(
-              (rowScope !== null
-                ? Math.min(rowScope, Math.max(0, fc.upper80))
-                : Math.max(0, fc.upper80)
-              ).toFixed(1)
-            )
-          : undefined,
-        description: entry?.description ?? "",
-      });
-    }
-    return rows;
-  }, [sortedEntries, config.sprintDays, forecastByDay]);
-
-  const todayDay = useMemo(
-    () => computeTodayDay(config.sprintStartDate, config.sprintDays),
-    [config.sprintStartDate, config.sprintDays]
+  const chartData = useMemo(
+    () =>
+      entries
+        .filter((e) => e.day <= config.sprintDays)
+        .map((e) => {
+          const fc = forecastByDay.get(e.day);
+          return {
+            day: e.day,
+            scope: e.scopeInForce,
+            completed: e.completed,
+            forecast: fc ? parseFloat(fc.yHat.toFixed(1)) : undefined,
+            // Points done can't be negative or pass the scope: clamp the band.
+            band80Lower: fc ? parseFloat(Math.max(0, fc.lower80).toFixed(1)) : undefined,
+            band80Upper: fc
+              ? parseFloat(Math.min(e.scopeInForce, Math.max(0, fc.upper80)).toFixed(1))
+              : undefined,
+            description: e.description ?? "",
+          };
+        }),
+    [entries, config.sprintDays, forecastByDay]
   );
+
+  const todayDay = useMemo(() => {
+    const d = dayForDate(sprint, todayIso());
+    return d !== null && d >= 0 && d <= config.sprintDays ? d : null;
+  }, [sprint, config.sprintDays]);
 
   /* -- Summary stats ------------------------------------------------------- */
 
   const stats = useMemo(() => {
-    const filledEntries = sortedEntries.filter((e) => e.scope !== null || e.completed !== null);
-    if (filledEntries.length === 0) {
-      return {
-        initialScope: 0,
-        maxScope: 0,
-        scopeCreep: 0,
-        latestCompleted: 0,
-        completionPct: 0,
-        projectedDay: null as number | null,
-      };
-    }
-
-    const initialScope = chartData.find((d) => d.scope !== null)?.scope ?? 0;
-    const scopeVals = chartData.map((d) => d.scope ?? 0);
-    const maxScope = scopeVals.length > 0 ? Math.max(...scopeVals) : 0;
-    const scopeCreep = Math.max(0, maxScope - initialScope);
-
-    const lastFilledEntry = [...sortedEntries].reverse().find((e) => e.completed !== null);
-    const latestCompleted = lastFilledEntry?.completed ?? 0;
-    const currentScope = chartData[chartData.length - 1]?.scope ?? maxScope;
+    const scopes = chartData.map((d) => d.scope);
+    const initialScope = scopes[0] ?? 0;
+    const maxScope = scopes.length > 0 ? Math.max(...scopes) : 0;
+    const scopeCreep = round1(Math.max(0, maxScope - initialScope));
+    const done = entries.filter((e) => e.completed !== null);
+    const latestCompleted = done[done.length - 1]?.completed ?? 0;
+    const currentScope = scopes[scopes.length - 1] ?? maxScope;
     const completionPct = Math.max(
       0,
       Math.min(100, currentScope > 0 ? Math.round((latestCompleted / currentScope) * 100) : 0)
     );
 
-    // Projected completion: linear extrapolation from last two filled entries
+    // Projected finish: straight line through the last two days with a number.
     let projectedDay: number | null = null;
-    // R5: dedupe entries by `day` before computing projection. Two entries
-    // on the SAME day (possible if the user clicks "Add Day" twice for
-    // the same idx) produced `Math.max(1, 0) === 1` in the denominator,
-    // yielding a huge spurious rate spike → wildly wrong projection.
-    const dedupedByDay = new Map<number, (typeof sortedEntries)[number]>();
-    for (const e of sortedEntries) {
-      if (e.completed === null) continue;
-      // Last-write-wins on duplicate days.
-      dedupedByDay.set(e.day, e);
-    }
-    const completedEntries = Array.from(dedupedByDay.values()).sort((a, b) => a.day - b.day);
-    if (completedEntries.length >= 2) {
-      const n = completedEntries.length;
-      const last = completedEntries[n - 1];
-      const prev = completedEntries[n - 2];
-      const rate = (last.completed! - prev.completed!) / Math.max(1, last.day - prev.day);
+    if (done.length >= 2) {
+      const last = done[done.length - 1];
+      const prev = done[done.length - 2];
+      const rate =
+        ((last.completed as number) - (prev.completed as number)) /
+        Math.max(1, last.day - prev.day);
       if (rate > 0 && Number.isFinite(rate)) {
-        const daysLeft = (currentScope - latestCompleted) / rate;
+        const daysLeft = (currentScope - (last.completed as number)) / rate;
         if (Number.isFinite(daysLeft) && daysLeft >= 0) {
-          // Cap projected day at sprintDays + 365 — beyond that the band is
-          // meaningless and a huge number would clobber the UI.
+          // Capped: a year past the end is already "after the sprint".
           projectedDay = Math.min(config.sprintDays + 365, Math.round(last.day + daysLeft));
         }
       }
     }
+    return { initialScope, maxScope, scopeCreep, latestCompleted, completionPct, projectedDay };
+  }, [chartData, entries, config.sprintDays]);
 
-    return {
-      initialScope,
-      maxScope,
-      scopeCreep,
-      latestCompleted,
-      completionPct,
-      projectedDay,
-    };
-  }, [sortedEntries, chartData, config.sprintDays]);
-
-  /* -- Export data --------------------------------------------------------- */
+  /* -- Export -------------------------------------------------------------- */
 
   const csvData = useMemo(
     () => ({
       headers: ["Day", "Scope (pts)", "Completed (pts)", "Note"],
-      rows: chartData.map((d) => [d.day, d.scope ?? "", d.completed ?? "", d.description ?? ""]),
+      rows: chartData.map((d) => [d.day, d.scope, d.completed ?? "", d.description ?? ""]),
     }),
     [chartData]
   );
 
   const promptConfig = useMemo(
-    () => ({
-      toolName: "Burnup Chart",
-      prompts: generateBurnupPrompts({ config, entries }),
-    }),
+    () => ({ toolName: "Burnup Chart", prompts: generateBurnupPrompts({ config, entries }) }),
     [config, entries]
   );
 
   /* -- Render -------------------------------------------------------------- */
+
+  return (
+    <div className="space-y-6">
+      {loggedDays === 0 && (
+        <p className="rounded-lg border border-dashed border-border px-4 py-3 text-sm text-sub">
+          No days logged yet. At the end of each day, log the points done so far.
+        </p>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard label="Completion" value={stats.completionPct} unit="%" icon={Target} />
+        <StatCard
+          label="Scope creep"
+          value={stats.scopeCreep > 0 ? `+${stats.scopeCreep}` : stats.scopeCreep}
+          unit="pts"
+          icon={AlertTriangle}
+          color={stats.scopeCreep > 0 ? "#ffaa00" : "#00ff88"}
+        />
+        <StatCard
+          label="Points completed"
+          value={stats.latestCompleted}
+          unit={`/ ${stats.maxScope} pts`}
+          icon={TrendingUp}
+          color="#00ff88"
+        />
+        <StatCard
+          label="Projected done"
+          value={
+            stats.projectedDay !== null
+              ? stats.projectedDay <= config.sprintDays
+                ? `Day ${stats.projectedDay}`
+                : "After sprint"
+              : "—"
+          }
+          icon={CalendarDays}
+          color={
+            stats.projectedDay !== null && stats.projectedDay <= config.sprintDays
+              ? "#00ff88"
+              : "#ef4444"
+          }
+        />
+      </div>
+
+      <SprintSettings
+        tool="burnup"
+        sprint={sprint}
+        readOnly={readOnly}
+        onChanged={onSettingsChanged}
+      />
+
+      <ChartCard
+        title="Burnup chart"
+        icon={BarChart2}
+        height={400}
+        chartContainerRef={chartRef}
+        headerExtras={
+          <>
+            <AiPromptGenerator config={promptConfig} />
+            <ExportButton filename="burnup-chart" csvData={csvData} targetRef={chartRef} />
+          </>
+        }
+        footer={
+          stats.scopeCreep > 0 ? (
+            <div className="flex items-center gap-2 text-xs text-accent-amber bg-accent-amber/8 border border-accent-amber/20 rounded-md px-3 py-2">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              Scope creep: scope grew by {stats.scopeCreep} pts ({stats.initialScope} →{" "}
+              {stats.maxScope}).
+            </div>
+          ) : null
+        }
+      >
+        <BurnupChart data={chartData} todayDay={todayDay} changepointDays={changepointDays} />
+      </ChartCard>
+
+      {/* Mann-Kendall chip: only with 5+ samples and a trend significant at
+          α=0.05. Up reads as good (accent), down as worth a look. */}
+      {trendTest?.significant && (
+        <div className="flex items-center justify-end -mt-2">
+          <span
+            className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+              trendTest.trend === "up"
+                ? "bg-accent/15 text-accent border-accent/40"
+                : "bg-destructive/15 text-destructive border-destructive/40"
+            }`}
+            title={`Mann-Kendall p=${trendTest.pValue.toFixed(3)}`}
+          >
+            <span>{trendTest.trend === "up" ? "↗" : "↘"} trend significant</span>
+            <span className="opacity-60">p={trendTest.pValue.toFixed(2)}</span>
+          </span>
+        </div>
+      )}
+
+      <SectionCard
+        title="Daily data"
+        icon={TrendingUp}
+        titleSize="lg"
+        headerClassName="pb-4"
+        actions={
+          <Button
+            variant="danger-ghost"
+            size="sm"
+            disabled={readOnly || loggedDays === 0}
+            onClick={() => setConfirmClearOpen(true)}
+          >
+            Clear log
+          </Button>
+        }
+      >
+        {/* One compact row per day; the note is a single-line input to keep
+            the rhythm of the tracker. */}
+        <div className="hidden sm:grid grid-cols-[96px_1fr_1fr_1.2fr_auto] gap-3 px-1 pb-2 border-b border-border mb-2">
+          <span className="text-xs text-sub font-medium uppercase tracking-wider">Day</span>
+          <span className="text-xs text-sub font-medium uppercase tracking-wider">
+            Scope (total pts)
+          </span>
+          <span className="text-xs text-sub font-medium uppercase tracking-wider">
+            Completed (pts)
+          </span>
+          <span className="text-xs text-sub font-medium uppercase tracking-wider">Note</span>
+          <span className="w-9" />
+        </div>
+
+        <div className="space-y-2">
+          {entries.map((e) => {
+            const scopeCaptionId = `${rowsId}-scope-${e.day}`;
+            const doneCaptionId = `${rowsId}-done-${e.day}`;
+            const planScope = e.day === 0 && e.typedScope === null;
+            const date = shortDate(dayDate(sprint, e.day));
+            return (
+              <div
+                key={e.id}
+                className="grid grid-cols-[1fr_auto] sm:grid-cols-[96px_1fr_1fr_1.2fr_auto] gap-2 sm:gap-3 sm:items-start rounded-md border border-border sm:border-0 p-2 sm:p-0"
+              >
+                <div className="flex flex-col sm:pt-1.5">
+                  <span className="font-data text-sm font-semibold text-accent">Day {e.day}</span>
+                  <span className="text-xs text-sub">
+                    {e.afterEnd ? `${date}, after the end` : date}
+                  </span>
+                </div>
+
+                <IconButton
+                  label={`Clear day ${e.day}`}
+                  icon={<Trash2 className="w-4 h-4" aria-hidden="true" />}
+                  variant="danger-ghost"
+                  disabled={readOnly || !e.stored}
+                  onClick={() => clearOneDay(e.day)}
+                  className="min-touch-coarse h-9 w-9 disabled:opacity-30 justify-self-end sm:order-last"
+                />
+
+                <div className="col-span-2 sm:col-span-1">
+                  <DraftInput
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    aria-label={`Scope points on day ${e.day}`}
+                    aria-describedby={planScope ? scopeCaptionId : undefined}
+                    // A blank day carries the scope forward; show it dimmed.
+                    placeholder={formatPoints(e.scopeInForce)}
+                    value={e.typedScope === null ? "" : String(e.typedScope)}
+                    readOnly={readOnly}
+                    onCommit={(v) => setScope(e.day, v, e.scopeInForce)}
+                    className="font-data focus:border-accent-magenta/50 focus:ring-accent-magenta/20"
+                  />
+                  {planScope && (
+                    <DerivedCaption id={scopeCaptionId} value={e.scopeInForce} from="the plan" />
+                  )}
+                </div>
+
+                <div className="col-span-2 sm:col-span-1">
+                  <DraftInput
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    aria-label={`Completed points on day ${e.day}`}
+                    aria-describedby={e.derivedCompleted !== null ? doneCaptionId : undefined}
+                    placeholder={
+                      e.derivedCompleted !== null
+                        ? formatPoints(e.derivedCompleted)
+                        : e.day === 0
+                          ? "0"
+                          : "— pts"
+                    }
+                    value={e.typedCompleted === null ? "" : String(e.typedCompleted)}
+                    readOnly={readOnly}
+                    onCommit={(v) => setCompleted(e.day, v)}
+                    className="font-data"
+                  />
+                  {e.derivedCompleted !== null && (
+                    <DerivedCaption id={doneCaptionId} value={e.derivedCompleted} from="Burndown" />
+                  )}
+                </div>
+
+                <DraftInput
+                  type="text"
+                  placeholder="Optional note"
+                  aria-label={`Note for day ${e.day}`}
+                  value={e.description ?? ""}
+                  readOnly={readOnly}
+                  maxLength={280}
+                  onCommit={(v) => setNote(e.day, v)}
+                  className="col-span-2 sm:col-span-1 text-xs"
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        <p className="mt-4 text-xs text-sub">
+          Completed is a running total. Enter scope only on days it changes: the chart carries it
+          forward from the planned points. A dimmed number was logged in Burndown; type over it to
+          use your own.
+        </p>
+      </SectionCard>
+
+      <ConfirmDialog
+        open={confirmClearOpen}
+        onOpenChange={setConfirmClearOpen}
+        title="Clear the log?"
+        description={`The ${loggedDays} logged day${loggedDays === 1 ? "" : "s"} of ${sprint.name} ${
+          loggedDays === 1 ? "is" : "are"
+        } cleared, here and in Burndown. The sprint and its settings stay.`}
+        confirmLabel="Clear log"
+        onConfirm={clearWholeLog}
+      />
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Page                                                                       */
+/* -------------------------------------------------------------------------- */
+
+export function BurnupClient() {
+  const { log } = useHistoryLogger("burnup");
 
   return (
     <ToolPageWrapper
@@ -517,259 +511,14 @@ export function BurnupClient() {
       description="Visualise completed work climbing toward total scope. Scope creep is immediately visible when the scope line rises."
       category="Metrics & Dashboards"
     >
-      <div className="space-y-6">
-        {/* ---- Summary Stats ---- */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            label="Completion"
-            value={stats.completionPct}
-            unit="%"
-            icon={Target}
-            color="#00f0ff"
-          />
-          <StatCard
-            label="Scope Creep"
-            value={stats.scopeCreep > 0 ? `+${stats.scopeCreep}` : stats.scopeCreep}
-            unit="pts"
-            icon={AlertTriangle}
-            color={stats.scopeCreep > 0 ? "#ffaa00" : "#00ff88"}
-          />
-          <StatCard
-            label="Points Completed"
-            value={stats.latestCompleted}
-            unit={`/ ${stats.maxScope} pts`}
-            icon={TrendingUp}
-            color="#00ff88"
-          />
-          <StatCard
-            label="Projected Done"
-            value={
-              stats.projectedDay !== null
-                ? stats.projectedDay <= config.sprintDays
-                  ? `Day ${stats.projectedDay}`
-                  : "After sprint"
-                : "—"
-            }
-            icon={CalendarDays}
-            color={
-              stats.projectedDay !== null && stats.projectedDay <= config.sprintDays
-                ? "#00ff88"
-                : "#ef4444"
-            }
-          />
-        </div>
-
-        {/* ---- Configuration ---- */}
-        <SectionCard
-          title="Sprint Configuration"
-          icon={Settings2}
-          titleSize="lg"
-          headerClassName="pb-4"
-        >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="burnup-sprint-days" className="text-sub text-xs">
-                Sprint Length (days)
-              </Label>
-              <Input
-                id="burnup-sprint-days"
-                type="number"
-                min={1}
-                max={60}
-                value={sprintDaysDraft ?? config.sprintDays}
-                // Draft-buffered: committing mid-type resizes `entries` and
-                // drops days past the transient value (see draft state above).
-                onChange={(e) => setSprintDaysDraft(e.target.value)}
-                onBlur={() => {
-                  if (sprintDaysDraft === null) return;
-                  const n = Number(sprintDaysDraft);
-                  setSprintDaysDraft(null);
-                  if (sprintDaysDraft.trim() === "" || !Number.isFinite(n)) return;
-                  updateConfig({ sprintDays: Math.max(1, Math.min(60, Math.round(n))) });
-                }}
-                className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="burnup-start-date" className="text-sub text-xs">
-                Sprint Start Date
-              </Label>
-              <Input
-                id="burnup-start-date"
-                type="date"
-                value={config.sprintStartDate}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v === "" || /^\d{4}-\d{2}-\d{2}$/.test(v)) {
-                    updateConfig({ sprintStartDate: v });
-                  }
-                }}
-                className="bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-              />
-            </div>
-          </div>
-        </SectionCard>
-
-        {/* ---- Chart ---- */}
-        <ChartCard
-          title="Burnup Chart"
-          icon={BarChart2}
-          height={400}
-          chartContainerRef={chartRef}
-          headerExtras={
-            <>
-              <AiPromptGenerator config={promptConfig} />
-              <ExportButton filename="burnup-chart" csvData={csvData} targetRef={chartRef} />
-            </>
-          }
-          footer={
-            stats.scopeCreep > 0 ? (
-              <div className="flex items-center gap-2 text-xs text-accent-amber bg-accent-amber/8 border border-accent-amber/20 rounded-md px-3 py-2">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                Scope creep detected: scope increased by {stats.scopeCreep} pts (
-                {stats.initialScope} → {stats.maxScope}).
-              </div>
-            ) : null
-          }
-        >
-          <BurnupChart data={chartData} todayDay={todayDay} changepointDays={changepointDays} />
-        </ChartCard>
-
-        {/* ---- Mann-Kendall trend chip ----
-            Only renders when the test has enough samples (n>=5) AND the trend
-            is statistically significant at α=0.05. Tone-coded so a
-            significant-up shows as accent ("good"), significant-down as
-            destructive ("alert worth investigating"). */}
-        {trendTest?.significant && (
-          <div className="flex items-center justify-end -mt-2">
-            <span
-              className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border ${
-                trendTest.trend === "up"
-                  ? "bg-accent/15 text-accent border-accent/40"
-                  : "bg-destructive/15 text-destructive border-destructive/40"
-              }`}
-              title={`Mann-Kendall p=${trendTest.pValue.toFixed(3)}`}
-            >
-              <span>{trendTest.trend === "up" ? "↗" : "↘"} trend significant</span>
-              <span className="opacity-60">p={trendTest.pValue.toFixed(2)}</span>
-            </span>
-          </div>
-        )}
-
-        {/* ---- Data Entry Table ---- */}
-        <SectionCard
-          title="Daily Data"
-          icon={TrendingUp}
-          titleSize="lg"
-          headerClassName="pb-4"
-          actions={
-            <>
-              <Button variant="danger-ghost" size="sm" onClick={reset}>
-                Reset
-              </Button>
-              <Button size="sm" variant="toolkit" onClick={addEntry} className="gap-1.5">
-                <Plus className="w-4 h-4" />
-                Add Day
-              </Button>
-            </>
-          }
-        >
-          {/* Column headers.
-              Note column uses a single-line Input rather than a Textarea
-              because each day-row is a compact grid; a multi-line field
-              would break the visual rhythm of the dense tracker. */}
-          <div className="hidden sm:grid grid-cols-[80px_1fr_1fr_1.2fr_auto] gap-3 px-1 pb-2 border-b border-border mb-2">
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">Day</span>
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">
-              Scope (Total pts)
-            </span>
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">
-              Completed (pts)
-            </span>
-            <span className="text-xs text-sub font-medium uppercase tracking-wider">Note</span>
-            <span className="w-9" />
-          </div>
-
-          <div className="space-y-2">
-            {sortedEntries.map((entry) => (
-              <div
-                key={entry.id}
-                className="grid grid-cols-[1fr_auto] sm:grid-cols-[80px_1fr_1fr_1.2fr_auto] gap-2 sm:gap-3 sm:items-center rounded-md border border-border sm:border-0 p-2 sm:p-0"
-              >
-                <div className="flex items-center sm:contents">
-                  <span className="font-data text-sm font-semibold text-accent">
-                    Day {entry.day}
-                  </span>
-                </div>
-
-                <Button
-                  variant="danger-ghost"
-                  size="icon"
-                  onClick={() => removeEntry(entry.id)}
-                  disabled={sortedEntries.length <= 1}
-                  aria-label={`Remove day ${entry.day}`}
-                  className="min-touch-coarse h-9 w-9 disabled:opacity-30 justify-self-end sm:order-last"
-                >
-                  <Trash2 className="w-4 h-4" aria-hidden="true" />
-                </Button>
-
-                <Input
-                  type="number"
-                  min={0}
-                  placeholder="Scope (pts)"
-                  aria-label={`Scope points on day ${entry.day}`}
-                  value={entry.scope ?? ""}
-                  onChange={(e) => {
-                    if (e.target.value === "") {
-                      updateEntry(entry.id, { scope: null });
-                      return;
-                    }
-                    const n = Number(e.target.value);
-                    if (Number.isFinite(n)) updateEntry(entry.id, { scope: Math.max(0, n) });
-                  }}
-                  className="col-span-2 sm:col-span-1 bg-surface-deep border-border text-text font-data focus:border-accent-magenta/50 focus:ring-accent-magenta/20"
-                />
-
-                <Input
-                  type="number"
-                  min={0}
-                  placeholder="Completed (pts)"
-                  aria-label={`Completed points on day ${entry.day}`}
-                  value={entry.completed ?? ""}
-                  onChange={(e) => {
-                    if (e.target.value === "") {
-                      updateEntry(entry.id, { completed: null });
-                      return;
-                    }
-                    const n = Number(e.target.value);
-                    if (Number.isFinite(n)) updateEntry(entry.id, { completed: Math.max(0, n) });
-                  }}
-                  className="col-span-2 sm:col-span-1 bg-surface-deep border-border text-text font-data focus:border-accent/50 focus:ring-accent/20"
-                />
-
-                {/* Compact single-line note input — dense tracker row. */}
-                <Input
-                  type="text"
-                  placeholder="Optional note..."
-                  value={entry.description ?? ""}
-                  onChange={(e) =>
-                    updateEntry(entry.id, {
-                      description: e.target.value.trim() ? e.target.value : undefined,
-                    })
-                  }
-                  className="col-span-2 sm:col-span-1 bg-surface-deep border-border text-text text-xs focus:border-accent/50 focus:ring-accent/20"
-                  aria-label={`Note for day ${entry.day}`}
-                />
-              </div>
-            ))}
-          </div>
-
-          <p className="mt-4 text-xs text-sub">
-            Tip: Only enter scope on days when it changes. The chart carries the last known scope
-            value forward. Day 0 is the sprint start.
-          </p>
-        </SectionCard>
-      </div>
+      <SprintToolShell
+        tool="burnup"
+        onSettingsChanged={(sprintId, change) =>
+          log(BURNUP_ACTIONS.CONFIG_UPDATED, { sprintId, ...change })
+        }
+      >
+        {(ctx) => <BurnupSprint key={ctx.sprint.id} {...ctx} log={log} />}
+      </SprintToolShell>
     </ToolPageWrapper>
   );
 }

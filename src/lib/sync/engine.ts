@@ -106,6 +106,11 @@ class SyncEngine {
    *  this guard. After a successful first pull, the adapter is removed
    *  and any pending dirty flag triggers a fresh flush. */
   private awaitingInitialPull = new Set<string>();
+  /** Bumped by every `start()`; tells a finished start from a superseded one. */
+  private startGeneration = 0;
+  /** The generation whose initial pull (and drain) has finished. */
+  private readyGeneration = 0;
+  private readyWaiters: Array<() => void> = [];
 
   register(adapter: SyncAdapter): void {
     if (this.adapters.has(adapter.id)) return;
@@ -153,6 +158,7 @@ class SyncEngine {
     }
     this.lastUserId = userId;
     this.state = { kind: "running", supabase, userId, channel: null };
+    const generation = ++this.startGeneration;
     this.starting = true;
     // Mark every currently-registered adapter as awaiting initial pull —
     // pushes are blocked until each adapter's first pull resolves.
@@ -180,6 +186,18 @@ class SyncEngine {
     } finally {
       this.starting = false;
     }
+    // Still this session (not stopped or restarted meanwhile): local state
+    // now reflects the cloud, so whoever waits in whenReady() may proceed.
+    if (
+      generation === this.startGeneration &&
+      this.state.kind === "running" &&
+      this.state.userId === userId
+    ) {
+      this.readyGeneration = generation;
+      const waiters = this.readyWaiters;
+      this.readyWaiters = [];
+      waiters.forEach((resolve) => resolve());
+    }
     void this.subscribeRealtime();
     this.attachWakeHandlers();
     // After start completes, flush any adapters that piled up dirty work
@@ -194,6 +212,27 @@ class SyncEngine {
    *  defaults before the first pull populates state). */
   isStarting(): boolean {
     return this.starting;
+  }
+
+  /**
+   * Resolves once the engine is running and its initial pull has finished,
+   * including adapters that registered during it (the drain in `start()`).
+   * Immediately when that already happened for the current session;
+   * otherwise (idle, starting, or stopped mid-start) at the end of the next
+   * start that completes. Never rejects: a pull that fails still counts as
+   * finished, as it does for the push guard.
+   *
+   * For one-off local writes that must not race the first pull (the
+   * legacy sprint migration): written before it, they'd be "unpushed local
+   * edits" that win over newer cloud rows.
+   */
+  whenReady(): Promise<void> {
+    if (this.state.kind === "running" && this.readyGeneration === this.startGeneration) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.readyWaiters.push(resolve);
+    });
   }
 
   stop(): void {

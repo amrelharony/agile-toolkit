@@ -35,6 +35,7 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   "psych-safety": ["team health", "psychological safety", "trust"],
   "mood-tracker": ["team health", "morale", "happiness", "niko niko"],
   "health-dashboard": ["insights", "kpis", "metrics overview"],
+  "sprint-metrics": ["sprint dashboard", "sprint status", "sprint health", "close sprint"],
   burndown: ["sprint progress", "remaining work"],
   burnup: ["scope", "release progress"],
   velocity: ["sprint metrics", "throughput", "points per sprint"],

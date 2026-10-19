@@ -85,7 +85,7 @@ export const GUIDES: ToolGuide[] = [
     ],
     steps: [
       "In Configuration, enter the Backlog Size in story points, a Scope Buffer % for work not found yet, the Sprint Length and the Start Date.",
-      "Under Historical Velocities, enter the points completed in each recent sprint.",
+      "Under Historical Velocities, use your completed sprints or type the points completed in each recent sprint.",
       "Read the Delivery Forecast: the number of sprints and the target date at 50%, 75%, 85% and 95% confidence.",
       "Drag the Scope Sensitivity slider to see how adding or cutting scope moves the dates.",
       "Optionally set Target sprints to release to see where your goal falls on the Simulation Histogram.",
@@ -94,7 +94,7 @@ export const GUIDES: ToolGuide[] = [
     tips: [
       "Commit to the 85% date, not the 50% one. The 50% date is a coin flip.",
       "Use your last 6–10 sprints. If a warning says velocity has shifted, keep only the sprints since the change.",
-      "Keep sprint history in the Velocity Tracker so the numbers are ready to paste.",
+      "Close each sprint with its completed points (in Velocity or Sprint Metrics) so the forecast can use them. The start date follows the active sprint until you set one.",
     ],
     scales: [
       {

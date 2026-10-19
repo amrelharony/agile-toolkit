@@ -20,17 +20,15 @@ const TOOLTIP_STYLE = {
 };
 
 interface SprintRadarChartProps {
-  /** One row per dimension; each sprint's score is keyed by its id. */
-  data: Record<string, string | number>[];
-  /** Sprints to overlay, in order. */
-  series: { id: string; name: string }[];
-  /** Series colors, cycled by index. */
-  colors: readonly string[];
+  /** One row per dimension; each sprint's rating keyed by its id (null = not rated). */
+  data: Record<string, string | number | null>[];
+  /** Sprints to overlay, in order, each with its colour. */
+  series: { id: string; name: string; color: string }[];
   width?: number;
   height?: number;
 }
 
-export function SprintRadarChart({ data, series, colors, width, height }: SprintRadarChartProps) {
+export function SprintRadarChart({ data, series, width, height }: SprintRadarChartProps) {
   return (
     <RadarChart
       width={width}
@@ -46,14 +44,17 @@ export function SprintRadarChart({ data, series, colors, width, height }: Sprint
         tickCount={6}
         stroke="rgba(255,255,255,0.05)"
       />
-      <Tooltip contentStyle={TOOLTIP_STYLE} />
-      {series.map((sp, i) => (
+      <Tooltip
+        contentStyle={TOOLTIP_STYLE}
+        formatter={(value) => (value == null ? "Not rated" : value)}
+      />
+      {series.map((sp) => (
         <Radar
           key={sp.id}
           name={sp.name}
           dataKey={sp.id}
-          stroke={colors[i % colors.length]}
-          fill={colors[i % colors.length]}
+          stroke={sp.color}
+          fill={sp.color}
           fillOpacity={0.15}
           strokeWidth={2}
         />
