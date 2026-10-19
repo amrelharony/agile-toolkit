@@ -21,6 +21,41 @@ export interface Sprint {
   status: "planned" | "active" | "completed" | "cancelled";
 }
 
+/**
+ * One day of a sprint's log. Day 0 is `Sprint.startDate`, counted in calendar
+ * days (as Burndown always has). Burndown records `remaining` and
+ * `scopeChange`; Burnup records `completed` and `scope`. Each tool shows what
+ * was typed and derives the other number when it's missing
+ * (`src/lib/sprints/series.ts`).
+ */
+export interface SprintDay {
+  day: number;
+  remaining?: number | null;
+  completed?: number | null;
+  /** Total scope that day. Missing: the previous day's, else `Sprint.pointsPlanned`. */
+  scope?: number | null;
+  /** Burndown's "scope changed this day" flag. */
+  scopeChange?: boolean;
+  note?: string;
+}
+
+/**
+ * Per-sprint metrics shared by the sprint tools (Burndown, Burnup, Sprint
+ * Comparison) and the Sprint Metrics hub. One row per sprint: `id` IS the
+ * `Sprint.id`. Kept out of `Sprint` itself so code that rebuilds a Sprint
+ * (agents, older clients) can't drop a daily log, and so sprint lists stay
+ * small. A row whose sprint no longer exists is ignored.
+ */
+export interface SprintSeries {
+  id: string;
+  days?: SprintDay[];
+  /** Sprint Comparison scores (1-10), keyed by dimension label. */
+  ratings?: Record<string, number>;
+  /** The old per-tool storage keys this row was built from (migration audit). */
+  migratedFrom?: string[];
+  updatedAt?: ISODateString;
+}
+
 export interface Story {
   id: string;
   title: string;
@@ -1909,6 +1944,8 @@ export interface PokerRound {
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
+  /** Daily logs and ratings per sprint (see `SprintSeries`). */
+  sprintSeries?: SprintSeries[];
   stories: Story[];
   impediments: Impediment[];
   risks: Risk[];
@@ -2140,6 +2177,7 @@ export interface WhiteboardActivityEvent {
 export const emptyWorkspace = {
   teamMembers: [],
   sprints: [],
+  sprintSeries: [],
   stories: [],
   impediments: [],
   risks: [],

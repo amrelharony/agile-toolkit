@@ -111,4 +111,14 @@ describe("a normal collection still derives its kind (no override regressions)",
     );
     expect(upsert.mock.calls[0][1]).toBe("workspace:sprint");
   });
+
+  it("workspace.sprint_series.create writes to workspace:sprintSeries (its synced kind)", async () => {
+    expect(kindFromToolId("workspace.sprint_series")).toBe("workspace:sprintSeries");
+    const action = registry.resolve("workspace.sprint_series.create");
+    await action!.mcpHandler!(
+      { entity: { id: "sprint_x", days: [{ day: 0, remaining: 5 }] } },
+      ctx()
+    );
+    expect(upsert.mock.calls[0][1]).toBe("workspace:sprintSeries");
+  });
 });

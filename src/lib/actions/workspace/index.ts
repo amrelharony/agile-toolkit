@@ -17,6 +17,7 @@ import { defineCrudActions } from "../define-crud";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type {
   Sprint,
+  SprintSeries,
   Story,
   Impediment,
   Risk,
@@ -123,6 +124,26 @@ const SprintSchema = z.object({
   pointsCompleted: z.number().optional(),
   status: z.enum(["planned", "active", "completed", "cancelled"]),
 }) as unknown as z.ZodType<Sprint>;
+
+// Mirrors `SprintDay` / `SprintSeries` field for field: `update` writes the
+// parsed record and `z.object` drops unknown keys, so a field missing here
+// would be erased by every agent update.
+const SprintDaySchema = z.object({
+  day: z.number(),
+  remaining: z.number().nullable().optional(),
+  completed: z.number().nullable().optional(),
+  scope: z.number().nullable().optional(),
+  scopeChange: z.boolean().optional(),
+  note: z.string().optional(),
+});
+
+const SprintSeriesSchema = z.object({
+  id: z.string(),
+  days: z.array(SprintDaySchema).optional(),
+  ratings: z.record(z.string(), z.number()).optional(),
+  migratedFrom: z.array(z.string()).optional(),
+  updatedAt: z.string().optional(),
+}) as unknown as z.ZodType<SprintSeries>;
 
 const StorySchema = z.object({
   id: z.string(),
@@ -233,6 +254,17 @@ defineCrudActions<Sprint>({
   upsert: (s) => ws().upsertSprint(s),
   remove: (id) => ws().removeSprint(id),
   generateId: () => `sprint_${nanoid(8)}`,
+});
+
+// A sprint's daily log and ratings. No `generateId`: the id must be the
+// sprint's own id, so a create without one is rejected.
+defineCrudActions<SprintSeries>({
+  toolId: "workspace.sprint_series",
+  entityName: "sprint series",
+  schema: SprintSeriesSchema,
+  selectAll: () => ws().sprintSeries ?? [],
+  upsert: (x) => ws().upsertSprintSeries(x),
+  remove: (id) => ws().removeSprintSeries(id),
 });
 
 defineCrudActions<Story>({
