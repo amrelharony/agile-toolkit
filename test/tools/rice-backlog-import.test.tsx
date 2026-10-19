@@ -242,6 +242,8 @@ describe("every method tool", () => {
     titleLabel: string;
     add: string | RegExp;
     framework: PrioritizationItem["framework"];
+    /** Fill the inputs the backlog can't prefill but the tool requires. */
+    fill?: () => void;
   }[] = [
     {
       name: "RICE",
@@ -274,6 +276,12 @@ describe("every method tool", () => {
       titleLabel: "Title",
       add: /Add & score/,
       framework: "ice",
+      // The backlog holds no ICE scores, and ICE requires all three.
+      fill: () => {
+        for (const label of ["Impact (1–10)", "Confidence (1–10)", "Ease (1–10)"]) {
+          fireEvent.change(screen.getByLabelText(label), { target: { value: "6" } });
+        }
+      },
     },
     {
       name: "Value/Effort",
@@ -312,6 +320,7 @@ describe("every method tool", () => {
     render(<c.Client />);
 
     expect(screen.getByLabelText(c.titleLabel)).toHaveValue("Passkey sign-in");
+    c.fill?.();
     fireEvent.click(screen.getByRole("button", { name: c.add }));
 
     const added = rows().find((r) => r.framework === c.framework);

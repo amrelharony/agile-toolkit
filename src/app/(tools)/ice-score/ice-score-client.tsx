@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Hash, Plus, Trash2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -23,6 +23,20 @@ import {
 } from "@/components/prioritization/backlog-link";
 import { linkNewRow } from "@/lib/prioritization/backlog-links";
 
+/** "Impact", "Impact and Ease", "Impact, Confidence and Ease". */
+function joinAnd(parts: readonly string[]): string {
+  return parts.length <= 1
+    ? parts.join("")
+    : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/** What's missing before an idea can be scored. */
+function missingMessage(titleMissing: boolean, missingScores: readonly string[]): string {
+  const parts = [...(titleMissing ? ["a title"] : []), ...missingScores];
+  const range = missingScores.length > 0 ? " Each score runs from 1 to 10." : "";
+  return `Enter ${joinAnd(parts)} to score this idea.${range}`;
+}
+
 export function IceScoreClient() {
   const all = useWorkspaceStore((s) => s.prioritizations ?? []);
   const items = useMemo(() => all.filter((x) => x.framework === "ice"), [all]);
@@ -40,25 +54,39 @@ export function IceScoreClient() {
   // next idea added links to that backlog item.
   const backlog = useBacklogImport("ice", (picked) => setTitle(picked.name));
 
+  // An empty score used to become 5 without a word, so an idea scored on one
+  // field still ranked as if all three were rated. All three are required;
+  // after a failed Add the empty fields are flagged and a message names them.
+  const errorId = useId();
+  const [attempted, setAttempted] = useState(false);
+  const titleMissing = !title.trim();
+  const missingScores = (
+    [
+      ["Impact", impact],
+      ["Confidence", confidence],
+      ["Ease", ease],
+    ] as const
+  )
+    .filter(([, raw]) => !Number.isFinite(parseFloat(raw)))
+    .map(([label]) => label);
+  const showError = attempted && (titleMissing || missingScores.length > 0);
+  const flag = (missing: boolean) =>
+    showError && missing ? { "aria-invalid": true as const, "aria-describedby": errorId } : {};
+
   function add() {
-    if (!title.trim()) return;
-    // `parseFloat("")` → NaN, `parseFloat("abc")` → NaN.
-    // `|| 5` would also clobber a legitimate `0`, so check NaN explicitly and
-    // fall back to the midpoint only when the user genuinely left the field
-    // empty.  `iceScore` will then clamp into [1, 10].
-    const safeNum = (raw: string): number => {
-      const n = parseFloat(raw);
-      if (!Number.isFinite(n)) return 5;
-      // BUG-T4-ice-score-1: clamp into [1, 10] HERE so the stored
-      // fields match the input's documented range. The prior code
-      // relied on `iceScore`'s internal clamp, which left the stored
-      // `fields.impact` = "100" while the score reflected `10` —
-      // confusing in the table.
-      return Math.min(10, Math.max(1, n));
-    };
-    const i = safeNum(impact),
-      c = safeNum(confidence),
-      e = safeNum(ease);
+    if (titleMissing || missingScores.length > 0) {
+      setAttempted(true);
+      return;
+    }
+    // BUG-T4-ice-score-1: clamp into [1, 10] HERE so the stored
+    // fields match the input's documented range. The prior code
+    // relied on `iceScore`'s internal clamp, which left the stored
+    // `fields.impact` = "100" while the score reflected `10` —
+    // confusing in the table.
+    const clampScore = (raw: string): number => Math.min(10, Math.max(1, parseFloat(raw)));
+    const i = clampScore(impact),
+      c = clampScore(confidence),
+      e = clampScore(ease);
     const score = iceScore(i, c, e);
     const item: PrioritizationItem = linkNewRow(
       {
@@ -85,6 +113,7 @@ export function IceScoreClient() {
     setImpact("");
     setConfidence("");
     setEase("");
+    setAttempted(false);
   }
 
   const byId = useMemo(() => new Map(items.map((x) => [x.id, x])), [items]);
@@ -159,6 +188,7 @@ export function IceScoreClient() {
               aria-label="Title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              {...flag(titleMissing)}
             />
             <Input
               type="number"
@@ -168,6 +198,7 @@ export function IceScoreClient() {
               aria-label="Impact (1–10)"
               value={impact}
               onChange={(e) => setImpact(e.target.value)}
+              {...flag(missingScores.includes("Impact"))}
             />
             <Input
               type="number"
@@ -177,6 +208,7 @@ export function IceScoreClient() {
               aria-label="Confidence (1–10)"
               value={confidence}
               onChange={(e) => setConfidence(e.target.value)}
+              {...flag(missingScores.includes("Confidence"))}
             />
             <Input
               type="number"
@@ -186,8 +218,14 @@ export function IceScoreClient() {
               aria-label="Ease (1–10)"
               value={ease}
               onChange={(e) => setEase(e.target.value)}
+              {...flag(missingScores.includes("Ease"))}
             />
           </div>
+          {showError && (
+            <p id={errorId} role="alert" className="mt-2 text-xs text-danger">
+              {missingMessage(titleMissing, missingScores)}
+            </p>
+          )}
           <Button onClick={add} className="mt-3 gap-1">
             <Plus className="w-4 h-4" />
             Add & score

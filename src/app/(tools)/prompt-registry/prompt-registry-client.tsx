@@ -32,6 +32,7 @@ import { generatePromptRegistryPrompts } from "@/lib/ai-prompts/prompt-registry"
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PROMPT_REGISTRY_ACTIONS } from "@/lib/history/event-actions";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
+import { toast } from "@/lib/utils/toast";
 
 // Lazy-load the run panel so prompt-registry stays out of the BYOK adapter
 // chunk for users who never use the Test feature.
@@ -113,13 +114,30 @@ export function PromptRegistryClient() {
     setAuthor("");
   }
 
+  /**
+   * Put `p` in production and deprecate whichever other version of the same
+   * prompt was there, so a prompt has one production version at a time.
+   * Publishing used to leave the old version in production too. Same rule
+   * as the agent's `tool.prompt_registry.promote_to_production`.
+   */
+  function promote(p: PromptVersion, publishedAt: string | undefined) {
+    const retired = list.filter(
+      (x) => x.name === p.name && x.status === "production" && x.id !== p.id
+    );
+    for (const r of retired) {
+      upsert({ ...r, status: "deprecated" });
+      log(PROMPT_REGISTRY_ACTIONS.PROMPT_DEPRECATED, { name: r.name, version: r.version });
+    }
+    upsert({ ...p, status: "production", publishedAt });
+    if (retired.length > 0) {
+      toast(`${p.name}@${p.version} is now in production`, {
+        description: `${retired.map((r) => `${r.name}@${r.version}`).join(", ")} moved to deprecated.`,
+      });
+    }
+  }
+
   function publish(p: PromptVersion) {
-    const next: PromptVersion = {
-      ...p,
-      status: "production",
-      publishedAt: new Date().toISOString(),
-    };
-    upsert(next);
+    promote(p, new Date().toISOString());
     log(PROMPT_REGISTRY_ACTIONS.PROMPT_PUBLISHED, { name: p.name, version: p.version });
     // BUG-T6-prompt-registry-1: do NOT emitSignal here — signal-bridge
     // watches workspace store and fires `prompt.versionPublished` on
@@ -131,11 +149,11 @@ export function PromptRegistryClient() {
     // BUG-T6-prompt-registry-2: if user moves status to "production"
     // via the dropdown (instead of the Publish button), also stamp
     // publishedAt so downstream consumers and CSV exports match.
-    const patch: Partial<PromptVersion> = { status: s };
-    if (s === "production" && !p.publishedAt) {
-      patch.publishedAt = new Date().toISOString();
+    if (s === "production") {
+      if (p.status !== "production") promote(p, p.publishedAt ?? new Date().toISOString());
+      return;
     }
-    upsert({ ...p, ...patch });
+    upsert({ ...p, status: s });
     if (s === "deprecated") log(PROMPT_REGISTRY_ACTIONS.PROMPT_DEPRECATED, { name: p.name });
   }
 
@@ -262,6 +280,10 @@ export function PromptRegistryClient() {
               </>
             }
           >
+            <p className="mb-2 text-xs text-sub">
+              A prompt has one version in production. Publishing a version moves the one it replaces
+              to deprecated.
+            </p>
             <ul className="space-y-2">
               {[...list]
                 .sort(

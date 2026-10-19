@@ -4,9 +4,11 @@
  * CRUD-backed variant (squad S12a, Wave 3). Mirrors the squad-13 DACI
  * test pattern but adds a CRITICAL coverage area unique to this tool:
  * the single-production-per-name invariant enforced by
- * promote_to_production. The in-app UI does NOT enforce this — only
- * the agent surface does — so the test below explicitly seeds a
- * multi-production starting state and asserts the auto-demote behaviour.
+ * promote_to_production. The in-app Publish button applies the same rule
+ * (covered in test/tools/prompt-registry-fixes.test.tsx); older data can
+ * still hold two production versions of one name, so the tests below
+ * seed that state and assert the auto-demote behaviour on both the
+ * browser path and the MCP path.
  *
  * Coverage outline:
  *   1. all 5 actions registered with the right category split
@@ -25,6 +27,7 @@
  *        - auto-demotes a sibling production version to deprecated
  *          (the single-production invariant — load-bearing test)
  *        - does NOT touch sibling versions of OTHER names
+ *        - the MCP handler writes the same demote + promote in one bulk upsert
  *        - returns {promoted: false} for an unknown id
  *        - stamps publishedAt when missing; preserves it when present
  *   7. deprecate sets status, appends reason to changeNote (preserving
@@ -37,7 +40,21 @@
  * how production loads the module exactly once at boot.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+// The MCP path talks to the server store; stub just the calls it makes.
+vi.mock("@/lib/actions/server-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/actions/server-store")>();
+  return {
+    ...actual,
+    serverGetEntity: vi.fn(async () => null),
+    serverListEntities: vi.fn(async () => []),
+    serverUpsertEntity: vi.fn(async () => {}),
+    serverBulkUpsertEntities: vi.fn(async () => {}),
+  };
+});
+
+import * as serverStore from "@/lib/actions/server-store";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { PromptVersion } from "@/lib/stores/workspace-types";
@@ -255,8 +272,8 @@ describe("tool.prompt_registry.get_production_prompt — name → production loo
   });
 
   it("picks the latest-publishedAt row when multiple are inexplicably tagged production (defensive)", async () => {
-    // The in-app dropdown lets a user park two versions in production
-    // simultaneously. get_production_prompt must remain deterministic.
+    // Data saved before the in-app UI enforced one production version per
+    // name can hold two. get_production_prompt must remain deterministic.
     useWorkspaceStore.getState().upsertPrompt(
       seed({
         id: "old",
@@ -442,6 +459,45 @@ describe("tool.prompt_registry.promote_to_production — single-production invar
 
     const stored = (useWorkspaceStore.getState().prompts ?? []).find((p) => p.id === "p1");
     expect(stored?.status).toBe("production");
+  });
+
+  it("MCP path: demotes the old production version and promotes the target in one write", async () => {
+    const oldProd = seed({
+      id: "old-prod",
+      name: "summarizer",
+      version: "1.0.0",
+      status: "production",
+      publishedAt: "2025-06-01T00:00:00.000Z",
+    });
+    const candidate = seed({ id: "new-cand", name: "summarizer", version: "1.1.0" });
+    const otherName = seed({
+      id: "cls-prod",
+      name: "classifier",
+      version: "0.9.0",
+      status: "production",
+    });
+    vi.mocked(serverStore.serverGetEntity).mockResolvedValueOnce(candidate as never);
+    vi.mocked(serverStore.serverListEntities).mockResolvedValueOnce([
+      oldProd,
+      candidate,
+      otherName,
+    ] as never);
+    const bulk = vi.mocked(serverStore.serverBulkUpsertEntities);
+    bulk.mockClear();
+
+    const action = registry.get("tool.prompt_registry.promote_to_production");
+    const result = (await action!.mcpHandler!({ id: "new-cand" }, ctx())) as {
+      promoted: boolean;
+      demoted: string[];
+    };
+
+    expect(result).toEqual({ promoted: true, demoted: ["old-prod"] });
+    expect(bulk).toHaveBeenCalledTimes(1);
+    const writes = bulk.mock.calls[0][2] as PromptVersion[];
+    expect(writes.map((w) => [w.id, w.status])).toEqual([
+      ["old-prod", "deprecated"],
+      ["new-cand", "production"],
+    ]);
   });
 });
 

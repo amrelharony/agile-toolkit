@@ -102,7 +102,7 @@ export const GUIDES: ToolGuide[] = [
     tips: [
       "Agree what 1, 5 and 10 mean for your goal before scoring, or scores drift between people.",
       "Keep Confidence honest: an untested opinion is a 2 or 3, not an 8.",
-      "An empty field counts as 5. To re-score an idea, remove it and add it again.",
+      "All three scores are required. To re-score an idea, remove it and add it again.",
     ],
   },
   {
@@ -228,7 +228,7 @@ export const GUIDES: ToolGuide[] = [
       "The tool holds one $100 budget. With a group, agree the split together, or run one round per person, export each and add them up.",
     ],
     tips: [
-      "To move money between items, lower one first. An amount is capped at what's still unallocated.",
+      "To move money between items, lower one first. An amount is capped at what's still unallocated, and a note under the item says so.",
       "Watch for people putting everything on their favorite, and ask why.",
       "For a long list, shortlist first with the MoSCoW Matrix.",
     ],
@@ -348,9 +348,9 @@ export const GUIDES: ToolGuide[] = [
       "When a group needs to show how it reached a choice.",
     ],
     steps: [
-      "Agree the criteria before discussing options. Add each with a weight; weights that add up to 1 (or 100) keep totals easy to compare.",
+      "Agree the criteria before discussing options. Add each with a weight. Weights are relative: a weight of 2 counts twice as much as 1, and each criterion shows its share of the total.",
       "Add each option.",
-      "In the Scoring matrix, score every option against each criterion on one agreed scale, such as 1–5.",
+      "In the Scoring matrix, score every option against each criterion from 1 (poor) to 10 (excellent). A cell left empty counts as not scored.",
       "Total = the sum of score × weight. The top option is starred and the Total score chart shows the gaps.",
       "If the top two are close, treat it as a tie and discuss what the numbers miss.",
     ],
