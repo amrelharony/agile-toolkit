@@ -10,9 +10,13 @@
  * `canModerate={false}` is the visitor-room participant view: cards can be
  * added in Write and voted on in Vote, nothing else (no late cards, no
  * delete, group, action items, assignees or Send to).
+ *
+ * Pasting several lines into the add box adds one card per non-empty line
+ * (up to `pasteCap`, saying so when lines are left out). Cards are
+ * click-to-edit when the board passes `onEdit`.
  */
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type ClipboardEvent } from "react";
 import { AnimatePresence } from "framer-motion";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,6 +24,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import type { RetroColumn } from "@/lib/constants/retro-formats";
 import type { HandoffLink } from "@/lib/handoffs/types";
+import { PASTE_LINE_CAP, leftOutMessage, splitPastedLines } from "@/lib/utils/paste-lines";
+import { toast } from "@/lib/utils/toast";
 import { type BoardPhase, type RetroCard, MAX_VOTES } from "../types";
 import { sortedByVotes } from "../helpers";
 import { RetroCardItem } from "./retro-card-item";
@@ -33,6 +39,8 @@ export function RetroColumnPanel({
   votesUsed,
   clusterByCardId,
   onAdd,
+  onAddMany,
+  onEdit,
   onVote,
   onDelete,
   onGroup,
@@ -44,6 +52,7 @@ export function RetroColumnPanel({
   canModerate = true,
   canAdd = true,
   maxCardLength,
+  pasteCap = PASTE_LINE_CAP,
 }: {
   column: RetroColumn;
   cards: RetroCard[];
@@ -53,6 +62,10 @@ export function RetroColumnPanel({
   votesUsed: number;
   clusterByCardId?: Record<string, number>;
   onAdd: (columnKey: string, text: string) => void;
+  /** Add several cards at once (a multi-line paste). Falls back to `onAdd` per card. */
+  onAddMany?: (columnKey: string, texts: string[]) => void;
+  /** Change a card's text. Without it cards are read-only (a room participant). */
+  onEdit?: (id: string, text: string) => void;
   onVote: (id: string) => void;
   onDelete: (id: string) => void;
   onGroup: (id: string, parentId: string | null) => void;
@@ -70,6 +83,8 @@ export function RetroColumnPanel({
   canAdd?: boolean;
   /** Longest card text the input accepts. */
   maxCardLength?: number;
+  /** Most cards one multi-line paste adds. */
+  pasteCap?: number;
 }) {
   const [inputVal, setInputVal] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -108,6 +123,24 @@ export function RetroColumnPanel({
     if (!trimmed) return;
     onAdd(column.key, trimmed);
     setInputVal("");
+    inputRef.current?.focus();
+  }
+
+  // Several lines pasted: one card per line. What's typed in the box stays.
+  function handlePaste(e: ClipboardEvent<HTMLInputElement>) {
+    const pasted = splitPastedLines(e.clipboardData.getData("text"), pasteCap);
+    if (!pasted) return;
+    e.preventDefault();
+    const texts = maxCardLength
+      ? pasted.lines.map((line) => line.slice(0, maxCardLength).trim())
+      : pasted.lines;
+    if (onAddMany) onAddMany(column.key, texts);
+    else for (const text of texts) onAdd(column.key, text);
+    if (pasted.dropped > 0) {
+      toast.info(`Added ${texts.length} cards.`, {
+        description: `${leftOutMessage(pasted.dropped)} One paste adds up to ${pasteCap}.`,
+      });
+    }
     inputRef.current?.focus();
   }
 
@@ -158,6 +191,8 @@ export function RetroColumnPanel({
                     onAssigneeChange={onAssigneeChange}
                     onToggleDiscussing={onToggleDiscussing}
                     onLinksChange={onLinksChange}
+                    onEdit={onEdit}
+                    maxCardLength={maxCardLength}
                     assigneeListId={assigneeListId}
                     canModerate={canModerate}
                   />
@@ -177,6 +212,8 @@ export function RetroColumnPanel({
                       onAssigneeChange={onAssigneeChange}
                       onToggleDiscussing={onToggleDiscussing}
                       onLinksChange={onLinksChange}
+                      onEdit={onEdit}
+                      maxCardLength={maxCardLength}
                       assigneeListId={assigneeListId}
                       canModerate={canModerate}
                     />
@@ -208,8 +245,9 @@ export function RetroColumnPanel({
               ref={inputRef}
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
+              onPaste={handlePaste}
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleSubmit();
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) handleSubmit();
                 else if (e.key === "Escape" && !isWrite) closeAdd();
               }}
               placeholder="Add a card…"

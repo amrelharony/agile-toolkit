@@ -119,7 +119,8 @@ describe("accepting an estimate", () => {
     fireEvent.click(screen.getByRole("button", { name: "M" }));
 
     expect(screen.getByText(/Final estimate/).textContent).toContain("M");
-    const queueItem = screen.getByRole("button", { name: /Login page/ });
+    // The queue row (not its Edit / Delete buttons) shows the estimate.
+    const queueItem = screen.getByRole("button", { name: /^Login page/ });
     expect(queueItem.textContent).toContain("M");
   });
 

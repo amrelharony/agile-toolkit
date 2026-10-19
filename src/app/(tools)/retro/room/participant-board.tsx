@@ -5,6 +5,13 @@
  * board, rendered from its last snapshot through the regular column panels
  * in participant mode (`canModerate={false}`). Adding a card (Write) and
  * voting (Vote) call back to the room; nothing here edits the board itself.
+ *
+ * A participant gets no edit control. Only a member promoted to host passes
+ * `onEdit`, to fix card text on the board it now hosts.
+ *
+ * A multi-line paste sends one intent per line, so it's capped at half the
+ * host's per-sender burst: the rest of a bigger paste would be dropped
+ * silently on the host's side.
  */
 
 import { VISITOR_LIMITS } from "@/lib/realtime/visitor-rooms";
@@ -14,6 +21,9 @@ import { RetroColumnPanel } from "../components/retro-column-panel";
 
 const noop = () => {};
 
+/** Most cards one paste sends: half the host's inbound burst per sender. */
+export const PARTICIPANT_PASTE_CAP = Math.floor(VISITOR_LIMITS.inbound.perSender.capacity / 2);
+
 export interface ParticipantBoardProps {
   board: BoardState;
   /** Votes this person has left. */
@@ -22,6 +32,8 @@ export interface ParticipantBoardProps {
   canAct: boolean;
   onAdd: (columnKey: string, text: string) => void;
   onVote: (cardId: string) => void;
+  /** Hosting (promoted) only: change a card's text. Participants never get it. */
+  onEdit?: (cardId: string, text: string) => void;
 }
 
 export function ParticipantBoard({
@@ -30,6 +42,7 @@ export function ParticipantBoard({
   canAct,
   onAdd,
   onVote,
+  onEdit,
 }: ParticipantBoardProps) {
   const columns = board.format.columns;
   if (columns.length === 0) {
@@ -52,6 +65,7 @@ export function ParticipantBoard({
           votesUsed={votesUsed}
           onAdd={onAdd}
           onVote={onVote}
+          onEdit={onEdit}
           onDelete={noop}
           onGroup={noop}
           onToggleAction={noop}
@@ -60,6 +74,7 @@ export function ParticipantBoard({
           canModerate={false}
           canAdd={canAct}
           maxCardLength={VISITOR_LIMITS.maxTextChars}
+          pasteCap={PARTICIPANT_PASTE_CAP}
         />
       ))}
     </div>

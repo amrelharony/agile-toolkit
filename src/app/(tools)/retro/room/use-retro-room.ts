@@ -26,7 +26,9 @@
  *    history on either side;
  *  - leaves at the room's 3-hour limit (its own join time + 3 h, or the
  *    host's `endsAt` if sooner): `useRoom` doesn't enforce `hardTtlMs`;
- *  - when elected, continues hosting from the last snapshot, still in memory.
+ *  - when elected, continues hosting from the last snapshot, still in memory,
+ *    and can fix a card's text there (`editCard`): the next snapshot carries
+ *    it, so the protocol is unchanged.
  *
  * Nothing opens before the caller mounts this hook, which happens only after
  * the consent dialog. A terminal status (ended, expired, kicked, full, left,
@@ -185,6 +187,12 @@ export interface RetroRoom {
   toggleTimer: () => void;
   /** Promoted host: set the countdown (paused). */
   setTimerSeconds: (seconds: number) => void;
+  /**
+   * Promoted host: change a card's text on the in-memory board. False when
+   * this client doesn't host it, the card has gone, or the text is empty or
+   * has hidden characters. The starting host edits through its own Board.
+   */
+  editCard: (cardId: string, text: string) => boolean;
 }
 
 const TERMINAL: ReadonlySet<RetroRoomStatus> = new Set<RetroRoomStatus>([
@@ -771,6 +779,25 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     [role, touch, updateView]
   );
 
+  const editCard = useCallback(
+    (cardId: string, text: string): boolean => {
+      if (role === "host" || !isHostRef.current || !activeRef.current) return false;
+      const clean = cleanText(text, VISITOR_LIMITS.maxTextChars);
+      if (clean === null) return false;
+      if (!viewRef.current?.board.cards.some((c) => c.id === cardId)) return false;
+      updateView((v) => ({
+        ...v,
+        board: {
+          ...v.board,
+          cards: v.board.cards.map((c) => (c.id === cardId ? { ...c, text: clean } : c)),
+        },
+      }));
+      touch();
+      return true;
+    },
+    [role, touch, updateView]
+  );
+
   // ── Result ───────────────────────────────────────────────────────
 
   const board = role === "host" ? (opts.hostBoard ?? null) : (view?.board ?? null);
@@ -815,5 +842,6 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
     setPhase,
     toggleTimer,
     setTimerSeconds,
+    editCard,
   };
 }
