@@ -1537,6 +1537,10 @@ export interface RetroBoard {
   archivedAt?: string;
   /** The archived retro this one follows, for carrying its actions over. */
   previousRetroId?: string;
+  /** Facilitator mode: votes cast per participant (name → count), so each
+   *  person gets their own budget on a shared screen. `userVotes` stays the
+   *  single-voter count. */
+  votesBy?: Record<string, number>;
 }
 
 // ── Sprint Planning (squad S1) ───────────────────────────────────────

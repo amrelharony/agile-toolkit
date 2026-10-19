@@ -1,9 +1,9 @@
 /**
- * Retro board — pure helpers (id/timer formatting, vote sorting, card delete
- * and its undo, theme clustering features, the JSON export). No React, no
- * side effects beyond `crypto.randomUUID()` — kept framework-free so they
- * stay trivially testable and shareable between the board and its export
- * path.
+ * Retro board — pure helpers (id/timer formatting, vote sorting, per-person
+ * vote budgets, card delete and its undo, theme clustering features, the
+ * JSON export). No React, no side effects beyond `crypto.randomUUID()` —
+ * kept framework-free so they stay trivially testable and shareable between
+ * the board and its export path.
  */
 
 import type { BoardState, RetroCard } from "./types";
@@ -20,6 +20,53 @@ export function formatTimer(s: number) {
 
 export function sortedByVotes(cards: RetroCard[]) {
   return [...cards].sort((a, b) => b.votes - a.votes);
+}
+
+// ── Facilitator mode: per-person votes ──────────────────────────────
+
+/** Trimmed, case-insensitive name for matching voters. */
+function voterMatch(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+/**
+ * The `votesBy` key that holds `name`'s votes: an existing key that matches
+ * it ignoring case and spaces, else the trimmed name.
+ */
+export function voterKey(votesBy: Record<string, number> | undefined, name: string): string {
+  const want = voterMatch(name);
+  return Object.keys(votesBy ?? {}).find((k) => voterMatch(k) === want) ?? name.trim();
+}
+
+/** Votes `name` has cast on this board. */
+export function votesCastBy(votesBy: Record<string, number> | undefined, name: string): number {
+  const n = votesBy?.[voterKey(votesBy, name)];
+  return typeof n === "number" && Number.isFinite(n) ? Math.max(0, n) : 0;
+}
+
+/**
+ * Everyone who can vote: the team roster first, then the names on the board
+ * (added by hand, or who voted before the roster changed). One entry per
+ * person, matched ignoring case.
+ */
+export function voterNames(roster: readonly string[], votesBy?: Record<string, number>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of [...roster, ...Object.keys(votesBy ?? {})]) {
+    const name = raw.trim();
+    const key = voterMatch(name);
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
+/** The board with every person's votes dropped (Clear Board). */
+export function withoutVotesBy(board: BoardState): BoardState {
+  const next = { ...board };
+  delete next.votesBy;
+  return next;
 }
 
 /**

@@ -24,7 +24,11 @@ export function RelatedTools({ toolId }: { toolId: string }) {
   if (related.length === 0) return null;
 
   return (
-    <nav aria-labelledby="related-tools-heading" className="mt-10 border-t border-border pt-6">
+    <nav
+      data-chrome="related"
+      aria-labelledby="related-tools-heading"
+      className="mt-10 border-t border-border pt-6"
+    >
       <h2 id="related-tools-heading" className="mb-3 text-sm font-semibold text-text">
         More in {section.label}
       </h2>

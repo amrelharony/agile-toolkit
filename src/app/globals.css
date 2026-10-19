@@ -1119,3 +1119,12 @@
     font-size: 100%; /* explicit — 1rem === 16px (or user preference) */
   }
 }
+
+/* Presentation mode (components/presentation/presentation-mode): bigger
+   type for a shared screen, and the app's own chrome out of the way. */
+html[data-presenting="true"] {
+  font-size: 112.5%;
+}
+html[data-presenting="true"] [data-chrome] {
+  display: none !important;
+}

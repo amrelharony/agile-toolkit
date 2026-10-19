@@ -1286,6 +1286,7 @@ export function StoryMapperClient() {
                 clipboardText={clipboardText}
                 jsonData={jsonData}
                 markdown={markdown}
+                shareState={{ steps, slices }}
               />
               <Button
                 variant="danger-ghost"

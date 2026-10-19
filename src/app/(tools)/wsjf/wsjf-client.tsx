@@ -276,6 +276,7 @@ export function WsjfClient() {
                   csvData={csvData}
                   jsonData={ranked}
                   markdown={markdown}
+                  shareState={items}
                   targetRef={exportRef}
                 />
               </>

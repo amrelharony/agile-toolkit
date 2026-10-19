@@ -2,11 +2,13 @@
 
 /**
  * One retro column: header (icon/label/count), the card list (top-level cards
- * with their grouped children rendered immediately after), and — in the Write
- * phase — the add-card input. Cards are vote-sorted in Discuss/Actions.
+ * with their grouped children rendered immediately after), and the add-card
+ * input. The input is always open in the Write phase; in later phases it sits
+ * behind an "Add a card" button so a late idea can still land on the board.
+ * Cards are vote-sorted in Discuss/Actions.
  */
 
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { AnimatePresence } from "framer-motion";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,7 +26,7 @@ export function RetroColumnPanel({
   cards,
   allCards,
   phase,
-  userVotes,
+  votesUsed,
   clusterByCardId,
   onAdd,
   onVote,
@@ -40,7 +42,8 @@ export function RetroColumnPanel({
   cards: RetroCard[];
   allCards: RetroCard[];
   phase: BoardPhase;
-  userVotes: number;
+  /** Votes the current voter ("Me", or the person picked) has cast. */
+  votesUsed: number;
   clusterByCardId?: Record<string, number>;
   onAdd: (columnKey: string, text: string) => void;
   onVote: (id: string) => void;
@@ -57,7 +60,33 @@ export function RetroColumnPanel({
 }) {
   const [inputVal, setInputVal] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const canVote = userVotes < MAX_VOTES;
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  // Outside Write the input opens on demand, for the phase it was opened in:
+  // a phase change closes it again.
+  const [addingIn, setAddingIn] = useState<BoardPhase | null>(null);
+  if (addingIn !== null && addingIn !== phase) setAddingIn(null);
+  const isWrite = phase === "write";
+  const showInput = isWrite || addingIn === phase;
+  const canVote = votesUsed < MAX_VOTES;
+
+  // Opening the input from the button puts the cursor in it.
+  const focusOnOpen = useRef(false);
+  useEffect(() => {
+    if (showInput && focusOnOpen.current) {
+      focusOnOpen.current = false;
+      inputRef.current?.focus();
+    }
+  }, [showInput]);
+
+  function openAdd() {
+    focusOnOpen.current = true;
+    setAddingIn(phase);
+  }
+
+  function closeAdd() {
+    setAddingIn(null);
+    toggleRef.current?.focus();
+  }
 
   const displayCards = phase === "discuss" || phase === "actions" ? sortedByVotes(cards) : cards;
 
@@ -142,8 +171,23 @@ export function RetroColumnPanel({
             })}
         </AnimatePresence>
 
-        {/* Add card input — only in write phase */}
-        {phase === "write" && (
+        {/* Add a card after Write: a button that opens the input */}
+        {!isWrite && (
+          <Button
+            ref={toggleRef}
+            size="sm"
+            variant="ghost"
+            onClick={() => (showInput ? closeAdd() : openAdd())}
+            aria-expanded={showInput}
+            aria-label={`Add a card to ${column.label}`}
+            className="min-touch-coarse h-8 w-full justify-start px-2 text-xs text-sub hover:text-accent hover:bg-accent-cyan/10"
+          >
+            <Plus className="w-3.5 h-3.5" aria-hidden="true" /> Add a card
+          </Button>
+        )}
+
+        {/* Add card input — always open in Write, on demand after it */}
+        {showInput && (
           <div className="flex gap-1.5 pt-1">
             <Input
               ref={inputRef}
@@ -151,6 +195,7 @@ export function RetroColumnPanel({
               onChange={(e) => setInputVal(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleSubmit();
+                else if (e.key === "Escape" && !isWrite) closeAdd();
               }}
               placeholder="Add a card…"
               aria-label={`New card for ${column.label}`}

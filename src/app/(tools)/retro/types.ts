@@ -37,6 +37,12 @@ export interface BoardState {
   discussingIndex: number; // index into sorted discuss list
   /** The archived retro this one follows, for carrying its actions over. */
   previousRetroId?: string;
+  /**
+   * Facilitator mode: votes cast per person (name → count) on a shared
+   * screen, each against their own MAX_VOTES. `userVotes` stays the
+   * single-voter ("Me") count. A name with 0 is a voter added by hand.
+   */
+  votesBy?: Record<string, number>;
 }
 
 export const MAX_VOTES = 3;

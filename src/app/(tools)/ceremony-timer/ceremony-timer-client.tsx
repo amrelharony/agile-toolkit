@@ -37,6 +37,9 @@ import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster"
 import { buildExample } from "./example";
 import { toMarkdown, type Participant } from "./markdown";
 import { rosterParticipantsToAdd } from "./roster";
+import { timerRemaining, useDockTimer } from "@/lib/timer/dock-timer";
+
+const DOCK_HREF = "/ceremony-timer";
 
 // ---------------------------------------------------------------------------
 // Types & constants
@@ -288,6 +291,46 @@ export function CeremonyTimerClient() {
     lastReportedRef.current = next;
     setRemaining(next);
   });
+
+  // Dock: publish the countdown so it keeps showing (and running) while the
+  // facilitator uses other tools, and pick it back up on return
+  // (lib/timer/dock-timer). The first publish run is skipped: it would see
+  // the initial blank state and clear the timer before the restore lands.
+  useEffect(() => {
+    const t = useDockTimer.getState().timer;
+    if (!t || t.href !== DOCK_HREF) return;
+    const rem = timerRemaining(t);
+    setTotalSeconds(t.totalSeconds);
+    setRemaining(rem);
+    setStarted(true);
+    if (t.endsAt !== null && rem > 0) {
+      endsAtRef.current = t.endsAt;
+      lastReportedRef.current = rem;
+      setRunning(true);
+    }
+  }, []);
+  const firstPublishRef = useRef(true);
+  useEffect(() => {
+    if (firstPublishRef.current) {
+      firstPublishRef.current = false;
+      return;
+    }
+    const dock = useDockTimer.getState();
+    if (!started || totalSeconds <= 0) {
+      if (dock.timer?.href === DOCK_HREF) dock.publish(null);
+      return;
+    }
+    dock.publish({
+      label: PRESETS.find((p) => p.minutes * 60 === totalSeconds)?.label ?? "Timer",
+      href: DOCK_HREF,
+      totalSeconds,
+      endsAt: running ? (endsAtRef.current ?? Date.now() + remaining * 1000) : null,
+      pausedRemaining: remaining,
+    });
+    // `remaining` is read at each start/pause/reset; republishing every
+    // tick isn't needed because a running timer is anchored to `endsAt`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [started, running, totalSeconds]);
 
   // Stop the timer and fire the multi-channel finish alarm exactly once
   // when remaining reaches zero while running.

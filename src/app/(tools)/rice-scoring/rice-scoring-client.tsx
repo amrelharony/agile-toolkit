@@ -287,6 +287,7 @@ export function RiceScoringClient() {
                   csvData={csvData}
                   jsonData={ranked}
                   markdown={markdown}
+                  shareState={items}
                   targetRef={exportRef}
                 />
               </>

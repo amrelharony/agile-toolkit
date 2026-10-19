@@ -333,6 +333,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
 
       <aside
         ref={asideRef}
+        data-chrome="sidebar"
         aria-label="Primary navigation"
         // Auto-hide reveal: when the persisted state is collapsed (rail
         // mode), hovering the rail temporarily expands the tree as an

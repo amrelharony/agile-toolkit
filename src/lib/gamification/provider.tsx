@@ -57,6 +57,8 @@ export function GamificationProvider({ children }: { children: React.ReactNode }
     if (!mounted) return;
     const celebrate = (show: () => void) => {
       if (silentMode) return;
+      // A shared screen in presentation mode stays quiet, like a ceremony.
+      if (document.documentElement.dataset.presenting === "true") return;
       const now = Date.now();
       if (!mayCelebrate(pathnameRef.current, now, lastCelebrationRef.current)) return;
       lastCelebrationRef.current = now;

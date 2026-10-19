@@ -225,7 +225,7 @@ function LobbyScreen({
         <p className="text-sm text-sub">
           {isOwner
             ? "Guest joiners use a squad invite (Settings → Squads). Once you start a session you can invite your squad from the header."
-            : "This session runs on your screen. Share it in your meeting, read each story aloud, let everyone pick a card, then reveal together and agree the estimate."}
+            : "This session runs on your screen. Share it in your meeting and add your team once it starts. Read each story aloud, record everyone's card face down or pass the screen round, then reveal together and agree the estimate."}
         </p>
       </SectionCard>
     </div>
@@ -527,6 +527,9 @@ export function PlanningPokerClient() {
               // Nobody can join a local-only room, so don't show its code.
               showRoomCode={!isLocalOnly}
               leaveClearsSession={isLocalOnly}
+              // One screen for the whole team: only where nobody else can
+              // join. A live room keeps one device per voter.
+              facilitator={isLocalOnly}
               queuedCount={queuedCount}
               onAddQueued={addQueued}
               onEstimateAccepted={handleEstimateAccepted}
