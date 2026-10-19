@@ -54,7 +54,7 @@ describe("Sprint Comparison", () => {
     useHistoryStore.setState({ events: [event] });
 
     render(<SprintCompareClient />);
-    expect(screen.getByRole("button", { name: /Add Sprint/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /New sprint/ })).toBeInTheDocument();
     expect(screen.queryByText(/available to pin/i)).not.toBeInTheDocument();
   });
 });
