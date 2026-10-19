@@ -97,10 +97,15 @@ export const VISITOR_LIMITS = {
   keepaliveMs: 30_000,
   /** Largest broadcast accepted or sent, in JSON characters. */
   maxPayloadChars: 100_000,
-  /** Every client leaves this long after the room started, whatever happens. */
+  /**
+   * The host ends the room this long after starting it, and every other
+   * client leaves this long after joining, whatever happens.
+   */
   hardTtlMs: 3 * HOUR_MS,
   /** The host offers to end the room after this long with no activity. */
   idleMs: 30 * 60 * 1000,
+  /** After that offer, the room ends this long later unless the host keeps it. */
+  idleGraceMs: 2 * 60 * 1000,
   /** Display names, as `cleanName` cuts them. */
   maxNameChars: MAX_NAME_LENGTH,
   /** One retro card or story line, as `cleanText` cuts it. */
