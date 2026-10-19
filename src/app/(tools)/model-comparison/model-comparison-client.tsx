@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useShallow } from "zustand/react/shallow";
 import { Cpu, Plus, Trash2, Beaker, Sparkles } from "lucide-react";
@@ -28,6 +28,7 @@ import { useLlmStore } from "@/lib/stores/llm-store";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
 import { PROVIDER_META, findModel } from "@/lib/llm/pricing";
 import type { ProviderId } from "@/lib/llm/types";
+import { undoable } from "@/lib/utils/undoable";
 
 // Lazy-load the run panel so the OpenAI/Anthropic/Gemini/GLM adapter chunks
 // stay out of the eager bundle for users who never touch Live Compare.
@@ -130,6 +131,8 @@ export function ModelComparisonClient() {
     // unconditionally, so `upsert(item)` always appended — leaving two
     // rows with the same name in the catalog every time a user "edited"
     // a model by re-entering it. Reuse `prior.id` when one exists.
+    // The replace used to be silent; the form now warns while the name
+    // matches (see `existing` below) and the replace can be undone.
     const prior = list.find((m) => m.name === trimmedName);
     const item: ModelEntry = {
       id: prior?.id ?? crypto.randomUUID(),
@@ -143,7 +146,18 @@ export function ModelComparisonClient() {
       evalScore: parseFloatField(evalScore),
       status,
     };
-    upsert(item);
+    if (prior) {
+      undoable({
+        label: `Replaced ${prior.name}`,
+        description: "Its row now holds the values you just entered.",
+        apply: () => upsert(item),
+        // Without `version` the store takes this as a plain write; with the
+        // old version it would drop it as stale (upsertModel's guard).
+        revert: () => upsert({ ...prior, version: undefined }),
+      });
+    } else {
+      upsert(item);
+    }
     log(MODEL_COMPARISON_ACTIONS.MODEL_ADDED, { name: item.name });
     if (prior) {
       emitSignal({
@@ -162,6 +176,10 @@ export function ModelComparisonClient() {
     setLatencyP95("");
     setEvalScore("");
   }
+
+  // The model the typed name would replace, if any.
+  const existing = name.trim() ? list.find((m) => m.name === name.trim()) : undefined;
+  const replaceNoteId = useId();
 
   function remove(id: string) {
     removeOne(id);
@@ -435,9 +453,19 @@ export function ModelComparisonClient() {
               </SelectContent>
             </Select>
           </div>
-          <Button onClick={add} className="mt-3 gap-1">
+          {existing && (
+            <p id={replaceNoteId} role="status" className="mt-2 text-xs text-warning">
+              {existing.name} is already in the table. Adding it again replaces that row with these
+              values; you can undo.
+            </p>
+          )}
+          <Button
+            onClick={add}
+            className="mt-3 gap-1"
+            aria-describedby={existing ? replaceNoteId : undefined}
+          >
             <Plus className="w-4 h-4" />
-            Add model
+            {existing ? "Replace model" : "Add model"}
           </Button>
         </SectionCard>
 
@@ -490,10 +518,10 @@ export function ModelComparisonClient() {
                         {m.contextWindow?.toLocaleString() ?? "—"}
                       </td>
                       <td className="p-2 text-right font-mono text-xs">
-                        {m.latencyP50Ms ?? "—"}ms
+                        {m.latencyP50Ms != null ? `${m.latencyP50Ms}ms` : "—"}
                       </td>
                       <td className="p-2 text-right font-mono text-xs">
-                        {m.latencyP95Ms ?? "—"}ms
+                        {m.latencyP95Ms != null ? `${m.latencyP95Ms}ms` : "—"}
                       </td>
                       <td className="p-2 text-right font-mono">
                         {m.evalScore != null ? `${(m.evalScore * 100).toFixed(0)}%` : "—"}

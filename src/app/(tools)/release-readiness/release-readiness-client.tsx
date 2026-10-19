@@ -39,6 +39,7 @@ import { generateReleaseReadinessPrompts } from "@/lib/ai-prompts/release-readin
 import { pChartLimits } from "@/lib/analytics/control-chart";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { onTimeRate } from "./metrics";
 
 // Recharts loads with the charts, not the page. Each chart sits in a
 // fixed-height box, so the placeholder fills it and the layout holds still.
@@ -236,12 +237,10 @@ export function ReleaseReadinessClient() {
     [state.releases]
   );
 
-  // % shipped on time = shipped releases where shippedDate <= plannedDate.
-  const pctOnTime = useMemo(() => {
-    if (shipped.length === 0) return null;
-    const onTime = shipped.filter((r) => r.shippedDate && r.shippedDate <= r.plannedDate).length;
-    return (onTime / shipped.length) * 100;
-  }, [shipped]);
+  // % on time = releases that went out (shipped, or shipped then rolled
+  // back) where shippedDate <= plannedDate. Rolled-back ones used to drop out.
+  const onTime = useMemo(() => onTimeRate(state.releases), [state.releases]);
+  const pctOnTime = onTime.pct;
 
   const avgGatesOpen = useMemo(() => {
     if (shipped.length === 0) return null;
@@ -384,7 +383,13 @@ export function ReleaseReadinessClient() {
           icon={CheckCircle2}
           label="% on time"
           value={pctOnTime === null ? "—" : `${pctOnTime.toFixed(0)}%`}
-          hint={shipped.length > 0 ? "of shipped" : "no ships yet"}
+          hint={
+            onTime.shipped === 0
+              ? "no ships yet"
+              : onTime.rolledBack > 0
+                ? `of ${onTime.shipped} shipped, incl. ${onTime.rolledBack} rolled back`
+                : `of ${onTime.shipped} shipped`
+          }
           tone={
             pctOnTime === null
               ? "default"

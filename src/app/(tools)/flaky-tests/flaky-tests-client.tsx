@@ -100,7 +100,7 @@ export function FlakyTestsClient() {
   const [sortDesc, setSortDesc] = useState(true);
 
   const addTest = () => {
-    if (!name.trim()) return;
+    if (!name.trim() || !failureRateDraft.trim()) return;
     const pct = Number(failureRateDraft);
     if (!Number.isFinite(pct) || pct < 0 || pct > 100) return;
     // Bound free-text fields. Test names can be long stack-pathway selectors
@@ -462,6 +462,9 @@ export function FlakyTestsClient() {
           <div className="space-y-1">
             <Label htmlFor="ft-failure-rate" className="text-xs text-sub">
               Failure rate (%)
+              <span className="ml-0.5 text-danger" aria-hidden="true">
+                *
+              </span>
             </Label>
             <SmartInput<number>
               predicted={failureRatePrediction}
@@ -472,10 +475,14 @@ export function FlakyTestsClient() {
                     id="ft-failure-rate"
                     type="text"
                     inputMode="decimal"
+                    aria-required="true"
+                    aria-describedby="ft-failure-rate-hint"
                     value={failureRateDraft}
                     placeholder={ghost ?? "e.g. 12.5"}
                     onKeyDown={(e) => {
-                      if (e.key === "Tab" && failureRateDraft === "") {
+                      // Only swallow Tab when there's a prediction to accept;
+                      // otherwise Tab must still move focus on.
+                      if (e.key === "Tab" && failureRateDraft === "" && ghost !== undefined) {
                         e.preventDefault();
                         accept();
                       }
@@ -483,7 +490,9 @@ export function FlakyTestsClient() {
                     onChange={(e) => setFailureRateDraft(e.target.value)}
                     onBlur={() => {
                       const n = Number(failureRateDraft);
-                      if (!Number.isFinite(n)) {
+                      // A blank field stays blank: `Number("") === 0` used to
+                      // turn it into "0", which then saved as a 0 % failure rate.
+                      if (!failureRateDraft.trim() || !Number.isFinite(n)) {
                         setFailureRateDraft("");
                       } else {
                         const clamped = Math.min(100, Math.max(0, n));
@@ -492,6 +501,9 @@ export function FlakyTestsClient() {
                     }}
                     className="bg-bg border-border font-data"
                   />
+                  <p id="ft-failure-rate-hint" className="text-xs text-sub">
+                    Required: the share of recent runs that failed.
+                  </p>
                   {chip}
                 </>
               )}

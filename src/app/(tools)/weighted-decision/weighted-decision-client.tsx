@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import dynamic from "next/dynamic";
 import { PercentCircle, Plus, Trash2 } from "lucide-react";
@@ -26,6 +26,15 @@ const WeightedScoreChart = dynamic(() => import("./charts").then((m) => m.Weight
     <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
   ),
 });
+
+/** The score scale every cell uses. An empty cell is "not scored". */
+const SCORE_MIN = 1;
+const SCORE_MAX = 10;
+
+/** Each criterion's share of the total weight, as a whole percent. */
+function weightShare(weight: number, weightSum: number): number {
+  return weightSum > 0 && Number.isFinite(weight) ? Math.round((weight / weightSum) * 100) : 0;
+}
 
 export function WeightedDecisionClient() {
   const criteria = useWorkspaceStore((s) => s.weightedCriteria ?? []);
@@ -79,8 +88,12 @@ export function WeightedDecisionClient() {
     setOptionName("");
   }
 
-  function setScore(o: WeightedOption, criterionId: string, n: number) {
-    upsertOption({ ...o, scores: { ...o.scores, [criterionId]: n } });
+  /** Save a score, or clear it (`null`) so the cell reads "not scored". */
+  function setScore(o: WeightedOption, criterionId: string, n: number | null) {
+    const scores = { ...o.scores };
+    if (n === null) delete scores[criterionId];
+    else scores[criterionId] = n;
+    upsertOption({ ...o, scores });
     log(WEIGHTED_DECISION_ACTIONS.SCORE_CHANGED, { optionId: o.id, criterionId, n });
     emitSignal({
       kind: "decision.weightedScored",
@@ -90,26 +103,57 @@ export function WeightedDecisionClient() {
     });
   }
 
+  // A score outside 1–10 isn't saved; this says so next to the matrix.
+  const scoreErrorId = useId();
+  const [scoreError, setScoreError] = useState<{
+    optionId: string;
+    criterionId: string;
+    text: string;
+  } | null>(null);
+
+  function onScoreInput(
+    o: WeightedOption,
+    c: WeightedCriterion,
+    input: Pick<HTMLInputElement, "value" | "validity">
+  ) {
+    const raw = input.value.trim();
+    if (raw === "") {
+      // A number input reports "" for half-typed junk ("-", "e") as well as
+      // for a cleared cell; only a real clear removes the score.
+      if (input.validity?.badInput) return;
+      setScoreError(null);
+      setScore(o, c.id, null);
+      return;
+    }
+    const n = parseFloat(raw);
+    if (!Number.isFinite(n) || n < SCORE_MIN || n > SCORE_MAX) {
+      setScoreError({
+        optionId: o.id,
+        criterionId: c.id,
+        text: `Scores run from ${SCORE_MIN} to ${SCORE_MAX}. ${raw} for ${c.name} on ${o.name} wasn't saved.`,
+      });
+      return;
+    }
+    setScoreError(null);
+    setScore(o, c.id, n);
+  }
+
   const weights = useMemo(
     () => Object.fromEntries(criteria.map((c) => [c.id, c.weight])),
     [criteria]
   );
-  // BUG-T9-weighted-decision-1: surface a sum-of-weights signal.
-  // Pugh/MCDA literature normalizes weights to sum=1.0; a rubric where
-  // one criterion has weight 100 and the others 1 swamps every option.
-  // We don't auto-normalize (that would silently change scores already
-  // recorded), but we warn when the sum drifts past ±5% of 1.0 or 100%.
+  // Weights are relative: 2 counts twice as much as 1, whatever they add up
+  // to, and the ranking is the same either way. Each criterion shows its
+  // share of the total weight. The old "should sum to 1 or 100" warning
+  // fired as soon as a second criterion was added with the default weight
+  // of 1; the only sum worth a warning is 0, where every Total is 0.
   const weightSum = useMemo(
     () => criteria.reduce((s, c) => s + (Number.isFinite(c.weight) ? c.weight : 0), 0),
     [criteria]
   );
-  const weightsBalanced = useMemo(() => {
-    if (criteria.length === 0) return true;
-    // Accept either "sums to ~1.0" or "sums to ~100" — either convention.
-    const near1 = Math.abs(weightSum - 1) <= 0.05;
-    const near100 = Math.abs(weightSum - 100) <= 5;
-    return near1 || near100;
-  }, [criteria.length, weightSum]);
+  const unscoredCount = (o: WeightedOption) =>
+    criteria.filter((c) => !Number.isFinite(o.scores[c.id])).length;
+
   const ranked = useMemo(() => {
     return [...options]
       .map((o) => ({ ...o, score: weightedScore(o.scores, weights) }))
@@ -164,7 +208,8 @@ export function WeightedDecisionClient() {
     headers: ["Option", ...criteria.map((c) => `${c.name} (w${c.weight})`), "Total"],
     rows: ranked.map((o) => [
       o.name,
-      ...criteria.map((c) => o.scores[c.id] ?? 0),
+      // An unscored cell exports empty, not as a 0 score.
+      ...criteria.map((c) => o.scores[c.id] ?? ""),
       o.score.toFixed(2),
     ]),
   };
@@ -197,10 +242,19 @@ export function WeightedDecisionClient() {
               Add criterion
             </Button>
           </div>
-          {criteria.length > 0 && !weightsBalanced && (
-            <div className="mt-2 rounded border border-warning/30 bg-warning/5 px-2 py-1 text-xs text-warning">
-              Weights sum to {weightSum.toFixed(2)}. Pugh/MCDA convention is sum=1.0 (or sum=100).
-              Unequal totals make per-option scores hard to compare across rubrics.
+          {criteria.length > 0 && (
+            <p className="mt-2 text-xs text-sub">
+              Weights are relative: a weight of 2 counts twice as much as a weight of 1. Each
+              criterion shows its share of the total weight.
+            </p>
+          )}
+          {criteria.length > 0 && weightSum <= 0 && (
+            <div
+              role="alert"
+              className="mt-2 rounded border border-warning/30 bg-warning/5 px-2 py-1 text-xs text-warning"
+            >
+              Every weight is 0, so every option totals 0. Give at least one criterion a weight
+              above 0.
             </div>
           )}
           <ul className="mt-2 flex flex-wrap gap-2">
@@ -209,7 +263,10 @@ export function WeightedDecisionClient() {
                 key={c.id}
                 className="text-xs bg-surface-deep border border-border rounded px-2 py-1 flex items-center gap-1"
               >
-                {c.name} <span className="text-sub">w{c.weight}</span>
+                {c.name}{" "}
+                <span className="text-sub">
+                  w{c.weight} · {weightShare(c.weight, weightSum)}%
+                </span>
                 <button
                   type="button"
                   onClick={() => removeCriterionCascade(c.id)}
@@ -254,6 +311,11 @@ export function WeightedDecisionClient() {
               </>
             }
           >
+            <p className="mb-2 text-xs text-sub">
+              Score each option from {SCORE_MIN} (poor) to {SCORE_MAX} (excellent) on every
+              criterion. Leave a cell empty if it isn&apos;t scored yet; it adds nothing to the
+              Total.
+            </p>
             <div className="table-wrap-responsive">
               <table className="w-full text-sm">
                 <thead>
@@ -285,25 +347,35 @@ export function WeightedDecisionClient() {
                           </span>
                         )}
                       </td>
-                      {criteria.map((c) => (
-                        <td key={c.id} className="p-1 text-center">
-                          <Input
-                            type="number"
-                            value={o.scores[c.id] ?? ""}
-                            // R5: `|| 0` collapsed an explicit user-typed `0`
-                            // (a valid score) and silently stored 0 for
-                            // junk like "abc". Treat non-finite as 0 but
-                            // preserve legitimate 0 entries.
-                            onChange={(e) => {
-                              const n = parseFloat(e.target.value);
-                              setScore(o, c.id, Number.isFinite(n) ? n : 0);
-                            }}
-                            className="h-7 w-16 text-center text-xs"
-                            aria-label={`${c.name} score for ${o.name}`}
-                          />
-                        </td>
-                      ))}
-                      <td className="p-2 text-right font-mono">{o.score.toFixed(2)}</td>
+                      {criteria.map((c) => {
+                        const rejected =
+                          scoreError?.optionId === o.id && scoreError.criterionId === c.id;
+                        return (
+                          <td key={c.id} className="p-1 text-center">
+                            <Input
+                              type="number"
+                              min={SCORE_MIN}
+                              max={SCORE_MAX}
+                              value={o.scores[c.id] ?? ""}
+                              // Clearing a cell used to save 0; now it removes
+                              // the score ("not scored"), and a value outside
+                              // 1–10 is refused with a message below.
+                              onChange={(e) => onScoreInput(o, c, e.target)}
+                              className="h-7 w-16 text-center text-xs"
+                              aria-label={`${c.name} score for ${o.name}`}
+                              aria-describedby={rejected ? scoreErrorId : undefined}
+                            />
+                          </td>
+                        );
+                      })}
+                      <td className="p-2 text-right font-mono">
+                        {o.score.toFixed(2)}
+                        {unscoredCount(o) > 0 && (
+                          <span className="block font-sans text-xs text-sub">
+                            {unscoredCount(o)} not scored
+                          </span>
+                        )}
+                      </td>
                       <td className="p-2">
                         <button
                           type="button"
@@ -322,6 +394,11 @@ export function WeightedDecisionClient() {
                 </tbody>
               </table>
             </div>
+            {scoreError && (
+              <p id={scoreErrorId} role="alert" className="mt-2 text-xs text-danger">
+                {scoreError.text}
+              </p>
+            )}
           </SectionCard>
         )}
 

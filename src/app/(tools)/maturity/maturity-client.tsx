@@ -125,6 +125,8 @@ export function MaturityClient() {
     useWorkspaceStore.getState().setMaturityLevel(rounded);
   }, [averageLevel]);
 
+  // Named with the same labels as the sliders and the radar key, from the
+  // rounded average level (the same rounding as the workspace level above).
   const maturityScore = useMemo(() => getMaturityScore(averageLevel), [averageLevel]);
 
   // Clamp `current` and `targetLevel` reads into the valid 1-5 band so that a
@@ -188,7 +190,7 @@ export function MaturityClient() {
       "AGILE MATURITY ASSESSMENT",
       "=".repeat(40),
       "",
-      `Overall Score: ${maturityScore.percentage}% — ${maturityScore.label}`,
+      `Overall Score: ${maturityScore.percentage}% — Level ${maturityScore.level} (${maturityScore.label})`,
       `Average Level: ${averageLevel.toFixed(1)} / 5`,
       "",
       "DIMENSION SCORES",
@@ -239,7 +241,9 @@ export function MaturityClient() {
               >
                 {maturityScore.percentage}%
               </span>
-              <span className="text-sm text-sub">{maturityScore.label}</span>
+              <span className="text-sm text-sub">
+                {`Level ${maturityScore.level} · ${maturityScore.label}`}
+              </span>
             </div>
             <div className="text-sm text-sub">
               Avg level <span className="text-text font-medium">{averageLevel.toFixed(1)}</span> / 5

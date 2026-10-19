@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import dynamic from "next/dynamic";
 import { CircleDollarSign, Plus, Trash2, AlertTriangle, Sparkles } from "lucide-react";
@@ -67,6 +67,9 @@ function findModelEverywhere(needle: string): { provider: ProviderId; modelId: s
   return matches.length === 1 ? matches[0] : null;
 }
 
+/** The spend log table shows this many of the most recent entries. */
+const SPEND_LOG_ROWS = 50;
+
 interface Cfg {
   monthlyBudgetUsd: number;
 }
@@ -132,28 +135,52 @@ export function TokenCostTrackerClient() {
   const [outputTokens, setOutputTokens] = useState("");
   const [costUsd, setCostUsd] = useState("");
 
-  function add() {
+  // Log used to do nothing, with no message, when an entry couldn't be
+  // costed. After a failed attempt the reason shows under the form and
+  // updates as the fields change.
+  const [attempted, setAttempted] = useState(false);
+  const logErrorId = useId();
+
+  /** The entry's cost, or why it can't be logged yet. */
+  function resolveEntry(): { cost: number; error?: undefined } | { error: string } {
     const it = parseFloat(inputTokens),
       ot = parseFloat(outputTokens);
     let c = parseFloat(costUsd);
+    if (!feature.trim()) return { error: "Enter the feature this spend belongs to." };
+    if (!model.trim()) return { error: "Enter the model that was used." };
+    // Reject obviously-bad inputs at the entry point: negative tokens / cost
+    // would otherwise sneak into totals and the projection (which is the
+    // budget signal), where a single typo turns the alert green forever.
+    if (Number.isFinite(c) && c < 0) return { error: "Cost can't be negative." };
     // BUG-T9-token-cost-tracker-1: if the user left `costUsd` blank but
     // typed token counts AND a known model, derive cost from the price
     // table instead of forcing them to type it. Keeps the user-typed
     // override when present (CSV-imported rows, custom-model pricing).
-    if (
-      (!Number.isFinite(c) || c <= 0) &&
-      Number.isFinite(it) &&
-      it >= 0 &&
-      Number.isFinite(ot) &&
-      ot >= 0
-    ) {
+    if (!Number.isFinite(c) || c <= 0) {
       const hit = findModelEverywhere(model);
-      if (hit) c = estimateCostUsd(hit.provider, hit.modelId, it, ot);
+      const tokensOk = Number.isFinite(it) && it >= 0 && Number.isFinite(ot) && ot >= 0;
+      if (hit && tokensOk) c = estimateCostUsd(hit.provider, hit.modelId, it, ot);
+      else if (!Number.isFinite(c)) {
+        return {
+          error: hit
+            ? "Enter the input and output tokens so the cost can be worked out from the price table, or type the Cost in USD."
+            : `“${model.trim()}” isn't in the price table, so the cost can't be worked out. Type the Cost in USD.`,
+        };
+      }
     }
-    // Reject obviously-bad inputs at the entry point: negative tokens / cost
-    // would otherwise sneak into totals and the projection (which is the
-    // budget signal), where a single typo turns the alert green forever.
-    if (!feature.trim() || !model.trim() || !Number.isFinite(c) || c < 0) return;
+    return { cost: c };
+  }
+  const logError = attempted ? resolveEntry().error : undefined;
+
+  function add() {
+    const resolved = resolveEntry();
+    if (resolved.error !== undefined) {
+      setAttempted(true);
+      return;
+    }
+    const it = parseFloat(inputTokens),
+      ot = parseFloat(outputTokens);
+    const c = resolved.cost;
     const item: TokenSpend = {
       id: crypto.randomUUID(),
       feature: feature.trim(),
@@ -168,6 +195,7 @@ export function TokenCostTrackerClient() {
     setInputTokens("");
     setOutputTokens("");
     setCostUsd("");
+    setAttempted(false);
   }
 
   // Live preview of the auto-derived cost so the user knows when leaving
@@ -395,12 +423,18 @@ export function TokenCostTrackerClient() {
               aria-label="Cost USD"
               value={costUsd}
               onChange={(e) => setCostUsd(e.target.value)}
+              aria-describedby={logError ? logErrorId : undefined}
             />
           </div>
           {previewCost !== null && (
             <p className="mt-2 text-xs text-sub">
               Price-table match: leave Cost blank to auto-fill with ${previewCost.toFixed(4)}. Type
               a value to override (e.g. for custom-priced model variants).
+            </p>
+          )}
+          {logError && (
+            <p id={logErrorId} role="alert" className="mt-2 text-xs text-danger">
+              {logError}
             </p>
           )}
           <Button onClick={add} className="mt-3 gap-1">
@@ -453,6 +487,12 @@ export function TokenCostTrackerClient() {
 
         {list.length > 0 && (
           <SectionCard title={`Spend log (${list.length})`} icon={CircleDollarSign}>
+            {list.length > SPEND_LOG_ROWS && (
+              <p className="mb-2 text-xs text-sub">
+                Showing the latest {SPEND_LOG_ROWS} of {list.length} entries. Totals, charts and the
+                export include them all.
+              </p>
+            )}
             <div className="table-wrap-responsive">
               <table className="w-full text-sm">
                 <thead>
@@ -470,7 +510,7 @@ export function TokenCostTrackerClient() {
                 <tbody>
                   {[...list]
                     .sort((a, b) => b.date.localeCompare(a.date))
-                    .slice(0, 50)
+                    .slice(0, SPEND_LOG_ROWS)
                     .map((x) => (
                       <tr key={x.id} className="border-t border-border">
                         <td className="p-2 font-mono text-xs">{x.date}</td>

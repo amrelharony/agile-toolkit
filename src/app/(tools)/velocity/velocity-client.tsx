@@ -14,7 +14,6 @@ import { ChartCard } from "@/components/shared/chart-card";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatCard } from "@/components/shared/stat-card";
 import { SmartInput } from "@/components/shared/smart-input";
-import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { generateVelocityPrompts } from "@/lib/ai-prompts/velocity";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -23,7 +22,6 @@ import { withTimeTravel } from "@/lib/stores/with-time-travel";
 import { undoable } from "@/lib/utils/undoable";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { forecastBayesianHolt } from "@/lib/analytics/forecasting-bayesian";
-import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +36,7 @@ import {
 import { Plus, Trash2, Activity, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { buildExampleSprints } from "./example";
 import { toMarkdown } from "./markdown";
+import { changepointMarkers as buildChangepointMarkers } from "./changepoints";
 
 // Recharts loads with the chart, not the page; ChartCard's fixed-height box
 // reserves the space while it does.
@@ -514,34 +513,13 @@ export function VelocityClient() {
     return forecastBayesianHolt(completedSeries, 1);
   }, [completedSeries]);
 
-  // CUSUM changepoints on completed velocity. cusum() itself returns []
-  // when n<4 — we still memoise so downstream maps don't churn.
-  const changepoints = useMemo(() => {
-    if (completedSeries.length < 4) return [];
-    return cusum(completedSeries);
-  }, [completedSeries]);
-
-  // CUSUM regime-shift markers for the chart, anchored to the affected
-  // sprint's name so they line up with bar centers. Skipped silently when
-  // no changepoints were detected.
+  // CUSUM regime-shift markers on completed velocity, anchored to the
+  // affected sprint's name. CUSUM runs on the finished series, so its indexes
+  // are looked up in finishedSprints, not the full list (planned rows would
+  // shift every marker). Empty below 4 finished sprints.
   const changepointMarkers = useMemo(
-    () =>
-      changepoints.flatMap((cp): { key: string; annotation: CausalAnnotationData }[] => {
-        const sprint = sprints[cp.index];
-        if (!sprint) return [];
-        return [
-          {
-            key: `cusum-${cp.index}-${cp.direction}`,
-            annotation: {
-              x: sprint.name,
-              label: `Regime shift ${cp.direction}`,
-              detail: `CUSUM detected a ${cp.direction === "up" ? "sustained increase" : "sustained drop"} in completed velocity at ${sprint.name}.`,
-              confidence: "moderate",
-            },
-          },
-        ];
-      }),
-    [changepoints, sprints]
+    () => buildChangepointMarkers(finishedSprints),
+    [finishedSprints]
   );
 
   // Mann-Kendall trend test — needs n>=5 to be informative.

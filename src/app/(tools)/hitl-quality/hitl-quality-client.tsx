@@ -167,7 +167,7 @@ export function HitlQualityClient() {
   );
 
   const csvData = {
-    headers: ["Date", "Feature", "Reviewer", "Rating", "Agreed", "Reason"],
+    headers: ["Date", "Feature", "Reviewer", "Rating", "Agreed with model", "Reason"],
     // R5: was `list.map(...)` calling `.slice` on a possibly non-string
     // `loggedAt` (corrupt persisted entry) → CSV export crashed. Use
     // validList AND coerce defensively.
@@ -185,7 +185,7 @@ export function HitlQualityClient() {
     <ToolPageWrapper
       toolId="hitl-quality"
       title="Human-in-the-Loop Quality Tracker"
-      description="Capture reviewer ratings, agreement-with-model rate, and acceptance trend over time."
+      description="Capture reviewer ratings, how often reviewers agree with the model's output, and the mean rating over time."
     >
       <div ref={exportRef} className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -200,8 +200,10 @@ export function HitlQualityClient() {
             }
           />
           <KPI label="Mean rating" value={meanRating.toFixed(2)} />
+          {/* The share of reviews where the reviewer agreed with the model's
+              output, not agreement between reviewers. */}
           <KPI
-            label="Agreement rate"
+            label="Reviewer–model agreement"
             value={`${agreementRate}%`}
             tone={agreementRate > 80 ? "ok" : "default"}
           />

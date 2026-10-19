@@ -20,10 +20,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { scales, defaultDescriptions } from "@/lib/constants/scales";
+import { scales } from "@/lib/constants/scales";
 import { createPersistedStore } from "@/lib/stores/create-persisted-store";
 import { toast } from "@/lib/utils/toast";
 import { RotateCcw, Share2 } from "lucide-react";
+import {
+  defaultDescription,
+  defaultScaleDescriptions,
+  entriesForScale,
+  entryKey,
+  migrateDescriptions,
+  migrateExamples,
+  readEntry,
+  sameEntries,
+} from "./entries";
 
 // ---------------------------------------------------------------------------
 // Store
@@ -31,13 +41,15 @@ import { RotateCcw, Share2 } from "lucide-react";
 
 interface EstimationGuideState {
   selectedScale: string;
+  /** Keyed per scale and value, e.g. "Fibonacci:8" (see ./entries). */
   descriptions: Record<string, string>;
+  /** Keyed per scale and value, e.g. "Fibonacci:8" (see ./entries). */
   examples: Record<string, string>;
 }
 
 const initialState: EstimationGuideState = {
   selectedScale: "Fibonacci",
-  descriptions: { ...defaultDescriptions },
+  descriptions: defaultScaleDescriptions(),
   examples: {},
 };
 
@@ -92,6 +104,17 @@ export function EstimationGuideClient() {
   useEffect(() => {
     const rehydrate = useEstimationGuideStore.persist.rehydrate();
     Promise.resolve(rehydrate).then(() => {
+      // Saved entries from before per-scale keys used the bare value ("8")
+      // for every scale. Copy them onto each scale that has the value.
+      const saved = useEstimationGuideStore.getState();
+      const descriptions = migrateDescriptions(saved.descriptions);
+      const examples = migrateExamples(saved.examples);
+      if (
+        !sameEntries(saved.descriptions ?? {}, descriptions) ||
+        !sameEntries(saved.examples ?? {}, examples)
+      ) {
+        useEstimationGuideStore.setState({ descriptions, examples });
+      }
       if (typeof window === "undefined") return;
       const params = new URLSearchParams(window.location.search);
       const shared = params.get("state");
@@ -117,13 +140,11 @@ export function EstimationGuideClient() {
           typeof d.descriptions === "object" &&
           !Array.isArray(d.descriptions)
         ) {
-          patch.descriptions = {
-            ...defaultDescriptions,
-            ...(d.descriptions as Record<string, string>),
-          };
+          // Links made before per-scale keys carry bare values ("8").
+          patch.descriptions = migrateDescriptions(d.descriptions);
         }
         if (d.examples && typeof d.examples === "object" && !Array.isArray(d.examples)) {
-          patch.examples = d.examples as Record<string, string>;
+          patch.examples = migrateExamples(d.examples);
         } else {
           patch.examples = {};
         }
@@ -156,6 +177,8 @@ export function EstimationGuideClient() {
     [log]
   );
 
+  // Entries are keyed per scale, so editing 8 on Fibonacci leaves 8 on
+  // Powers of 2 and Linear alone.
   const handleDescriptionChange = useCallback((key: string, value: string) => {
     useEstimationGuideStore.setState((state) => ({
       descriptions: { ...state.descriptions, [key]: value },
@@ -167,6 +190,16 @@ export function EstimationGuideClient() {
       examples: { ...state.examples, [key]: value },
     }));
   }, []);
+
+  const descriptionOf = useCallback(
+    (val: string | number) =>
+      readEntry(store.descriptions, activeScale.name, val, defaultDescription(val)),
+    [store.descriptions, activeScale.name]
+  );
+  const exampleOf = useCallback(
+    (val: string | number) => readEntry(store.examples, activeScale.name, val),
+    [store.examples, activeScale.name]
+  );
 
   const handleReset = useCallback(() => {
     useEstimationGuideStore.setState({
@@ -203,31 +236,28 @@ export function EstimationGuideClient() {
     if (!activeScale) return "";
     const lines = [`Estimation Reference Guide - ${activeScale.name} Scale`, ""];
     for (const val of activeScale.values) {
-      const key = String(val);
-      lines.push(`[${key}]`);
-      lines.push(`Description: ${store.descriptions[key] ?? ""}`);
-      if (store.examples[key]) {
-        lines.push(`Example: ${store.examples[key]}`);
+      lines.push(`[${val}]`);
+      lines.push(`Description: ${descriptionOf(val)}`);
+      const example = exampleOf(val);
+      if (example) {
+        lines.push(`Example: ${example}`);
       }
       lines.push("");
     }
     return lines.join("\n");
-  }, [activeScale, store.descriptions, store.examples]);
+  }, [activeScale, descriptionOf, exampleOf]);
 
   const jsonData = useMemo(() => {
     if (!activeScale) return { scale: "", values: [] };
     return {
       scale: activeScale.name,
-      values: activeScale.values.map((val) => {
-        const key = String(val);
-        return {
-          value: val,
-          description: store.descriptions[key] ?? "",
-          example: store.examples[key] ?? "",
-        };
-      }),
+      values: activeScale.values.map((val) => ({
+        value: val,
+        description: descriptionOf(val),
+        example: exampleOf(val),
+      })),
     };
-  }, [activeScale, store.descriptions, store.examples]);
+  }, [activeScale, descriptionOf, exampleOf]);
 
   const workspace = useWorkspaceStore(
     useShallow(
@@ -248,16 +278,17 @@ export function EstimationGuideClient() {
   const promptConfig = useMemo(
     () => ({
       toolName: "Estimation Guide",
+      // The prompts read entries by bare value: hand them the active scale's.
       prompts: generateEstimationGuidePrompts(
         {
           selectedScale: store.selectedScale,
-          descriptions: store.descriptions,
-          examples: store.examples,
+          descriptions: entriesForScale(store.descriptions, activeScale, true),
+          examples: entriesForScale(store.examples, activeScale, false),
         },
         workspace
       ),
     }),
-    [store.selectedScale, store.descriptions, store.examples, workspace]
+    [store.selectedScale, store.descriptions, store.examples, activeScale, workspace]
   );
 
   // Guard against scales[] being empty so render-time access to
@@ -350,8 +381,10 @@ export function EstimationGuideClient() {
                   </label>
                   <Textarea
                     id={`${uid}-${key}-description`}
-                    value={store.descriptions[key] ?? ""}
-                    onChange={(e) => handleDescriptionChange(key, e.target.value)}
+                    value={descriptionOf(val)}
+                    onChange={(e) =>
+                      handleDescriptionChange(entryKey(activeScale.name, val), e.target.value)
+                    }
                     placeholder="Describe what this estimate means..."
                     rows={3}
                     className="resize-none border-border bg-bg text-text placeholder:text-sub text-sm focus-visible:ring-accent-cyan/50"
@@ -368,8 +401,10 @@ export function EstimationGuideClient() {
                   </label>
                   <Textarea
                     id={`${uid}-${key}-example`}
-                    value={store.examples[key] ?? ""}
-                    onChange={(e) => handleExampleChange(key, e.target.value)}
+                    value={exampleOf(val)}
+                    onChange={(e) =>
+                      handleExampleChange(entryKey(activeScale.name, val), e.target.value)
+                    }
                     placeholder="Add a team-specific example..."
                     rows={2}
                     className="resize-none border-border bg-bg text-text placeholder:text-sub text-sm focus-visible:ring-accent-cyan/50"

@@ -11,9 +11,6 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generateSprintComparePrompts } from "@/lib/ai-prompts/sprint-compare";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPRINT_COMPARE_ACTIONS } from "@/lib/history/event-actions";
-import { selectEvents } from "@/lib/history/selectors";
-import { useHistoryStore } from "@/lib/history/history-store";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SectionCard } from "@/components/shared/section-card";
 import { ChartCard } from "@/components/shared/chart-card";
@@ -310,22 +307,6 @@ export function SprintCompareClient() {
     [sprints]
   );
 
-  // ── Cross-tool signal: most-recent sprint added to velocity tool ──────
-  // Surfaces a chip prompting the user to pin the new sprint here.
-  // Subscribes to the history store's events so we stay fresh whenever a
-  // sibling tool logs a new event.
-  const events = useHistoryStore((s) => s.events);
-  const newSprintAvailable = useMemo(
-    () =>
-      selectEvents({
-        toolId: "velocity",
-        action: "sprint_added",
-        sinceDays: 7,
-        limit: 1,
-      }),
-    [events]
-  );
-
   /* -- Render -------------------------------------------------------------- */
 
   return (
@@ -363,15 +344,6 @@ export function SprintCompareClient() {
           contentClassName="space-y-6"
           actions={
             <>
-              {newSprintAvailable.length > 0 && (
-                <Badge
-                  className="bg-accent/10 text-accent border-accent/30 gap-1.5"
-                  title="A new sprint was added to the Velocity tracker recently — consider pinning it here to compare."
-                >
-                  <Plus className="w-3 h-3" />
-                  New sprint available to pin
-                </Badge>
-              )}
               <Button variant="danger-ghost" size="sm" onClick={reset}>
                 Reset
               </Button>

@@ -14,7 +14,7 @@ export const GUIDES: ToolGuide[] = [
       "Under Add response, choose NPS (0-10) or CSAT (1-5), set the date and score, and add the Respondent and Verbatim comment if you have them.",
       "Add every response, not just the notable ones, so the numbers stay honest.",
       "Read the cards. NPS is % promoters minus % detractors, from −100 to +100. CSAT is the average score out of 5.",
-      "After each survey round, check the Score Trend chart. It plots the average raw score per date, so it won't match the NPS number exactly.",
+      "After each survey round, check the Score Trend chart. It plots NPS for each date on the left axis (−100 to +100) and the average CSAT for each date on the right axis (1 to 5).",
       "Read the verbatim comments for the reasons behind the scores, and review the trend monthly or after each release.",
     ],
     scales: [
