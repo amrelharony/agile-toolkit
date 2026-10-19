@@ -118,7 +118,7 @@ export function CFDClient() {
   /* -- Stats --------------------------------------------------------------- */
   const stats = useMemo(() => {
     if (sortedEntries.length === 0) {
-      return { totalItems: 0, wipItems: 0, wipPct: 0, doneItems: 0, cycleEff: 0 };
+      return { totalItems: 0, wipItems: 0, wipPct: 0, doneItems: 0, doneShare: 0 };
     }
     const latest = sortedEntries[sortedEntries.length - 1];
     const totalItems = columns.reduce((s, c) => s + (latest.counts[c.id] ?? 0), 0);
@@ -136,10 +136,12 @@ export function CFDClient() {
     const lastCol = columns[columns.length - 1];
     const doneItems = lastCol ? (latest.counts[lastCol.id] ?? 0) : 0;
 
-    // Cycle efficiency = Done / Total (higher = better throughput)
-    const cycleEff = totalItems > 0 ? Math.round((doneItems / totalItems) * 100) : 0;
+    // Done share = Done / Total items on the board. It isn't flow (cycle)
+    // efficiency, which is active time / elapsed time and needs per-item
+    // timestamps this tool doesn't have.
+    const doneShare = totalItems > 0 ? Math.round((doneItems / totalItems) * 100) : 0;
 
-    return { totalItems, wipItems, wipPct, doneItems, cycleEff };
+    return { totalItems, wipItems, wipPct, doneItems, doneShare };
   }, [sortedEntries, columns]);
 
   /* -- Phase-15: WIP series across snapshots ------------------------------ */
@@ -291,9 +293,10 @@ export function CFDClient() {
           />
           <StatCard label="Done Items" value={stats.doneItems} accent />
           <StatCard
-            label="Cycle Efficiency"
-            value={`${stats.cycleEff}%`}
-            accent={stats.cycleEff >= 50}
+            label="Done share"
+            value={`${stats.doneShare}%`}
+            unit="of all items"
+            accent={stats.doneShare >= 50}
           />
         </div>
 
@@ -320,7 +323,7 @@ export function CFDClient() {
             </div>
           </CardHeader>
           <CardContent>
-            <FlowChart chartData={chartData} columns={columns} wipLimit={wipLimit} />
+            <FlowChart chartData={chartData} columns={columns} />
           </CardContent>
         </Card>
 
@@ -331,6 +334,7 @@ export function CFDClient() {
           <WipControlChart
             wipSeries={wipSeries}
             wipLimits={wipLimits}
+            wipLimit={wipLimit}
             cusumAnnotations={wipCusumAnnotations}
             signals={wipSignals}
           />
@@ -382,7 +386,9 @@ export function CFDClient() {
             </div>
             {wipLimit !== null && (
               <p className="mt-2 text-xs text-warning">
-                WIP limit set at {wipLimit} items — red reference line shown on chart.
+                {wipSeries.length >= 2
+                  ? `WIP limit set at ${wipLimit} items — shown as a dashed line on the WIP control chart.`
+                  : `WIP limit set at ${wipLimit} items — it appears on the WIP control chart once you have two snapshots${columns.length < 3 ? " and a middle column" : ""}.`}
               </p>
             )}
           </CardContent>

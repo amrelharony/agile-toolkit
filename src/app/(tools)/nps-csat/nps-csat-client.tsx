@@ -33,6 +33,7 @@ import { NPS_CSAT_ACTIONS } from "@/lib/history/event-actions";
 import { ActionRow } from "@/components/shared/action-row";
 import { StatCard } from "@/components/shared/stat-card";
 import { KpiGrid } from "@/components/shared/kpi-grid";
+import { buildScoreTrend } from "./trend";
 
 // Recharts loads with the score trend chart, not the page. The placeholder
 // matches the chart's fixed 240px height so the card doesn't jump.
@@ -155,36 +156,8 @@ export function NpsCsatClient() {
   const npsCount = useMemo(() => entries.filter((e) => e.kind === "nps").length, [entries]);
   const csatCount = useMemo(() => entries.filter((e) => e.kind === "csat").length, [entries]);
 
-  const trendData = useMemo(() => {
-    const sums = new Map<
-      string,
-      { date: string; npsSum: number; npsCount: number; csatSum: number; csatCount: number }
-    >();
-    for (const e of entries) {
-      const cur = sums.get(e.date) ?? {
-        date: e.date,
-        npsSum: 0,
-        npsCount: 0,
-        csatSum: 0,
-        csatCount: 0,
-      };
-      if (e.kind === "nps") {
-        cur.npsSum += e.score;
-        cur.npsCount += 1;
-      } else {
-        cur.csatSum += e.score;
-        cur.csatCount += 1;
-      }
-      sums.set(e.date, cur);
-    }
-    return Array.from(sums.values())
-      .map((d) => ({
-        date: d.date,
-        nps: d.npsCount > 0 ? d.npsSum / d.npsCount : undefined,
-        csat: d.csatCount > 0 ? d.csatSum / d.csatCount : undefined,
-      }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-  }, [entries]);
+  // Per-date NPS (% promoters − % detractors) and average CSAT.
+  const trendData = useMemo(() => buildScoreTrend(entries), [entries]);
 
   const anomalies = useMemo(() => {
     const scores = entries.filter((e) => e.kind === "nps").map((e) => e.score);
@@ -192,7 +165,7 @@ export function NpsCsatClient() {
   }, [entries]);
 
   /* ── Phase-15 analytics ───────────────────────────────────────────────── */
-  // Per-date NPS / CSAT means used by CUSUM and the Mann-Kendall trend
+  // Per-date NPS / CSAT series used by CUSUM and the Mann-Kendall trend
   // chips. Built from trendData so the markers align with the line chart.
   const npsSeries = useMemo(
     () =>
