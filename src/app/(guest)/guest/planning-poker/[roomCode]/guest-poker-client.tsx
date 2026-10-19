@@ -23,6 +23,7 @@ import Link from "next/link";
 import { ArrowLeft, Loader2, AlertTriangle } from "lucide-react";
 import { SessionScreen } from "@/app/(tools)/planning-poker/session-screen";
 import { usePokerSession } from "@/app/(tools)/planning-poker/use-poker-session";
+import { useAutoSeat } from "@/app/(tools)/planning-poker/use-auto-seat";
 
 interface Props {
   roomCode: string;
@@ -41,22 +42,14 @@ function GuestPokerInner({ roomCode, role, profile }: Props) {
   const [hostEnded, setHostEnded] = useState(false);
 
   // Auto-rejoin: on every received session, if our row is missing and
-  // we're not a viewer, broadcast our participant row. No `hasJoined`
-  // latch — that latch caused a permanent ghost when the host's
-  // heartbeat raced our initial join broadcast.
-  useEffect(() => {
-    if (!session) return;
-    if (role === "viewer") return;
-    if (session.participants.some((p) => p.id === userId)) return;
-    setSession((prev) => {
-      if (!prev) return prev;
-      if (prev.participants.some((p) => p.id === userId)) return prev;
-      return {
-        ...prev,
-        participants: [...prev.participants, { id: userId, name: profile.displayName, vote: null }],
-      };
-    });
-  }, [session, userId, profile.displayName, role, setSession]);
+  // we're not a viewer, broadcast our participant row.
+  useAutoSeat({
+    session,
+    setSession,
+    userId,
+    name: profile.displayName,
+    enabled: role !== "viewer",
+  });
 
   useEffect(() => {
     const off = subscribeToSessionEnded(() => setHostEnded(true));

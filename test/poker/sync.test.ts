@@ -432,3 +432,144 @@ describe("electNewHost", () => {
     expect(elected).toBeNull();
   });
 });
+
+/**
+ * Visitor live rooms: the host passes `admit` so a member it removed
+ * (its blocklist) or one past the 20-member cap changes nothing, even
+ * while they stay connected. Owner and guest rooms pass no `admit`.
+ */
+describe("mergePokerState — admission (visitor rooms)", () => {
+  const withGuestVote = (vote: string) =>
+    session({
+      participants: [
+        { id: "host-id", name: "Alice", vote: null },
+        { id: "guest-1", name: "Bob", vote },
+      ],
+    });
+
+  it("lets an admitted sender change its own row", () => {
+    const prev = session();
+    const merged = mergePokerState({
+      prev,
+      next: withGuestVote("5"),
+      envBy: "guest-1",
+      trustedHostId: "host-id",
+      presentMemberIds: presence("host-id", "guest-1"),
+      receiverId: "host-id",
+      admit: () => true,
+    });
+    expect(merged?.participants.find((p) => p.id === "guest-1")?.vote).toBe("5");
+  });
+
+  it("ignores every row from a blocked sender, even its own", () => {
+    const blocked = new Set(["guest-1"]);
+    const prev = session();
+    const merged = mergePokerState({
+      prev,
+      next: withGuestVote("5"),
+      envBy: "guest-1",
+      trustedHostId: "host-id",
+      presentMemberIds: presence("host-id", "guest-1"),
+      receiverId: "host-id",
+      admit: (id) => !blocked.has(id),
+    });
+    expect(merged).toBe(prev);
+  });
+
+  it("does not re-seat a removed member who sends their row again", () => {
+    // The host removed guest-1; their client keeps broadcasting a session
+    // with their row added back.
+    const prev = session({ participants: [{ id: "host-id", name: "Alice", vote: null }] });
+    const blocked = new Set(["guest-1"]);
+    const merged = mergePokerState({
+      prev,
+      next: withGuestVote("8"),
+      envBy: "guest-1",
+      trustedHostId: "host-id",
+      presentMemberIds: presence("host-id", "guest-1"),
+      receiverId: "host-id",
+      admit: (id) => !blocked.has(id),
+    });
+    expect(merged?.participants.map((p) => p.id)).toEqual(["host-id"]);
+  });
+
+  it("ignores a sender past the member cap (present, but not seated)", () => {
+    // Presence shows 21 people; the host's ledger seats the first 20.
+    const seated = new Set(["host-id", ...Array.from({ length: 19 }, (_, i) => `m${i}`)]);
+    const prev = session({ participants: [{ id: "host-id", name: "Alice", vote: null }] });
+    const next = session({
+      participants: [
+        { id: "host-id", name: "Alice", vote: null },
+        { id: "late-21", name: "Late", vote: "3" },
+      ],
+    });
+    const merged = mergePokerState({
+      prev,
+      next,
+      envBy: "late-21",
+      trustedHostId: "host-id",
+      presentMemberIds: presence(...Array.from(seated), "late-21"),
+      receiverId: "host-id",
+      admit: (id) => seated.has(id),
+    });
+    expect(merged).toBe(prev);
+  });
+
+  it("refuses a blocked sender's bootstrap and host claims too", () => {
+    const admit = (id: string) => id !== "attacker";
+    expect(
+      mergePokerState({
+        prev: null,
+        next: session({ hostId: "attacker" }),
+        envBy: "attacker",
+        trustedHostId: null,
+        presentMemberIds: presence("attacker", "guest-1"),
+        receiverId: "guest-1",
+        admit,
+      })
+    ).toBeNull();
+
+    // Even as the elected migration target, a refused sender changes nothing.
+    const prev = session();
+    expect(
+      mergePokerState({
+        prev,
+        next: session({ hostId: "attacker", revealed: true }),
+        envBy: "attacker",
+        trustedHostId: "host-id",
+        presentMemberIds: presence("attacker", "guest-1"),
+        receiverId: "guest-1",
+        electedHostId: "attacker",
+        admit,
+      })
+    ).toBe(prev);
+  });
+
+  it("refuses a sender with no id when admit is set", () => {
+    const prev = session();
+    expect(
+      mergePokerState({
+        prev,
+        next: withGuestVote("5"),
+        envBy: null,
+        trustedHostId: "host-id",
+        presentMemberIds: presence("host-id", "guest-1"),
+        receiverId: "host-id",
+        admit: () => true,
+      })
+    ).toBe(prev);
+  });
+
+  it("leaves owner and guest rooms (no admit) exactly as before", () => {
+    const prev = session();
+    const merged = mergePokerState({
+      prev,
+      next: withGuestVote("5"),
+      envBy: "guest-1",
+      trustedHostId: "host-id",
+      presentMemberIds: presence("host-id", "guest-1"),
+      receiverId: "host-id",
+    });
+    expect(merged?.participants.find((p) => p.id === "guest-1")?.vote).toBe("5");
+  });
+});

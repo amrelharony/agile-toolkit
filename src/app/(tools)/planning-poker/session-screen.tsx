@@ -86,7 +86,16 @@ interface Props {
    *  their votes face down, passing the screen round. Never set for a
    *  live room, where every guest votes from their own device. */
   facilitator?: boolean;
+  /** Host of a visitor live room: remove someone from the room (asks
+   *  first). Shows a Remove control on every other participant's row.
+   *  Owner and guest rooms pass nothing. */
+  onRemoveParticipant?: (participant: Participant) => void;
+  /** Log votes, reveals and estimates to this browser's history. Off in
+   *  a visitor live room: nothing from the room is kept. */
+  recordHistory?: boolean;
 }
+
+const NO_LOG = () => {};
 
 // ─── helpers (duplicated minimal subset; original copies remain in
 // planning-poker-client.tsx for the lobby tour-of-features) ────────
@@ -228,12 +237,16 @@ export function SessionScreen({
   onAddQueued,
   onEstimateAccepted,
   facilitator = false,
+  onRemoveParticipant,
+  recordHistory = true,
 }: Props) {
   const [newStory, setNewStory] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<Participant | null>(null);
   const newStoryRef = useRef<HTMLInputElement>(null);
-  const { log } = useHistoryLogger("planning-poker");
+  const { log: historyLog } = useHistoryLogger("planning-poker");
+  const log = recordHistory ? historyLog : NO_LOG;
   const announce = useAnnounce();
 
   const currentStory = session.stories[session.currentStoryIdx] ?? null;
@@ -500,7 +513,7 @@ export function SessionScreen({
   const leaveDescription = leaveClearsSession
     ? `This session's ${storyCount} ${storyNoun} and their estimates will be cleared from this browser.`
     : isHost
-      ? `You'll leave the live room and your squad will see that the host has left. This session's ${storyCount} ${storyNoun} and their estimates will be cleared from this browser.`
+      ? `You'll leave the live room and everyone in it will see that the host has left. This session's ${storyCount} ${storyNoun} and their estimates will be cleared from this browser.`
       : "You'll leave the live room. The session carries on for everyone else.";
 
   const votes = session.revealed
@@ -568,6 +581,25 @@ export function SessionScreen({
         tone={leaveClearsSession || isHost ? "danger" : "default"}
         onConfirm={onLeave}
       />
+
+      {onRemoveParticipant && (
+        <ConfirmDialog
+          open={removeTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setRemoveTarget(null);
+          }}
+          title={removeTarget ? `Remove ${removeTarget.name} from the room?` : "Remove?"}
+          description="They leave the room and their vote is dropped. Anyone with the link can still come back under another name; to keep someone out, end the room and share a new link."
+          confirmLabel="Remove"
+          onConfirm={() => {
+            const target = removeTarget;
+            setRemoveTarget(null);
+            if (!target) return;
+            onRemoveParticipant(target);
+            announce(`${target.name} was removed from the room`);
+          }}
+        />
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_260px]">
         <div className="flex flex-col gap-5">
@@ -1018,6 +1050,20 @@ export function SessionScreen({
                     className="-my-1 h-7 w-7 shrink-0"
                   />
                 )}
+                {!facilitating &&
+                  isHost &&
+                  onRemoveParticipant &&
+                  p.id !== session.hostId &&
+                  p.id !== localParticipantId && (
+                    <IconButton
+                      label={`Remove ${p.name} from the room`}
+                      icon={<X aria-hidden="true" />}
+                      tooltip={false}
+                      variant="danger-ghost"
+                      onClick={() => setRemoveTarget(p)}
+                      className="-my-1 h-7 w-7 shrink-0"
+                    />
+                  )}
               </div>
             ))}
             {facilitating && (

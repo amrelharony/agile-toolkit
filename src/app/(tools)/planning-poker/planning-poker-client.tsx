@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { customAlphabet } from "nanoid";
-import { ListChecks, WifiOff } from "lucide-react";
+import { ListChecks, Loader2, Radio, WifiOff } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { generatePlanningPokerPrompts } from "@/lib/ai-prompts/planning-poker";
@@ -26,6 +26,17 @@ import { Label } from "@/components/ui/label";
 import { SectionCard } from "@/components/shared/section-card";
 import { ExportButton } from "@/components/shared/export-button";
 import { SessionShareButton } from "@/components/collab/session-share-button";
+import { VisitorRoomConsent } from "@/components/collab/visitor-room-consent";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import {
+  VISITOR_LIMITS,
+  clearVisitorIdentity,
+  isVisitorRoomCode,
+  newVisitorRoomCode,
+  saveVisitorIdentity,
+  visitorRoomsEnabled,
+  type VisitorIdentity,
+} from "@/lib/realtime/visitor-rooms";
 import {
   ExampleNotice,
   LoadExampleButton,
@@ -33,6 +44,8 @@ import {
 } from "@/components/tool-frame/example-data";
 import { SessionScreen } from "./session-screen";
 import { usePokerSession } from "./use-poker-session";
+import { PokerRoomBar } from "./poker-room-bar";
+import { withHostOnly } from "./visitor-session";
 import {
   adoptLocalSession,
   clearLocalSession,
@@ -63,6 +76,9 @@ function generateRoomCode(): string {
   return roomCodeGenerator();
 }
 
+const ROOM_TTL_HOURS = Math.round(VISITOR_LIMITS.hardTtlMs / 3_600_000);
+const ROOM_IDLE_MINUTES = Math.round(VISITOR_LIMITS.idleMs / 60_000);
+
 // ─── Lobby ───────────────────────────────────────────────────────────
 interface StartData {
   sessionName: string;
@@ -78,6 +94,9 @@ function LobbyScreen({
   onLoadExample,
   isOwner,
   queuedCount = 0,
+  onStartLive,
+  liveRoomPending = false,
+  onCancelLive,
 }: {
   onStart: (data: StartData) => void;
   /** Omitted until auth settles, so the example can't beat a stored
@@ -86,6 +105,12 @@ function LobbyScreen({
   isOwner: boolean;
   /** Stories other tools queued for estimation (Story Mapper). */
   queuedCount?: number;
+  /** Visitors with live rooms switched on: start a visitor live room with
+   *  this form's settings (asks for consent first). Omitted otherwise. */
+  onStartLive?: (data: StartData) => void;
+  /** A live room is opening and hasn't connected yet. */
+  liveRoomPending?: boolean;
+  onCancelLive?: () => void;
 }) {
   const [sessionName, setSessionName] = useState(DEFAULT_SESSION_NAME);
   const [scaleType, setScaleType] = useState<ScaleType>("fibonacci");
@@ -101,15 +126,16 @@ function LobbyScreen({
       : SCALES[scaleType];
 
   const canStart = Boolean(sessionName.trim() && displayName.trim() && resolvedScale.length >= 2);
+  const formData = (fromQueue = false): StartData => ({
+    sessionName: sessionName.trim(),
+    scale: resolvedScale,
+    scaleType,
+    displayName: displayName.trim(),
+    fromQueue,
+  });
   const handleStart = (fromQueue = false) => {
     if (!canStart) return;
-    onStart({
-      sessionName: sessionName.trim(),
-      scale: resolvedScale,
-      scaleType,
-      displayName: displayName.trim(),
-      fromQueue,
-    });
+    onStart(formData(fromQueue));
   };
 
   return (
@@ -227,6 +253,39 @@ function LobbyScreen({
             ? "Guest joiners use a squad invite (Settings → Squads). Once you start a session you can invite your squad from the header."
             : "This session runs on your screen. Share it in your meeting and add your team once it starts. Read each story aloud, record everyone's card face down or pass the screen round, then reveal together and agree the estimate."}
         </p>
+        {onStartLive && (
+          <div className="mt-2 flex flex-col gap-2 border-t border-border pt-3">
+            <p className="text-sm text-sub">
+              Or start a live room: everyone votes from their own device through a link. Up to{" "}
+              {VISITOR_LIMITS.maxMembers} people. Nothing is stored, and the room closes when you
+              end it, or after {ROOM_TTL_HOURS} hours.
+            </p>
+            {liveRoomPending ? (
+              <div className="flex flex-wrap items-center gap-2" role="status">
+                <Loader2 className="h-4 w-4 animate-spin text-accent" aria-hidden="true" />
+                <span className="text-sm text-text">Opening the live room…</span>
+                {onCancelLive && (
+                  <Button type="button" variant="ghost" size="sm" onClick={onCancelLive}>
+                    Cancel
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <Button
+                type="button"
+                variant="toolkit"
+                onClick={() => {
+                  if (canStart) onStartLive(formData());
+                }}
+                disabled={!canStart}
+                className="gap-2 self-start"
+              >
+                <Radio className="h-4 w-4" aria-hidden="true" />
+                Start a live room
+              </Button>
+            )}
+          </div>
+        )}
       </SectionCard>
     </div>
   );
@@ -251,9 +310,39 @@ export function PlanningPokerClient() {
   // the room (rare but possible — squad invite was issued in advance).
   const [pendingInitial, setPendingInitial] = useState<Session | null>(null);
 
-  const pokerHook = usePokerSession(activeRoomCode, /* isHost */ true);
-  const { session, setSession, isConnected, isLocalOnly, userId, isHost, broadcastSessionEnded } =
-    pokerHook;
+  // ─── Visitor live room ───
+  // Only a confirmed visitor (never the owner) with the flag on and
+  // Realtime configured is offered one. Which room this is lives ONLY in
+  // this state: it's never persisted, so restoring a stored session can
+  // never reopen a room ("restore pitfall").
+  const [visitorRoom, setVisitorRoom] = useState<{
+    code: string;
+    identity: VisitorIdentity;
+  } | null>(null);
+  // The lobby settings waiting on the consent dialog.
+  const [consentFor, setConsentFor] = useState<StartData | null>(null);
+  const liveRoomsOffered = visitor && !isOwner && realtimeAvailable && visitorRoomsEnabled();
+  const announce = useAnnounce();
+
+  const pokerHook = usePokerSession(activeRoomCode, /* isHost */ true, {
+    visitor: visitorRoom !== null,
+    identity: visitorRoom?.identity,
+  });
+  const {
+    session,
+    setSession,
+    isConnected,
+    isLocalOnly,
+    userId,
+    isHost,
+    broadcastSessionEnded,
+    memberCount,
+    leftReason,
+    kick,
+    endRoom,
+    idleWarning,
+    keepRoomOpen,
+  } = pokerHook;
 
   useEffect(() => {
     if (!pendingInitial) return;
@@ -261,6 +350,68 @@ export function PlanningPokerClient() {
     setSession(pendingInitial);
     setPendingInitial(null);
   }, [pendingInitial, isConnected, isLocalOnly, setSession]);
+
+  // The live room is over: ended here, closed by its 3-hour limit or for
+  // inactivity. Forget it and carry on locally with only the host's seat
+  // (the hook has already left the channel, so nothing is broadcast).
+  useEffect(() => {
+    if (!visitorRoom || leftReason === null) return;
+    clearVisitorIdentity(visitorRoom.code);
+    setVisitorRoom(null);
+    setActiveRoomCode(null);
+    setPendingInitial(null);
+    setSession((prev) => (prev ? withHostOnly(prev) : prev));
+    const why =
+      leftReason === "expired"
+        ? `The live room closed after ${ROOM_TTL_HOURS} hours.`
+        : leftReason === "idle"
+          ? `The live room closed after ${ROOM_IDLE_MINUTES} minutes without activity.`
+          : "Room ended.";
+    announce(`${why} Your session continues on this device.`);
+    if (leftReason === "expired" || leftReason === "idle") {
+      toast.info(why, { description: "Your session continues on this device." });
+    }
+  }, [visitorRoom, leftReason, setSession, announce]);
+
+  // Owners don't run visitor rooms (strangers' content must never reach
+  // the owner's synced data). If this browser turns out to be the owner's
+  // while one is open, end it.
+  useEffect(() => {
+    if (isOwner && visitorRoom) endRoom();
+  }, [isOwner, visitorRoom, endRoom]);
+
+  const startLiveRoom = (name: string) => {
+    const data = consentFor;
+    setConsentFor(null);
+    if (!data || !liveRoomsOffered) return;
+    const code = newVisitorRoomCode();
+    const identity = saveVisitorIdentity(code, name);
+    if (!identity) return;
+    const initial: Session = {
+      roomCode: code,
+      sessionName: data.sessionName,
+      scale: data.scale,
+      scaleType: data.scaleType,
+      host: identity.name,
+      hostId: identity.id,
+      participants: [{ id: identity.id, name: identity.name, vote: null }],
+      stories: [],
+      currentStoryIdx: 0,
+      revealed: false,
+    };
+    setVisitorRoom({ code, identity });
+    setPendingInitial(initial);
+    setActiveRoomCode(code);
+  };
+
+  // The room never connected (or the visitor changed their mind): back to
+  // the lobby, with nothing opened.
+  const cancelLiveRoom = () => {
+    if (visitorRoom) clearVisitorIdentity(visitorRoom.code);
+    setVisitorRoom(null);
+    setPendingInitial(null);
+    setActiveRoomCode(null);
+  };
 
   // Local-only sessions (visitors, or the owner without Realtime env)
   // survive a refresh or a trip to another tool: restore the stored one
@@ -279,17 +430,24 @@ export function PlanningPokerClient() {
     if (!stored) return;
     setPendingInitial(adoptLocalSession(stored, userId));
     // The example never gets a room, even if this browser signs in later.
-    setActiveRoomCode(isExampleId(stored.roomCode) ? null : stored.roomCode);
+    // Nor does a session that was a visitor live room: it comes back as a
+    // plain local session, never reconnected.
+    setActiveRoomCode(
+      isExampleId(stored.roomCode) || isVisitorRoomCode(stored.roomCode) ? null : stored.roomCode
+    );
   }, [visitor, isOwner, session, pendingInitial, userId]);
 
   // Mirror every change of a local-only session into storage. A session
   // that turns out to be live (an owner who started before auth
-  // verified them) drops its stale local copy instead.
+  // verified them) drops its stale local copy instead. A visitor live
+  // room keeps a copy with only the host's seat (no one else's name is
+  // stored), so a refresh brings the stories back as a local session.
   useEffect(() => {
     if (!session) return;
-    if (isLocalOnly) saveLocalSession(session);
+    if (visitorRoom) saveLocalSession(withHostOnly(session));
+    else if (isLocalOnly) saveLocalSession(session);
     else clearLocalSession();
-  }, [session, isLocalOnly]);
+  }, [session, isLocalOnly, visitorRoom]);
 
   // ─── Queue: stories other tools sent (Story Mapper) ───
   // It lives on the estimate log in this browser's workspace, never in the
@@ -328,6 +486,9 @@ export function PlanningPokerClient() {
   };
 
   const handleStart = ({ sessionName, scale, scaleType, displayName, fromQueue }: StartData) => {
+    // A live room still opening gives way to the plain session.
+    if (visitorRoom) clearVisitorIdentity(visitorRoom.code);
+    setVisitorRoom(null);
     const code = generateRoomCode();
     const initial: Session = {
       roomCode: code,
@@ -349,6 +510,8 @@ export function PlanningPokerClient() {
     const leave = () => {
       clearLocalSession();
       broadcastSessionEnded();
+      if (visitorRoom) clearVisitorIdentity(visitorRoom.code);
+      setVisitorRoom(null);
       setActiveRoomCode(null);
       setPendingInitial(null);
       setSession(() => null);
@@ -483,6 +646,9 @@ export function PlanningPokerClient() {
               onLoadExample={visitor || isOwner ? loadExample : undefined}
               isOwner={isOwner}
               queuedCount={queuedCount}
+              onStartLive={liveRoomsOffered ? setConsentFor : undefined}
+              liveRoomPending={visitorRoom !== null && pendingInitial !== null}
+              onCancelLive={cancelLiveRoom}
             />
           </motion.div>
         ) : (
@@ -494,6 +660,17 @@ export function PlanningPokerClient() {
             transition={{ duration: 0.2 }}
           >
             {exampleShown && <ExampleNotice onClear={clearExample} />}
+            {visitorRoom && (
+              <PokerRoomBar
+                code={visitorRoom.code}
+                memberCount={memberCount}
+                isHost
+                onEnd={endRoom}
+                idleWarning={idleWarning}
+                onKeepOpen={keepRoomOpen}
+                keepsSession
+              />
+            )}
             <SessionScreen
               session={session}
               onUpdateSession={(updater) => setSession((prev) => (prev ? updater(prev) : prev))}
@@ -505,7 +682,7 @@ export function PlanningPokerClient() {
                   <ExportButton filename="planning-poker" markdown={markdown} />
                   {promptConfig && <AiPromptGenerator config={promptConfig} />}
                   {/* The example (and what's kept of it) has no room to invite to. */}
-                  {activeRoomCode !== null && (
+                  {activeRoomCode !== null && !visitorRoom && (
                     <SessionShareButton
                       toolId="planning-poker"
                       entityId={session.roomCode}
@@ -515,28 +692,49 @@ export function PlanningPokerClient() {
                 </>
               }
               connectionLabel={
-                !isOwner
-                  ? "Browser-only"
-                  : isLocalOnly
-                    ? "Local-only"
-                    : isConnected
-                      ? "Live"
-                      : "Connecting…"
+                visitorRoom
+                  ? isConnected
+                    ? "Live room"
+                    : "Connecting…"
+                  : !isOwner
+                    ? "Browser-only"
+                    : isLocalOnly
+                      ? "Local-only"
+                      : isConnected
+                        ? "Live"
+                        : "Connecting…"
               }
               connectionTone={isLocalOnly ? "warn" : "live"}
               // Nobody can join a local-only room, so don't show its code.
-              showRoomCode={!isLocalOnly}
+              // A visitor room shows its code in the chip above.
+              showRoomCode={!isLocalOnly && !visitorRoom}
               leaveClearsSession={isLocalOnly}
               // One screen for the whole team: only where nobody else can
               // join. A live room keeps one device per voter.
               facilitator={isLocalOnly}
               queuedCount={queuedCount}
               onAddQueued={addQueued}
-              onEstimateAccepted={handleEstimateAccepted}
+              // Nothing from a visitor room is written back to the
+              // workspace or logged to history.
+              onEstimateAccepted={visitorRoom ? undefined : handleEstimateAccepted}
+              recordHistory={!visitorRoom}
+              onRemoveParticipant={visitorRoom ? (p) => kick(p.id) : undefined}
             />
           </motion.div>
         )}
       </AnimatePresence>
+      {liveRoomsOffered && (
+        <VisitorRoomConsent
+          open={consentFor !== null}
+          onOpenChange={(open) => {
+            if (!open) setConsentFor(null);
+          }}
+          mode="start"
+          toolName="Planning Poker"
+          defaultName={consentFor?.displayName ?? ""}
+          onConfirm={startLiveRoom}
+        />
+      )}
     </ToolPageWrapper>
   );
 }

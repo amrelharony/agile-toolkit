@@ -80,6 +80,13 @@ export interface MergeInputs {
    *  set when the original host has been absent for >10s). The merge
    *  will accept hostId changes from this peer. */
   electedHostId?: string | null;
+  /**
+   * Visitor rooms: whether the sender may change anything at all. False
+   * for a member the host removed (its blocklist) or one past the member
+   * cap, so their rows are ignored even while they stay connected. Owner
+   * and guest rooms leave it unset: every present sender is admitted.
+   */
+  admit?: (id: string) => boolean;
 }
 
 /**
@@ -95,9 +102,14 @@ export interface MergeInputs {
  *   - The redacted sentinel `"•"` is preserved (pre-reveal heartbeats).
  *     The receiver's own row keeps its locally-known real vote when the
  *     incoming says `"•"` — heartbeat redactions never wipe own vote UI.
+ *   - With `admit`, a sender it refuses changes nothing (`prev` comes back
+ *     unchanged), whatever role it claims.
  */
 export function mergePokerState(inp: MergeInputs): Session | null {
-  const { prev, next, envBy, trustedHostId, presentMemberIds, receiverId, electedHostId } = inp;
+  const { prev, next, envBy, trustedHostId, presentMemberIds, receiverId, electedHostId, admit } =
+    inp;
+
+  if (admit && (typeof envBy !== "string" || !admit(envBy))) return prev;
 
   if (!prev) {
     if (typeof envBy !== "string" || envBy.length === 0) return null;
