@@ -213,13 +213,13 @@ export const CORE_GUIDES: ToolGuide[] = [
       "A burndown chart shows the work remaining in the sprint each day against an ideal line, so you can see early if the sprint is at risk.",
     whenToUse: ["Tracking a sprint's progress day by day."],
     steps: [
-      "Set the sprint's total points, length and start date.",
+      "Pick or create a sprint. Its planned points, length and first day are shared with Burnup, Velocity and Sprint Metrics.",
       "Each day, record the points remaining.",
       "Compare the actual line to the ideal line; note scope changes when they happen.",
     ],
     tips: [
       "A flat line for several days usually means work is too big or blocked.",
-      "Scope added mid-sprint makes the line go up; record why.",
+      "Scope added mid-sprint makes the line go up; mark the scope change and say why, and Burnup's scope line rises with it.",
     ],
   },
   {
@@ -228,11 +228,12 @@ export const CORE_GUIDES: ToolGuide[] = [
       "Velocity is the amount of work a team completes per sprint. Tracking it over time helps forecast what fits in future sprints.",
     whenToUse: ["Forecasting releases.", "Spotting trends in the team's delivery."],
     steps: [
-      "Record committed and completed points for each finished sprint.",
+      "Add each sprint with its committed points; enter the completed points when it ends.",
       "Look at the average and range of the last 3–6 sprints.",
       "Use the range, not one number, to forecast.",
     ],
     tips: [
+      "The rows are your shared sprints: edits show in Burndown, Burnup, Sprint Comparison and Sprint Metrics. Removing a sprint removes it everywhere (Undo puts it back).",
       "Velocity is a planning tool for the team, not a performance target.",
       "Don't compare velocity between teams — their points mean different things.",
     ],

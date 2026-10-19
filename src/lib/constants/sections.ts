@@ -100,6 +100,7 @@ export const SECTIONS: ToolSection[] = [
     label: "Track delivery",
     icon: TrendingUp,
     toolIds: [
+      "sprint-metrics",
       "burndown",
       "velocity",
       "kanban",
