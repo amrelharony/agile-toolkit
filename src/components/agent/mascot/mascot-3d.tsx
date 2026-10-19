@@ -81,6 +81,14 @@ const LOOPING = new Set(["Idle", "Listening", "Talking", "Thinking"]);
  * clip; `proc` reactions (spin/wiggle) are procedural Y-rotations applied in the
  * RAF. `emission` flashes the holographic pulse; durations mirror the source.
  */
+/** Highest device pixel ratio the canvas renders at. */
+const MAX_PIXEL_RATIO = 1.5;
+/**
+ * Seconds between idle frames (about 30 fps; a little under 1/30 so a 60 Hz
+ * display reliably draws every second frame).
+ */
+const IDLE_FRAME_S = 1 / 32;
+
 const REACTION: Record<
   MascotReaction,
   { clip?: string; dur: number; emission?: number; proc?: "spin" | "wiggle" }
@@ -247,7 +255,9 @@ export default function Mascot3D({
       return; // No WebGL — render nothing rather than crashing the shell.
     }
     renderer.setSize(W, H);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // 1.5x is indistinguishable at this size and draws ~44% fewer pixels than
+    // 2x on high-density phones, where every frame competes with the page.
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.6;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -495,10 +505,18 @@ export default function Mascot3D({
     });
 
     // ── Render loop ──
+    // Idle motion (breathing, bob, blink, the scanline) reads the same at 30
+    // fps, so the loop draws every other frame unless the mascot is reacting
+    // or talking. That halves its main-thread and GPU time on a phone.
+    let sinceDraw = 0;
     const animate = () => {
       if (disposed || !renderer) return;
       raf = requestAnimationFrame(animate);
-      const dt = Math.min(clock.getDelta(), 0.1);
+      sinceDraw += clock.getDelta();
+      const fullRate = reactionEnd > 0 || talkingRef.current;
+      if (!fullRate && sinceDraw < IDLE_FRAME_S) return;
+      const dt = Math.min(sinceDraw, 0.1);
+      sinceDraw = 0;
       const t = clock.getElapsedTime();
       if (mixer) mixer.update(dt);
 
@@ -677,6 +695,7 @@ export default function Mascot3D({
         raf = 0;
       } else if (!disposed && raf === 0) {
         clock.getDelta(); // discard the time gap so dt doesn't spike
+        sinceDraw = IDLE_FRAME_S; // draw straight away
         animate();
       }
     };
