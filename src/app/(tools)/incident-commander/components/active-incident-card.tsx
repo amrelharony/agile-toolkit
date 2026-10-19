@@ -101,7 +101,7 @@ export function ActiveIncidentCard({
       iconClassName={
         incident.severity === "sev1" || incident.severity === "sev2"
           ? "text-danger"
-          : "text-amber-300"
+          : "text-warning"
       }
       titleSize="lg"
       titleSuffix={
@@ -119,8 +119,9 @@ export function ActiveIncidentCard({
       }
       actions={
         <div className="flex items-center gap-2">
-          <span className="font-data text-sm text-accent" aria-label="elapsed time">
+          <span className="font-data text-sm text-accent">
             <Clock className="w-3.5 h-3.5 inline mr-1" aria-hidden="true" />
+            <span className="sr-only">Elapsed time: </span>
             {formatDuration(elapsedMs)}
           </span>
         </div>
@@ -133,8 +134,11 @@ export function ActiveIncidentCard({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <Label className="text-xs text-sub">Commander</Label>
+            <Label htmlFor={`ic-${incident.id}-commander`} className="text-xs text-sub">
+              Commander
+            </Label>
             <Input
+              id={`ic-${incident.id}-commander`}
               ref={commanderInputRef}
               value={commanderDraft}
               onChange={(e) => setCommanderDraft(e.target.value)}
@@ -149,8 +153,11 @@ export function ActiveIncidentCard({
             />
           </div>
           <div>
-            <Label className="text-xs text-sub">Scribe</Label>
+            <Label htmlFor={`ic-${incident.id}-scribe`} className="text-xs text-sub">
+              Scribe
+            </Label>
             <Input
+              id={`ic-${incident.id}-scribe`}
               ref={scribeInputRef}
               value={scribeDraft}
               onChange={(e) => setScribeDraft(e.target.value)}
@@ -174,12 +181,13 @@ export function ActiveIncidentCard({
                 variant="ghost"
                 size="sm"
                 onClick={() => copy(slackTemplate, "Slack template")}
+                aria-label="Copy Slack template"
                 className="h-6 px-2 text-xs text-sub hover:text-accent"
               >
                 <Copy className="w-3 h-3 mr-1" aria-hidden="true" /> Copy
               </Button>
             </div>
-            <pre className="text-[11px] text-text whitespace-pre-wrap break-words font-data">
+            <pre className="text-xs text-text whitespace-pre-wrap break-words font-data">
               {slackTemplate}
             </pre>
           </div>
@@ -190,12 +198,13 @@ export function ActiveIncidentCard({
                 variant="ghost"
                 size="sm"
                 onClick={() => copy(emailTemplate, "Email template")}
+                aria-label="Copy email template"
                 className="h-6 px-2 text-xs text-sub hover:text-accent"
               >
                 <Copy className="w-3 h-3 mr-1" aria-hidden="true" /> Copy
               </Button>
             </div>
-            <pre className="text-[11px] text-text whitespace-pre-wrap break-words font-data">
+            <pre className="text-xs text-text whitespace-pre-wrap break-words font-data">
               {emailTemplate}
             </pre>
           </div>
@@ -255,7 +264,7 @@ export function ActiveIncidentCard({
               variant="outline"
               size="sm"
               onClick={() => onMarkStatus(incident.id, "mitigated")}
-              className="border-border text-sub hover:border-amber-500/50 hover:text-amber-300"
+              className="border-border text-sub hover:border-warning/50 hover:text-warning"
             >
               Mark mitigated
             </Button>
@@ -264,7 +273,7 @@ export function ActiveIncidentCard({
             <Button
               size="sm"
               onClick={() => onMarkStatus(incident.id, "resolved")}
-              className="gap-2 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/40"
+              className="gap-2 bg-success/15 text-success hover:bg-success/25 border border-success/40"
             >
               <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
               Mark resolved

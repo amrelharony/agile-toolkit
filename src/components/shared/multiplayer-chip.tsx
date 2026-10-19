@@ -40,7 +40,9 @@ export function MultiplayerChip({ members, isConnected, isLocalOnly }: Multiplay
     <div
       className={cn(
         "flex items-center gap-2 px-2.5 py-1 rounded-md border text-xs",
-        isConnected ? "border-accent/40 bg-accent/5 text-accent" : "border-border bg-surface text-sub"
+        isConnected
+          ? "border-accent/40 bg-accent/5 text-accent"
+          : "border-border bg-surface text-sub"
       )}
       role="status"
       aria-live="polite"
@@ -59,7 +61,7 @@ export function MultiplayerChip({ members, isConnected, isLocalOnly }: Multiplay
             <div
               key={m.id}
               title={m.name}
-              className="w-5 h-5 rounded-full border-2 border-bg flex items-center justify-center text-[9px] font-bold text-bg"
+              className="w-5 h-5 rounded-full border-2 border-bg flex items-center justify-center text-xs font-bold text-bg"
               style={{ background: m.color }}
             >
               {/* Defensive slice — an empty name (defended against in
@@ -69,7 +71,7 @@ export function MultiplayerChip({ members, isConnected, isLocalOnly }: Multiplay
             </div>
           ))}
           {count > 4 && (
-            <div className="w-5 h-5 rounded-full border-2 border-bg bg-surface text-sub flex items-center justify-center text-[9px] font-bold">
+            <div className="w-5 h-5 rounded-full border-2 border-bg bg-surface text-sub flex items-center justify-center text-xs font-bold">
               +{count - 4}
             </div>
           )}

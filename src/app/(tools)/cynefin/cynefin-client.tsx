@@ -166,7 +166,7 @@ export function CynefinClient() {
           />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
             <Select value={domain} onValueChange={(v) => setDomain(v as CynefinItem["domain"])}>
-              <SelectTrigger>
+              <SelectTrigger aria-label="Cynefin domain">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -183,6 +183,7 @@ export function CynefinClient() {
           </div>
           <Textarea
             placeholder="Why this domain? (rationale)"
+            aria-label="Rationale"
             value={rationale}
             onChange={(e) => setRationale(e.target.value)}
             rows={2}
@@ -246,8 +247,8 @@ export function CynefinClient() {
                           removeOne(it.id);
                           log(CYNEFIN_ACTIONS.ITEM_REMOVED, { id: it.id });
                         }}
-                        aria-label="Remove item"
-                        className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
+                        aria-label={`Remove ${it.title}`}
+                        className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

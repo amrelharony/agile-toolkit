@@ -51,6 +51,10 @@ export function MindMapNode({
   const bg = isRoot ? "rgba(0, 240, 255, 0.12)" : "rgba(15, 23, 42, 0.95)";
 
   return (
+    // Pointer surface only: keyboard users select objects with Tab and
+    // edit with Enter on the board (role="application"), which announces
+    // the selection — see use-contextual-shortcuts / whiteboard-canvas.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       onPointerDown={editing ? undefined : onPointerDown}
       onDoubleClick={(e) => {
@@ -174,6 +178,7 @@ function NodeEditor({
   return (
     <textarea
       ref={ref}
+      aria-label="Mind-map node text"
       maxLength={500}
       defaultValue={initial}
       onChange={(e) => {

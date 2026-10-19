@@ -70,7 +70,9 @@ export function WorkItemsTable({
                 <th className="text-center py-2 px-3 text-xs text-sub font-medium uppercase tracking-wider">
                   Cycle Time
                 </th>
-                <th className="w-8" />
+                <th className="w-8">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -83,6 +85,7 @@ export function WorkItemsTable({
                     <div className="space-y-1">
                       <BlurInput
                         placeholder="Feature or story name"
+                        aria-label="Item name"
                         value={item.name}
                         onCommit={(v) => onUpdate(item.id, { name: v })}
                         className="h-8 input-toolkit"
@@ -104,6 +107,7 @@ export function WorkItemsTable({
                       value={item.startDate}
                       onChange={(e) => onUpdate(item.id, { startDate: e.target.value })}
                       className="h-8 w-36 input-toolkit"
+                      aria-label={`Start date for ${item.name || "item"}`}
                     />
                   </td>
                   <td className="py-2 px-3">
@@ -112,6 +116,7 @@ export function WorkItemsTable({
                       value={item.endDate}
                       onChange={(e) => onUpdate(item.id, { endDate: e.target.value })}
                       className="h-8 w-36 input-toolkit"
+                      aria-label={`End date for ${item.name || "item"}`}
                     />
                   </td>
                   <td className="py-2 px-3 text-center">
@@ -123,10 +128,11 @@ export function WorkItemsTable({
                   </td>
                   <td className="py-2">
                     <button
+                      type="button"
                       onClick={() => onRemove(item.id)}
                       disabled={totalCount === 1}
                       aria-label={`Remove ${item.name || "item"}`}
-                      className="text-sub hover:text-red-400 transition-colors p-1 disabled:opacity-30"
+                      className="text-sub hover:text-danger transition-colors p-1 disabled:opacity-30"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

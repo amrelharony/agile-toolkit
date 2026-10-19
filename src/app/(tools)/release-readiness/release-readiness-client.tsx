@@ -69,8 +69,8 @@ const GATES: { id: GateId; label: string; description: string }[] = [
 ];
 
 const STATUS_BADGE: Record<ReleaseStatus, string> = {
-  planning: "bg-amber-500/10 text-amber-300 border-amber-500/30",
-  shipped: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+  planning: "bg-warning/10 text-warning border-warning/30",
+  shipped: "bg-success/10 text-success border-success/30",
   rolled_back: "bg-danger/10 text-danger border-danger/30",
 };
 
@@ -496,10 +496,10 @@ export function ReleaseReadinessClient() {
             gatePassTrend?.significant ? (
               <Badge
                 variant="outline"
-                className={`font-mono text-[10px] tracking-wider uppercase ${
+                className={`font-mono text-xs tracking-wider uppercase ${
                   gatePassTrend.trend === "up"
-                    ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
-                    : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                    ? "border-success/40 text-success bg-success/10"
+                    : "border-warning/40 text-warning bg-warning/10"
                 }`}
                 title={`Mann-Kendall p=${gatePassTrend.pValue.toFixed(3)}`}
               >
@@ -712,7 +712,7 @@ function ReleaseCard({
               />
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-semibold text-text">{g.label}</div>
-                <div className="text-[11px] text-sub line-clamp-2">{g.description}</div>
+                <div className="text-xs text-sub line-clamp-2">{g.description}</div>
               </div>
             </label>
           ))}
@@ -725,7 +725,7 @@ function ReleaseCard({
             title={
               allPassed ? "All gates pass" : "Ship with open gates (you'll be asked to confirm)"
             }
-            className="gap-2 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/40 disabled:opacity-50"
+            className="gap-2 bg-success/15 text-success hover:bg-success/25 border border-success/40 disabled:opacity-50"
           >
             <Rocket className="w-4 h-4" aria-hidden="true" /> Ship
           </Button>
@@ -744,7 +744,7 @@ function ReleaseCard({
               variant="outline"
               size="sm"
               onClick={onReopen}
-              className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
+              className="border-warning/40 text-warning hover:bg-warning/10"
             >
               <Undo2 className="w-4 h-4 mr-1" aria-hidden="true" /> Reopen for planning
             </Button>

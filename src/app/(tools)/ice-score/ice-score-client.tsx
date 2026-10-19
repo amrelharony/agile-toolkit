@@ -136,6 +136,7 @@ export function IceScoreClient() {
             <Input
               className="sm:col-span-2"
               placeholder="Title"
+              aria-label="Title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
@@ -144,6 +145,7 @@ export function IceScoreClient() {
               min="1"
               max="10"
               placeholder="Impact 1-10"
+              aria-label="Impact (1–10)"
               value={impact}
               onChange={(e) => setImpact(e.target.value)}
             />
@@ -152,6 +154,7 @@ export function IceScoreClient() {
               min="1"
               max="10"
               placeholder="Confidence 1-10"
+              aria-label="Confidence (1–10)"
               value={confidence}
               onChange={(e) => setConfidence(e.target.value)}
             />
@@ -160,6 +163,7 @@ export function IceScoreClient() {
               min="1"
               max="10"
               placeholder="Ease 1-10"
+              aria-label="Ease (1–10)"
               value={ease}
               onChange={(e) => setEase(e.target.value)}
             />
@@ -196,7 +200,9 @@ export function IceScoreClient() {
                     <th className="p-2 text-right">C</th>
                     <th className="p-2 text-right">E</th>
                     <th className="p-2 text-right">Score</th>
-                    <th className="p-2 w-10"></th>
+                    <th className="p-2 w-10">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -210,12 +216,13 @@ export function IceScoreClient() {
                       <td className="p-2 text-right font-mono">{r.score}</td>
                       <td className="p-2">
                         <button
+                          type="button"
                           onClick={() => {
                             removeOne(r.id);
                             log(ICE_ACTIONS.ITEM_REMOVED, { id: r.id });
                           }}
-                          aria-label="Remove item"
-                          className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
+                          aria-label={`Remove ${r.title}`}
+                          className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

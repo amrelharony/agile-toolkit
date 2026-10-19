@@ -274,16 +274,18 @@ export function CycleTimeClient() {
             trailing={
               weeklyTrend?.significant ? (
                 <span
-                  className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                  className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                     // For cycle time, "down" trend is good (faster), "up" is bad.
                     weeklyTrend.trend === "down"
-                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
-                      : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                      ? "border-accent-green/40 text-accent-green bg-accent-green/10"
+                      : "border-warning/40 text-warning bg-warning/10"
                   }`}
-                  aria-label={`Weekly cycle-time trend ${weeklyTrend.trend} (Mann-Kendall p=${weeklyTrend.pValue.toFixed(3)})`}
                   title={`Mann-Kendall p=${weeklyTrend.pValue.toFixed(3)}`}
                 >
-                  {weeklyTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+                  <span aria-hidden="true">
+                    {weeklyTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+                  </span>
+                  <span className="sr-only">{`Weekly cycle-time trend ${weeklyTrend.trend} (Mann-Kendall p=${weeklyTrend.pValue.toFixed(3)})`}</span>
                 </span>
               ) : undefined
             }
@@ -390,15 +392,18 @@ export function CycleTimeClient() {
                       <p className="text-sub text-sm mb-1">Service Level Expectation</p>
                       <p className="text-2xl font-display font-bold text-text">
                         <span className="text-accent">{targetPct}%</span> of items complete within{" "}
-                        <span className="text-[#00ff88]">{sleValue} days</span>
+                        <span className="text-accent-green">{sleValue} days</span>
                       </p>
                     </div>
 
                     {/* Target % Input */}
                     <div className="flex items-end gap-3 max-w-xs">
                       <div className="flex-1 space-y-1.5">
-                        <Label className="text-sub text-xs">Target Percentile (%)</Label>
+                        <Label htmlFor="ct-target-pct" className="text-sub text-xs">
+                          Target Percentile (%)
+                        </Label>
                         <Input
+                          id="ct-target-pct"
                           type="number"
                           min={1}
                           max={99}
@@ -422,7 +427,9 @@ export function CycleTimeClient() {
                         local target, separate from the percentile. */}
                     <div className="flex items-end gap-3 max-w-xs">
                       <div className="flex-1 space-y-1.5">
-                        <Label className="text-sub text-xs">SLE Target (days)</Label>
+                        <Label htmlFor="ct-sle-days" className="text-sub text-xs">
+                          SLE Target (days)
+                        </Label>
                         <SmartInput<number>
                           predicted={sleDaysPrediction}
                           onAccept={(v) => {
@@ -432,6 +439,7 @@ export function CycleTimeClient() {
                           render={({ ghost, chip, accept }) => (
                             <>
                               <Input
+                                id="ct-sle-days"
                                 type="number"
                                 min={1}
                                 value={
@@ -462,7 +470,6 @@ export function CycleTimeClient() {
                                 }}
                                 onBlur={() => setSleDaysBuffer(null)}
                                 className="bg-surface-deep border-border text-text font-data focus:border-accent/50"
-                                aria-label="SLE target days"
                               />
                               {chip}
                             </>
@@ -512,8 +519,8 @@ export function CycleTimeClient() {
                                         p <= 50
                                           ? "text-accent"
                                           : p <= 85
-                                            ? "text-amber-400"
-                                            : "text-red-400"
+                                            ? "text-warning"
+                                            : "text-danger"
                                       }`}
                                     >
                                       {val} days

@@ -27,10 +27,9 @@ interface Props {
  * expect.
  */
 function CommentPinsImpl({ threads, objectsById, camera, activeThreadId, onPinClick }: Props) {
-  // R11-fix: total count for aria-setsize so SR users know how many
-  // pins exist on the board. Each pin gets aria-posinset for "pin
-  // 3 of 12" announcements during Tab navigation. Previously each
-  // pin was an island button with no group context.
+  // R11-fix: "pin 3 of 12" context so SR users know how many pins
+  // exist on the board. It lives in the accessible name — aria-posinset
+  // / aria-setsize aren't supported on a button and were ignored.
   const totalPins = threads.length;
   return (
     <>
@@ -55,10 +54,11 @@ function CommentPinsImpl({ threads, objectsById, camera, activeThreadId, onPinCl
           <button
             key={t.id}
             type="button"
-            onClick={(e) => { e.stopPropagation(); onPinClick(t.id); }}
-            aria-label={`Comment thread ${t.resolved ? "(resolved)" : ""} — ${t.comments.length} message${t.comments.length === 1 ? "" : "s"}`}
-            aria-posinset={idx + 1}
-            aria-setsize={totalPins}
+            onClick={(e) => {
+              e.stopPropagation();
+              onPinClick(t.id);
+            }}
+            aria-label={`Comment thread ${idx + 1} of ${totalPins}${t.resolved ? " (resolved)" : ""} — ${t.comments.length} message${t.comments.length === 1 ? "" : "s"}`}
             style={{
               position: "absolute",
               left: x - 12,
@@ -80,7 +80,11 @@ function CommentPinsImpl({ threads, objectsById, camera, activeThreadId, onPinCl
             }}
           >
             <div style={{ transform: "rotate(45deg)", display: "flex" }}>
-              {t.resolved ? <CheckCircle2 className="w-3 h-3" /> : <MessageCircle className="w-3 h-3" />}
+              {t.resolved ? (
+                <CheckCircle2 className="w-3 h-3" />
+              ) : (
+                <MessageCircle className="w-3 h-3" />
+              )}
             </div>
           </button>
         );

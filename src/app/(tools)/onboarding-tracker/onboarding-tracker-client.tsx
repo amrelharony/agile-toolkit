@@ -407,8 +407,11 @@ export function OnboardingTrackerClient() {
         <CardContent className="p-4">
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_180px_auto] gap-2">
             <div>
-              <Label className="text-xs text-sub">Name</Label>
+              <Label htmlFor="onboarding-name" className="text-xs text-sub">
+                Name
+              </Label>
               <Input
+                id="onboarding-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Jane Doe"
@@ -417,8 +420,11 @@ export function OnboardingTrackerClient() {
               />
             </div>
             <div>
-              <Label className="text-xs text-sub">Role</Label>
+              <Label htmlFor="onboarding-role" className="text-xs text-sub">
+                Role
+              </Label>
               <Input
+                id="onboarding-role"
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
                 placeholder="Software Engineer"
@@ -427,8 +433,11 @@ export function OnboardingTrackerClient() {
               />
             </div>
             <div>
-              <Label className="text-xs text-sub">Start date</Label>
+              <Label htmlFor="onboarding-start-date" className="text-xs text-sub">
+                Start date
+              </Label>
               <Input
+                id="onboarding-start-date"
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
@@ -439,6 +448,7 @@ export function OnboardingTrackerClient() {
             <div className="flex items-end">
               <Button
                 onClick={addOnboardee}
+                aria-label="Add onboardee"
                 className="gap-2 bg-accent text-bg hover:bg-accent/90 w-full"
               >
                 <Plus className="w-4 h-4" />
@@ -513,11 +523,11 @@ export function OnboardingTrackerClient() {
                           className={cn(
                             "rounded-md border p-2",
                             completed
-                              ? "border-emerald-500/40 bg-emerald-500/5"
+                              ? "border-success/40 bg-success/5"
                               : overdue
                                 ? "border-danger/40 bg-danger/5"
                                 : atRisk
-                                  ? "border-amber-500/40 bg-amber-500/5"
+                                  ? "border-warning/40 bg-warning/5"
                                   : "border-border bg-bg"
                           )}
                         >
@@ -528,33 +538,31 @@ export function OnboardingTrackerClient() {
                               className={cn(
                                 "mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition min-touch-coarse",
                                 completed
-                                  ? "bg-emerald-500/30 border-emerald-500/60 text-emerald-200"
+                                  ? "bg-success/30 border-success/60 text-success"
                                   : "border-border bg-surface text-transparent hover:text-sub"
                               )}
-                              aria-label={
-                                completed ? `Mark ${m.name} incomplete` : `Mark ${m.name} complete`
-                              }
+                              role="checkbox"
+                              aria-checked={completed}
+                              aria-label={`${m.name} (${p.name})`}
                             >
                               <Check className="w-3 h-3" />
                             </button>
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                                 <span className="text-sm font-medium text-text">{m.name}</span>
-                                <span className="text-[11px] text-sub font-data">
+                                <span className="text-xs text-sub font-data">
                                   target {m.targetDays}d
                                 </span>
                                 {completed && completedDays !== null && (
-                                  <span className="text-[11px] text-emerald-300 font-data">
+                                  <span className="text-xs text-success font-data">
                                     done in {completedDays}d
                                   </span>
                                 )}
                                 {!completed && overdue && (
-                                  <span className="text-[11px] text-danger font-data">overdue</span>
+                                  <span className="text-xs text-danger font-data">overdue</span>
                                 )}
                                 {!completed && atRisk && !overdue && (
-                                  <span className="text-[11px] text-amber-300 font-data">
-                                    at risk
-                                  </span>
+                                  <span className="text-xs text-warning font-data">at risk</span>
                                 )}
                               </div>
                               {/* BUG-T5-onboarding-tracker-3:
@@ -566,7 +574,7 @@ export function OnboardingTrackerClient() {
                                 onCommit={(v) => updateNote(p.id, m.id, v)}
                                 placeholder="Note (optional)"
                                 className="mt-1 bg-surface border-border h-7 text-xs"
-                                aria-label={`Note for ${m.name}`}
+                                aria-label={`Note for ${m.name} (${p.name})`}
                               />
                             </div>
                           </div>

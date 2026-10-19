@@ -212,7 +212,7 @@ function ControlRow({
     <Card className="bg-surface border-border">
       <CardContent className="p-3 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="font-data text-[10px]">
+          <Badge variant="outline" className="font-data text-xs">
             {FRAMEWORK_LABEL[c.framework]}
           </Badge>
           <span className="font-data text-text text-sm">{c.controlId}</span>
@@ -245,7 +245,7 @@ function ControlRow({
             className="text-sub hover:text-danger"
             aria-label={`Remove ${c.controlId}`}
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
           </Button>
         </div>
 
@@ -267,12 +267,13 @@ function ControlRow({
             onBlur={description.onBlur}
             placeholder="Description (optional)..."
             className="bg-bg border-border text-xs"
+            aria-label={`Description for ${c.controlId}`}
           />
         </div>
 
         <div className="space-y-1">
-          <div className="text-[10px] uppercase tracking-wider text-sub flex items-center gap-1">
-            <LinkIcon className="w-3 h-3" /> Evidence ({c.evidenceLinks.length})
+          <div className="text-xs uppercase tracking-wider text-sub flex items-center gap-1">
+            <LinkIcon className="w-3 h-3" aria-hidden="true" /> Evidence ({c.evidenceLinks.length})
           </div>
           {c.evidenceLinks.length > 0 && (
             <ul className="space-y-1">
@@ -293,7 +294,7 @@ function ControlRow({
                     className="h-6 w-6 p-0 text-sub hover:text-danger"
                     aria-label="Remove evidence link"
                   >
-                    <X className="w-3 h-3" />
+                    <X className="w-3 h-3" aria-hidden="true" />
                   </Button>
                 </li>
               ))}
@@ -318,15 +319,14 @@ function ControlRow({
               onClick={addEvidence}
               disabled={!newLink.trim()}
               className="h-8 px-2 bg-accent text-bg hover:bg-accent/90 disabled:opacity-40"
+              aria-label={`Add evidence link to ${c.controlId}`}
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-3.5 h-3.5" aria-hidden="true" />
             </Button>
           </div>
         </div>
         {STATUS_TONE[c.status] === "success" && (
-          <div className="text-[10px] text-emerald-300/80">
-            Implemented &amp; ready for audit review.
-          </div>
+          <div className="text-xs text-success/80">Implemented &amp; ready for audit review.</div>
         )}
       </CardContent>
     </Card>
@@ -556,7 +556,11 @@ export function ControlMapClient() {
                       <span className="text-accent">({pct.toFixed(0)}%)</span>
                     </span>
                   </div>
-                  <Progress value={pct} className="h-2" />
+                  <Progress
+                    value={pct}
+                    className="h-2"
+                    aria-label={`${FRAMEWORK_LABEL[f.framework]} controls implemented`}
+                  />
                 </div>
               );
             })}
@@ -567,8 +571,11 @@ export function ControlMapClient() {
       <SectionCard title="New control" icon={ShieldCheck} className="mb-6 bg-surface border-border">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs text-sub">Control ID</Label>
+            <Label htmlFor="cm-control-id" className="text-xs text-sub">
+              Control ID
+            </Label>
             <Input
+              id="cm-control-id"
               value={controlId}
               onChange={(e) => setControlId(e.target.value)}
               placeholder="CC6.1, A.9.4.2..."
@@ -576,9 +583,11 @@ export function ControlMapClient() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">Framework</Label>
+            <Label htmlFor="cm-framework" className="text-xs text-sub">
+              Framework
+            </Label>
             <Select value={framework} onValueChange={(v) => setFramework(v as Framework)}>
-              <SelectTrigger className="bg-bg border-border">
+              <SelectTrigger id="cm-framework" className="bg-bg border-border">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -591,8 +600,11 @@ export function ControlMapClient() {
             </Select>
           </div>
           <div className="space-y-1 sm:col-span-2">
-            <Label className="text-xs text-sub">Title</Label>
+            <Label htmlFor="cm-title" className="text-xs text-sub">
+              Title
+            </Label>
             <Input
+              id="cm-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Logical access removal on termination"
@@ -600,8 +612,11 @@ export function ControlMapClient() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">Owner (optional)</Label>
+            <Label htmlFor="cm-owner" className="text-xs text-sub">
+              Owner (optional)
+            </Label>
             <Input
+              id="cm-owner"
               value={owner}
               onChange={(e) => setOwner(e.target.value)}
               placeholder="Security team, IT-ops..."
@@ -609,9 +624,11 @@ export function ControlMapClient() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">Initial status</Label>
+            <Label htmlFor="cm-status" className="text-xs text-sub">
+              Initial status
+            </Label>
             <Select value={status} onValueChange={(v) => setStatus(v as Status)}>
-              <SelectTrigger className="bg-bg border-border capitalize">
+              <SelectTrigger id="cm-status" className="bg-bg border-border capitalize">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -624,8 +641,11 @@ export function ControlMapClient() {
             </Select>
           </div>
           <div className="space-y-1 sm:col-span-2">
-            <Label className="text-xs text-sub">Description (optional)</Label>
+            <Label htmlFor="cm-description" className="text-xs text-sub">
+              Description (optional)
+            </Label>
             <Textarea
+              id="cm-description"
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}

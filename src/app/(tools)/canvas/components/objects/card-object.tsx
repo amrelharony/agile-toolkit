@@ -24,7 +24,14 @@ interface CardObjectProps {
   onCommitEdit?: (text: string) => void;
 }
 
-function CardObjectImpl({ object: o, selected, editing, onPointerDown, onDoubleClick, onCommitEdit }: CardObjectProps) {
+function CardObjectImpl({
+  object: o,
+  selected,
+  editing,
+  onPointerDown,
+  onDoubleClick,
+  onCommitEdit,
+}: CardObjectProps) {
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     if (editing && taRef.current) {
@@ -39,10 +46,16 @@ function CardObjectImpl({ object: o, selected, editing, onPointerDown, onDoubleC
     try {
       const dt = new Date(d);
       return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   };
 
   return (
+    // Pointer surface only: keyboard users select objects with Tab and
+    // edit with Enter on the board (role="application"), which announces
+    // the selection — see use-contextual-shortcuts / whiteboard-canvas.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       data-canvas-object-kind="card"
       onPointerDown={editing ? undefined : onPointerDown}
@@ -78,6 +91,7 @@ function CardObjectImpl({ object: o, selected, editing, onPointerDown, onDoubleC
       {editing ? (
         <textarea
           ref={taRef}
+          aria-label="Card title"
           defaultValue={o.title}
           onBlur={(e) => onCommitEdit?.(e.target.value)}
           onKeyDown={(e) => {
@@ -108,39 +122,116 @@ function CardObjectImpl({ object: o, selected, editing, onPointerDown, onDoubleC
         />
       ) : (
         <>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#f1f5f9", marginBottom: 4, lineHeight: 1.3, wordWrap: "break-word" }}>
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#f1f5f9",
+              marginBottom: 4,
+              lineHeight: 1.3,
+              wordWrap: "break-word",
+            }}
+          >
             {o.title || <span style={{ opacity: 0.4 }}>Card title</span>}
           </div>
           {o.description && (
-            <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 6, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}>
+            <div
+              style={{
+                fontSize: 11,
+                color: "#94a3b8",
+                marginBottom: 6,
+                lineHeight: 1.3,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                display: "-webkit-box",
+                WebkitLineClamp: 3,
+                WebkitBoxOrient: "vertical",
+              }}
+            >
               {o.description}
             </div>
           )}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: "auto", fontSize: 10, color: "#94a3b8" }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 6,
+              marginTop: "auto",
+              fontSize: 10,
+              color: "#94a3b8",
+            }}
+          >
             {o.assignee && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 6px", borderRadius: 10, background: "rgba(0,240,255,0.1)" }}>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  padding: "2px 6px",
+                  borderRadius: 10,
+                  background: "rgba(0,240,255,0.1)",
+                }}
+              >
                 <User style={{ width: 9, height: 9 }} />
                 {o.assignee}
               </span>
             )}
             {o.due && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 6px", borderRadius: 10, background: "rgba(245,158,11,0.1)" }}>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  padding: "2px 6px",
+                  borderRadius: 10,
+                  background: "rgba(245,158,11,0.1)",
+                }}
+              >
                 <Calendar style={{ width: 9, height: 9 }} />
                 {formatDate(o.due)}
               </span>
             )}
             {typeof o.points === "number" && (
-              <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 6px", borderRadius: 10, background: "rgba(167,139,250,0.15)", color: "#c4b5fd", fontWeight: 700 }}>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  padding: "2px 6px",
+                  borderRadius: 10,
+                  background: "rgba(167,139,250,0.15)",
+                  color: "#c4b5fd",
+                  fontWeight: 700,
+                }}
+              >
                 {o.points}pt
               </span>
             )}
             {o.status && (
-              <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 6px", borderRadius: 10, background: "rgba(148,163,184,0.15)" }}>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  padding: "2px 6px",
+                  borderRadius: 10,
+                  background: "rgba(148,163,184,0.15)",
+                }}
+              >
                 {o.status.replace("_", " ")}
               </span>
             )}
             {o.tags?.slice(0, 3).map((tag) => (
-              <span key={tag} style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 6px", borderRadius: 10, background: "rgba(52,211,153,0.1)", color: "#6ee7b7" }}>
+              <span
+                key={tag}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  padding: "2px 6px",
+                  borderRadius: 10,
+                  background: "rgba(52,211,153,0.1)",
+                  color: "#6ee7b7",
+                }}
+              >
                 <TagIcon style={{ width: 9, height: 9 }} />
                 {tag}
               </span>
@@ -150,7 +241,15 @@ function CardObjectImpl({ object: o, selected, editing, onPointerDown, onDoubleC
             <div
               aria-label={`Linked to ${o.sourceRef.tool}`}
               title={`Linked to ${o.sourceRef.tool}`}
-              style={{ position: "absolute", top: 4, right: 4, fontSize: 8, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 }}
+              style={{
+                position: "absolute",
+                top: 4,
+                right: 4,
+                fontSize: 8,
+                color: "#64748b",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+              }}
             >
               ↳ {o.sourceRef.tool}
             </div>

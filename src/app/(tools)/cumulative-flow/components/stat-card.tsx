@@ -30,7 +30,7 @@ export function StatCard({
         <div className="flex items-baseline gap-1.5 flex-wrap">
           <span
             className={`text-2xl font-data font-bold ${
-              warning ? "text-amber-400" : accent ? "text-accent" : "text-text"
+              warning ? "text-warning" : accent ? "text-accent" : "text-text"
             }`}
           >
             {value}

@@ -605,8 +605,11 @@ export function BurnupClient() {
         >
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label className="text-sub text-xs">Sprint Length (days)</Label>
+              <Label htmlFor="burnup-sprint-days" className="text-sub text-xs">
+                Sprint Length (days)
+              </Label>
               <Input
+                id="burnup-sprint-days"
                 type="number"
                 min={1}
                 max={60}
@@ -625,8 +628,11 @@ export function BurnupClient() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-sub text-xs">Sprint Start Date</Label>
+              <Label htmlFor="burnup-start-date" className="text-sub text-xs">
+                Sprint Start Date
+              </Label>
               <Input
+                id="burnup-start-date"
                 type="date"
                 value={config.sprintStartDate}
                 onChange={(e) => {
@@ -655,7 +661,7 @@ export function BurnupClient() {
           }
           footer={
             stats.scopeCreep > 0 ? (
-              <div className="flex items-center gap-2 text-xs text-[#ffaa00] bg-[#ffaa00]/8 border border-[#ffaa00]/20 rounded-md px-3 py-2">
+              <div className="flex items-center gap-2 text-xs text-accent-amber bg-accent-amber/8 border border-accent-amber/20 rounded-md px-3 py-2">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                 Scope creep detected: scope increased by {stats.scopeCreep} pts (
                 {stats.initialScope} → {stats.maxScope}).
@@ -799,7 +805,7 @@ export function BurnupClient() {
         {trendTest?.significant && (
           <div className="flex items-center justify-end -mt-2">
             <span
-              className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+              className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border ${
                 trendTest.trend === "up"
                   ? "bg-accent/15 text-accent border-accent/40"
                   : "bg-destructive/15 text-destructive border-destructive/40"
@@ -866,13 +872,14 @@ export function BurnupClient() {
                   aria-label={`Remove day ${entry.day}`}
                   className="min-touch-coarse h-9 w-9 disabled:opacity-30 justify-self-end sm:order-last"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="w-4 h-4" aria-hidden="true" />
                 </Button>
 
                 <Input
                   type="number"
                   min={0}
                   placeholder="Scope (pts)"
+                  aria-label={`Scope points on day ${entry.day}`}
                   value={entry.scope ?? ""}
                   onChange={(e) => {
                     if (e.target.value === "") {
@@ -882,13 +889,14 @@ export function BurnupClient() {
                     const n = Number(e.target.value);
                     if (Number.isFinite(n)) updateEntry(entry.id, { scope: Math.max(0, n) });
                   }}
-                  className="col-span-2 sm:col-span-1 bg-surface-deep border-border text-text font-data focus:border-[#ff00aa]/50 focus:ring-[#ff00aa]/20"
+                  className="col-span-2 sm:col-span-1 bg-surface-deep border-border text-text font-data focus:border-accent-magenta/50 focus:ring-accent-magenta/20"
                 />
 
                 <Input
                   type="number"
                   min={0}
                   placeholder="Completed (pts)"
+                  aria-label={`Completed points on day ${entry.day}`}
                   value={entry.completed ?? ""}
                   onChange={(e) => {
                     if (e.target.value === "") {

@@ -208,22 +208,26 @@ export function PromptRegistryClient() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Input
               placeholder="Prompt name"
+              aria-label="Prompt name"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
             <Input
               placeholder="Version (e.g. 1.4.0)"
+              aria-label="Version"
               value={version}
               onChange={(e) => setVersion(e.target.value)}
             />
             <Input
               placeholder="Author (optional)"
+              aria-label="Author (optional)"
               value={author}
               onChange={(e) => setAuthor(e.target.value)}
             />
           </div>
           <Textarea
             placeholder="Prompt body"
+            aria-label="Prompt body"
             value={body}
             onChange={(e) => setBody(e.target.value)}
             className="mt-2 font-mono text-xs"
@@ -231,6 +235,7 @@ export function PromptRegistryClient() {
           />
           <Input
             placeholder="Change note (what changed vs previous?)"
+            aria-label="Change note"
             value={changeNote}
             onChange={(e) => setChangeNote(e.target.value)}
             className="mt-2"
@@ -277,7 +282,7 @@ export function PromptRegistryClient() {
                             {p.name}@{p.version}
                           </span>
                           <span
-                            className="text-[10px] uppercase px-1.5 py-0.5 rounded font-bold"
+                            className="text-xs uppercase px-1.5 py-0.5 rounded font-bold"
                             style={{ backgroundColor: statusColor + "20", color: statusColor }}
                           >
                             {p.status}
@@ -321,7 +326,10 @@ export function PromptRegistryClient() {
                             value={p.status}
                             onValueChange={(v) => setStatus(p, v as PromptVersion["status"])}
                           >
-                            <SelectTrigger className="h-7 text-xs w-32">
+                            <SelectTrigger
+                              className="h-7 text-xs w-32"
+                              aria-label={`Status for ${p.name}@${p.version}`}
+                            >
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -335,16 +343,16 @@ export function PromptRegistryClient() {
                           {p.status !== "production" && (
                             <button
                               onClick={() => publish(p)}
-                              className="text-emerald-400 hover:text-emerald-300 min-touch-coarse inline-flex items-center justify-center"
-                              aria-label="Publish"
+                              className="text-success hover:text-success min-touch-coarse inline-flex items-center justify-center"
+                              aria-label={`Publish ${p.name}@${p.version}`}
                             >
                               <CheckCircle2 className="w-4 h-4" />
                             </button>
                           )}
                           <button
                             onClick={() => remove(p.id)}
-                            className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
-                            aria-label="Remove"
+                            className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
+                            aria-label={`Remove ${p.name}@${p.version}`}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -389,7 +397,7 @@ function KPI({
   tone?: "default" | "ok" | "danger";
 }) {
   const colorClass =
-    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+    tone === "danger" ? "text-danger" : tone === "ok" ? "text-success" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

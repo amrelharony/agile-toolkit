@@ -173,6 +173,7 @@ export function ValueEffortMatrixClient() {
             <Input
               className="sm:col-span-2"
               placeholder="Item title"
+              aria-label="Item title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
@@ -181,6 +182,7 @@ export function ValueEffortMatrixClient() {
               min="1"
               max="10"
               placeholder="Value 1-10"
+              aria-label="Value (1-10)"
               value={value}
               onChange={(e) => setValue(e.target.value)}
             />
@@ -189,6 +191,7 @@ export function ValueEffortMatrixClient() {
               min="1"
               max="10"
               placeholder="Effort 1-10"
+              aria-label="Effort (1-10)"
               value={effort}
               onChange={(e) => setEffort(e.target.value)}
             />
@@ -288,8 +291,8 @@ export function ValueEffortMatrixClient() {
                           removeOne(it.id);
                           log(VALUE_EFFORT_ACTIONS.ITEM_REMOVED, { id: it.id });
                         }}
-                        aria-label="Remove item"
-                        className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
+                        aria-label={`Remove ${it.title}`}
+                        className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

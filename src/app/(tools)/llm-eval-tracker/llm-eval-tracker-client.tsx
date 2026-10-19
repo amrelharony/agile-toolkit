@@ -303,23 +303,19 @@ export function LLMEvalTrackerClient() {
 
         {/* Regression alerts */}
         {regressionFindings.length > 0 && (
-          <SectionCard
-            title="Detected regressions"
-            icon={TrendingDown}
-            iconClassName="text-red-400"
-          >
+          <SectionCard title="Detected regressions" icon={TrendingDown} iconClassName="text-danger">
             <ul className="space-y-2 text-sm">
               {regressionFindings.map((f) => (
                 <li
                   key={f.group}
-                  className="flex items-center justify-between border border-red-500/30 bg-red-500/5 rounded p-2"
+                  className="flex items-center justify-between border border-danger/30 bg-danger/5 rounded p-2"
                 >
                   <span className="text-text">
                     <span className="font-mono text-xs text-sub">{f.group}</span>
                     {" — "}
                     {(f.baselineMean * 100).toFixed(1)}% → {(f.recentMean * 100).toFixed(1)}%
                   </span>
-                  <span className="text-xs text-red-300">
+                  <span className="text-xs text-danger">
                     Δ {(f.delta * 100).toFixed(1)} pts · t={f.tStat.toFixed(2)} ·{" "}
                     {(f.confidence * 100).toFixed(0)}% conf
                   </span>
@@ -355,11 +351,13 @@ export function LLMEvalTrackerClient() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
                 <Input
                   placeholder="Dataset name (e.g. faithfulness-v2)"
+                  aria-label="Dataset name"
                   value={liveDataset}
                   onChange={(e) => setLiveDataset(e.target.value)}
                 />
                 <Input
                   placeholder="Prompt version (optional, e.g. greet@1.4.0)"
+                  aria-label="Prompt version (optional)"
                   value={livePromptVersion}
                   onChange={(e) => setLivePromptVersion(e.target.value)}
                 />
@@ -368,6 +366,7 @@ export function LLMEvalTrackerClient() {
                 value={livePrompt}
                 onChange={(e) => setLivePrompt(e.target.value)}
                 placeholder="The prompt to test…"
+                aria-label="Prompt to test"
                 rows={4}
                 className="font-mono text-xs"
               />
@@ -384,7 +383,7 @@ export function LLMEvalTrackerClient() {
                 <div className="flex flex-col gap-1 min-w-[8rem]">
                   <label
                     htmlFor="live-eval-score"
-                    className="text-[10px] uppercase tracking-wider text-sub font-mono"
+                    className="text-xs uppercase tracking-wider text-sub font-mono"
                   >
                     Score 0–1
                   </label>
@@ -403,7 +402,7 @@ export function LLMEvalTrackerClient() {
                   <Plus className="w-4 h-4" />
                   Log score for {llm.providerName ?? "active provider"}
                 </Button>
-                <span className="text-[11px] text-sub">
+                <span className="text-xs text-sub">
                   Model: <span className="font-mono">{llm.model ?? "—"}</span>
                 </span>
               </div>
@@ -416,16 +415,19 @@ export function LLMEvalTrackerClient() {
           <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
             <Input
               placeholder="Model (e.g. gpt-5)"
+              aria-label="Model"
               value={model}
               onChange={(e) => setModel(e.target.value)}
             />
             <Input
               placeholder="Dataset (e.g. faithfulness-v2)"
+              aria-label="Dataset"
               value={dataset}
               onChange={(e) => setDataset(e.target.value)}
             />
             <Input
               placeholder="Prompt version (optional)"
+              aria-label="Prompt version (optional)"
               value={promptVersion}
               onChange={(e) => setPromptVersion(e.target.value)}
             />
@@ -435,6 +437,7 @@ export function LLMEvalTrackerClient() {
               min="0"
               max="1"
               placeholder="Score 0–1"
+              aria-label="Score 0–1"
               value={score}
               onChange={(e) => setScore(e.target.value)}
             />
@@ -510,7 +513,9 @@ export function LLMEvalTrackerClient() {
                     <th className="p-2">Dataset</th>
                     <th className="p-2">Prompt v</th>
                     <th className="p-2 text-right">Score</th>
-                    <th className="p-2 w-10"></th>
+                    <th className="p-2 w-10">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -527,11 +532,12 @@ export function LLMEvalTrackerClient() {
                         <td className="p-2 text-right font-mono">{(e.score * 100).toFixed(1)}%</td>
                         <td className="p-2">
                           <button
+                            type="button"
                             onClick={() => remove(e.id)}
-                            className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
-                            aria-label="Remove eval"
+                            className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
+                            aria-label={`Remove eval: ${e.model} on ${e.dataset}`}
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-4 h-4" aria-hidden="true" />
                           </button>
                         </td>
                       </tr>
@@ -556,7 +562,7 @@ function KPI({
   tone?: "default" | "ok" | "danger";
 }) {
   const colorClass =
-    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+    tone === "danger" ? "text-danger" : tone === "ok" ? "text-success" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

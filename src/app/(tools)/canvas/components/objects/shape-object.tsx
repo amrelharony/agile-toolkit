@@ -80,6 +80,10 @@ export function ShapeObject({
     );
   }
   return (
+    // Pointer surface only: keyboard users select objects with Tab and
+    // edit with Enter on the board (role="application"), which announces
+    // the selection — see use-contextual-shortcuts / whiteboard-canvas.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       data-canvas-object-kind={o.type}
       onPointerDown={editing ? undefined : handle}
@@ -118,6 +122,7 @@ export function ShapeObject({
           <InlineEditor
             initialText={o.content ?? ""}
             onCommit={commitEdit}
+            label="Shape text"
             color="#e5e7eb"
             fontSize={shapeFontSize}
             align="center"

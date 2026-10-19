@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { translateFlatPoints } from "@/lib/whiteboard/freehand";
+import { controlOwnsKey, isInsideScope } from "@/lib/whiteboard/keyboard";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 
 /**
@@ -19,6 +20,11 @@ import type { WhiteboardObject } from "@/lib/stores/workspace-types";
  *
  * Skipped entirely in read-only mode and while a presentation is
  * active (presentation mode owns the arrow keys for frame navigation).
+ *
+ * Only while focus is on the board, and never when the focused control
+ * uses the arrows itself (a select, slider or radio group): the window
+ * listener used to move the selection while the user was changing a
+ * value elsewhere on the page.
  */
 export function useArrowKeyNudge(params: {
   selection: readonly string[];
@@ -31,9 +37,18 @@ export function useArrowKeyNudge(params: {
   pushSnapshot: () => void;
   readOnly: boolean;
   presentationFrameIndex: number | null;
+  /** The focusable board element (role="application"). */
+  viewportRef: RefObject<HTMLElement | null>;
 }) {
-  const { selection, objectsById, upsertMany, pushSnapshot, readOnly, presentationFrameIndex } =
-    params;
+  const {
+    selection,
+    objectsById,
+    upsertMany,
+    pushSnapshot,
+    readOnly,
+    presentationFrameIndex,
+    viewportRef,
+  } = params;
   // Track gesture state via refs so the keydown handler stays stable.
   // `gesturePushedRef` flips on the first arrow-down of a gesture; the
   // keyup handler resets it so the NEXT gesture pushes a fresh snapshot.
@@ -83,8 +98,8 @@ export function useArrowKeyNudge(params: {
     const onKey = (e: KeyboardEvent) => {
       // ReadOnly: viewer / commenter modes cannot nudge.
       if (readOnly) return;
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (!isInsideScope(e.target, viewportRef.current)) return;
+      if (controlOwnsKey(e.target, e.key)) return;
       if (selection.length === 0) return;
       // Don't fight with presentation-mode frame navigation — when the
       // user is in presentation mode, arrow keys cycle frames instead
@@ -130,5 +145,13 @@ export function useArrowKeyNudge(params: {
       window.removeEventListener("keyup", onKeyUp);
       if (frame !== null) cancelAnimationFrame(frame);
     };
-  }, [selection, objectsById, upsertMany, pushSnapshot, readOnly, presentationFrameIndex]);
+  }, [
+    selection,
+    objectsById,
+    upsertMany,
+    pushSnapshot,
+    readOnly,
+    presentationFrameIndex,
+    viewportRef,
+  ]);
 }

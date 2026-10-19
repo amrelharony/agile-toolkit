@@ -32,9 +32,9 @@ interface CalloutAlertProps {
 
 const TONE_CLASS: Record<NonNullable<CalloutAlertProps["tone"]>, string> = {
   danger: "border-danger/40 bg-danger/5 text-danger",
-  warning: "border-amber-500/40 bg-amber-500/5 text-amber-200",
+  warning: "border-warning/40 bg-warning/5 text-warning",
   info: "border-accent/40 bg-accent/5 text-accent",
-  success: "border-emerald-500/40 bg-emerald-500/5 text-emerald-200",
+  success: "border-success/40 bg-success/5 text-success",
 };
 
 const DEFAULT_ICON: Record<NonNullable<CalloutAlertProps["tone"]>, LucideIcon> = {
@@ -75,8 +75,7 @@ export function CalloutAlert({
 }: CalloutAlertProps) {
   // Resolve the icon: explicit null ⇒ no glyph; undefined ⇒ tone default;
   // explicit Lucide ⇒ use it.
-  const Icon =
-    icon === null ? null : icon ?? DEFAULT_ICON[tone];
+  const Icon = icon === null ? null : (icon ?? DEFAULT_ICON[tone]);
   const computedRole = role ?? (tone === "danger" ? "alert" : "status");
 
   return (

@@ -463,8 +463,11 @@ export function VulnBurndownClient() {
       <SectionCard title="Log a vulnerability" icon={Bug} className="mb-6 bg-surface border-border">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs text-sub">CVE (optional)</Label>
+            <Label htmlFor="vuln-cve" className="text-xs text-sub">
+              CVE (optional)
+            </Label>
             <Input
+              id="vuln-cve"
               value={cve}
               onChange={(e) => setCve(e.target.value)}
               placeholder="CVE-2024-12345"
@@ -472,9 +475,11 @@ export function VulnBurndownClient() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">Severity</Label>
+            <Label htmlFor="vuln-severity" className="text-xs text-sub">
+              Severity
+            </Label>
             <Select value={severity} onValueChange={(v) => setSeverity(v as Severity)}>
-              <SelectTrigger className="bg-bg border-border capitalize">
+              <SelectTrigger id="vuln-severity" className="bg-bg border-border capitalize">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -487,7 +492,9 @@ export function VulnBurndownClient() {
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">SLA target (days)</Label>
+            <Label htmlFor="vuln-sla" className="text-xs text-sub">
+              SLA target (days)
+            </Label>
             {severity === "critical" ? (
               <SmartInput<number>
                 predicted={slaCriticalPrediction}
@@ -498,6 +505,7 @@ export function VulnBurndownClient() {
                 render={({ ghost, chip, accept }) => (
                   <>
                     <Input
+                      id="vuln-sla"
                       type="text"
                       inputMode="numeric"
                       value={slaDraft}
@@ -529,6 +537,7 @@ export function VulnBurndownClient() {
               />
             ) : (
               <Input
+                id="vuln-sla"
                 type="text"
                 inputMode="numeric"
                 value={slaDraft}
@@ -552,8 +561,11 @@ export function VulnBurndownClient() {
             )}
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">Owner (optional)</Label>
+            <Label htmlFor="vuln-owner" className="text-xs text-sub">
+              Owner (optional)
+            </Label>
             <Input
+              id="vuln-owner"
               value={owner}
               onChange={(e) => setOwner(e.target.value)}
               placeholder="Team or DRI"
@@ -561,8 +573,11 @@ export function VulnBurndownClient() {
             />
           </div>
           <div className="sm:col-span-2 lg:col-span-3 space-y-1">
-            <Label className="text-xs text-sub">Description (optional)</Label>
+            <Label htmlFor="vuln-description" className="text-xs text-sub">
+              Description (optional)
+            </Label>
             <Textarea
+              id="vuln-description"
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -589,16 +604,20 @@ export function VulnBurndownClient() {
           headerExtras={
             openTrend?.significant ? (
               <span
-                className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                   // For open vulns, "down" is good (closing them out), "up" is bad.
                   openTrend.trend === "down"
-                    ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
-                    : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                    ? "border-accent-green/40 text-accent-green bg-accent-green/10"
+                    : "border-warning/40 text-warning bg-warning/10"
                 }`}
-                aria-label={`Open-vuln trend ${openTrend.trend} (Mann-Kendall p=${openTrend.pValue.toFixed(3)})`}
                 title={`Mann-Kendall p=${openTrend.pValue.toFixed(3)}`}
               >
-                {openTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+                {/* aria-label is ignored on a plain span, so the spoken
+                    version lives in sr-only text instead. */}
+                <span aria-hidden="true">{openTrend.trend === "up" ? "↗ trend" : "↘ trend"}</span>
+                <span className="sr-only">
+                  {`Open-vuln trend ${openTrend.trend} (Mann-Kendall p=${openTrend.pValue.toFixed(3)})`}
+                </span>
               </span>
             ) : undefined
           }
@@ -694,7 +713,7 @@ export function VulnBurndownClient() {
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge
                       variant="outline"
-                      className="font-data uppercase tracking-wider text-[10px]"
+                      className="font-data uppercase tracking-wider text-xs"
                       style={{
                         color: SEVERITY_COLOR[v.severity],
                         borderColor: `${SEVERITY_COLOR[v.severity]}66`,
@@ -708,6 +727,7 @@ export function VulnBurndownClient() {
                       title={`Age ${age}d / SLA ${v.slaTargetDays}d`}
                     >
                       {age}d / {v.slaTargetDays}d
+                      {breaching && <span className="sr-only"> (past SLA)</span>}
                     </span>
                     {v.owner && <span className="text-xs text-sub">@{v.owner}</span>}
                     <div className="ml-auto flex items-center gap-2">
@@ -731,7 +751,7 @@ export function VulnBurndownClient() {
                         size="sm"
                         onClick={() => remove(v.id)}
                         className="text-sub hover:text-danger min-touch-coarse"
-                        aria-label="Remove vuln"
+                        aria-label={`Remove vuln ${v.cve ?? ""}`.trim()}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>

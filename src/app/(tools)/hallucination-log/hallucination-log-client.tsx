@@ -235,6 +235,7 @@ export function HallucinationLogClient() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Input
               placeholder="Feature (optional)"
+              aria-label="Feature (optional)"
               value={feature}
               onChange={(e) => setFeature(e.target.value)}
             />
@@ -242,7 +243,7 @@ export function HallucinationLogClient() {
               value={severity}
               onValueChange={(v) => setSeverity(v as Hallucination["severity"])}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Severity">
                 <SelectValue placeholder="Severity" />
               </SelectTrigger>
               <SelectContent>
@@ -259,7 +260,7 @@ export function HallucinationLogClient() {
                 setRootCause(v === "unknown" ? "" : (v as NonNullable<Hallucination["rootCause"]>))
               }
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Root cause">
                 <SelectValue placeholder="Root cause" />
               </SelectTrigger>
               <SelectContent>
@@ -274,6 +275,7 @@ export function HallucinationLogClient() {
           </div>
           <Textarea
             placeholder="Input (what was sent to the model)"
+            aria-label="Input (what was sent to the model)"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             className="mt-2"
@@ -301,7 +303,7 @@ export function HallucinationLogClient() {
               aria-expanded={reproduceOpen}
               className="gap-1"
             >
-              <Beaker className="w-3.5 h-3.5" />
+              <Beaker className="w-3.5 h-3.5" aria-hidden="true" />
               {reproduceOpen ? "Hide reproduce" : "Reproduce with BYOK"}
             </Button>
             {!llm.isReady && (
@@ -314,7 +316,7 @@ export function HallucinationLogClient() {
               </button>
             )}
             {llm.isReady && (
-              <span className="text-[11px] text-sub">
+              <span className="text-xs text-sub">
                 Will autofill &ldquo;Actual&rdquo; with the streamed output.
               </span>
             )}
@@ -328,6 +330,7 @@ export function HallucinationLogClient() {
           )}
           <Textarea
             placeholder="Actual response (the bad output)"
+            aria-label="Actual response (the bad output)"
             value={actual}
             onChange={(e) => setActual(e.target.value)}
             className="mt-2"
@@ -335,6 +338,7 @@ export function HallucinationLogClient() {
           />
           <Textarea
             placeholder="Expected (optional — what should have happened)"
+            aria-label="Expected (optional)"
             value={expected}
             onChange={(e) => setExpected(e.target.value)}
             className="mt-2"
@@ -344,7 +348,7 @@ export function HallucinationLogClient() {
               and Actual fields end up in localStorage and (for the owner)
               in Supabase. Customer prompts pasted here become durable PII
               unless the user knows that. */}
-          <p className="text-[11px] text-sub mt-2 italic">
+          <p className="text-xs text-sub mt-2 italic">
             Logged in this browser{isOwner ? " and synced to your cloud workspace" : ""}.
             Don&rsquo;t paste customer-identifiable prompts or responses — redact PII first.
           </p>
@@ -432,12 +436,12 @@ export function HallucinationLogClient() {
                 .map((x) => (
                   <li
                     key={x.id}
-                    className={`rounded border p-3 text-sm ${x.resolvedAt ? "bg-emerald-500/5 border-emerald-500/30" : "bg-surface-deep border-border"}`}
+                    className={`rounded border p-3 text-sm ${x.resolvedAt ? "bg-success/5 border-success/30" : "bg-surface-deep border-border"}`}
                   >
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="flex items-center gap-2 min-w-0">
                         <span
-                          className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded"
+                          className="text-xs uppercase font-bold px-1.5 py-0.5 rounded"
                           // Fallback to the medium colour when the persisted
                           // severity isn't in the known set — otherwise the
                           // template literal stringifies `undefined` into the
@@ -458,19 +462,21 @@ export function HallucinationLogClient() {
                       <span className="flex items-center gap-2 shrink-0">
                         {!x.resolvedAt && (
                           <button
+                            type="button"
                             onClick={() => resolve(x.id)}
-                            className="text-emerald-400 hover:text-emerald-300 min-touch-coarse inline-flex items-center justify-center"
-                            aria-label="Mark resolved"
+                            className="text-success hover:text-success min-touch-coarse inline-flex items-center justify-center"
+                            aria-label={`Mark resolved: ${x.feature || x.input.slice(0, 40)}`}
                           >
-                            <CheckCircle2 className="w-4 h-4" />
+                            <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
                           </button>
                         )}
                         <button
+                          type="button"
                           onClick={() => remove(x.id)}
-                          className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
-                          aria-label="Remove"
+                          className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
+                          aria-label={`Remove hallucination: ${x.feature || x.input.slice(0, 40)}`}
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4" aria-hidden="true" />
                         </button>
                       </span>
                     </div>
@@ -481,7 +487,7 @@ export function HallucinationLogClient() {
                       <span className="text-text">Out:</span> {x.actual.slice(0, 200)}
                     </p>
                     {x.expected && (
-                      <p className="text-xs text-emerald-300 mt-1">
+                      <p className="text-xs text-success mt-1">
                         Expected: {x.expected.slice(0, 200)}
                       </p>
                     )}
@@ -505,7 +511,7 @@ function KPI({
   tone?: "default" | "ok" | "danger";
 }) {
   const colorClass =
-    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+    tone === "danger" ? "text-danger" : tone === "ok" ? "text-success" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

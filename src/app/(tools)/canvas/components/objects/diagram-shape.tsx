@@ -30,24 +30,27 @@ import type { WhiteboardDiagramShape, WhiteboardObject } from "@/lib/stores/work
  * Extending: add a row here, no other code needs to change. The
  * picker iterates this object, the renderer looks up by kind.
  */
-export const DIAGRAM_SHAPE_KINDS: Record<string, { label: string; icon: LucideIcon; tint: string }> = {
-  database:     { label: "Database",   icon: Database,     tint: "#60a5fa" },
-  server:       { label: "Server",     icon: Server,       tint: "#a78bfa" },
-  cloud:        { label: "Cloud",      icon: Cloud,        tint: "#22d3ee" },
-  user:         { label: "User",       icon: User,         tint: "#34d399" },
-  process:      { label: "Process",    icon: Cog,          tint: "#f59e0b" },
-  decision:     { label: "Decision",   icon: DiamondIcon,  tint: "#fb7185" },
-  queue:        { label: "Queue",      icon: ListOrdered,  tint: "#f472b6" },
-  api:          { label: "API",        icon: Globe,        tint: "#94a3b8" },
+export const DIAGRAM_SHAPE_KINDS: Record<
+  string,
+  { label: string; icon: LucideIcon; tint: string }
+> = {
+  database: { label: "Database", icon: Database, tint: "#60a5fa" },
+  server: { label: "Server", icon: Server, tint: "#a78bfa" },
+  cloud: { label: "Cloud", icon: Cloud, tint: "#22d3ee" },
+  user: { label: "User", icon: User, tint: "#34d399" },
+  process: { label: "Process", icon: Cog, tint: "#f59e0b" },
+  decision: { label: "Decision", icon: DiamondIcon, tint: "#fb7185" },
+  queue: { label: "Queue", icon: ListOrdered, tint: "#f472b6" },
+  api: { label: "API", icon: Globe, tint: "#94a3b8" },
   // Round 2 additions — more architecture-diagram vocabulary
-  client:       { label: "Client",     icon: Monitor,      tint: "#fcd34d" },
-  mobile:       { label: "Mobile",     icon: Smartphone,   tint: "#fb923c" },
-  container:    { label: "Container",  icon: Container,    tint: "#38bdf8" },
-  auth:         { label: "Auth",       icon: Lock,         tint: "#ef4444" },
-  workflow:     { label: "Workflow",   icon: Workflow,     tint: "#a3e635" },
-  gateway:      { label: "Gateway",    icon: GitMerge,     tint: "#fbbf24" },
-  cache:        { label: "Cache",      icon: Layers,       tint: "#10b981" },
-  notification: { label: "Notification", icon: Mail,       tint: "#c084fc" },
+  client: { label: "Client", icon: Monitor, tint: "#fcd34d" },
+  mobile: { label: "Mobile", icon: Smartphone, tint: "#fb923c" },
+  container: { label: "Container", icon: Container, tint: "#38bdf8" },
+  auth: { label: "Auth", icon: Lock, tint: "#ef4444" },
+  workflow: { label: "Workflow", icon: Workflow, tint: "#a3e635" },
+  gateway: { label: "Gateway", icon: GitMerge, tint: "#fbbf24" },
+  cache: { label: "Cache", icon: Layers, tint: "#10b981" },
+  notification: { label: "Notification", icon: Mail, tint: "#c084fc" },
 };
 
 /**
@@ -84,6 +87,10 @@ export function DiagramShape({
   // small or very large shape still reads cleanly.
   const iconSize = Math.max(20, Math.min(48, Math.floor(object.h * 0.4)));
   return (
+    // Pointer surface only: keyboard users select objects with Tab and
+    // edit with Enter on the board (role="application"), which announces
+    // the selection — see use-contextual-shortcuts / whiteboard-canvas.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       onPointerDown={editing ? undefined : onPointerDown}
       onDoubleClick={(e) => {
@@ -111,7 +118,7 @@ export function DiagramShape({
         justifyContent: "center",
         gap: 4,
         padding: 6,
-        cursor: editing ? "text" : (object.locked ? "default" : "move"),
+        cursor: editing ? "text" : object.locked ? "default" : "move",
         zIndex: object.z,
         opacity: object.locked ? 0.85 : 1,
         userSelect: editing ? "text" : "none",
@@ -126,7 +133,9 @@ export function DiagramShape({
           aria-hidden="true"
         />
       ) : (
-        <span style={{ fontSize: 10, color: tint, fontFamily: "ui-monospace, monospace" }}>{object.kind}</span>
+        <span style={{ fontSize: 10, color: tint, fontFamily: "ui-monospace, monospace" }}>
+          {object.kind}
+        </span>
       )}
       {editing ? (
         <ShapeLabelEditor initial={object.label} onCommit={(t) => onCommitEdit?.(t)} />
@@ -140,9 +149,7 @@ export function DiagramShape({
             lineHeight: 1.2,
           }}
         >
-          {object.label || (
-            <span style={{ opacity: 0.45 }}>{def?.label ?? object.kind}</span>
-          )}
+          {object.label || <span style={{ opacity: 0.45 }}>{def?.label ?? object.kind}</span>}
         </div>
       )}
     </div>
@@ -164,6 +171,7 @@ function ShapeLabelEditor({
   return (
     <input
       type="text"
+      aria-label="Diagram shape label"
       autoFocus
       defaultValue={initial}
       maxLength={120}

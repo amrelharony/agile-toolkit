@@ -493,8 +493,11 @@ export function ReleasePlannerClient() {
         <SectionCard title="Configuration" icon={Settings2} titleSize="lg" headerClassName="pb-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             <div className="space-y-1.5">
-              <Label className="text-sub text-xs">Backlog Size (story points)</Label>
+              <Label htmlFor="rp-backlog" className="text-sub text-xs">
+                Backlog Size (story points)
+              </Label>
               <Input
+                id="rp-backlog"
                 type="number"
                 min={1}
                 value={config.backlogSize}
@@ -514,8 +517,11 @@ export function ReleasePlannerClient() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-sub text-xs">Scope Buffer %</Label>
+              <Label htmlFor="rp-buffer" className="text-sub text-xs">
+                Scope Buffer %
+              </Label>
               <Input
+                id="rp-buffer"
                 type="number"
                 min={0}
                 max={100}
@@ -536,8 +542,11 @@ export function ReleasePlannerClient() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-sub text-xs">Sprint Length (days)</Label>
+              <Label htmlFor="rp-sprint-length" className="text-sub text-xs">
+                Sprint Length (days)
+              </Label>
               <Input
+                id="rp-sprint-length"
                 type="number"
                 min={1}
                 max={90}
@@ -558,8 +567,11 @@ export function ReleasePlannerClient() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-sub text-xs">Start Date</Label>
+              <Label htmlFor="rp-start" className="text-sub text-xs">
+                Start Date
+              </Label>
               <Input
+                id="rp-start"
                 type="date"
                 value={config.startDate}
                 onChange={(e) => updateConfig({ startDate: e.target.value })}
@@ -574,13 +586,16 @@ export function ReleasePlannerClient() {
                 target line so the user can eyeball where their goal sits in
                 the simulated distribution. */}
           <div className="mt-5 space-y-1.5">
-            <Label className="text-sub text-xs">Target sprints to release (optional)</Label>
+            <Label htmlFor="rp-target-sprints" className="text-sub text-xs">
+              Target sprints to release (optional)
+            </Label>
             <SmartInput<number>
               predicted={sprintsToReleasePred}
               onAccept={(v) => updateConfig({ sprintsToReleaseTarget: String(v) })}
               render={({ ghost, chip, accept }) => (
                 <div>
                   <Input
+                    id="rp-target-sprints"
                     type="number"
                     min={1}
                     value={config.sprintsToReleaseTarget ?? ""}
@@ -605,10 +620,11 @@ export function ReleasePlannerClient() {
           </div>
 
           <div className="mt-5 space-y-1.5">
-            <Label className="text-sub text-xs">
+            <Label htmlFor="rp-velocities" className="text-sub text-xs">
               Historical Velocities (comma-separated or one per line)
             </Label>
             <textarea
+              id="rp-velocities"
               value={config.velocityInput}
               // Quiet on keystroke, logged on blur — typing a long comma list
               // shouldn't write one RELEASE_UPDATED event per character.
@@ -619,7 +635,7 @@ export function ReleasePlannerClient() {
               className="w-full px-3 py-2 rounded-md text-sm bg-surface-deep border border-border text-text font-data focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20 resize-none"
             />
             {velocities.length === 0 && (
-              <p className="text-xs text-red-400">Enter at least one positive velocity value.</p>
+              <p className="text-xs text-danger">Enter at least one positive velocity value.</p>
             )}
             {velocities.length > 0 && (
               <p className="text-xs text-sub">
@@ -642,6 +658,10 @@ export function ReleasePlannerClient() {
                 value={[config.scopeAdjustment]}
                 onValueChange={handleScopeAdjustment}
                 onValueCommit={handleScopeAdjustmentCommit}
+                aria-label="Scope adjustment"
+                thumbProps={{
+                  "aria-valuetext": `${config.scopeAdjustment > 0 ? "+" : ""}${config.scopeAdjustment}%`,
+                }}
                 className=""
               />
             </div>
@@ -863,7 +883,7 @@ export function ReleasePlannerClient() {
               <p className="text-xs text-sub">
                 <span className="text-text font-medium">How to read this:</span> At 85% confidence,
                 there is an 85% chance delivery completes by{" "}
-                <span className="text-[#ffaa00] font-data">
+                <span className="text-accent-amber font-data">
                   {confidenceRows.find((r) => r.pct === 85)?.date ?? "—"}
                 </span>
                 . The simulation sampled {velocities.length} historical velocities across{" "}

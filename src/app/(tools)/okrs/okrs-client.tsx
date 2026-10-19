@@ -51,6 +51,7 @@ function NumCell({
   className,
   placeholder,
   title,
+  ariaLabel,
 }: {
   value: number;
   onChange: (n: number) => void;
@@ -59,6 +60,7 @@ function NumCell({
   className?: string;
   placeholder?: string;
   title?: string;
+  ariaLabel?: string;
 }) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
@@ -86,6 +88,7 @@ function NumCell({
       className={className}
       placeholder={placeholder}
       title={title}
+      aria-label={ariaLabel}
     />
   );
 }
@@ -324,12 +327,14 @@ export function OkrsClient() {
                         value={o.objective}
                         onCommit={(v) => update(o.id, { objective: v })}
                         placeholder="Achieve X by end of quarter"
+                        aria-label="Objective"
                         className="bg-bg border-border text-text"
                       />
                       <BlurInput
                         value={o.quarter}
                         onCommit={(v) => update(o.id, { quarter: v })}
                         placeholder="2026 Q2"
+                        aria-label={`Quarter for ${o.objective || "objective"}`}
                         className="bg-bg border-border text-text font-data"
                       />
                     </div>
@@ -361,12 +366,12 @@ export function OkrsClient() {
                       {mk && measurableKrCount >= 10 && (
                         <Badge
                           variant="outline"
-                          className={`font-mono text-[10px] tracking-wider uppercase ${
+                          className={`font-mono text-xs tracking-wider uppercase ${
                             !mk.significant || mk.trend === "none"
                               ? "text-sub border-border"
                               : mk.trend === "up"
-                                ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
-                                : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                                ? "border-success/40 text-success bg-success/10"
+                                : "border-warning/40 text-warning bg-warning/10"
                           }`}
                           title="Mann-Kendall trend across the KR list (NOT temporal). Shown only with ≥10 KRs."
                         >
@@ -380,7 +385,7 @@ export function OkrsClient() {
                       {fc.length > 0 && fcConfidence && measurableKrCount >= 10 && (
                         <Badge
                           variant="outline"
-                          className="font-mono text-[10px] tracking-wider uppercase text-accent border-accent/40 bg-accent/10"
+                          className="font-mono text-xs tracking-wider uppercase text-accent border-accent/40 bg-accent/10"
                           title={`Across-the-list projection (NOT temporal). Confidence: ${fcConfidence}. Shown only with ≥10 KRs.`}
                         >
                           List proj ~ {Math.round(Math.max(0, Math.min(1, fc[0].yHat)) * 100)}%
@@ -390,9 +395,10 @@ export function OkrsClient() {
                         variant="ghost"
                         size="sm"
                         onClick={() => remove(o.id)}
+                        aria-label={`Delete objective: ${o.objective || "untitled"}`}
                         className="text-sub hover:text-danger"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                       </Button>
                     </div>
                   </div>
@@ -414,6 +420,7 @@ export function OkrsClient() {
                           value={kr.title}
                           onCommit={(v) => updateKr(o.id, kr.id, { title: v })}
                           placeholder="KR: Increase DAU from 1k to 10k"
+                          aria-label="Key result"
                           className="bg-surface border-border col-span-2 sm:col-span-1"
                         />
                         <div className="flex flex-wrap gap-2 col-span-2 sm:contents">
@@ -421,6 +428,7 @@ export function OkrsClient() {
                             value={kr.current}
                             onChange={(n) => updateKr(o.id, kr.id, { current: n })}
                             placeholder="Current"
+                            ariaLabel={`Current value for ${kr.title || "key result"}`}
                             className="bg-surface border-border font-data flex-1 min-w-[80px] sm:flex-none sm:min-w-0"
                           />
                           {showTargetChip ? (
@@ -433,6 +441,7 @@ export function OkrsClient() {
                                     value={kr.target}
                                     onChange={(n) => updateKr(o.id, kr.id, { target: n })}
                                     placeholder="Target"
+                                    ariaLabel={`Target for ${kr.title || "key result"}`}
                                     className="bg-surface border-border font-data"
                                   />
                                   {chip}
@@ -444,6 +453,7 @@ export function OkrsClient() {
                               value={kr.target}
                               onChange={(n) => updateKr(o.id, kr.id, { target: n })}
                               placeholder="Target"
+                              ariaLabel={`Target for ${kr.title || "key result"}`}
                               className="bg-surface border-border font-data flex-1 min-w-[80px] sm:flex-none sm:min-w-0"
                             />
                           )}
@@ -453,15 +463,17 @@ export function OkrsClient() {
                             min={0}
                             max={10}
                             title="Confidence (0-10)"
+                            ariaLabel={`Confidence (0-10) for ${kr.title || "key result"}`}
                             className="bg-surface border-border font-data flex-1 min-w-[80px] sm:flex-none sm:min-w-0"
                           />
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => removeKr(o.id, kr.id)}
+                            aria-label={`Delete key result: ${kr.title || "untitled"}`}
                             className="text-sub hover:text-danger shrink-0"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                           </Button>
                         </div>
                       </div>

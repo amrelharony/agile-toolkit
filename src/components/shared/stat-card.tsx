@@ -53,15 +53,15 @@ const TONE_CARD_CLASS: Record<NonNullable<StatCardProps["tone"]>, string> = {
   // resolved to nothing and danger-tone stat cards had NO tint.
   // `destructive` is the shadcn-mapped, theme-aware token.
   danger: "bg-destructive/5 border-destructive/40",
-  warning: "bg-amber-500/5 border-amber-500/40",
-  success: "bg-emerald-500/5 border-emerald-500/40",
+  warning: "bg-warning/5 border-warning/40",
+  success: "bg-success/5 border-success/40",
 };
 
 const TONE_VALUE_CLASS: Record<NonNullable<StatCardProps["tone"]>, string> = {
   default: "",
   danger: "text-destructive",
-  warning: "text-amber-300",
-  success: "text-emerald-300",
+  warning: "text-warning",
+  success: "text-success",
 };
 
 /**
@@ -104,7 +104,7 @@ export function StatCard({
     return (
       <Card className={cn(cardToneClass, className)}>
         <CardContent className="p-3 sm:p-4">
-          <div className="text-[10px] sm:text-xs uppercase tracking-wider text-sub mb-1 flex items-center gap-1 min-w-0">
+          <div className="text-xs uppercase tracking-wider text-sub mb-1 flex items-center gap-1 min-w-0">
             {Icon && <Icon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
             <span className="truncate">{label}</span>
           </div>

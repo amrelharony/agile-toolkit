@@ -7,7 +7,7 @@
  * the store, sonifies, logs IMPEDIMENT_RAISED, and resets.
  */
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { AlertTriangle, Plus, X } from "lucide-react";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,7 @@ export function LogForm() {
   const { addImpediment } = useImpedimentStore();
   const [form, setForm] = useState(EMPTY_FORM);
   const [open, setOpen] = useState(false);
+  const uid = useId();
   const { log } = useHistoryLogger("impediments");
   const expectedResolutionPrediction = usePredictedDefault<number>(
     "impediments",
@@ -77,22 +78,26 @@ export function LogForm() {
     <SectionCard
       title="Log New Impediment"
       icon={AlertTriangle}
-      iconClassName="text-[#ffaa00]"
+      iconClassName="text-accent-amber"
       actions={
         <Button
           variant="ghost"
           size="icon"
           onClick={() => setOpen(false)}
+          aria-label="Close form"
           className="min-touch-coarse h-7 w-7 text-sub hover:text-text"
         >
-          <X className="w-4 h-4" />
+          <X className="w-4 h-4" aria-hidden="true" />
         </Button>
       }
       contentClassName="space-y-4"
     >
       <div className="space-y-1.5">
-        <Label className="text-sub text-xs">Title *</Label>
+        <Label htmlFor={`${uid}-title`} className="text-sub text-xs">
+          Title *
+        </Label>
         <Input
+          id={`${uid}-title`}
           value={form.title}
           onChange={(e) => setForm({ ...form, title: e.target.value })}
           placeholder="Short description of the impediment"
@@ -101,8 +106,11 @@ export function LogForm() {
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-sub text-xs">Description</Label>
+        <Label htmlFor={`${uid}-description`} className="text-sub text-xs">
+          Description
+        </Label>
         <Textarea
+          id={`${uid}-description`}
           value={form.description}
           onChange={(e) => setForm({ ...form, description: e.target.value })}
           placeholder="Provide context and impact details..."
@@ -113,12 +121,17 @@ export function LogForm() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
-          <Label className="text-sub text-xs">Category</Label>
+          <Label htmlFor={`${uid}-category`} className="text-sub text-xs">
+            Category
+          </Label>
           <Select
             value={form.category}
             onValueChange={(v) => setForm({ ...form, category: v as Category })}
           >
-            <SelectTrigger className="bg-surface-deep border-border text-text">
+            <SelectTrigger
+              id={`${uid}-category`}
+              className="bg-surface-deep border-border text-text"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-surface border-border">
@@ -132,12 +145,17 @@ export function LogForm() {
         </div>
 
         <div className="space-y-1.5">
-          <Label className="text-sub text-xs">Severity</Label>
+          <Label htmlFor={`${uid}-severity`} className="text-sub text-xs">
+            Severity
+          </Label>
           <Select
             value={form.severity}
             onValueChange={(v) => setForm({ ...form, severity: v as Severity })}
           >
-            <SelectTrigger className="bg-surface-deep border-border text-text">
+            <SelectTrigger
+              id={`${uid}-severity`}
+              className="bg-surface-deep border-border text-text"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-surface border-border">
@@ -151,8 +169,11 @@ export function LogForm() {
         </div>
 
         <div className="space-y-1.5">
-          <Label className="text-sub text-xs">Raised By</Label>
+          <Label htmlFor={`${uid}-raisedBy`} className="text-sub text-xs">
+            Raised By
+          </Label>
           <Input
+            id={`${uid}-raisedBy`}
             value={form.raisedBy}
             onChange={(e) => setForm({ ...form, raisedBy: e.target.value })}
             placeholder="Name / Role"
@@ -161,8 +182,11 @@ export function LogForm() {
         </div>
 
         <div className="space-y-1.5">
-          <Label className="text-sub text-xs">Assigned To</Label>
+          <Label htmlFor={`${uid}-assignedTo`} className="text-sub text-xs">
+            Assigned To
+          </Label>
           <Input
+            id={`${uid}-assignedTo`}
             value={form.assignedTo}
             onChange={(e) => setForm({ ...form, assignedTo: e.target.value })}
             placeholder="Name / Role"
@@ -171,13 +195,16 @@ export function LogForm() {
         </div>
 
         <div className="space-y-1.5">
-          <Label className="text-sub text-xs">Expected Resolution (days)</Label>
+          <Label htmlFor={`${uid}-days`} className="text-sub text-xs">
+            Expected Resolution (days)
+          </Label>
           <SmartInput<number>
             predicted={expectedResolutionPrediction}
             onAccept={(value) => setForm((f) => ({ ...f, expectedResolutionDays: value }))}
             render={({ ghost, accept, chip }) => (
               <div className="flex flex-col gap-1">
                 <Input
+                  id={`${uid}-days`}
                   type="number"
                   min={1}
                   value={form.expectedResolutionDays ?? ""}

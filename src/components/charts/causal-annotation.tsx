@@ -82,9 +82,7 @@ export function CausalAnnotationList({ annotations }: { annotations: CausalAnnot
   const keyOf = (a: CausalAnnotationData) => `${a.x}|${a.label}`;
   return (
     <div className="mt-3 flex flex-col gap-2">
-      <div className="text-[11px] font-mono uppercase tracking-wider text-sub">
-        Cross-tool signals
-      </div>
+      <div className="text-xs font-mono uppercase tracking-wider text-sub">Cross-tool signals</div>
       {annotations.map((a) => {
         const color = CONFIDENCE_COLOR[a.confidence];
         const k = keyOf(a);
@@ -102,7 +100,7 @@ export function CausalAnnotationList({ annotations }: { annotations: CausalAnnot
               aria-expanded={open}
             >
               <span className="text-text font-medium">{a.label}</span>
-              <span className="text-[10px] uppercase tracking-wider text-sub shrink-0">
+              <span className="text-xs uppercase tracking-wider text-sub shrink-0">
                 {a.confidence}
               </span>
             </button>

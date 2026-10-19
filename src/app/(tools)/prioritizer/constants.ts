@@ -112,8 +112,8 @@ export const MOSCOW_CONFIG: Record<
   must: {
     label: "Must Have",
     color: "#ef4444",
-    bg: "bg-red-500/10",
-    borderColor: "border-red-500/30",
+    bg: "bg-danger/10",
+    borderColor: "border-danger/30",
   },
   should: {
     label: "Should Have",
@@ -124,8 +124,8 @@ export const MOSCOW_CONFIG: Record<
   could: {
     label: "Could Have",
     color: "#ffaa00",
-    bg: "bg-amber-400/10",
-    borderColor: "border-amber-400/30",
+    bg: "bg-warning/10",
+    borderColor: "border-warning/30",
   },
   wont: {
     label: "Won't Have",

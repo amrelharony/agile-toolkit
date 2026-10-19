@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -50,6 +50,7 @@ function emptyDecision(): Decision {
 export function DecisionLogClient() {
   const [decisions, setDecisions] = usePersisted<Decision[]>("agile-toolkit:decision-log", []);
   const [editing, setEditing] = useState<Decision | null>(null);
+  const uid = useId();
   const workspaceDecisions = useWorkspaceStore((s) => s.decisions);
   const upsertWorkspaceDecision = useWorkspaceStore((s) => s.upsertDecision);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -218,7 +219,8 @@ export function DecisionLogClient() {
                 key={d.id}
                 type="button"
                 onClick={() => setEditing(d)}
-                className={`w-full text-left rounded-lg border p-3 transition hover:border-accent/40 ${
+                aria-pressed={editing?.id === d.id}
+                className={`w-full text-left rounded-lg border p-3 transition hover:border-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                   editing?.id === d.id ? "border-accent/60 bg-accent/5" : "border-border bg-surface"
                 }`}
               >
@@ -244,8 +246,11 @@ export function DecisionLogClient() {
               <CardContent className="p-4 space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-[1fr_180px_140px] gap-3">
                   <div>
-                    <Label className="text-xs text-sub">Title</Label>
+                    <Label htmlFor={`${uid}-title`} className="text-xs text-sub">
+                      Title
+                    </Label>
                     <BlurInput
+                      id={`${uid}-title`}
                       value={editing.title}
                       onCommit={(v) => updateDecision(editing.id, { title: v })}
                       placeholder="ADR-0001: Use Postgres for event log"
@@ -253,14 +258,19 @@ export function DecisionLogClient() {
                     />
                   </div>
                   <div>
-                    <Label className="text-xs text-sub">Status</Label>
+                    <Label htmlFor={`${uid}-status`} className="text-xs text-sub">
+                      Status
+                    </Label>
                     <Select
                       value={editing.status}
                       onValueChange={(v) =>
                         updateDecision(editing.id, { status: v as Decision["status"] })
                       }
                     >
-                      <SelectTrigger className="bg-bg border-border capitalize">
+                      <SelectTrigger
+                        id={`${uid}-status`}
+                        className="bg-bg border-border capitalize"
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -273,8 +283,11 @@ export function DecisionLogClient() {
                     </Select>
                   </div>
                   <div>
-                    <Label className="text-xs text-sub">Date</Label>
+                    <Label htmlFor={`${uid}-date`} className="text-xs text-sub">
+                      Date
+                    </Label>
                     <Input
+                      id={`${uid}-date`}
                       type="date"
                       // Defensive nullish — hand-edited localStorage
                       // (or an older schema migration) could leave
@@ -287,8 +300,11 @@ export function DecisionLogClient() {
                   </div>
                 </div>
                 <div>
-                  <Label className="text-xs text-sub">Context</Label>
+                  <Label htmlFor={`${uid}-context`} className="text-xs text-sub">
+                    Context
+                  </Label>
                   <BlurTextarea
+                    id={`${uid}-context`}
                     rows={3}
                     placeholder="What problem are we solving? What constraints apply?"
                     value={editing.context ?? ""}
@@ -297,8 +313,11 @@ export function DecisionLogClient() {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs text-sub">Decision</Label>
+                  <Label htmlFor={`${uid}-decision`} className="text-xs text-sub">
+                    Decision
+                  </Label>
                   <BlurTextarea
+                    id={`${uid}-decision`}
                     rows={3}
                     placeholder="We will do X."
                     value={editing.decision}
@@ -307,8 +326,11 @@ export function DecisionLogClient() {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs text-sub">Consequences</Label>
+                  <Label htmlFor={`${uid}-consequences`} className="text-xs text-sub">
+                    Consequences
+                  </Label>
                   <BlurTextarea
+                    id={`${uid}-consequences`}
                     rows={3}
                     placeholder="Trade-offs, follow-ups, what becomes easier/harder."
                     value={editing.consequences ?? ""}
@@ -317,8 +339,11 @@ export function DecisionLogClient() {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs text-sub">Alternatives considered (one per line)</Label>
+                  <Label htmlFor={`${uid}-alternatives`} className="text-xs text-sub">
+                    Alternatives considered (one per line)
+                  </Label>
                   <BlurTextarea
+                    id={`${uid}-alternatives`}
                     rows={3}
                     placeholder={"Option A — rejected because...\nOption B — rejected because..."}
                     value={(editing.alternatives ?? []).join("\n")}

@@ -142,17 +142,21 @@ export function ShareModal({ boardId, boardName, onClose }: Props) {
   useFocusTrap(dialogRef, { active: true });
 
   return (
+    // Backdrop: clicking outside the panel closes (Esc does the same from
+    // the keyboard). The dialog role sits on the panel itself.
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Share or save board"
-      ref={dialogRef}
+      role="presentation"
       className="fixed inset-0 z-modal flex items-center justify-center bg-bg/80 backdrop-blur-sm p-3"
-      onClick={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Share or save board"
+        ref={dialogRef}
         className="relative bg-surface border border-border rounded-xl w-[min(36rem,calc(100vw-1.5rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain-strict"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-2 p-4 border-b border-border">
           <div className="flex items-center gap-2 flex-wrap min-w-0">
@@ -384,7 +388,7 @@ function ShareTab({
       {copyError && (
         <div
           role="alert"
-          className="flex items-start gap-2 mb-3 p-2.5 border border-amber-500/40 bg-amber-500/10 rounded text-xs text-amber-200"
+          className="flex items-start gap-2 mb-3 p-2.5 border border-warning/40 bg-warning/10 rounded text-xs text-warning"
         >
           <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <span>{copyError}</span>
@@ -413,11 +417,11 @@ function ShareTab({
               >
                 <span className="font-mono text-text">{t.token}</span>
                 <span
-                  className={`text-[10px] uppercase font-bold ${
+                  className={`text-xs uppercase font-bold ${
                     t.role === "editor"
-                      ? "text-amber-300"
+                      ? "text-warning"
                       : t.role === "commenter"
-                        ? "text-emerald-300"
+                        ? "text-success"
                         : "text-cyan-300"
                   }`}
                 >
@@ -442,7 +446,7 @@ function ShareTab({
                   type="button"
                   onClick={() => onRevoke(t.token)}
                   aria-label="Revoke link"
-                  className="text-sub hover:text-red-400"
+                  className="text-sub hover:text-danger"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -692,7 +696,7 @@ function PostMessageTab({
       {editorOnlyWarning ? (
         <div
           role="alert"
-          className="flex items-start gap-2 mb-3 p-2.5 border border-red-500/50 bg-red-500/10 rounded text-xs text-red-200"
+          className="flex items-start gap-2 mb-3 p-2.5 border border-danger/50 bg-danger/10 rounded text-xs text-danger"
         >
           <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <div>
@@ -703,7 +707,7 @@ function PostMessageTab({
         </div>
       ) : (
         !canCopy && (
-          <div className="flex items-start gap-2 mb-3 p-2.5 border border-amber-500/40 bg-amber-500/10 rounded text-xs text-amber-200">
+          <div className="flex items-start gap-2 mb-3 p-2.5 border border-warning/40 bg-warning/10 rounded text-xs text-warning">
             <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
             <div>
               <strong>No share link active.</strong> Create a viewer link in the Share tab first —
@@ -760,13 +764,13 @@ function PostMessageTab({
       {copyError && (
         <div
           role="alert"
-          className="flex items-start gap-2 mt-2 p-2.5 border border-amber-500/40 bg-amber-500/10 rounded text-xs text-amber-200"
+          className="flex items-start gap-2 mt-2 p-2.5 border border-warning/40 bg-warning/10 rounded text-xs text-warning"
         >
           <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <span>{copyError}</span>
         </div>
       )}
-      <p className="text-[10px] text-sub mt-2 italic">
+      <p className="text-xs text-sub mt-2 italic">
         Tip: pair with a server-side webhook subscriber on{" "}
         <code className="text-text">whiteboard.boardShared</code> to post automatically.
       </p>

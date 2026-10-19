@@ -207,15 +207,17 @@ const TOOLTIP_STYLE = {
 function ReadinessIndicator({ pct }: { pct: number }) {
   if (pct === 100)
     return (
-      <Badge className="bg-[#00ff88]/10 text-[#00ff88] border border-[#00ff88]/20">Ready</Badge>
+      <Badge className="bg-accent-green/10 text-accent-green border border-accent-green/20">
+        Ready
+      </Badge>
     );
   if (pct > 0)
     return (
-      <Badge className="bg-[#ffaa00]/10 text-[#ffaa00] border border-[#ffaa00]/20">Partial</Badge>
+      <Badge className="bg-accent-amber/10 text-accent-amber border border-accent-amber/20">
+        Partial
+      </Badge>
     );
-  return (
-    <Badge className="bg-[#ef4444]/10 text-[#ef4444] border border-[#ef4444]/20">Not Ready</Badge>
-  );
+  return <Badge className="bg-danger/10 text-danger border border-danger/20">Not Ready</Badge>;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -264,7 +266,9 @@ function CriterionRow({
       {showCheckbox && (
         <button
           onClick={onToggle}
-          aria-label={`Toggle ${criterion.label}`}
+          role="checkbox"
+          aria-checked={checked}
+          aria-label={criterion.label}
           className={`flex-shrink-0 w-5 h-5 mt-0.5 rounded border transition-all ${
             checked ? "bg-accent border-accent" : "border-border hover:border-accent/50"
           }`}
@@ -295,12 +299,14 @@ function CriterionRow({
                 if (e.key === "Escape") setEditing(false);
               }}
               className="flex-1 bg-surface-deep border-border text-text text-sm focus:border-accent/50 h-8"
+              aria-label="Criterion"
             />
             <Button
               variant="ghost"
               size="icon"
               onClick={commitEdit}
-              className="min-touch-coarse h-7 w-7 text-[#00ff88] hover:bg-[#00ff88]/10"
+              aria-label="Save criterion"
+              className="min-touch-coarse h-7 w-7 text-accent-green hover:bg-accent-green/10"
             >
               <Check className="w-3.5 h-3.5" />
             </Button>
@@ -308,6 +314,7 @@ function CriterionRow({
               variant="ghost"
               size="icon"
               onClick={() => setEditing(false)}
+              aria-label="Cancel editing"
               className="min-touch-coarse h-7 w-7 text-sub hover:bg-cardH"
             >
               <X className="w-3.5 h-3.5" />
@@ -337,7 +344,7 @@ function CriterionRow({
             {criterion.label}
           </span>
           {criterion.description && (
-            <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
+            <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
               {criterion.description}
             </div>
           )}
@@ -354,6 +361,7 @@ function CriterionRow({
               setDescDraft(criterion.description ?? "");
               setEditing(true);
             }}
+            aria-label={`Edit ${criterion.label}`}
             className="min-touch-coarse h-7 w-7 text-sub hover:text-accent hover:bg-accent/10"
           >
             <Pencil className="w-3 h-3" />
@@ -362,6 +370,7 @@ function CriterionRow({
             variant="danger-ghost"
             size="icon"
             onClick={onRemove}
+            aria-label={`Remove ${criterion.label}`}
             className="min-touch-coarse h-7 w-7"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -524,7 +533,13 @@ export function RefinementClient() {
               title="Definition of Ready"
               icon={CheckSquare}
               actions={
-                <Button size="sm" variant="toolkit" onClick={addCriterion} className="gap-1.5">
+                <Button
+                  size="sm"
+                  variant="toolkit"
+                  onClick={addCriterion}
+                  aria-label="Add criterion"
+                  className="gap-1.5"
+                >
                   <Plus className="w-4 h-4" />
                   Add
                 </Button>
@@ -556,8 +571,11 @@ export function RefinementClient() {
               contentClassName="space-y-4"
             >
               <div className="space-y-1.5">
-                <Label className="text-sub text-xs">Story Name / ID</Label>
+                <Label htmlFor="refinement-story-name" className="text-sub text-xs">
+                  Story Name / ID
+                </Label>
                 <Input
+                  id="refinement-story-name"
                   value={storyName}
                   onChange={(e) => setStoryName(e.target.value)}
                   placeholder="e.g. USER-42 — Add dark mode toggle"
@@ -762,7 +780,7 @@ export function RefinementClient() {
             {passRateTrend?.significant && (
               <div className="flex items-center justify-end -mt-2">
                 <span
-                  className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+                  className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border ${
                     passRateTrend.trend === "up"
                       ? "bg-accent/15 text-accent border-accent/40"
                       : "bg-destructive/15 text-destructive border-destructive/40"
@@ -830,7 +848,7 @@ export function RefinementClient() {
                           <td className="py-2.5 pr-4 max-w-[200px]">
                             <div className="text-text font-medium truncate">{h.storyName}</div>
                             {h.description && (
-                              <div className="text-sub text-[11px] mt-0.5 whitespace-pre-wrap break-words">
+                              <div className="text-sub text-xs mt-0.5 whitespace-pre-wrap break-words">
                                 {h.description}
                               </div>
                             )}
@@ -861,6 +879,7 @@ export function RefinementClient() {
                               variant="danger-ghost"
                               size="icon"
                               onClick={() => removeHistory(h.id)}
+                              aria-label={`Remove ${h.storyName} from history`}
                               className="min-touch-coarse h-7 w-7 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity"
                             >
                               <Trash2 className="w-3.5 h-3.5" />

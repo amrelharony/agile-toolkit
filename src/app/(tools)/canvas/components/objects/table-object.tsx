@@ -12,7 +12,8 @@ import { useCanvasStore } from "../../use-canvas-store";
  *     `headerRow: false` on the object.
  *   - Per-column width: `columnFractions[i]` is i'th column's share
  *     of total width. Defaults to even distribution.
- *   - Double-click any cell to edit: an `<input>` overlays the cell,
+ *   - Double-click any cell to edit (or press Enter on the selected
+ *     table to start at the first cell): an `<input>` overlays the cell,
  *     Enter / Tab / blur commits, Esc cancels.
  *   - Tab during edit moves to the next cell (wraps to next row);
  *     Shift+Tab moves backwards. Enter without Shift moves to the
@@ -31,12 +32,19 @@ export function TableObject({
   object,
   selected,
   readOnly,
+  editing: boardEditing = false,
+  onEditEnd,
   onPointerDown,
   onMutate,
 }: {
   object: WhiteboardTable;
   selected: boolean;
   readOnly: boolean;
+  /** Board-level edit flag — set by Enter on the selected table, the
+   *  keyboard route to the double-click cell editor (WCAG 2.1.1). */
+  editing?: boolean;
+  /** Clears the board-level edit flag once cell editing finishes. */
+  onEditEnd?: () => void;
   onPointerDown?: (e: React.PointerEvent) => void;
   onMutate: (id: string, patch: Partial<WhiteboardObject>) => void;
 }) {
@@ -60,6 +68,27 @@ export function TableObject({
 
   // ── Cell editing state ──────────────────────────────────────────
   const [editing, setEditing] = useState<{ row: number; col: number } | null>(null);
+
+  // Enter on the board opens the first cell; when cell editing ends
+  // (Esc, Tab past the last cell, blur) hand the board its flag back so
+  // its shortcuts and focus resume. The ref tells "just started" apart
+  // from "finished" — both see `editing === null`.
+  const boardEditStartedRef = useRef(false);
+  useEffect(() => {
+    if (!boardEditing) {
+      boardEditStartedRef.current = false;
+      return;
+    }
+    if (!boardEditStartedRef.current) {
+      boardEditStartedRef.current = true;
+      if (readOnly || object.locked || rows.length === 0 || numCols === 0) onEditEnd?.();
+      else setEditing({ row: 0, col: 0 });
+      return;
+    }
+    if (editing === null) onEditEnd?.();
+    // Only the edit flags drive this; the rest is read at transition time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardEditing, editing]);
 
   const commitCell = (row: number, col: number, text: string) => {
     const nextRows = rows.map((r) => r.slice());
@@ -276,6 +305,7 @@ export function TableObject({
               {headerRow.map((cell, colIdx) => (
                 <TableHeaderCell
                   key={colIdx}
+                  label={`Header, column ${colIdx + 1}`}
                   text={cell}
                   isEditing={editing?.row === 0 && editing?.col === colIdx}
                   readOnly={readOnly || !!object.locked}
@@ -307,6 +337,7 @@ export function TableObject({
                 {row.map((cell, colIdx) => (
                   <TableDataCell
                     key={colIdx}
+                    label={`Row ${dIdx + 1}, column ${colIdx + 1}`}
                     text={cell}
                     isEditing={editing?.row === rowIdx && editing?.col === colIdx}
                     readOnly={readOnly || !!object.locked}
@@ -466,6 +497,8 @@ function TableEditAffordances({
 type CellMove = "next" | "prev" | "down";
 
 interface CellProps {
+  /** Accessible name for the cell editor ("Row 2, column 3"). */
+  label: string;
   text: string;
   isEditing: boolean;
   readOnly: boolean;
@@ -489,6 +522,7 @@ function TableDataCell(props: CellProps) {
 
 function CellBase({
   as,
+  label,
   text,
   isEditing,
   readOnly,
@@ -528,7 +562,7 @@ function CellBase({
       }}
     >
       {isEditing ? (
-        <CellEditor initial={text} onCommit={onCommit} onMove={onMove} />
+        <CellEditor label={label} initial={text} onCommit={onCommit} onMove={onMove} />
       ) : (
         text || <span style={{ opacity: 0.35 }}>&nbsp;</span>
       )}
@@ -557,10 +591,12 @@ function CellBase({
 }
 
 function CellEditor({
+  label,
   initial,
   onCommit,
   onMove,
 }: {
+  label: string;
   initial: string;
   onCommit: (text: string) => void;
   onMove: (dir: CellMove) => void;
@@ -576,6 +612,7 @@ function CellEditor({
   return (
     <input
       ref={ref}
+      aria-label={label}
       defaultValue={initial}
       onChange={(e) => {
         valueRef.current = e.target.value;

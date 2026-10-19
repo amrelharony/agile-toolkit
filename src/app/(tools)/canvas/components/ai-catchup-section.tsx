@@ -10,10 +10,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { WhiteboardActivityEvent } from "@/lib/stores/workspace-types";
 import { useBoardLastCatchup } from "../hooks/use-board-last-catchup";
 
-const AiRunPanel = dynamic(
-  () => import("@/components/shared/ai-run-panel"),
-  { ssr: false },
-);
+const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), { ssr: false });
 
 /**
  * "What's new since you were last here" — AI-summarised activity log.
@@ -31,7 +28,7 @@ export function AiCatchupSection({ boardId }: { boardId: string }) {
   const { isReady, openSettings } = useActiveLlm();
   const { lastCatchupAt, markCaughtUp } = useBoardLastCatchup(boardId);
   const allEvents = useWorkspaceStore(
-    (s) => s.whiteboardActivityLog ?? [],
+    (s) => s.whiteboardActivityLog ?? []
   ) as readonly WhiteboardActivityEvent[];
 
   // Filter to this board + since-timestamp. Memo so the count + the
@@ -43,7 +40,7 @@ export function AiCatchupSection({ boardId }: { boardId: string }) {
       allEvents
         .filter((e) => e.boardId === boardId && e.at > lastCatchupAt)
         .sort((a, b) => b.at - a.at),
-    [allEvents, boardId, lastCatchupAt],
+    [allEvents, boardId, lastCatchupAt]
   );
 
   const [runTrigger, setRunTrigger] = useState(0);
@@ -71,14 +68,12 @@ export function AiCatchupSection({ boardId }: { boardId: string }) {
       </h4>
 
       {newEvents.length === 0 ? (
-        <p className="text-xs text-sub italic">
-          No new activity since your last catch-up.
-        </p>
+        <p className="text-xs text-sub italic">No new activity since your last catch-up.</p>
       ) : (
         <div className="space-y-2">
           <p className="text-xs text-text">
-            <span className="font-mono text-accent">{newEvents.length}</span>{" "}
-            event{newEvents.length === 1 ? "" : "s"} since your last visit.
+            <span className="font-mono text-accent">{newEvents.length}</span> event
+            {newEvents.length === 1 ? "" : "s"} since your last visit.
           </p>
           <Button
             size="sm"
@@ -90,7 +85,7 @@ export function AiCatchupSection({ boardId }: { boardId: string }) {
             Catch me up
           </Button>
           {!isReady && (
-            <p className="text-[10px] text-sub italic">
+            <p className="text-xs text-sub italic">
               Configure an AI provider to enable summaries.{" "}
               <button
                 type="button"
@@ -119,7 +114,7 @@ export function AiCatchupSection({ boardId }: { boardId: string }) {
               <button
                 type="button"
                 onClick={onDismiss}
-                className="text-[10px] text-sub hover:text-text underline"
+                className="text-xs text-sub hover:text-text underline"
               >
                 Dismiss
               </button>

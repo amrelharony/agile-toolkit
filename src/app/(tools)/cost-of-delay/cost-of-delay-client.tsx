@@ -218,7 +218,7 @@ export function CostOfDelayClient() {
                             log(COD_ACTIONS.ITEM_REMOVED, { id: it.id });
                           }}
                           aria-label="Remove initiative"
-                          className="text-sub hover:text-red-400"
+                          className="text-sub hover:text-danger"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

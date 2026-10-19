@@ -120,11 +120,13 @@ export function ModelCardClient() {
         <SectionCard title="New model card" icon={Plus}>
           <Input
             placeholder="Model name"
+            aria-label="Model name"
             value={draft.modelName}
             onChange={(e) => setDraft({ ...draft, modelName: e.target.value })}
           />
           <Textarea
             placeholder="Intended use"
+            aria-label="Intended use"
             value={draft.intendedUse}
             onChange={(e) => setDraft({ ...draft, intendedUse: e.target.value })}
             className="mt-2"
@@ -132,6 +134,7 @@ export function ModelCardClient() {
           />
           <Textarea
             placeholder="Training data"
+            aria-label="Training data"
             value={draft.trainingData}
             onChange={(e) => setDraft({ ...draft, trainingData: e.target.value })}
             className="mt-2"
@@ -139,6 +142,7 @@ export function ModelCardClient() {
           />
           <Textarea
             placeholder="Evaluation results"
+            aria-label="Evaluation results"
             value={draft.evaluation}
             onChange={(e) => setDraft({ ...draft, evaluation: e.target.value })}
             className="mt-2"
@@ -146,6 +150,7 @@ export function ModelCardClient() {
           />
           <Textarea
             placeholder="Limitations & biases"
+            aria-label="Limitations & biases"
             value={draft.limitations}
             onChange={(e) => setDraft({ ...draft, limitations: e.target.value })}
             className="mt-2"
@@ -153,6 +158,7 @@ export function ModelCardClient() {
           />
           <Input
             placeholder="License"
+            aria-label="License"
             value={draft.license}
             onChange={(e) => setDraft({ ...draft, license: e.target.value })}
             className="mt-2"
@@ -186,8 +192,8 @@ export function ModelCardClient() {
                     <span className="font-mono text-sm text-text">{c.modelName}</span>
                     <button
                       onClick={() => remove(c.id)}
-                      aria-label="Remove model card"
-                      className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
+                      aria-label={`Remove model card ${c.modelName}`}
+                      className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

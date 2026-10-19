@@ -367,7 +367,7 @@ export function PsychSafetyClient() {
                 <span className="text-sub mr-1">Q{q.id.slice(1)}.</span>
                 {q.text}
                 {q.reversed && (
-                  <span className="ml-2 text-[10px] uppercase tracking-wider text-amber-300">
+                  <span className="ml-2 text-xs uppercase tracking-wider text-warning">
                     reversed
                   </span>
                 )}
@@ -399,8 +399,9 @@ export function PsychSafetyClient() {
             placeholder="Respondent name (visible to anyone with workspace access)"
             className="bg-bg border-border text-sm"
             aria-label="Respondent"
+            aria-describedby="psych-safety-respondent-note"
           />
-          <p className="text-[11px] text-amber-300 -mt-1">
+          <p id="psych-safety-respondent-note" className="text-xs text-warning -mt-1">
             Edmondson&rsquo;s instrument relies on anonymity for honest answers. Leave blank to
             preserve it.
           </p>
@@ -494,7 +495,7 @@ export function PsychSafetyClient() {
                 />
               </svg>
             </div>
-            <div className="flex items-center justify-center gap-4 mt-2 text-[11px] text-sub">
+            <div className="flex items-center justify-center gap-4 mt-2 text-xs text-sub">
               <span className="flex items-center gap-1">
                 <span className="inline-block w-3 h-2 rounded" style={{ background: "#00f0ff" }} />
                 Team
@@ -575,9 +576,9 @@ export function PsychSafetyClient() {
                 size="sm"
                 onClick={() => removeResponse(r.id)}
                 className="h-6 w-6 p-0 text-sub hover:text-danger shrink-0"
-                aria-label="Remove response"
+                aria-label={`Remove response from ${new Date(r.ts).toLocaleString()}`}
               >
-                <Trash2 className="w-3 h-3" />
+                <Trash2 className="w-3 h-3" aria-hidden="true" />
               </Button>
             </div>
           ))}

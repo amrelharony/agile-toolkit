@@ -45,6 +45,9 @@ jobs:
         # not on each PR — see eslint.config.
         run: npm run lint
 
+      - name: UI class guard
+        run: npm run check:ui
+
       - name: Unit tests
         run: npm run test:run
 

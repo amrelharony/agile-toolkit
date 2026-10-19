@@ -104,11 +104,11 @@ export function HistogramTab({
           P50 ({stats.median}d)
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-5 border-t border-dashed border-amber-400" />
+          <span className="w-5 border-t border-dashed border-warning" />
           P85 ({stats.p85}d)
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-5 border-t border-dashed border-red-500" />
+          <span className="w-5 border-t border-dashed border-danger" />
           P95 ({percentileMap[95]}d)
         </span>
       </div>

@@ -35,6 +35,7 @@ export function NumCell({
   step,
   onCommit,
   className,
+  "aria-label": ariaLabel,
 }: {
   value: number;
   min: number;
@@ -42,6 +43,8 @@ export function NumCell({
   step?: number;
   onCommit: (n: number) => void;
   className?: string;
+  /** Table cells have no visible label: name the field and the row. */
+  "aria-label"?: string;
 }) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
@@ -68,6 +71,7 @@ export function NumCell({
         if (e.key === "Enter") e.currentTarget.blur();
       }}
       className={className}
+      aria-label={ariaLabel}
     />
   );
 }

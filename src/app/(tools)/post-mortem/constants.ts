@@ -10,13 +10,13 @@ export const DEFAULT_STATE: PMState = { postmortems: [] };
 export const PM_ID = "postMortem:current"; // MUST match PM_ID in post-mortem.ts.
 
 export const STATUS_BADGE: Record<PMStatus, string> = {
-  draft: "bg-amber-500/10 text-amber-300 border-amber-500/30",
+  draft: "bg-warning/10 text-warning border-warning/30",
   review: "bg-accent/10 text-accent border-accent/30",
-  published: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+  published: "bg-success/10 text-success border-success/30",
 };
 
 export const ACTION_STATUS_BADGE: Record<ActionStatus, string> = {
-  open: "bg-amber-500/10 text-amber-300 border-amber-500/30",
+  open: "bg-warning/10 text-warning border-warning/30",
   in_progress: "bg-accent/10 text-accent border-accent/30",
-  done: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+  done: "bg-success/10 text-success border-success/30",
 };

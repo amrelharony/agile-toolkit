@@ -52,7 +52,7 @@ export function WipControlChart({
           {!wipLimits && (
             <Badge
               variant="outline"
-              className="text-[10px] font-normal border-amber-500/40 text-amber-400 ml-auto"
+              className="text-xs font-normal border-warning/40 text-warning ml-auto"
             >
               Need {MIN_XMR_SAMPLES}+ data points for control limits
             </Badge>

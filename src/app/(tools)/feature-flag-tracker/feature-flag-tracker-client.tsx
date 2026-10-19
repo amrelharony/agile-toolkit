@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -119,6 +119,7 @@ export function FeatureFlagTrackerClient() {
   const [flags, setFlags] = usePersisted<Flag[]>("agile-toolkit:feature-flag-tracker", []);
   const { log } = useHistoryLogger("feature-flag-tracker");
 
+  const uid = useId();
   const [name, setName] = useState("");
   const [owner, setOwner] = useState("");
   const [environment, setEnvironment] = useState<FlagEnv>("prod");
@@ -447,10 +448,10 @@ export function FeatureFlagTrackerClient() {
         <div className="flex flex-wrap items-center gap-2 mb-4">
           {flagTrend.significant ? (
             <span
-              className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
+              className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
                 flagTrend.trend === "up"
-                  ? "border-amber-500/40 text-amber-300 bg-amber-500/10"
-                  : "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+                  ? "border-warning/40 text-warning bg-warning/10"
+                  : "border-success/40 text-success bg-success/10"
               }`}
             >
               <TrendingUp className={`w-3 h-3 ${flagTrend.trend === "down" ? "rotate-180" : ""}`} />
@@ -458,7 +459,7 @@ export function FeatureFlagTrackerClient() {
               <span className="opacity-60">· p={flagTrend.pValue.toFixed(3)}</span>
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface">
+            <span className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface">
               <TrendingUp className="w-3 h-3" />
               Weekly flag creation trend: no significant change
             </span>
@@ -522,7 +523,7 @@ export function FeatureFlagTrackerClient() {
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <p className="text-[11px] text-sub mt-2">
+          <p className="text-xs text-sub mt-2">
             Kaplan-Meier estimate over {retiredAges.length} retired flag
             {retiredAges.length === 1 ? "" : "s"} (active flags are right-censored). Y-axis:
             probability the flag is still active after N days.
@@ -535,29 +536,35 @@ export function FeatureFlagTrackerClient() {
         <CardContent className="p-4 space-y-2">
           <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_140px_160px_auto] gap-2">
             <div>
-              <Label className="text-xs text-sub">Name</Label>
+              <Label htmlFor={`${uid}-name`} className="text-xs text-sub">
+                Name
+              </Label>
               <Input
+                id={`${uid}-name`}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="checkout_v2_rollout"
                 className="bg-bg border-border font-data"
-                aria-label="Flag name"
               />
             </div>
             <div>
-              <Label className="text-xs text-sub">Owner</Label>
+              <Label htmlFor={`${uid}-owner`} className="text-xs text-sub">
+                Owner
+              </Label>
               <Input
+                id={`${uid}-owner`}
                 value={owner}
                 onChange={(e) => setOwner(e.target.value)}
                 placeholder="Owner (optional)"
                 className="bg-bg border-border"
-                aria-label="Owner"
               />
             </div>
             <div>
-              <Label className="text-xs text-sub">Environment</Label>
+              <Label htmlFor={`${uid}-env`} className="text-xs text-sub">
+                Environment
+              </Label>
               <Select value={environment} onValueChange={(v) => setEnvironment(v as FlagEnv)}>
-                <SelectTrigger className="bg-bg border-border">
+                <SelectTrigger id={`${uid}-env`} className="bg-bg border-border">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -570,9 +577,11 @@ export function FeatureFlagTrackerClient() {
               </Select>
             </div>
             <div>
-              <Label className="text-xs text-sub">Purpose</Label>
+              <Label htmlFor={`${uid}-purpose`} className="text-xs text-sub">
+                Purpose
+              </Label>
               <Select value={purpose} onValueChange={(v) => setPurpose(v as FlagPurpose)}>
-                <SelectTrigger className="bg-bg border-border">
+                <SelectTrigger id={`${uid}-purpose`} className="bg-bg border-border">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -627,7 +636,7 @@ export function FeatureFlagTrackerClient() {
                     className={cn(
                       "border",
                       stale
-                        ? "bg-amber-500/5 border-amber-500/40"
+                        ? "bg-warning/5 border-warning/40"
                         : f.retiredAt
                           ? "bg-bg/50 border-border"
                           : "bg-surface border-border"
@@ -638,7 +647,7 @@ export function FeatureFlagTrackerClient() {
                         <div className="min-w-0">
                           <div className="font-data text-sm text-text break-all">{f.name}</div>
                           {f.description && (
-                            <div className="text-[11px] text-sub mt-0.5 whitespace-pre-wrap">
+                            <div className="text-xs text-sub mt-0.5 whitespace-pre-wrap">
                               {f.description}
                             </div>
                           )}
@@ -652,7 +661,7 @@ export function FeatureFlagTrackerClient() {
                           ) : (
                             ENV_LABEL[f.environment]
                           )}
-                          <div className="text-[11px] mt-0.5">{PURPOSE_LABEL[f.purpose]}</div>
+                          <div className="text-xs mt-0.5">{PURPOSE_LABEL[f.purpose]}</div>
                         </div>
                         <Select
                           value={f.status}
@@ -680,7 +689,7 @@ export function FeatureFlagTrackerClient() {
                               : stale
                                 ? "bg-danger/15 text-danger"
                                 : age > 30
-                                  ? "bg-amber-500/10 text-amber-300"
+                                  ? "bg-warning/10 text-warning"
                                   : "bg-bg text-sub"
                           )}
                         >
@@ -689,7 +698,7 @@ export function FeatureFlagTrackerClient() {
                               createdAt — show an em-dash instead. */}
                           {Number.isFinite(age) ? `${age}d` : "—"}
                           {f.retiredAt && (
-                            <div className="text-[10px] text-sub mt-0.5">retired {f.retiredAt}</div>
+                            <div className="text-xs text-sub mt-0.5">retired {f.retiredAt}</div>
                           )}
                         </div>
                         <div className="text-xs text-sub">since {f.createdAt}</div>

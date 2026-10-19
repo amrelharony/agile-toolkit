@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { fitToRects } from "@/lib/whiteboard/canvas-transform";
+import { controlOwnsKey } from "@/lib/whiteboard/keyboard";
 import type { Camera } from "@/lib/geometry/bbox";
 
 type FrameLike = { x: number; y: number; w: number; h: number };
@@ -33,13 +34,8 @@ export function usePresentationMode(params: {
   setCamera: (cam: Camera) => void;
   setPresentationFrameIndex: (i: number | null) => void;
 }) {
-  const {
-    presentationFrameIndex,
-    orderedFrames,
-    size,
-    setCamera,
-    setPresentationFrameIndex,
-  } = params;
+  const { presentationFrameIndex, orderedFrames, size, setCamera, setPresentationFrameIndex } =
+    params;
 
   // Whenever presentationFrameIndex changes, fit the camera to that frame.
   useEffect(() => {
@@ -47,7 +43,12 @@ export function usePresentationMode(params: {
     if (size.w === 0) return;
     const frame = orderedFrames[presentationFrameIndex];
     if (!frame) return;
-    const cam = fitToRects([{ x: frame.x, y: frame.y, w: frame.w, h: frame.h }], size.w, size.h, 0.15);
+    const cam = fitToRects(
+      [{ x: frame.x, y: frame.y, w: frame.w, h: frame.h }],
+      size.w,
+      size.h,
+      0.15
+    );
     if (cam) setCamera(cam);
   }, [presentationFrameIndex, orderedFrames, size.w, size.h, setCamera]);
 
@@ -58,6 +59,9 @@ export function usePresentationMode(params: {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      // Space on a focused button (Exit, Previous…) must press that
+      // button, not advance the slide (WCAG 2.1.1).
+      if (e.key === " " && controlOwnsKey(t, e.key)) return;
       if (e.key === "ArrowRight" || e.key === " ") {
         e.preventDefault();
         // Stop the canvas-level keyboard handler from also handling

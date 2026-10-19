@@ -453,7 +453,7 @@ export function TechRadarClient() {
                 })}
               </svg>
             </div>
-            <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-3 text-[11px]">
+            <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-3 text-xs">
               {RINGS.map((r) => (
                 <span key={r.id} className="flex items-center gap-1 text-sub">
                   <span
@@ -464,7 +464,7 @@ export function TechRadarClient() {
                 </span>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-1 mt-3 text-[10px] text-sub">
+            <div className="grid grid-cols-2 gap-1 mt-3 text-xs text-sub">
               {QUADRANTS.map((q) => (
                 <div key={q.id} className="border border-border rounded px-1.5 py-0.5">
                   {q.label}

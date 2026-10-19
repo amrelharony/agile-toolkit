@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo, useState, useEffect } from "react";
+import { useId, useRef, useMemo, useState, useEffect } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -79,6 +79,7 @@ export function CFDClient() {
   const [newColName, setNewColName] = useState("");
   const [newColDescription, setNewColDescription] = useState("");
   const [wipInput, setWipInput] = useState(wipLimit?.toString() ?? "");
+  const wipInputId = useId();
 
   // Sync wipInput whenever wipLimit changes from a source other than this
   // input (initial hydration, Clear button, undo/redo). The previous version
@@ -274,16 +275,16 @@ export function CFDClient() {
             trailing={
               wipTrend?.significant ? (
                 <span
-                  className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                  className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                     // For WIP, "down" is good (less queue), "up" is concerning.
                     wipTrend.trend === "down"
-                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
-                      : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                      ? "border-accent-green/40 text-accent-green bg-accent-green/10"
+                      : "border-warning/40 text-warning bg-warning/10"
                   }`}
-                  aria-label={`WIP trend ${wipTrend.trend} (Mann-Kendall p=${wipTrend.pValue.toFixed(3)})`}
                   title={`Mann-Kendall p=${wipTrend.pValue.toFixed(3)}`}
                 >
-                  {wipTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+                  <span aria-hidden="true">{wipTrend.trend === "up" ? "↗ trend" : "↘ trend"}</span>
+                  <span className="sr-only">{`WIP trend ${wipTrend.trend} (Mann-Kendall p=${wipTrend.pValue.toFixed(3)})`}</span>
                 </span>
               ) : undefined
             }
@@ -339,15 +340,18 @@ export function CFDClient() {
         <Card className="bg-surface border-border">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base font-display text-text">
-              <AlertTriangle className="w-4 h-4 text-amber-400" />
+              <AlertTriangle className="w-4 h-4 text-warning" />
               WIP Limit (optional)
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-end gap-3 max-w-xs">
               <div className="flex-1 space-y-1.5">
-                <Label className="text-sub text-xs">Max WIP Items</Label>
+                <Label htmlFor={wipInputId} className="text-sub text-xs">
+                  Max WIP Items
+                </Label>
                 <Input
+                  id={wipInputId}
                   type="number"
                   min={1}
                   placeholder="e.g. 10"
@@ -359,7 +363,7 @@ export function CFDClient() {
               <Button
                 size="sm"
                 onClick={applyWipLimit}
-                className="bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20"
+                className="bg-warning/10 text-warning border border-warning/20 hover:bg-warning/20"
               >
                 Apply
               </Button>
@@ -377,7 +381,7 @@ export function CFDClient() {
               )}
             </div>
             {wipLimit !== null && (
-              <p className="mt-2 text-xs text-amber-400">
+              <p className="mt-2 text-xs text-warning">
                 WIP limit set at {wipLimit} items — red reference line shown on chart.
               </p>
             )}
@@ -403,6 +407,7 @@ export function CFDClient() {
                     <span
                       className="w-3 h-3 rounded-full flex-shrink-0"
                       style={{ background: col.color }}
+                      aria-hidden="true"
                     />
                     {/* Commit on blur, like the description field below.
                         `renameColumn` trims and rejects empty/duplicate names,
@@ -413,15 +418,18 @@ export function CFDClient() {
                     <BlurInput
                       value={col.name}
                       onCommit={(v) => renameColumn(col.id, v)}
+                      aria-label={`Name for column ${idx + 1}`}
                       className="h-7 w-32 bg-transparent border-none p-0 text-sm text-text focus:ring-0 focus:outline-none"
                     />
                     {columns.length > 2 && (
                       <button
+                        type="button"
                         onClick={() => removeColumn(col.id)}
-                        className="text-sub hover:text-red-400 transition-colors ml-1"
+                        className="text-sub hover:text-danger transition-colors ml-1"
                         title="Remove column"
+                        aria-label={`Remove column ${col.name}`}
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                       </button>
                     )}
                     {idx === 0 && (
@@ -452,6 +460,7 @@ export function CFDClient() {
               <div className="flex items-center gap-2">
                 <Input
                   placeholder="New status name…"
+                  aria-label="New status name"
                   value={newColName}
                   onChange={(e) => setNewColName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleAddColumn()}

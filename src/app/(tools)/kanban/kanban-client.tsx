@@ -526,15 +526,21 @@ export function KanbanClient() {
               {throughputTrend?.significant && (
                 <span
                   className={cn(
-                    "text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border",
+                    "text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border",
                     throughputTrend.trend === "up"
-                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
+                      ? "border-accent-green/40 text-accent-green bg-accent-green/10"
                       : "border-danger/40 text-danger bg-danger/5"
                   )}
-                  aria-label={`Throughput trend ${throughputTrend.trend} (Mann-Kendall p=${throughputTrend.pValue.toFixed(3)})`}
                   title={`Mann-Kendall p=${throughputTrend.pValue.toFixed(3)}`}
                 >
-                  {throughputTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+                  {/* aria-label is ignored on a plain span, so the spoken
+                      version lives in sr-only text instead. */}
+                  <span aria-hidden="true">
+                    {throughputTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+                  </span>
+                  <span className="sr-only">
+                    {`Throughput trend ${throughputTrend.trend} (Mann-Kendall p=${throughputTrend.pValue.toFixed(3)})`}
+                  </span>
                 </span>
               )}
             </span>
@@ -789,7 +795,7 @@ export function KanbanClient() {
                   >
                     <div className="text-text font-medium break-words">{c.title}</div>
                     {c.description && (
-                      <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
+                      <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
                         {c.description}
                       </div>
                     )}

@@ -427,8 +427,11 @@ export function FlakyTestsClient() {
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="space-y-1 sm:col-span-2">
-            <Label className="text-xs text-sub">Test name</Label>
+            <Label htmlFor="ft-name" className="text-xs text-sub">
+              Test name
+            </Label>
             <Input
+              id="ft-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="UserService > should sign in user"
@@ -436,8 +439,11 @@ export function FlakyTestsClient() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">Suite (optional)</Label>
+            <Label htmlFor="ft-suite" className="text-xs text-sub">
+              Suite (optional)
+            </Label>
             <Input
+              id="ft-suite"
               value={suite}
               onChange={(e) => setSuite(e.target.value)}
               placeholder="auth.spec.ts"
@@ -445,8 +451,11 @@ export function FlakyTestsClient() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">Owner (optional)</Label>
+            <Label htmlFor="ft-owner" className="text-xs text-sub">
+              Owner (optional)
+            </Label>
             <Input
+              id="ft-owner"
               value={owner}
               onChange={(e) => setOwner(e.target.value)}
               placeholder="@platform"
@@ -454,13 +463,16 @@ export function FlakyTestsClient() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">Failure rate (%)</Label>
+            <Label htmlFor="ft-failure-rate" className="text-xs text-sub">
+              Failure rate (%)
+            </Label>
             <SmartInput<number>
               predicted={failureRatePrediction}
               onAccept={(v) => setFailureRateDraft(String(v))}
               render={({ ghost, chip, accept }) => (
                 <>
                   <Input
+                    id="ft-failure-rate"
                     type="text"
                     inputMode="decimal"
                     value={failureRateDraft}
@@ -489,8 +501,11 @@ export function FlakyTestsClient() {
             />
           </div>
           <div className="space-y-1 sm:col-span-2 lg:col-span-2">
-            <Label className="text-xs text-sub">Description (optional)</Label>
+            <Label htmlFor="ft-description" className="text-xs text-sub">
+              Description (optional)
+            </Label>
             <Textarea
+              id="ft-description"
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -559,11 +574,11 @@ export function FlakyTestsClient() {
             weeklyTrend?.significant ? (
               <Badge
                 variant="outline"
-                className={`font-mono text-[10px] tracking-wider uppercase ${
+                className={`font-mono text-xs tracking-wider uppercase ${
                   // Down = fewer new flakies = good. Up = more = bad.
                   weeklyTrend.trend === "down"
-                    ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
-                    : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                    ? "border-success/40 text-success bg-success/10"
+                    : "border-warning/40 text-warning bg-warning/10"
                 }`}
                 title={`Mann-Kendall p=${weeklyTrend.pValue.toFixed(3)}`}
               >
@@ -638,7 +653,7 @@ export function FlakyTestsClient() {
             <ArrowUpDown className="w-3 h-3" />
             <span>Sort:</span>
             <Select value={sortField} onValueChange={(v) => toggleSort(v as SortField)}>
-              <SelectTrigger className="h-7 w-32 bg-bg border-border text-xs">
+              <SelectTrigger className="h-7 w-32 bg-bg border-border text-xs" aria-label="Sort by">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -653,6 +668,7 @@ export function FlakyTestsClient() {
               size="sm"
               onClick={() => setSortDesc((d) => !d)}
               className="h-7 px-2 text-xs"
+              aria-label={sortDesc ? "Descending order" : "Ascending order"}
             >
               {sortDesc ? "Desc" : "Asc"}
             </Button>
@@ -676,7 +692,7 @@ export function FlakyTestsClient() {
                         {t.name}
                       </span>
                       {t.suite && (
-                        <Badge variant="outline" className="text-[10px] font-data">
+                        <Badge variant="outline" className="text-xs font-data">
                           {t.suite}
                         </Badge>
                       )}

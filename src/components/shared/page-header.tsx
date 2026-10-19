@@ -37,7 +37,13 @@ export function PageHeader({ label, title, subtitle, actions, gradient = false }
         {subtitle && <p className="text-fluid-body text-sub mt-1 max-w-prose">{subtitle}</p>}
       </div>
       {actions && (
-        <div className="flex flex-wrap items-center gap-2 sm:mt-1 shrink-0" role="toolbar">
+        // A plain labelled group: role="toolbar" promises arrow-key
+        // navigation between the actions, which this row doesn't provide.
+        <div
+          className="flex flex-wrap items-center gap-2 sm:mt-1 shrink-0"
+          role="group"
+          aria-label="Page actions"
+        >
           {actions}
         </div>
       )}

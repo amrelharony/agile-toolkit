@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, type RefObject, type MutableRefObject } from "react";
-import { defaultCanvasShortcuts, makeShortcutHandler } from "@/lib/whiteboard/keyboard";
+import {
+  CANVAS_ZOOM_CHORDS,
+  defaultCanvasShortcuts,
+  makeShortcutHandler,
+} from "@/lib/whiteboard/keyboard";
 import {
   copyObjects,
   duplicateObjects,
@@ -12,6 +16,7 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 import type { CanvasTool } from "../use-canvas-store";
+import type { KeyboardZoomActions } from "./use-pan-zoom-controls";
 
 type LogFn = ReturnType<typeof useHistoryLogger>["log"];
 
@@ -43,6 +48,11 @@ type MarqueeStateLike = { initialSelection: string[] } | null;
  * clear-selection. The marquee branch additionally cancels any
  * in-flight lasso rAF and restores the selection that existed before
  * the marquee began.
+ *
+ * Unmodified keys (tool letters, Delete) only fire while focus is inside
+ * `viewportRef` (WCAG 2.1.4 — see `makeShortcutHandler`'s `scope`). So do
+ * the zoom chords (Cmd/Ctrl + = / - / 0 / 1): on the board they drive
+ * `zoomActions`, elsewhere they stay the browser's page zoom.
  */
 export function useCanvasShortcuts(params: {
   // Refs into live state (read at call time, not bind time)
@@ -90,6 +100,10 @@ export function useCanvasShortcuts(params: {
   logActivity: (kind: string, summary: string) => void;
   // Mode
   readOnly: boolean;
+  /** The focusable board element (role="application"). */
+  viewportRef: RefObject<HTMLElement | null>;
+  /** Camera moves for the zoom chords (stable identity). */
+  zoomActions: KeyboardZoomActions;
 }) {
   const {
     objectsRef,
@@ -124,6 +138,8 @@ export function useCanvasShortcuts(params: {
     log,
     logActivity,
     readOnly,
+    viewportRef,
+    zoomActions,
   } = params;
 
   useEffect(() => {
@@ -341,12 +357,15 @@ export function useCanvasShortcuts(params: {
           }
           if (selection.length > 0) clearSelection();
         },
-      })
+        // Camera only — no guardMut, viewers can zoom too.
+        ...zoomActions,
+      }),
+      { scope: () => viewportRef.current, scopedChords: CANVAS_ZOOM_CHORDS }
     );
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
     // Refs (objectsRef, objectsByIdRef, topZRef, lassoRafRef,
-    // lassoPointsRef, lastLassoWorldRef) are deliberately omitted —
+    // lassoPointsRef, lastLassoWorldRef, viewportRef) are deliberately omitted —
     // they are stable identities and reading them at call time is the
     // whole point. Adding them to the dep array would change nothing
     // behaviourally but would clutter the warning surface.
@@ -377,5 +396,6 @@ export function useCanvasShortcuts(params: {
     undo,
     redo,
     readOnly,
+    zoomActions,
   ]);
 }

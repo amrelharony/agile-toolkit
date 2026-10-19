@@ -31,6 +31,10 @@ export function FrameObject({
     : undefined;
 
   return (
+    // Pointer surface only: keyboard users select objects with Tab and
+    // edit with Enter on the board (role="application"), which announces
+    // the selection — see use-contextual-shortcuts / whiteboard-canvas.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       data-canvas-object-kind="frame"
       onPointerDown={editing ? undefined : handle}
@@ -84,6 +88,7 @@ export function FrameObject({
           <InlineEditor
             initialText={o.label ?? ""}
             onCommit={commitEdit}
+            label="Frame name"
             background="transparent"
             color="#e5e7eb"
             fontSize={14}

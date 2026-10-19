@@ -63,27 +63,29 @@ export function stripRichHtmlTags(input: string): string {
 
 function decodeEntities(s: string): string {
   if (s.indexOf("&") === -1) return s;
-  return s
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#39;|&apos;/g, "'")
-    // Numeric decimal entity (bounded to avoid OOM on hand-crafted input)
-    .replace(/&#(\d{1,7});/g, (_, n) => {
-      const code = Number(n);
-      return Number.isFinite(code) && code >= 0 && code <= 0x10ffff
-        ? String.fromCodePoint(code)
-        : "";
-    })
-    // Numeric hex entity
-    .replace(/&#x([0-9a-f]{1,6});/gi, (_, n) => {
-      const code = parseInt(n, 16);
-      return Number.isFinite(code) && code >= 0 && code <= 0x10ffff
-        ? String.fromCodePoint(code)
-        : "";
-    });
+  return (
+    s
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;|&apos;/g, "'")
+      // Numeric decimal entity (bounded to avoid OOM on hand-crafted input)
+      .replace(/&#(\d{1,7});/g, (_, n) => {
+        const code = Number(n);
+        return Number.isFinite(code) && code >= 0 && code <= 0x10ffff
+          ? String.fromCodePoint(code)
+          : "";
+      })
+      // Numeric hex entity
+      .replace(/&#x([0-9a-f]{1,6});/gi, (_, n) => {
+        const code = parseInt(n, 16);
+        return Number.isFinite(code) && code >= 0 && code <= 0x10ffff
+          ? String.fromCodePoint(code)
+          : "";
+      })
+  );
 }
 
 /**
@@ -130,7 +132,11 @@ export function objectText(o: WhiteboardObject): string | null {
     case "embed":
       return `[Embed (${o.kind}): ${o.src.slice(0, 60)}]`;
     case "card":
-      return o.title + (o.description ? `\n${o.description}` : "") + (o.assignee ? ` · ${o.assignee}` : "");
+      return (
+        o.title +
+        (o.description ? `\n${o.description}` : "") +
+        (o.assignee ? ` · ${o.assignee}` : "")
+      );
     case "kanban":
       return `[Kanban: ${o.label}]`;
     case "timer":
@@ -147,7 +153,15 @@ export function objectText(o: WhiteboardObject): string | null {
       // doesn't bloat the AI prompt or find preview.
       const rows = o.rows ?? [];
       const lines = rows
-        .map((r) => r.map((cell) => stripRichHtmlTags(cell ?? "").replace(/\s+/g, " ").trim()).join(" | "))
+        .map((r) =>
+          r
+            .map((cell) =>
+              stripRichHtmlTags(cell ?? "")
+                .replace(/\s+/g, " ")
+                .trim()
+            )
+            .join(" | ")
+        )
         .map((s) => s.replace(/(\s\|\s)+$/, "")) // trim trailing empty cells
         .filter((s) => s.length > 0);
       if (lines.length === 0) return null;
@@ -182,10 +196,7 @@ export interface SearchHit {
  *
  * Capped at 50 hits to keep the rendered list scannable on huge boards.
  */
-export function searchObjects(
-  objects: readonly WhiteboardObject[],
-  query: string,
-): SearchHit[] {
+export function searchObjects(objects: readonly WhiteboardObject[], query: string): SearchHit[] {
   const trimmed = query.trim();
   if (trimmed.length === 0) return [];
   const needle = trimmed.toLowerCase();
@@ -205,7 +216,8 @@ export function searchObjects(
     // Build a ~50-char preview centred on the match.
     const start = Math.max(0, idx - 20);
     const end = Math.min(text.length, idx + needle.length + 20);
-    const preview = (start > 0 ? "…" : "") + text.slice(start, end) + (end < text.length ? "…" : "");
+    const preview =
+      (start > 0 ? "…" : "") + text.slice(start, end) + (end < text.length ? "…" : "");
     hits.push({
       id: o.id,
       rect: { x: o.x, y: o.y, w: o.w, h: o.h },
@@ -225,4 +237,78 @@ export function searchObjects(
   // Defensive cap after sorting — keeps the rendered list small even
   // when thousands of matches land on a megaboard.
   return hits.slice(0, 50);
+}
+
+const OBJECT_KIND_LABEL: Record<WhiteboardObject["type"], string> = {
+  sticky: "Sticky note",
+  rect: "Rectangle",
+  ellipse: "Ellipse",
+  diamond: "Diamond",
+  triangle: "Triangle",
+  line: "Line",
+  arrow: "Arrow",
+  connector: "Connector",
+  text: "Text",
+  freehand: "Sketch",
+  image: "Image",
+  frame: "Frame",
+  embed: "Embed",
+  card: "Card",
+  kanban: "Kanban board",
+  timer: "Timer",
+  table: "Table",
+  mindMapNode: "Mind-map node",
+  diagramShape: "Diagram shape",
+  voting: "Vote",
+};
+
+/** The user-visible name of an object (its text, label or title). */
+function objectName(o: WhiteboardObject): string {
+  switch (o.type) {
+    case "sticky":
+    case "text":
+      return stripRichHtmlTags(o.content);
+    case "rect":
+    case "ellipse":
+    case "diamond":
+    case "triangle":
+      return o.content ? stripRichHtmlTags(o.content) : "";
+    case "frame":
+    case "kanban":
+    case "diagramShape":
+      return o.label;
+    case "connector":
+    case "timer":
+      return o.label ?? "";
+    case "image":
+      return o.alt ?? "";
+    case "card":
+      return o.title;
+    case "voting":
+      return o.question;
+    case "mindMapNode":
+      return o.text;
+    default:
+      return "";
+  }
+}
+
+/**
+ * Short spoken description of an object — "Sticky note: Ship it,
+ * locked". Canvas objects are pointer surfaces inside the board's
+ * role="application", so screen-reader users learn what Tab selected
+ * through the selection live region rather than from the DOM.
+ */
+export function describeObject(o: WhiteboardObject): string {
+  const kind = OBJECT_KIND_LABEL[o.type] ?? "Object";
+  const name = objectName(o).replace(/\s+/g, " ").trim();
+  const clipped = name.length > 80 ? `${name.slice(0, 79)}…` : name;
+  return `${kind}${clipped ? `: ${clipped}` : ""}${o.locked ? ", locked" : ""}`;
+}
+
+/** Live-region text for the current selection ("" when nothing is selected). */
+export function describeSelection(selected: readonly WhiteboardObject[]): string {
+  if (selected.length === 0) return "";
+  if (selected.length === 1) return `${describeObject(selected[0])}, selected`;
+  return `${selected.length} objects selected`;
 }

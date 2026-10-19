@@ -79,13 +79,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
           aria-label="Amr El Harony — Main site"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/ae.svg"
-            alt="AE"
-            width={22}
-            height={22}
-            className="rounded"
-          />
+          <img src="/ae.svg" alt="AE" width={22} height={22} className="rounded" />
         </a>
 
         <div className="w-px h-4 bg-border" />
@@ -100,7 +94,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
                 href={app.href}
                 className={`
                   relative px-2.5 py-1 rounded-md
-                  font-mono text-[10px] tracking-wider
+                  font-mono text-xs tracking-wider
                   transition-all duration-default
                   ${
                     isActive
@@ -129,15 +123,17 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
         {/* Mobile dropdown */}
         <div className="sm:hidden relative ml-auto" ref={dropdownRef}>
           <button
+            type="button"
             onClick={() => setMobileOpen(!mobileOpen)}
             className="
               flex items-center gap-1
-              font-mono text-[10px] tracking-wider text-sub
+              font-mono text-xs tracking-wider text-sub
               hover:text-text
               transition-colors duration-fast
             "
             aria-expanded={mobileOpen}
-            aria-haspopup="true"
+            // A disclosure of plain links, not an ARIA menu, so no aria-haspopup.
+            aria-controls={mobileOpen ? "ecosystem-nav-mobile" : undefined}
           >
             {apps.find((a) => a.id === currentApp)?.shortLabel}
             <ChevronDown
@@ -148,6 +144,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
           </button>
           {mobileOpen && (
             <div
+              id="ecosystem-nav-mobile"
               className="
                 absolute top-full right-0 mt-1
                 py-1 rounded-lg min-w-[140px]
@@ -164,7 +161,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
                   href={app.href}
                   className={`
                     block px-3 py-1.5
-                    font-mono text-[10px] tracking-wider
+                    font-mono text-xs tracking-wider
                     transition-colors duration-fast
                     ${
                       app.id === currentApp
@@ -172,6 +169,7 @@ export function EcosystemNav({ currentApp }: EcosystemNavProps) {
                         : "text-sub hover:text-text hover:bg-card-hover"
                     }
                   `}
+                  aria-current={app.id === currentApp ? "page" : undefined}
                 >
                   {app.label}
                 </a>

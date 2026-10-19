@@ -73,7 +73,7 @@ function GuestPokerInner({ roomCode, role, profile }: Props) {
         {isLocalOnly && (
           <div
             role="alert"
-            className="flex items-center gap-2 border border-amber-500/40 bg-amber-500/10 rounded px-3 py-1.5 text-xs text-amber-200"
+            className="flex items-center gap-2 border border-warning/40 bg-warning/10 rounded px-3 py-1.5 text-xs text-warning"
           >
             <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
             Realtime not configured. You won&apos;t receive session updates.
@@ -108,11 +108,11 @@ function GuestPokerInner({ roomCode, role, profile }: Props) {
             />
             <span className="text-text">{profile.displayName}</span>
             <span
-              className={`text-[10px] uppercase font-bold ${
+              className={`text-xs uppercase font-bold ${
                 role === "editor"
-                  ? "text-amber-300"
+                  ? "text-warning"
                   : role === "commenter"
-                    ? "text-emerald-300"
+                    ? "text-success"
                     : "text-cyan-300"
               }`}
             >
@@ -123,7 +123,7 @@ function GuestPokerInner({ roomCode, role, profile }: Props) {
         {hostEnded && (
           <div
             role="alert"
-            className="flex items-center gap-2 border border-amber-500/40 bg-amber-500/10 rounded px-3 py-2 text-xs text-amber-200"
+            className="flex items-center gap-2 border border-warning/40 bg-warning/10 rounded px-3 py-2 text-xs text-warning"
           >
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
             The host left the session. Live updates have stopped.

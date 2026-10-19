@@ -200,49 +200,56 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
                 </div>
                 {dayEvents.map((event) => {
                   const isSelected = selected?.clientEventId === event.clientEventId;
+                  const detailsId = `history-event-${event.clientEventId}`;
+                  // The row toggle and the expanded details are siblings: the
+                  // details hold their own "Restore to here" button, and a
+                  // button can't contain another button.
                   return (
-                    <button
+                    <div
                       key={event.clientEventId}
-                      type="button"
-                      onClick={() => setSelected(isSelected ? null : event)}
-                      className={cn(
-                        "w-full text-left px-4 py-2.5 hover:bg-accent/5 transition",
-                        isSelected && "bg-accent/5"
-                      )}
+                      className={cn("hover:bg-accent/5 transition", isSelected && "bg-accent/5")}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-sm font-medium text-text truncate">
-                            {formatActionLabel(event.action)}
+                      <button
+                        type="button"
+                        onClick={() => setSelected(isSelected ? null : event)}
+                        aria-expanded={isSelected}
+                        aria-controls={isSelected ? detailsId : undefined}
+                        className={cn(
+                          "w-full text-left px-4 pt-2.5",
+                          isSelected ? "pb-0" : "pb-2.5"
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-sm font-medium text-text truncate">
+                              {formatActionLabel(event.action)}
+                            </span>
+                            {event.isMilestone && (
+                              <Badge variant="outline" className="text-xs px-1 py-0 h-4">
+                                milestone
+                              </Badge>
+                            )}
+                          </div>
+                          <span className="text-xs text-sub shrink-0">
+                            {timeAgo(event.occurredAt)}
                           </span>
-                          {event.isMilestone && (
-                            <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">
-                              milestone
-                            </Badge>
-                          )}
                         </div>
-                        <span className="text-[11px] text-sub shrink-0">
-                          {timeAgo(event.occurredAt)}
-                        </span>
-                      </div>
-                      {summarisePayload(event.payload) && (
-                        <div className="text-xs text-sub mt-0.5 truncate">
-                          {summarisePayload(event.payload)}
-                        </div>
-                      )}
+                        {summarisePayload(event.payload) && (
+                          <div className="text-xs text-sub mt-0.5 truncate">
+                            {summarisePayload(event.payload)}
+                          </div>
+                        )}
+                      </button>
                       {isSelected && (
-                        <div className="mt-2 space-y-2">
-                          <pre className="text-[10px] bg-[var(--card)] border border-border rounded p-2 overflow-x-auto font-mono leading-tight">
+                        <div id={detailsId} className="mt-2 space-y-2 px-4 pb-2.5">
+                          <pre className="text-xs bg-[var(--card)] border border-border rounded p-2 overflow-x-auto font-mono leading-tight">
                             {JSON.stringify(event.payload, null, 2)}
                           </pre>
                           {timeTravel.available && (
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                restoreToEvent(event);
-                              }}
+                              onClick={() => restoreToEvent(event)}
                               disabled={!timeTravel.canUndo}
                               className="w-full gap-1.5 text-xs"
                             >
@@ -252,7 +259,7 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
                           )}
                         </div>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -267,7 +274,7 @@ export default function ToolHistoryDrawerContent({ toolId, onClose }: Props) {
                 >
                   Load {Math.min(RENDER_CHUNK, events.length - renderLimit)} more
                 </Button>
-                <div className="text-[10px] text-sub mt-1">
+                <div className="text-xs text-sub mt-1">
                   Showing {renderLimit} of {events.length}
                 </div>
               </div>

@@ -50,9 +50,13 @@ interface ConnectorLayerProps {
  * intersect the visible world rect.
  */
 function ConnectorLayerImpl({
-  objects, selectedIds, preview,
-  onConnectorPointerDown, onConnectorDoubleClick,
-  editingConnectorId, onCommitConnectorLabel,
+  objects,
+  selectedIds,
+  preview,
+  onConnectorPointerDown,
+  onConnectorDoubleClick,
+  editingConnectorId,
+  onCommitConnectorLabel,
   viewportWorld,
 }: ConnectorLayerProps) {
   const byId = useMemo(() => {
@@ -63,7 +67,7 @@ function ConnectorLayerImpl({
 
   const connectors = useMemo(
     () => objects.filter((o): o is WhiteboardConnector => o.type === "connector"),
-    [objects],
+    [objects]
   );
 
   // R9: Set lookup for selection — `selectedIds.includes` was O(M) per
@@ -158,7 +162,7 @@ function ConnectorLayerImpl({
             { x: to.x, y: to.y, w: to.w, h: to.h },
             c.routing,
             c.fromAnchor,
-            c.toAnchor,
+            c.toAnchor
           );
           pathCacheRef.current.set(c.id, { key: cacheKey, path });
         }
@@ -202,7 +206,7 @@ function ConnectorLayerImpl({
                 points={arrowheadPoints(
                   path.start,
                   { x: -path.endTangent.x, y: -path.endTangent.y },
-                  Math.max(8, strokeWidth * 3),
+                  Math.max(8, strokeWidth * 3)
                 )}
                 fill={stroke}
               />
@@ -265,7 +269,10 @@ export const ConnectorLayer = memo(ConnectorLayerImpl);
  * how stickies/text handle clearing.
  */
 function ConnectorLabelEditor({
-  cx, cy, initial, onCommit,
+  cx,
+  cy,
+  initial,
+  onCommit,
 }: {
   cx: number;
   cy: number;
@@ -300,6 +307,7 @@ function ConnectorLabelEditor({
       <input
         ref={handleRef}
         type="text"
+        aria-label="Connector label"
         defaultValue={initial}
         onKeyDown={(e) => {
           e.stopPropagation();

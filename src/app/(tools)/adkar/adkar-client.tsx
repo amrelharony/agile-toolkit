@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -110,6 +110,7 @@ export function AdkarClient() {
     )
   );
 
+  const uid = useId();
   const [name, setName] = useState("");
   const [owner, setOwner] = useState("");
   const [startDate, setStartDate] = useState(todayLocalISO());
@@ -326,33 +327,39 @@ export function AdkarClient() {
         <CardContent className="p-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-[1fr_1fr_180px_auto] gap-2">
             <div>
-              <Label className="text-xs text-sub">Initiative</Label>
+              <Label htmlFor={`${uid}-name`} className="text-xs text-sub">
+                Initiative
+              </Label>
               <Input
+                id={`${uid}-name`}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Adopt trunk-based development"
                 className="bg-bg border-border"
-                aria-label="Initiative name"
               />
             </div>
             <div>
-              <Label className="text-xs text-sub">Owner</Label>
+              <Label htmlFor={`${uid}-owner`} className="text-xs text-sub">
+                Owner
+              </Label>
               <Input
+                id={`${uid}-owner`}
                 value={owner}
                 onChange={(e) => setOwner(e.target.value)}
                 placeholder="Owner (optional)"
                 className="bg-bg border-border"
-                aria-label="Owner"
               />
             </div>
             <div>
-              <Label className="text-xs text-sub">Start date</Label>
+              <Label htmlFor={`${uid}-start`} className="text-xs text-sub">
+                Start date
+              </Label>
               <Input
+                id={`${uid}-start`}
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
                 className="bg-bg border-border"
-                aria-label="Start date"
               />
             </div>
             <div className="flex items-end">
@@ -411,7 +418,7 @@ export function AdkarClient() {
                           disabled={isLast}
                           className="gap-1.5 border-accent/40 text-accent hover:bg-accent/10 disabled:opacity-50"
                         >
-                          <ArrowRight className="w-3.5 h-3.5" />
+                          <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
                           {isLast ? "At final stage" : "Advance stage"}
                         </Button>
                         <Button
@@ -421,7 +428,7 @@ export function AdkarClient() {
                           className="text-sub hover:text-danger"
                           aria-label={`Remove ${i.name}`}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                         </Button>
                       </div>
                     </div>
@@ -433,16 +440,21 @@ export function AdkarClient() {
                         return (
                           <div
                             key={s}
+                            aria-current={isCurrent ? "step" : undefined}
                             className={cn(
-                              "flex-1 rounded-md border px-1.5 py-1 text-[10px] uppercase tracking-wider text-center",
+                              "flex-1 rounded-md border px-1.5 py-1 text-xs uppercase tracking-wider text-center",
                               completed
-                                ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200"
+                                ? "border-success/50 bg-success/10 text-success"
                                 : isCurrent
                                   ? "border-accent/60 bg-accent/10 text-accent font-semibold"
                                   : "border-border bg-bg text-sub"
                             )}
                           >
                             {sIdx + 1}. {STAGE_LABEL[s]}
+                            {/* State is otherwise colour-only. */}
+                            <span className="sr-only">
+                              {completed ? " (completed)" : isCurrent ? " (current)" : ""}
+                            </span>
                           </div>
                         );
                       })}

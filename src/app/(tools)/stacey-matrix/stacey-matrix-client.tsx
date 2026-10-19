@@ -161,6 +161,7 @@ export function StaceyMatrixClient() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Input
               placeholder="Item / problem"
+              aria-label="Item or problem"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
@@ -170,6 +171,7 @@ export function StaceyMatrixClient() {
               min="0"
               max="1"
               placeholder="Agreement 0-1"
+              aria-label="Agreement (0–1)"
               value={agreement}
               onChange={(e) => setAgreement(e.target.value)}
             />
@@ -179,6 +181,7 @@ export function StaceyMatrixClient() {
               min="0"
               max="1"
               placeholder="Certainty 0-1"
+              aria-label="Certainty (0–1)"
               value={certainty}
               onChange={(e) => setCertainty(e.target.value)}
             />
@@ -280,8 +283,8 @@ export function StaceyMatrixClient() {
                           removeOne(it.id);
                           log(STACEY_ACTIONS.ITEM_REMOVED, { id: it.id });
                         }}
-                        aria-label="Remove item"
-                        className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
+                        aria-label={`Remove ${it.title}`}
+                        className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

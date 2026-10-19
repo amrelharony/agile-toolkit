@@ -268,6 +268,7 @@ export function RlhfLogClient() {
                 value={pairPrompt}
                 onChange={(e) => setPairPrompt(e.target.value)}
                 placeholder="Shared prompt fed to both A and B…"
+                aria-label="Shared prompt for A and B"
                 rows={3}
                 className="font-mono text-xs"
               />
@@ -300,7 +301,7 @@ export function RlhfLogClient() {
               {pickA && pickB && pairPrompt.trim().length > 0 && (
                 <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <div>
-                    <div className="text-[10px] uppercase tracking-wider text-cyan-400 font-mono mb-1">
+                    <div className="text-xs uppercase tracking-wider text-cyan-400 font-mono mb-1">
                       Side A · {PROVIDER_META[pickA.provider].name} ·{" "}
                       {findModel(pickA.provider, pickA.model)?.label ?? pickA.model}
                     </div>
@@ -318,7 +319,7 @@ export function RlhfLogClient() {
                     />
                   </div>
                   <div>
-                    <div className="text-[10px] uppercase tracking-wider text-pink-400 font-mono mb-1">
+                    <div className="text-xs uppercase tracking-wider text-pink-400 font-mono mb-1">
                       Side B · {PROVIDER_META[pickB.provider].name} ·{" "}
                       {findModel(pickB.provider, pickB.model)?.label ?? pickB.model}
                     </div>
@@ -344,6 +345,7 @@ export function RlhfLogClient() {
         <SectionCard title="Log pairwise comparison" icon={Plus}>
           <Textarea
             placeholder="Prompt"
+            aria-label="Prompt"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             className="font-mono text-xs"
@@ -352,12 +354,14 @@ export function RlhfLogClient() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
             <Textarea
               placeholder="Response A"
+              aria-label="Response A"
               value={a}
               onChange={(e) => setA(e.target.value)}
               rows={4}
             />
             <Textarea
               placeholder="Response B"
+              aria-label="Response B"
               value={b}
               onChange={(e) => setB(e.target.value)}
               rows={4}
@@ -365,7 +369,7 @@ export function RlhfLogClient() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
             <Select value={winner} onValueChange={(v) => setWinner(v as RlhfPair["winner"])}>
-              <SelectTrigger>
+              <SelectTrigger aria-label="Winner">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -376,11 +380,13 @@ export function RlhfLogClient() {
             </Select>
             <Input
               placeholder="Reviewer (optional)"
+              aria-label="Reviewer (optional)"
               value={reviewer}
               onChange={(e) => setReviewer(e.target.value)}
             />
             <Input
               placeholder="Reason (optional)"
+              aria-label="Reason (optional)"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
             />
@@ -391,17 +397,14 @@ export function RlhfLogClient() {
                 type="checkbox"
                 checked={redact}
                 onChange={(e) => setRedact(e.target.checked)}
-                aria-label="Redact PII before saving"
               />
               Redact emails / API keys / phone numbers before saving + exporting
             </label>
             {pendingPii && redact && (
-              <span className="text-[11px] text-amber-300">
-                PII detected — will be redacted on save.
-              </span>
+              <span className="text-xs text-warning">PII detected — will be redacted on save.</span>
             )}
             {pendingPii && !redact && (
-              <span className="text-[11px] text-red-300">
+              <span className="text-xs text-danger">
                 PII detected in this entry — will be stored and exported as-is.
               </span>
             )}
@@ -443,7 +446,7 @@ export function RlhfLogClient() {
                       </span>
                       <span className="flex items-center gap-2">
                         <span
-                          className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded"
+                          className="text-xs uppercase font-bold px-1.5 py-0.5 rounded"
                           style={{
                             backgroundColor:
                               x.winner === "tie"
@@ -464,7 +467,7 @@ export function RlhfLogClient() {
                         <button
                           onClick={() => remove(x.id)}
                           aria-label="Remove pair"
-                          className="text-sub hover:text-red-400"
+                          className="text-sub hover:text-danger"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -473,11 +476,11 @@ export function RlhfLogClient() {
                     <p className="text-xs text-text mb-2 truncate">Prompt: {x.prompt}</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                       <div className="bg-surface rounded p-2 border border-cyan-500/20">
-                        <span className="text-cyan-400 text-[10px] uppercase">A</span>
+                        <span className="text-cyan-400 text-xs uppercase">A</span>
                         <div className="text-sub mt-1">{x.responseA.slice(0, 200)}</div>
                       </div>
                       <div className="bg-surface rounded p-2 border border-pink-500/20">
-                        <span className="text-pink-400 text-[10px] uppercase">B</span>
+                        <span className="text-pink-400 text-xs uppercase">B</span>
                         <div className="text-sub mt-1">{x.responseB.slice(0, 200)}</div>
                       </div>
                     </div>
@@ -515,7 +518,7 @@ function PairPicker({
   const value = pick ? `${pick.provider}:${pick.model}` : "";
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[10px] uppercase tracking-wider text-sub font-mono">Side {label}</span>
+      <span className="text-xs uppercase tracking-wider text-sub font-mono">Side {label}</span>
       <Select
         value={value}
         onValueChange={(v) => {
@@ -525,7 +528,7 @@ function PairPicker({
           onPick({ provider: prov as ProviderId, model });
         }}
       >
-        <SelectTrigger>
+        <SelectTrigger aria-label={`Side ${label} provider and model`}>
           <SelectValue placeholder="Pick provider + model" />
         </SelectTrigger>
         <SelectContent>
@@ -536,7 +539,7 @@ function PairPicker({
             // labels the cluster.
             MODELS_BY_PROVIDER[p.id].map((m) => (
               <SelectItem key={`${p.id}:${m.id}`} value={`${p.id}:${m.id}`}>
-                <span className="font-mono text-[10px] text-accent uppercase tracking-wider mr-1">
+                <span className="font-mono text-xs text-accent uppercase tracking-wider mr-1">
                   {PROVIDER_META[p.id].name}
                 </span>
                 {m.label}

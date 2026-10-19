@@ -43,7 +43,7 @@ export function RateLimitBar() {
 
   return (
     <div className="border-b border-border px-4 pb-2 pt-2" data-testid="rate-limit-bar">
-      <div className="mb-1 flex items-center justify-between text-[10px] text-sub">
+      <div className="mb-1 flex items-center justify-between text-xs text-sub">
         <span>
           Agent usage today
           {lastTokens != null && (
@@ -63,7 +63,7 @@ export function RateLimitBar() {
         />
       </div>
       {rl.limited && (
-        <p className="mt-1 text-[10px] text-destructive">
+        <p className="mt-1 text-xs text-destructive">
           Daily limit reached — it frees up on a rolling 24-hour window.
         </p>
       )}

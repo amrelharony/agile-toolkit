@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -220,6 +220,9 @@ export function RunbookScorerClient() {
       setSortDir("asc");
     }
   };
+  // Exposes the active sort on its column header.
+  const ariaSort = (key: SortKey) =>
+    sortKey === key ? (sortDir === "asc" ? "ascending" : "descending") : undefined;
 
   return (
     <ToolPageWrapper
@@ -291,10 +294,10 @@ export function RunbookScorerClient() {
         <div className="flex items-center justify-end mb-4 -mt-2">
           <Badge
             variant="outline"
-            className={`font-mono text-[10px] tracking-wider uppercase ${
+            className={`font-mono text-xs tracking-wider uppercase ${
               hygieneTrend.mk.trend === "up"
-                ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
-                : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                ? "border-success/40 text-success bg-success/10"
+                : "border-warning/40 text-warning bg-warning/10"
             }`}
             title={`Mann-Kendall p=${hygieneTrend.mk.pValue.toFixed(3)} across ${hygieneTrend.sampleSize} reviewed runbooks`}
           >
@@ -366,8 +369,9 @@ export function RunbookScorerClient() {
             <table className="w-full text-xs min-w-full md:min-w-[760px]">
               <thead>
                 <tr className="text-left text-sub border-b border-border">
-                  <th className="py-2 pr-3">
+                  <th className="py-2 pr-3" aria-sort={ariaSort("name")}>
                     <button
+                      type="button"
                       onClick={() => toggleSort("name")}
                       className="flex items-center gap-1 hover:text-text"
                       aria-label={`Sort by name (${sortKey === "name" ? sortDir : "asc"})`}
@@ -381,8 +385,9 @@ export function RunbookScorerClient() {
                     </button>
                   </th>
                   <th className="py-2 pr-3">Owner</th>
-                  <th className="py-2 pr-3">
+                  <th className="py-2 pr-3" aria-sort={ariaSort("freshness")}>
                     <button
+                      type="button"
                       onClick={() => toggleSort("freshness")}
                       className="flex items-center gap-1 hover:text-text"
                       aria-label={`Sort by freshness (${sortKey === "freshness" ? sortDir : "asc"})`}
@@ -397,8 +402,9 @@ export function RunbookScorerClient() {
                   <th className="py-2 pr-3">Completeness</th>
                   <th className="py-2 pr-3">Tested</th>
                   <th className="py-2 pr-3">Last reviewed</th>
-                  <th className="py-2 pr-3">
+                  <th className="py-2 pr-3" aria-sort={ariaSort("hygiene")}>
                     <button
+                      type="button"
                       onClick={() => toggleSort("hygiene")}
                       className="flex items-center gap-1 hover:text-text"
                       aria-label={`Sort by hygiene (${sortKey === "hygiene" ? sortDir : "asc"})`}
@@ -410,7 +416,9 @@ export function RunbookScorerClient() {
                       />
                     </button>
                   </th>
-                  <th className="py-2 pr-3 w-10"></th>
+                  <th className="py-2 pr-3 w-10">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -463,9 +471,9 @@ function RunbookRow({
     tone === "danger"
       ? "bg-danger/15 text-danger border-danger/40"
       : tone === "warning"
-        ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+        ? "bg-warning/10 text-warning border-warning/30"
         : tone === "success"
-          ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+          ? "bg-success/10 text-success border-success/30"
           : "bg-accent/10 text-accent border-accent/30";
 
   return (
@@ -478,7 +486,7 @@ function RunbookRow({
         <Switch
           checked={runbook.testedRecently}
           onCheckedChange={(v) => onUpdate({ testedRecently: v })}
-          aria-label={`Toggle tested-recently for ${runbook.name}`}
+          aria-label={`Tested recently for ${runbook.name}`}
         />
       </td>
       <td className="py-2 pr-3 font-data text-sub">{runbook.lastReviewedAt ?? "—"}</td>
@@ -511,6 +519,7 @@ function RunbookEditor({
   hygiene: number;
   onUpdate: (patch: Partial<Runbook>) => void;
 }) {
+  const uid = useId();
   const [descriptionDraft, setDescriptionDraft] = useState(runbook.description ?? "");
   const [reviewedDraft, setReviewedDraft] = useState(runbook.lastReviewedAt ?? "");
   useEffect(() => setDescriptionDraft(runbook.description ?? ""), [runbook.description]);
@@ -527,11 +536,11 @@ function RunbookEditor({
           variant="outline"
           className={`font-data ${
             hygiene >= 4
-              ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+              ? "bg-success/10 text-success border-success/30"
               : hygiene >= 3
                 ? "bg-accent/10 text-accent border-accent/30"
                 : hygiene >= 2
-                  ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                  ? "bg-warning/10 text-warning border-warning/30"
                   : "bg-danger/15 text-danger border-danger/40"
           }`}
         >
@@ -568,17 +577,23 @@ function RunbookEditor({
           </div>
           <div className="flex items-center gap-2">
             <Switch
+              id={`${uid}-tested`}
               checked={runbook.testedRecently}
               onCheckedChange={(v) => onUpdate({ testedRecently: v })}
               aria-label={`Tested recently for ${runbook.name}`}
             />
-            <Label className="text-xs text-sub">Tested recently</Label>
+            <Label htmlFor={`${uid}-tested`} className="text-xs text-sub">
+              Tested recently
+            </Label>
           </div>
         </div>
         <div className="space-y-3">
           <div>
-            <Label className="text-xs text-sub">Last reviewed</Label>
+            <Label htmlFor={`${uid}-reviewed`} className="text-xs text-sub">
+              Last reviewed
+            </Label>
             <Input
+              id={`${uid}-reviewed`}
               type="date"
               value={reviewedDraft}
               onChange={(e) => setReviewedDraft(e.target.value)}
@@ -591,8 +606,11 @@ function RunbookEditor({
             />
           </div>
           <div>
-            <Label className="text-xs text-sub">Description (optional)</Label>
+            <Label htmlFor={`${uid}-description`} className="text-xs text-sub">
+              Description (optional)
+            </Label>
             <Textarea
+              id={`${uid}-description`}
               value={descriptionDraft}
               onChange={(e) => setDescriptionDraft(e.target.value)}
               onBlur={() => {

@@ -167,15 +167,27 @@ export function ModelMigrationClient() {
             {/* BUG-RD3-model-migration-1: blur-commit so typing in any of
                 these four fields doesn't write the entire migration
                 state to localStorage per keystroke. */}
-            <BlurInput placeholder="From model" value={fromModel} onCommit={setFromModel} />
-            <BlurInput placeholder="To model" value={toModel} onCommit={setToModel} />
+            <BlurInput
+              placeholder="From model"
+              aria-label="From model"
+              value={fromModel}
+              onCommit={setFromModel}
+            />
+            <BlurInput
+              placeholder="To model"
+              aria-label="To model"
+              value={toModel}
+              onCommit={setToModel}
+            />
             <BlurInput
               placeholder="Eval delta % (e.g. +2.1)"
+              aria-label="Eval delta %"
               value={evalDeltaPct}
               onCommit={setEvalDelta}
             />
             <BlurInput
               placeholder="Cost delta % (e.g. -18)"
+              aria-label="Cost delta %"
               value={costDeltaPct}
               onCommit={setCostDelta}
             />
@@ -213,10 +225,11 @@ export function ModelMigrationClient() {
                     toggleStep(s.id);
                     log(MODEL_MIGRATION_ACTIONS.STEP_TOGGLED, { id: s.id });
                   }}
+                  aria-pressed={s.done}
                   className="flex items-center gap-2 flex-1 text-left"
                 >
                   {s.done ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <CheckCircle2 className="w-4 h-4 text-success" />
                   ) : (
                     <Circle className="w-4 h-4 text-sub" />
                   )}
@@ -226,8 +239,8 @@ export function ModelMigrationClient() {
                 </button>
                 <button
                   onClick={() => removeStep(s.id)}
-                  aria-label="Remove step"
-                  className="text-sub hover:text-red-400 min-touch-coarse inline-flex items-center justify-center"
+                  aria-label={`Remove step ${s.text}`}
+                  className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -237,6 +250,7 @@ export function ModelMigrationClient() {
           <div className="flex gap-2 mt-3">
             <Input
               placeholder="Add step…"
+              aria-label="New step"
               value={newStep}
               onChange={(e) => setNewStep(e.target.value)}
               onKeyDown={(e) => {
@@ -255,6 +269,7 @@ export function ModelMigrationClient() {
                   setNewStep("");
                 }
               }}
+              aria-label="Add step"
               className="gap-1"
             >
               <Plus className="w-4 h-4" />

@@ -62,7 +62,7 @@ export function WeatherWidget({ compact = false, className }: WeatherWidgetProps
     <div
       className={cn(
         "group inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 backdrop-blur-sm",
-        "px-2.5 py-1 text-[11px] font-data text-sub transition-colors hover:text-text hover:border-accent/30",
+        "px-2.5 py-1 text-xs font-data text-sub transition-colors hover:text-text hover:border-accent/30",
         className
       )}
       role="status"
@@ -89,7 +89,7 @@ export function StatusBadge({ className }: { className?: string }) {
     <div
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 backdrop-blur-sm",
-        "px-2.5 py-1 text-[10px] font-data uppercase tracking-wider text-sub",
+        "px-2.5 py-1 text-xs font-data uppercase tracking-wider text-sub",
         className
       )}
       role="status"

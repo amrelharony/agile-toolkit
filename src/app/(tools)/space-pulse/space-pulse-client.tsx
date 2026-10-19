@@ -283,6 +283,8 @@ export function SpacePulseClient() {
                   step={1}
                   value={[draft[dim.key]]}
                   onValueChange={([v]) => setDraft((d) => ({ ...d, [dim.key]: v }))}
+                  aria-label={dim.label}
+                  thumbProps={{ "aria-valuetext": `${draft[dim.key]} of 5` }}
                   className="w-full"
                 />
               </div>
@@ -403,11 +405,7 @@ function DimensionStat({
   const delta = prior === undefined ? undefined : current - prior;
   const ArrowIcon = delta === undefined || delta === 0 ? Minus : delta > 0 ? ArrowUp : ArrowDown;
   const trendColor =
-    delta === undefined || delta === 0
-      ? "text-sub"
-      : delta > 0
-        ? "text-emerald-300"
-        : "text-danger";
+    delta === undefined || delta === 0 ? "text-sub" : delta > 0 ? "text-success" : "text-danger";
   const tone: "default" | "success" | "danger" =
     current >= 4 ? "success" : current <= 2 ? "danger" : "default";
 

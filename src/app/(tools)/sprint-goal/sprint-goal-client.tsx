@@ -327,11 +327,12 @@ export function SprintGoalClient() {
       title={tooltip}
       className={
         passes
-          ? "bg-[#00ff88]/15 text-[#00ff88] border-[#00ff88]/30 hover:bg-[#00ff88]/25"
-          : "bg-red-500/15 text-red-400 border-red-500/30 hover:bg-red-500/25"
+          ? "bg-accent-green/15 text-accent-green border-accent-green/30 hover:bg-accent-green/25"
+          : "bg-danger/15 text-danger border-danger/30 hover:bg-danger/25"
       }
     >
       {label}
+      <span className="sr-only">{passes ? " (met)" : " (not met)"}</span>
     </Badge>
   );
 
@@ -370,6 +371,7 @@ export function SprintGoalClient() {
                   <TabsTrigger
                     key={step}
                     value={step}
+                    aria-label={STEP_LABELS[step]}
                     className="flex-1 gap-2 data-[state=active]:bg-accent-cyan/15 data-[state=active]:text-accent data-[state=active]:shadow-none text-sub"
                   >
                     {STEP_ICONS[step]}
@@ -388,6 +390,7 @@ export function SprintGoalClient() {
                       context for why the sprint work matters.
                     </p>
                     <BlurTextarea
+                      aria-label="Business objective"
                       placeholder="e.g., Increase user retention by streamlining the onboarding experience..."
                       value={businessObjective}
                       onCommit={setBusinessObjective}
@@ -408,6 +411,7 @@ export function SprintGoalClient() {
                     </p>
                     <div className="relative">
                       <BlurTextarea
+                        aria-label="Sprint goal"
                         placeholder="e.g., Deliver a self-service onboarding flow that allows new users to complete setup within 3 minutes..."
                         value={sprintGoal}
                         onCommit={(v) => setSprintGoal(v.slice(0, GOAL_MAX_CHARS))}
@@ -416,7 +420,7 @@ export function SprintGoalClient() {
                       />
                       <span
                         className={`absolute bottom-2 right-3 text-xs ${
-                          sprintGoal.length > GOAL_MAX_CHARS * 0.9 ? "text-red-400" : "text-sub/60"
+                          sprintGoal.length > GOAL_MAX_CHARS * 0.9 ? "text-danger" : "text-sub/60"
                         }`}
                       >
                         {sprintGoal.length}/{GOAL_MAX_CHARS}
@@ -453,7 +457,7 @@ export function SprintGoalClient() {
                     </p>
 
                     <div className="space-y-4">
-                      {criteria.map((criterion) => {
+                      {criteria.map((criterion, criterionIdx) => {
                         const smart = validateSmart(criterion);
                         return (
                           <div
@@ -462,6 +466,7 @@ export function SprintGoalClient() {
                           >
                             <div className="flex gap-2 mb-3">
                               <BlurTextarea
+                                aria-label={`Acceptance criterion ${criterionIdx + 1}`}
                                 placeholder="e.g., 90% of new users complete onboarding within 3 minutes by end of sprint"
                                 value={criterion.text}
                                 onCommit={(v) => updateCriterionText(criterion.id, v)}
@@ -471,7 +476,8 @@ export function SprintGoalClient() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => removeCriterion(criterion.id)}
-                                className="min-touch-coarse text-sub hover:text-red-400 hover:bg-red-500/10 shrink-0"
+                                aria-label={`Remove acceptance criterion ${criterionIdx + 1}`}
+                                className="min-touch-coarse text-sub hover:text-danger hover:bg-danger/10 shrink-0"
                                 disabled={criteria.length === 1}
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -570,6 +576,7 @@ export function SprintGoalClient() {
                       {keyResults.map((kr, index) => (
                         <div key={index} className="flex gap-2">
                           <BlurInput
+                            aria-label={`Key result ${index + 1}`}
                             placeholder={`e.g., Onboarding completion rate reaches 90%`}
                             value={kr}
                             onCommit={(v) => updateKeyResult(index, v)}
@@ -579,7 +586,8 @@ export function SprintGoalClient() {
                             variant="ghost"
                             size="icon"
                             onClick={() => removeKeyResult(index)}
-                            className="min-touch-coarse text-sub hover:text-red-400 hover:bg-red-500/10 shrink-0"
+                            aria-label={`Remove key result ${index + 1}`}
+                            className="min-touch-coarse text-sub hover:text-danger hover:bg-danger/10 shrink-0"
                             disabled={keyResults.length === 1}
                           >
                             <Trash2 className="w-4 h-4" />
@@ -650,7 +658,7 @@ export function SprintGoalClient() {
             >
               {/* Business Objective */}
               <div>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+                <span className="text-xs font-semibold uppercase tracking-wider text-accent">
                   Business Objective
                 </span>
                 <p className="text-text mt-1">
@@ -660,7 +668,7 @@ export function SprintGoalClient() {
 
               {/* Sprint Goal */}
               <div>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+                <span className="text-xs font-semibold uppercase tracking-wider text-accent">
                   Sprint Goal
                 </span>
                 <p className="text-text mt-1">
@@ -670,7 +678,7 @@ export function SprintGoalClient() {
 
               {/* Acceptance Criteria */}
               <div>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+                <span className="text-xs font-semibold uppercase tracking-wider text-accent">
                   Acceptance Criteria
                 </span>
                 {criteria.some((c) => c.text.trim()) ? (
@@ -690,7 +698,7 @@ export function SprintGoalClient() {
 
               {/* Key Results */}
               <div>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+                <span className="text-xs font-semibold uppercase tracking-wider text-accent">
                   Key Results
                 </span>
                 {keyResults.some((kr) => kr.trim()) ? (

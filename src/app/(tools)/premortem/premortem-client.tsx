@@ -50,6 +50,7 @@ function NumCell({
   className,
   placeholder,
   title,
+  ariaLabel,
 }: {
   value: number;
   onChange: (n: number) => void;
@@ -58,6 +59,7 @@ function NumCell({
   className?: string;
   placeholder?: string;
   title?: string;
+  ariaLabel?: string;
 }) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
@@ -85,6 +87,7 @@ function NumCell({
       className={className}
       placeholder={placeholder}
       title={title}
+      aria-label={ariaLabel}
     />
   );
 }
@@ -238,6 +241,7 @@ export function PremortemClient() {
             value={state.scenario}
             onCommit={(v) => setState((s) => ({ ...s, scenario: v }))}
             placeholder={`It's 6 months from now. The project shipped but is widely considered a failure. Describe what that looks like in concrete terms.`}
+            aria-label="Imagined failure scenario"
             className="bg-bg border-border"
           />
         </CardContent>
@@ -256,23 +260,26 @@ export function PremortemClient() {
                       size="sm"
                       className="h-5 w-5 p-0 text-sub min-touch-coarse"
                       onClick={() => move(c.id, -1)}
+                      aria-label={`Move cause ${idx + 1} up`}
                     >
-                      <ChevronUp className="w-3 h-3" />
+                      <ChevronUp className="w-3 h-3" aria-hidden="true" />
                     </Button>
-                    <span className="text-[10px] text-sub font-data text-center">{idx + 1}</span>
+                    <span className="text-xs text-sub font-data text-center">{idx + 1}</span>
                     <Button
                       variant="ghost"
                       size="sm"
                       className="h-5 w-5 p-0 text-sub min-touch-coarse"
                       onClick={() => move(c.id, 1)}
+                      aria-label={`Move cause ${idx + 1} down`}
                     >
-                      <ChevronDown className="w-3 h-3" />
+                      <ChevronDown className="w-3 h-3" aria-hidden="true" />
                     </Button>
                   </div>
                   <BlurInput
                     value={c.text}
                     onCommit={(v) => update(c.id, { text: v })}
                     placeholder="Cause of failure..."
+                    aria-label={`Cause of failure ${idx + 1}`}
                     className="bg-bg border-border"
                   />
                   <NumCell
@@ -283,6 +290,7 @@ export function PremortemClient() {
                     placeholder="L"
                     className="bg-bg border-border font-data"
                     title="Likelihood 1-5"
+                    ariaLabel={`Likelihood (1-5) for cause ${idx + 1}`}
                   />
                   <NumCell
                     value={c.impact}
@@ -292,17 +300,23 @@ export function PremortemClient() {
                     placeholder="I"
                     className="bg-bg border-border font-data"
                     title="Impact 1-5"
+                    ariaLabel={`Impact (1-5) for cause ${idx + 1}`}
                   />
-                  <span className="px-2 py-1 rounded-md font-data text-sm text-center text-accent border border-accent/40 bg-accent/10">
+                  <span
+                    className="px-2 py-1 rounded-md font-data text-sm text-center text-accent border border-accent/40 bg-accent/10"
+                    title="Risk score (likelihood × impact)"
+                  >
+                    <span className="sr-only">Risk score </span>
                     {score}
                   </span>
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => remove(c.id)}
+                    aria-label={`Remove cause ${idx + 1}`}
                     className="text-sub hover:text-danger min-touch-coarse"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                   </Button>
                 </div>
                 {/* Description — elaboration on the cause itself, distinct
@@ -312,6 +326,7 @@ export function PremortemClient() {
                   value={c.description ?? ""}
                   onCommit={(v) => update(c.id, { description: v })}
                   placeholder="Description (optional) — context, signals, dependencies..."
+                  aria-label={`Description for cause ${idx + 1} (optional)`}
                   className="bg-bg border-border text-sm"
                 />
                 <div className="grid grid-cols-1 md:grid-cols-[1fr_200px] gap-2">
@@ -323,12 +338,14 @@ export function PremortemClient() {
                       commitPrevention(c.id, v);
                     }}
                     placeholder="Preventive action..."
+                    aria-label={`Preventive action for cause ${idx + 1}`}
                     className="bg-bg border-border text-sm"
                   />
                   <BlurInput
                     value={c.owner ?? ""}
                     onCommit={(v) => update(c.id, { owner: v })}
                     placeholder="Owner"
+                    aria-label={`Owner for cause ${idx + 1}`}
                     className="bg-bg border-border text-sm"
                   />
                 </div>

@@ -28,9 +28,9 @@ const buttonVariants = cva(
           "bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 hover:border-accent/40 disabled:opacity-40",
         // Toolkit-specific: muted "icon-only delete" button used in dense
         // rows (impediments, refinement criteria, sprint-review features).
-        // Replaces the inline `text-sub hover:text-red-400 hover:bg-red-400/10`
+        // Replaces the inline `text-sub hover:text-danger hover:bg-danger/10`
         // pattern.
-        "danger-ghost": "text-sub hover:text-red-400 hover:bg-red-400/10",
+        "danger-ghost": "text-sub hover:text-danger hover:bg-danger/10",
       },
       size: {
         // Mobile-first: meet 44px touch target; shrink to 36px on md+ for density

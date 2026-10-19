@@ -101,10 +101,15 @@ export function LlmSettingsDialog() {
                 <TabsTrigger key={id} value={id} className="relative flex-1 sm:flex-initial">
                   {PROVIDER_META[id].name}
                   {configured && (
-                    <span
-                      className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent"
-                      aria-label="configured"
-                    />
+                    // aria-label on a bare span is ignored by screen readers;
+                    // the dot is decorative and the state is spoken via sr-only text.
+                    <>
+                      <span
+                        className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent"
+                        aria-hidden="true"
+                      />
+                      <span className="sr-only"> (configured)</span>
+                    </>
                   )}
                 </TabsTrigger>
               );
@@ -137,11 +142,20 @@ export function LlmSettingsDialog() {
 
         <div className="rounded-lg border border-border bg-surface p-4 space-y-3 text-xs text-sub">
           <div>
-            <Label className="text-xs text-text">Key storage</Label>
-            <div className="mt-2 flex flex-col sm:flex-row gap-2">
+            {/* Not a <Label>: there's no single control to label — it names the
+                group of storage choices below. Same look as the Label primitive. */}
+            <span id="llm-key-storage-label" className="text-xs font-medium leading-none text-text">
+              Key storage
+            </span>
+            <div
+              role="group"
+              aria-labelledby="llm-key-storage-label"
+              className="mt-2 flex flex-col sm:flex-row gap-2"
+            >
               <button
                 type="button"
                 onClick={() => setStorageMode("session")}
+                aria-pressed={storageMode === "session"}
                 className={cn(
                   "flex-1 rounded-md border px-3 py-2 text-left text-xs transition",
                   storageMode === "session"
@@ -150,13 +164,14 @@ export function LlmSettingsDialog() {
                 )}
               >
                 <div className="font-semibold">Session only</div>
-                <div className="text-[11px] mt-0.5 opacity-80">
+                <div className="text-xs mt-0.5 opacity-80">
                   Cleared when you close this tab. Safest default.
                 </div>
               </button>
               <button
                 type="button"
                 onClick={() => setStorageMode("device")}
+                aria-pressed={storageMode === "device"}
                 className={cn(
                   "flex-1 rounded-md border px-3 py-2 text-left text-xs transition",
                   storageMode === "device"
@@ -165,7 +180,7 @@ export function LlmSettingsDialog() {
                 )}
               >
                 <div className="font-semibold">This device</div>
-                <div className="text-[11px] mt-0.5 opacity-80">
+                <div className="text-xs mt-0.5 opacity-80">
                   Survives reload. Any extension or XSS in this app can read it.
                 </div>
               </button>
@@ -187,10 +202,10 @@ export function LlmSettingsDialog() {
               value={maxOutputTokens}
               onCommit={setMaxOutputTokens}
             />
-            <span className="text-[11px] text-sub">caps cost per request</span>
+            <span className="text-xs text-sub">caps cost per request</span>
           </div>
 
-          <p className="text-[11px] leading-relaxed">
+          <p className="text-xs leading-relaxed">
             Your key is stored only in this browser. Requests go directly from your browser to the
             provider — they never touch the toolkit&apos;s servers. Any browser extension or XSS in
             this app could read your key. Use session mode for the strongest default.
@@ -375,6 +390,7 @@ function ProviderPanel({
             placeholder={meta.keyPrefix ? `${meta.keyPrefix}...` : "Paste API key"}
             autoComplete="off"
             spellCheck={false}
+            aria-describedby={keyHint ? `llm-key-hint-${providerId}` : undefined}
             className="bg-surface-deep border-border text-text font-data"
           />
           <Button
@@ -388,7 +404,11 @@ function ProviderPanel({
             {reveal ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </Button>
         </div>
-        {keyHint && <p className="text-[11px] text-amber-300/80">{keyHint}</p>}
+        {keyHint && (
+          <p id={`llm-key-hint-${providerId}`} className="text-xs text-warning/80">
+            {keyHint}
+          </p>
+        )}
       </div>
 
       <div className="space-y-1.5">
@@ -418,14 +438,14 @@ function ProviderPanel({
             {models.map((m) => (
               <SelectItem key={m.id} value={m.id}>
                 <span className="font-mono">{m.label}</span>
-                <span className="ml-2 text-[11px] text-sub">
+                <span className="ml-2 text-xs text-sub">
                   ${m.inputPer1k.toFixed(4)}/${m.outputPer1k.toFixed(4)} per 1K
                 </span>
               </SelectItem>
             ))}
             <SelectItem value={CUSTOM_MODEL_VALUE}>
               <span className="font-mono">Custom model id…</span>
-              <span className="ml-2 text-[11px] text-sub">type any id the provider supports</span>
+              <span className="ml-2 text-xs text-sub">type any id the provider supports</span>
             </SelectItem>
           </SelectContent>
         </Select>
@@ -435,6 +455,7 @@ function ProviderPanel({
           // provider's invoice is always the source of truth.
           <Input
             type="text"
+            aria-label="Custom model id"
             value={model}
             onChange={(e) => setModel(e.target.value.trim())}
             placeholder="e.g. glm-5.2 / claude-opus-4-6 / o4-mini"

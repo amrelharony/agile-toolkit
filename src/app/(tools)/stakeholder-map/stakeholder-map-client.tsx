@@ -89,6 +89,7 @@ interface InlineDescriptionEditorProps {
   value: string;
   onChange: (next: string) => void;
   placeholder?: string;
+  label?: string;
 }
 
 /**
@@ -99,7 +100,12 @@ interface InlineDescriptionEditorProps {
  * draft string, write back to the parent only on blur, and only when the
  * trimmed value actually differs from what the parent committed last.
  */
-function InlineDescriptionEditor({ value, onChange, placeholder }: InlineDescriptionEditorProps) {
+function InlineDescriptionEditor({
+  value,
+  onChange,
+  placeholder,
+  label = "Description",
+}: InlineDescriptionEditorProps) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState(value);
   const lastCommittedRef = useRef(value);
@@ -122,7 +128,7 @@ function InlineDescriptionEditor({ value, onChange, placeholder }: InlineDescrip
       placeholder={placeholder}
       rows={2}
       className="bg-bg border-border text-xs resize-none"
-      aria-label="Description"
+      aria-label={label}
     />
   );
 }
@@ -167,8 +173,11 @@ function StakeholderForm({ onAdd }: StakeholderFormProps) {
       <CardContent className="p-4 space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
-            <Label className="text-xs text-sub">Name</Label>
+            <Label htmlFor="stakeholder-new-name" className="text-xs text-sub">
+              Name
+            </Label>
             <Input
+              id="stakeholder-new-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="VP of Marketing"
@@ -177,8 +186,11 @@ function StakeholderForm({ onAdd }: StakeholderFormProps) {
             />
           </div>
           <div>
-            <Label className="text-xs text-sub">Role</Label>
+            <Label htmlFor="stakeholder-new-role" className="text-xs text-sub">
+              Role
+            </Label>
             <Input
+              id="stakeholder-new-role"
               value={role}
               onChange={(e) => setRole(e.target.value)}
               placeholder="Sponsor / Customer / Exec..."
@@ -190,7 +202,7 @@ function StakeholderForm({ onAdd }: StakeholderFormProps) {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <div className="flex items-center justify-between">
-              <Label className="text-xs text-sub">Interest</Label>
+              <span className="text-xs font-medium leading-none text-sub">Interest</span>
               <span className="text-xs font-data text-text">{interest}/10</span>
             </div>
             <Slider
@@ -201,11 +213,12 @@ function StakeholderForm({ onAdd }: StakeholderFormProps) {
               onValueChange={(v) => setInterest(v[0] ?? 0)}
               className="mt-2"
               aria-label="Interest level"
+              thumbProps={{ "aria-valuetext": `${interest} of 10` }}
             />
           </div>
           <div>
             <div className="flex items-center justify-between">
-              <Label className="text-xs text-sub">Authority</Label>
+              <span className="text-xs font-medium leading-none text-sub">Authority</span>
               <span className="text-xs font-data text-text">{authority}/10</span>
             </div>
             <Slider
@@ -216,13 +229,16 @@ function StakeholderForm({ onAdd }: StakeholderFormProps) {
               onValueChange={(v) => setAuthority(v[0] ?? 0)}
               className="mt-2"
               aria-label="Authority level"
+              thumbProps={{ "aria-valuetext": `${authority} of 10` }}
             />
           </div>
         </div>
         <div>
-          <Label className="text-xs text-sub">Sentiment</Label>
+          <Label htmlFor="stakeholder-new-sentiment" className="text-xs text-sub">
+            Sentiment
+          </Label>
           <Select value={sentiment} onValueChange={(v) => setSentiment(v as Sentiment)}>
-            <SelectTrigger className="bg-bg border-border">
+            <SelectTrigger id="stakeholder-new-sentiment" className="bg-bg border-border">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -237,8 +253,11 @@ function StakeholderForm({ onAdd }: StakeholderFormProps) {
           </Select>
         </div>
         <div>
-          <Label className="text-xs text-sub">Engagement strategy</Label>
+          <Label htmlFor="stakeholder-new-strategy" className="text-xs text-sub">
+            Engagement strategy
+          </Label>
           <Textarea
+            id="stakeholder-new-strategy"
             value={strategy}
             onChange={(e) => setStrategy(e.target.value)}
             placeholder="What's the plan? Who owns the relationship?"
@@ -248,8 +267,11 @@ function StakeholderForm({ onAdd }: StakeholderFormProps) {
           />
         </div>
         <div>
-          <Label className="text-xs text-sub">Description</Label>
+          <Label htmlFor="stakeholder-new-description" className="text-xs text-sub">
+            Description
+          </Label>
           <Textarea
+            id="stakeholder-new-description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Description (optional)..."
@@ -459,7 +481,7 @@ export function StakeholderMapClient() {
           variant="compact"
           label="Champions"
           value={sentimentCounts.champion}
-          valueClassName="text-emerald-300"
+          valueClassName="text-success"
         />
       </KpiGrid>
 
@@ -480,24 +502,24 @@ export function StakeholderMapClient() {
                   {/* Quadrant background grid */}
                   <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-px bg-border rounded-lg overflow-hidden">
                     {/* top-left = high authority + low interest = Keep Satisfied */}
-                    <div className="bg-amber-500/5 p-2">
-                      <div className="text-[10px] uppercase tracking-wider text-amber-300/70">
+                    <div className="bg-warning/5 p-2">
+                      <div className="text-xs uppercase tracking-wider text-warning/70">
                         Keep Satisfied
                       </div>
                     </div>
                     {/* top-right = high authority + high interest = Manage Closely */}
                     <div className="bg-accent/10 p-2 text-right">
-                      <div className="text-[10px] uppercase tracking-wider text-accent/70">
+                      <div className="text-xs uppercase tracking-wider text-accent/70">
                         Manage Closely
                       </div>
                     </div>
                     {/* bottom-left = low authority + low interest = Monitor */}
                     <div className="bg-bg p-2">
-                      <div className="text-[10px] uppercase tracking-wider text-sub">Monitor</div>
+                      <div className="text-xs uppercase tracking-wider text-sub">Monitor</div>
                     </div>
                     {/* bottom-right = low authority + high interest = Keep Informed */}
-                    <div className="bg-emerald-500/5 p-2 text-right">
-                      <div className="text-[10px] uppercase tracking-wider text-emerald-300/70">
+                    <div className="bg-success/5 p-2 text-right">
+                      <div className="text-xs uppercase tracking-wider text-success/70">
                         Keep Informed
                       </div>
                     </div>
@@ -505,13 +527,13 @@ export function StakeholderMapClient() {
 
                   {/* Axis labels */}
                   <div
-                    className="absolute -left-6 top-1/2 -translate-y-1/2 -rotate-90 text-[10px] uppercase tracking-wider text-sub"
+                    className="absolute -left-6 top-1/2 -translate-y-1/2 -rotate-90 text-xs uppercase tracking-wider text-sub"
                     aria-hidden
                   >
                     Authority →
                   </div>
                   <div
-                    className="absolute left-1/2 -bottom-6 -translate-x-1/2 text-[10px] uppercase tracking-wider text-sub"
+                    className="absolute left-1/2 -bottom-6 -translate-x-1/2 text-xs uppercase tracking-wider text-sub"
                     aria-hidden
                   >
                     Interest →
@@ -618,14 +640,14 @@ export function StakeholderMapClient() {
                         value={s.name}
                         onCommit={(v) => updateStakeholder(s.id, { name: v })}
                         className="bg-bg border-border font-semibold"
-                        aria-label="Name"
+                        aria-label="Stakeholder name"
                       />
                       <BlurInput
                         value={s.role ?? ""}
                         onCommit={(v) => updateStakeholder(s.id, { role: v.trim() || undefined })}
                         placeholder="Role (optional)"
                         className="bg-bg border-border mt-1 text-xs"
-                        aria-label="Role"
+                        aria-label={`Role for ${s.name}`}
                       />
                     </div>
                     <div className="flex items-center gap-2">
@@ -673,7 +695,7 @@ export function StakeholderMapClient() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <div className="flex items-center justify-between">
-                        <Label className="text-xs text-sub">Interest</Label>
+                        <span className="text-xs font-medium leading-none text-sub">Interest</span>
                         <span className="text-xs font-data text-text">{s.interest}/10</span>
                       </div>
                       <Slider
@@ -690,11 +712,12 @@ export function StakeholderMapClient() {
                         onValueCommit={(v) => updateStakeholder(s.id, { interest: v[0] ?? 0 })}
                         className="mt-2"
                         aria-label={`Interest for ${s.name}`}
+                        thumbProps={{ "aria-valuetext": `${s.interest} of 10` }}
                       />
                     </div>
                     <div>
                       <div className="flex items-center justify-between">
-                        <Label className="text-xs text-sub">Authority</Label>
+                        <span className="text-xs font-medium leading-none text-sub">Authority</span>
                         <span className="text-xs font-data text-text">{s.authority}/10</span>
                       </div>
                       <Slider
@@ -708,6 +731,7 @@ export function StakeholderMapClient() {
                         onValueCommit={(v) => updateStakeholder(s.id, { authority: v[0] ?? 0 })}
                         className="mt-2"
                         aria-label={`Authority for ${s.name}`}
+                        thumbProps={{ "aria-valuetext": `${s.authority} of 10` }}
                       />
                     </div>
                   </div>
@@ -717,7 +741,7 @@ export function StakeholderMapClient() {
                     placeholder="Engagement strategy..."
                     rows={2}
                     className="bg-bg border-border text-sm resize-none"
-                    aria-label="Strategy"
+                    aria-label={`Engagement strategy for ${s.name}`}
                   />
                   <InlineDescriptionEditor
                     value={s.description ?? ""}
@@ -727,6 +751,7 @@ export function StakeholderMapClient() {
                       })
                     }
                     placeholder="Description (optional)..."
+                    label={`Description for ${s.name}`}
                   />
                 </CardContent>
               </Card>

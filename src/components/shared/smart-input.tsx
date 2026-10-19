@@ -82,15 +82,17 @@ export function SmartInput<T extends string | number>({
       <button
         type="button"
         onClick={accept}
-        className={`min-touch-coarse inline-flex items-center gap-1.5 mt-1 text-[11px] font-mono tracking-wider uppercase px-2 py-0.5 rounded-md border transition ${tone}`}
-        aria-label={`Accept predicted value: ${ghost}`}
+        className={`min-touch-coarse inline-flex items-center gap-1.5 mt-1 text-xs font-mono tracking-wider uppercase px-2 py-0.5 rounded-md border transition ${tone}`}
+        // Starts with the visible chip text ("Suggested: …" / "Predicted: …")
+        // so speech-input users can say what they see.
+        aria-label={`${conf === "low" ? "Suggested" : "Predicted"}: ${ghost}, accept`}
       >
         <span>
           {conf === "low" ? "Suggested:" : conf === "medium" ? "Predicted:" : "Predicted:"} {ghost}
         </span>
-        {conf !== "low" && <span className="text-[9px] opacity-70">Tab</span>}
+        {conf !== "low" && <span className="text-xs opacity-70">Tab</span>}
         {"source" in predicted && predicted.source && (
-          <span className="text-[10px] opacity-60 hidden sm:inline">· {predicted.source}</span>
+          <span className="text-xs opacity-60 hidden sm:inline">· {predicted.source}</span>
         )}
       </button>
     );

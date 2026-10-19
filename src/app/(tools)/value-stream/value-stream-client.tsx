@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -45,12 +45,14 @@ function NumCell({
   min = 0,
   max,
   className,
+  id,
 }: {
   value: number;
   onCommit: (n: number) => void;
   min?: number;
   max?: number;
   className?: string;
+  id?: string;
 }) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(value)), [value]);
@@ -64,6 +66,7 @@ function NumCell({
   };
   return (
     <Input
+      id={id}
       type="number"
       min={min}
       max={max}
@@ -89,6 +92,7 @@ export function ValueStreamClient() {
     useWorkspaceStore.setState({ valueStreamStages: next });
   };
   const { log } = useHistoryLogger("value-stream");
+  const uid = useId();
 
   const add = () => {
     // Pick the first unused integer suffix so deleting "Stage 2" then adding
@@ -207,7 +211,7 @@ export function ValueStreamClient() {
 
       {recentStoryMoves.length > 0 && (
         <div className="mb-3">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/5 text-accent px-2.5 py-1 text-[11px]">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/5 text-accent px-2.5 py-1 text-xs">
             {recentStoryMoves.length} stor{recentStoryMoves.length === 1 ? "y" : "ies"} changed
             status in last 7 days
           </span>
@@ -251,7 +255,7 @@ export function ValueStreamClient() {
             <Card className="bg-surface border-border">
               <CardContent className="p-3 space-y-2">
                 <div className="flex items-center justify-between">
-                  <Waves className="w-4 h-4 text-accent" />
+                  <Waves className="w-4 h-4 text-accent" aria-hidden="true" />
                   <Button
                     variant="ghost"
                     size="icon"
@@ -259,12 +263,13 @@ export function ValueStreamClient() {
                     className="md:min-h-0 md:min-w-0 md:h-7 md:w-7 text-sub hover:text-danger"
                     aria-label={`Remove stage ${s.name}`}
                   >
-                    <Trash2 className="w-4 h-4 md:w-3.5 md:h-3.5" />
+                    <Trash2 className="w-4 h-4 md:w-3.5 md:h-3.5" aria-hidden="true" />
                   </Button>
                 </div>
                 <BlurInput
                   value={s.name}
                   onCommit={(v) => update(s.id, { name: v })}
+                  aria-label={`Name for stage ${i + 1}`}
                   className="bg-bg border-border text-sm h-8"
                 />
                 {/* Optional description for this stage; empty trims to undefined. */}
@@ -277,8 +282,14 @@ export function ValueStreamClient() {
                   aria-label={`Description for stage ${s.name}`}
                 />
                 <div>
-                  <div className="text-[10px] uppercase text-sub">Process Time (d)</div>
+                  <label
+                    htmlFor={`${uid}-${s.id}-process`}
+                    className="block text-xs uppercase text-sub"
+                  >
+                    Process Time (d)
+                  </label>
                   <NumCell
+                    id={`${uid}-${s.id}-process`}
                     value={s.processTime}
                     onCommit={(n) => update(s.id, { processTime: n })}
                     min={0}
@@ -286,8 +297,14 @@ export function ValueStreamClient() {
                   />
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase text-sub">Lead Time (d)</div>
+                  <label
+                    htmlFor={`${uid}-${s.id}-lead`}
+                    className="block text-xs uppercase text-sub"
+                  >
+                    Lead Time (d)
+                  </label>
                   <NumCell
+                    id={`${uid}-${s.id}-lead`}
                     value={s.leadTime}
                     onCommit={(n) => update(s.id, { leadTime: n })}
                     min={0}
@@ -295,8 +312,11 @@ export function ValueStreamClient() {
                   />
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase text-sub">%C/A</div>
+                  <label htmlFor={`${uid}-${s.id}-ca`} className="block text-xs uppercase text-sub">
+                    %C/A
+                  </label>
                   <NumCell
+                    id={`${uid}-${s.id}-ca`}
                     value={s.completeAccurate}
                     onCommit={(n) => update(s.id, { completeAccurate: n })}
                     min={0}
@@ -304,7 +324,7 @@ export function ValueStreamClient() {
                     className="bg-bg border-border font-data h-8"
                   />
                 </div>
-                <div className="pt-1 text-[10px] text-sub">
+                <div className="pt-1 text-xs text-sub">
                   {s.leadTime > 0 && (
                     <span>Wait: {Math.max(0, s.leadTime - s.processTime).toFixed(1)}d</span>
                   )}
@@ -312,12 +332,18 @@ export function ValueStreamClient() {
                       lead time — that's logically impossible (process is a
                       subset of lead) and usually indicates bad input. */}
                   {s.processTime > s.leadTime && (
-                    <span className="ml-2 text-[#ffaa00]">⚠ process &gt; lead</span>
+                    <span className="ml-2 text-accent-amber">
+                      <span aria-hidden="true">⚠ </span>process &gt; lead
+                    </span>
                   )}
                 </div>
               </CardContent>
             </Card>
-            {i < stages.length - 1 && <div className="text-center text-accent">→</div>}
+            {i < stages.length - 1 && (
+              <div className="text-center text-accent" aria-hidden="true">
+                →
+              </div>
+            )}
           </div>
         ))}
         {stages.length === 0 && (

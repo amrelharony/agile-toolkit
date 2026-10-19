@@ -377,7 +377,11 @@ export function DoraScorecardClient() {
             />
           </KpiGrid>
           {trends && (
-            <div className="flex flex-wrap gap-2 -mt-2 mb-2" aria-label="DORA metric trends">
+            <div
+              role="group"
+              className="flex flex-wrap gap-2 -mt-2 mb-2"
+              aria-label="DORA metric trends"
+            >
               <TrendChip
                 label="Deploy/wk"
                 trend={trends.deploy.trend}
@@ -681,7 +685,7 @@ function TrendChip({
     return (
       <Badge
         variant="outline"
-        className="font-mono text-[10px] tracking-wider uppercase text-sub border-border"
+        className="font-mono text-xs tracking-wider uppercase text-sub border-border"
       >
         {label} flat
       </Badge>
@@ -690,10 +694,10 @@ function TrendChip({
   const isFavorable = betterDown ? trend === "down" : trend === "up";
   const arrow = trend === "up" ? "↗" : "↘";
   const tone = isFavorable
-    ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
-    : "border-amber-500/40 text-amber-300 bg-amber-500/10";
+    ? "border-success/40 text-success bg-success/10"
+    : "border-warning/40 text-warning bg-warning/10";
   return (
-    <Badge variant="outline" className={`font-mono text-[10px] tracking-wider uppercase ${tone}`}>
+    <Badge variant="outline" className={`font-mono text-xs tracking-wider uppercase ${tone}`}>
       {label} {arrow} significant
     </Badge>
   );

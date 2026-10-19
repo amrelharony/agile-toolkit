@@ -78,11 +78,11 @@ function useRiskiestAssumption(): [State, (u: State | ((p: State) => State)) => 
 
 const STATUS_OPTS: { id: Status; label: string; tone: string }[] = [
   { id: "untested", label: "Untested", tone: "border-border bg-surface text-sub" },
-  { id: "testing", label: "Testing", tone: "border-amber-500/40 bg-amber-500/10 text-amber-300" },
+  { id: "testing", label: "Testing", tone: "border-warning/40 bg-warning/10 text-warning" },
   {
     id: "validated",
     label: "Validated",
-    tone: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
+    tone: "border-success/40 bg-success/10 text-success",
   },
   { id: "invalidated", label: "Invalidated", tone: "border-danger/40 bg-danger/10 text-danger" },
 ];
@@ -461,7 +461,7 @@ export function RiskiestAssumptionClient() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-lg border border-danger/40 bg-danger/5 p-3 min-h-[100px] min-w-0">
-                <div className="text-[10px] uppercase tracking-wider text-danger font-bold mb-2">
+                <div className="text-xs uppercase tracking-wider text-danger font-bold mb-2">
                   Test first · high risk · low evidence
                 </div>
                 <ul className="space-y-1 text-xs text-text">
@@ -476,8 +476,8 @@ export function RiskiestAssumptionClient() {
                   )}
                 </ul>
               </div>
-              <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 min-h-[100px] min-w-0">
-                <div className="text-[10px] uppercase tracking-wider text-amber-300 font-bold mb-2">
+              <div className="rounded-lg border border-warning/40 bg-warning/5 p-3 min-h-[100px] min-w-0">
+                <div className="text-xs uppercase tracking-wider text-warning font-bold mb-2">
                   Monitor · high risk · high evidence
                 </div>
                 <ul className="space-y-1 text-xs text-text">
@@ -493,7 +493,7 @@ export function RiskiestAssumptionClient() {
                 </ul>
               </div>
               <div className="rounded-lg border border-border bg-bg p-3 min-h-[100px] min-w-0">
-                <div className="text-[10px] uppercase tracking-wider text-sub font-bold mb-2">
+                <div className="text-xs uppercase tracking-wider text-sub font-bold mb-2">
                   Defer · low risk · low evidence
                 </div>
                 <ul className="space-y-1 text-xs text-text">
@@ -508,8 +508,8 @@ export function RiskiestAssumptionClient() {
                   )}
                 </ul>
               </div>
-              <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 min-h-[100px] min-w-0">
-                <div className="text-[10px] uppercase tracking-wider text-emerald-300 font-bold mb-2">
+              <div className="rounded-lg border border-success/40 bg-success/5 p-3 min-h-[100px] min-w-0">
+                <div className="text-xs uppercase tracking-wider text-success font-bold mb-2">
                   Solid · low risk · high evidence
                 </div>
                 <ul className="space-y-1 text-xs text-text">
@@ -542,7 +542,7 @@ export function RiskiestAssumptionClient() {
               <div className="flex items-start gap-2">
                 <Badge
                   variant="outline"
-                  className="text-[10px] bg-bg border-border text-sub font-data shrink-0"
+                  className="text-xs bg-bg border-border text-sub font-data shrink-0"
                 >
                   #{idx + 1} · score {score(a)}
                 </Badge>
@@ -553,9 +553,9 @@ export function RiskiestAssumptionClient() {
                   size="sm"
                   onClick={() => removeAssumption(a.id)}
                   className="text-sub hover:text-danger h-6 w-6 p-0 shrink-0 min-touch-coarse"
-                  aria-label="Remove assumption"
+                  aria-label={`Remove assumption #${idx + 1}`}
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                 </Button>
               </div>
               {a.description && (
@@ -563,25 +563,25 @@ export function RiskiestAssumptionClient() {
               )}
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex items-center gap-1">
-                  <span className="text-[10px] uppercase tracking-wider text-sub">risk</span>
+                  <span className="text-xs uppercase tracking-wider text-sub">risk</span>
                   <NumDraftInput
                     value={a.riskLevel}
                     onCommit={(n) => updateRisk(a.id, n as Level)}
-                    ariaLabel="Risk"
+                    ariaLabel={`Risk for assumption #${idx + 1}`}
                   />
                 </div>
                 <div className="flex items-center gap-1">
-                  <span className="text-[10px] uppercase tracking-wider text-sub">evidence</span>
+                  <span className="text-xs uppercase tracking-wider text-sub">evidence</span>
                   <NumDraftInput
                     value={a.evidenceLevel}
                     onCommit={(n) => updateEvidence(a.id, n as Level)}
-                    ariaLabel="Evidence"
+                    ariaLabel={`Evidence for assumption #${idx + 1}`}
                   />
                 </div>
                 <Select value={a.status} onValueChange={(v) => updateStatus(a.id, v as Status)}>
                   <SelectTrigger
                     className={`h-8 text-xs w-32 border ${STATUS_TONE[a.status]}`}
-                    aria-label="Status"
+                    aria-label={`Status for assumption #${idx + 1}`}
                   >
                     <SelectValue />
                   </SelectTrigger>
@@ -636,25 +636,25 @@ export function RiskiestAssumptionClient() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
               <div>
-                <div className="text-sub uppercase tracking-wider text-[10px] mb-1">Assumption</div>
+                <div className="text-sub uppercase tracking-wider text-xs mb-1">Assumption</div>
                 <div className="text-text">{testCard.assumption.statement}</div>
               </div>
               <div>
-                <div className="text-sub uppercase tracking-wider text-[10px] mb-1">Score</div>
+                <div className="text-sub uppercase tracking-wider text-xs mb-1">Score</div>
                 <div className="text-text font-data">
                   risk {testCard.assumption.riskLevel} · evidence{" "}
                   {testCard.assumption.evidenceLevel} · score {score(testCard.assumption)}
                 </div>
               </div>
               <div>
-                <div className="text-sub uppercase tracking-wider text-[10px] mb-1">Test</div>
+                <div className="text-sub uppercase tracking-wider text-xs mb-1">Test</div>
                 <div className="text-text">
                   {testCard.assumption.testIdea ??
                     "(no test idea — write the cheapest experiment that produces a binary outcome)"}
                 </div>
               </div>
               <div>
-                <div className="text-sub uppercase tracking-wider text-[10px] mb-1">
+                <div className="text-sub uppercase tracking-wider text-xs mb-1">
                   Metric & threshold
                 </div>
                 <div className="text-text italic">

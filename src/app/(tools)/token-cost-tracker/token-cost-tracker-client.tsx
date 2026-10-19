@@ -331,7 +331,7 @@ export function TokenCostTrackerClient() {
         </div>
 
         {overBudget && (
-          <div className="rounded border border-red-500/30 bg-red-500/5 p-3 text-sm text-red-300 flex items-center gap-2">
+          <div className="rounded border border-danger/30 bg-danger/5 p-3 text-sm text-danger flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
             Projected spend ${projected.toFixed(2)} exceeds monthly budget $
             {cfg.monthlyBudgetUsd.toFixed(0)}.
@@ -356,20 +356,33 @@ export function TokenCostTrackerClient() {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             <Input
               placeholder="Feature"
+              aria-label="Feature"
               value={feature}
               onChange={(e) => setFeature(e.target.value)}
             />
-            <Input placeholder="Model" value={model} onChange={(e) => setModel(e.target.value)} />
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <Input
+              placeholder="Model"
+              aria-label="Model"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+            />
+            <Input
+              type="date"
+              aria-label="Date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
             <Input
               type="number"
               placeholder="Input tokens"
+              aria-label="Input tokens"
               value={inputTokens}
               onChange={(e) => setInputTokens(e.target.value)}
             />
             <Input
               type="number"
               placeholder="Output tokens"
+              aria-label="Output tokens"
               value={outputTokens}
               onChange={(e) => setOutputTokens(e.target.value)}
             />
@@ -379,12 +392,13 @@ export function TokenCostTrackerClient() {
               placeholder={
                 previewCost !== null ? `Cost USD (auto ≈ $${previewCost.toFixed(4)})` : "Cost USD"
               }
+              aria-label="Cost USD"
               value={costUsd}
               onChange={(e) => setCostUsd(e.target.value)}
             />
           </div>
           {previewCost !== null && (
-            <p className="mt-2 text-[11px] text-sub">
+            <p className="mt-2 text-xs text-sub">
               Price-table match: leave Cost blank to auto-fill with ${previewCost.toFixed(4)}. Type
               a value to override (e.g. for custom-priced model variants).
             </p>
@@ -473,7 +487,9 @@ export function TokenCostTrackerClient() {
                     <th className="p-2">Model</th>
                     <th className="p-2 text-right">Tokens</th>
                     <th className="p-2 text-right">Cost</th>
-                    <th className="p-2 w-10"></th>
+                    <th className="p-2 w-10">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -504,11 +520,12 @@ export function TokenCostTrackerClient() {
                         </td>
                         <td className="p-2">
                           <button
+                            type="button"
                             onClick={() => remove(x.id)}
-                            aria-label="Remove spend entry"
-                            className="text-sub hover:text-red-400"
+                            aria-label={`Remove spend entry: ${x.feature} on ${x.date}`}
+                            className="text-sub hover:text-danger"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-4 h-4" aria-hidden="true" />
                           </button>
                         </td>
                       </tr>
@@ -533,7 +550,7 @@ function KPI({
   tone?: "default" | "ok" | "danger";
 }) {
   const colorClass =
-    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+    tone === "danger" ? "text-danger" : tone === "ok" ? "text-success" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

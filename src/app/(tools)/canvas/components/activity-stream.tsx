@@ -102,7 +102,7 @@ function ActivityStreamImpl({ boardId, onClose }: Props) {
         <div className="flex items-center gap-2">
           <Activity className="w-4 h-4 text-accent" />
           <span className="text-sm font-semibold text-text">Activity</span>
-          <span className="text-[10px] font-mono text-sub">{events.length}</span>
+          <span className="text-xs font-mono text-sub">{events.length}</span>
         </div>
         <button
           type="button"
@@ -129,10 +129,10 @@ function ActivityStreamImpl({ boardId, onClose }: Props) {
                 <li key={e.id} className="p-3 text-xs">
                   <div className="flex items-baseline justify-between mb-0.5">
                     <span className="font-semibold text-text">{e.author}</span>
-                    <span className="text-[10px] text-sub font-mono">{relativeTime(e.at)}</span>
+                    <span className="text-xs text-sub font-mono">{relativeTime(e.at)}</span>
                   </div>
                   <div className="text-sub flex items-center gap-1.5">
-                    <span className="text-[9px] uppercase font-bold text-accent/80 bg-accent/10 px-1.5 py-0.5 rounded">
+                    <span className="text-xs uppercase font-bold text-accent/80 bg-accent/10 px-1.5 py-0.5 rounded">
                       {e.kind}
                     </span>
                     <span className="text-text">{e.summary}</span>
@@ -149,7 +149,7 @@ function ActivityStreamImpl({ boardId, onClose }: Props) {
                 >
                   Load {Math.min(ACTIVITY_RENDER_CHUNK, events.length - renderLimit)} more
                 </button>
-                <div className="text-[10px] text-sub mt-1">
+                <div className="text-xs text-sub mt-1">
                   Showing {renderLimit} of {events.length}
                 </div>
               </div>

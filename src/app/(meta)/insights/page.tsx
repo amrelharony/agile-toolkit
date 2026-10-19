@@ -245,27 +245,36 @@ export default function InsightsPage() {
               titleSize="sm"
               className="@container"
             >
-              <div className="grid grid-cols-7 @lg:grid-cols-[repeat(14,minmax(0,1fr))] gap-1.5">
+              {/* The counts live only in colour and a hover title, so each
+                  cell carries its day + count as text for screen readers. */}
+              <ol
+                aria-label="Events per day"
+                className="grid grid-cols-7 @lg:grid-cols-[repeat(14,minmax(0,1fr))] gap-1.5"
+              >
                 {stats.heatmap.map((cell) => {
                   const intensity = cell.count / stats.maxHeat;
                   const opacity = cell.count === 0 ? 0.06 : 0.18 + intensity * 0.82;
                   return (
-                    <div
+                    <li
                       key={cell.day}
                       className="aspect-square rounded-sm border border-border"
                       style={{
                         backgroundColor: `rgba(0, 240, 255, ${opacity})`,
                       }}
                       title={`${cell.day}: ${cell.count} events`}
-                    />
+                    >
+                      <span className="sr-only">
+                        {cell.day}: {cell.count} {cell.count === 1 ? "event" : "events"}
+                      </span>
+                    </li>
                   );
                 })}
-              </div>
-              <div className="flex items-center justify-between text-[10px] text-sub mt-3">
+              </ol>
+              <div className="flex items-center justify-between text-xs text-sub mt-3">
                 <span>{stats.heatmap[0]?.day}</span>
                 <span className="flex items-center gap-1">
                   less
-                  <span className="inline-flex gap-0.5">
+                  <span className="inline-flex gap-0.5" aria-hidden="true">
                     {[0.06, 0.3, 0.55, 0.8, 1].map((a) => (
                       <span
                         key={a}
@@ -367,7 +376,7 @@ function EmptyState({ visitor }: { visitor: boolean }) {
         aggregate from your history.
       </p>
       {visitor && (
-        <p className="text-[11px] mt-3 text-accent/80">
+        <p className="text-xs mt-3 text-accent/80">
           Your history and insights are saved in this browser only.
         </p>
       )}

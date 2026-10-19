@@ -649,6 +649,7 @@ export function CeremonyTimerClient() {
                   key={p.label}
                   variant="ghost"
                   onClick={() => selectPreset(p.minutes)}
+                  aria-pressed={totalSeconds === p.minutes * 60 && !showCustom}
                   className={`justify-between h-11 px-4 text-sm ${
                     totalSeconds === p.minutes * 60 && !showCustom
                       ? "bg-accent/10 text-accent border border-accent/30"
@@ -677,6 +678,7 @@ export function CeremonyTimerClient() {
                     min={1}
                     max={480}
                     placeholder="Minutes"
+                    aria-label="Custom duration in minutes"
                     value={customMin}
                     onChange={(e) => setCustomMin(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && applyCustom()}
@@ -705,6 +707,9 @@ export function CeremonyTimerClient() {
                   size="sm"
                   variant="ghost"
                   onClick={() => setRotationMode((v) => !v)}
+                  role="switch"
+                  aria-checked={rotationMode}
+                  aria-label="Rotation mode"
                   className={`h-7 px-3 text-xs rounded-full ${
                     rotationMode ? "bg-accent/10 text-accent" : "text-sub"
                   }`}
@@ -720,6 +725,7 @@ export function CeremonyTimerClient() {
                 <div className="flex gap-2">
                   <Input
                     placeholder="Add participant"
+                    aria-label="Participant name"
                     value={nameInput}
                     onChange={(e) => setNameInput(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && addParticipant()}
@@ -730,8 +736,9 @@ export function CeremonyTimerClient() {
                     onClick={addParticipant}
                     disabled={!nameInput.trim()}
                     className="h-10 w-10 shrink-0 bg-accent text-[var(--bg)] hover:bg-accent/80"
+                    aria-label="Add participant"
                   >
-                    <Plus className="h-4 w-4" />
+                    <Plus className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </div>
 
@@ -744,6 +751,7 @@ export function CeremonyTimerClient() {
                         // identical names (rare but possible after a future
                         // rename or paste) doesn't collapse into one row.
                         key={`${i}-${name}`}
+                        aria-current={started && i === currentPerson ? "step" : undefined}
                         className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${
                           started && i === currentPerson ? "bg-accent/10 text-accent" : "text-sub"
                         }`}
@@ -760,7 +768,7 @@ export function CeremonyTimerClient() {
                           aria-label={`Remove ${name}`}
                           className="min-touch-coarse h-6 w-6 opacity-40 hover:opacity-100 hover:text-[var(--destructive)]"
                         >
-                          <X className="h-3 w-3" />
+                          <X className="h-3 w-3" aria-hidden="true" />
                         </Button>
                       </div>
                     ))}

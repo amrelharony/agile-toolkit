@@ -7,8 +7,8 @@ export const metadata: Metadata = {
     "Infinite whiteboard with stickies, shapes, free-hand drawing, smart connectors and AI cluster analysis.",
 };
 
-// Per-route viewport override. The app-wide viewport (src/app/viewport.ts)
-// allows maximumScale: 5 so screen-reader / low-vision users can pinch the
+// Per-route viewport override. The app-wide viewport (app/layout.tsx)
+// leaves pinch-zoom on so screen-reader / low-vision users can pinch the
 // rest of the app. On the canvas we own the pinch gesture ourselves
 // (zoom-to-pinch-centre via @use-gesture/react in useCanvasTouchGestures),
 // so the OS pinch must be locked out — otherwise the page zoom fights

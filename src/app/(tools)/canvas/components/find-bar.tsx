@@ -206,7 +206,7 @@ function FindBarImpl({ objects, viewportSize, onPanToRect, onSelect, onClose }: 
             e.stopPropagation();
           }}
         />
-        <span className="text-[10px] font-mono text-sub tabular-nums whitespace-nowrap">
+        <span className="text-xs font-mono text-sub tabular-nums whitespace-nowrap">
           {hits.length > 0 ? `${cursor === -1 ? 0 : cursor + 1}/${hits.length}` : "0/0"}
         </span>
         <div className="flex items-center gap-0.5">
@@ -264,9 +264,7 @@ function FindBarImpl({ objects, viewportSize, onPanToRect, onSelect, onClose }: 
                     : "text-sub hover:bg-surface-deep hover:text-text"
                 }`}
               >
-                <span className="font-mono text-[9px] uppercase text-sub flex-shrink-0">
-                  {h.type}
-                </span>
+                <span className="font-mono text-xs uppercase text-sub flex-shrink-0">{h.type}</span>
                 <span className="truncate flex-1">{h.preview}</span>
               </button>
             ))

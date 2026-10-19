@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, type RefObject } from "react";
+import { controlOwnsKey, isInsideScope } from "@/lib/whiteboard/keyboard";
 import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 
 const isFormTarget = (t: EventTarget | null): boolean => {
@@ -53,6 +54,12 @@ export function useFrameBookmarkShortcut(params: {
  * Enter, start typing. Without this, users who selected (but didn't
  * double-click) a sticky and tried to type saw nothing happen — the
  * most common "I can't type in stickies" complaint.
+ *
+ * This is also the keyboard route to every double-click edit (WCAG
+ * 2.1.1), so mind-map nodes, diagram shapes and connector labels are
+ * included. Only while focus is on the board, and never when Enter
+ * belongs to a focused button inside it (property panel, pins) —
+ * cancelling it there made those buttons keyboard-dead.
  */
 export function useEnterEditShortcut(params: {
   selection: readonly string[];
@@ -60,29 +67,63 @@ export function useEnterEditShortcut(params: {
   editingObjectId: string | null;
   setEditingObjectId: (id: string | null) => void;
   readOnly: boolean;
+  /** The focusable board element (role="application"). */
+  viewportRef: RefObject<HTMLElement | null>;
 }) {
-  const { selection, objectsById, editingObjectId, setEditingObjectId, readOnly } = params;
+  const { selection, objectsById, editingObjectId, setEditingObjectId, readOnly, viewportRef } =
+    params;
 
   useEffect(() => {
     if (readOnly) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Enter" || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
       if (isFormTarget(e.target)) return;
+      if (!isInsideScope(e.target, viewportRef.current)) return;
+      if (controlOwnsKey(e.target, e.key)) return;
       if (editingObjectId) return; // already editing
       if (selection.length !== 1) return;
       const obj = objectsById.get(selection[0]);
       if (!obj || obj.locked) return;
-      const editable = obj.type === "sticky" || obj.type === "text"
-        || obj.type === "card"
-        || obj.type === "rect" || obj.type === "ellipse"
-        || obj.type === "diamond" || obj.type === "triangle";
+      const editable =
+        obj.type === "sticky" ||
+        obj.type === "text" ||
+        obj.type === "card" ||
+        obj.type === "rect" ||
+        obj.type === "ellipse" ||
+        obj.type === "diamond" ||
+        obj.type === "triangle" ||
+        obj.type === "mindMapNode" ||
+        obj.type === "diagramShape" ||
+        obj.type === "connector" ||
+        // Tables start editing their first cell (see TableObject).
+        obj.type === "table";
       if (!editable) return;
       e.preventDefault();
       setEditingObjectId(obj.id);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selection, objectsById, editingObjectId, setEditingObjectId, readOnly]);
+  }, [selection, objectsById, editingObjectId, setEditingObjectId, readOnly, viewportRef]);
+}
+
+/**
+ * Focus the board once on mount when nothing else has focus, so the
+ * board-scoped single-key shortcuts (WCAG 2.1.4) work straight away for
+ * mouse users. Never takes focus from an input, dialog or anything else
+ * that already has it. `focusVisible: false` keeps the keyboard focus
+ * ring off until the user actually starts using the keyboard (browsers
+ * without the option just ignore it).
+ */
+export function useFocusBoardOnMount(viewportRef: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    el.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
+    // Mount only — later focus is the user's to move.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 }
 
 /**

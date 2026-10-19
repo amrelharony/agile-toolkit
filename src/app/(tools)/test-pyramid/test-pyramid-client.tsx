@@ -115,7 +115,7 @@ function NumericField({
         }}
         className="bg-bg border-border font-data"
       />
-      {hint && <div className="text-[10px] text-sub">{hint}</div>}
+      {hint && <div className="text-xs text-sub">{hint}</div>}
     </div>
   );
 }

@@ -458,7 +458,7 @@ export function PostMortemClient() {
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <p className="text-[11px] text-sub mt-2">
+          <p className="text-xs text-sub mt-2">
             Kaplan-Meier estimate over {publishedDurations.length} published post-mortem
             {publishedDurations.length === 1 ? "" : "s"} (drafts and in-review are right-censored).
             Y-axis: probability the post-mortem is still unpublished after N days.

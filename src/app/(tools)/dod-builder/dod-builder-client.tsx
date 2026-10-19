@@ -259,7 +259,11 @@ export function DodBuilderClient() {
                 {Math.round(adherence * 100)}%
               </div>
             </div>
-            <Progress value={adherence * 100} className="h-2" />
+            <Progress
+              value={adherence * 100}
+              className="h-2"
+              aria-label="Last sprint DoD adherence"
+            />
           </CardContent>
         </Card>
       )}
@@ -270,10 +274,14 @@ export function DodBuilderClient() {
         <CardContent className="p-4">
           <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
             <div className="flex-1">
-              <div className="text-xs text-sub uppercase tracking-wider font-mono mb-1.5">
+              <label
+                htmlFor="dod-sprint-name"
+                className="block text-xs text-sub uppercase tracking-wider font-mono mb-1.5"
+              >
                 Sprint name
-              </div>
+              </label>
               <Input
+                id="dod-sprint-name"
                 value={snapshotName}
                 onChange={(e) => setSnapshotName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && snapshotSprint()}
@@ -312,10 +320,10 @@ export function DodBuilderClient() {
               {adherenceTrend?.significant && (
                 <Badge
                   variant="outline"
-                  className={`font-mono text-[10px] tracking-wider uppercase ${
+                  className={`font-mono text-xs tracking-wider uppercase ${
                     adherenceTrend.trend === "up"
-                      ? "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
-                      : "border-amber-500/40 text-amber-300 bg-amber-500/10"
+                      ? "border-success/40 text-success bg-success/10"
+                      : "border-warning/40 text-warning bg-warning/10"
                   }`}
                   title={`Mann-Kendall p=${adherenceTrend.pValue.toFixed(3)}`}
                 >
@@ -436,19 +444,21 @@ export function DodBuilderClient() {
                   <button
                     type="button"
                     onClick={() => toggleDone(item.id)}
-                    aria-label={item.done ? "Mark not done" : "Mark done"}
+                    role="checkbox"
+                    aria-checked={item.done}
+                    aria-label={`Done: ${item.label}`}
                     className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition min-touch-coarse ${
                       item.done
-                        ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-300"
-                        : "border-border text-transparent hover:border-emerald-500/40"
+                        ? "border-success/60 bg-success/10 text-success"
+                        : "border-border text-transparent hover:border-success/40"
                     }`}
                   >
                     <Check className="w-3 h-3" />
                   </button>
+                  {/* The visible text names the state, so it is the accessible
+                      name too (no aria-pressed: a toggle's name must not change). */}
                   <button
                     type="button"
-                    aria-pressed={item.required}
-                    aria-label={`Toggle required for ${item.label}`}
                     onClick={() => toggleRequired(item.id)}
                     className={`px-2 py-0.5 rounded-md text-xs font-mono uppercase tracking-wider border transition mt-0.5 min-touch-coarse ${
                       item.required
@@ -457,11 +467,12 @@ export function DodBuilderClient() {
                     }`}
                   >
                     {item.required ? "Required" : "Optional"}
+                    <span className="sr-only">: {item.label}</span>
                   </button>
                   <div className="flex-1 min-w-0">
                     <div className="text-text text-sm">{item.label}</div>
                     {item.description && (
-                      <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
+                      <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
                         {item.description}
                       </div>
                     )}
@@ -485,6 +496,7 @@ export function DodBuilderClient() {
                   onKeyDown={(e) => e.key === "Enter" && addItem()}
                   placeholder={`Add ${c.label.toLowerCase()} item...`}
                   className="bg-bg border-border"
+                  aria-label={`New ${c.label.toLowerCase()} item`}
                 />
                 <Button onClick={addItem} className="gap-2 bg-accent text-bg hover:bg-accent/90">
                   <Plus className="w-4 h-4" />

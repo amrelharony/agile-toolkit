@@ -12,26 +12,26 @@ export const SEVERITY_CONFIG: Record<
   Low: {
     label: "Low",
     color: "#00ff88",
-    bg: "bg-[#00ff88]/10",
-    border: "border-[#00ff88]/20",
+    bg: "bg-accent-green/10",
+    border: "border-accent-green/20",
   },
   Medium: {
     label: "Medium",
     color: "#ffaa00",
-    bg: "bg-[#ffaa00]/10",
-    border: "border-[#ffaa00]/20",
+    bg: "bg-accent-amber/10",
+    border: "border-accent-amber/20",
   },
   High: {
     label: "High",
     color: "#ef4444",
-    bg: "bg-[#ef4444]/10",
-    border: "border-[#ef4444]/20",
+    bg: "bg-danger/10",
+    border: "border-danger/20",
   },
   Critical: {
     label: "Critical",
     color: "#ef4444",
-    bg: "bg-[#ef4444]/20",
-    border: "border-[#ef4444]/40",
+    bg: "bg-danger/20",
+    border: "border-danger/40",
   },
 };
 
@@ -48,13 +48,13 @@ export const STATUS_CONFIG: Record<
   Escalated: {
     label: "Escalated",
     color: "#ffaa00",
-    bg: "bg-[#ffaa00]/10",
-    border: "border-[#ffaa00]/20",
+    bg: "bg-accent-amber/10",
+    border: "border-accent-amber/20",
   },
   Resolved: {
     label: "Resolved",
     color: "#00ff88",
-    bg: "bg-[#00ff88]/10",
-    border: "border-[#00ff88]/20",
+    bg: "bg-accent-green/10",
+    border: "border-accent-green/20",
   },
 };

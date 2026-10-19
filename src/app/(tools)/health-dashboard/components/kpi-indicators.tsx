@@ -49,7 +49,7 @@ export function MannKendallChip({
   const color = isGood ? "#22c55e" : "#ef4444";
   return (
     <span
-      className="inline-flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border"
+      className="inline-flex items-center gap-1 text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border"
       style={{
         color,
         borderColor: `${color}55`,

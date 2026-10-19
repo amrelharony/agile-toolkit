@@ -424,8 +424,11 @@ export function RfcTrackerClient() {
         <CardContent className="p-4 space-y-2">
           <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_auto] gap-2">
             <div>
-              <Label className="text-xs text-sub">Title</Label>
+              <Label htmlFor="rfc-new-title" className="text-xs text-sub">
+                Title
+              </Label>
               <Input
+                id="rfc-new-title"
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
                 placeholder="RFC-0001: Replace polling with SSE"
@@ -434,8 +437,11 @@ export function RfcTrackerClient() {
               />
             </div>
             <div>
-              <Label className="text-xs text-sub">Author</Label>
+              <Label htmlFor="rfc-new-author" className="text-xs text-sub">
+                Author
+              </Label>
               <Input
+                id="rfc-new-author"
                 value={newAuthor}
                 onChange={(e) => setNewAuthor(e.target.value)}
                 placeholder="Jane Doe"
@@ -525,7 +531,9 @@ export function RfcTrackerClient() {
 
                   {/* Reviewers */}
                   <div>
-                    <Label className="text-xs text-sub mb-1">Reviewers</Label>
+                    <Label htmlFor={`rfc-${r.id}-reviewer`} className="text-xs text-sub mb-1">
+                      Reviewers
+                    </Label>
                     <div className="flex flex-wrap gap-1.5 mb-2">
                       {r.reviewers.length === 0 && (
                         <span className="text-xs text-sub italic">None yet</span>
@@ -549,6 +557,7 @@ export function RfcTrackerClient() {
                     </div>
                     <div className="flex gap-2">
                       <Input
+                        id={`rfc-${r.id}-reviewer`}
                         value={reviewerInput}
                         onChange={(e) =>
                           setReviewerInputs((prev) => ({
@@ -561,12 +570,13 @@ export function RfcTrackerClient() {
                         }}
                         placeholder="Add reviewer name..."
                         className="bg-bg border-border h-8 text-xs"
-                        aria-label="Add reviewer"
+                        aria-label="Reviewer name"
                       />
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => addReviewer(r.id)}
+                        aria-label="Add reviewer"
                         className="h-8"
                       >
                         Add
@@ -576,7 +586,9 @@ export function RfcTrackerClient() {
 
                   {/* Comments */}
                   <div>
-                    <Label className="text-xs text-sub mb-1">Comments ({r.comments.length})</Label>
+                    <Label htmlFor={`rfc-${r.id}-comment`} className="text-xs text-sub mb-1">
+                      Comments ({r.comments.length})
+                    </Label>
                     {r.comments.length > 0 && (
                       <div className="space-y-1.5 mb-2 max-h-48 overflow-y-auto">
                         {r.comments.map((c) => (
@@ -586,7 +598,7 @@ export function RfcTrackerClient() {
                           >
                             <div className="flex items-baseline justify-between gap-2 mb-0.5">
                               <span className="font-semibold text-text">{c.author}</span>
-                              <span className="text-[10px] text-sub font-data">
+                              <span className="text-xs text-sub font-data">
                                 {new Date(c.ts).toLocaleString()}
                               </span>
                             </div>
@@ -612,6 +624,7 @@ export function RfcTrackerClient() {
                         aria-label="Comment author"
                       />
                       <Textarea
+                        id={`rfc-${r.id}-comment`}
                         value={commentDraft.text}
                         onChange={(e) =>
                           setCommentInputs((prev) => ({
@@ -631,6 +644,7 @@ export function RfcTrackerClient() {
                         size="sm"
                         variant="outline"
                         onClick={() => addComment(r.id)}
+                        aria-label="Post comment"
                         className="h-8 self-end"
                       >
                         Post
@@ -641,7 +655,9 @@ export function RfcTrackerClient() {
                   {/* Decision (only when decided) */}
                   {r.status === "decided" && (
                     <div>
-                      <Label className="text-xs text-sub mb-1">Decision</Label>
+                      <Label htmlFor={`rfc-${r.id}-decision`} className="text-xs text-sub mb-1">
+                        Decision
+                      </Label>
                       {/* Commit on blur, not per keystroke: `setDecision` trims,
                           so a keystroke that only adds whitespace produced an
                           identical state object, React bailed out of the
@@ -649,6 +665,7 @@ export function RfcTrackerClient() {
                           old value back — every space typed was swallowed
                           ("We will use SSE" became "WewilluseSSE"). */}
                       <BlurTextarea
+                        id={`rfc-${r.id}-decision`}
                         value={r.decision ?? ""}
                         onCommit={(next) => setDecision(r.id, next)}
                         placeholder="What was decided and why..."

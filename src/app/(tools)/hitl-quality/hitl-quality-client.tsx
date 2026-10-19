@@ -235,6 +235,7 @@ export function HitlQualityClient() {
                 value={livePrompt}
                 onChange={(e) => setLivePrompt(e.target.value)}
                 placeholder="The prompt the reviewer is grading…"
+                aria-label="Prompt under review"
                 rows={3}
                 className="font-mono text-xs"
               />
@@ -253,11 +254,13 @@ export function HitlQualityClient() {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             <Input
               placeholder="Feature"
+              aria-label="Feature"
               value={feature}
               onChange={(e) => setFeature(e.target.value)}
             />
             <Input
               placeholder="Reviewer"
+              aria-label="Reviewer"
               value={reviewer}
               onChange={(e) => setReviewer(e.target.value)}
             />
@@ -284,6 +287,7 @@ export function HitlQualityClient() {
           </div>
           <Textarea
             placeholder="Reason / notes (optional)"
+            aria-label="Reason or notes (optional)"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             className="mt-2"
@@ -359,14 +363,14 @@ export function HitlQualityClient() {
                     {x.feature && <span className="text-text">{x.feature}</span>}
                     {x.reviewer && <span className="text-xs text-sub">— {x.reviewer}</span>}
                     <span
-                      className={`text-xs ml-auto ${x.agreedWithModel ? "text-emerald-400" : "text-red-400"}`}
+                      className={`text-xs ml-auto ${x.agreedWithModel ? "text-success" : "text-danger"}`}
                     >
                       {x.agreedWithModel ? "agreed" : "disagreed"}
                     </span>
                     <button
                       onClick={() => remove(x.id)}
                       aria-label="Remove review"
-                      className="text-sub hover:text-red-400"
+                      className="text-sub hover:text-danger"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -390,7 +394,7 @@ function KPI({
   tone?: "default" | "ok" | "danger";
 }) {
   const colorClass =
-    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+    tone === "danger" ? "text-danger" : tone === "ok" ? "text-success" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

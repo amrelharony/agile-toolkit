@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import {
   ScatterChart,
   Scatter,
@@ -263,6 +263,7 @@ export function CodeReviewMetricsClient() {
   const [state, setState] = useCodeReviewLog();
   const { log } = useHistoryLogger("code-review-metrics");
   const scatterRef = useRef<HTMLDivElement>(null);
+  const uid = useId();
 
   // Add-form draft state.
   const [prNumber, setPrNumber] = useState("");
@@ -580,7 +581,7 @@ export function CodeReviewMetricsClient() {
           hint="lines changed"
         />
       </KpiGrid>
-      <div className="text-[11px] text-sub mb-4 -mt-2 font-mono">
+      <div className="text-xs text-sub mb-4 -mt-2 font-mono">
         {unmerged > 0 ? `${unmerged} PR(s) still open` : ""}
       </div>
 
@@ -591,8 +592,11 @@ export function CodeReviewMetricsClient() {
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs text-sub">PR # (optional)</Label>
+            <Label htmlFor={`${uid}-pr`} className="text-xs text-sub">
+              PR # (optional)
+            </Label>
             <Input
+              id={`${uid}-pr`}
               value={prNumber}
               onChange={(e) => setPrNumber(e.target.value)}
               placeholder="#1234"
@@ -600,8 +604,11 @@ export function CodeReviewMetricsClient() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">Author</Label>
+            <Label htmlFor={`${uid}-author`} className="text-xs text-sub">
+              Author
+            </Label>
             <Input
+              id={`${uid}-author`}
               value={author}
               onChange={(e) => setAuthor(e.target.value)}
               placeholder="@alice"
@@ -609,8 +616,11 @@ export function CodeReviewMetricsClient() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">Opened at</Label>
+            <Label htmlFor={`${uid}-opened`} className="text-xs text-sub">
+              Opened at
+            </Label>
             <Input
+              id={`${uid}-opened`}
               type="datetime-local"
               value={openedAt}
               onChange={(e) => setOpenedAt(e.target.value)}
@@ -618,8 +628,11 @@ export function CodeReviewMetricsClient() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs text-sub">Merged at (optional)</Label>
+            <Label htmlFor={`${uid}-merged`} className="text-xs text-sub">
+              Merged at (optional)
+            </Label>
             <Input
+              id={`${uid}-merged`}
               type="datetime-local"
               value={mergedAt}
               onChange={(e) => setMergedAt(e.target.value)}
@@ -661,8 +674,11 @@ export function CodeReviewMetricsClient() {
             </Button>
           </div>
           <div className="sm:col-span-2 lg:col-span-4 space-y-1">
-            <Label className="text-xs text-sub">Description (optional)</Label>
+            <Label htmlFor={`${uid}-description`} className="text-xs text-sub">
+              Description (optional)
+            </Label>
             <Textarea
+              id={`${uid}-description`}
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -678,7 +694,7 @@ export function CodeReviewMetricsClient() {
         icon={GitPullRequest}
         className="mb-6 bg-surface border-border"
       >
-        <div className="text-[11px] text-sub mb-2">
+        <div className="text-xs text-sub mb-2">
           Paste a CSV with columns:{" "}
           <code>
             prNumber, author, openedAt, mergedAt, reviewerCount, commentCount, linesChanged,
@@ -691,6 +707,7 @@ export function CodeReviewMetricsClient() {
           value={csvDraft}
           onChange={(e) => setCsvDraft(e.target.value)}
           placeholder="#1234,alice,2026-05-01T09:00,2026-05-01T17:30,2,14,120,Refactor auth"
+          aria-label="CSV rows to import"
           className="bg-bg border-border text-xs font-data"
         />
         <div className="flex justify-end mt-2">
@@ -714,16 +731,16 @@ export function CodeReviewMetricsClient() {
           headerExtras={
             cycleTrend?.significant ? (
               <span
-                className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                   // For cycle time, "down" trend is good (faster), "up" is bad.
                   cycleTrend.trend === "down"
-                    ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
-                    : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                    ? "border-accent-green/40 text-accent-green bg-accent-green/10"
+                    : "border-warning/40 text-warning bg-warning/10"
                 }`}
-                aria-label={`Weekly cycle-time trend ${cycleTrend.trend} (Mann-Kendall p=${cycleTrend.pValue.toFixed(3)})`}
                 title={`Mann-Kendall p=${cycleTrend.pValue.toFixed(3)}`}
               >
-                {cycleTrend.trend === "up" ? "↗ trend" : "↘ trend"}
+                <span aria-hidden="true">{cycleTrend.trend === "up" ? "↗ trend" : "↘ trend"}</span>
+                <span className="sr-only">{`Weekly cycle-time trend ${cycleTrend.trend} (Mann-Kendall p=${cycleTrend.pValue.toFixed(3)})`}</span>
               </span>
             ) : undefined
           }
@@ -843,7 +860,7 @@ export function CodeReviewMetricsClient() {
           height={260}
           className="mb-6"
         >
-          <div className="text-[11px] text-sub px-1 mb-2">
+          <div className="text-xs text-sub px-1 mb-2">
             Measures comments left on each author&apos;s PRs — not reviews-given. Reviewer-level
             credit isn&apos;t available because comments are logged at the PR level only.
           </div>
@@ -888,7 +905,7 @@ export function CodeReviewMetricsClient() {
                     <CardContent className="p-3 space-y-1.5">
                       <div className="flex flex-wrap items-center gap-2 text-xs">
                         {s.prNumber && (
-                          <Badge variant="outline" className="font-data text-[10px]">
+                          <Badge variant="outline" className="font-data text-xs">
                             {s.prNumber}
                           </Badge>
                         )}
@@ -907,9 +924,9 @@ export function CodeReviewMetricsClient() {
                           size="sm"
                           onClick={() => remove(s.id)}
                           className="ml-auto text-sub hover:text-danger min-touch-coarse"
-                          aria-label="Remove PR sample"
+                          aria-label={`Remove PR sample by @${s.author}`}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                         </Button>
                       </div>
                       {s.description && (
@@ -941,10 +958,14 @@ function NumericTile({
   onChange: (v: string) => void;
   placeholder?: string;
 }) {
+  const id = useId();
   return (
     <div className="space-y-1">
-      <Label className="text-xs text-sub">{label}</Label>
+      <Label htmlFor={id} className="text-xs text-sub">
+        {label}
+      </Label>
       <Input
+        id={id}
         type="text"
         inputMode="numeric"
         value={value}

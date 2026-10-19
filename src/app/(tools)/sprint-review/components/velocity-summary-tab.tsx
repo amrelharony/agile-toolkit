@@ -6,7 +6,7 @@
  * summary card.
  */
 
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { BarChart3 } from "lucide-react";
 import { ExportButton } from "@/components/shared/export-button";
 import { SectionCard } from "@/components/shared/section-card";
@@ -28,6 +28,7 @@ export function VelocitySummaryTab() {
     setTotalBacklog,
     setBacklogDone,
   } = useSprintReviewStore();
+  const uid = useId();
 
   const completionRate = committed > 0 ? Math.round((completed / committed) * 100) : 0;
   const releaseProgress = totalBacklog > 0 ? Math.round((backlogDone / totalBacklog) * 100) : 0;
@@ -67,8 +68,11 @@ export function VelocitySummaryTab() {
         {/* Sprint velocity inputs */}
         <SectionCard title="Sprint Velocity" icon={BarChart3} contentClassName="space-y-4">
           <div className="space-y-1.5">
-            <Label className="text-sub text-xs">Committed Points</Label>
+            <Label htmlFor={`${uid}-committed`} className="text-sub text-xs">
+              Committed Points
+            </Label>
             <NumCell
+              id={`${uid}-committed`}
               value={committed}
               onCommit={setCommitted}
               min={0}
@@ -76,8 +80,11 @@ export function VelocitySummaryTab() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-sub text-xs">Completed Points</Label>
+            <Label htmlFor={`${uid}-completed`} className="text-sub text-xs">
+              Completed Points
+            </Label>
             <NumCell
+              id={`${uid}-completed`}
               value={completed}
               onCommit={setCompleted}
               min={0}
@@ -105,12 +112,15 @@ export function VelocitySummaryTab() {
         <SectionCard
           title="Release Progress"
           icon={BarChart3}
-          iconClassName="text-[#00ff88]"
+          iconClassName="text-accent-green"
           contentClassName="space-y-4"
         >
           <div className="space-y-1.5">
-            <Label className="text-sub text-xs">Total Backlog Points</Label>
+            <Label htmlFor={`${uid}-total`} className="text-sub text-xs">
+              Total Backlog Points
+            </Label>
             <NumCell
+              id={`${uid}-total`}
               value={totalBacklog}
               onCommit={setTotalBacklog}
               min={0}
@@ -118,8 +128,11 @@ export function VelocitySummaryTab() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-sub text-xs">Done to Date</Label>
+            <Label htmlFor={`${uid}-done`} className="text-sub text-xs">
+              Done to Date
+            </Label>
             <NumCell
+              id={`${uid}-done`}
               value={backlogDone}
               onCommit={setBacklogDone}
               min={0}

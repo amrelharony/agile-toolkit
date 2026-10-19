@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/layout/app-shell";
 import { AppToaster } from "@/components/layout/app-toaster";
 import { ParticleBackground } from "@/components/shared/particle-background";
+import { THEME_BOOT_SCRIPT, THEME_COLORS } from "@/lib/theme/boot-script";
 
 // Variable fonts (no `weight` list): the UI uses font-medium (500) and
 // font-bold (700) hundreds of times, and with only 300/400/600/800 loaded
@@ -71,15 +72,14 @@ export const metadata: Metadata = {
 // Next.js 13.2+ moved viewport out of `metadata`. Without an explicit
 // export, iOS Safari defaults to a 980px-wide viewport and the responsive
 // CSS sweep across all 110 tools doesn't actually apply on mobile.
-// `themeColor` per color-scheme matches the inline theme script in <head>.
+// One theme-color for the default (dark) theme; the theme boot script and
+// lib/theme switch it to match the applied theme. Per-media values claimed
+// "light" on light-OS devices even though the page rendered dark.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#0b0e1a" },
-    { media: "(prefers-color-scheme: light)", color: "#f4f6fb" },
-  ],
+  themeColor: THEME_COLORS.dark,
 };
 
 export default function RootLayout({
@@ -96,12 +96,8 @@ export default function RootLayout({
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        {/* Blocking script: swap to light if saved, before paint */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("ae-theme");if(t==="light"){document.documentElement.classList.remove("dark");document.documentElement.classList.add("light");document.documentElement.setAttribute("data-theme","light");var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content","#f4f6fb")}else if(t==="hc"){document.documentElement.classList.remove("dark");document.documentElement.classList.add("hc");document.documentElement.setAttribute("data-theme","hc")}}catch(e){}})()`,
-          }}
-        />
+        {/* Blocking script: apply the saved (or system) theme before paint. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
       </head>
       <body className="font-sans antialiased touch-manipulation">
         {/* Atmosphere background — 2 mesh blobs, particle field, noise overlay (reduced from main site) */}

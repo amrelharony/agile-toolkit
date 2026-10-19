@@ -146,30 +146,35 @@ export function WsjfClient() {
             <Input
               className="sm:col-span-2"
               placeholder="Feature title"
+              aria-label="Feature title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
             <Input
               type="number"
               placeholder="Business Value"
+              aria-label="Business Value"
               value={bv}
               onChange={(e) => setBv(e.target.value)}
             />
             <Input
               type="number"
               placeholder="Time Criticality"
+              aria-label="Time Criticality"
               value={tc}
               onChange={(e) => setTc(e.target.value)}
             />
             <Input
               type="number"
               placeholder="RR/OE"
+              aria-label="Risk Reduction / Opportunity Enablement (RR/OE)"
               value={rrOe}
               onChange={(e) => setRrOe(e.target.value)}
             />
             <Input
               type="number"
               placeholder="Job Size"
+              aria-label="Job Size"
               value={size}
               onChange={(e) => setSize(e.target.value)}
             />
@@ -228,7 +233,9 @@ export function WsjfClient() {
                     <th className="p-2 text-right">RR/OE</th>
                     <th className="p-2 text-right">Size</th>
                     <th className="p-2 text-right">WSJF</th>
-                    <th className="p-2 w-10"></th>
+                    <th className="p-2 w-10">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -245,14 +252,15 @@ export function WsjfClient() {
                       <td className="p-2 text-right font-mono">{r.score.toFixed(2)}</td>
                       <td className="p-2">
                         <button
+                          type="button"
                           onClick={() => {
                             removeOne(r.id);
                             log(WSJF_ACTIONS.ITEM_REMOVED, { id: r.id });
                           }}
-                          aria-label="Remove feature"
-                          className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
+                          aria-label={`Remove ${r.title}`}
+                          className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4" aria-hidden="true" />
                         </button>
                       </td>
                     </tr>

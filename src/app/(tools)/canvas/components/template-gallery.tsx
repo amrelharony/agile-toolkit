@@ -206,17 +206,21 @@ export function TemplateGallery({ boardId, onClose }: Props) {
   useFocusTrap(dialogRef, { active: true });
 
   return (
+    // Backdrop: clicking outside the panel closes (Esc does the same from
+    // the keyboard). The dialog role sits on the panel itself.
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Template gallery"
-      ref={dialogRef}
+      role="presentation"
       className="fixed inset-0 z-modal flex items-center justify-center bg-bg/80 backdrop-blur-sm p-3"
-      onClick={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Template gallery"
+        ref={dialogRef}
         className="relative bg-surface border border-border rounded-xl p-4 sm:p-6 w-[min(48rem,calc(100vw-1.5rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain-strict"
-        onClick={(e) => e.stopPropagation()}
       >
         <button
           type="button"
@@ -233,7 +237,7 @@ export function TemplateGallery({ boardId, onClose }: Props) {
         <p className="text-sm text-sub mb-3">
           Click a template to seed the active board.{" "}
           {objects.length > 0 && (
-            <span className="text-amber-400">
+            <span className="text-warning">
               {" "}
               Confirm twice if the board already has content — templates append, not replace.
             </span>
@@ -286,19 +290,19 @@ export function TemplateGallery({ boardId, onClose }: Props) {
                 onClick={() => apply(t.id)}
                 className={`text-left border rounded-lg p-4 transition-colors relative ${
                   armed
-                    ? "border-amber-400 bg-amber-500/10"
+                    ? "border-warning bg-warning/10"
                     : "border-border bg-surface-deep hover:border-accent/40 hover:bg-accent/5"
                 }`}
               >
                 {t.kind === "saved" && (
-                  <span className="absolute top-2 right-2 text-[9px] uppercase font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded">
+                  <span className="absolute top-2 right-2 text-xs uppercase font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded">
                     Custom
                   </span>
                 )}
                 <div className="font-semibold text-sm text-text mb-1 pr-12">{t.name}</div>
                 <div className="text-xs text-sub line-clamp-3">{t.description}</div>
                 {armed && (
-                  <div className="text-xs text-amber-300 mt-2">
+                  <div className="text-xs text-warning mt-2">
                     Click again to confirm — will add to existing content
                   </div>
                 )}

@@ -469,7 +469,7 @@ export function HolidayEngine() {
           // `min-touch-coarse` lifts the 28-px chip to the 44-px touch
           // floor on phones.
           "fixed z-[60] rounded-full border border-border bg-card/80 backdrop-blur-sm",
-          "px-3 py-1.5 text-[11px] text-sub hover:text-text hover:border-accent/40 transition",
+          "px-3 py-1.5 text-xs text-sub hover:text-text hover:border-accent/40 transition",
           "min-touch-coarse flex items-center gap-1.5 shadow-lg",
           "bottom-[max(5rem,calc(env(safe-area-inset-bottom)+1rem))] right-[max(0.75rem,env(safe-area-inset-right))] md:bottom-16 md:right-4",
           "active-press"

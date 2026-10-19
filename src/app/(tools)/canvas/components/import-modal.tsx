@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { X, FileInput } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -274,19 +274,25 @@ export function ImportModal({ boardId, onClose }: Props) {
   // R10-deferred: focus-trap (WCAG 2.4.3).
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef, { active: true });
+  // Ids tying each paste box to its heading + help text.
+  const uid = useId();
 
   return (
+    // Backdrop: clicking outside the panel closes (Esc does the same from
+    // the keyboard). The dialog role sits on the panel itself.
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Import from another tool"
-      ref={dialogRef}
+      role="presentation"
       className="fixed inset-0 z-modal flex items-center justify-center bg-bg/80 backdrop-blur-sm p-3"
-      onClick={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Import from another tool"
+        ref={dialogRef}
         className="relative bg-surface border border-border rounded-xl p-4 sm:p-6 w-[min(42rem,calc(100vw-1.5rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain-strict"
-        onClick={(e) => e.stopPropagation()}
       >
         <button
           type="button"
@@ -331,22 +337,26 @@ export function ImportModal({ boardId, onClose }: Props) {
         {/* ─── Phase 30: Jira CSV paste import ─────────────────────── */}
         <div className="mt-5 pt-5 border-t border-border">
           <div className="flex items-center justify-between mb-2">
-            <span className="font-semibold text-sm text-text">Jira → Kanban</span>
+            <label htmlFor={`${uid}-jira`} className="font-semibold text-sm text-text">
+              Jira → Kanban
+            </label>
             <span className="text-xs font-mono text-sub">
               {jiraPreview !== null
                 ? `${jiraPreview} issue${jiraPreview === 1 ? "" : "s"} detected`
                 : "paste CSV"}
             </span>
           </div>
-          <div className="text-xs text-sub mb-2">
+          <div id={`${uid}-jira-hint`} className="text-xs text-sub mb-2">
             Paste the output of Jira&apos;s Issues navigator → Export CSV. Each issue becomes a card
             on a kanban frame (To Do / In Progress / Done).
           </div>
           <textarea
+            id={`${uid}-jira`}
+            aria-describedby={`${uid}-jira-hint`}
             value={jiraCsv}
             onChange={(e) => onJiraCsvChange(e.target.value)}
             placeholder="Issue key,Summary,Status,Assignee,Story Points,..."
-            className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-[11px] font-mono text-text resize-none focus:outline-none focus:border-accent"
+            className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-xs font-mono text-text resize-none focus:outline-none focus:border-accent"
           />
           <button
             type="button"
@@ -365,7 +375,9 @@ export function ImportModal({ boardId, onClose }: Props) {
          * flowchart so we don't infinite-loop the tree layout. */}
         <div className="mt-5 pt-5 border-t border-border">
           <div className="flex items-center justify-between mb-2">
-            <span className="font-semibold text-sm text-text">Smart Diagram → Cards</span>
+            <label htmlFor={`${uid}-diagram`} className="font-semibold text-sm text-text">
+              Smart Diagram → Cards
+            </label>
             <span className="text-xs font-mono text-sub">
               {diagramParsed
                 ? diagramParsed.error
@@ -374,19 +386,21 @@ export function ImportModal({ boardId, onClose }: Props) {
                 : "paste CSV"}
             </span>
           </div>
-          <div className="text-xs text-sub mb-2">
+          <div id={`${uid}-diagram-hint`} className="text-xs text-sub mb-2">
             Paste a 2-column CSV. Tree shapes (<code className="text-text">name,parent</code> or{" "}
             <code className="text-text">name,reports_to</code>) auto-arrange as an org-chart. Flow
             shapes (<code className="text-text">from,to</code>) untangle via force-layout.
           </div>
           <textarea
+            id={`${uid}-diagram`}
+            aria-describedby={`${uid}-diagram-hint`}
             value={diagramCsv}
             onChange={(e) => onDiagramCsvChange(e.target.value)}
             placeholder={"name,parent\nCEO,\nVP Eng,CEO\nVP Sales,CEO\nDev Lead,VP Eng"}
-            className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-[11px] font-mono text-text resize-none focus:outline-none focus:border-accent"
+            className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-xs font-mono text-text resize-none focus:outline-none focus:border-accent"
           />
           {diagramParsed?.error && (
-            <p className="text-[11px] text-amber-300 mt-1">{diagramParsed.error}</p>
+            <p className="text-xs text-warning mt-1">{diagramParsed.error}</p>
           )}
           <button
             type="button"
@@ -405,24 +419,28 @@ export function ImportModal({ boardId, onClose }: Props) {
          * parser in csv-to-table.ts. */}
         <div className="mt-5 pt-5 border-t border-border">
           <div className="flex items-center justify-between mb-2">
-            <span className="font-semibold text-sm text-text">CSV → Table</span>
+            <label htmlFor={`${uid}-table`} className="font-semibold text-sm text-text">
+              CSV → Table
+            </label>
             <span className="text-xs font-mono text-sub">
               {tableRows
                 ? `${tableRows.length} row${tableRows.length === 1 ? "" : "s"} · ${tableRows[0]?.length ?? 0} col${tableRows[0]?.length === 1 ? "" : "s"}`
                 : "paste CSV"}
             </span>
           </div>
-          <div className="text-xs text-sub mb-2">
+          <div id={`${uid}-table-hint`} className="text-xs text-sub mb-2">
             Row 0 is treated as the header. Quoted cells (
             <code className="text-text">{'"embedded, comma"'}</code>) and CRLF endings are handled.
           </div>
           <textarea
+            id={`${uid}-table`}
+            aria-describedby={`${uid}-table-hint`}
             value={tableCsv}
             onChange={(e) => onTableCsvChange(e.target.value)}
             placeholder={
               'Name,Role,Status\nAlex,PM,Active\nSara,Eng,Active\n"Jordan, Lee",QA,On leave'
             }
-            className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-[11px] font-mono text-text resize-none focus:outline-none focus:border-accent"
+            className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-xs font-mono text-text resize-none focus:outline-none focus:border-accent"
           />
           <button
             type="button"

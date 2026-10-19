@@ -43,6 +43,7 @@ import { installLocalDataChannelListener } from "@/lib/utils/clear-local-data";
 import { KudosHeaderBeacon } from "@/lib/kudos/beacon/header-beacon";
 import { useKudosSettingsStore } from "@/lib/stores/kudos-settings-store";
 import { cn } from "@/lib/utils";
+import { setThemePreference, useAppliedTheme } from "@/lib/theme/theme";
 
 interface HeaderProps {
   onOpenSearch: () => void;
@@ -63,65 +64,20 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
   const beaconHeader = useKudosSettingsStore((s) => s.beaconHeader);
   const [scrolled, setScrolled] = useState(false);
   const [mounted, setMounted] = useState(false);
-  // Theme cycle: dark → light → hc (high-contrast) → dark.
-  // High-contrast mode (Phase 33) — WCAG AAA palette with maximised
-  // text/bg contrast, solid borders, and visible focus rings for
-  // keyboard-only users.
-  type Theme = "dark" | "light" | "hc";
-  const [theme, setTheme] = useState<Theme>("dark");
+  // Theme quick-switch: dark → light → hc (high-contrast) → dark. The full
+  // choice, including "System", is in Settings → Appearance (lib/theme).
+  const theme = useAppliedTheme();
   const [isMac, setIsMac] = useState(false);
 
   useEffect(() => {
-    // getItem can throw SecurityError in Safari Private Browsing /
-    // some corporate-managed Chromes. The inline boot script in
-    // layout.tsx already swallows the same error, so mirror that here.
-    let saved: string | null = null;
-    try {
-      saved = localStorage.getItem("ae-theme");
-    } catch {
-      saved = null;
-    }
-    const valid: Theme = saved === "light" || saved === "hc" || saved === "dark" ? saved : "dark";
-    setTheme(valid);
     setIsMac(
       navigator.platform.toUpperCase().includes("MAC") || navigator.userAgent.includes("Mac")
     );
     setMounted(true);
   }, []);
 
-  useEffect(() => {
-    // Skip the entire effect on its very first (mount) run. At that point
-    // `theme` still holds the "dark" default — the localStorage-reading
-    // effect above runs in the same effect phase, so its setTheme hasn't
-    // re-rendered yet. Applying classes here clobbered the boot script's
-    // .light/.hc classes with .dark for a frame (wrong-theme flash) and
-    // fired every documentElement MutationObserver (sonner Toaster,
-    // ParticleBackground) twice on every load. The boot script + SSR
-    // markup already have the correct classes before React runs, so the
-    // mount pass has nothing to do; this effect only needs to act on
-    // user-initiated theme changes (and the post-hydration re-run, which
-    // is idempotent).
-    if (!mounted) return;
-    // Class-based selectors (.light / .hc) and data-theme attribute
-    // are both honoured by globals.css — set both for compatibility
-    // with any inline test snippets that check classList.
-    document.documentElement.classList.toggle("light", theme === "light");
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    document.documentElement.classList.toggle("hc", theme === "hc");
-    document.documentElement.setAttribute("data-theme", theme);
-    // Wrap setItem — Safari Private Browsing throws SecurityError on every
-    // localStorage write, and a full workspace store can push the origin
-    // over quota. Either case would crash the theme effect (which renders
-    // on every page load) without the guard.
-    try {
-      localStorage.setItem("ae-theme", theme);
-    } catch {
-      /* quota or private mode — preference stays per-session only */
-    }
-  }, [theme, mounted]);
-
   const cycleTheme = () => {
-    setTheme((t) => (t === "dark" ? "light" : t === "light" ? "hc" : "dark"));
+    setThemePreference(theme === "dark" ? "light" : theme === "light" ? "hc" : "dark");
   };
 
   // Another tab cleared this browser's toolkit data (visitor "Clear data",
@@ -245,7 +201,7 @@ export function Header({ onOpenSearch, onOpenSidebar, onOpenTrophyCase }: Header
           <Search className="w-4 h-4 md:w-3.5 md:h-3.5" aria-hidden="true" />
           <span className="hidden md:inline">Search tools...</span>
         </span>
-        <kbd className="hidden md:inline font-mono text-nano text-sub bg-[var(--card)] border border-border rounded px-1.5 py-0.5">
+        <kbd className="hidden md:inline font-mono text-xs text-sub bg-[var(--card)] border border-border rounded px-1.5 py-0.5">
           {mounted && isMac ? "⌘K" : "Ctrl K"}
         </kbd>
       </button>

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useMounted } from "@/hooks/use-mounted";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -32,6 +33,7 @@ import { syncEngine } from "@/lib/sync/engine";
 import { useOwnerSeen, useVisitorDataPending } from "@/lib/sync/owner-sync-gate";
 import { clearLocalWorkspaceData } from "@/lib/utils/clear-local-data";
 import { toast } from "@/lib/utils/toast";
+import { useSonificationStore } from "@/lib/stores/sonification-store";
 import { SCRUM_ROLE_LABEL, type SignOutResult } from "@/lib/auth/types";
 import {
   LogOut,
@@ -190,6 +192,7 @@ function VisitorMenu({
               <span>Appearance</span>
             </Link>
           </DropdownMenuItem>
+          <SoundMenuItem />
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
             <Link href="/history" className="cursor-pointer">
@@ -313,7 +316,7 @@ function OwnerMenu() {
             <div className="text-sm font-medium text-text truncate">{displayName}</div>
             <div className="text-xs text-sub truncate">{user?.email}</div>
             {role && (
-              <Badge variant="secondary" className="mt-1.5 text-[10px]">
+              <Badge variant="secondary" className="mt-1.5 text-xs">
                 {role}
               </Badge>
             )}
@@ -359,6 +362,7 @@ function OwnerMenu() {
               <span>Appearance</span>
             </Link>
           </DropdownMenuItem>
+          <SoundMenuItem />
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onSelect={() => setSignOutOpen(true)}
@@ -508,5 +512,24 @@ function SignOutDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Interface sounds on/off. Sound is opt-in, and the header's sound toggle is
+ * hidden on phones, so the menu is the place every visitor can reach it.
+ */
+function SoundMenuItem() {
+  const enabled = useSonificationStore((s) => s.enabled);
+  const setEnabled = useSonificationStore((s) => s.setEnabled);
+  return (
+    <DropdownMenuCheckboxItem
+      checked={enabled}
+      onCheckedChange={(v) => setEnabled(v === true)}
+      onSelect={(e) => e.preventDefault()}
+      className="cursor-pointer"
+    >
+      Interface sounds
+    </DropdownMenuCheckboxItem>
   );
 }

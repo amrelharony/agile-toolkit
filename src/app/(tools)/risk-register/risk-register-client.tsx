@@ -418,7 +418,7 @@ export function RiskRegisterClient() {
               <ShieldAlert className="w-4 h-4 text-accent" />
               5×5 Matrix
             </div>
-            <div className="grid grid-cols-6 gap-1 text-[10px]">
+            <div className="grid grid-cols-6 gap-1 text-xs">
               <div />
               {[1, 2, 3, 4, 5].map((i) => (
                 <div key={`h${i}`} className="text-center text-sub font-data">
@@ -480,9 +480,9 @@ export function RiskRegisterClient() {
         <div className="mb-4">
           {raisedTrend.significant ? (
             <span
-              className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
+              className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
                 raisedTrend.trend === "up"
-                  ? "border-[#ef4444]/40 text-[#ef4444] bg-[#ef4444]/10"
+                  ? "border-danger/40 text-danger bg-danger/10"
                   : "border-[#34d399]/40 text-[#34d399] bg-[#34d399]/10"
               }`}
             >
@@ -493,7 +493,7 @@ export function RiskRegisterClient() {
               <span className="opacity-60">· p={raisedTrend.pValue.toFixed(3)}</span>
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-[var(--surface-hover)]">
+            <span className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-[var(--surface-hover)]">
               <TrendingUp className="w-3 h-3" />
               Risk creation trend: no significant change
             </span>
@@ -556,7 +556,7 @@ export function RiskRegisterClient() {
               </ResponsiveContainer>
             </div>
             {causalAnnotations.length > 0 && (
-              <div className="mt-2 text-[11px] text-sub">
+              <div className="mt-2 text-xs text-sub">
                 {causalAnnotations.length} regime shift{causalAnnotations.length !== 1 ? "s" : ""}{" "}
                 detected (CUSUM markers)
               </div>
@@ -581,13 +581,14 @@ export function RiskRegisterClient() {
                         onCommit={(v) => update(r.id, { title: v })}
                         placeholder="Risk title"
                         className="bg-bg border-border"
+                        aria-label="Risk title"
                       />
                       {/* Mitigation preview under the title — mirrors the
                           kanban description style so the gist is visible at a
                           glance before the user reaches the editable textarea
                           below. */}
                       {r.mitigation && r.mitigation.trim().length > 0 && (
-                        <div className="text-sub text-[11px] mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
+                        <div className="text-sub text-xs mt-0.5 mb-1.5 whitespace-pre-wrap break-words">
                           {r.mitigation}
                         </div>
                       )}
@@ -598,7 +599,10 @@ export function RiskRegisterClient() {
                         update(r.id, { probability: Number(v) as Risk["probability"] })
                       }
                     >
-                      <SelectTrigger className="bg-bg border-border font-data">
+                      <SelectTrigger
+                        className="bg-bg border-border font-data"
+                        aria-label={`Probability for ${r.title || "risk"}`}
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -613,7 +617,10 @@ export function RiskRegisterClient() {
                       value={String(r.impact)}
                       onValueChange={(v) => update(r.id, { impact: Number(v) as Risk["impact"] })}
                     >
-                      <SelectTrigger className="bg-bg border-border font-data">
+                      <SelectTrigger
+                        className="bg-bg border-border font-data"
+                        aria-label={`Impact for ${r.title || "risk"}`}
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -643,7 +650,10 @@ export function RiskRegisterClient() {
                         update(r.id, next);
                       }}
                     >
-                      <SelectTrigger className="bg-bg border-border capitalize">
+                      <SelectTrigger
+                        className="bg-bg border-border capitalize"
+                        aria-label={`Status for ${r.title || "risk"}`}
+                      >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -669,8 +679,9 @@ export function RiskRegisterClient() {
                         size="sm"
                         onClick={() => remove(r.id)}
                         className="text-sub hover:text-danger min-touch-coarse"
+                        aria-label={`Remove ${r.title || "risk"}`}
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                       </Button>
                     </div>
                   </div>
@@ -680,12 +691,16 @@ export function RiskRegisterClient() {
                     onCommit={(v) => update(r.id, { mitigation: v })}
                     placeholder="Mitigation plan..."
                     className="bg-bg border-border text-sm"
+                    aria-label={`Mitigation plan for ${r.title || "risk"}`}
                   />
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] uppercase tracking-wider text-sub font-mono shrink-0 w-32">
+                      <label
+                        htmlFor={`risk-due-${r.id}`}
+                        className="text-xs uppercase tracking-wider text-sub font-mono shrink-0 w-32"
+                      >
                         Mitigation due
-                      </span>
+                      </label>
                       <SmartInput<string>
                         predicted={
                           predictedMitigationByRisk.get(r.id) ?? {
@@ -697,6 +712,7 @@ export function RiskRegisterClient() {
                         render={({ ghost, accept, chip }) => (
                           <div className="flex flex-col gap-1 flex-1">
                             <Input
+                              id={`risk-due-${r.id}`}
                               type="date"
                               value={r.mitigationDueAt ?? ""}
                               onChange={(e) =>

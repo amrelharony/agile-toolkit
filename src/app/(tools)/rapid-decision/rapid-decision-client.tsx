@@ -174,11 +174,13 @@ export function RapidDecisionClient() {
         <SectionCard title="New decision" icon={Plus}>
           <Input
             placeholder="Decision title"
+            aria-label="Decision title"
             value={draft.title}
             onChange={(e) => setDraft({ ...draft, title: e.target.value })}
           />
           <Textarea
             placeholder="Context"
+            aria-label="Context"
             value={draft.context ?? ""}
             onChange={(e) => setDraft({ ...draft, context: e.target.value })}
             className="mt-2"
@@ -187,16 +189,19 @@ export function RapidDecisionClient() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
             <Input
               placeholder="Recommend (R) — owns the proposal"
+              aria-label="Recommend (R)"
               value={draft.recommend ?? ""}
               onChange={(e) => setDraft({ ...draft, recommend: e.target.value })}
             />
             <Input
               placeholder="Decide (D) — final say"
+              aria-label="Decide (D)"
               value={draft.decide ?? ""}
               onChange={(e) => setDraft({ ...draft, decide: e.target.value })}
             />
             <Input
               placeholder="Agree (A) — must agree, comma-sep"
+              aria-label="Agree (A), comma-separated"
               value={agreeDraft ?? (draft.agree ?? []).join(", ")}
               onChange={(e) => setAgreeDraft(e.target.value)}
               onBlur={() => {
@@ -209,6 +214,7 @@ export function RapidDecisionClient() {
             />
             <Input
               placeholder="Perform (P) — execute, comma-sep"
+              aria-label="Perform (P), comma-separated"
               value={performDraft ?? (draft.perform ?? []).join(", ")}
               onChange={(e) => setPerformDraft(e.target.value)}
               onBlur={() => {
@@ -220,6 +226,7 @@ export function RapidDecisionClient() {
             <Input
               className="sm:col-span-2"
               placeholder="Input (I) — give input, comma-sep"
+              aria-label="Input (I), comma-separated"
               value={inputDraft ?? (draft.input ?? []).join(", ")}
               onChange={(e) => setInputDraft(e.target.value)}
               onBlur={() => {
@@ -263,7 +270,10 @@ export function RapidDecisionClient() {
                           upsert({ ...d, status: v as RAPIDDecision["status"] })
                         }
                       >
-                        <SelectTrigger className="h-7 w-32 text-xs min-touch-coarse">
+                        <SelectTrigger
+                          aria-label={`Status for ${d.title}`}
+                          className="h-7 w-32 text-xs min-touch-coarse"
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -276,18 +286,21 @@ export function RapidDecisionClient() {
                       </Select>
                       {d.status === "open" && (
                         <button
+                          type="button"
                           onClick={() => decide(d)}
-                          className="text-emerald-400 hover:text-emerald-300"
+                          aria-label={`Mark ${d.title} decided`}
+                          className="text-success hover:text-success"
                         >
-                          <CheckCircle2 className="w-4 h-4" />
+                          <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
                         </button>
                       )}
                       <button
+                        type="button"
                         onClick={() => remove(d.id)}
-                        aria-label="Remove decision"
-                        className="text-sub hover:text-red-400"
+                        aria-label={`Remove decision: ${d.title}`}
+                        className="text-sub hover:text-danger"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-4 h-4" aria-hidden="true" />
                       </button>
                     </span>
                   </div>
@@ -305,12 +318,12 @@ export function RapidDecisionClient() {
                     )}
                     {d.agree && d.agree.length > 0 && (
                       <div>
-                        <span className="text-emerald-400 font-bold">A:</span> {d.agree.join(", ")}
+                        <span className="text-success font-bold">A:</span> {d.agree.join(", ")}
                       </div>
                     )}
                     {d.perform && d.perform.length > 0 && (
                       <div>
-                        <span className="text-amber-400 font-bold">P:</span> {d.perform.join(", ")}
+                        <span className="text-warning font-bold">P:</span> {d.perform.join(", ")}
                       </div>
                     )}
                     {d.input && d.input.length > 0 && (

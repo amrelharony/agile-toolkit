@@ -6,14 +6,14 @@
  *   const cls = totals.flowEfficiency >= 40
  *     ? "text-accent"
  *     : totals.flowEfficiency >= 15
- *     ? "text-amber-300"
+ *     ? "text-warning"
  *     : "text-danger";
  *
  *   →  const cls = ragTone(totals.flowEfficiency, { good: 40, warn: 15 });
  *
  * The colour vocabulary intentionally matches the existing palette:
  *   green   → "text-accent"      (cyan accent — the toolkit's "all good")
- *   amber   → "text-amber-300"
+ *   amber   → "text-warning"
  *   red     → "text-danger"
  *   neutral → "text-sub"         (for NaN/null/missing data)
  *
@@ -56,11 +56,11 @@ export function ragTone(
 
   if (direction === "higher-is-better") {
     if (value >= thresholds.good) return "text-accent";
-    if (value >= thresholds.warn) return "text-amber-300";
+    if (value >= thresholds.warn) return "text-warning";
     return "text-danger";
   }
   // lower-is-better — invert the comparison
   if (value <= thresholds.good) return "text-accent";
-  if (value <= thresholds.warn) return "text-amber-300";
+  if (value <= thresholds.warn) return "text-warning";
   return "text-danger";
 }

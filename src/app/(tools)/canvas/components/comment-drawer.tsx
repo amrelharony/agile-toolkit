@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { X, Send, CheckCircle2 } from "lucide-react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { WhiteboardCommentThread } from "@/lib/stores/workspace-types";
@@ -114,6 +114,9 @@ export function CommentDrawer({ thread, onClose }: Props) {
   useEffect(() => {
     setMentionActiveIdx(0);
   }, [mentionFiltered.length]);
+  // Focus stays in the textarea while the picker is open, so the active
+  // option is exposed through aria-activedescendant (WCAG 4.1.2).
+  const mentionListId = useId();
   // Two-step inline delete: first click arms the confirm state and
   // restyles the button red ("Confirm delete"); a second click within
   // 3 s actually removes the thread. Avoids the native `confirm()`
@@ -294,7 +297,7 @@ export function CommentDrawer({ thread, onClose }: Props) {
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-text">Thread</span>
           {thread.resolved && (
-            <span className="text-[10px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+            <span className="text-xs uppercase font-bold text-success bg-success/10 px-1.5 py-0.5 rounded">
               resolved
             </span>
           )}
@@ -316,7 +319,7 @@ export function CommentDrawer({ thread, onClose }: Props) {
           <div key={c.id} className="text-sm">
             <div className="flex items-baseline justify-between mb-0.5">
               <span className="font-semibold text-text text-xs">{c.author}</span>
-              <span className="text-[10px] text-sub font-mono">{c.at.slice(11, 16)}</span>
+              <span className="text-xs text-sub font-mono">{c.at.slice(11, 16)}</span>
             </div>
             <p className="text-text whitespace-pre-wrap break-words text-xs">{c.text}</p>
           </div>
@@ -328,6 +331,7 @@ export function CommentDrawer({ thread, onClose }: Props) {
             caret is right after `@<letters>` AND the prefix matches
             at least one team member. */}
         <MentionAutocomplete
+          id={mentionListId}
           filtered={mentionFiltered}
           activeIndex={mentionActiveIdx}
           onPick={(name) => {
@@ -347,6 +351,12 @@ export function CommentDrawer({ thread, onClose }: Props) {
           }}
         />
         <textarea
+          aria-label="Reply"
+          aria-autocomplete="list"
+          aria-controls={mentionFiltered.length > 0 ? mentionListId : undefined}
+          aria-activedescendant={
+            mentionFiltered.length > 0 ? `${mentionListId}-${mentionActiveIdx}` : undefined
+          }
           value={draft}
           // R8: IME composition guard — Android/iOS Chinese/Japanese/
           // Korean keyboards fire onChange mid-composition with the
@@ -441,7 +451,7 @@ export function CommentDrawer({ thread, onClose }: Props) {
           <button
             type="button"
             onClick={toggleResolved}
-            className="flex items-center gap-1 px-2 py-1 rounded text-emerald-300 hover:bg-emerald-500/10 text-xs"
+            className="flex items-center gap-1 px-2 py-1 rounded text-success hover:bg-success/10 text-xs"
           >
             <CheckCircle2 className="w-3 h-3" />
             {thread.resolved ? "Reopen" : "Resolve"}
@@ -452,8 +462,8 @@ export function CommentDrawer({ thread, onClose }: Props) {
             aria-pressed={confirmDelete}
             className={`ml-auto text-xs transition-colors ${
               confirmDelete
-                ? "text-red-300 bg-red-500/15 border border-red-500/40 px-2 py-1 rounded font-semibold"
-                : "text-sub hover:text-red-400"
+                ? "text-danger bg-danger/15 border border-danger/40 px-2 py-1 rounded font-semibold"
+                : "text-sub hover:text-danger"
             }`}
           >
             {confirmDelete ? "Confirm delete" : "Delete"}
@@ -474,10 +484,12 @@ export function CommentDrawer({ thread, onClose }: Props) {
  * list and arrow keys did nothing.
  */
 function MentionAutocomplete({
+  id,
   filtered,
   activeIndex,
   onPick,
 }: {
+  id: string;
   filtered: { id: string; name: string }[];
   activeIndex: number;
   onPick: (name: string) => void;
@@ -485,6 +497,7 @@ function MentionAutocomplete({
   if (filtered.length === 0) return null;
   return (
     <div
+      id={id}
       role="listbox"
       aria-label="Mention a teammate"
       className="absolute left-3 right-3 bottom-[120px] bg-surface border border-border rounded-md shadow-lg z-10 overflow-hidden"
@@ -494,6 +507,7 @@ function MentionAutocomplete({
         return (
           <button
             key={m.id}
+            id={`${id}-${i}`}
             type="button"
             role="option"
             aria-selected={active}
@@ -502,11 +516,11 @@ function MentionAutocomplete({
               active ? "bg-surface-deep ring-1 ring-accent/40" : ""
             }`}
           >
-            <span className="w-5 h-5 rounded-full bg-accent/30 text-accent flex items-center justify-center text-[10px] font-bold">
+            <span className="w-5 h-5 rounded-full bg-accent/30 text-accent flex items-center justify-center text-xs font-bold">
               {(m.name || "?").charAt(0).toUpperCase()}
             </span>
             <span className="flex-1 truncate">{m.name}</span>
-            <span className="text-[9px] text-sub font-mono">
+            <span className="text-xs text-sub font-mono">
               @{m.name.split(/\s+/)[0]?.toLowerCase()}
             </span>
           </button>

@@ -90,9 +90,10 @@ export function ImpedimentCard({ impediment }: { impediment: Impediment }) {
           variant="danger-ghost"
           size="icon"
           onClick={handleRemove}
+          aria-label={`Delete ${impediment.title}`}
           className="min-touch-coarse h-7 w-7 flex-shrink-0"
         >
-          <Trash2 className="w-3.5 h-3.5" />
+          <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
         </Button>
       </div>
 
@@ -128,7 +129,10 @@ export function ImpedimentCard({ impediment }: { impediment: Impediment }) {
       {impediment.status !== "Resolved" && (
         <div className="flex items-center gap-2 pt-1 border-t border-border">
           <Select value={impediment.status} onValueChange={(v) => handleStatusChange(v as Status)}>
-            <SelectTrigger className="min-touch-coarse h-7 text-xs bg-surface-deep border-border text-text w-36">
+            <SelectTrigger
+              aria-label={`Status for ${impediment.title}`}
+              className="min-touch-coarse h-7 text-xs bg-surface-deep border-border text-text w-36"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-surface border-border">
@@ -143,7 +147,7 @@ export function ImpedimentCard({ impediment }: { impediment: Impediment }) {
               variant="ghost"
               size="sm"
               onClick={() => handleStatusChange("Escalated")}
-              className="h-7 text-xs gap-1 text-[#ffaa00] hover:text-[#ffaa00] hover:bg-[#ffaa00]/10"
+              className="h-7 text-xs gap-1 text-accent-amber hover:text-accent-amber hover:bg-accent-amber/10"
             >
               <ArrowUpCircle className="w-3 h-3" />
               Escalate
@@ -154,7 +158,7 @@ export function ImpedimentCard({ impediment }: { impediment: Impediment }) {
             variant="ghost"
             size="sm"
             onClick={handleResolve}
-            className="h-7 text-xs gap-1 text-[#00ff88] hover:text-[#00ff88] hover:bg-[#00ff88]/10 ml-auto"
+            className="h-7 text-xs gap-1 text-accent-green hover:text-accent-green hover:bg-accent-green/10 ml-auto"
           >
             <CheckCircle2 className="w-3 h-3" />
             Resolve

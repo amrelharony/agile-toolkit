@@ -230,8 +230,8 @@ export function AgentConversation() {
             </Button>
           )}
         </form>
-        {voice.error && <p className="mt-1.5 text-[10px] text-destructive">{voice.error}</p>}
-        <p className="text-[10px] text-sub mt-1.5">
+        {voice.error && <p className="mt-1.5 text-xs text-destructive">{voice.error}</p>}
+        <p className="text-xs text-sub mt-1.5">
           Enter to send · Shift+Enter for newline · Write actions ask for confirmation
         </p>
       </div>

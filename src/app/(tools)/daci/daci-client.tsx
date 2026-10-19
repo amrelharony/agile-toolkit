@@ -202,11 +202,13 @@ export function DaciClient() {
         <SectionCard title="Draft new decision" icon={Plus}>
           <Input
             placeholder="Decision title"
+            aria-label="Decision title"
             value={draft.title}
             onChange={(e) => setDraft({ ...draft, title: e.target.value })}
           />
           <Textarea
             placeholder="Context — why are we deciding this?"
+            aria-label="Context"
             value={draft.context ?? ""}
             onChange={(e) => setDraft({ ...draft, context: e.target.value })}
             className="mt-2"
@@ -215,16 +217,19 @@ export function DaciClient() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
             <Input
               placeholder="Driver (the one making it happen)"
+              aria-label="Driver"
               value={draft.driver ?? ""}
               onChange={(e) => setDraft({ ...draft, driver: e.target.value })}
             />
             <Input
               placeholder="Approver (final say)"
+              aria-label="Approver"
               value={draft.approver ?? ""}
               onChange={(e) => setDraft({ ...draft, approver: e.target.value })}
             />
             <Input
               placeholder="Contributors (comma-separated)"
+              aria-label="Contributors (comma-separated)"
               value={contribDraft ?? (draft.contributors ?? []).join(", ")}
               onChange={(e) => setContribDraft(e.target.value)}
               onBlur={() => {
@@ -235,6 +240,7 @@ export function DaciClient() {
             />
             <Input
               placeholder="Informed (comma-separated)"
+              aria-label="Informed (comma-separated)"
               value={informedDraft ?? (draft.informed ?? []).join(", ")}
               onChange={(e) => setInformedDraft(e.target.value)}
               onBlur={() => {
@@ -246,6 +252,7 @@ export function DaciClient() {
           </div>
           <Textarea
             placeholder="Options considered (one per line)"
+            aria-label="Options considered (one per line)"
             value={optionsDraft ?? (draft.options ?? []).join("\n")}
             onChange={(e) => setOptionsDraft(e.target.value)}
             onBlur={() => {
@@ -258,6 +265,7 @@ export function DaciClient() {
           />
           <Textarea
             placeholder="Recommendation"
+            aria-label="Recommendation"
             value={draft.recommendation ?? ""}
             onChange={(e) => setDraft({ ...draft, recommendation: e.target.value })}
             className="mt-2"
@@ -326,15 +334,15 @@ export function DaciClient() {
                             onClick={() => decide(d)}
                             aria-label={`Mark decided: ${d.title}`}
                             title="Mark decided"
-                            className="text-emerald-400 hover:text-emerald-300"
+                            className="text-success hover:text-success"
                           >
                             <CheckCircle2 className="w-4 h-4" />
                           </button>
                         )}
                         <button
                           onClick={() => remove(d.id)}
-                          aria-label="Remove decision"
-                          className="text-sub hover:text-red-400"
+                          aria-label={`Remove decision: ${d.title}`}
+                          className="text-sub hover:text-danger"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -354,14 +362,13 @@ export function DaciClient() {
                       )}
                       {d.contributors && d.contributors.length > 0 && (
                         <div>
-                          <span className="text-emerald-400 font-bold">C:</span>{" "}
+                          <span className="text-success font-bold">C:</span>{" "}
                           {d.contributors.join(", ")}
                         </div>
                       )}
                       {d.informed && d.informed.length > 0 && (
                         <div>
-                          <span className="text-amber-400 font-bold">I:</span>{" "}
-                          {d.informed.join(", ")}
+                          <span className="text-warning font-bold">I:</span> {d.informed.join(", ")}
                         </div>
                       )}
                     </div>
@@ -390,7 +397,7 @@ function KPI({
   tone?: "default" | "ok" | "danger";
 }) {
   const colorClass =
-    tone === "danger" ? "text-red-400" : tone === "ok" ? "text-emerald-400" : "text-text";
+    tone === "danger" ? "text-danger" : tone === "ok" ? "text-success" : "text-text";
   return (
     <div className="rounded-md border border-border bg-surface-deep p-3">
       <div className="text-xs text-sub uppercase tracking-wider">{label}</div>

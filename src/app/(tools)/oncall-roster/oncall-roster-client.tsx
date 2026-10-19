@@ -124,7 +124,7 @@ const SEVERITY_LABEL: Record<Severity, string> = {
 const SEVERITY_BADGE: Record<Severity, string> = {
   sev1: "bg-danger/15 text-danger border-danger/40",
   sev2: "bg-danger/10 text-danger border-danger/30",
-  sev3: "bg-amber-500/10 text-amber-300 border-amber-500/30",
+  sev3: "bg-warning/10 text-warning border-warning/30",
   sev4: "bg-accent/10 text-accent border-accent/30",
 };
 
@@ -182,8 +182,8 @@ function burnoutTone(count: number): "default" | "warning" | "danger" {
 
 function burnoutClasses(count: number): string {
   if (count > 5) return "border-danger/40 bg-danger/10 text-danger";
-  if (count >= 3) return "border-amber-500/40 bg-amber-500/10 text-amber-300";
-  return "border-emerald-500/40 bg-emerald-500/10 text-emerald-300";
+  if (count >= 3) return "border-warning/40 bg-warning/10 text-warning";
+  return "border-success/40 bg-success/10 text-success";
 }
 
 interface ShiftDraft {
@@ -212,9 +212,11 @@ function emptyPageDraft(): PageDraft {
  * Used as a capacity-planning anchor and surfaced as a SectionCard widget.
  */
 function ExpectedPagesInput({
+  id,
   value,
   commit,
 }: {
+  id?: string;
   value: number | undefined;
   commit: (next: number | undefined) => void;
 }) {
@@ -237,6 +239,7 @@ function ExpectedPagesInput({
       render={({ ghost, accept, chip }) => (
         <div className="flex flex-col gap-1">
           <Input
+            id={id}
             type="number"
             min={0}
             value={draft}
@@ -582,8 +585,11 @@ export function OncallRosterClient() {
       <SectionCard title="Capacity expectation" icon={Phone} titleSize="lg" className="mb-6">
         <div className="grid grid-cols-1 sm:grid-cols-[260px_1fr] gap-4 items-start">
           <div>
-            <Label className="text-xs text-sub mb-1 block">Expected pages per week</Label>
+            <Label htmlFor="oncall-expected-pages" className="text-xs text-sub mb-1 block">
+              Expected pages per week
+            </Label>
             <ExpectedPagesInput
+              id="oncall-expected-pages"
               value={state.expectedPagesPerWeek}
               commit={(next) => setState((s) => ({ ...s, expectedPagesPerWeek: next }))}
             />
@@ -599,10 +605,10 @@ export function OncallRosterClient() {
         <div className="flex flex-wrap items-center gap-2 mb-4">
           {pageTrend.significant ? (
             <span
-              className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
+              className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
                 pageTrend.trend === "up"
                   ? "border-danger/40 text-danger bg-danger/10"
-                  : "border-emerald-500/40 text-emerald-300 bg-emerald-500/10"
+                  : "border-success/40 text-success bg-success/10"
               }`}
             >
               <TrendingUp className={`w-3 h-3 ${pageTrend.trend === "down" ? "rotate-180" : ""}`} />
@@ -610,13 +616,13 @@ export function OncallRosterClient() {
               <span className="opacity-60">· p={pageTrend.pValue.toFixed(3)}</span>
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface">
+            <span className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface">
               <TrendingUp className="w-3 h-3" />
               Weekly paging trend: no significant change
             </span>
           )}
           {pageChangepoints.length > 0 && (
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-amber-500/40 text-amber-300 bg-amber-500/10">
+            <span className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-warning/40 text-warning bg-warning/10">
               <AlertTriangle className="w-3 h-3" />
               {pageChangepoints.length} regime shift
               {pageChangepoints.length === 1 ? "" : "s"} detected (CUSUM)
@@ -659,7 +665,7 @@ export function OncallRosterClient() {
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <p className="text-[11px] text-sub mt-2">
+          <p className="text-xs text-sub mt-2">
             Pages aggregated by week. Dashed vertical lines mark CUSUM-detected regime shifts
             (sustained changes in paging volume).
           </p>
@@ -818,7 +824,7 @@ export function OncallRosterClient() {
                       {active?.id === s.id && (
                         <Badge
                           variant="outline"
-                          className="bg-emerald-500/15 text-emerald-300 border-emerald-500/40 text-[10px]"
+                          className="bg-success/15 text-success border-success/40 text-xs"
                         >
                           ACTIVE
                         </Badge>
@@ -832,7 +838,7 @@ export function OncallRosterClient() {
                   </div>
                   <div className="text-right shrink-0">
                     <div className="font-data text-lg leading-tight">{count}</div>
-                    <div className="text-[10px] uppercase tracking-wider opacity-70">pages</div>
+                    <div className="text-xs uppercase tracking-wider opacity-70">pages</div>
                   </div>
                   <Button
                     variant="ghost"

@@ -328,7 +328,7 @@ export function NpsCsatClient() {
                 })
               }
             >
-              <SelectTrigger className="bg-bg border-border">
+              <SelectTrigger className="bg-bg border-border" aria-label="Survey type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -341,6 +341,7 @@ export function NpsCsatClient() {
               value={draft.date}
               onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
               className="bg-bg border-border"
+              aria-label="Response date"
             />
             <Input
               type="number"
@@ -353,12 +354,14 @@ export function NpsCsatClient() {
                 if (e.key === "Enter") e.currentTarget.blur();
               }}
               className="bg-bg border-border font-data"
+              aria-label={draft.kind === "nps" ? "Score (0–10)" : "Score (1–5)"}
             />
             <Input
               value={draft.respondent ?? ""}
               onChange={(e) => setDraft((d) => ({ ...d, respondent: e.target.value }))}
               placeholder="Respondent (optional)"
               className="bg-bg border-border"
+              aria-label="Respondent (optional)"
             />
             <Button onClick={add} className="gap-2 bg-accent text-bg hover:bg-accent/90">
               <Plus className="w-4 h-4" />
@@ -371,6 +374,7 @@ export function NpsCsatClient() {
             onChange={(e) => setDraft((d) => ({ ...d, verbatim: e.target.value }))}
             placeholder="Verbatim comment (optional)"
             className="bg-bg border-border"
+            aria-label="Verbatim comment (optional)"
           />
         </CardContent>
       </Card>
@@ -383,11 +387,11 @@ export function NpsCsatClient() {
               <h3 className="text-sm font-semibold text-text">Score Trend</h3>
               {npsTrend?.significant && (
                 <span
-                  className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                  className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                     // For NPS, "up" trend is good, "down" is bad.
                     npsTrend.trend === "up"
-                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
-                      : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                      ? "border-accent-green/40 text-accent-green bg-accent-green/10"
+                      : "border-warning/40 text-warning bg-warning/10"
                   }`}
                   aria-label={`NPS trend ${npsTrend.trend} (Mann-Kendall p=${npsTrend.pValue.toFixed(3)})`}
                   title={`Mann-Kendall p=${npsTrend.pValue.toFixed(3)}`}
@@ -397,10 +401,10 @@ export function NpsCsatClient() {
               )}
               {csatTrend?.significant && (
                 <span
-                  className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                  className={`text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                     csatTrend.trend === "up"
-                      ? "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
-                      : "border-amber-400/40 text-amber-400 bg-amber-400/10"
+                      ? "border-accent-green/40 text-accent-green bg-accent-green/10"
+                      : "border-warning/40 text-warning bg-warning/10"
                   }`}
                   aria-label={`CSAT trend ${csatTrend.trend} (Mann-Kendall p=${csatTrend.pValue.toFixed(3)})`}
                   title={`Mann-Kendall p=${csatTrend.pValue.toFixed(3)}`}
@@ -450,9 +454,9 @@ export function NpsCsatClient() {
                 <span
                   className={`text-xs uppercase tracking-wider w-20 ${
                     npsCategory(e.score) === "promoter"
-                      ? "text-green-400"
+                      ? "text-success"
                       : npsCategory(e.score) === "passive"
-                        ? "text-amber-300"
+                        ? "text-warning"
                         : "text-danger"
                   }`}
                 >
@@ -467,8 +471,9 @@ export function NpsCsatClient() {
                 size="sm"
                 onClick={() => remove(e.id)}
                 className="text-sub hover:text-danger"
+                aria-label={`Remove ${e.kind.toUpperCase()} response from ${e.date}`}
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
               </Button>
             </div>
           ))}

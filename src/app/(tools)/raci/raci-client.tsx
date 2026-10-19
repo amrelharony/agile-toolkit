@@ -301,7 +301,16 @@ function validateMatrix(
 /*  RACI Cell                                                                 */
 /* -------------------------------------------------------------------------- */
 
-function RACICell({ value, onChange }: { value: RACIValue; onChange: (v: RACIValue) => void }) {
+function RACICell({
+  value,
+  onChange,
+  label,
+}: {
+  value: RACIValue;
+  onChange: (v: RACIValue) => void;
+  /** Accessible name: the trigger only shows a single letter. */
+  label: string;
+}) {
   const color = value ? RACI_COLORS[value] : undefined;
 
   return (
@@ -310,6 +319,7 @@ function RACICell({ value, onChange }: { value: RACIValue; onChange: (v: RACIVal
       onValueChange={(v) => onChange(v === "empty" ? "" : (v as RACIValue))}
     >
       <SelectTrigger
+        aria-label={label}
         className="h-10 w-full border-border bg-surface text-center justify-center focus:ring-accent/20"
         style={
           color
@@ -567,15 +577,13 @@ export function RACIClient() {
         {activities.length > 0 && (
           <Card
             className={`border ${
-              issues.length > 0
-                ? "bg-red-500/5 border-red-500/30"
-                : "bg-emerald-500/5 border-emerald-500/30"
+              issues.length > 0 ? "bg-danger/5 border-danger/30" : "bg-success/5 border-success/30"
             }`}
           >
             <CardContent className="p-4">
               {issues.length > 0 ? (
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-red-400">
+                  <div className="flex items-center gap-2 text-danger">
                     <AlertTriangle className="w-4 h-4 flex-shrink-0" />
                     <span className="text-sm font-medium">
                       {issues.length} validation {issues.length === 1 ? "issue" : "issues"}
@@ -583,14 +591,14 @@ export function RACIClient() {
                   </div>
                   <ul className="space-y-1 pl-6">
                     {issues.map((issue, i) => (
-                      <li key={i} className="text-xs text-red-300/80 list-disc">
+                      <li key={i} className="text-xs text-danger/80 list-disc">
                         {issue.message}
                       </li>
                     ))}
                   </ul>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 text-emerald-400">
+                <div className="flex items-center gap-2 text-success">
                   <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
                   <span className="text-sm font-medium">
                     All activities have exactly one Accountable (A) role.
@@ -634,7 +642,7 @@ export function RACIClient() {
                 <div
                   key={activity.id}
                   className={`rounded-lg border bg-surface-deep p-3 space-y-2 ${
-                    hasIssue ? "border-red-500/50" : "border-border"
+                    hasIssue ? "border-danger/50" : "border-border"
                   }`}
                 >
                   <div className="flex items-center gap-2">
@@ -680,6 +688,7 @@ export function RACIClient() {
                         <RACICell
                           value={matrix[activity.id]?.[role.id] || ""}
                           onChange={(v) => setCellValue(activity.id, role.id, v)}
+                          label={`${activity.name}: ${role.name}`}
                         />
                       </div>
                     ))}
@@ -770,6 +779,7 @@ export function RACIClient() {
                             onClick={() => removeRole(role.id)}
                             className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
                             title="Remove role"
+                            aria-label={`Remove role ${role.name}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -781,7 +791,7 @@ export function RACIClient() {
                         value={role.description ?? ""}
                         onCommit={(v) => updateRoleDescription(role.id, v)}
                         placeholder="Description (optional)..."
-                        className="mt-1 h-6 text-[11px] bg-surface border-border"
+                        className="mt-1 h-6 text-xs bg-surface border-border"
                         aria-label={`Description for role ${role.name}`}
                       />
                     </th>
@@ -793,6 +803,7 @@ export function RACIClient() {
                       onClick={addRole}
                       className="min-touch-coarse h-7 w-7 text-accent hover:bg-accent/10"
                       title="Add role"
+                      aria-label="Add role"
                     >
                       <Plus className="w-4 h-4" />
                     </Button>
@@ -806,7 +817,7 @@ export function RACIClient() {
                     <tr key={activity.id}>
                       <td
                         className={`border p-2 bg-surface-deep ${
-                          hasIssue ? "border-red-500/50" : "border-border"
+                          hasIssue ? "border-danger/50" : "border-border"
                         }`}
                         title={activity.description || undefined}
                       >
@@ -822,6 +833,7 @@ export function RACIClient() {
                               onClick={() => removeActivity(activity.id)}
                               className="btn-danger-ghost p-0.5 rounded flex-shrink-0"
                               title="Remove activity"
+                              aria-label={`Remove activity ${activity.name}`}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -833,7 +845,7 @@ export function RACIClient() {
                           value={activity.description ?? ""}
                           onCommit={(v) => updateActivityDescription(activity.id, v)}
                           placeholder="Description (optional)..."
-                          className="mt-1 h-6 text-[11px] bg-surface border-border"
+                          className="mt-1 h-6 text-xs bg-surface border-border"
                           aria-label={`Description for activity ${activity.name}`}
                         />
                       </td>
@@ -841,12 +853,13 @@ export function RACIClient() {
                         <td
                           key={role.id}
                           className={`border p-1.5 ${
-                            hasIssue ? "border-red-500/50" : "border-border"
+                            hasIssue ? "border-danger/50" : "border-border"
                           }`}
                         >
                           <RACICell
                             value={matrix[activity.id]?.[role.id] || ""}
                             onChange={(v) => setCellValue(activity.id, role.id, v)}
+                            label={`${activity.name}: ${role.name}`}
                           />
                         </td>
                       ))}

@@ -71,14 +71,14 @@ const CATEGORIES: { id: RuleCategory; label: string; color: string }[] = [
   {
     id: "meetings",
     label: "Meetings",
-    color: "border-amber-500/40 bg-amber-500/10 text-amber-300",
+    color: "border-warning/40 bg-warning/10 text-warning",
   },
   {
     id: "decisions",
     label: "Decisions",
     color: "border-purple-500/40 bg-purple-500/10 text-purple-300",
   },
-  { id: "work", label: "Work", color: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  { id: "work", label: "Work", color: "border-success/40 bg-success/10 text-success" },
   { id: "conflict", label: "Conflict", color: "border-danger/40 bg-danger/10 text-danger" },
   { id: "other", label: "Other", color: "border-border bg-surface text-sub" },
 ];
@@ -148,6 +148,10 @@ function useWorkingAgreement(): [State, (u: State | ((p: State) => State)) => vo
 
 function newId(): string {
   return crypto.randomUUID();
+}
+
+function stillWorkingLabel(v: boolean | undefined): string {
+  return v === true ? "Working" : v === false ? "Not working" : "Check in";
 }
 
 function parseAgreedBy(s: string): string[] {
@@ -539,10 +543,7 @@ export function WorkingAgreementClient() {
                 onClick={() => addRuleFromCatalog(s)}
                 className="text-left rounded-lg border border-border bg-bg hover:border-accent/40 hover:bg-accent/5 transition px-3 py-2 max-w-[320px]"
               >
-                <Badge
-                  variant="outline"
-                  className={`${CATEGORY_CLASS[s.category]} text-[10px] mb-1`}
-                >
+                <Badge variant="outline" className={`${CATEGORY_CLASS[s.category]} text-xs mb-1`}>
                   {s.category}
                 </Badge>
                 <div className="text-xs text-text">{s.text}</div>
@@ -561,7 +562,7 @@ export function WorkingAgreementClient() {
               value={newRuleCategory}
               onValueChange={(v) => setNewRuleCategory(v as RuleCategory)}
             >
-              <SelectTrigger className="bg-bg border-border">
+              <SelectTrigger className="bg-bg border-border" aria-label="Rule category">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -580,7 +581,11 @@ export function WorkingAgreementClient() {
               className="bg-bg border-border"
               aria-label="Rule text"
             />
-            <Button onClick={addCustomRule} className="gap-2 bg-accent text-bg hover:bg-accent/90">
+            <Button
+              onClick={addCustomRule}
+              aria-label="Add rule"
+              className="gap-2 bg-accent text-bg hover:bg-accent/90"
+            >
               <Plus className="w-4 h-4" />
               Add
             </Button>
@@ -632,12 +637,12 @@ export function WorkingAgreementClient() {
                         onClick={() => toggleStillWorking(r.id)}
                         className={`gap-1 ${
                           r.stillWorking === true
-                            ? "text-emerald-400 hover:text-emerald-300"
+                            ? "text-success hover:text-success"
                             : r.stillWorking === false
                               ? "text-danger hover:text-danger/80"
                               : "text-sub hover:text-text"
                         }`}
-                        aria-label="Toggle still-working status"
+                        aria-label={`${stillWorkingLabel(r.stillWorking)} (still-working status for ${r.text})`}
                       >
                         {r.stillWorking === true ? (
                           <CheckCircle2 className="w-4 h-4" />
@@ -646,13 +651,7 @@ export function WorkingAgreementClient() {
                         ) : (
                           <CircleDashed className="w-4 h-4" />
                         )}
-                        <span className="text-xs">
-                          {r.stillWorking === true
-                            ? "Working"
-                            : r.stillWorking === false
-                              ? "Not working"
-                              : "Check in"}
-                        </span>
+                        <span className="text-xs">{stillWorkingLabel(r.stillWorking)}</span>
                       </Button>
                       <Button
                         type="button"
@@ -677,7 +676,7 @@ export function WorkingAgreementClient() {
                     ariaLabel="Agreed by"
                   />
                   {r.description && (
-                    <div className="text-sub text-[11px] whitespace-pre-wrap break-words">
+                    <div className="text-sub text-xs whitespace-pre-wrap break-words">
                       {r.description}
                     </div>
                   )}

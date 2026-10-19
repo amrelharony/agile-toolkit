@@ -87,7 +87,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                     </Badge>
                   )}
                   {dna.prestige > 0 && (
-                    <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/40 gap-1">
+                    <Badge className="bg-warning/20 text-warning border-warning/40 gap-1">
                       <Crown className="w-3 h-3" />
                       Prestige {dna.prestige}
                     </Badge>
@@ -105,7 +105,11 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                   {info.atMax ? "—" : `${info.xpIntoLevel} / ${info.xpNeededForLevel}`}
                 </span>
               </div>
-              <Progress value={info.progress01 * 100} className="h-2" />
+              <Progress
+                value={info.progress01 * 100}
+                aria-label={info.atMax ? "Level progress" : `Progress to level ${info.level + 1}`}
+                className="h-2"
+              />
             </div>
             <div className="grid grid-cols-4 gap-2 text-center">
               <div>
@@ -132,7 +136,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
             {info.atMax && (
               <Button
                 variant="outline"
-                className="w-full border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
+                className="w-full border-warning/40 text-warning hover:bg-warning/10"
                 onClick={() => {
                   if (
                     confirm(
@@ -176,7 +180,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                   <div id="trophy-share-label" className="text-xs text-text">
                     Share on leaderboard
                   </div>
-                  <div className="text-[10px] text-sub">Requires Supabase env</div>
+                  <div className="text-xs text-sub">Requires Supabase env</div>
                 </div>
                 <Switch
                   checked={dna.shareOnLeaderboard}
@@ -190,7 +194,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                 <div id="trophy-silent-label" className="text-xs text-text">
                   Silent mode
                 </div>
-                <div className="text-[10px] text-sub">Suppress toasts</div>
+                <div className="text-xs text-sub">Suppress toasts</div>
               </div>
               <Switch
                 checked={dna.silentMode}
@@ -198,7 +202,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                 aria-labelledby="trophy-silent-label"
               />
             </div>
-            <div className="text-[10px] text-sub font-mono">ID: {dna.visitorId.slice(0, 10)}…</div>
+            <div className="text-xs text-sub font-mono">ID: {dna.visitorId.slice(0, 10)}…</div>
           </div>
         </div>
 
@@ -252,11 +256,13 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                           ) : (
                             <Lock className="w-3.5 h-3.5 text-sub shrink-0" />
                           )}
+                          {/* The trophy / lock icons are decorative; say it. */}
+                          <span className="sr-only">{unlocked ? "Unlocked" : "Locked"}</span>
                         </div>
-                        <div className="text-[11px] mt-0.5 line-clamp-2">
+                        <div className="text-xs mt-0.5 line-clamp-2">
                           {hidden ? "Hidden achievement" : a.description}
                         </div>
-                        <div className="text-[10px] mt-1 font-data text-accent">+{a.xp} XP</div>
+                        <div className="text-xs mt-1 font-data text-accent">+{a.xp} XP</div>
                       </div>
                     );
                   })}
@@ -288,7 +294,11 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                       </div>
                       <div className="text-xs text-sub mb-2">{def.description}</div>
                       <div className="flex items-center gap-2">
-                        <Progress value={(c.progress / c.goal) * 100} className="h-1.5 flex-1" />
+                        <Progress
+                          value={(c.progress / c.goal) * 100}
+                          aria-label={`${def.title} progress`}
+                          className="h-1.5 flex-1"
+                        />
                         <span className="text-xs font-data text-text">
                           {c.progress} / {c.goal}
                         </span>
@@ -325,7 +335,11 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                       </div>
                       <div className="text-xs text-sub mb-2">{def.description}</div>
                       <div className="flex items-center gap-2">
-                        <Progress value={(c.progress / c.goal) * 100} className="h-1.5 flex-1" />
+                        <Progress
+                          value={(c.progress / c.goal) * 100}
+                          aria-label={`${def.title} progress`}
+                          className="h-1.5 flex-1"
+                        />
                         <span className="text-xs font-data text-text">
                           {c.progress} / {c.goal}
                         </span>
@@ -335,7 +349,7 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                 })}
               </div>
             </div>
-            <div className="text-[11px] text-sub/70">
+            <div className="text-xs text-sub/70">
               Pool: {DAILY_POOL.length} daily · {WEEKLY_POOL.length} weekly · rotates at local
               midnight / Monday.
             </div>
@@ -360,13 +374,11 @@ export function TrophyCase({ open, onOpenChange }: TrophyCaseProps) {
                 >
                   <span className="text-accent w-14">+{e.amount}</span>
                   <span className="text-sub w-24 truncate">{e.source}</span>
-                  {e.multiplier > 1 && <span className="text-amber-300">×{e.multiplier}</span>}
+                  {e.multiplier > 1 && <span className="text-warning">×{e.multiplier}</span>}
                   <span className="text-text/80 truncate flex-1">
                     {e.meta?.toolId ? `${e.meta.toolId}:${e.meta.eventName ?? ""}` : ""}
                   </span>
-                  <span className="text-sub text-[10px]">
-                    {new Date(e.at).toLocaleTimeString()}
-                  </span>
+                  <span className="text-sub text-xs">{new Date(e.at).toLocaleTimeString()}</span>
                 </div>
               ))}
             </div>
@@ -431,7 +443,11 @@ function LeaderboardTab() {
           Load
         </Button>
       </div>
-      {error && <div className="text-xs text-danger mb-2">{error}</div>}
+      {error && (
+        <div role="alert" className="text-xs text-danger mb-2">
+          {error}
+        </div>
+      )}
       {!available && (
         <div className="text-xs text-sub">
           Set <code className="font-mono text-accent">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
@@ -452,7 +468,7 @@ function LeaderboardTab() {
               <span className="text-text truncate">
                 {r.display_name || `Anonymous ${r.visitor_id.slice(0, 6)}`}
               </span>
-              <span className="flex items-center gap-1 text-amber-300 font-data">
+              <span className="flex items-center gap-1 text-warning font-data">
                 {r.prestige > 0 && <Crown className="w-3 h-3" />}
                 {r.prestige || ""}
               </span>

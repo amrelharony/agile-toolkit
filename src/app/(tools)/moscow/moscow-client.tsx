@@ -126,11 +126,12 @@ export function MoscowClient() {
             <Input
               className="sm:col-span-2"
               placeholder="Scope item"
+              aria-label="Scope item"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
             <Select value={bucket} onValueChange={(v) => setBucket(v as Bucket)}>
-              <SelectTrigger>
+              <SelectTrigger aria-label="Bucket">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -182,7 +183,10 @@ export function MoscowClient() {
                         value={(it.fields?.bucket as Bucket) ?? "must"}
                         onValueChange={(v) => move(it.id, v as Bucket)}
                       >
-                        <SelectTrigger className="h-7 w-24 text-xs">
+                        <SelectTrigger
+                          className="h-7 w-24 text-xs"
+                          aria-label={`Bucket for ${it.title}`}
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -195,9 +199,10 @@ export function MoscowClient() {
                       </Select>
                       <span className="flex-1 truncate text-text">{it.title}</span>
                       <button
+                        type="button"
                         onClick={() => remove(it.id)}
-                        aria-label="Remove scope item"
-                        className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-red-400"
+                        aria-label={`Remove ${it.title}`}
+                        className="min-touch-coarse inline-flex items-center justify-center text-sub hover:text-danger"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

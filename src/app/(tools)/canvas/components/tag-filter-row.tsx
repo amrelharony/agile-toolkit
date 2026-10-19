@@ -59,7 +59,8 @@ function TagFilterRowImpl({ objects }: Props) {
       // `WebkitMaskImage` are set for Safari < 15.4.
       style={{
         maskImage: "linear-gradient(to right, black 0%, black calc(100% - 24px), transparent 100%)",
-        WebkitMaskImage: "linear-gradient(to right, black 0%, black calc(100% - 24px), transparent 100%)",
+        WebkitMaskImage:
+          "linear-gradient(to right, black 0%, black calc(100% - 24px), transparent 100%)",
       }}
       className="absolute top-14 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-surface/95 border border-border rounded-lg px-2 py-1 shadow-md backdrop-blur-sm z-10 max-w-[80vw] overflow-x-auto"
       aria-label="Filter objects by tag"
@@ -73,14 +74,14 @@ function TagFilterRowImpl({ objects }: Props) {
             type="button"
             aria-pressed={active}
             onClick={() => toggleTagFilter(t)}
-            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-mono transition-colors ${
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-mono transition-colors ${
               active
                 ? "bg-accent/20 text-accent border border-accent/50"
                 : "bg-surface-deep text-sub border border-transparent hover:text-text hover:border-border"
             }`}
           >
             {t}
-            <span className={`text-[9px] ${active ? "text-accent/70" : "text-sub/70"}`}>{n}</span>
+            <span className={`text-xs ${active ? "text-accent/70" : "text-sub/70"}`}>{n}</span>
           </button>
         );
       })}

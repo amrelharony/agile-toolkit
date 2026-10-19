@@ -55,10 +55,9 @@ export class ErrorBoundary extends Component<Props, State> {
           <div className="max-w-md text-center space-y-3">
             <h1 className="text-xl font-display font-bold">Something went wrong</h1>
             <p className="text-sm text-sub">
-              The page hit an unexpected error. Your data is saved locally;
-              nothing was lost.
+              The page hit an unexpected error. Your data is saved locally; nothing was lost.
             </p>
-            <pre className="text-[11px] text-sub bg-[var(--card)] border border-border rounded p-2 overflow-x-auto whitespace-pre-wrap font-mono text-left max-h-40">
+            <pre className="text-xs text-sub bg-[var(--card)] border border-border rounded p-2 overflow-x-auto whitespace-pre-wrap font-mono text-left max-h-40">
               {(() => {
                 const raw = this.state.error.message || String(this.state.error);
                 // Truncate to keep the boundary card visually contained;

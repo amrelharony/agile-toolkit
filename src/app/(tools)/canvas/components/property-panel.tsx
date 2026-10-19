@@ -178,7 +178,7 @@ function PropertyPanelImpl({
     >
       {/* ─── Sticky color (palette swatches) ─────────────────── */}
       {stickies.length > 0 && (
-        <div className="flex items-center gap-0.5 shrink-0" aria-label="Sticky color">
+        <div className="flex items-center gap-0.5 shrink-0" role="group" aria-label="Sticky color">
           {STICKY_COLORS.map((c) => (
             <button
               key={c}
@@ -235,7 +235,7 @@ function PropertyPanelImpl({
       {/* ─── Stroke width — active pill on the currently-selected
           width (when uniform across the selection). */}
       {(shapes.length > 0 || lines.length > 0 || connectors.length > 0 || freehands.length > 0) && (
-        <div className="flex items-center gap-0.5 shrink-0" aria-label="Stroke width">
+        <div className="flex items-center gap-0.5 shrink-0" role="group" aria-label="Stroke width">
           {STROKE_WIDTHS.map((w) => {
             const activeShape =
               shapes.length > 0 && shapes.every((o) => (o.strokeWidth ?? 1.5) === w);
@@ -327,23 +327,25 @@ function PropertyPanelImpl({
 
       {/* ─── Connector routing + arrowheads ─────────────────── */}
       {connectors.length > 0 && (
-        <div className="flex items-center gap-0.5" aria-label="Connector options">
+        <div className="flex items-center gap-0.5" role="group" aria-label="Connector options">
           <div className="w-px h-4 bg-border/70 mx-1.5" />
           {(["straight", "orthogonal", "curved"] as ConnectorRouting[]).map((r) => (
             <button
               key={r}
               type="button"
               aria-label={`Routing ${r}`}
+              aria-pressed={connectors.every((c) => c.routing === r)}
               title={r}
               onClick={() => patchAll(connectors, { routing: r } as Partial<WhiteboardConnector>)}
-              className="text-[10px] uppercase font-mono px-1.5 py-1 rounded text-sub hover:text-text hover:bg-surface-deep"
+              className="text-xs uppercase font-mono px-1.5 py-1 rounded text-sub hover:text-text hover:bg-surface-deep"
             >
               {r[0]}
             </button>
           ))}
           <button
             type="button"
-            aria-label="Toggle arrow start"
+            aria-label="Arrow at start"
+            aria-pressed={connectors.every((c) => !!c.arrowStart)}
             title="Arrow start"
             onClick={() => {
               // Per-object toggle: each connector flips its OWN
@@ -364,7 +366,8 @@ function PropertyPanelImpl({
           </button>
           <button
             type="button"
-            aria-label="Toggle arrow end"
+            aria-label="Arrow at end"
+            aria-pressed={connectors.every((c) => !!c.arrowEnd)}
             title="Arrow end"
             onClick={() => {
               onPatch(
@@ -403,7 +406,7 @@ function PropertyPanelImpl({
           previous 7 plain numbers looked like decoration rather than
           a state picker. */}
       {(stickies.length > 0 || texts.length > 0) && (
-        <div className="flex items-center gap-0.5 shrink-0" aria-label="Font size">
+        <div className="flex items-center gap-0.5 shrink-0" role="group" aria-label="Font size">
           {FONT_SIZES.map((s) => {
             const activeSticky =
               stickies.length > 0 && stickies.every((o) => (o.fontSize ?? 16) === s);
@@ -421,7 +424,7 @@ function PropertyPanelImpl({
                     patchAll(stickies, { fontSize: s } as Partial<WhiteboardSticky>);
                   if (texts.length > 0) patchAll(texts, { fontSize: s } as Partial<WhiteboardText>);
                 }}
-                className={`min-w-[22px] h-6 px-1 rounded text-[10px] font-mono transition-colors ${
+                className={`min-w-[22px] h-6 px-1 rounded text-xs font-mono transition-colors ${
                   active
                     ? "bg-accent/20 text-accent"
                     : "text-sub hover:text-text hover:bg-surface-deep"
@@ -437,7 +440,7 @@ function PropertyPanelImpl({
 
       {/* ─── Font family — same active-pill treatment for consistency. */}
       {(stickies.length > 0 || texts.length > 0) && (
-        <div className="flex items-center gap-0.5 shrink-0" aria-label="Font family">
+        <div className="flex items-center gap-0.5 shrink-0" role="group" aria-label="Font family">
           {FONT_FAMILIES.map((f) => {
             const activeSticky =
               stickies.length > 0 && stickies.every((o) => (o.fontFamily ?? undefined) === f.value);
@@ -457,7 +460,7 @@ function PropertyPanelImpl({
                   if (texts.length > 0)
                     patchAll(texts, { fontFamily: f.value } as Partial<WhiteboardText>);
                 }}
-                className={`h-6 px-1.5 rounded text-[10px] transition-colors ${
+                className={`h-6 px-1.5 rounded text-xs transition-colors ${
                   active
                     ? "bg-accent/20 text-accent"
                     : "text-sub hover:text-text hover:bg-surface-deep"
@@ -474,10 +477,11 @@ function PropertyPanelImpl({
 
       {/* ─── Text bold + alignment ─────────────────── */}
       {texts.length > 0 && (
-        <div className="flex items-center gap-0.5" aria-label="Text style">
+        <div className="flex items-center gap-0.5" role="group" aria-label="Text style">
           <button
             type="button"
-            aria-label="Toggle bold"
+            aria-label="Bold"
+            aria-pressed={texts.every((t) => (t.fontWeight ?? 400) >= 600)}
             title="Bold"
             onClick={() => {
               // Per-text toggle so mixed bold/regular selections flip
@@ -498,6 +502,7 @@ function PropertyPanelImpl({
           <button
             type="button"
             aria-label="Align left"
+            aria-pressed={texts.every((t) => (t.align ?? "left") === "left")}
             title="Align left"
             onClick={() => patchAll(texts, { align: "left" } as Partial<WhiteboardText>)}
             className="w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors"
@@ -507,6 +512,7 @@ function PropertyPanelImpl({
           <button
             type="button"
             aria-label="Align center"
+            aria-pressed={texts.every((t) => (t.align ?? "left") === "center")}
             title="Align center"
             onClick={() => patchAll(texts, { align: "center" } as Partial<WhiteboardText>)}
             className="w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors"
@@ -516,6 +522,7 @@ function PropertyPanelImpl({
           <button
             type="button"
             aria-label="Align right"
+            aria-pressed={texts.every((t) => (t.align ?? "left") === "right")}
             title="Align right"
             onClick={() => patchAll(texts, { align: "right" } as Partial<WhiteboardText>)}
             className="w-6 h-6 rounded flex items-center justify-center shrink-0 text-sub hover:text-text hover:bg-surface-deep transition-colors"
@@ -551,7 +558,7 @@ function PropertyPanelImpl({
           type="button"
           onClick={() => onOpenCardDetail(cards[0].id)}
           title="Open full card details (Cmd+E)"
-          className="text-[10px] uppercase font-mono px-2 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10 transition-colors"
+          className="text-xs uppercase font-mono px-2 py-1 rounded border border-accent/40 text-accent hover:bg-accent/10 transition-colors"
         >
           Details
         </button>
@@ -559,7 +566,7 @@ function PropertyPanelImpl({
 
       {/* ─── Timer presets (Phase 25) ─────────────────── */}
       {timers.length > 0 && (
-        <div className="flex items-center gap-0.5" aria-label="Timer duration">
+        <div className="flex items-center gap-0.5" role="group" aria-label="Timer duration">
           {[60, 180, 300, 600, 1200].map((sec) => (
             <button
               key={sec}
@@ -574,7 +581,7 @@ function PropertyPanelImpl({
                   startedAt: undefined,
                 } as Partial<WhiteboardTimer>)
               }
-              className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+              className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
             >
               {Math.round(sec / 60)}m
             </button>
@@ -585,7 +592,7 @@ function PropertyPanelImpl({
 
       {/* ─── Voting reveal toggle + option presets (Phase 27) ──── */}
       {votings.length > 0 && (
-        <div className="flex items-center gap-0.5" aria-label="Voting options">
+        <div className="flex items-center gap-0.5" role="group" aria-label="Voting options">
           <button
             type="button"
             aria-label="Fibonacci scale"
@@ -597,7 +604,7 @@ function PropertyPanelImpl({
                 revealed: false,
               } as Partial<WhiteboardVoting>)
             }
-            className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             Fib
           </button>
@@ -612,7 +619,7 @@ function PropertyPanelImpl({
                 revealed: false,
               } as Partial<WhiteboardVoting>)
             }
-            className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             T-shirt
           </button>
@@ -627,7 +634,7 @@ function PropertyPanelImpl({
                 revealed: false,
               } as Partial<WhiteboardVoting>)
             }
-            className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             Dots
           </button>
@@ -637,7 +644,7 @@ function PropertyPanelImpl({
 
       {/* ─── Kanban column count presets (Phase 26) ─────────── */}
       {kanbans.length > 0 && (
-        <div className="flex items-center gap-0.5" aria-label="Kanban columns">
+        <div className="flex items-center gap-0.5" role="group" aria-label="Kanban columns">
           <button
             type="button"
             aria-label="3 columns"
@@ -648,7 +655,7 @@ function PropertyPanelImpl({
                 columnLabels: ["To do", "In progress", "Done"],
               } as Partial<WhiteboardKanbanFrame>)
             }
-            className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             3
           </button>
@@ -662,7 +669,7 @@ function PropertyPanelImpl({
                 columnLabels: ["Backlog", "To do", "In progress", "Done"],
               } as Partial<WhiteboardKanbanFrame>)
             }
-            className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             4
           </button>
@@ -676,7 +683,7 @@ function PropertyPanelImpl({
                 columnLabels: ["Backlog", "To do", "In progress", "Review", "Done"],
               } as Partial<WhiteboardKanbanFrame>)
             }
-            className="px-1.5 py-1 rounded text-[10px] font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
+            className="px-1.5 py-1 rounded text-xs font-mono text-sub hover:text-text hover:bg-surface-deep transition-colors"
           >
             5
           </button>
@@ -723,6 +730,7 @@ function TagsEditor({
   const [capWarning, setCapWarning] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   // Union of all tags currently on the selection — sorted for stable
   // chip order regardless of selection order. Memoised so we don't
@@ -808,6 +816,7 @@ function TagsEditor({
     <div ref={containerRef} className="flex items-center gap-1 relative">
       <div className="w-px h-5 bg-border mx-1" />
       <button
+        ref={triggerRef}
         type="button"
         aria-label="Tags"
         aria-expanded={open}
@@ -821,19 +830,32 @@ function TagsEditor({
         }`}
       >
         <Tag className="w-3.5 h-3.5" aria-hidden="true" />
-        {tags.length > 0 && <span className="text-[9px] font-mono ml-0.5">{tags.length}</span>}
+        {tags.length > 0 && <span className="text-xs font-mono ml-0.5">{tags.length}</span>}
       </button>
       {open && (
+        // Click isolation keeps the popover open; Esc from any control in
+        // it closes and returns focus to the Tags button (WCAG 2.4.3).
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
         <div
+          role="dialog"
+          aria-label="Tags"
           className="absolute top-full right-0 mt-1 bg-surface border border-border rounded-lg shadow-lg p-2 w-[min(17.5rem,calc(100vw-1.5rem))] z-[9998]"
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key !== "Escape") return;
+            // Keep the board's Esc (clear selection) from also firing —
+            // it would unmount this panel and drop focus to <body>.
+            e.stopPropagation();
+            setOpen(false);
+            triggerRef.current?.focus();
+          }}
         >
           {tags.length > 0 ? (
             <div className="flex flex-wrap gap-1 mb-2">
               {tags.map((t) => (
                 <span
                   key={t}
-                  className="inline-flex items-center gap-1 bg-accent/15 text-accent border border-accent/30 rounded-full px-2 py-0.5 text-[10px] font-mono"
+                  className="inline-flex items-center gap-1 bg-accent/15 text-accent border border-accent/30 rounded-full px-2 py-0.5 text-xs font-mono"
                 >
                   {t}
                   <button
@@ -848,7 +870,7 @@ function TagsEditor({
               ))}
             </div>
           ) : (
-            <p className="text-[10px] text-sub italic mb-2">No tags yet.</p>
+            <p className="text-xs text-sub italic mb-2">No tags yet.</p>
           )}
           <form
             onSubmit={(e) => {
@@ -868,21 +890,21 @@ function TagsEditor({
                   e.preventDefault();
                   addTag(input);
                 }
-                if (e.key === "Escape") setOpen(false);
               }}
               maxLength={24}
               placeholder="Add tag…"
+              aria-label="Add tag"
               className="flex-1 bg-surface-deep border border-border rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-accent"
             />
             <button
               type="submit"
               disabled={!input.trim()}
-              className="text-[10px] uppercase font-mono text-sub hover:text-accent px-2 py-1 disabled:opacity-30"
+              className="text-xs uppercase font-mono text-sub hover:text-accent px-2 py-1 disabled:opacity-30"
             >
               Add
             </button>
             {capWarning && (
-              <span role="status" className="text-[9px] font-mono text-amber-400 ml-1">
+              <span role="status" className="text-xs font-mono text-warning ml-1">
                 ⚠ Some objects at 8-tag limit
               </span>
             )}
@@ -910,7 +932,7 @@ function PaletteRow({
   onPick: (c: string) => void;
 }) {
   return (
-    <div className="flex items-center gap-0.5" aria-label={label} title={label}>
+    <div className="flex items-center gap-0.5" role="group" aria-label={label} title={label}>
       {colors.map((c) => (
         <button
           key={c}

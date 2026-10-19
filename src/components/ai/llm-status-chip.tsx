@@ -53,7 +53,10 @@ export function LlmStatusChip() {
       onClick={openSettings}
       data-no-sound="true"
       title={tooltip}
-      aria-label={tooltip}
+      // The tooltip depends on client-only state; keep the button named
+      // in the server render too.
+      aria-label={tooltip ?? "AI settings"}
+      aria-haspopup="dialog"
       className={cn(
         "min-touch-coarse w-8 h-8 rounded-lg flex items-center justify-center",
         "text-sub hover:text-accent hover:bg-accent/5",

@@ -134,7 +134,7 @@ export function KudosHeaderBeacon() {
           {unread > 0 && (
             <span
               aria-hidden="true"
-              className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-accent text-bg text-[10px] leading-[16px] font-semibold text-center"
+              className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-accent text-bg text-xs leading-[16px] font-semibold text-center"
             >
               {unread > 9 ? "9+" : unread}
             </span>

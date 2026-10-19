@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Volume2, VolumeX, Sparkles } from "lucide-react";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
@@ -33,6 +33,16 @@ export function SonificationToggle() {
   const { emit } = useSonification();
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  // Unique per instance: the toggle can render in more than one place.
+  const uid = useId();
+  const ids = {
+    title: `${uid}-title`,
+    enabled: `${uid}-enabled`,
+    volume: `${uid}-volume`,
+    mode: `${uid}-mode`,
+    reducedMotion: `${uid}-reduced-motion`,
+    reducedMotionHint: `${uid}-reduced-motion-hint`,
+  };
 
   useEffect(() => {
     setMounted(true);
@@ -101,7 +111,9 @@ export function SonificationToggle() {
             "transition-all duration-fast",
             enabled && "text-accent"
           )}
-          aria-label={tooltip}
+          // Before mount the tooltip (which reads the persisted store) is
+          // unknown; keep the toggle named on the server render too.
+          aria-label={tooltip ?? "Sound effects"}
           aria-pressed={enabled}
           aria-haspopup="dialog"
           aria-expanded={open}
@@ -117,18 +129,24 @@ export function SonificationToggle() {
           )}
         </button>
       </PopoverAnchor>
-      <PopoverContent align="end" className="w-72 bg-surface border-border p-4 space-y-4">
+      <PopoverContent
+        align="end"
+        aria-labelledby={ids.title}
+        className="w-72 bg-surface border-border p-4 space-y-4"
+      >
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-accent" />
-          <span className="text-sm font-semibold text-text">Sonification</span>
+          <span id={ids.title} className="text-sm font-semibold text-text">
+            Sonification
+          </span>
         </div>
 
         <div className="flex items-center justify-between gap-3">
-          <label htmlFor="sonification-enabled" className="text-xs text-sub">
+          <label htmlFor={ids.enabled} className="text-xs text-sub">
             Enabled
           </label>
           <Switch
-            id="sonification-enabled"
+            id={ids.enabled}
             checked={enabled}
             onCheckedChange={(v) => {
               kick();
@@ -140,7 +158,7 @@ export function SonificationToggle() {
 
         <div>
           <div className="flex items-center justify-between text-xs text-sub mb-2">
-            <span>Volume</span>
+            <span id={ids.volume}>Volume</span>
             <span className="font-data text-text">{Math.round(masterVolume * 100)}%</span>
           </div>
           <Slider
@@ -153,19 +171,24 @@ export function SonificationToggle() {
             min={0}
             max={100}
             step={1}
+            aria-labelledby={ids.volume}
+            thumbProps={{ "aria-valuetext": `${Math.round(masterVolume * 100)}%` }}
           />
         </div>
 
         <div>
-          <div className="text-xs text-sub mb-2">Mode</div>
-          <div className="grid grid-cols-3 gap-1">
+          <div id={ids.mode} className="text-xs text-sub mb-2">
+            Mode
+          </div>
+          <div role="group" aria-labelledby={ids.mode} className="grid grid-cols-3 gap-1">
             {MODE_OPTIONS.map((m) => (
               <button
                 key={m.id}
                 type="button"
                 onClick={() => setMode(m.id)}
+                aria-pressed={mode === m.id}
                 className={cn(
-                  "text-[10px] uppercase tracking-wider py-1.5 rounded border transition",
+                  "text-xs uppercase tracking-wider py-1.5 rounded border transition",
                   mode === m.id
                     ? "border-accent/60 bg-accent/10 text-accent"
                     : "border-border bg-bg text-sub hover:text-text"
@@ -180,12 +203,19 @@ export function SonificationToggle() {
 
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-xs text-text">Respect reduced motion</div>
-            <div className="text-[10px] text-sub">
+            <div id={ids.reducedMotion} className="text-xs text-text">
+              Respect reduced motion
+            </div>
+            <div id={ids.reducedMotionHint} className="text-xs text-sub">
               {reducedMotion ? "System requests reduced motion" : "System allows animations"}
             </div>
           </div>
-          <Switch checked={respectReducedMotion} onCheckedChange={setRespectReducedMotion} />
+          <Switch
+            checked={respectReducedMotion}
+            onCheckedChange={setRespectReducedMotion}
+            aria-labelledby={ids.reducedMotion}
+            aria-describedby={ids.reducedMotionHint}
+          />
         </div>
 
         <button

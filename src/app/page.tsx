@@ -146,7 +146,7 @@ export default function Home() {
             <div className="font-mono text-3xl sm:text-3xl md:text-h5 font-bold text-accent text-glow leading-none">
               {stat.value}
             </div>
-            <div className="font-mono text-[10px] sm:text-nano text-sub tracking-wider uppercase mt-1 truncate">
+            <div className="font-mono text-xs text-sub tracking-wider uppercase mt-1 truncate">
               {stat.label}
             </div>
           </div>
@@ -212,9 +212,7 @@ export default function Home() {
                 {category}
               </span>
             </span>
-            <span className="font-mono text-[10px] sm:text-xs text-sub shrink-0">
-              {countLabel(tools)}
-            </span>
+            <span className="font-mono text-xs text-sub shrink-0">{countLabel(tools)}</span>
           </summary>
           <MoodReveal
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 p-4 sm:p-5 pt-2 sm:pt-2"

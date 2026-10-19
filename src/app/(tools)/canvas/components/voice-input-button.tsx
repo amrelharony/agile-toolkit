@@ -424,9 +424,9 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
         aria-busy={connecting}
         className={`inline-flex items-center justify-center w-8 h-8 rounded transition-colors ${
           listening
-            ? "bg-red-500/20 text-red-300 ring-2 ring-red-500/60 motion-safe:animate-pulse"
+            ? "bg-danger/20 text-danger ring-2 ring-red-500/60 motion-safe:animate-pulse"
             : connecting
-              ? "bg-amber-500/20 text-amber-300 ring-2 ring-amber-500/60"
+              ? "bg-warning/20 text-warning ring-2 ring-amber-500/60"
               : "text-sub hover:text-text hover:bg-surface-deep"
         }`}
         data-canvas-export-ignore="true"
@@ -448,7 +448,7 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
           // open — those use z-[9999]. An open mic is sensitive
           // state; hiding it behind a modal makes users forget they
           // are still recording.
-          className="fixed bottom-[max(1.5rem,calc(env(safe-area-inset-bottom)+0.75rem))] left-1/2 -translate-x-1/2 z-[9999] bg-surface border border-red-400/40 rounded-full px-4 py-2 shadow-xl flex items-center gap-2 max-w-[80vw]"
+          className="fixed bottom-[max(1.5rem,calc(env(safe-area-inset-bottom)+0.75rem))] left-1/2 -translate-x-1/2 z-[9999] bg-surface border border-danger/40 rounded-full px-4 py-2 shadow-xl flex items-center gap-2 max-w-[80vw]"
           data-canvas-export-ignore="true"
         >
           {/* Distinct animation per state so users can tell at a glance
@@ -466,7 +466,7 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
             className={`w-2 h-2 rounded-full ${listening ? "bg-red-500 motion-safe:animate-pulse" : "bg-amber-400 motion-safe:animate-ping"}`}
             aria-hidden="true"
           />
-          <span className="text-xs text-red-200 font-mono uppercase tracking-wider">
+          <span className="text-xs text-danger font-mono uppercase tracking-wider">
             {connecting ? "Opening mic" : "Listening"}
           </span>
           <span className="text-xs text-text truncate max-w-[60vw]">
@@ -476,7 +476,7 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
           <button
             type="button"
             onClick={stop}
-            className="text-[10px] uppercase font-mono text-sub hover:text-text ml-1"
+            className="text-xs uppercase font-mono text-sub hover:text-text ml-1"
           >
             Stop
           </button>
@@ -485,14 +485,14 @@ export function VoiceInputButton({ boardId, worldCenter, readOnly = false }: Pro
       {error && (
         <div
           role="alert"
-          className="fixed bottom-[max(1.5rem,calc(env(safe-area-inset-bottom)+0.75rem))] left-1/2 -translate-x-1/2 z-modal bg-surface border border-amber-400/40 rounded-full px-4 py-2 shadow-xl"
+          className="fixed bottom-[max(1.5rem,calc(env(safe-area-inset-bottom)+0.75rem))] left-1/2 -translate-x-1/2 z-modal bg-surface border border-warning/40 rounded-full px-4 py-2 shadow-xl"
           data-canvas-export-ignore="true"
         >
-          <span className="text-xs text-amber-200">{error}</span>
+          <span className="text-xs text-warning">{error}</span>
           <button
             type="button"
             onClick={() => setError(null)}
-            className="text-[10px] uppercase font-mono text-sub hover:text-text ml-2"
+            className="text-xs uppercase font-mono text-sub hover:text-text ml-2"
           >
             Dismiss
           </button>

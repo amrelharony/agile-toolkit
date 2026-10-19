@@ -296,7 +296,7 @@ export function JtbdMapperClient() {
                   size="sm"
                   onClick={() => setEditingId(job.id)}
                   className="h-7 px-2 text-xs text-sub hover:text-accent"
-                  aria-label={`Edit job story`}
+                  aria-label={`Edit job story: when ${job.situation || "(situation)"}`}
                 >
                   Edit
                 </Button>
@@ -305,9 +305,9 @@ export function JtbdMapperClient() {
                   size="sm"
                   onClick={() => removeJob(job.id)}
                   className="h-7 w-7 p-0 text-sub hover:text-danger"
-                  aria-label="Remove job story"
+                  aria-label={`Remove job story: when ${job.situation || "(situation)"}`}
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                 </Button>
               </div>
             </div>

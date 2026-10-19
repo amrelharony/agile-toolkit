@@ -270,7 +270,9 @@ export function ImpedimentsClient() {
           <Card className="bg-surface border-border">
             <CardContent className="p-4">
               <p className="text-xs text-sub mb-1">Escalated</p>
-              <p className="text-fluid-h2 font-data font-bold text-[#ffaa00]">{stats.escalated}</p>
+              <p className="text-fluid-h2 font-data font-bold text-accent-amber">
+                {stats.escalated}
+              </p>
             </CardContent>
           </Card>
           <Card className="bg-surface border-border">
@@ -280,17 +282,17 @@ export function ImpedimentsClient() {
               </p>
               {medianResolutionCI ? (
                 <>
-                  <p className="text-fluid-h2 font-data font-bold text-[#00ff88]">
+                  <p className="text-fluid-h2 font-data font-bold text-accent-green">
                     {Math.round(medianResolutionCI.point)}
                     <span className="text-sm font-normal text-sub ml-1">days</span>
                   </p>
-                  <p className="text-[11px] text-sub mt-1 font-data">
+                  <p className="text-xs text-sub mt-1 font-data">
                     95% CI [{Math.round(medianResolutionCI.lower)},{" "}
                     {Math.round(medianResolutionCI.upper)}]
                   </p>
                 </>
               ) : (
-                <p className="text-fluid-h2 font-data font-bold text-[#00ff88]">
+                <p className="text-fluid-h2 font-data font-bold text-accent-green">
                   {stats.avgDays}
                   <span className="text-sm font-normal text-sub ml-1">days</span>
                 </p>
@@ -323,10 +325,10 @@ export function ImpedimentsClient() {
             {raisedTrend &&
               (raisedTrend.significant ? (
                 <span
-                  className={`inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
+                  className={`inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border ${
                     raisedTrend.trend === "up"
-                      ? "border-[#ef4444]/40 text-[#ef4444] bg-[#ef4444]/10"
-                      : "border-[#00ff88]/40 text-[#00ff88] bg-[#00ff88]/10"
+                      ? "border-danger/40 text-danger bg-danger/10"
+                      : "border-accent-green/40 text-accent-green bg-accent-green/10"
                   }`}
                 >
                   <TrendingUp
@@ -336,13 +338,13 @@ export function ImpedimentsClient() {
                   <span className="opacity-60">· p={raisedTrend.pValue.toFixed(3)}</span>
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface-deep">
+                <span className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-border text-sub bg-surface-deep">
                   <TrendingUp className="w-3 h-3" />
                   Impediment creation trend: no significant change
                 </span>
               ))}
             {openChangepoints.length > 0 && (
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-[#ffaa00]/40 text-[#ffaa00] bg-[#ffaa00]/10">
+              <span className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-1 rounded-md border border-accent-amber/40 text-accent-amber bg-accent-amber/10">
                 <AlertTriangle className="w-3 h-3" />
                 {openChangepoints.length} regime shift{openChangepoints.length !== 1 ? "s" : ""}{" "}
                 detected (CUSUM)
@@ -392,13 +394,16 @@ export function ImpedimentsClient() {
 
           {/* Filters */}
           <div className="flex items-center gap-2 flex-wrap">
-            <Filter className="w-4 h-4 text-sub" />
+            <Filter className="w-4 h-4 text-sub" aria-hidden="true" />
 
             <Select
               value={filterStatus}
               onValueChange={(v) => setFilterStatus(v as Status | "All")}
             >
-              <SelectTrigger className="h-8 text-xs bg-surface border-border text-text w-28">
+              <SelectTrigger
+                aria-label="Filter by status"
+                className="h-8 text-xs bg-surface border-border text-text w-28"
+              >
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent className="bg-surface border-border">
@@ -413,7 +418,10 @@ export function ImpedimentsClient() {
               value={filterCategory}
               onValueChange={(v) => setFilterCategory(v as Category | "All")}
             >
-              <SelectTrigger className="h-8 text-xs bg-surface border-border text-text w-36">
+              <SelectTrigger
+                aria-label="Filter by category"
+                className="h-8 text-xs bg-surface border-border text-text w-36"
+              >
                 <SelectValue placeholder="Category" />
               </SelectTrigger>
               <SelectContent className="bg-surface border-border">
@@ -430,7 +438,10 @@ export function ImpedimentsClient() {
               value={filterSeverity}
               onValueChange={(v) => setFilterSeverity(v as Severity | "All")}
             >
-              <SelectTrigger className="h-8 text-xs bg-surface border-border text-text w-32">
+              <SelectTrigger
+                aria-label="Filter by severity"
+                className="h-8 text-xs bg-surface border-border text-text w-32"
+              >
                 <SelectValue placeholder="Severity" />
               </SelectTrigger>
               <SelectContent className="bg-surface border-border">

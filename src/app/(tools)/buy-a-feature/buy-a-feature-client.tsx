@@ -187,7 +187,7 @@ export function BuyAFeatureClient() {
                           log(BUY_FEATURE_ACTIONS.FEATURE_REMOVED, { id: it.id });
                         }}
                         aria-label="Remove feature"
-                        className="min-touch-coarse inline-flex items-center justify-center ml-auto text-sub hover:text-red-400"
+                        className="min-touch-coarse inline-flex items-center justify-center ml-auto text-sub hover:text-danger"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo, useState, useEffect } from "react";
+import { useRef, useMemo, useState, useEffect, useId } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -213,6 +213,7 @@ function ConfigField({
   // every team member's effective hours). Decimal entry like ".5" or "0.05"
   // is also broken when each keystroke is parsed and clamped immediately.
   const [draft, setDraft] = useState(String(value));
+  const inputId = useId();
   useEffect(() => setDraft(String(value)), [value]);
 
   const commit = () => {
@@ -236,9 +237,12 @@ function ConfigField({
 
   return (
     <div className="space-y-1.5">
-      <Label className="text-sub text-xs">{label}</Label>
+      <Label htmlFor={inputId} className="text-sub text-xs">
+        {label}
+      </Label>
       <div className="relative">
         <Input
+          id={inputId}
           type="number"
           inputMode="decimal"
           value={draft}
@@ -275,13 +279,17 @@ function MemberRow({
   onRemove: () => void;
   canRemove: boolean;
 }) {
+  const fieldId = useId();
   return (
     <div className="flex flex-col gap-2">
       <div className="md:grid md:grid-cols-[1fr_1fr_0.6fr_0.5fr_0.6fr_auto] md:gap-3 md:items-end">
         <div className="grid grid-cols-2 gap-2 md:contents">
           <div className="space-y-1.5 col-span-2">
-            <Label className="text-sub text-xs">Name</Label>
+            <Label htmlFor={`${fieldId}-name`} className="text-sub text-xs">
+              Name
+            </Label>
             <Input
+              id={`${fieldId}-name`}
               placeholder="Team member"
               value={member.name}
               onChange={(e) => onUpdate({ name: e.target.value })}
@@ -290,8 +298,11 @@ function MemberRow({
           </div>
 
           <div className="space-y-1.5 col-span-2">
-            <Label className="text-sub text-xs">Role</Label>
+            <Label htmlFor={`${fieldId}-role`} className="text-sub text-xs">
+              Role
+            </Label>
             <Input
+              id={`${fieldId}-role`}
               placeholder="e.g. Developer"
               value={member.role}
               onChange={(e) => onUpdate({ role: e.target.value })}
@@ -300,8 +311,11 @@ function MemberRow({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-sub text-xs">Availability %</Label>
+            <Label htmlFor={`${fieldId}-availability`} className="text-sub text-xs">
+              Availability %
+            </Label>
             <Input
+              id={`${fieldId}-availability`}
               type="number"
               min={0}
               max={100}
@@ -317,8 +331,11 @@ function MemberRow({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-sub text-xs">Days Off</Label>
+            <Label htmlFor={`${fieldId}-days-off`} className="text-sub text-xs">
+              Days Off
+            </Label>
             <Input
+              id={`${fieldId}-days-off`}
               type="number"
               min={0}
               value={member.daysOff}
@@ -333,14 +350,14 @@ function MemberRow({
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-sub text-xs">Eff. Hours</Label>
+            <span className="text-xs font-medium leading-none text-sub">Eff. Hours</span>
             <div className="h-9 flex items-center px-3 rounded-md bg-accent/5 border border-accent/20">
               <span className="font-data font-semibold text-accent">{round(effectiveHours)}</span>
             </div>
           </div>
 
           <div className="space-y-1.5 flex md:block flex-col items-end md:items-stretch">
-            <Label className="text-sub text-xs invisible">Del</Label>
+            <span className="text-xs font-medium leading-none text-sub invisible">Del</span>
             <Button
               variant="danger-ghost"
               size="icon"
@@ -349,7 +366,7 @@ function MemberRow({
               aria-label={`Remove member ${member.name || "(unnamed)"}`}
               className="h-9 w-9 disabled:opacity-30"
             >
-              <Trash2 className="w-4 h-4" />
+              <Trash2 className="w-4 h-4" aria-hidden="true" />
             </Button>
           </div>
         </div>
@@ -605,8 +622,11 @@ export function CapacityPlannerClient() {
           {/* SmartInput — points committed (next sprint). */}
           <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label className="text-sub text-xs flex items-center gap-1.5">
-                <Target className="w-3.5 h-3.5" />
+              <Label
+                htmlFor="capacity-points-committed"
+                className="text-sub text-xs flex items-center gap-1.5"
+              >
+                <Target className="w-3.5 h-3.5" aria-hidden="true" />
                 Points Committed (next sprint)
               </Label>
               <SmartInput<number>
@@ -615,6 +635,7 @@ export function CapacityPlannerClient() {
                 render={({ ghost, chip, accept }) => (
                   <div>
                     <Input
+                      id="capacity-points-committed"
                       type="number"
                       min={0}
                       value={config.pointsCommitted ?? ""}
@@ -638,7 +659,9 @@ export function CapacityPlannerClient() {
                 velocity history. Only shown when there's a non-trivial sample. */}
             {velocityHistory.length > 0 && (
               <div className="space-y-1.5">
-                <Label className="text-sub text-xs">Forecast confidence</Label>
+                <span className="text-xs font-medium leading-none text-sub">
+                  Forecast confidence
+                </span>
                 <div
                   className="h-9 inline-flex items-center px-3 rounded-md border text-xs font-mono uppercase tracking-wider"
                   style={{
@@ -759,7 +782,7 @@ export function CapacityPlannerClient() {
                             <p className="text-sm font-medium text-text">{m.name}</p>
                             {m.role && <p className="text-xs text-sub">{m.role}</p>}
                             {m.description && (
-                              <p className="text-sub text-[11px] mt-0.5 mb-0.5 whitespace-pre-wrap break-words">
+                              <p className="text-sub text-xs mt-0.5 mb-0.5 whitespace-pre-wrap break-words">
                                 {m.description}
                               </p>
                             )}
@@ -778,7 +801,7 @@ export function CapacityPlannerClient() {
                           aria-valuemax={100}
                         >
                           <div
-                            className="h-full rounded-full bg-gradient-to-r from-[#00f0ff]/60 to-[#00f0ff] transition-all duration-300"
+                            className="h-full rounded-full bg-gradient-to-r from-accent/60 to-accent transition-all duration-300"
                             style={{ width: `${Math.min(pct, 100)}%` }}
                           />
                         </div>

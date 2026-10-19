@@ -199,13 +199,14 @@ function TrafficButton({
   const label = light.charAt(0).toUpperCase() + light.slice(1);
   const ring = active
     ? light === "green"
-      ? "ring-2 ring-[#22c55e]"
+      ? "ring-2 ring-success"
       : light === "yellow"
-        ? "ring-2 ring-[#eab308]"
-        : "ring-2 ring-[#ef4444]"
+        ? "ring-2 ring-warning"
+        : "ring-2 ring-danger"
     : "";
   return (
     <button
+      type="button"
       onClick={onClick}
       aria-pressed={active}
       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-all border ${
@@ -215,7 +216,7 @@ function TrafficButton({
       } ${ring}`}
       title={label}
     >
-      <span>{emoji}</span>
+      <span aria-hidden="true">{emoji}</span>
       <span>{label}</span>
     </button>
   );
@@ -232,11 +233,12 @@ function TrendButton({
 }) {
   const arrow = trend === "up" ? "↑" : trend === "same" ? "→" : "↓";
   const label = trend === "up" ? "Up" : trend === "same" ? "Same" : "Down";
-  const color =
-    trend === "up" ? "text-[#22c55e]" : trend === "same" ? "text-sub" : "text-[#ef4444]";
+  const color = trend === "up" ? "text-success" : trend === "same" ? "text-sub" : "text-danger";
   return (
     <button
+      type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm transition-all border ${
         active
           ? "bg-card border-border text-text"
@@ -244,7 +246,9 @@ function TrendButton({
       }`}
       title={label}
     >
-      <span className={`text-base ${color}`}>{arrow}</span>
+      <span className={`text-base ${color}`} aria-hidden="true">
+        {arrow}
+      </span>
       <span className="text-xs">{label}</span>
     </button>
   );
@@ -405,10 +409,10 @@ export function HealthCheckClient() {
                     currentHealth === null
                       ? "text-sub"
                       : currentHealth >= 75
-                        ? "text-[#22c55e]"
+                        ? "text-success"
                         : currentHealth >= 50
-                          ? "text-[#eab308]"
-                          : "text-[#ef4444]"
+                          ? "text-warning"
+                          : "text-danger"
                   }`}
                 >
                   {currentHealth === null ? "—" : `${currentHealth}%`}
@@ -436,8 +440,11 @@ export function HealthCheckClient() {
 
           {/* Sprint name */}
           <div className="flex items-center gap-3">
-            <label className="text-sm text-sub w-24 shrink-0">Sprint name</label>
+            <label htmlFor="health-check-sprint" className="text-sm text-sub w-24 shrink-0">
+              Sprint name
+            </label>
             <BlurInput
+              id="health-check-sprint"
               value={current.sprintName}
               onCommit={setSprintName}
               placeholder="e.g. Sprint 42"
@@ -466,7 +473,11 @@ export function HealthCheckClient() {
                 className="flex flex-col gap-2 sm:grid sm:grid-cols-[1fr_auto_auto] sm:gap-3 sm:items-center py-1.5 border-b border-border last:border-0"
               >
                 <span className="text-sm text-text font-medium">{dim}</span>
-                <div className="flex gap-1.5 w-52 justify-center">
+                <div
+                  role="group"
+                  aria-label={`${dim} status`}
+                  className="flex gap-1.5 w-52 justify-center"
+                >
                   {/* No light is active until the dimension is rated —
                       including a missing/legacy dimension in persisted
                       state (R11), which `lights` treats as unrated. */}
@@ -479,7 +490,11 @@ export function HealthCheckClient() {
                     />
                   ))}
                 </div>
-                <div className="flex gap-1.5 w-48 justify-center">
+                <div
+                  role="group"
+                  aria-label={`${dim} trend`}
+                  className="flex gap-1.5 w-48 justify-center"
+                >
                   {/* R11-fix: same optional-chain defence as the light
                       buttons above — missing dimension in persisted
                       state should fall back to "same" rather than crash. */}
@@ -614,10 +629,10 @@ export function HealthCheckClient() {
                           <span
                             className={`font-data font-semibold ${
                               health >= 75
-                                ? "text-[#22c55e]"
+                                ? "text-success"
                                 : health >= 50
-                                  ? "text-[#eab308]"
-                                  : "text-[#ef4444]"
+                                  ? "text-warning"
+                                  : "text-danger"
                             }`}
                           >
                             {health}%

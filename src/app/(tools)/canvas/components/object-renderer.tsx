@@ -200,6 +200,10 @@ function ObjectRendererImpl({
           object={o as WhiteboardTable}
           selected={selected}
           readOnly={!onMutate}
+          editing={editing ?? false}
+          // A table has no single text field, so committing "" only
+          // clears the board's editing flag (the cells save via onMutate).
+          onEditEnd={() => onCommitEdit?.(o.id, "")}
           onPointerDown={handle}
           onMutate={(id, patch) => onMutate?.(id, patch)}
         />

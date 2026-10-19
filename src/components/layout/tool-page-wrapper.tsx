@@ -59,7 +59,9 @@ export function ToolPageWrapper({
         {showToolbar && (
           <div
             className="shrink-0 flex items-center gap-2 flex-wrap"
-            role="toolbar"
+            // "group", not "toolbar": a toolbar promises arrow-key movement
+            // between its controls, which this row doesn't implement.
+            role="group"
             aria-label="Tool history controls"
           >
             <UndoRedoControls toolId={toolId!} />
