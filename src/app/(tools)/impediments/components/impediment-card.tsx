@@ -20,6 +20,7 @@ import { emit as sonify } from "@/lib/sonification/emit";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { IMPEDIMENT_ACTIONS } from "@/lib/history/event-actions";
+import { SourceLink } from "@/components/handoff/source-link";
 import type { Impediment, Status } from "../types";
 import { daysSince } from "../helpers";
 import { useImpedimentStore } from "../use-impediment-store";
@@ -85,6 +86,8 @@ export function ImpedimentCard({ impediment }: { impediment: Impediment }) {
           {impediment.description && (
             <p className="text-xs text-sub mt-0.5 line-clamp-2">{impediment.description}</p>
           )}
+          {/* Raised from another tool (a retro action, a standup blocker). */}
+          <SourceLink sourceRef={impediment.sourceRef} className="mt-1" />
         </div>
         <Button
           variant="danger-ghost"

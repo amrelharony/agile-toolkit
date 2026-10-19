@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
+import Link from "next/link";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ActionRow } from "@/components/shared/action-row";
 import { ExportButton } from "@/components/shared/export-button";
@@ -30,8 +31,12 @@ import { useToolSonification } from "@/lib/sonification/use-sonification";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CEREMONY_TIMER_ACTIONS } from "@/lib/history/event-actions";
 import { undoable } from "@/lib/utils/undoable";
+import { toast } from "@/lib/utils/toast";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { buildExample } from "./example";
 import { toMarkdown, type Participant } from "./markdown";
+import { rosterParticipantsToAdd } from "./roster";
 
 // ---------------------------------------------------------------------------
 // Types & constants
@@ -481,6 +486,23 @@ export function CeremonyTimerClient() {
     });
   };
 
+  // Everyone on the Team page who isn't in the speaking order yet, added at
+  // the end with their roster id. Only adds, so it needs no Undo: each
+  // person can be removed (with Undo) like any other participant.
+  const roster = useTeamRoster();
+  const workspaceReady = useWorkspaceHydrated();
+  const loadTeam = () => {
+    const additions = rosterParticipantsToAdd(
+      participants,
+      useWorkspaceStore.getState().teamMembers ?? []
+    );
+    if (additions.length === 0) {
+      toast("Everyone on the team is already in the list.");
+      return;
+    }
+    setParticipants([...participants, ...additions]);
+  };
+
   // ---------------------------------------------------------------------------
   // Example
   // ---------------------------------------------------------------------------
@@ -835,6 +857,26 @@ export function CeremonyTimerClient() {
                     <Plus className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </div>
+
+                {workspaceReady && roster.length === 0 ? (
+                  <p className="text-xs text-sub">
+                    <Link href="/team" className="text-accent underline-offset-4 hover:underline">
+                      Set up your team
+                    </Link>{" "}
+                    once to load everyone here in one click.
+                  </p>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="toolkit"
+                    onClick={loadTeam}
+                    disabled={roster.length === 0}
+                    className="gap-1.5 self-start"
+                  >
+                    <Users className="h-4 w-4" aria-hidden="true" />
+                    Load team
+                  </Button>
+                )}
 
                 {/* Participant list */}
                 {participants.length > 0 && (

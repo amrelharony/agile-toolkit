@@ -8,7 +8,8 @@
  * doc stays the single source of truth.
  */
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useId, useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { RotateCcw, Eraser } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -23,7 +24,11 @@ import { type HistoryLogger } from "@/lib/history/use-history-logger";
 import { RETRO_ACTIONS } from "@/lib/history/event-actions";
 import { kMeansAuto } from "@/lib/analytics/clustering";
 import { undoable } from "@/lib/utils/undoable";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { RetroCard as StoredRetroCard } from "@/lib/stores/workspace-types";
+import type { HandoffLink } from "@/lib/handoffs/types";
 import { type BoardState, MAX_VOTES, PHASES } from "../types";
+import { carriedOverCard } from "../archive";
 import {
   makeId,
   CLUSTER_MIN_CARDS,
@@ -36,6 +41,7 @@ import {
 import { PhaseIndicator } from "./phase-indicator";
 import { TimerWidget } from "./timer-widget";
 import { RetroColumnPanel } from "./retro-column-panel";
+import { LastRetroActions } from "./last-retro-actions";
 import { toMarkdown } from "../markdown";
 import { themed, tint } from "@/lib/utils/theme-color";
 
@@ -268,6 +274,54 @@ export function Board({
     [onUpdate]
   );
 
+  // Where an action was sent. Read fresh through onUpdate, like every edit.
+  const handleLinksChange = useCallback(
+    (id: string, update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) => {
+      onUpdate((prev) => ({
+        ...prev,
+        cards: prev.cards.map((c) => (c.id === id ? { ...c, sentTo: update(c.sentTo) } : c)),
+      }));
+    },
+    [onUpdate]
+  );
+
+  // Copy an action from the last retro onto this board as an action item.
+  // Once per action: a second click while the first is on the board is a no-op.
+  const handleCarryOver = useCallback(
+    (action: StoredRetroCard) => {
+      const card = carriedOverCard(
+        action,
+        state.format.columns.map((c) => c.key),
+        makeId()
+      );
+      undoable({
+        label: `Carried over “${shortName(action.text)}”`,
+        apply: () => {
+          onUpdate((prev) =>
+            prev.cards.some((c) => c.carriedFrom === action.id)
+              ? prev
+              : { ...prev, cards: [...prev.cards, card] }
+          );
+          log(RETRO_ACTIONS.CARD_ADDED, {
+            cardId: card.id,
+            columnKey: card.columnKey,
+            text: card.text,
+            carriedFrom: action.id,
+          });
+        },
+        revert: () =>
+          onUpdate((prev) => ({ ...prev, cards: prev.cards.filter((c) => c.id !== card.id) })),
+      });
+    },
+    [onUpdate, log, state.format.columns]
+  );
+
+  // Team names for the assignee field (Actions phase).
+  const assigneeListId = useId();
+  const teamNames = useWorkspaceStore(
+    useShallow((s) => Array.from(new Set((s.teamMembers ?? []).map((m) => (m.name ?? "").trim()))))
+  ).filter(Boolean);
+
   const promptConfig = useMemo(
     () => ({
       toolName: "Retrospective Board",
@@ -462,6 +516,15 @@ export function Board({
           </div>
         )}
 
+        {/* ── Last retro's actions (Write phase) ───────────── */}
+        {state.phase === "write" && (
+          <LastRetroActions
+            previousRetroId={state.previousRetroId}
+            cards={state.cards}
+            onCarryOver={handleCarryOver}
+          />
+        )}
+
         {/* ── Columns ──────────────────────────────────────── */}
         <div className={`grid ${gridClass} gap-4`}>
           {state.format.columns.map((col) => {
@@ -482,10 +545,20 @@ export function Board({
                 onToggleAction={handleToggleAction}
                 onAssigneeChange={handleAssigneeChange}
                 onToggleDiscussing={handleToggleDiscussing}
+                onLinksChange={handleLinksChange}
+                assigneeListId={teamNames.length > 0 ? assigneeListId : undefined}
               />
             );
           })}
         </div>
+
+        {state.phase === "actions" && teamNames.length > 0 && (
+          <datalist id={assigneeListId}>
+            {teamNames.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+        )}
 
         {/* ── Footer actions ───────────────────────────────── */}
         <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-border">

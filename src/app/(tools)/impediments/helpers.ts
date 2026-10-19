@@ -4,7 +4,49 @@
  * series, or badges. No React.
  */
 
-import type { Impediment } from "./types";
+import type { Impediment as WorkspaceImpediment } from "@/lib/stores/workspace-types";
+import type { Impediment, Severity } from "./types";
+
+const SEVERITY_TO_WORKSPACE: Record<Severity, WorkspaceImpediment["severity"]> = {
+  Low: "low",
+  Medium: "medium",
+  High: "high",
+  Critical: "critical",
+};
+
+/**
+ * The workspace.impediments row for a local impediment: what the one-way
+ * bridge in impediments-client writes, and what a hand-off writes alongside
+ * the local row (same id), so the bridge finds nothing to change. Keeps
+ * where it came from: `source` (default "manual") and `sourceRef`.
+ */
+export function toWorkspaceImpediment(local: Impediment): WorkspaceImpediment {
+  return {
+    id: local.id,
+    title: local.title,
+    severity: SEVERITY_TO_WORKSPACE[local.severity] ?? "medium",
+    raisedAt: local.raisedDate,
+    resolvedAt: local.resolvedDate,
+    owner: local.assignedTo || undefined,
+    source: local.source ?? "manual",
+    sourceRef: local.sourceRef,
+  };
+}
+
+/** Whether a workspace row already matches what the bridge would write. */
+export function sameWorkspaceImpediment(a: WorkspaceImpediment, b: WorkspaceImpediment): boolean {
+  return (
+    a.title === b.title &&
+    a.severity === b.severity &&
+    a.raisedAt === b.raisedAt &&
+    a.resolvedAt === b.resolvedAt &&
+    a.owner === b.owner &&
+    (a.source ?? "manual") === (b.source ?? "manual") &&
+    a.sourceRef?.tool === b.sourceRef?.tool &&
+    a.sourceRef?.id === b.sourceRef?.id &&
+    a.sourceRef?.doc === b.sourceRef?.doc
+  );
+}
 
 export function daysSince(dateStr: string): number {
   const d = new Date(dateStr).getTime();

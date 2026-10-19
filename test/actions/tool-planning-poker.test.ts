@@ -7,7 +7,8 @@
  *
  *   1. registration — list_state/compute_consensus/list_scales read;
  *      record_estimate/remove_estimate write.
- *   2. record_estimate + list_state — append + per-scale tally.
+ *   2. record_estimate + list_state — append + per-scale tally; list_state
+ *      also reports the queue (stories sent from other tools).
  *   3. remove_estimate refuses an unknown id.
  *   4. compute_consensus — average/median/mode/spread + consensus band.
  *   5. list_scales — fibonacci/t-shirt reference.
@@ -40,17 +41,15 @@ describe("tool.planning_poker estimation log", () => {
   beforeEach(() => useWorkspaceStore.setState({ pokerEstimationLogs: [] }));
 
   it("records an estimate and tallies by scale", async () => {
-    const a = (await registry
-      .get("tool.planning_poker.record_estimate")!
-      .handler(
-        {
-          storyTitle: "Login flow",
-          finalEstimate: "5",
-          scaleType: "fibonacci",
-          votes: ["3", "5", "5"],
-        },
-        ctx()
-      )) as { added: boolean; id: string };
+    const a = (await registry.get("tool.planning_poker.record_estimate")!.handler(
+      {
+        storyTitle: "Login flow",
+        finalEstimate: "5",
+        scaleType: "fibonacci",
+        votes: ["3", "5", "5"],
+      },
+      ctx()
+    )) as { added: boolean; id: string };
     expect(a.added).toBe(true);
 
     const r = (await registry.get("tool.planning_poker.list_state")!.handler({}, ctx())) as {
@@ -63,6 +62,38 @@ describe("tool.planning_poker estimation log", () => {
     expect(r.totalEstimates).toBe(1);
     expect(r.byScale["fibonacci"]).toBe(1);
     expect(r.estimates[0]).toMatchObject({ storyTitle: "Login flow", finalEstimate: "5" });
+  });
+
+  it("list_state reports the queue of stories waiting for estimation", async () => {
+    const empty = (await registry.get("tool.planning_poker.list_state")!.handler({}, ctx())) as {
+      queue: unknown[];
+    };
+    expect(empty.queue).toEqual([]);
+
+    const item = {
+      id: "q1",
+      title: "Search products",
+      sourceRef: { tool: "story-mapper", id: "c1", doc: "story-mapper:current" },
+      queuedAt: "2026-10-19T09:00:00.000Z",
+    };
+    useWorkspaceStore.setState({
+      pokerEstimationLogs: [{ id: "pokerEstimationLog:current", estimates: [], queue: [item] }],
+    });
+    const r = (await registry.get("tool.planning_poker.list_state")!.handler({}, ctx())) as {
+      totalEstimates: number;
+      queue: unknown[];
+    };
+    expect(r.totalEstimates).toBe(0);
+    expect(r.queue).toEqual([item]);
+
+    // Recording an estimate keeps the queue.
+    await registry
+      .get("tool.planning_poker.record_estimate")!
+      .handler({ storyTitle: "Other", finalEstimate: "3" }, ctx());
+    const after = (await registry.get("tool.planning_poker.list_state")!.handler({}, ctx())) as {
+      queue: unknown[];
+    };
+    expect(after.queue).toEqual([item]);
   });
 
   it("remove_estimate refuses an unknown id", async () => {

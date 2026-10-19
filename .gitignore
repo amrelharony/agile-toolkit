@@ -64,3 +64,6 @@ next-env.d.ts
 # name (mascot.<sha256-prefix>.glb) so it can be cached immutably.
 /public/mascot/*.glb
 !/public/mascot/mascot.*.glb
+
+# Lighthouse CI local runs (npm run lighthouse)
+/.lighthouseci/

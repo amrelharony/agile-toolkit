@@ -16,6 +16,12 @@ import { generateCostOfDelayPrompts } from "@/lib/ai-prompts/cost-of-delay";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { COD_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+import {
+  BacklogRowLink,
+  ImportFromBacklog,
+  useBacklogImport,
+} from "@/components/prioritization/backlog-link";
+import { linkNewRow } from "@/lib/prioritization/backlog-links";
 
 // Recharts loads with the chart, not the page.
 const CostOfDelayChart = dynamic(() => import("./charts").then((m) => m.CostOfDelayChart), {
@@ -38,6 +44,10 @@ export function CostOfDelayClient() {
   const [perWeekUsd, setPerWeekUsd] = useState("");
   const [weeksDelayed, setWeeksDelayed] = useState("");
 
+  // "Import from backlog" (or a "Score with Cost of Delay" link) fills the
+  // title; the next initiative added links to that backlog item.
+  const backlog = useBacklogImport("cost-of-delay", (picked) => setTitle(picked.name));
+
   function add() {
     if (!title.trim()) return;
     // BUG-T2-cost-of-delay-1: use Number() not parseFloat() so "12abc"
@@ -48,16 +58,20 @@ export function CostOfDelayClient() {
     const safeWk = Number.isFinite(wk) ? Math.max(0, wk) : 0;
     const safeDl = Number.isFinite(dl) ? Math.max(0, dl) : 0;
     const total = safeWk * safeDl;
-    const item: PrioritizationItem = {
-      id: crypto.randomUUID(),
-      framework: "cost-of-delay",
-      title: title.trim().slice(0, 200),
-      score: total,
-      fields: { perWeekUsd: safeWk, weeksDelayed: safeDl, totalCost: total },
-      status: "scored",
-      updatedAt: new Date().toISOString(),
-    };
+    const item: PrioritizationItem = linkNewRow(
+      {
+        id: crypto.randomUUID(),
+        framework: "cost-of-delay",
+        title: title.trim().slice(0, 200),
+        score: total,
+        fields: { perWeekUsd: safeWk, weeksDelayed: safeDl, totalCost: total },
+        status: "scored",
+        updatedAt: new Date().toISOString(),
+      },
+      backlog.pending?.id
+    );
     upsert(item);
+    backlog.clear();
     log(COD_ACTIONS.ITEM_ADDED, { title: item.title, totalCost: item.score });
     emitSignal({
       kind: "prioritization.scored",
@@ -119,7 +133,11 @@ export function CostOfDelayClient() {
       description="Quantify the per-week revenue/value loss of delaying each initiative. Pairs with WSJF for queue management."
     >
       <div ref={exportRef} className="space-y-4">
-        <SectionCard title="Add initiative & estimate cost" icon={Plus}>
+        <SectionCard
+          title="Add initiative & estimate cost"
+          icon={Plus}
+          actions={<ImportFromBacklog link={backlog} />}
+        >
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
             <Input
               className="sm:col-span-2"
@@ -195,7 +213,12 @@ export function CostOfDelayClient() {
                 <tbody>
                   {sorted.map((it) => (
                     <tr key={it.id} className="border-t border-border">
-                      <td className="p-2">{it.title}</td>
+                      <td className="p-2">
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          {it.title}
+                          <BacklogRowLink row={it} />
+                        </span>
+                      </td>
                       <td className="p-2 text-right font-mono text-xs">
                         ${(Number(it.fields?.perWeekUsd) || 0).toLocaleString()}
                       </td>

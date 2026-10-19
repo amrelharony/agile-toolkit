@@ -15,6 +15,8 @@ import { STANDUP_ACTIONS } from "@/lib/history/event-actions";
 import { undoable } from "@/lib/utils/undoable";
 import { selectEvents } from "@/lib/history/selectors";
 import { useHistoryStore } from "@/lib/history/history-store";
+import { SendToMenu } from "@/components/handoff/send-to-menu";
+import type { HandoffLink } from "@/lib/handoffs/types";
 import {
   ExampleNotice,
   LoadExampleButton,
@@ -402,14 +404,23 @@ function HistoryTab({ entries, members }: { entries: StandupEntry[]; members: st
 /*  Tab 3 — Blockers Dashboard                                                */
 /* -------------------------------------------------------------------------- */
 
+/** An open blocker can be raised as an impediment. */
+const BLOCKER_ROUTES = ["impediment"] as const;
+
 function BlockersTab({
   entries,
   resolvedBlockers,
   onResolve,
+  onLinksChange,
 }: {
   entries: StandupEntry[];
   resolvedBlockers: string[];
   onResolve: (id: string) => void;
+  /** Record where a blocker was sent; without it there is no Send to. */
+  onLinksChange?: (
+    id: string,
+    update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
+  ) => void;
 }) {
   const blockerEntries = useMemo(
     () =>
@@ -463,15 +474,29 @@ function BlockersTab({
                     </div>
                     <p className="text-sm text-text">{e.blockers}</p>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => onResolve(e.id)}
-                    className="shrink-0 text-success hover:text-success hover:bg-success/10 gap-1.5 text-xs"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Resolve
-                  </Button>
+                  <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center">
+                    {onLinksChange && (
+                      <SendToMenu
+                        routes={BLOCKER_ROUTES}
+                        item={{
+                          title: e.blockers,
+                          raisedBy: e.member,
+                          sourceRef: { tool: "standup", id: e.id },
+                        }}
+                        sentTo={e.sentTo}
+                        onLinksChange={(update) => onLinksChange(e.id, update)}
+                      />
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onResolve(e.id)}
+                      className="shrink-0 text-success hover:text-success hover:bg-success/10 gap-1.5 text-xs"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Resolve
+                    </Button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -567,6 +592,9 @@ export function StandupClient() {
             timestamp: existing.timestamp,
             blockerResolved:
               entry.blockers.trim() === existing.blockers.trim() ? existing.blockerResolved : false,
+            // Same for where the blocker was sent: a new blocker starts unsent.
+            sentTo:
+              entry.blockers.trim() === existing.blockers.trim() ? existing.sentTo : undefined,
           }
         : { ...entry, id: crypto.randomUUID(), timestamp: Date.now() }
     );
@@ -574,6 +602,15 @@ export function StandupClient() {
   const resolveBlocker = (entryId: string) => {
     const e = entries.find((x) => x.id === entryId);
     if (e) upsertStandupEntry({ ...e, blockerResolved: true });
+  };
+  // Where a blocker was sent. Reads the entry fresh, so an edit made since
+  // the last render isn't overwritten.
+  const updateBlockerLinks = (
+    entryId: string,
+    update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
+  ) => {
+    const e = (useWorkspaceStore.getState().standupEntries ?? []).find((x) => x.id === entryId);
+    if (e) upsertStandupEntry({ ...e, sentTo: update(e.sentTo) });
   };
   const resetRaw = () => useWorkspaceStore.setState({ standupEntries: [] });
   // Example entries are written like any other entry but never logged, so
@@ -1056,6 +1093,7 @@ export function StandupClient() {
               entries={entries}
               resolvedBlockers={resolvedBlockers}
               onResolve={resolveBlocker}
+              onLinksChange={updateBlockerLinks}
             />
           </TabsContent>
         </Tabs>

@@ -33,6 +33,7 @@
     "jsx-a11y/control-has-associated-label": [
       "error",
       {
+        "labelAttributes": ["label"],
         "ignoreElements": [
           "input",
           "textarea",

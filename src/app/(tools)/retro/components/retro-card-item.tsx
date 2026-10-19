@@ -22,8 +22,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { RetroColumn } from "@/lib/constants/retro-formats";
+import type { HandoffLink } from "@/lib/handoffs/types";
+import { SendToMenu } from "@/components/handoff/send-to-menu";
 import type { BoardPhase, RetroCard } from "../types";
 import { CLUSTER_COLORS } from "../helpers";
+
+/** Where a retro action can be sent. */
+export const RETRO_ACTION_ROUTES = ["impediment", "kanban"] as const;
+/** MUST match RB_ID in retro-client.tsx. */
+const CURRENT_RETRO_DOC = "retro:current";
 
 export function RetroCardItem({
   card,
@@ -37,6 +44,8 @@ export function RetroCardItem({
   onToggleAction,
   onAssigneeChange,
   onToggleDiscussing,
+  onLinksChange,
+  assigneeListId,
 }: {
   card: RetroCard;
   allCards: RetroCard[];
@@ -50,6 +59,13 @@ export function RetroCardItem({
   onToggleAction: (id: string) => void;
   onAssigneeChange: (id: string, val: string) => void;
   onToggleDiscussing: (id: string) => void;
+  /** Record where an action was sent; without it the card offers no Send to. */
+  onLinksChange?: (
+    id: string,
+    update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]
+  ) => void;
+  /** Id of a <datalist> of team members for the assignee field. */
+  assigneeListId?: string;
 }) {
   const otherCards = allCards.filter(
     (c) => c.id !== card.id && c.columnKey === card.columnKey && c.groupedWith === null
@@ -192,16 +208,30 @@ export function RetroCardItem({
         </div>
       )}
 
-      {/* Assignee input in actions phase */}
+      {/* Assignee input, and Send to, in actions phase */}
       {phase === "actions" && card.isActionItem && (
-        <div className="mt-2 pt-2 border-t border-accent-cyan/20">
+        <div className="mt-2 pt-2 border-t border-accent-cyan/20 flex items-center gap-1.5">
           <Input
             value={card.assignee}
             onChange={(e) => onAssigneeChange(card.id, e.target.value)}
             placeholder="Assign to…"
             aria-label="Assignee"
-            className="h-6 text-xs bg-cardH border-border text-sub placeholder:text-sub"
+            list={assigneeListId}
+            className="h-6 flex-1 text-xs bg-cardH border-border text-sub placeholder:text-sub"
           />
+          {onLinksChange && card.groupedWith === null && (
+            <SendToMenu
+              routes={RETRO_ACTION_ROUTES}
+              item={{
+                title: card.text,
+                owner: card.assignee || undefined,
+                sourceRef: { tool: "retro", id: card.id, doc: CURRENT_RETRO_DOC },
+              }}
+              sentTo={card.sentTo}
+              onLinksChange={(update) => onLinksChange(card.id, update)}
+              className="relative z-10 h-6 shrink-0"
+            />
+          )}
         </div>
       )}
     </motion.div>

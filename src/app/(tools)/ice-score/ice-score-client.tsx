@@ -16,6 +16,12 @@ import { generateIcePrompts } from "@/lib/ai-prompts/ice-score";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ICE_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+import {
+  BacklogRowLink,
+  ImportFromBacklog,
+  useBacklogImport,
+} from "@/components/prioritization/backlog-link";
+import { linkNewRow } from "@/lib/prioritization/backlog-links";
 
 export function IceScoreClient() {
   const all = useWorkspaceStore((s) => s.prioritizations ?? []);
@@ -29,6 +35,10 @@ export function IceScoreClient() {
   const [impact, setImpact] = useState("");
   const [confidence, setConfidence] = useState("");
   const [ease, setEase] = useState("");
+
+  // "Import from backlog" (or a "Score with ICE" link) fills the title; the
+  // next idea added links to that backlog item.
+  const backlog = useBacklogImport("ice", (picked) => setTitle(picked.name));
 
   function add() {
     if (!title.trim()) return;
@@ -50,16 +60,20 @@ export function IceScoreClient() {
       c = safeNum(confidence),
       e = safeNum(ease);
     const score = iceScore(i, c, e);
-    const item: PrioritizationItem = {
-      id: crypto.randomUUID(),
-      framework: "ice",
-      title: title.trim(),
-      score,
-      fields: { impact: i, confidence: c, ease: e },
-      status: "scored",
-      updatedAt: new Date().toISOString(),
-    };
+    const item: PrioritizationItem = linkNewRow(
+      {
+        id: crypto.randomUUID(),
+        framework: "ice",
+        title: title.trim(),
+        score,
+        fields: { impact: i, confidence: c, ease: e },
+        status: "scored",
+        updatedAt: new Date().toISOString(),
+      },
+      backlog.pending?.id
+    );
     upsert(item);
+    backlog.clear();
     log(ICE_ACTIONS.ITEM_ADDED, { title: item.title, score });
     emitSignal({
       kind: "prioritization.scored",
@@ -72,6 +86,8 @@ export function IceScoreClient() {
     setConfidence("");
     setEase("");
   }
+
+  const byId = useMemo(() => new Map(items.map((x) => [x.id, x])), [items]);
 
   const ranked = useMemo(
     () =>
@@ -131,7 +147,11 @@ export function IceScoreClient() {
       description="Lightweight Impact × Confidence × Ease scoring (each 1–10). Best for fast prioritisation of growth experiments and quick wins."
     >
       <div ref={exportRef} className="space-y-4">
-        <SectionCard title="Add experiment / idea" icon={Plus}>
+        <SectionCard
+          title="Add experiment / idea"
+          icon={Plus}
+          actions={<ImportFromBacklog link={backlog} />}
+        >
           <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
             <Input
               className="sm:col-span-2"
@@ -209,7 +229,12 @@ export function IceScoreClient() {
                   {ranked.map((r) => (
                     <tr key={r.id} className="border-t border-border">
                       <td className="p-2 font-mono text-xs">{r.rank}</td>
-                      <td className="p-2">{r.title}</td>
+                      <td className="p-2">
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          {r.title}
+                          <BacklogRowLink row={byId.get(r.id)} />
+                        </span>
+                      </td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.impact}</td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.confidence}</td>
                       <td className="p-2 text-right font-mono text-xs">{r.fields.ease}</td>

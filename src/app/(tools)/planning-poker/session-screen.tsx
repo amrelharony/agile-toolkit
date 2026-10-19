@@ -13,7 +13,17 @@
 
 import { useCallback, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, ChevronLeft, ChevronRight, Eye, RotateCcw, Users, Check, Clock } from "lucide-react";
+import {
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  RotateCcw,
+  Users,
+  Check,
+  Clock,
+  ListPlus,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
@@ -48,6 +58,14 @@ interface Props {
    *  session) rather than just disconnecting from a live room. Only
    *  changes the wording of the leave confirmation. */
   leaveClearsSession?: boolean;
+  /** Stories other tools queued for estimation, not in this session yet.
+   *  Owner side only; the guest client passes nothing. */
+  queuedCount?: number;
+  /** Pull the queued stories into this session (host only). */
+  onAddQueued?: () => void;
+  /** The host accepted an estimate for a story that had none. The owner
+   *  side writes it back to the story's source; guests pass nothing. */
+  onEstimateAccepted?: (storyId: string, value: string, votes: string[]) => void;
 }
 
 // ─── helpers (duplicated minimal subset; original copies remain in
@@ -291,6 +309,9 @@ export function SessionScreen({
   connectionTone = "live",
   showRoomCode = true,
   leaveClearsSession = false,
+  queuedCount = 0,
+  onAddQueued,
+  onEstimateAccepted,
 }: Props) {
   const [newStory, setNewStory] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -403,6 +424,14 @@ export function SessionScreen({
   const saveEstimate = (value: string) => {
     if (!isHost) return;
     const story = session.stories[session.currentStoryIdx];
+    // Decided from this render's session (an updater may run later): a
+    // story that already has an estimate isn't accepted twice.
+    if (story && story.finalEstimate === null && onEstimateAccepted) {
+      const cast = session.participants
+        .map((p) => p.vote)
+        .filter((v): v is string => v !== null && v !== REDACTED_VOTE);
+      onEstimateAccepted(story.id, value, cast);
+    }
     let skipped = false;
     onUpdateSession((s) => {
       if (s.stories[s.currentStoryIdx]?.finalEstimate !== null) {
@@ -846,6 +875,18 @@ export function SessionScreen({
                   className="bg-surface-deep border-border resize-none text-xs text-text"
                   aria-label="New story description"
                 />
+                {onAddQueued && queuedCount > 0 && (
+                  <Button
+                    type="button"
+                    variant="toolkit"
+                    size="sm"
+                    onClick={onAddQueued}
+                    className="h-8 justify-start gap-1.5 text-xs"
+                  >
+                    <ListPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                    Add queued stories ({queuedCount})
+                  </Button>
+                )}
               </div>
             )}
 

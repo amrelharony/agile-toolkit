@@ -4,13 +4,15 @@
  *   1. list_state (read) + add_item (write, mcpHandler, no confirm)
  *   2. list_state computes WSJF + RICE with the same formulas as the UI,
  *      ranks by WSJF desc, and tallies MoSCoW buckets
- *   3. add_item appends with documented defaults
+ *   3. list_state adds each item's frameworkScores: the embedded methods
+ *      from its inputs, ICE / Kano / Cost of Delay from the latest linked row
+ *   4. add_item appends with documented defaults
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { BacklogItem } from "@/lib/stores/workspace-types";
+import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
 
 import "@/lib/actions/tools/prioritizer";
 
@@ -46,7 +48,7 @@ describe("tool.prioritizer — registration", () => {
 
 describe("tool.prioritizer.list_state", () => {
   beforeEach(() => {
-    useWorkspaceStore.setState({ backlogItems: [] });
+    useWorkspaceStore.setState({ backlogItems: [], prioritizations: [] });
   });
 
   it("returns zeros for an empty backlog", async () => {
@@ -108,6 +110,76 @@ describe("tool.prioritizer.list_state", () => {
     expect(b.rice).toBeCloseTo(160, 0);
     // A ranks above B by WSJF
     expect(r.rankedByWsjf[0].id).toBe("a");
+  });
+});
+
+describe("tool.prioritizer.list_state frameworkScores", () => {
+  beforeEach(() => {
+    useWorkspaceStore.setState({ backlogItems: [], prioritizations: [] });
+  });
+
+  const row = (
+    id: string,
+    framework: PrioritizationItem["framework"],
+    extra: Partial<PrioritizationItem>
+  ): PrioritizationItem => ({
+    id,
+    framework,
+    title: id,
+    status: "scored",
+    updatedAt: "2026-10-01T09:00:00.000Z",
+    ...extra,
+  });
+
+  it("gives every method's score per item, reading linked rows for ICE, Kano and Cost of Delay", async () => {
+    useWorkspaceStore.getState().upsertBacklogItem(
+      item({
+        id: "a",
+        name: "Auth",
+        moscow: "must",
+        businessValue: 9,
+        timeCriticality: 8,
+        riskReduction: 7,
+        jobSize: 3,
+        reach: 500,
+        impact: 2,
+        confidence: 90,
+        effort: 2,
+        value: 9,
+        matrixEffort: 3,
+      })
+    );
+    useWorkspaceStore.getState().upsertBacklogItem(item({ id: "b", name: "Dark mode" }));
+    useWorkspaceStore.setState({
+      prioritizations: [
+        row("ice-1", "ice", { backlogItemId: "a", score: 100 }),
+        row("ice-2", "ice", { backlogItemId: "a", score: 320, updatedAt: "2026-10-09T00:00:00Z" }),
+        row("kano-1", "kano", { backlogItemId: "a", fields: { category: "attractive" } }),
+        row("cod-1", "cost-of-delay", { backlogItemId: "a", score: 12000 }),
+        row("cod-unlinked", "cost-of-delay", { score: 99 }),
+      ],
+    });
+
+    const action = registry.get("tool.prioritizer.list_state");
+    const r = (await action!.handler({}, ctx())) as {
+      items: { id: string; wsjf: number; frameworkScores: Record<string, unknown> }[];
+      rankedByWsjf: { id: string; frameworkScores: unknown }[];
+    };
+    const a = r.items.find((i) => i.id === "a")!;
+    expect(a.frameworkScores).toEqual({
+      moscow: "must",
+      wsjf: 8,
+      rice: 450,
+      valueEffort: { value: 9, effort: 3, quadrant: "Quick Wins" },
+      ice: 320,
+      kano: "attractive",
+      costOfDelay: 12000,
+    });
+    // The existing fields are unchanged.
+    expect(a.wsjf).toBeCloseTo(8.0, 2);
+    const b = r.items.find((i) => i.id === "b")!;
+    expect(b.frameworkScores).toMatchObject({ ice: null, kano: null, costOfDelay: null });
+    expect(r.rankedByWsjf[0].frameworkScores).toBeDefined();
   });
 });
 

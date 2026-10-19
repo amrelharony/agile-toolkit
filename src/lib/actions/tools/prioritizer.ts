@@ -6,50 +6,40 @@
  * Backing CRUD : workspace.backlog_item.* (auto-generated).
  *
  *   1. list_state — backlog items with computed WSJF + RICE scores, plus a
- *                   WSJF-descending ranking and the MoSCoW breakdown.
+ *                   WSJF-descending ranking and the MoSCoW breakdown. Each
+ *                   item also carries `frameworkScores`: every method's
+ *                   score, the same as the Prioritizer's "All methods" tab.
  *   2. add_item   — add a backlog item (sensible scoring defaults).
  *
- * The WSJF / RICE formulas mirror prioritizer-client.tsx so the agent's
- * numbers match the UI. Entity kind "workspace:backlogItem" (camelCase via
- * kindFromToolId) matches the browser sync engine so writes round-trip.
+ * The WSJF / RICE formulas come from src/lib/prioritization/scores.ts, which
+ * the Prioritizer UI uses too, so the agent's numbers match the screen.
+ * Entity kind "workspace:backlogItem" (camelCase via kindFromToolId) matches
+ * the browser sync engine so writes round-trip.
  */
 
 import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverListEntities, serverUpsertEntity } from "../server-store";
-import type { BacklogItem } from "@/lib/stores/workspace-types";
+import type { BacklogItem, PrioritizationItem } from "@/lib/stores/workspace-types";
+import { backlogRice, backlogWsjf, frameworkScores } from "@/lib/prioritization/scores";
 
 const KIND_BACKLOG = "workspace:backlogItem";
+const KIND_PRIORITIZATION = "workspace:prioritization";
 
 const ws = () => useWorkspaceStore.getState();
 
-/** WSJF = (businessValue + timeCriticality + riskReduction) / jobSize.
- *  Mirrors wsjfScore in prioritizer-client.tsx. */
-function wsjf(item: BacklogItem): number {
-  const cod = item.businessValue + item.timeCriticality + item.riskReduction;
-  return parseFloat((cod / Math.max(1, item.jobSize)).toFixed(2));
-}
-
-/** RICE = reach * impact * (confidence/100) / effort. Mirrors riceScore in
- *  prioritizer-client.tsx, including the legacy-row guards. */
-function rice(item: BacklogItem): number {
-  const reach = Number.isFinite(item.reach) ? item.reach : 0;
-  const impact = Number.isFinite(item.impact) ? item.impact : 0;
-  const confidence = Number.isFinite(item.confidence) ? item.confidence : 0;
-  const effort = Number.isFinite(item.effort) ? item.effort : 1;
-  return parseFloat(((reach * impact * (confidence / 100)) / Math.max(0.1, effort)).toFixed(1));
-}
-
-function summarize(items: BacklogItem[]) {
+/** `rows` are the method tools' rows; the ones linked to an item feed its ICE, Kano and Cost of Delay. */
+function summarize(items: BacklogItem[], rows: PrioritizationItem[] = []) {
   const byMoscow: Record<BacklogItem["moscow"], number> = { must: 0, should: 0, could: 0, wont: 0 };
   for (const i of items) if (i.moscow in byMoscow) byMoscow[i.moscow] += 1;
   const scored = items.map((i) => ({
     id: i.id,
     name: i.name,
     moscow: i.moscow,
-    wsjf: wsjf(i),
-    rice: rice(i),
+    wsjf: backlogWsjf(i),
+    rice: backlogRice(i),
+    frameworkScores: frameworkScores(i, rows),
   }));
   const rankedByWsjf = [...scored].sort((a, b) => b.wsjf - a.wsjf);
   return { total: items.length, byMoscow, items: scored, rankedByWsjf };
@@ -62,12 +52,15 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "List backlog items with computed scores. Returns {total, byMoscow: {must, should, could, wont}, items: {id, name, moscow, wsjf, rice}[], rankedByWsjf: same[] sorted by WSJF descending}.",
+    "List backlog items with computed scores. Returns {total, byMoscow: {must, should, could, wont}, items: {id, name, moscow, wsjf, rice, frameworkScores}[], rankedByWsjf: same[] sorted by WSJF descending}. frameworkScores is every method's score for the item: {moscow, wsjf, rice, valueEffort: {value, effort, quadrant}} from the item's own inputs, plus {ice, kano, costOfDelay} from the latest row in those tools linked to it (null when none).",
   paramsSchema: z.object({}),
-  handler: async () => summarize(ws().backlogItems ?? []),
+  handler: async () => summarize(ws().backlogItems ?? [], ws().prioritizations ?? []),
   mcpHandler: async (_params, ctx) => {
-    const items = await serverListEntities<BacklogItem>(ctx.userId, KIND_BACKLOG);
-    return summarize(items);
+    const [items, rows] = await Promise.all([
+      serverListEntities<BacklogItem>(ctx.userId, KIND_BACKLOG),
+      serverListEntities<PrioritizationItem>(ctx.userId, KIND_PRIORITIZATION),
+    ]);
+    return summarize(items, rows);
   },
 });
 

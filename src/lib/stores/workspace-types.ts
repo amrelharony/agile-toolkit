@@ -43,6 +43,35 @@ export interface Impediment {
   tags?: string[];
   owner?: string;
   source?: "standup" | "retro" | "manual";
+  /** The item this was sent from (a retro card, a standup blocker). */
+  sourceRef?: HandoffRef;
+}
+
+/* ── Hand-offs ─────────────────────────────────────────────────────────
+ * One tool can send an item to another: a retro action becomes an
+ * impediment or a Kanban card, a premortem cause becomes a risk, a story-
+ * map card goes to the Planning Poker queue. The target records where it
+ * came from (sourceRef), the source records where it went (sentTo), so
+ * both sides can link to each other and a second send is avoided. All
+ * optional and additive; see lib/handoffs. */
+
+/** Where an item came from when another tool sent it here. */
+export interface HandoffRef {
+  /** Source tool id, e.g. "retro". */
+  tool: string;
+  /** Source item id (a card, a cause, a standup entry). */
+  id: string;
+  /** Source document when the item lives inside one, e.g. "retro:current". */
+  doc?: string;
+}
+
+export type HandoffRouteId = "impediment" | "kanban" | "risk" | "poker-queue";
+
+/** Where an item was sent. */
+export interface HandoffLink {
+  route: HandoffRouteId;
+  targetId: string;
+  at: ISODateString;
 }
 
 export interface Risk {
@@ -56,6 +85,8 @@ export interface Risk {
   status: "open" | "mitigating" | "closed" | "accepted";
   raisedAt: ISODateString;
   resolvedAt?: ISODateString;
+  /** The item this was sent from (e.g. a premortem cause). */
+  sourceRef?: HandoffRef;
 }
 
 export interface KeyResult {
@@ -904,6 +935,8 @@ export interface PrioritizationItem {
   fields?: Record<string, number | string>;
   status?: "open" | "scored" | "decided" | "shipped" | "dropped";
   updatedAt: ISODateString;
+  /** The shared backlog item (workspace backlogItems) this row scores. */
+  backlogItemId?: string;
 }
 
 /* ────────────────────────────────────────────────────────────────────
@@ -1424,6 +1457,8 @@ export interface StandupEntry {
   /** True once this entry's blocker has been marked resolved. Folds in the
    *  old standalone resolvedBlockers[] list from the isolated store. */
   blockerResolved?: boolean;
+  /** Where this entry's blocker was sent (e.g. raised as an impediment). */
+  sentTo?: HandoffLink[];
 }
 
 /** A demo item in a sprint review's demo script. */
@@ -1480,6 +1515,10 @@ export interface RetroCard {
   isActionItem: boolean;
   assignee: string;
   discussing: boolean;
+  /** Where this action was sent (an impediment, a Kanban card). */
+  sentTo?: HandoffLink[];
+  /** Id of the previous retro's card this action was carried over from. */
+  carriedFrom?: string;
 }
 
 /** A retrospective board — a singleton document (one current retro under a
@@ -1496,6 +1535,8 @@ export interface RetroBoard {
   discussingIndex: number;
   /** ISO time the retro was archived; absent on the current board. */
   archivedAt?: string;
+  /** The archived retro this one follows, for carrying its actions over. */
+  previousRetroId?: string;
 }
 
 // ── Sprint Planning (squad S1) ───────────────────────────────────────
@@ -1538,6 +1579,8 @@ export interface CapacityMember {
   /** 0–100 percent. */
   availability: number;
   daysOff: number;
+  /** The roster member (workspace teamMembers) this row is for. */
+  teamMemberId?: string;
 }
 
 /** Sprint configuration for a capacity plan. */
@@ -1567,6 +1610,9 @@ export interface StoryMapCard {
   title: string;
   description: string;
   color: string;
+  /** Planning Poker's estimate, written back when the story is estimated. */
+  estimate?: string;
+  sentTo?: HandoffLink[];
 }
 
 /** A horizontal release slice; `cards` is keyed by step id. */
@@ -1649,6 +1695,8 @@ export interface KanbanCard {
   createdAt: ISODateString;
   startedAt?: ISODateString;
   completedAt?: ISODateString;
+  /** The item this was sent from (e.g. a retro action). */
+  sourceRef?: HandoffRef;
 }
 
 /** The kanban board — a singleton document (cards + per-column WIP limits). */
@@ -1810,11 +1858,26 @@ export interface PokerEstimate {
   scaleType: string; // "fibonacci" | "tshirt" | "custom" (the tool's ScaleType)
   votes?: string[]; // raw revealed votes that led to the estimate, if known
   decidedAt: ISODateString;
+  /** The story this estimated, when it came from another tool's queue. */
+  sourceRef?: HandoffRef;
+}
+
+/** A story another tool sent for estimation, waiting for a Poker session. */
+export interface PokerQueueItem {
+  id: string;
+  title: string;
+  description?: string;
+  sourceRef: HandoffRef;
+  queuedAt: ISODateString;
+  /** The session story it became, so the estimate can be written back. */
+  sessionStoryId?: string;
 }
 
 export interface PokerEstimationLog {
   id: string;
   estimates: PokerEstimate[];
+  /** Stories waiting to be estimated (sent from Story Mapper and others). */
+  queue?: PokerQueueItem[];
 }
 
 /**

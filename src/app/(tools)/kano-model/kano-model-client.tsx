@@ -21,6 +21,12 @@ import type { PrioritizationItem, Workspace } from "@/lib/stores/workspace-types
 import { generateKanoPrompts } from "@/lib/ai-prompts/kano-model";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { KANO_ACTIONS } from "@/lib/history/event-actions";
+import {
+  BacklogRowLink,
+  ImportFromBacklog,
+  useBacklogImport,
+} from "@/components/prioritization/backlog-link";
+import { linkNewRow } from "@/lib/prioritization/backlog-links";
 
 type Category = "must-be" | "performance" | "attractive" | "indifferent" | "reverse";
 const CATEGORIES: { id: Category; label: string; color: string; hint: string }[] = [
@@ -49,6 +55,10 @@ export function KanoModelClient() {
   const [satIfPresent, setSatIfPresent] = useState("");
   const [dissatIfAbsent, setDissatIfAbsent] = useState("");
 
+  // "Import from backlog" (or a "Score with Kano" link) fills the title; the
+  // next feature classified links to that backlog item.
+  const backlog = useBacklogImport("kano", (picked) => setTitle(picked.name));
+
   function add() {
     if (!title.trim()) return;
     // Clamp to the [0, 5] range advertised in the input placeholders. Without
@@ -61,16 +71,20 @@ export function KanoModelClient() {
     };
     const sat = parseBounded(satIfPresent);
     const dissat = parseBounded(dissatIfAbsent);
-    const item: PrioritizationItem = {
-      id: crypto.randomUUID(),
-      framework: "kano",
-      title: title.trim(),
-      score: sat + Math.abs(dissat),
-      fields: { category, satIfPresent: sat, dissatIfAbsent: dissat },
-      status: "scored",
-      updatedAt: new Date().toISOString(),
-    };
+    const item: PrioritizationItem = linkNewRow(
+      {
+        id: crypto.randomUUID(),
+        framework: "kano",
+        title: title.trim(),
+        score: sat + Math.abs(dissat),
+        fields: { category, satIfPresent: sat, dissatIfAbsent: dissat },
+        status: "scored",
+        updatedAt: new Date().toISOString(),
+      },
+      backlog.pending?.id
+    );
     upsert(item);
+    backlog.clear();
     log(KANO_ACTIONS.ITEM_ADDED, { title: item.title, category });
     setTitle("");
     setSatIfPresent("");
@@ -153,7 +167,11 @@ export function KanoModelClient() {
       description="Classify features as Must-Be / Performance / Attractive / Indifferent / Reverse based on satisfaction-when-present and dissatisfaction-when-absent."
     >
       <div ref={exportRef} className="space-y-4">
-        <SectionCard title="Classify feature" icon={Plus}>
+        <SectionCard
+          title="Classify feature"
+          icon={Plus}
+          actions={<ImportFromBacklog link={backlog} />}
+        >
           <Input
             placeholder="Feature title"
             aria-label="Feature title"
@@ -227,6 +245,7 @@ export function KanoModelClient() {
                   {grouped[c.id].map((it) => (
                     <li key={it.id} className="flex items-center gap-2">
                       <span className="flex-1 truncate text-text">{it.title}</span>
+                      <BacklogRowLink row={it} />
                       <button
                         type="button"
                         onClick={() => remove(it.id)}

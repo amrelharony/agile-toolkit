@@ -11,7 +11,7 @@ import { getVisibleTools } from "@/lib/tools/catalog";
 import { SECTIONS, getSectionForTool } from "@/lib/constants/sections";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronLeft, History, Activity, Star, Clock } from "lucide-react";
+import { ChevronDown, ChevronLeft, History, Activity, Star, Clock, Users } from "lucide-react";
 import { useSwipeToClose } from "@/hooks/use-swipe-to-close";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";
@@ -418,6 +418,7 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
             {[
               { href: "/history", label: "History", icon: History },
               { href: "/insights", label: "My activity", icon: Activity },
+              { href: "/team", label: "Team", icon: Users },
             ].map(({ href, label, icon: Icon }) => {
               const isActive = pathname === href;
               return (

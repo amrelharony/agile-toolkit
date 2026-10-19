@@ -12,7 +12,8 @@
  * Backing CRUD : workspace.poker_estimation_log.* (auto-generated). Singleton:
  *                one PokerEstimationLog document (estimates[]) under a fixed id.
  *
- *   1. list_state        — the estimate log + per-scale tally.
+ *   1. list_state        — the estimate log + per-scale tally, and the queue
+ *                          of stories other tools sent for estimation.
  *   2. record_estimate   — append a committed estimate.
  *   3. remove_estimate   — drop a logged estimate by id.
  *   4. compute_consensus — PURE: average/median/mode/spread + consensus band
@@ -66,7 +67,10 @@ function summarize(doc: PokerEstimationLog | null) {
   const estimates = doc?.estimates ?? [];
   const byScale: Record<string, number> = {};
   for (const e of estimates) byScale[e.scaleType] = (byScale[e.scaleType] ?? 0) + 1;
-  return { exists: doc !== null, totalEstimates: estimates.length, byScale, estimates };
+  // Stories other tools sent for estimation (Story Mapper's "Estimate in
+  // Planning Poker"), waiting for the host to pull them into a session.
+  const queue = doc?.queue ?? [];
+  return { exists: doc !== null, totalEstimates: estimates.length, byScale, estimates, queue };
 }
 
 function newEstimate(params: {
@@ -138,7 +142,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the committed estimate log (the live realtime session is not persisted). Returns {exists, totalEstimates, byScale: {scaleType -> count}, estimates: {id, storyTitle, finalEstimate, scaleType, votes?, decidedAt}[]}.",
+    "Summarise the committed estimate log (the live realtime session is not persisted). Returns {exists, totalEstimates, byScale: {scaleType -> count}, estimates: {id, storyTitle, finalEstimate, scaleType, votes?, decidedAt, sourceRef?}[], queue: {id, title, description?, sourceRef: {tool, id, doc?}, queuedAt, sessionStoryId?}[] (stories sent from other tools, waiting to be estimated)}.",
   paramsSchema: z.object({}),
   handler: async () => summarize(browserDoc()),
   mcpHandler: async (_params, ctx) => {

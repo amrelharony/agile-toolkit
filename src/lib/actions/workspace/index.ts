@@ -135,6 +135,20 @@ const StorySchema = z.object({
   owner: z.string().optional(),
 }) as unknown as z.ZodType<Story>;
 
+// Hand-off links (workspace-types HandoffRef / HandoffLink). Every schema
+// that holds them must list them: updates write the parsed object, and
+// z.object drops keys it doesn't know.
+const HandoffRefSchema = z.object({
+  tool: z.string(),
+  id: z.string(),
+  doc: z.string().optional(),
+});
+const HandoffLinkSchema = z.object({
+  route: z.enum(["impediment", "kanban", "risk", "poker-queue"]),
+  targetId: z.string(),
+  at: z.string(),
+});
+
 const ImpedimentSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -144,6 +158,7 @@ const ImpedimentSchema = z.object({
   tags: z.array(z.string()).optional(),
   owner: z.string().optional(),
   source: z.enum(["standup", "retro", "manual"]).optional(),
+  sourceRef: HandoffRefSchema.optional(),
 }) as unknown as z.ZodType<Impediment>;
 
 const RiskSchema = z.object({
@@ -156,6 +171,7 @@ const RiskSchema = z.object({
   status: z.enum(["open", "mitigating", "closed", "accepted"]),
   raisedAt: z.string(),
   resolvedAt: z.string().optional(),
+  sourceRef: HandoffRefSchema.optional(),
 }) as unknown as z.ZodType<Risk>;
 
 const KeyResultSchema = z.object({
@@ -1226,8 +1242,21 @@ const PokerEstimationLogSchema = z.object({
       scaleType: z.string(),
       votes: z.array(z.string()).optional(),
       decidedAt: z.string(),
+      sourceRef: HandoffRefSchema.optional(),
     })
   ),
+  queue: z
+    .array(
+      z.object({
+        id: z.string(),
+        title: z.string(),
+        description: z.string().optional(),
+        sourceRef: HandoffRefSchema,
+        queuedAt: z.string(),
+        sessionStoryId: z.string().optional(),
+      })
+    )
+    .optional(),
 }) as unknown as z.ZodType<PokerEstimationLog>;
 
 const TreeNodeSchema = z.object({
@@ -1524,6 +1553,7 @@ const PrioritizationItemSchema = z.object({
   fields: z.record(z.string(), z.union([z.number(), z.string()])).optional(),
   status: z.enum(["open", "scored", "decided", "shipped", "dropped"]).optional(),
   updatedAt: z.string(),
+  backlogItemId: z.string().optional(),
 }) as unknown as z.ZodType<PrioritizationItem>;
 
 defineCrudActions<PrioritizationItem>({
@@ -1638,6 +1668,7 @@ const StandupEntrySchema = z.object({
   blockers: z.string(),
   timestamp: z.number(),
   blockerResolved: z.boolean().optional(),
+  sentTo: z.array(HandoffLinkSchema).optional(),
 }) as unknown as z.ZodType<StandupEntry>;
 
 const SprintReviewSchema = z.object({
@@ -1664,6 +1695,7 @@ const RetroBoardSchema = z.object({
   timerRunning: z.boolean(),
   discussingIndex: z.number(),
   archivedAt: z.string().optional(),
+  previousRetroId: z.string().optional(),
 }) as unknown as z.ZodType<RetroBoard>;
 
 const SprintGoalSchema = z.object({
@@ -1693,6 +1725,7 @@ const CapacityPlanSchema = z.object({
       description: z.string().optional(),
       availability: z.number(),
       daysOff: z.number(),
+      teamMemberId: z.string().optional(),
     })
   ),
   config: z.object({
@@ -1719,6 +1752,8 @@ const StoryMapSchema = z.object({
             title: z.string(),
             description: z.string(),
             color: z.string(),
+            estimate: z.string().optional(),
+            sentTo: z.array(HandoffLinkSchema).optional(),
           })
         )
       ),

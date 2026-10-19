@@ -9,6 +9,14 @@ import { useMemo } from "react";
 import dynamic from "next/dynamic";
 import { ChartCard } from "@/components/shared/chart-card";
 import type { BacklogItem } from "../types";
+import { matrixQuadrant, type MatrixQuadrant } from "../scoring";
+
+const QUADRANT_COLORS: Record<MatrixQuadrant, string> = {
+  "Quick Wins": "#00ff88",
+  "Major Projects": "#00f0ff",
+  "Fill-ins": "#ffaa00",
+  "Time Sinks": "#ef4444",
+};
 
 // Recharts loads with the scatter, not the page. ChartCard's fixed-height
 // box holds the space while it loads.
@@ -67,16 +75,8 @@ export function MatrixTab({ items }: { items: BacklogItem[] }) {
           {/* Item list colored by quadrant */}
           <div className="mt-4 space-y-1.5">
             {items.map((item) => {
-              const isHighValue = item.value > 5;
-              const isLowEffort = item.matrixEffort <= 5;
-              const color =
-                isHighValue && isLowEffort
-                  ? "#00ff88"
-                  : isHighValue
-                    ? "#00f0ff"
-                    : isLowEffort
-                      ? "#ffaa00"
-                      : "#ef4444";
+              // The same quadrants as the "All methods" tab.
+              const color = QUADRANT_COLORS[matrixQuadrant(item.value, item.matrixEffort)];
               return (
                 <div key={item.id} className="flex items-center gap-3 text-sm">
                   <span

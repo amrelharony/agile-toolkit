@@ -1325,7 +1325,20 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       upsertBacklogItem: (x) =>
         set((_st) => ({ backlogItems: replaceById(_st.backlogItems ?? [], x) })),
       removeBacklogItem: (id) =>
-        set((s) => ({ backlogItems: (s.backlogItems ?? []).filter((y) => y.id !== id) })),
+        set((s) => {
+          // Framework rows that scored this item stay, unlinked.
+          const linked = (s.prioritizations ?? []).some((p) => p.backlogItemId === id);
+          return {
+            backlogItems: (s.backlogItems ?? []).filter((y) => y.id !== id),
+            ...(linked
+              ? {
+                  prioritizations: (s.prioritizations ?? []).map((p) =>
+                    p.backlogItemId === id ? { ...p, backlogItemId: undefined } : p
+                  ),
+                }
+              : {}),
+          };
+        }),
       upsertNpsResponse: (x) =>
         set((_st) => ({ npsResponses: replaceById(_st.npsResponses ?? [], x) })),
       removeNpsResponse: (id) =>
