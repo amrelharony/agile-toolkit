@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import dynamic from "next/dynamic";
 import { PercentCircle, Plus, Trash2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
@@ -17,6 +17,15 @@ import { generateWeightedPrompts } from "@/lib/ai-prompts/weighted-decision";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { WEIGHTED_DECISION_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+
+// Recharts loads with the chart, not the page; the placeholder fills the
+// chart's fixed-height box while it does.
+const WeightedScoreChart = dynamic(() => import("./charts").then((m) => m.WeightedScoreChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
 
 export function WeightedDecisionClient() {
   const criteria = useWorkspaceStore((s) => s.weightedCriteria ?? []);
@@ -204,7 +213,7 @@ export function WeightedDecisionClient() {
                 <button
                   type="button"
                   onClick={() => removeCriterionCascade(c.id)}
-                  className="text-sub hover:text-danger ml-1"
+                  className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger ml-1"
                   aria-label={`Remove criterion ${c.name}`}
                 >
                   <Trash2 className="w-3 h-3" aria-hidden="true" />
@@ -302,7 +311,7 @@ export function WeightedDecisionClient() {
                             removeOption(o.id);
                             log(WEIGHTED_DECISION_ACTIONS.OPTION_REMOVED, { id: o.id });
                           }}
-                          className="text-sub hover:text-danger"
+                          className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger"
                           aria-label={`Remove option ${o.name}`}
                         >
                           <Trash2 className="w-4 h-4" aria-hidden="true" />
@@ -319,21 +328,7 @@ export function WeightedDecisionClient() {
         {chartData.length > 0 && (
           <SectionCard title="Total score">
             <div className="-mx-2 h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} layout="vertical" margin={{ left: 16 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis type="number" stroke="#888" fontSize={11} />
-                  <YAxis type="category" dataKey="name" stroke="#888" fontSize={11} width={150} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#0f1117",
-                      border: "1px solid #2a2f3a",
-                      fontSize: 12,
-                    }}
-                  />
-                  <Bar dataKey="score" fill="#00ff88" />
-                </BarChart>
-              </ResponsiveContainer>
+              <WeightedScoreChart data={chartData} />
             </div>
           </SectionCard>
         )}

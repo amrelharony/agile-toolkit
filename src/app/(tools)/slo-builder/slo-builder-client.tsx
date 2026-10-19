@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, Legend } from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -23,8 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, Target, AlertTriangle } from "lucide-react";
-import { chartTheme, CHART_COLORS } from "@/components/charts/chart-theme";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import {
@@ -39,6 +38,12 @@ import type { SloDefinition, SloBurn } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SLO_ACTIONS } from "@/lib/history/event-actions";
 import { todayLocalISO } from "@/lib/utils/formatters";
+
+// Recharts loads with the chart, not the page; ChartCard's fixed-height box
+// reserves the space while it does.
+const CumulativeErrorChart = dynamic(() => import("./charts").then((m) => m.CumulativeErrorChart), {
+  ssr: false,
+});
 
 interface SloState {
   slos: SloDefinition[];
@@ -687,31 +692,11 @@ export function SloBuilderClient() {
       {chartData.length > 0 && (
         <>
           <ChartCard title="Cumulative error consumption" height={320} className="mt-6">
-            <AreaChart data={chartData} margin={{ top: 8, right: 12, left: -16, bottom: 4 }}>
-              <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-              <XAxis dataKey="date" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
-              <YAxis tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
-              <Tooltip contentStyle={chartTheme.tooltipStyle} />
-              <Legend wrapperStyle={chartTheme.legendStyle} />
-              {state.slos.map((slo, i) => (
-                <Area
-                  key={slo.id}
-                  type="monotone"
-                  // dataKey is the SLO's id; name carries the human label
-                  // for legend/tooltip without colliding on duplicates.
-                  dataKey={slo.id}
-                  name={slo.name}
-                  stackId="1"
-                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                  fill={CHART_COLORS[i % CHART_COLORS.length]}
-                  fillOpacity={0.35}
-                />
-              ))}
-              {/* CUSUM regime-shift markers on the (longest) burn series. */}
-              {burnAnalytics?.annotations.map((cp, i) => (
-                <CausalLine key={`cusum-${i}`} annotation={cp} />
-              ))}
-            </AreaChart>
+            <CumulativeErrorChart
+              data={chartData}
+              series={state.slos}
+              annotations={burnAnalytics?.annotations}
+            />
           </ChartCard>
 
           {burnAnalytics && (

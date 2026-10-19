@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
-import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, Legend } from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -16,7 +16,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Plus, Trash2, Activity, MessageSquare, Brain } from "lucide-react";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { generateDevexPrompts } from "@/lib/ai-prompts/devex-survey";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DEVEX_ACTIONS } from "@/lib/history/event-actions";
@@ -24,6 +23,13 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace, DevexResponse } from "@/lib/stores/workspace-types";
+
+// Recharts loads with the chart, not the page. ChartCard reserves the
+// chart's height while the chunk loads.
+const DevexScoreDistributionChart = dynamic(
+  () => import("./charts").then((m) => m.DevexScoreDistributionChart),
+  { ssr: false }
+);
 
 interface DevexState {
   responses: DevexResponse[];
@@ -323,16 +329,7 @@ export function DevexSurveyClient() {
         </SectionCard>
 
         <ChartCard title="Score distribution" height={320}>
-          <BarChart data={distribution} margin={{ top: 8, right: 12, left: -16, bottom: 4 }}>
-            <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-            <XAxis dataKey="score" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
-            <YAxis allowDecimals={false} tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
-            <Tooltip contentStyle={chartTheme.tooltipStyle} />
-            <Legend wrapperStyle={chartTheme.legendStyle} />
-            <Bar dataKey="flow" name="Flow" fill={chartTheme.colors.cyan} />
-            <Bar dataKey="feedback" name="Feedback" fill={chartTheme.colors.green} />
-            <Bar dataKey="cognitive" name="Cog. load" fill={chartTheme.colors.amber} />
-          </BarChart>
+          <DevexScoreDistributionChart data={distribution} />
         </ChartCard>
       </div>
 

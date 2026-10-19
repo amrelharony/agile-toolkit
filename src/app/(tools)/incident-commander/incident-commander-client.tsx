@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -31,19 +32,9 @@ import {
   ShieldAlert,
   TrendingUp,
 } from "lucide-react";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from "recharts";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { INCIDENT_ACTIONS } from "@/lib/history/event-actions";
 import { generateIncidentCommanderPrompts } from "@/lib/ai-prompts/incident-commander";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 import { mannKendall } from "@/lib/analytics/trend-test";
@@ -57,6 +48,14 @@ import {
 import { mttrHours, nowIso } from "./helpers";
 import { useIncidentCommander } from "./use-incident-commander";
 import { ActiveIncidentCard } from "./components/active-incident-card";
+
+// Recharts loads with the survival chart, not the page.
+const MttrSurvivalChart = dynamic(() => import("./charts").then((m) => m.MttrSurvivalChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
 
 interface IncidentDraft {
   title: string;
@@ -464,45 +463,7 @@ export function IncidentCommanderClient() {
           className="mb-6"
         >
           <div className="h-40 -mx-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={survivalChartData}
-                margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
-              >
-                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="t"
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  axisLine={{ stroke: chartTheme.gridColor }}
-                  label={{
-                    value: "minutes",
-                    fill: chartTheme.axisColor,
-                    fontSize: 10,
-                    position: "insideBottom",
-                    offset: -2,
-                  }}
-                />
-                <YAxis
-                  domain={[0, 1]}
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  axisLine={{ stroke: chartTheme.gridColor }}
-                  tickFormatter={(v) => `${Math.round(v * 100)}%`}
-                />
-                <Tooltip
-                  contentStyle={chartTheme.tooltipStyle}
-                  formatter={(v) => [`${(Number(v) * 100).toFixed(1)}%`, "still open"]}
-                  labelFormatter={(v) => `${v}m`}
-                />
-                <Line
-                  type="stepAfter"
-                  dataKey="survival"
-                  stroke={chartTheme.colors.cyan}
-                  strokeWidth={2}
-                  dot={false}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <MttrSurvivalChart data={survivalChartData} />
           </div>
           <p className="text-xs text-sub mt-2">
             {/* BUG-RD3-incident-commander-1: drop the misleading

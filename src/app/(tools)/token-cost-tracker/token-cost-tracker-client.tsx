@@ -2,16 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import {
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ReferenceLine,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { CircleDollarSign, Plus, Trash2, AlertTriangle, Sparkles } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
@@ -30,6 +21,15 @@ import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { MODELS_BY_PROVIDER, estimateCostUsd } from "@/lib/llm/pricing";
 import type { ProviderId } from "@/lib/llm/types";
+
+// Recharts loads with the chart, not the page; the placeholder fills the
+// chart's fixed-height box while it does.
+const DailySpendChart = dynamic(() => import("./charts").then((m) => m.DailySpendChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
 
 /**
  * BUG-T9-token-cost-tracker-1: look up a model by its id across every
@@ -433,32 +433,7 @@ export function TokenCostTrackerClient() {
             }
           >
             <div className="-mx-2 h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={dailyData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="date" stroke="#888" fontSize={11} />
-                  <YAxis stroke="#888" fontSize={11} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#0f1117",
-                      border: "1px solid #2a2f3a",
-                      fontSize: 12,
-                    }}
-                  />
-                  <ReferenceLine
-                    y={cfg.monthlyBudgetUsd / 30}
-                    stroke="#ff6b6b"
-                    strokeDasharray="4 4"
-                    label={{
-                      value: "daily budget",
-                      position: "right",
-                      fill: "#ff6b6b",
-                      fontSize: 10,
-                    }}
-                  />
-                  <Area dataKey="cost" stroke="#00f0ff" fill="#00f0ff20" />
-                </AreaChart>
-              </ResponsiveContainer>
+              <DailySpendChart data={dailyData} dailyBudgetUsd={cfg.monthlyBudgetUsd / 30} />
             </div>
           </SectionCard>
         )}
@@ -523,7 +498,7 @@ export function TokenCostTrackerClient() {
                             type="button"
                             onClick={() => remove(x.id)}
                             aria-label={`Remove spend entry: ${x.feature} on ${x.date}`}
-                            className="text-sub hover:text-danger"
+                            className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger"
                           >
                             <Trash2 className="w-4 h-4" aria-hidden="true" />
                           </button>

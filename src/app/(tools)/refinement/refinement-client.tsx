@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine } from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -33,6 +33,12 @@ import {
   Check,
   X,
 } from "lucide-react";
+
+// Recharts loads with the chart, not the page; ChartCard's fixed-height box
+// reserves the space while it does.
+const PassRateTrendChart = dynamic(() => import("./charts").then((m) => m.PassRateTrendChart), {
+  ssr: false,
+});
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -196,13 +202,6 @@ const useRefinementStore = create<RefinementStore>()(
 /* -------------------------------------------------------------------------- */
 /*  Helpers                                                                   */
 /* -------------------------------------------------------------------------- */
-
-const TOOLTIP_STYLE = {
-  backgroundColor: "#1a1f36",
-  border: "1px solid rgba(255,255,255,0.1)",
-  borderRadius: "8px",
-  color: "#e2e8f0",
-};
 
 function ReadinessIndicator({ pct }: { pct: number }) {
   if (pct === 100)
@@ -675,104 +674,7 @@ export function RefinementClient() {
             {/* Pass rate chart */}
             {chartData.length > 1 && (
               <ChartCard title="Pass Rate Trend" icon={TrendingUp} height={200}>
-                <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="rgba(255,255,255,0.06)"
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fill: "#94a3b8", fontSize: 11 }}
-                    axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    domain={[0, 100]}
-                    tick={{ fill: "#94a3b8", fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={(v) => `${v}%`}
-                  />
-                  <Tooltip
-                    contentStyle={TOOLTIP_STYLE}
-                    // BUG-RD3-refinement-1: Recharts may invoke the
-                    // formatter on a ReferenceLine hover where
-                    // `props.payload` is undefined. The prior
-                    // `props.payload.story` threw TypeError and the
-                    // chart tooltip crashed. Optional-chain through.
-                    formatter={(v, _name, props) => [
-                      `${v}%`,
-                      (props as { payload?: { story?: string } }).payload?.story ?? "",
-                    ]}
-                  />
-                  <ReferenceLine
-                    y={80}
-                    stroke="#00ff88"
-                    strokeDasharray="4 4"
-                    strokeOpacity={0.5}
-                    label={{
-                      value: "80% target",
-                      fill: "#00ff88",
-                      fontSize: 10,
-                      position: "right",
-                    }}
-                  />
-                  {/* p-chart limits — UCL / X̄ / LCL — stable when the rolling
-                      window has at least 4 saved stories. */}
-                  {passRateControl && (
-                    <>
-                      <ReferenceLine
-                        y={passRateControl.centerLinePct}
-                        stroke="#00f0ff"
-                        strokeDasharray="2 4"
-                        strokeOpacity={0.55}
-                        label={{
-                          value: "X̄",
-                          fill: "#00f0ff",
-                          fontSize: 10,
-                          position: "right",
-                        }}
-                        ifOverflow="extendDomain"
-                      />
-                      <ReferenceLine
-                        y={passRateControl.uclPct}
-                        stroke="#00ff88"
-                        strokeDasharray="2 4"
-                        strokeOpacity={0.55}
-                        label={{
-                          value: "UCL",
-                          fill: "#00ff88",
-                          fontSize: 10,
-                          position: "right",
-                        }}
-                        ifOverflow="extendDomain"
-                      />
-                      <ReferenceLine
-                        y={passRateControl.lclPct}
-                        stroke="#ef4444"
-                        strokeDasharray="2 4"
-                        strokeOpacity={0.55}
-                        label={{
-                          value: "LCL",
-                          fill: "#ef4444",
-                          fontSize: 10,
-                          position: "right",
-                        }}
-                        ifOverflow="extendDomain"
-                      />
-                    </>
-                  )}
-                  <Line
-                    type="monotone"
-                    dataKey="passRate"
-                    name="Pass Rate"
-                    stroke="#00f0ff"
-                    strokeWidth={2}
-                    dot={{ fill: "#00f0ff", r: 3 }}
-                    activeDot={{ r: 5 }}
-                  />
-                </LineChart>
+                <PassRateTrendChart data={chartData} control={passRateControl} />
               </ChartCard>
             )}
 

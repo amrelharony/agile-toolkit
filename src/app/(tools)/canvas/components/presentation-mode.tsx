@@ -193,7 +193,7 @@ function PresentationModeImpl({ frames, index, onPrev, onNext, onExit }: Present
           onClick={onPrev}
           disabled={index === 0}
           aria-label="Previous frame"
-          className="w-8 h-8 rounded-full flex items-center justify-center text-text hover:bg-surface-deep disabled:opacity-30 disabled:hover:bg-transparent"
+          className="min-touch-coarse w-8 h-8 rounded-full flex items-center justify-center text-text hover:bg-surface-deep disabled:opacity-30 disabled:hover:bg-transparent"
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
@@ -240,7 +240,7 @@ function PresentationModeImpl({ frames, index, onPrev, onNext, onExit }: Present
           onClick={onExit}
           aria-label="Exit presentation"
           title="Exit (Esc)"
-          className="w-8 h-8 rounded-full flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep"
+          className="min-touch-coarse w-8 h-8 rounded-full flex items-center justify-center text-sub hover:text-text hover:bg-surface-deep"
         >
           <X className="w-4 h-4" />
         </button>

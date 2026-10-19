@@ -3,7 +3,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useShallow } from "zustand/react/shallow";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { AlertOctagon, Plus, Trash2, CheckCircle2, Beaker } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
@@ -36,6 +35,20 @@ const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), {
   loading: () => (
     <div className="text-xs text-sub p-2 border border-border rounded">Loading panel…</div>
   ),
+});
+
+// Recharts loads with each chart, not the page. The fixed-height boxes
+// around them reserve the space while the chunk loads.
+const chartPlaceholder = () => (
+  <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+);
+const SeverityCountsChart = dynamic(() => import("./charts").then((m) => m.SeverityCountsChart), {
+  ssr: false,
+  loading: chartPlaceholder,
+});
+const CauseCountsChart = dynamic(() => import("./charts").then((m) => m.CauseCountsChart), {
+  ssr: false,
+  loading: chartPlaceholder,
 });
 
 const SEVERITIES: Hallucination["severity"][] = ["low", "medium", "high", "critical"];
@@ -362,40 +375,12 @@ export function HallucinationLogClient() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <SectionCard title="Open by severity" icon={AlertOctagon}>
               <div className="-mx-2 h-56">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={severityCounts}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="severity" stroke="#888" fontSize={11} />
-                    <YAxis stroke="#888" fontSize={11} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#0f1117",
-                        border: "1px solid #2a2f3a",
-                        fontSize: 12,
-                      }}
-                    />
-                    <Bar dataKey="count" fill="#ff6b6b" />
-                  </BarChart>
-                </ResponsiveContainer>
+                <SeverityCountsChart data={severityCounts} />
               </div>
             </SectionCard>
             <SectionCard title="By root cause" icon={AlertOctagon}>
               <div className="-mx-2 h-56">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={causeCounts}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="cause" stroke="#888" fontSize={11} />
-                    <YAxis stroke="#888" fontSize={11} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#0f1117",
-                        border: "1px solid #2a2f3a",
-                        fontSize: 12,
-                      }}
-                    />
-                    <Bar dataKey="count" fill="#9d4edd" />
-                  </BarChart>
-                </ResponsiveContainer>
+                <CauseCountsChart data={causeCounts} />
               </div>
             </SectionCard>
           </div>

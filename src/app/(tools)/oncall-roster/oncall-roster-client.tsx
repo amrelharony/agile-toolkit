@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
@@ -31,27 +32,25 @@ import {
   User,
   TrendingUp,
 } from "lucide-react";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from "recharts";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { OncallRoster } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ONCALL_ACTIONS } from "@/lib/history/event-actions";
 import { generateOncallRosterPrompts } from "@/lib/ai-prompts/oncall-roster";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { SmartInput } from "@/components/shared/smart-input";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { cusum } from "@/lib/analytics/changepoint";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
+
+// Recharts loads with the paging chart, not the page.
+const PagingFrequencyChart = dynamic(() => import("./charts").then((m) => m.PagingFrequencyChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
 
 type Severity = "sev1" | "sev2" | "sev3" | "sev4";
 
@@ -634,36 +633,7 @@ export function OncallRosterClient() {
       {pagingChartData.length > 1 && (
         <SectionCard title="Paging frequency by week" icon={Phone} titleSize="lg" className="mb-6">
           <div className="h-44 -mx-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={pagingChartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="week"
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  axisLine={{ stroke: chartTheme.gridColor }}
-                />
-                <YAxis
-                  allowDecimals={false}
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  axisLine={{ stroke: chartTheme.gridColor }}
-                />
-                <Tooltip
-                  contentStyle={chartTheme.tooltipStyle}
-                  formatter={(v) => [String(v), "pages"]}
-                />
-                {pageChangepoints.map((a, i) => (
-                  <CausalLine key={`cp-${i}`} annotation={a} />
-                ))}
-                <Line
-                  type="monotone"
-                  dataKey="pages"
-                  stroke={chartTheme.colors.cyan}
-                  strokeWidth={2}
-                  dot={{ r: 2, fill: chartTheme.colors.cyan }}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <PagingFrequencyChart data={pagingChartData} changepoints={pageChangepoints} />
           </div>
           <p className="text-xs text-sub mt-2">
             Pages aggregated by week. Dashed vertical lines mark CUSUM-detected regime shifts

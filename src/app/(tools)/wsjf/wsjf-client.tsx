@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import dynamic from "next/dynamic";
 import { Plus, Trash2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
@@ -26,6 +26,15 @@ import {
 } from "@/components/tool-frame/example-data";
 import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
+
+// Recharts loads with the chart, not the page; the placeholder fills the
+// chart's fixed-height box while it does.
+const WsjfScoreChart = dynamic(() => import("./charts").then((m) => m.WsjfScoreChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -250,21 +259,7 @@ export function WsjfClient() {
             }
           >
             <div className="-mx-2 h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} layout="vertical" margin={{ left: 80 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis type="number" stroke="#888" fontSize={11} />
-                  <YAxis type="category" dataKey="title" stroke="#888" fontSize={11} width={150} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#0f1117",
-                      border: "1px solid #2a2f3a",
-                      fontSize: 12,
-                    }}
-                  />
-                  <Bar dataKey="score" fill="#9d4edd" />
-                </BarChart>
-              </ResponsiveContainer>
+              <WsjfScoreChart data={chartData} />
             </div>
           </SectionCard>
         )}

@@ -1,16 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  LineChart,
-  Line,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-  ReferenceLine,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -27,8 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/lib/utils/toast";
 import { Plus, Trash2, Rocket, Clock, AlertTriangle, Wrench } from "lucide-react";
-import { chartTheme } from "@/components/charts/chart-theme";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { xmrLimits } from "@/lib/analytics/control-chart";
 import { cusum } from "@/lib/analytics/changepoint";
 import { mannKendall } from "@/lib/analytics/trend-test";
@@ -39,6 +29,12 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { DoraSample } from "@/lib/stores/workspace-types";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DORA_ACTIONS } from "@/lib/history/event-actions";
+
+// Recharts loads with the trend chart, not the page. ChartCard reserves the
+// chart's height while the chunk loads.
+const DoraTrendChart = dynamic(() => import("./charts").then((m) => m.DoraTrendChart), {
+  ssr: false,
+});
 
 type Band = "Elite" | "High" | "Medium" | "Low";
 
@@ -511,107 +507,11 @@ export function DoraScorecardClient() {
         </SectionCard>
 
         <ChartCard title="Trend across quarters" height={320}>
-          <LineChart data={chartData} margin={{ top: 8, right: 12, left: -16, bottom: 4 }}>
-            <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-            <XAxis dataKey="quarter" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
-            {/* Left axis: deploy frequency (per week) and lead time (hours). */}
-            <YAxis yAxisId="left" tick={{ fill: chartTheme.axisColor, fontSize: 11 }} />
-            {/* Right axis: CFR (%) and MTTR (hours) — distinct scales/units. */}
-            <YAxis
-              yAxisId="right"
-              orientation="right"
-              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-            />
-            <Tooltip contentStyle={chartTheme.tooltipStyle} />
-            <Legend wrapperStyle={chartTheme.legendStyle} />
-            <Line
-              yAxisId="left"
-              type="monotone"
-              dataKey="deployFreqPerWeek"
-              name="Deploy/wk"
-              stroke={chartTheme.colors.cyan}
-              strokeWidth={2}
-              dot={{ r: 3 }}
-            />
-            <Line
-              yAxisId="left"
-              type="monotone"
-              dataKey="leadTimeHours"
-              name="Lead (h)"
-              stroke={chartTheme.colors.amber}
-              strokeWidth={2}
-              dot={{ r: 3 }}
-            />
-            <Line
-              yAxisId="right"
-              type="monotone"
-              dataKey="changeFailRatePct"
-              name="CFR (%)"
-              stroke={chartTheme.colors.red}
-              strokeWidth={2}
-              dot={{ r: 3 }}
-            />
-            <Line
-              yAxisId="right"
-              type="monotone"
-              dataKey="mttrHours"
-              name="MTTR (h)"
-              stroke={chartTheme.colors.purple}
-              strokeWidth={2}
-              dot={{ r: 3 }}
-            />
-            {/* XmR control limits on deploy frequency — most actionable SPC. */}
-            {deployControl && (
-              <>
-                <ReferenceLine
-                  yAxisId="left"
-                  y={deployControl.centerLine}
-                  stroke={chartTheme.colors.cyan}
-                  strokeDasharray="2 4"
-                  strokeOpacity={0.55}
-                  label={{
-                    value: "X̄",
-                    fill: chartTheme.colors.cyan,
-                    fontSize: 10,
-                    position: "right",
-                  }}
-                  ifOverflow="extendDomain"
-                />
-                <ReferenceLine
-                  yAxisId="left"
-                  y={deployControl.ucl}
-                  stroke={chartTheme.colors.green}
-                  strokeDasharray="2 4"
-                  strokeOpacity={0.55}
-                  label={{
-                    value: "UCL",
-                    fill: chartTheme.colors.green,
-                    fontSize: 10,
-                    position: "right",
-                  }}
-                  ifOverflow="extendDomain"
-                />
-                <ReferenceLine
-                  yAxisId="left"
-                  y={deployControl.lcl}
-                  stroke={chartTheme.colors.red}
-                  strokeDasharray="2 4"
-                  strokeOpacity={0.55}
-                  label={{
-                    value: "LCL",
-                    fill: chartTheme.colors.red,
-                    fontSize: 10,
-                    position: "right",
-                  }}
-                  ifOverflow="extendDomain"
-                />
-              </>
-            )}
-            {/* CUSUM regime-shift markers on the deploy series. */}
-            {deployChangepoints.map((cp, i) => (
-              <CausalLine key={`cusum-${i}`} annotation={cp} />
-            ))}
-          </LineChart>
+          <DoraTrendChart
+            data={chartData}
+            deployControl={deployControl}
+            deployChangepoints={deployChangepoints}
+          />
         </ChartCard>
       </div>
 

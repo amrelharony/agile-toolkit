@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -18,15 +19,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, Lightbulb, Activity } from "lucide-react";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from "recharts";
 import { durationsFromTimeRanges, kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import { generateHypothesisTrackerPrompts } from "@/lib/ai-prompts/hypothesis-tracker";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -40,7 +32,14 @@ import { emit as sonify } from "@/lib/sonification/emit";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { todayLocalISO } from "@/lib/utils/formatters";
-import { chartTheme } from "@/components/charts/chart-theme";
+
+// Recharts loads with the survival chart, not the page.
+const SurvivalCurveChart = dynamic(() => import("./charts").then((m) => m.SurvivalCurveChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
 
 type Status = "drafted" | "running" | "validated" | "invalidated" | "inconclusive";
 
@@ -463,45 +462,7 @@ export function HypothesisTrackerClient() {
           className="my-4"
         >
           <div className="h-40 -mx-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={survivalChartData}
-                margin={{ top: 8, right: 16, left: 0, bottom: 0 }}
-              >
-                <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="t"
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  axisLine={{ stroke: chartTheme.gridColor }}
-                  label={{
-                    value: "days",
-                    fill: chartTheme.axisColor,
-                    fontSize: 10,
-                    position: "insideBottom",
-                    offset: -2,
-                  }}
-                />
-                <YAxis
-                  domain={[0, 1]}
-                  tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                  axisLine={{ stroke: chartTheme.gridColor }}
-                  tickFormatter={(v) => `${Math.round(v * 100)}%`}
-                />
-                <Tooltip
-                  contentStyle={chartTheme.tooltipStyle}
-                  formatter={(v) => [`${(Number(v) * 100).toFixed(1)}%`, "still open"]}
-                  labelFormatter={(v) => `${v}d`}
-                />
-                <Line
-                  type="stepAfter"
-                  dataKey="survival"
-                  stroke={chartTheme.colors.cyan}
-                  strokeWidth={2}
-                  dot={false}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <SurvivalCurveChart data={survivalChartData} />
           </div>
           <p className="text-xs text-sub mt-2">
             Kaplan-Meier estimate over {resolvedDurations.length} resolved hypothes

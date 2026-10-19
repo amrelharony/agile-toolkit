@@ -1,15 +1,7 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -33,8 +25,15 @@ import { generateOnboardingTrackerPrompts } from "@/lib/ai-prompts/onboarding-tr
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Workspace } from "@/lib/stores/workspace-types";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { cn } from "@/lib/utils";
+
+// Recharts loads with the ramp curve, not the page.
+const RampCurveChart = dynamic(() => import("./charts").then((m) => m.RampCurveChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
 
 interface Milestone {
   id: string;
@@ -598,38 +597,7 @@ export function OnboardingTrackerClient() {
               Avg ramp curve (milestones completed over time)
             </div>
             <div className="h-64 -mx-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={rampCurveData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} />
-                  <XAxis
-                    dataKey="day"
-                    tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                    tickFormatter={(v) => `${v}d`}
-                    axisLine={{ stroke: chartTheme.gridColor }}
-                  />
-                  <YAxis
-                    tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                    axisLine={{ stroke: chartTheme.gridColor }}
-                    domain={[0, 100]}
-                    tickFormatter={(v) => `${v}%`}
-                  />
-                  <Tooltip
-                    contentStyle={chartTheme.tooltipStyle}
-                    labelFormatter={(v) => `Day ${v}`}
-                    formatter={(v) => [
-                      typeof v === "number" ? `${v.toFixed(1)}%` : String(v),
-                      "% complete",
-                    ]}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="avgPct"
-                    stroke={chartTheme.colors.cyan}
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              <RampCurveChart data={rampCurveData} />
             </div>
           </CardContent>
         </Card>

@@ -365,7 +365,7 @@ function SharedBrowserNotice() {
       <button
         type="button"
         onClick={dismiss}
-        className="shrink-0 -mr-1 p-1 rounded text-sub hover:text-text"
+        className="min-touch-coarse shrink-0 -mr-1 p-1 rounded text-sub hover:text-text"
         aria-label="Dismiss"
       >
         <X className="w-3.5 h-3.5" aria-hidden="true" />

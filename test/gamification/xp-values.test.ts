@@ -1,9 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { dispatch } from "@/lib/gamification/engine";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
 
 // Own file: the engine keeps combo state at module level.
 describe("XP for raw input", () => {
+  // Midday: "night owl" and "early bird" unlock on any event after
+  // midnight and would add their XP to the count.
+  beforeAll(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 16, 13, 0, 0));
+  });
+  afterAll(() => vi.useRealTimers());
+
   it("awards no XP and no combo achievements for clicks, hovers or keys", () => {
     useVDnaStore.setState({
       unlocked: ["first-click"],

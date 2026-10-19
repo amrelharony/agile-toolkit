@@ -1,8 +1,8 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { nanoid } from "nanoid";
-import { LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip, ReferenceLine } from "recharts";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -28,8 +28,7 @@ import {
 } from "@/lib/analytics/forecasting-bayesian";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import { cusum } from "@/lib/analytics/changepoint";
-import { chartTheme } from "@/components/charts/chart-theme";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { generateOkrsPrompts } from "@/lib/ai-prompts/okrs";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -47,6 +46,12 @@ import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
 import { krProgress, objectiveHealth } from "./progress";
 // usePersisted no longer used — workspace store is the single source of truth.
+
+// Recharts loads with the KR-progress chart, not the page. ChartCard's
+// fixed-height box holds the space while it loads.
+const KrProgressChart = dynamic(() => import("./charts").then((m) => m.KrProgressChart), {
+  ssr: false,
+});
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -540,45 +545,7 @@ export function OkrsClient() {
                     with target=0 are excluded from the analytics series. */}
                 {measurableKrCount >= 4 && (
                   <ChartCard title="KR progress (across KR sequence)" height={180} className="mt-2">
-                    <LineChart
-                      data={krChartData}
-                      margin={{ top: 8, right: 12, left: -16, bottom: 4 }}
-                    >
-                      <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-                      <XAxis
-                        dataKey="kr"
-                        tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
-                        interval={0}
-                      />
-                      <YAxis
-                        domain={[0, 100]}
-                        tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
-                      />
-                      <Tooltip contentStyle={chartTheme.tooltipStyle} />
-                      <Line
-                        type="monotone"
-                        dataKey="progressPct"
-                        name="Progress %"
-                        stroke={chartTheme.colors.cyan}
-                        strokeWidth={2}
-                        dot={{ r: 3 }}
-                      />
-                      <ReferenceLine
-                        y={70}
-                        stroke={chartTheme.colors.amber}
-                        strokeDasharray="2 4"
-                        strokeOpacity={0.55}
-                        label={{
-                          value: "Target band",
-                          fill: chartTheme.colors.amber,
-                          fontSize: 10,
-                          position: "right",
-                        }}
-                      />
-                      {krAnnotations.map((ann, i) => (
-                        <CausalLine key={`okr-cusum-${i}`} annotation={ann} />
-                      ))}
-                    </LineChart>
+                    <KrProgressChart data={krChartData} annotations={krAnnotations} />
                   </ChartCard>
                 )}
                 <Button

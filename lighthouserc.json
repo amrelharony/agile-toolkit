@@ -6,25 +6,30 @@
       "startServerReadyTimeout": 60000,
       "url": [
         "http://localhost:3000/",
+        "http://localhost:3000/retro",
         "http://localhost:3000/capacity-planner",
+        "http://localhost:3000/burndown",
         "http://localhost:3000/agile-at-work"
       ],
       "numberOfRuns": 3,
       "settings": {
-        "preset": "desktop"
+        "//": "Lighthouse's default profile: a mid-range phone on slow 4G. Most visitors arrive on phones, and this is the harder target.",
+        "formFactor": "mobile"
       }
     },
     "assert": {
-      "//": "Baselines start as warnings so the first CI run records the numbers without breaking the build. Tighten to 'error' once the public-route scores are known-good. Tool routes are public (browser-only, no sign-in), so a representative tool (/capacity-planner) and the comic reader (/agile-at-work — it shows 'coming soon' until public/comics/agile-at-work.pdf is committed) are baselined alongside the landing page. Owner-only pages (/settings/*) still need an authenticated run (puppeteerScript), which is out of scope.",
+      "//": "Accessibility is a hard gate (every tool passed a jsx-a11y sweep and the rules are lint errors). Performance and size budgets warn until the mobile baseline in docs/LIGHTHOUSE.md is known-good. Script budget: 350 KB transferred per page. Total budget: 4.6 MB, i.e. 1.5 MB of page weight plus the 3D mascot (~2.7 MB, immutable-cached after the first visit). Owner-only pages (/settings/*) still need an authenticated run (puppeteerScript), which is out of scope.",
       "assertions": {
-        "categories:performance": ["warn", { "minScore": 0.8 }],
-        "categories:accessibility": ["warn", { "minScore": 0.9 }],
+        "categories:performance": ["warn", { "minScore": 0.7 }],
+        "categories:accessibility": ["error", { "minScore": 0.95 }],
         "categories:best-practices": ["warn", { "minScore": 0.9 }],
         "categories:seo": ["warn", { "minScore": 0.9 }],
-        "first-contentful-paint": ["warn", { "maxNumericValue": 2000 }],
-        "largest-contentful-paint": ["warn", { "maxNumericValue": 3000 }],
+        "first-contentful-paint": ["warn", { "maxNumericValue": 2500 }],
+        "largest-contentful-paint": ["warn", { "maxNumericValue": 4000 }],
         "cumulative-layout-shift": ["warn", { "maxNumericValue": 0.1 }],
-        "total-blocking-time": ["warn", { "maxNumericValue": 300 }]
+        "total-blocking-time": ["warn", { "maxNumericValue": 400 }],
+        "resource-summary:script:size": ["warn", { "maxNumericValue": 358400 }],
+        "resource-summary:total:size": ["warn", { "maxNumericValue": 4823449 }]
       }
     },
     "upload": {

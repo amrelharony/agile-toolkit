@@ -5,7 +5,7 @@ import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { SmartInput } from "@/components/shared/smart-input";
-import { type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { generateCycleTimePrompts } from "@/lib/ai-prompts/cycle-time";
 import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 import { cusum } from "@/lib/analytics/changepoint";

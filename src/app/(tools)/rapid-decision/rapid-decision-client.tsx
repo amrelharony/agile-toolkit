@@ -289,7 +289,7 @@ export function RapidDecisionClient() {
                           type="button"
                           onClick={() => decide(d)}
                           aria-label={`Mark ${d.title} decided`}
-                          className="text-success hover:text-success"
+                          className="min-touch-coarse -m-1 p-1 text-success hover:text-success"
                         >
                           <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
                         </button>
@@ -298,7 +298,7 @@ export function RapidDecisionClient() {
                         type="button"
                         onClick={() => remove(d.id)}
                         aria-label={`Remove decision: ${d.title}`}
-                        className="text-sub hover:text-danger"
+                        className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger"
                       >
                         <Trash2 className="w-4 h-4" aria-hidden="true" />
                       </button>

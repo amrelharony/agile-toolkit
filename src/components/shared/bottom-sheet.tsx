@@ -58,10 +58,7 @@ export function BottomSheet({
                 no-op leftover. When the caller provides no description we set
                 aria-describedby explicitly to undefined to suppress Radix's
                 runtime warning about missing descriptions. */}
-            <Dialog.Content
-              asChild
-              {...(description ? {} : { "aria-describedby": undefined })}
-            >
+            <Dialog.Content asChild {...(description ? {} : { "aria-describedby": undefined })}>
               {asSheet ? (
                 <motion.div
                   drag="y"
@@ -75,7 +72,7 @@ export function BottomSheet({
                   className={cn(
                     "fixed bottom-0 left-0 right-0 z-[81] max-h-[85dvh] overflow-y-auto",
                     "rounded-t-2xl border-t border-border bg-card backdrop-blur-xl pb-safe",
-                    className,
+                    className
                   )}
                 >
                   {/* Drag handle */}
@@ -105,7 +102,7 @@ export function BottomSheet({
                   className={cn(
                     "fixed left-1/2 top-1/2 z-[81] w-[min(92vw,520px)] -translate-x-1/2 -translate-y-1/2",
                     "rounded-xl border border-border bg-card p-5 shadow-2xl",
-                    className,
+                    className
                   )}
                 >
                   {title ? (
@@ -121,7 +118,7 @@ export function BottomSheet({
                   <Dialog.Close asChild>
                     <button
                       aria-label="Close"
-                      className="absolute right-3 top-3 rounded-md p-1 text-sub transition-colors hover:bg-surface-hover hover:text-text"
+                      className="min-touch-coarse absolute right-3 top-3 rounded-md p-1 text-sub transition-colors hover:bg-surface-hover hover:text-text"
                     >
                       <X className="h-4 w-4" />
                     </button>

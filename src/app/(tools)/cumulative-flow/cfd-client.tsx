@@ -4,7 +4,7 @@ import { useId, useRef, useMemo, useState, useEffect } from "react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
-import { type CausalAnnotationData } from "@/components/charts/causal-annotation";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { generateCFDPrompts } from "@/lib/ai-prompts/cumulative-flow";
 import { xmrLimits, westernElectricRules } from "@/lib/analytics/control-chart";
 import { cusum } from "@/lib/analytics/changepoint";
@@ -425,7 +425,7 @@ export function CFDClient() {
                       <button
                         type="button"
                         onClick={() => removeColumn(col.id)}
-                        className="text-sub hover:text-danger transition-colors ml-1"
+                        className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger transition-colors ml-1"
                         title="Remove column"
                         aria-label={`Remove column ${col.name}`}
                       >

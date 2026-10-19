@@ -2,16 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { create } from "zustand";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -48,20 +39,18 @@ import { HeartPulse } from "lucide-react";
 import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
 
+// Recharts loads with the trend chart, not the page. The placeholder keeps
+// the chart's 360px height while the chunk loads.
+const HealthTrendChart = dynamic(() => import("./charts").then((m) => m.HealthTrendChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[360px] w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
+
 /* -------------------------------------------------------------------------- */
 /*  Constants                                                                 */
 /* -------------------------------------------------------------------------- */
-
-const DIMENSION_COLORS: Record<Dimension, string> = {
-  "Delivering Value": "#00f0ff",
-  "Easy to Release": "#00ff88",
-  Fun: "#ffaa00",
-  "Health of Codebase": "#ff00aa",
-  Learning: "#8b5cf6",
-  Mission: "#f97316",
-  Speed: "#06b6d4",
-  Teamwork: "#84cc16",
-};
 
 const SCORE_MAP: Record<TrafficLight, number> = { green: 2, yellow: 1, red: 0 };
 
@@ -233,13 +222,6 @@ function clearExampleChecks() {
 /* -------------------------------------------------------------------------- */
 /*  Helper components                                                         */
 /* -------------------------------------------------------------------------- */
-
-const TOOLTIP_STYLE = {
-  backgroundColor: "#1a1f36",
-  border: "1px solid rgba(255,255,255,0.1)",
-  borderRadius: "8px",
-  color: "#e2e8f0",
-};
 
 function TrafficDot({ light }: { light: TrafficLight }) {
   const bg =
@@ -624,42 +606,7 @@ export function HealthCheckClient() {
             <p className="text-xs text-sub mb-3">
               2 = Green &nbsp;·&nbsp; 1 = Yellow &nbsp;·&nbsp; 0 = Red
             </p>
-            <ResponsiveContainer width="100%" height={360}>
-              <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgba(255,255,255,0.06)"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="name"
-                  tick={{ fill: "#94a3b8", fontSize: 12 }}
-                  axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                  tickLine={false}
-                />
-                <YAxis
-                  domain={[0, 2]}
-                  ticks={[0, 1, 2]}
-                  tickFormatter={(v) => (v === 2 ? "Green" : v === 1 ? "Yellow" : "Red")}
-                  tick={{ fill: "#94a3b8", fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={56}
-                />
-                <Tooltip contentStyle={TOOLTIP_STYLE} />
-                <Legend wrapperStyle={{ paddingTop: "16px", color: "#94a3b8", fontSize: 11 }} />
-                {DIMENSIONS.map((dim) => (
-                  <Line
-                    key={dim}
-                    dataKey={dim}
-                    stroke={DIMENSION_COLORS[dim]}
-                    strokeWidth={2}
-                    dot={{ r: 3, fill: DIMENSION_COLORS[dim] }}
-                    activeDot={{ r: 5 }}
-                  />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
+            <HealthTrendChart data={chartData} />
           </SectionCard>
         )}
 

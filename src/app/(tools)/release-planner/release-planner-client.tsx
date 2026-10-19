@@ -4,16 +4,7 @@ import { useMemo, useRef, useCallback } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ReferenceLine,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -27,7 +18,6 @@ import { CalloutAlert } from "@/components/shared/callout-alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { TrendingUp, Calendar, BarChart3, Settings2, RefreshCw } from "lucide-react";
 import { addDays, format } from "date-fns";
 import { simulateThroughputCompletion } from "@/lib/analytics/monte-carlo";
@@ -35,6 +25,18 @@ import { bootstrapQuantile } from "@/lib/analytics/bootstrap";
 import { hasRecentChangepoint } from "@/lib/analytics/changepoint";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { SmartInput } from "@/components/shared/smart-input";
+
+// Recharts loads with the chart, not the page; the placeholder holds the
+// chart's 350px height while it does.
+const SimulationHistogramChart = dynamic(
+  () => import("./charts").then((m) => m.SimulationHistogramChart),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[350px] w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+    ),
+  }
+);
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                       */
@@ -169,47 +171,6 @@ function sprintToDate(startDate: string, sprintCount: number, sprintLengthDays: 
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Tooltip                                                                    */
-/* -------------------------------------------------------------------------- */
-
-function HistogramTooltip({
-  active,
-  payload,
-  label,
-  total,
-}: {
-  active?: boolean;
-  payload?: Array<{ value: number }>;
-  label?: number;
-  total: number;
-}) {
-  if (!active || !payload?.length) return null;
-  const count = payload[0].value;
-  const pct = total > 0 ? ((count / total) * 100).toFixed(1) : "0";
-  return (
-    <div style={chartTheme.tooltipStyle} className="px-3 py-2 min-w-[140px]">
-      <p className="font-semibold mb-1" style={{ color: "#e2e8f0" }}>
-        {label} Sprint{label !== 1 ? "s" : ""}
-      </p>
-      <div className="text-xs space-y-0.5">
-        <div className="flex justify-between gap-3">
-          <span style={{ color: "#94a3b8" }}>Iterations</span>
-          <span style={{ color: "#00f0ff" }} className="font-data">
-            {count.toLocaleString()}
-          </span>
-        </div>
-        <div className="flex justify-between gap-3">
-          <span style={{ color: "#94a3b8" }}>Frequency</span>
-          <span style={{ color: "#00f0ff" }} className="font-data">
-            {pct}%
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
 /*  Stat card                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -340,6 +301,13 @@ export function ReleasePlannerClient() {
 
   /* -- CUSUM regime-shift detection on the velocity series ------------------ */
   const velocityRegimeShift = useMemo(() => hasRecentChangepoint(velocities, 3), [velocities]);
+
+  /* -- User-pinned target line on the histogram ---------------------------- */
+  // Only drawn when the user enters a positive number in the SmartInput field.
+  const pinnedTarget = useMemo(() => {
+    const t = Number(config.sprintsToReleaseTarget);
+    return Number.isFinite(t) && t > 0 ? t : null;
+  }, [config.sprintsToReleaseTarget]);
 
   /* -- SmartInput predicted default for the "sprints to release" target ---- */
   const sprintsToReleasePred = usePredictedDefault<number>(
@@ -701,126 +669,15 @@ export function ReleasePlannerClient() {
             </div>
           ) : (
             <div ref={chartRef} className="w-full pt-2">
-              <ResponsiveContainer width="100%" height={350}>
-                <BarChart
-                  data={sim.histogram}
-                  margin={{ top: 10, right: 20, left: 0, bottom: 0 }}
-                  barSize={sim.histogram.length > 30 ? 4 : sim.histogram.length > 15 ? 8 : 16}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke={chartTheme.gridColor}
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="sprints"
-                    tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                    axisLine={{ stroke: chartTheme.gridColor }}
-                    tickLine={false}
-                    label={{
-                      value: "Sprints needed",
-                      position: "insideBottomRight",
-                      offset: -10,
-                      fill: chartTheme.axisColor,
-                      fontSize: 11,
-                    }}
-                  />
-                  <YAxis
-                    tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                    label={{
-                      value: "Frequency",
-                      angle: -90,
-                      position: "insideLeft",
-                      fill: chartTheme.axisColor,
-                      fontSize: 11,
-                      offset: 10,
-                    }}
-                  />
-                  <Tooltip content={<HistogramTooltip total={ITERATIONS} />} />
-
-                  {/* Percentile reference lines */}
-                  <ReferenceLine
-                    x={sim.p50}
-                    stroke="#00f0ff"
-                    strokeWidth={2}
-                    strokeDasharray="5 3"
-                    label={{
-                      value: "P50",
-                      position: "top",
-                      fill: "#00f0ff",
-                      fontSize: 10,
-                      fontWeight: 600,
-                    }}
-                  />
-                  <ReferenceLine
-                    x={sim.p85}
-                    stroke="#ffaa00"
-                    strokeWidth={2}
-                    strokeDasharray="5 3"
-                    label={{
-                      value: "P85",
-                      position: "top",
-                      fill: "#ffaa00",
-                      fontSize: 10,
-                      fontWeight: 600,
-                    }}
-                  />
-                  <ReferenceLine
-                    x={sim.p95}
-                    stroke="#ef4444"
-                    strokeWidth={2}
-                    strokeDasharray="5 3"
-                    label={{
-                      value: "P95",
-                      position: "top",
-                      fill: "#ef4444",
-                      fontSize: 10,
-                      fontWeight: 600,
-                    }}
-                  />
-
-                  {/* Bootstrap P85 reference — non-parametric companion. */}
-                  {bootstrapResult && (
-                    <ReferenceLine
-                      x={bootstrapResult.point}
-                      stroke="#a78bfa"
-                      strokeWidth={2}
-                      strokeDasharray="2 4"
-                      label={{
-                        value: "Boot",
-                        position: "insideTop",
-                        fill: "#a78bfa",
-                        fontSize: 10,
-                        fontWeight: 600,
-                      }}
-                    />
-                  )}
-
-                  {/* User-pinned target line — only shown when the user
-                        enters a positive integer in the SmartInput field. */}
-                  {(() => {
-                    const t = Number(config.sprintsToReleaseTarget);
-                    return Number.isFinite(t) && t > 0 ? (
-                      <ReferenceLine
-                        x={t}
-                        stroke="#22c55e"
-                        strokeWidth={2}
-                        label={{
-                          value: "Target",
-                          position: "insideTop",
-                          fill: "#22c55e",
-                          fontSize: 10,
-                          fontWeight: 600,
-                        }}
-                      />
-                    ) : null;
-                  })()}
-
-                  <Bar dataKey="count" fill="#00f0ff" fillOpacity={0.7} radius={[2, 2, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <SimulationHistogramChart
+                histogram={sim.histogram}
+                total={ITERATIONS}
+                p50={sim.p50}
+                p85={sim.p85}
+                p95={sim.p95}
+                bootstrapPoint={bootstrapResult ? bootstrapResult.point : null}
+                target={pinnedTarget}
+              />
             </div>
           )}
         </SectionCard>

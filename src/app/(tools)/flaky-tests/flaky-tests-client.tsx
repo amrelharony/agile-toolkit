@@ -1,18 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import {
-  BarChart,
-  Bar,
-  CartesianGrid,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Cell,
-  LineChart,
-  Line,
-  ReferenceLine,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -37,7 +26,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, AlertOctagon, ArrowUpDown, TrendingUp } from "lucide-react";
-import { chartTheme } from "@/components/charts/chart-theme";
 import { generateFlakyPrompts } from "@/lib/ai-prompts/flaky-tests";
 import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -48,6 +36,15 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { xmrLimits } from "@/lib/analytics/control-chart";
 import { mannKendall } from "@/lib/analytics/trend-test";
 import type { PredictedValue } from "@/lib/predictions/registry";
+
+// Recharts loads with each chart, not the page. ChartCard reserves the
+// chart's height while the chunk loads.
+const FlakiestTestsChart = dynamic(() => import("./charts").then((m) => m.FlakiestTestsChart), {
+  ssr: false,
+});
+const WeeklyFlakiesChart = dynamic(() => import("./charts").then((m) => m.WeeklyFlakiesChart), {
+  ssr: false,
+});
 
 /* ── Types ──────────────────────────────────────────────────────────────── */
 
@@ -534,31 +531,7 @@ export function FlakyTestsClient() {
           chartContainerRef={chartRef}
           className="mb-6"
         >
-          <BarChart data={topTen} margin={{ top: 10, right: 16, left: 0, bottom: 60 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
-            <XAxis
-              dataKey="name"
-              tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
-              axisLine={{ stroke: chartTheme.gridColor }}
-              tickLine={false}
-              angle={-30}
-              textAnchor="end"
-              interval={0}
-              height={60}
-            />
-            <YAxis
-              tick={{ fill: chartTheme.axisColor, fontSize: 11 }}
-              axisLine={false}
-              tickLine={false}
-              unit="%"
-            />
-            <Tooltip contentStyle={chartTheme.tooltipStyle} />
-            <Bar dataKey="failureRatePct" name="Failure rate" radius={[4, 4, 0, 0]}>
-              {topTen.map((d, i) => (
-                <Cell key={`cell-${i}`} fill={d.flagged ? "#ef4444" : "#00f0ff"} />
-              ))}
-            </Bar>
-          </BarChart>
+          <FlakiestTestsChart data={topTen} />
         </ChartCard>
       )}
 
@@ -587,60 +560,7 @@ export function FlakyTestsClient() {
             ) : undefined
           }
         >
-          <LineChart data={weeklyCounts} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.gridColor} vertical={false} />
-            <XAxis
-              dataKey="week"
-              tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
-              axisLine={false}
-              tickLine={false}
-            />
-            <YAxis
-              tick={{ fill: chartTheme.axisColor, fontSize: 10 }}
-              axisLine={false}
-              tickLine={false}
-              allowDecimals={false}
-            />
-            <Tooltip contentStyle={chartTheme.tooltipStyle} />
-            <ReferenceLine
-              y={weeklyControl.centerLine}
-              stroke={chartTheme.colors.cyan}
-              strokeDasharray="2 4"
-              strokeOpacity={0.55}
-              label={{ value: "X̄", fill: chartTheme.colors.cyan, fontSize: 10, position: "right" }}
-              ifOverflow="extendDomain"
-            />
-            <ReferenceLine
-              y={weeklyControl.ucl}
-              stroke={chartTheme.colors.red}
-              strokeDasharray="2 4"
-              strokeOpacity={0.55}
-              label={{ value: "UCL", fill: chartTheme.colors.red, fontSize: 10, position: "right" }}
-              ifOverflow="extendDomain"
-            />
-            <ReferenceLine
-              y={weeklyControl.lcl}
-              stroke={chartTheme.colors.green}
-              strokeDasharray="2 4"
-              strokeOpacity={0.55}
-              label={{
-                value: "LCL",
-                fill: chartTheme.colors.green,
-                fontSize: 10,
-                position: "right",
-              }}
-              ifOverflow="extendDomain"
-            />
-            <Line
-              type="monotone"
-              dataKey="count"
-              name="Flakies"
-              stroke={chartTheme.colors.cyan}
-              strokeWidth={2}
-              dot={{ fill: chartTheme.colors.cyan, r: 3 }}
-              activeDot={{ r: 5 }}
-            />
-          </LineChart>
+          <WeeklyFlakiesChart data={weeklyCounts} control={weeklyControl} />
         </ChartCard>
       )}
 

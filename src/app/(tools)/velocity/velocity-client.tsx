@@ -5,17 +5,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import {
-  ComposedChart,
-  Bar,
-  Line,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -24,7 +14,7 @@ import { ChartCard } from "@/components/shared/chart-card";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatCard } from "@/components/shared/stat-card";
 import { SmartInput } from "@/components/shared/smart-input";
-import { CausalLine } from "@/components/charts/causal-annotation";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { chartTheme } from "@/components/charts/chart-theme";
 import { generateVelocityPrompts } from "@/lib/ai-prompts/velocity";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -48,6 +38,12 @@ import {
 import { Plus, Trash2, Activity, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { buildExampleSprints } from "./example";
 import { toMarkdown } from "./markdown";
+
+// Recharts loads with the chart, not the page; ChartCard's fixed-height box
+// reserves the space while it does.
+const VelocityChart = dynamic(() => import("./charts").then((m) => m.VelocityChart), {
+  ssr: false,
+});
 
 /* -------------------------------------------------------------------------- */
 /*  Types                                                                     */
@@ -291,13 +287,6 @@ function NumCell({
   );
 }
 
-const TOOLTIP_STYLE = {
-  backgroundColor: "#1a1f36",
-  border: "1px solid rgba(255,255,255,0.1)",
-  borderRadius: "8px",
-  color: "#e2e8f0",
-};
-
 /* -------------------------------------------------------------------------- */
 /*  Main component                                                            */
 /* -------------------------------------------------------------------------- */
@@ -532,6 +521,29 @@ export function VelocityClient() {
     return cusum(completedSeries);
   }, [completedSeries]);
 
+  // CUSUM regime-shift markers for the chart, anchored to the affected
+  // sprint's name so they line up with bar centers. Skipped silently when
+  // no changepoints were detected.
+  const changepointMarkers = useMemo(
+    () =>
+      changepoints.flatMap((cp): { key: string; annotation: CausalAnnotationData }[] => {
+        const sprint = sprints[cp.index];
+        if (!sprint) return [];
+        return [
+          {
+            key: `cusum-${cp.index}-${cp.direction}`,
+            annotation: {
+              x: sprint.name,
+              label: `Regime shift ${cp.direction}`,
+              detail: `CUSUM detected a ${cp.direction === "up" ? "sustained increase" : "sustained drop"} in completed velocity at ${sprint.name}.`,
+              confidence: "moderate",
+            },
+          },
+        ];
+      }),
+    [changepoints, sprints]
+  );
+
   // Mann-Kendall trend test — needs n>=5 to be informative.
   const trendTest = useMemo(() => {
     if (completedSeries.length < 5) return null;
@@ -729,102 +741,7 @@ export function VelocityClient() {
             </>
           }
         >
-          <ComposedChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
-            <XAxis
-              dataKey="name"
-              tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
-              axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-              tickLine={false}
-            />
-            <YAxis
-              tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
-              axisLine={false}
-              tickLine={false}
-            />
-            <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: "rgba(255,255,255,0.04)" }} />
-            <Legend
-              wrapperStyle={{ paddingTop: "16px", color: chartTheme.axisColor, fontSize: 12 }}
-            />
-            {/* Bayesian 80% band — drawn behind everything so bars stay legible.
-                The lower-mask Area uses var(--bg) at fillOpacity 1 to clip the
-                upper Area down to a true band rather than a solid wedge. */}
-            <Area
-              dataKey="band80Upper"
-              name="80% forecast"
-              stroke="none"
-              fill={chartTheme.colors.cyan}
-              fillOpacity={0.18}
-              connectNulls
-              isAnimationActive={false}
-            />
-            <Area
-              dataKey="band80Lower"
-              stroke="none"
-              fill={chartTheme.background}
-              fillOpacity={1}
-              legendType="none"
-              connectNulls
-              isAnimationActive={false}
-            />
-            <Bar
-              dataKey="committed"
-              name="Committed"
-              fill="rgba(0,240,255,0.3)"
-              radius={[4, 4, 0, 0]}
-              maxBarSize={60}
-            />
-            <Bar
-              dataKey="completed"
-              name="Completed"
-              fill={chartTheme.colors.cyan}
-              radius={[4, 4, 0, 0]}
-              maxBarSize={60}
-            />
-            <Line
-              dataKey="rollingAvg"
-              name="Rolling Avg"
-              stroke={chartTheme.colors.magenta}
-              strokeWidth={2}
-              dot={false}
-              connectNulls
-            />
-            <Line
-              dataKey="trend"
-              name="Trend"
-              stroke={chartTheme.colors.amber}
-              strokeWidth={1.5}
-              strokeDasharray="4 4"
-              dot={false}
-            />
-            <Line
-              dataKey="forecast"
-              name="Forecast"
-              stroke={chartTheme.colors.cyan}
-              strokeWidth={2}
-              strokeDasharray="5 5"
-              dot={false}
-              connectNulls
-            />
-            {/* CUSUM regime-shift markers anchored to the affected sprint's
-                name so they line up with bar centers. Skipped silently when
-                no changepoints were detected. */}
-            {changepoints.map((cp) => {
-              const sprint = sprints[cp.index];
-              if (!sprint) return null;
-              return (
-                <CausalLine
-                  key={`cusum-${cp.index}-${cp.direction}`}
-                  annotation={{
-                    x: sprint.name,
-                    label: `Regime shift ${cp.direction}`,
-                    detail: `CUSUM detected a ${cp.direction === "up" ? "sustained increase" : "sustained drop"} in completed velocity at ${sprint.name}.`,
-                    confidence: "moderate",
-                  }}
-                />
-              );
-            })}
-          </ComposedChart>
+          <VelocityChart data={chartData} markers={changepointMarkers} />
         </ChartCard>
 
         {/* ---- Mann-Kendall trend chip ----

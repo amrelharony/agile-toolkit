@@ -434,7 +434,7 @@ function ShareTab({
                   type="button"
                   onClick={() => onCopy(t.token)}
                   aria-label="Copy share link"
-                  className="text-sub hover:text-accent"
+                  className="min-touch-coarse -m-1 p-1 text-sub hover:text-accent"
                 >
                   {copiedToken === t.token ? (
                     <Check className="w-3.5 h-3.5" />
@@ -446,7 +446,7 @@ function ShareTab({
                   type="button"
                   onClick={() => onRevoke(t.token)}
                   aria-label="Revoke link"
-                  className="text-sub hover:text-danger"
+                  className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>

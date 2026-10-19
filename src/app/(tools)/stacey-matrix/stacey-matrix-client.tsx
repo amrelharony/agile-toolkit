@@ -2,16 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import {
-  ResponsiveContainer,
-  ScatterChart,
-  Scatter,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ReferenceLine,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { Atom, Plus, Trash2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
@@ -25,6 +16,15 @@ import { generateStaceyPrompts } from "@/lib/ai-prompts/stacey-matrix";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { STACEY_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+
+// Recharts loads with the chart, not the page; the placeholder fills the
+// chart's fixed-height box while it does.
+const StaceyScatterChart = dynamic(() => import("./charts").then((m) => m.StaceyScatterChart), {
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+  ),
+});
 
 /** Parse a 0–1 scale field, clamping into range. Falls back to 0.5 only when
  *  the input is not a number at all — never for a legitimate `0`. */
@@ -209,54 +209,7 @@ export function StaceyMatrixClient() {
             }
           >
             <div className="-mx-2 h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis
-                    type="number"
-                    dataKey="x"
-                    name="Certainty"
-                    domain={[0, 1]}
-                    stroke="#888"
-                    fontSize={11}
-                    label={{
-                      value: "Certainty (how)",
-                      position: "insideBottom",
-                      offset: -5,
-                      fill: "#888",
-                      fontSize: 11,
-                    }}
-                  />
-                  <YAxis
-                    type="number"
-                    dataKey="y"
-                    name="Agreement"
-                    domain={[0, 1]}
-                    stroke="#888"
-                    fontSize={11}
-                    label={{
-                      value: "Agreement (what)",
-                      angle: -90,
-                      position: "insideLeft",
-                      fill: "#888",
-                      fontSize: 11,
-                    }}
-                  />
-                  <ReferenceLine x={0.33} stroke="rgba(255,255,255,0.1)" />
-                  <ReferenceLine x={0.66} stroke="rgba(255,255,255,0.1)" />
-                  <ReferenceLine y={0.33} stroke="rgba(255,255,255,0.1)" />
-                  <ReferenceLine y={0.66} stroke="rgba(255,255,255,0.1)" />
-                  <Tooltip
-                    cursor={{ strokeDasharray: "3 3" }}
-                    contentStyle={{
-                      backgroundColor: "#0f1117",
-                      border: "1px solid #2a2f3a",
-                      fontSize: 12,
-                    }}
-                  />
-                  <Scatter data={scatter} fill="#00f0ff" />
-                </ScatterChart>
-              </ResponsiveContainer>
+              <StaceyScatterChart data={scatter} />
             </div>
           </SectionCard>
         )}

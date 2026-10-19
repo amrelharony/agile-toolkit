@@ -388,7 +388,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                           type="button"
                           onClick={() => void onCopyLink(i)}
                           aria-label={`Copy guest link for ${i.profile?.displayName ?? "anyone in squad"}`}
-                          className="text-sub hover:text-accent"
+                          className="min-touch-coarse -m-1 p-1 text-sub hover:text-accent"
                         >
                           {copiedInviteId === i.id ? (
                             <Check className="w-3.5 h-3.5" />
@@ -400,7 +400,7 @@ export function SessionShareContent({ toolId, entityId }: ContentProps) {
                           type="button"
                           onClick={() => void onRevoke(i.id)}
                           aria-label={`Revoke invite for ${i.profile?.displayName ?? "anyone in squad"}`}
-                          className="text-sub hover:text-danger"
+                          className="min-touch-coarse -m-1 p-1 text-sub hover:text-danger"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

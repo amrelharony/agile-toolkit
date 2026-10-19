@@ -18,6 +18,16 @@ const SECTION_GUIDES: Record<string, () => Promise<GuideModule>> = {
 };
 
 /**
+ * Whether `toolId` has a guide, known without loading any guide text, so
+ * the panel can render its header immediately. Every tool in a section
+ * has one except the comic reader (see test/constants/guides.test.ts).
+ */
+export function hasGuide(toolId: string): boolean {
+  const section = getSectionForTool(toolId);
+  return Boolean(section && SECTION_GUIDES[section.id]);
+}
+
+/**
  * The "How this works" guide for a tool, if it has one. Guides are loaded on
  * demand so their text never adds to a page's JavaScript up front. The 16
  * most-used tools live in ./core; the rest in their section's chunk.

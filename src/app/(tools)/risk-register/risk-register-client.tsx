@@ -2,17 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 import { nanoid } from "nanoid";
-import {
-  ComposedChart,
-  Area,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -44,8 +34,7 @@ import { KpiGrid } from "@/components/shared/kpi-grid";
 import { SectionCard } from "@/components/shared/section-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { SmartInput } from "@/components/shared/smart-input";
-import { CausalLine, type CausalAnnotationData } from "@/components/charts/causal-annotation";
-import { chartTheme } from "@/components/charts/chart-theme";
+import type { CausalAnnotationData } from "@/components/charts/causal-annotation";
 import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import type { PredictedValue } from "@/lib/predictions/registry";
 import { emit as sonify } from "@/lib/sonification/emit";
@@ -60,6 +49,18 @@ import {
 } from "@/components/tool-frame/example-data";
 import { buildExample } from "./example";
 import { toMarkdown } from "./markdown";
+
+// Recharts loads with the chart, not the page; the placeholder fills the
+// chart's fixed-height box while it does.
+const OpenRiskForecastChart = dynamic(
+  () => import("./charts").then((m) => m.OpenRiskForecastChart),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+    ),
+  }
+);
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -564,54 +565,7 @@ export function RiskRegisterClient() {
         <div className="mb-6">
           <SectionCard title="Open Risks Over Time" icon={TrendingUp}>
             <div className="h-64 -mx-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart
-                  data={forecastChartData}
-                  margin={{ top: 12, right: 24, bottom: 24, left: 12 }}
-                >
-                  <CartesianGrid stroke={chartTheme.gridColor} strokeDasharray="3 3" />
-                  <XAxis dataKey="x" stroke={chartTheme.axisColor} fontSize={11} />
-                  <YAxis stroke={chartTheme.axisColor} fontSize={11} allowDecimals={false} />
-                  <Tooltip contentStyle={chartTheme.tooltipStyle} />
-                  <Legend wrapperStyle={chartTheme.legendStyle} />
-                  <Area
-                    dataKey="band80Upper"
-                    stroke="none"
-                    fill={chartTheme.colors.cyan}
-                    fillOpacity={0.18}
-                    name="80% band"
-                    connectNulls
-                  />
-                  <Area
-                    dataKey="band80Lower"
-                    stroke="none"
-                    fill={chartTheme.background}
-                    fillOpacity={1}
-                    legendType="none"
-                    connectNulls
-                  />
-                  <Line
-                    dataKey="actual"
-                    stroke={chartTheme.colors.cyan}
-                    strokeWidth={2}
-                    dot={{ fill: chartTheme.colors.cyan, r: 3 }}
-                    name="Open risks"
-                    connectNulls={false}
-                  />
-                  <Line
-                    dataKey="yHat"
-                    stroke={chartTheme.colors.cyan}
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    dot={false}
-                    name="Forecast"
-                    connectNulls
-                  />
-                  {causalAnnotations.map((ann, i) => (
-                    <CausalLine key={`cp-${i}`} annotation={ann} />
-                  ))}
-                </ComposedChart>
-              </ResponsiveContainer>
+              <OpenRiskForecastChart data={forecastChartData} annotations={causalAnnotations} />
             </div>
             {causalAnnotations.length > 0 && (
               <div className="mt-2 text-xs text-sub">

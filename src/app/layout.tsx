@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/layout/app-shell";
 import { AppToaster } from "@/components/layout/app-toaster";
+import { ServiceWorker } from "@/components/pwa/service-worker";
 import { ParticleBackground } from "@/components/shared/particle-background";
 import { THEME_BOOT_SCRIPT, THEME_COLORS } from "@/lib/theme/boot-script";
 
@@ -65,8 +66,10 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [{ url: "/AT.svg", type: "image/svg+xml" }],
-    apple: "/AT.svg",
+    // iOS ignores SVG touch icons; a 180 px PNG on the toolkit's dark ground.
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
+  appleWebApp: { capable: true, title: "Agile Toolkit", statusBarStyle: "black" },
 };
 
 // Next.js 13.2+ moved viewport out of `metadata`. Without an explicit
@@ -112,6 +115,7 @@ export default function RootLayout({
           <AppShell>{children}</AppShell>
           <AppToaster />
         </TooltipProvider>
+        <ServiceWorker />
       </body>
     </html>
   );

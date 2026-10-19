@@ -2,16 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import {
-  ResponsiveContainer,
-  ScatterChart,
-  Scatter,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ReferenceLine,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { Grid3X3, Plus, Trash2 } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
@@ -25,6 +16,18 @@ import { generateValueEffortPrompts } from "@/lib/ai-prompts/value-effort-matrix
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { VALUE_EFFORT_ACTIONS } from "@/lib/history/event-actions";
 import { emitSignal } from "@/lib/signals/signal-bus";
+
+// Recharts loads with the chart, not the page; the placeholder fills the
+// chart's fixed-height box while it does.
+const ValueEffortScatterChart = dynamic(
+  () => import("./charts").then((m) => m.ValueEffortScatterChart),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+    ),
+  }
+);
 
 function quadrantOf(
   value: number,
@@ -219,52 +222,7 @@ export function ValueEffortMatrixClient() {
             }
           >
             <div className="-mx-2 h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis
-                    type="number"
-                    dataKey="x"
-                    name="Effort"
-                    domain={[0, 10]}
-                    stroke="#888"
-                    fontSize={11}
-                    label={{
-                      value: "Effort",
-                      position: "insideBottom",
-                      offset: -5,
-                      fill: "#888",
-                      fontSize: 11,
-                    }}
-                  />
-                  <YAxis
-                    type="number"
-                    dataKey="y"
-                    name="Value"
-                    domain={[0, 10]}
-                    stroke="#888"
-                    fontSize={11}
-                    label={{
-                      value: "Value",
-                      angle: -90,
-                      position: "insideLeft",
-                      fill: "#888",
-                      fontSize: 11,
-                    }}
-                  />
-                  <ReferenceLine x={5} stroke="rgba(255,255,255,0.15)" />
-                  <ReferenceLine y={5} stroke="rgba(255,255,255,0.15)" />
-                  <Tooltip
-                    cursor={{ strokeDasharray: "3 3" }}
-                    contentStyle={{
-                      backgroundColor: "#0f1117",
-                      border: "1px solid #2a2f3a",
-                      fontSize: 12,
-                    }}
-                  />
-                  <Scatter data={scatterData} fill="#00f0ff" />
-                </ScatterChart>
-              </ResponsiveContainer>
+              <ValueEffortScatterChart data={scatterData} />
             </div>
           </SectionCard>
         )}

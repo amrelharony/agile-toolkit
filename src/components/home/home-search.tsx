@@ -33,7 +33,7 @@ export function HomeSearch() {
         placeholder="Search tools — try “retro”, “estimate” or “prioritise”"
         className="pl-9"
         autoComplete="off"
-        aria-controls={`${id}-results`}
+        aria-controls={trimmed ? `${id}-results` : undefined}
       />
       {trimmed && (
         <div
