@@ -214,11 +214,29 @@ What turning it **off** does: hides the entry points, makes `/join/…` say live
 
 ### Limits built into every room
 
-- **20 people** per room, host included. A joiner who finds 20 already there gets "room full" and leaves.
-- **3-hour hard limit:** every client disconnects 3 hours after the room started, whatever happens, so a forgotten tab can't run up usage forever.
-- **30 minutes idle:** the host is asked whether to keep the room; with no answer it ends.
-- **Message limits:** inbound broadcasts are rate-limited per sender (a burst of 20, then 4 a second) and per event across the room (100, then 25 a second); anything over 100,000 characters is dropped. Names and card text with control or bidi characters are rejected, and nothing a peer sends is rendered as HTML.
-- **Traffic:** the host sends its state when someone joins and every 30 s otherwise (no 5-second heartbeat), roughly 2.4k message deliveries per hour for a 20-person room.
+- **20 people** per room, host included. A joiner who finds 20 already there gets "This room is full (20 people)" and leaves.
+- **3-hour hard limit:** the host ends the room for everyone 3 hours after starting it, and every other tab also leaves 3 hours after it joined, whatever happens. A forgotten tab can't run up usage forever.
+- **30 minutes idle:** the host is asked whether to keep the room open. With no answer, it ends 2 minutes later.
+- **Message limits:**
+  - Inbound broadcasts are rate-limited per sender (a burst of 20, then 4 a second) and per event across the room (100, then 25 a second).
+  - Anything over 100,000 characters is dropped. A host whose own state is bigger doesn't send it and sees a toast instead. A Retro board over 200 cards counts as too big.
+  - Names and card text with control or bidi characters are rejected, and nothing a peer sends is rendered as HTML.
+- **Traffic:** the host sends its state when it changes (Retro: at most every 0.5 s), when someone joins, and every 30 s otherwise. There is no 5-second heartbeat. That is roughly 2.4k message deliveries per hour for an idle 20-person room.
+
+### How the two rooms behave
+
+- **Planning Poker:**
+  - The host starts a room with **Start a live room** on the "Running it with your team" card.
+  - Nothing from the room is logged to History, written back to the Story Map or synced. The host's browser keeps only a host-only copy of the session.
+- **Retro:**
+  - The host starts a room with **Go live** in the board header.
+  - Rooms are host-authoritative: participants send "add card" and "vote" requests, and only the host changes the board.
+  - The host's board is its normal local Retro board, so participants' cards stay in the host's browser after the room ends.
+  - Participants keep the board in memory only. **Save a copy** puts it in their Past retros, and **Download Markdown** saves a file.
+- **Both:**
+  - **End room** ends it for everyone. The host keeps the board or session.
+  - **Remove** takes a participant out and ignores what they send. It is soft: they can rejoin under a new name. To keep someone out, end the room and share a new link.
+  - If the host closes the tab without ending the room, the others elect a new host after about 10 seconds and carry on from the last state they received.
 
 ### Watching the quota (Supabase free tier)
 
@@ -241,6 +259,7 @@ It also stops **everything else that uses Realtime**, because all of the app's c
 - **Anyone with the public anon key can burn Realtime quota**, with or without this feature. Rate limits only protect the people in a room, not the quota.
 - **Room codes are visible** in browser history, Vercel request logs (`/join/<tool>/<code>`), and wherever the link is pasted. A code is useless once its room has ended.
 - Turning the flag off needs a redeploy and doesn't close open tabs; they end by themselves within 3 hours.
+- **An owner who opens a `/join` link joins as a visitor** (that page has no sign-in). Nothing from the room is written to their workspace unless they choose Save a copy.
 
 If abuse shows up, the planned next step is short-lived room tokens minted by a server route with Realtime Authorization on private channels (that needs "Allow public access" off and the owner rooms moved to private channels first).
 
