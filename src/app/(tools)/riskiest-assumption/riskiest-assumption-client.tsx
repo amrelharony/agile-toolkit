@@ -103,6 +103,12 @@ function clampLevel(n: number): Level {
   return v as Level;
 }
 
+/** Typed level → 1-5, or `fallback` when blank/invalid (Number("") is 0, not "blank"). */
+function parseLevel(raw: string, fallback: Level): Level {
+  const n = Number(raw);
+  return raw.trim() !== "" && Number.isFinite(n) ? clampLevel(n) : fallback;
+}
+
 function score(a: Assumption): number {
   return a.riskLevel * (6 - a.evidenceLevel);
 }
@@ -130,19 +136,15 @@ function NumDraftInput({ value, onCommit, ariaLabel }: NumDraftInputProps) {
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => {
-        const parsed = Number(draft);
-        const next = Number.isFinite(parsed) ? clampLevel(parsed) : value;
-        onCommit(next);
+        // Blank/invalid reverts to the saved level; an unchanged value isn't re-committed.
+        const next = parseLevel(draft, value as Level);
+        if (next !== value) onCommit(next);
         setDraft(String(next));
       }}
       className="h-8 w-14 bg-bg border-border text-xs font-data"
       aria-label={ariaLabel}
     />
   );
-}
-
-interface TestCard {
-  assumption: Assumption;
 }
 
 export function RiskiestAssumptionClient() {
@@ -154,25 +156,28 @@ export function RiskiestAssumptionClient() {
     testIdea: "",
     description: "",
   });
-  const [testCard, setTestCard] = useState<TestCard | null>(null);
+  // The card tracks an assumption by id and reads it from live state, so it
+  // reflects later edits and disappears when the assumption is deleted.
+  const [testCardId, setTestCardId] = useState<string | null>(null);
+  const testCard = testCardId ? (state.assumptions.find((a) => a.id === testCardId) ?? null) : null;
   const testCardRef = useRef<HTMLDivElement>(null);
   const { log } = useHistoryLogger("riskiest-assumption");
 
   // Scroll the test card into view when the active assumption changes.
   // Lives below the ranked list, so it's easy to miss off-screen.
   useEffect(() => {
-    if (!testCard) return;
+    if (!testCardId) return;
     testCardRef.current?.scrollIntoView({
       behavior: "smooth",
       block: "nearest",
     });
-  }, [testCard?.assumption.id, testCard]);
+  }, [testCardId]);
 
   const addAssumption = () => {
     const statement = draft.statement.trim();
     if (!statement) return;
-    const riskLevel = clampLevel(Number(draft.riskLevel) || 3);
-    const evidenceLevel = clampLevel(Number(draft.evidenceLevel) || 3);
+    const riskLevel = parseLevel(draft.riskLevel, 3);
+    const evidenceLevel = parseLevel(draft.evidenceLevel, 3);
     const testIdea = draft.testIdea.trim() || undefined;
     const description = draft.description.trim() || undefined;
     const a: Assumption = {
@@ -207,6 +212,7 @@ export function RiskiestAssumptionClient() {
     setState((s) => ({
       assumptions: s.assumptions.filter((x) => x.id !== id),
     }));
+    if (testCardId === id) setTestCardId(null);
     log(RISKIEST_ASSUMPTION_ACTIONS.ASSUMPTION_REMOVED, {
       assumptionId: id,
       statement: a?.statement,
@@ -244,7 +250,7 @@ export function RiskiestAssumptionClient() {
   };
 
   const generateTestCard = (a: Assumption) => {
-    setTestCard({ assumption: a });
+    setTestCardId(a.id);
     log(RISKIEST_ASSUMPTION_ACTIONS.TEST_GENERATED, {
       assumptionId: a.id,
       statement: a.statement,
@@ -401,7 +407,7 @@ export function RiskiestAssumptionClient() {
                 value={draft.riskLevel}
                 onChange={(e) => setDraft((d) => ({ ...d, riskLevel: e.target.value }))}
                 onBlur={(e) => {
-                  const v = clampLevel(Number(e.target.value) || 3);
+                  const v = parseLevel(e.target.value, 3);
                   setDraft((d) => ({ ...d, riskLevel: String(v) }));
                 }}
                 className="h-9 bg-bg border-border font-data"
@@ -417,7 +423,7 @@ export function RiskiestAssumptionClient() {
                 value={draft.evidenceLevel}
                 onChange={(e) => setDraft((d) => ({ ...d, evidenceLevel: e.target.value }))}
                 onBlur={(e) => {
-                  const v = clampLevel(Number(e.target.value) || 3);
+                  const v = parseLevel(e.target.value, 3);
                   setDraft((d) => ({ ...d, evidenceLevel: String(v) }));
                 }}
                 className="h-9 bg-bg border-border font-data"
@@ -627,7 +633,7 @@ export function RiskiestAssumptionClient() {
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => setTestCard(null)}
+                onClick={() => setTestCardId(null)}
                 className="h-6 w-6 p-0 text-sub hover:text-text min-touch-coarse"
                 aria-label="Close test card"
               >
@@ -637,19 +643,19 @@ export function RiskiestAssumptionClient() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
               <div>
                 <div className="text-sub uppercase tracking-wider text-xs mb-1">Assumption</div>
-                <div className="text-text">{testCard.assumption.statement}</div>
+                <div className="text-text">{testCard.statement}</div>
               </div>
               <div>
                 <div className="text-sub uppercase tracking-wider text-xs mb-1">Score</div>
                 <div className="text-text font-data">
-                  risk {testCard.assumption.riskLevel} · evidence{" "}
-                  {testCard.assumption.evidenceLevel} · score {score(testCard.assumption)}
+                  risk {testCard.riskLevel} · evidence {testCard.evidenceLevel} · score{" "}
+                  {score(testCard)}
                 </div>
               </div>
               <div>
                 <div className="text-sub uppercase tracking-wider text-xs mb-1">Test</div>
                 <div className="text-text">
-                  {testCard.assumption.testIdea ??
+                  {testCard.testIdea ??
                     "(no test idea — write the cheapest experiment that produces a binary outcome)"}
                 </div>
               </div>

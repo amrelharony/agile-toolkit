@@ -23,6 +23,7 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
 import type { HypothesisTracker, Hypothesis, HypothesisStatus } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 const KIND_HT = "workspace:hypothesisTracker";
 // MUST match HT_ID in hypothesis-tracker-client.tsx.
@@ -39,7 +40,8 @@ const RESOLVED: ReadonlySet<HypothesisStatus> = new Set<HypothesisStatus>([
 const ws = () => useWorkspaceStore.getState();
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
-const today = () => new Date().toISOString().slice(0, 10);
+// Local calendar day, matching the client's todayLocalISO() stamps.
+const today = () => todayLocalISO();
 
 function emptyDoc(): HypothesisTracker {
   return { id: HT_ID, hypotheses: [] };
@@ -161,6 +163,7 @@ function newHypothesis(params: {
   description?: string;
   status?: HypothesisStatus;
 }): Hypothesis {
+  const status = params.status ?? "drafted";
   return {
     id: crypto.randomUUID(),
     believe: params.believe,
@@ -169,8 +172,10 @@ function newHypothesis(params: {
     successMetric: params.successMetric,
     experiment: params.experiment,
     description: params.description,
-    status: params.status ?? "drafted",
+    status,
     raisedAt: today(),
+    // Added already resolved → stamp it, as set_status does.
+    resolvedAt: RESOLVED.has(status) ? today() : undefined,
   };
 }
 

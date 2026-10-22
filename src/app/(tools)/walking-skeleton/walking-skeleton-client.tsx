@@ -33,7 +33,8 @@ interface State {
   toggle: (id: string) => void;
   remove: (id: string) => void;
 }
-const useStore = create<State>()(
+// Exported for tests (reset / rehydrate); the page only uses the client.
+export const useWalkingSkeletonStore = create<State>()(
   persist(
     (set) => ({
       goal: "",
@@ -62,7 +63,7 @@ const LAYER_COLORS: Record<Step["layer"], string> = {
 };
 
 export function WalkingSkeletonClient() {
-  const store = useStore();
+  const store = useWalkingSkeletonStore();
   const { log } = useHistoryLogger("walking-skeleton");
   const exportRef = useRef<HTMLDivElement>(null);
 
@@ -213,7 +214,10 @@ export function WalkingSkeletonClient() {
                             </span>
                           </button>
                           <button
-                            onClick={() => store.remove(s.id)}
+                            onClick={() => {
+                              store.remove(s.id);
+                              log(WALKING_SKELETON_ACTIONS.STEP_REMOVED, { id: s.id });
+                            }}
                             aria-label={`Remove step ${s.text}`}
                             className="text-sub hover:text-danger min-touch-coarse inline-flex items-center justify-center"
                           >

@@ -21,6 +21,7 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
 import type { UserInterviewLog, Interview } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 const KIND_UI = "workspace:userInterviewLog";
 // MUST match UI_ID in user-interviews-client.tsx.
@@ -28,11 +29,12 @@ const UI_ID = "userInterviewLog:current";
 
 const ws = () => useWorkspaceStore.getState();
 
-const today = () => new Date().toISOString().slice(0, 10);
+// Local calendar day, matching the client's todayLocalISO() default.
+const today = () => todayLocalISO();
 
-/** Normalise tags the way the client does — trimmed, lowercased, de-empty'd. */
+/** Normalise tags the way the client does — trimmed, lowercased, de-empty'd, de-duplicated. */
 function normTags(tags: string[]): string[] {
-  return tags.map((t) => t.trim().toLowerCase()).filter(Boolean);
+  return Array.from(new Set(tags.map((t) => t.trim().toLowerCase()).filter(Boolean)));
 }
 
 function emptyDoc(): UserInterviewLog {

@@ -71,8 +71,14 @@ function empty(): Hypothesis {
   };
 }
 
+// "Closed" is decided by status, not by `resolvedAt`: a hypothesis written
+// straight into a terminal status (MCP / sync) may carry no date.
+function isResolved(status: Status): boolean {
+  return status === "validated" || status === "invalidated" || status === "inconclusive";
+}
+
 function setStatus(h: Hypothesis, status: Status): Hypothesis {
-  const done = status === "validated" || status === "invalidated" || status === "inconclusive";
+  const done = isResolved(status);
   return { ...h, status, resolvedAt: done ? (h.resolvedAt ?? todayLocalISO()) : undefined };
 }
 
@@ -257,7 +263,7 @@ function HypothesisRow({
             aria-label="Experiment design"
           />
         </div>
-        {h.resolvedAt && (
+        {isResolved(h.status) && (
           <Textarea
             rows={2}
             value={outcome.draft}
@@ -344,7 +350,7 @@ export function HypothesisTrackerClient() {
   };
 
   const validationRate = useMemo(() => {
-    const closed = items.filter((i) => i.resolvedAt);
+    const closed = items.filter((i) => isResolved(i.status));
     if (closed.length === 0) return 0;
     return closed.filter((i) => i.status === "validated").length / closed.length;
   }, [items]);

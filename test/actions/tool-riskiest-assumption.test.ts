@@ -83,3 +83,54 @@ describe("tool.riskiest_assumption.set_status", () => {
     expect(bad.updated).toBe(false);
   });
 });
+
+describe("tool.riskiest_assumption riskiest pick", () => {
+  beforeEach(() => useWorkspaceStore.setState({ riskiestAssumptions: [] }));
+
+  const add = (statement: string, riskLevel: number, evidenceLevel: number, status?: string) =>
+    registry
+      .get("tool.riskiest_assumption.add_assumption")!
+      .handler({ statement, riskLevel, evidenceLevel, status }, ctx());
+  const riskiest = async () =>
+    (
+      (await registry.get("tool.riskiest_assumption.list_state")!.handler({}, ctx())) as {
+        riskiest: { statement: string } | null;
+      }
+    ).riskiest;
+
+  it("ignores resolved assumptions and breaks ties by higher risk", async () => {
+    await add("validated already", 5, 1, "validated");
+    await add("tie, lower risk", 3, 1);
+    await add("tie, higher risk", 4, 2, "testing");
+    expect((await riskiest())?.statement).toBe("tie, higher risk");
+  });
+
+  it("is null when every assumption is resolved", async () => {
+    await add("done", 5, 1, "invalidated");
+    expect(await riskiest()).toBeNull();
+  });
+
+  it("stores the optional fields and the given status", async () => {
+    await registry.get("tool.riskiest_assumption.add_assumption")!.handler(
+      {
+        statement: "s",
+        riskLevel: 2,
+        evidenceLevel: 3,
+        status: "testing",
+        testIdea: "t",
+        description: "d",
+      },
+      ctx()
+    );
+    expect(
+      (useWorkspaceStore.getState().riskiestAssumptions ?? [])[0].assumptions[0]
+    ).toMatchObject({
+      statement: "s",
+      riskLevel: 2,
+      evidenceLevel: 3,
+      status: "testing",
+      testIdea: "t",
+      description: "d",
+    });
+  });
+});

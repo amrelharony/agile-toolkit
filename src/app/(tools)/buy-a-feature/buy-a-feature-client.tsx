@@ -57,10 +57,16 @@ export function BuyAFeatureClient() {
     // (or a future numeric-input UI bug) can't push score/raised into
     // Infinity territory.
     const safeAmount = Math.min(1_000_000, amount);
+    // Round to whole cents so fractional buys don't accumulate float noise
+    // ("$0.30000000000000004").
+    const cents = (n: number) => Math.round(n * 100) / 100;
     const next: PrioritizationItem = {
       ...it,
-      score: (it.score ?? 0) + safeAmount,
-      fields: { ...(it.fields ?? {}), raised: (Number(it.fields?.raised) || 0) + safeAmount },
+      score: cents((it.score ?? 0) + safeAmount),
+      fields: {
+        ...(it.fields ?? {}),
+        raised: cents((Number(it.fields?.raised) || 0) + safeAmount),
+      },
       updatedAt: new Date().toISOString(),
     };
     upsert(next);

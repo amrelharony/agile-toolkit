@@ -58,3 +58,28 @@ describe("tool.opportunity_tree.add_node + list_state", () => {
     expect(r.byKind.opportunity).toBe(1);
   });
 });
+
+describe("tool.opportunity_tree.add_node details", () => {
+  beforeEach(() => useWorkspaceStore.setState({ opportunityTrees: [] }));
+
+  it("list_state on an empty workspace reports no tree", async () => {
+    const r = (await registry.get("tool.opportunity_tree.list_state")!.handler({}, ctx())) as {
+      exists: boolean;
+      total: number;
+    };
+    expect(r).toMatchObject({ exists: false, total: 0 });
+  });
+
+  it("stores evidence + description and treats an explicit null parent as a root", async () => {
+    const r = (await registry
+      .get("tool.opportunity_tree.add_node")!
+      .handler(
+        { kind: "outcome", text: "Grow", parentId: null, evidence: "e", description: "d" },
+        ctx()
+      )) as { added: boolean; id: string };
+    expect(r.added).toBe(true);
+    expect((useWorkspaceStore.getState().opportunityTrees ?? [])[0].nodes).toEqual([
+      { id: r.id, kind: "outcome", text: "Grow", parentId: null, evidence: "e", description: "d" },
+    ]);
+  });
+});

@@ -35,13 +35,17 @@ function emptyInterview(): Interview {
 }
 
 /** Parse a "tag1, tag2" string into a normalized array — trimmed,
- *  lowercased, and de-empty'd. Lowercasing canonicalizes tags so "UX" and
- *  "ux" become a single entry in frequency counts. */
+ *  lowercased, de-empty'd and de-duplicated. Lowercasing canonicalizes tags
+ *  so "UX" and "ux" become a single entry in frequency counts. */
 function parseTags(input: string): string[] {
-  return input
-    .split(",")
-    .map((t) => t.trim().toLowerCase())
-    .filter(Boolean);
+  return Array.from(
+    new Set(
+      input
+        .split(",")
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
 }
 
 /** Tag input that holds a local string draft so a trailing comma or space
@@ -268,6 +272,7 @@ export function UserInterviewsClient() {
               ? interviews.map((i) => ({
                   ...i,
                   participant: "[redacted]",
+                  context: i.context === undefined ? undefined : redactPii(i.context),
                   quotes: i.quotes.map((q) => ({ ...q, text: redactPii(q.text) })),
                 }))
               : interviews
