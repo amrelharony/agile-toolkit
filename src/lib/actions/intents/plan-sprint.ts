@@ -3,6 +3,7 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
 import type { Sprint, Story } from "@/lib/stores/workspace-types";
+import { selectStoriesForCapacity } from "@/lib/sprints/plan";
 
 /**
  * Compose-action: capacity-based sprint planner.
@@ -29,21 +30,11 @@ registry.register({
     const sprint = state.sprints.find((s) => s.id === params.sprintId);
     if (!sprint) throw new Error(`Sprint ${params.sprintId} not found.`);
 
-    // Sort backlog by priority descending (highest first), nulls last.
-    const candidates = state.stories
-      .filter((s) => s.status === "backlog")
-      .slice()
-      .sort((a, b) => (b.priorityScore ?? -Infinity) - (a.priorityScore ?? -Infinity));
-
-    const selected: typeof candidates = [];
-    let remaining = params.capacityPoints;
-    for (const story of candidates) {
-      const pts = story.points ?? 0;
-      if (pts <= 0) continue;
-      if (pts > remaining) continue;
-      selected.push(story);
-      remaining -= pts;
-    }
+    // The same greedy pick as the Sprint Planning page's "Fill to capacity".
+    const { selected, totalPoints } = selectStoriesForCapacity(
+      state.stories,
+      params.capacityPoints
+    );
 
     if (params.commit) {
       for (const story of selected) {
@@ -60,7 +51,7 @@ registry.register({
       sprintName: sprint.name,
       capacityPoints: params.capacityPoints,
       selected: selected.map((s) => ({ id: s.id, title: s.title, points: s.points })),
-      totalPointsSelected: params.capacityPoints - remaining,
+      totalPointsSelected: totalPoints,
       committed: Boolean(params.commit),
     };
   },
@@ -69,19 +60,7 @@ registry.register({
     const sprint = await serverGetEntity<Sprint>(ctx.userId, "workspace:sprint", params.sprintId);
     if (!sprint) throw new Error(`Sprint ${params.sprintId} not found.`);
     const stories = await serverListEntities<Story>(ctx.userId, "workspace:story");
-    const candidates = stories
-      .filter((s) => s.status === "backlog")
-      .slice()
-      .sort((a, b) => (b.priorityScore ?? -Infinity) - (a.priorityScore ?? -Infinity));
-    const selected: Story[] = [];
-    let remaining = params.capacityPoints;
-    for (const story of candidates) {
-      const pts = story.points ?? 0;
-      if (pts <= 0) continue;
-      if (pts > remaining) continue;
-      selected.push(story);
-      remaining -= pts;
-    }
+    const { selected, totalPoints } = selectStoriesForCapacity(stories, params.capacityPoints);
     if (params.commit) {
       for (const story of selected) {
         await serverUpsertEntity<Story>(ctx.userId, "workspace:story", {
@@ -96,7 +75,7 @@ registry.register({
       sprintName: sprint.name,
       capacityPoints: params.capacityPoints,
       selected: selected.map((s) => ({ id: s.id, title: s.title, points: s.points })),
-      totalPointsSelected: params.capacityPoints - remaining,
+      totalPointsSelected: totalPoints,
       committed: Boolean(params.commit),
     };
   },
