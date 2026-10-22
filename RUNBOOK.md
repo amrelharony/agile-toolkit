@@ -143,18 +143,19 @@ If any of those steps fails, check:
 
 ## Troubleshooting
 
-| Symptom                                         | Likely cause                                              | Fix                                                                               |
-| ----------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `/api/*` returns 503 `auth_unavailable`         | `AUTHORIZED_EMAILS` empty or Supabase env missing         | Check `.env.local`, restart dev server (tool pages keep working meanwhile)        |
-| Sign-in lands on "Not the owner account"        | Google account not in `AUTHORIZED_EMAILS`                 | Sign in with the owner account; check the allowlist spelling                      |
-| Sign-in lands on "Owner sign-in unavailable"    | `AUTHORIZED_EMAILS` empty on that deployment              | Set it (e.g. Vercel → Preview env); no session was created, nothing to undo       |
-| Header says "Cloud sync is paused"              | Signed-out work in this browser awaits merge/discard      | Click **Review** in the notice, then **Merge** or **Discard**                     |
-| `/auth/sign-in` works but bounces back unauth'd | Google redirect URI mismatch                              | Add `http://localhost:3000` to Supabase Auth → URL config                         |
-| Agent sheet won't open / says "no GLM key"      | Neither `ZAI_API_KEY` set nor BYOK configured             | Set the server key, or click avatar → **AI settings (BYOK)** and paste a GLM key  |
-| Agent returns "Insufficient balance"            | z.ai account has no credit AND you picked a paid model    | Top up at z.ai/manage-pricing OR set `ZAI_AGENT_MODEL=glm-4.5-flash` (free tier)  |
-| MCP returns 401                                 | PAT typo, revoked, or `SUPABASE_SERVICE_ROLE_KEY` missing | Verify token in `/settings/access-tokens`; verify env on server                   |
-| `tools/list` returns empty over MCP             | Action registry didn't load on the API route runtime      | Restart dev server; check `src/app/api/mcp/route.ts` still imports `register-all` |
-| Two tabs show different workspace               | Sync not running (owner unverified, or prompt pending)    | Check console for `[sync:*]` errors; verify Supabase and `/api/auth/owner`        |
+| Symptom                                                                           | Likely cause                                                | Fix                                                                                               |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `/api/*` returns 503 `auth_unavailable`                                           | `AUTHORIZED_EMAILS` empty or Supabase env missing           | Check `.env.local`, restart dev server (tool pages keep working meanwhile)                        |
+| Sign-in lands on "Not the owner account"                                          | Google account not in `AUTHORIZED_EMAILS`                   | Sign in with the owner account; check the allowlist spelling                                      |
+| Sign-in lands on "Owner sign-in unavailable"                                      | `AUTHORIZED_EMAILS` empty on that deployment                | Set it (e.g. Vercel → Preview env); no session was created, nothing to undo                       |
+| Header says "Cloud sync is paused"                                                | Signed-out work in this browser awaits merge/discard        | Click **Review** in the notice, then **Merge** or **Discard**                                     |
+| `/auth/sign-in` works but bounces back unauth'd                                   | Google redirect URI mismatch                                | Add `http://localhost:3000` to Supabase Auth → URL config                                         |
+| Agent sheet won't open / says "no GLM key"                                        | Neither `ZAI_API_KEY` set nor BYOK configured               | Set the server key, or click avatar → **AI settings (BYOK)** and paste a GLM key                  |
+| Agent returns "Insufficient balance"                                              | z.ai account has no credit AND you picked a paid model      | Top up at z.ai/manage-pricing OR set `ZAI_AGENT_MODEL=glm-4.5-flash` (free tier)                  |
+| MCP returns 401                                                                   | PAT typo, revoked, or `SUPABASE_SERVICE_ROLE_KEY` missing   | Verify token in `/settings/access-tokens`; verify env on server                                   |
+| `tools/list` returns empty over MCP                                               | Action registry didn't load on the API route runtime        | Restart dev server; check `src/app/api/mcp/route.ts` still imports `register-all`                 |
+| Two tabs show different workspace                                                 | Sync not running (owner unverified, or prompt pending)      | Check console for `[sync:*]` errors; verify Supabase and `/api/auth/owner`                        |
+| `test/pdf/worker-version` or `test/comic/comic-asset-script` fail only on Windows | Checkout made before `.gitattributes` (CRLF working copies) | Re-checkout once: `git rm -q --cached -r . && git reset --hard` (commit or stash your work first) |
 
 ---
 
