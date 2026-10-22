@@ -58,4 +58,10 @@ export const impedimentRoute: HandoffRoute = {
   exists: (id) =>
     useImpedimentStore.getState().impediments.some((i) => i.id === id) ||
     (useWorkspaceStore.getState().impediments ?? []).some((i) => i.id === id),
+  // Resolved in the tool, or a resolvedAt on the workspace row (agents write that).
+  isDone: (id) =>
+    useImpedimentStore.getState().impediments.some((i) => i.id === id && i.status === "Resolved") ||
+    (useWorkspaceStore.getState().impediments ?? []).some(
+      (i) => i.id === id && Boolean(i.resolvedAt)
+    ),
 };

@@ -18,6 +18,13 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   standup: ["daily scrum", "daily standup", "stand-up", "yesterday today blockers"],
   "async-standup": ["daily scrum", "written standup", "remote", "slack update"],
   retro: ["retrospective", "start stop continue", "4ls", "sailboat", "mad sad glad"],
+  "retro-actions": [
+    "action items",
+    "follow-ups",
+    "retro actions",
+    "improvement actions",
+    "overdue",
+  ],
   "planning-poker": ["estimate", "estimation", "story points", "fibonacci", "t-shirt sizing"],
   "estimation-guide": ["story points", "reference stories", "calibration"],
   "capacity-planner": ["sprint planning", "availability", "time off", "focus factor"],

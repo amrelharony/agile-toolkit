@@ -62,4 +62,5 @@ export const kanbanRoute: HandoffRoute = {
       .upsertKanbanBoard({ ...board, cards: board.cards.filter((c) => c.id !== id) });
   },
   exists: (id) => Boolean(currentBoard()?.cards.some((c) => c.id === id)),
+  isDone: (id) => currentBoard()?.cards.find((c) => c.id === id)?.column === "done",
 };

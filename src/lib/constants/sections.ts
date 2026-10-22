@@ -75,6 +75,7 @@ export const SECTIONS: ToolSection[] = [
     icon: RefreshCw,
     toolIds: [
       "retro",
+      "retro-actions",
       "premortem",
       "icebreaker",
       "liberating-structures",

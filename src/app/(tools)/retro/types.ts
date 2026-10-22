@@ -25,6 +25,11 @@ export interface RetroCard {
   sentTo?: HandoffLink[];
   /** Id of the previous retro's card this action was carried over from. */
   carriedFrom?: string;
+  /** The action is done (set in Retro Actions, or by the agent). */
+  done?: boolean;
+  doneAt?: string;
+  /** When the action is due, YYYY-MM-DD. */
+  dueDate?: string;
 }
 
 export interface BoardState {

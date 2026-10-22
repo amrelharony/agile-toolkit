@@ -3,6 +3,29 @@ import type { ToolGuide } from "./types";
 /** Guides for the "Run the sprint" and "Retrospect & improve" tools. Loaded on demand (see ./index.ts). */
 export const GUIDES: ToolGuide[] = [
   {
+    toolId: "retro-actions",
+    summary:
+      "Retro Actions is the follow-up list: every action item the team agreed in a retro — this one and the past ones — with an owner, a due date and whether it is done. An action sent to Impediments or Kanban counts as done when that item is finished.",
+    whenToUse: [
+      "Between retros, to chase the actions the team agreed and keep them visible.",
+      "Before the next retro, to see which actions are still open and carry them over.",
+      "When someone asks what the team changed after its last few retros.",
+    ],
+    steps: [
+      "In the Retro board, mark cards as action items with an owner. They appear here under their retro, newest first.",
+      "Give each action a due date and tick it when it's done; overdue actions are flagged.",
+      "Send an action to Impediments or the Kanban backlog with Send to; when that item is resolved or reaches Done, the action closes itself.",
+      "Carry a still-open action from a past retro onto the current board so the team looks at it again.",
+      "Filter by Open, Overdue, Done or owner, and copy the list as Markdown for the team channel.",
+    ],
+    tips: [
+      "Three actions per retro that get done beat ten that don't; close or drop the stale ones.",
+      "An action without an owner isn't an action. Name one person, even for team-wide changes.",
+      "The Sprint Cockpit's Retro card shows how many actions are open and overdue.",
+    ],
+    timebox: "Five minutes a week, and the first five minutes of every retro.",
+  },
+  {
     toolId: "sprint",
     summary:
       "The Sprint Cockpit is the Scrum master's home page for the current sprint: the goal and day count, the burndown, who has posted today's update, the open blockers, the last retro's actions and when the next ceremony is. Everything on it comes from the other tools; nothing is typed twice.",

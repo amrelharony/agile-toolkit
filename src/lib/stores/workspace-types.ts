@@ -1554,6 +1554,11 @@ export interface RetroCard {
   sentTo?: HandoffLink[];
   /** Id of the previous retro's card this action was carried over from. */
   carriedFrom?: string;
+  /** The action is done (set in Retro Actions, or by the agent). */
+  done?: boolean;
+  doneAt?: ISODateString;
+  /** When the action is due, YYYY-MM-DD. */
+  dueDate?: ISODateString;
 }
 
 /** A retrospective board — a singleton document (one current retro under a

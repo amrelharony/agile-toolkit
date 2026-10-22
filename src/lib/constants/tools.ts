@@ -602,6 +602,22 @@ export const tools: ToolDefinition[] = [
     ],
   },
   {
+    id: "retro-actions",
+    code: "C12",
+    name: "Retro Actions",
+    description:
+      "Every action the team agreed in a retro, across retros, with owner, due date and done — done too when its impediment or Kanban card is finished",
+    category: "Ceremonies",
+    path: "/retro-actions",
+    icon: ListChecks,
+    badge: "new",
+    requiresAuth: false,
+    isRealtime: false,
+    phase: 40,
+    usesWorkspace: true,
+    analyticsTier: 2,
+  },
+  {
     id: "standup",
     code: "C2",
     name: "Standup Tracker",
