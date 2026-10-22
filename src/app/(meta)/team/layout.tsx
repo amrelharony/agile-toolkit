@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Team",
   description:
-    "One list of the people on your team, shared by Standup, Mood Tracker, Kudos, Capacity Planner and Ceremony Timer.",
+    "The people on your team and the agreements you work by: the roster, the working agreement, Definition of Ready and Done, the estimation baseline and the ceremony times.",
 };
 
 export default function TeamLayout({ children }: { children: React.ReactNode }) {

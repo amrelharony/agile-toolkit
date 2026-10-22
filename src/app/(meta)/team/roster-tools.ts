@@ -10,4 +10,5 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
   { toolId: "ceremony-timer", use: "“Load team” fills the speaking order." },
   { toolId: "canvas", use: "Suggests names for card assignees and @mentions." },
   { toolId: "health-dashboard", use: "Counts the team for standup participation." },
+  { toolId: "sprint", use: "Counts who has posted today's standup update." },
 ];
