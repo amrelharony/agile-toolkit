@@ -7,6 +7,10 @@ import { nanoid } from "nanoid";
 import { emitRtEvent } from "@/lib/sonification/emit";
 import { usePresenceIdentityOverride } from "./presence-identity";
 import { useRealtimeAllowed } from "./use-realtime-allowed";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
+import { useGuestProfile } from "@/lib/auth/guest-profile-provider";
+import { privateRoomsEnabled } from "./private-rooms";
+import { acquireRoomAuth, roomAuthKind } from "./room-auth";
 import { createInboundLimiter } from "./rate-limit";
 import { isWithinJsonSize } from "./sanitize";
 import {
@@ -31,7 +35,18 @@ export interface UseRoomResult<T> {
   setState: (updater: T | ((prev: T) => T)) => void;
   members: PresenceMember[];
   isConnected: boolean;
+  /**
+   * No live room: no room id, no Supabase, or (private rooms only) the
+   * room token was refused, in which case `authFailed` is true too.
+   */
   isLocalOnly: boolean;
+  /**
+   * Private rooms only (`NEXT_PUBLIC_PRIVATE_ROOMS=1`): the server would
+   * not issue a token for this room (not configured, no invite, offline),
+   * so the hook stays local-only rather than join a public channel. Always
+   * false with the flag off.
+   */
+  authFailed: boolean;
   roomId: string | null;
   userId: string;
   broadcast: (event: string, payload: unknown) => void;
@@ -199,6 +214,20 @@ export function useRoom<T>(
       visitorChannelName(toolId, requestedRoomId) !== null &&
       isVisitorIdentity(options.identity));
   const roomId = realtimeAllowed && visitorReady ? requestedRoomId : null;
+  // Private rooms (NEXT_PUBLIC_PRIVATE_ROOMS=1): which room token this
+  // viewer joins with. Always null with the flag off, so the channel effect
+  // below keeps exactly its old inputs.
+  const isOwner = useIsOwner();
+  const guestProfile = useGuestProfile();
+  const privateRooms = privateRoomsEnabled();
+  const authKind = privateRooms
+    ? roomAuthKind({ visitor, isOwner, isGuest: guestProfile !== null })
+    : null;
+  // The room whose token was refused (kind + tool + room). Reading it
+  // through `authKey` means a different room starts clean.
+  const [authFailedFor, setAuthFailedFor] = useState<string | null>(null);
+  const authKey = authKind && roomId ? `${authKind}|${toolId}|${roomId}` : null;
+  const authFailed = authKey !== null && authFailedFor === authKey;
   // Default validator REJECTS every incoming peer state. The previous
   // default (`true`) was a type-guard lie: it claimed `_raw is T` without
   // checking, so any hostile peer could broadcast arbitrary JSON shapes
@@ -238,7 +267,10 @@ export function useRoom<T>(
     userRef.current = getOrCreateUser();
   }
   const user = userRef.current;
-  const isLocalOnly = !roomId || !isRealtimeAvailable();
+  // `noRoom` drives the channel effect; a refused room token (private rooms
+  // only) also reads as local-only to callers, but doesn't re-run it.
+  const noRoom = !roomId || !isRealtimeAvailable();
+  const isLocalOnly = noRoom || authFailed;
 
   const setState = useCallback((updater: T | ((prev: T) => T)) => {
     setStateInternal((prev) => {
@@ -315,7 +347,7 @@ export function useRoom<T>(
   );
 
   useEffect(() => {
-    if (isLocalOnly || !roomId) {
+    if (noRoom || !roomId) {
       setIsConnected(false);
       setMembers([]);
       return;
@@ -332,162 +364,198 @@ export function useRoom<T>(
       ? visitorChannelName(toolId, roomId)
       : `tool:${toolId}:room:${roomId}`;
     if (!channelName) return;
-    const channel = supabase.channel(channelName, {
-      config: { presence: { key: me.id } },
-    });
 
-    let memberCount = 0;
-    // Capture into a local that the cleanup closure can use safely —
-    // satisfies react-hooks/exhaustive-deps' ref-mutation check.
-    const boundEvents = boundEventsRef.current;
+    /** Wire up `channel`, subscribe, and return its teardown. */
+    const joinChannel = (channel: RealtimeChannel): (() => void) => {
+      let memberCount = 0;
+      // Capture into a local that the cleanup closure can use safely —
+      // satisfies react-hooks/exhaustive-deps' ref-mutation check.
+      const boundEvents = boundEventsRef.current;
 
-    // Visitor rooms only (all null/unused for owner and guest rooms).
-    const ledger = visitor ? createAdmissionLedger(VISITOR_LIMITS.maxMembers) : null;
-    const admitInbound = visitor ? createVisitorInboundGuard() : null;
-    inboundGuardRef.current = admitInbound;
-    let firstSync = true;
-    let left = false;
-    if (visitor) setRoomFull(false);
+      // Visitor rooms only (all null/unused for owner and guest rooms).
+      const ledger = visitor ? createAdmissionLedger(VISITOR_LIMITS.maxMembers) : null;
+      const admitInbound = visitor ? createVisitorInboundGuard() : null;
+      inboundGuardRef.current = admitInbound;
+      let firstSync = true;
+      let left = false;
+      if (visitor) setRoomFull(false);
 
-    const publishMembers = (allMembers: PresenceMember[]) => {
-      if (memberCount > 0) {
-        if (allMembers.length > memberCount) emitRtEvent("member-join");
-        else if (allMembers.length < memberCount) emitRtEvent("member-leave");
-      }
-      memberCount = allMembers.length;
-      setMembers(allMembers);
-    };
+      const publishMembers = (allMembers: PresenceMember[]) => {
+        if (memberCount > 0) {
+          if (allMembers.length > memberCount) emitRtEvent("member-join");
+          else if (allMembers.length < memberCount) emitRtEvent("member-leave");
+        }
+        memberCount = allMembers.length;
+        setMembers(allMembers);
+      };
 
-    // R9-style teardown (matches use-presence.ts and use-canvas-presence.ts):
-    // chain untrack → unsubscribe → removeChannel so the LEAVE event lands
-    // before the channel is torn down (otherwise peers see a ghost presence
-    // for ~60 s until the server's TTL expires) AND so the channel is freed
-    // from the Supabase client's internal `channels[]` map. Without
-    // removeChannel, every toolId/roomId change leaked a RealtimeChannel
-    // plus all its bound handler closures. Runs once: on unmount or a deps
-    // change, or earlier when a visitor room turns out to be full.
-    const leave = () => {
-      if (left) return;
-      left = true;
-      void Promise.resolve(channel.untrack())
-        .then(() => channel.unsubscribe())
-        .catch(() => {});
-      try {
-        void getSupabaseClient()?.removeChannel(channel);
-      } catch {
-        /* client torn down */
-      }
-      if (channelRef.current === channel) channelRef.current = null;
-      if (inboundGuardRef.current === admitInbound) inboundGuardRef.current = null;
-      // Forget which events we'd bound to the now-dead channel; the
-      // next channel will re-bind from `eventHandlersRef.current.keys()`.
-      // Intentionally DO NOT clear `eventHandlersRef` — consumer handlers
-      // are still registered and need to be re-attached to the new channel.
-      boundEvents.clear();
-      setIsConnected(false);
-      setMembers([]);
-    };
+      // R9-style teardown (matches use-presence.ts and use-canvas-presence.ts):
+      // chain untrack → unsubscribe → removeChannel so the LEAVE event lands
+      // before the channel is torn down (otherwise peers see a ghost presence
+      // for ~60 s until the server's TTL expires) AND so the channel is freed
+      // from the Supabase client's internal `channels[]` map. Without
+      // removeChannel, every toolId/roomId change leaked a RealtimeChannel
+      // plus all its bound handler closures. Runs once: on unmount or a deps
+      // change, or earlier when a visitor room turns out to be full.
+      const leave = () => {
+        if (left) return;
+        left = true;
+        void Promise.resolve(channel.untrack())
+          .then(() => channel.unsubscribe())
+          .catch(() => {});
+        try {
+          void getSupabaseClient()?.removeChannel(channel);
+        } catch {
+          /* client torn down */
+        }
+        if (channelRef.current === channel) channelRef.current = null;
+        if (inboundGuardRef.current === admitInbound) inboundGuardRef.current = null;
+        // Forget which events we'd bound to the now-dead channel; the
+        // next channel will re-bind from `eventHandlersRef.current.keys()`.
+        // Intentionally DO NOT clear `eventHandlersRef` — consumer handlers
+        // are still registered and need to be re-attached to the new channel.
+        boundEvents.clear();
+        setIsConnected(false);
+        setMembers([]);
+      };
 
-    // Register all listeners BEFORE calling subscribe so none are missed
-    channel
-      .on("broadcast", { event: "state-sync" }, (payload) => {
-        if (admitInbound && !admitInbound("state-sync", payload?.payload)) return;
-        // Null-check the payload shape before destructuring. A peer
-        // (or proxy mid-flight) sending `payload.payload = null` would
-        // throw on `body.by` and silently kill this listener for the
-        // rest of the session. Hostile-peer or sloppy-tool surface.
-        const raw = payload?.payload;
-        if (!raw || typeof raw !== "object") return;
-        const body = raw as { state?: unknown; by?: unknown };
-        if (typeof body.by !== "string") return;
-        if (body.by === me.id) return;
-        // Run the optional validator. Default (since the hardening
-        // change) rejects every peer state — tools that want cross-
-        // peer state sync MUST pass an explicit `validateState`. This
-        // hook still supports presence/broadcast for tools that only
-        // need those channels.
-        if (!validateState(body.state)) return;
-        setStateInternal(body.state);
-        emitRtEvent("sync-remote");
-      })
-      .on("presence", { event: "sync" }, () => {
-        if (ledger) {
-          if (left) return;
-          // Visitor room: strict entries only, at most maxMembers of them.
-          const present = readVisitorPresence(channel.presenceState());
-          if (firstSync) {
-            firstSync = false;
-            const others = present.filter((m) => m.id !== me.id).length;
-            if (isRoomFull(others)) {
-              setRoomFull(true);
-              leave();
-              return;
+      // Register all listeners BEFORE calling subscribe so none are missed
+      channel
+        .on("broadcast", { event: "state-sync" }, (payload) => {
+          if (admitInbound && !admitInbound("state-sync", payload?.payload)) return;
+          // Null-check the payload shape before destructuring. A peer
+          // (or proxy mid-flight) sending `payload.payload = null` would
+          // throw on `body.by` and silently kill this listener for the
+          // rest of the session. Hostile-peer or sloppy-tool surface.
+          const raw = payload?.payload;
+          if (!raw || typeof raw !== "object") return;
+          const body = raw as { state?: unknown; by?: unknown };
+          if (typeof body.by !== "string") return;
+          if (body.by === me.id) return;
+          // Run the optional validator. Default (since the hardening
+          // change) rejects every peer state — tools that want cross-
+          // peer state sync MUST pass an explicit `validateState`. This
+          // hook still supports presence/broadcast for tools that only
+          // need those channels.
+          if (!validateState(body.state)) return;
+          setStateInternal(body.state);
+          emitRtEvent("sync-remote");
+        })
+        .on("presence", { event: "sync" }, () => {
+          if (ledger) {
+            if (left) return;
+            // Visitor room: strict entries only, at most maxMembers of them.
+            const present = readVisitorPresence(channel.presenceState());
+            if (firstSync) {
+              firstSync = false;
+              const others = present.filter((m) => m.id !== me.id).length;
+              if (isRoomFull(others)) {
+                setRoomFull(true);
+                leave();
+                return;
+              }
+            }
+            const byId = new Map(present.map((m) => [m.id, m]));
+            const { admitted } = ledger.update(
+              present.map((m) => m.id),
+              me.id
+            );
+            const allMembers: PresenceMember[] = [];
+            for (const id of admitted) {
+              const m = byId.get(id);
+              if (m) allMembers.push({ ...m, color: safeColor(m.color) });
+            }
+            publishMembers(allMembers);
+            return;
+          }
+          const presenceState = channel.presenceState<PresenceMember>();
+          const allMembers: PresenceMember[] = [];
+          const isPresenceMember = (v: unknown): v is PresenceMember =>
+            !!v &&
+            typeof v === "object" &&
+            typeof (v as PresenceMember).id === "string" &&
+            typeof (v as PresenceMember).name === "string" &&
+            typeof (v as PresenceMember).color === "string";
+          for (const key of Object.keys(presenceState)) {
+            const metas = presenceState[key];
+            const first = Array.isArray(metas) ? metas[0] : undefined;
+            if (isPresenceMember(first)) {
+              // Normalise color to the allowlist BEFORE the value enters
+              // any render path — see safeColor() docs.
+              allMembers.push({ ...first, color: safeColor(first.color) });
             }
           }
-          const byId = new Map(present.map((m) => [m.id, m]));
-          const { admitted } = ledger.update(
-            present.map((m) => m.id),
-            me.id
-          );
-          const allMembers: PresenceMember[] = [];
-          for (const id of admitted) {
-            const m = byId.get(id);
-            if (m) allMembers.push({ ...m, color: safeColor(m.color) });
-          }
           publishMembers(allMembers);
-          return;
-        }
-        const presenceState = channel.presenceState<PresenceMember>();
-        const allMembers: PresenceMember[] = [];
-        const isPresenceMember = (v: unknown): v is PresenceMember =>
-          !!v &&
-          typeof v === "object" &&
-          typeof (v as PresenceMember).id === "string" &&
-          typeof (v as PresenceMember).name === "string" &&
-          typeof (v as PresenceMember).color === "string";
-        for (const key of Object.keys(presenceState)) {
-          const metas = presenceState[key];
-          const first = Array.isArray(metas) ? metas[0] : undefined;
-          if (isPresenceMember(first)) {
-            // Normalise color to the allowlist BEFORE the value enters
-            // any render path — see safeColor() docs.
-            allMembers.push({ ...first, color: safeColor(first.color) });
-          }
-        }
-        publishMembers(allMembers);
+        });
+
+      // Custom event fan-out. Supabase has no wildcard for `broadcast`, so
+      // we bind one `channel.on("broadcast", { event }, …)` per event name
+      // that any consumer has already registered (via subscribeToEvent
+      // before the channel mounted). Subsequent calls to subscribeToEvent
+      // after the channel is live also bind on the fly — see the
+      // `if (channelRef.current)` branch in subscribeToEvent.
+      channelRef.current = channel;
+      const handlers = eventHandlersRef.current;
+      handlers.forEach((_set, event) => {
+        bindEventToChannel(channel, event);
       });
 
-    // Custom event fan-out. Supabase has no wildcard for `broadcast`, so
-    // we bind one `channel.on("broadcast", { event }, …)` per event name
-    // that any consumer has already registered (via subscribeToEvent
-    // before the channel mounted). Subsequent calls to subscribeToEvent
-    // after the channel is live also bind on the fly — see the
-    // `if (channelRef.current)` branch in subscribeToEvent.
-    channelRef.current = channel;
-    const handlers = eventHandlersRef.current;
-    handlers.forEach((_set, event) => {
-      bindEventToChannel(channel, event);
-    });
+      const trackedColor = isCallerColor(me.color) ? me.color : assignColor(me.id);
+      channel.subscribe((status) => {
+        // A visitor that already left (room full) must not take a seat.
+        if (visitor && left) return;
+        if (status === "SUBSCRIBED") {
+          setIsConnected(true);
+          emitRtEvent("room-connected");
+          void channel.track({
+            id: me.id,
+            name: me.name,
+            color: trackedColor,
+            joinedAt: new Date().toISOString(),
+          });
+        } else {
+          setIsConnected(false);
+        }
+      });
 
-    const trackedColor = isCallerColor(me.color) ? me.color : assignColor(me.id);
-    channel.subscribe((status) => {
-      // A visitor that already left (room full) must not take a seat.
-      if (visitor && left) return;
-      if (status === "SUBSCRIBED") {
-        setIsConnected(true);
-        emitRtEvent("room-connected");
-        void channel.track({
-          id: me.id,
-          name: me.name,
-          color: trackedColor,
-          joinedAt: new Date().toISOString(),
-        });
-      } else {
-        setIsConnected(false);
+      return leave;
+    };
+
+    // Flag off: the public channel, opened right away as it always was.
+    if (!privateRooms) {
+      return joinChannel(
+        supabase.channel(channelName, {
+          config: { presence: { key: me.id } },
+        })
+      );
+    }
+
+    // Flag on: get the room token onto the client first, then join the
+    // private channel. No kind (nobody who may join) or a refused token
+    // means no channel at all: never a public fallback.
+    if (!authKind) return;
+    const failKey = `${authKind}|${toolId}|${roomId}`;
+    const lease = acquireRoomAuth(authKind, channelName);
+    let cancelled = false;
+    let leaveChannel: (() => void) | null = null;
+    void lease.ready.then((ok) => {
+      if (cancelled) return;
+      if (!ok) {
+        setAuthFailedFor(failKey);
+        return;
       }
+      setAuthFailedFor((prev) => (prev === failKey ? null : prev));
+      leaveChannel = joinChannel(
+        supabase.channel(channelName, {
+          config: { private: true, presence: { key: me.id } },
+        })
+      );
     });
-
-    return leave;
+    return () => {
+      cancelled = true;
+      leaveChannel?.();
+      lease.release();
+    };
     // `validateState` is intentionally excluded — callers typically pass an
     // inline arrow function whose identity churns every render, which would
     // tear down and re-create the realtime channel each commit. We capture
@@ -496,8 +564,10 @@ export function useRoom<T>(
     // Including `user?.id` in the deps so a switch-profile flow (or the
     // owner-tree case where identity arrives after the AuthProvider
     // resolves) remounts the channel with the new presence key.
+    // `authKind` (null with the flag off) re-joins with the right token
+    // when the viewer's kind changes under private rooms.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toolId, roomId, isLocalOnly, user?.id, visitor]);
+  }, [toolId, roomId, noRoom, user?.id, visitor, authKind]);
 
   return {
     state,
@@ -505,6 +575,7 @@ export function useRoom<T>(
     members,
     isConnected,
     isLocalOnly,
+    authFailed,
     roomId,
     userId: user.id,
     broadcast,

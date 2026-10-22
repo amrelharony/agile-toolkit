@@ -219,7 +219,55 @@ What this does **not** cover:
 - Revoking an invite stops the guest's page, not a channel they already know the name of.
 - Rooms created before this change keep their old, short codes until a new session starts.
 
-The fix for those is Realtime Authorization: private channels that only accept short-lived room tokens the server mints for you or an invited guest, with "Allow public access" turned off. It needs the project's JWT secret on the server and a database policy, so it ships behind a flag with its own enable steps.
+The fix for those is private rooms, below.
+
+### Private rooms (Realtime Authorization)
+
+With `NEXT_PUBLIC_PRIVATE_ROOMS=1`, every room opens as a **private** channel, and Supabase checks each join against the policy in migration 0026.
+
+**Who gets in:**
+
+- **Owner:** your browser fetches a short-lived room token from `/api/realtime/token` (owner only) that opens every tool room.
+- **Invited guest:** a guest's browser fetches one from `/api/guest/realtime-token` that lists exactly the rooms their invites cover.
+- **Visitor rooms** still open with the plain anon key. The code in the link is their only key, by design.
+- **Your sync, history and agent-conversation feeds** use private channels on your own signed-in session.
+
+**Tokens:**
+
+- Tokens last 60 minutes and refresh themselves.
+- They have role `anon`, so a leaked one is worth no more than the public key against the database.
+- They are signed with `SUPABASE_JWT_SECRET`. That is the project's legacy JWT secret, as powerful as the service-role key, so keep it server-only.
+
+A public channel and a private channel with the same name are separate on Supabase. Tested live on 19 Oct 2026: someone on the public channel neither heard the private room nor reached it. So **the flag alone protects what's said in a room.** Turning off "Allow public access" then does two more things:
+
+- old tabs (still running the build from before the flag) can't keep using public channels;
+- nobody can use the public key to run channels of their own on the project's quota.
+
+**Turning it on (in this order):**
+
+1. **Secret:** put the legacy JWT secret in `SUPABASE_JWT_SECRET` in Vercel (Production) and `.env.local`. It's under Project Settings → JWT Keys → Legacy JWT Secret.
+2. **Migration:** run `supabase db push`, which applies 0026. This is safe at any time, because public channels ignore the policy. After pushing, check:
+   - `select has_function_privilege('anon','public.realtime_room_allowed(text)','EXECUTE');` returns true;
+   - two policies, `realtime_rooms_select` and `realtime_rooms_insert`, are on `realtime.messages`.
+3. **Flag:** set `NEXT_PUBLIC_PRIVATE_ROOMS=1` in Vercel and **redeploy**. It's inlined at build time.
+4. **Check production:**
+   - an owner Poker session and the kudos wall stay live (open them signed in);
+   - an invited guest joins;
+   - a visitor room works;
+   - your other devices still get sync updates.
+
+   Ask anyone with the site open to reload: tabs still running the old build use public channels.
+
+5. **Lock it:** Supabase → Realtime → Settings → turn **off** "Allow public access". From then on public channels are refused entirely: an old tab can't keep using a public one, and nobody can run their own channels on the anon key.
+
+**Rolling back:** turn "Allow public access" back **on** first, then unset the flag and redeploy.
+
+**Worth knowing:**
+
+- **If the secret is missing or wrong,** the token routes answer 503, or Supabase rejects the token. Owner and guest rooms then stay local-only (they show "Local-only"); they never fall back to a public channel. Visitor rooms and sync keep working.
+- **Revoking an invite** cuts a guest off when their current token expires, within 60 minutes. Their next refresh is refused.
+- **Rotating the legacy JWT secret** also replaces the legacy anon and service-role keys. Update all three in Vercel and `.env.local`, then redeploy.
+- **New channel code** must go through `useRoom`, `useCanvasPresence` or `acquireRoomAuth` for rooms, or `ownerFeedChannel` for your own feeds. A public channel stops working once public access is off.
 
 ---
 
