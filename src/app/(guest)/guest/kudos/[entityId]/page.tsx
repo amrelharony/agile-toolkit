@@ -2,6 +2,7 @@ import { redirect, notFound } from "next/navigation";
 import { getGuestSession } from "@/lib/auth/guest-session";
 import { resolveGuestInvite } from "@/lib/squads/invites";
 import { isValidGuestPathSegment } from "@/lib/squads/validate";
+import { kudosRoomKey } from "@/lib/realtime/room-keys";
 import { GuestKudosClient } from "./guest-kudos-client";
 
 export const metadata = {
@@ -40,6 +41,7 @@ export default async function GuestKudosPage({ params }: { params: Params }) {
         squadId: session.squadId,
         squadOwnerId: session.squadOwnerId,
       }}
+      roomKey={kudosRoomKey(session.squadOwnerId)}
     />
   );
 }

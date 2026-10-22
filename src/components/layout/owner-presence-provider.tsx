@@ -36,8 +36,8 @@ export function OwnerPresenceProvider({ children }: { children: React.ReactNode 
       typeof auth.user.user_metadata === "object" && auth.user.user_metadata
         ? ((auth.user.user_metadata as Record<string, unknown>).full_name as string | undefined)
         : undefined;
-    const email = typeof auth.user.email === "string" ? auth.user.email : null;
-    const name = profileName || metaName || email || "Owner";
+    // Never the email address: presence goes to everyone in the room.
+    const name = profileName || metaName || "Owner";
     return { id: auth.user.id, name };
   }, [auth]);
 

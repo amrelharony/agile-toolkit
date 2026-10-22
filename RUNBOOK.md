@@ -198,6 +198,31 @@ Known behaviour worth knowing:
 
 ---
 
+## Realtime rooms: what protects them
+
+Live rooms (owner Planning Poker, canvas boards, the kudos wall, squad-guest pages, visitor rooms) are Supabase Realtime channels. Every channel is joined with the public anon key, which ships in the page, so **knowing a channel's name is enough to join it**. The checks in the app (owner or invited guest) run in the browser, not on Supabase.
+
+What keeps strangers out today is that the names can't be guessed:
+
+| Room                  | Channel                                                        | Name                                                                                                              |
+| --------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Owner and guest Poker | `tool:planning-poker:room:<code>`                              | 16 characters, about 79 bits (was 6, about 30)                                                                    |
+| Canvas                | `tool:canvas:room:<boardId>`, `tool:canvas:presence:<boardId>` | 122 bits for boards made in the app, 126 for boards made by agents (was 48)                                       |
+| Kudos wall            | `tool:kudos:room:workspace-<key>`                              | a key the server derives from your user id with a server-only secret (was the user id itself, which isn't secret) |
+| Visitor rooms         | `visitor:<tool>:<code>`                                        | 12 characters, about 59 bits, and 3 hours at most                                                                 |
+
+Presence and kudos carry a display name or "Owner", never your email address.
+
+What this does **not** cover:
+
+- A leaked link (for example a guest URL forwarded on) still lets someone join with the anon key directly.
+- Revoking an invite stops the guest's page, not a channel they already know the name of.
+- Rooms created before this change keep their old, short codes until a new session starts.
+
+The fix for those is Realtime Authorization: private channels that only accept short-lived room tokens the server mints for you or an invited guest, with "Allow public access" turned off. It needs the project's JWT secret on the server and a database policy, so it ships behind a flag with its own enable steps.
+
+---
+
 ## Visitor live rooms
 
 Visitors (no sign-in, no squad invite) can run **Planning Poker** or a **Retro** live with their team. A room is a temporary Supabase Realtime broadcast + presence channel, `visitor:<tool>:<12-character code>`, joined through `/join/<tool>/<code>`. Nothing is written to a database, no server secret is involved, and the channel uses the same public anon key as owner rooms. Before any channel opens, the visitor gives a name and ticks a consent box under this text: _"What you type passes through our realtime provider (Supabase) to everyone with the link. We don't store it; the room disappears when everyone leaves. Share the link only with your team."_ Owners don't get visitor rooms (strangers' cards would sync into the owner's workspace); they keep using squad invites.

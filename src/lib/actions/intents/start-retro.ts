@@ -37,7 +37,7 @@ registry.register({
       throw new Error(`Sprint ${params.sprintId} not found.`);
     }
 
-    const boardId = `wb_${nanoid(8)}`;
+    const boardId = `wb_${nanoid()}`;
     const now = new Date().toISOString();
     const board: Whiteboard = {
       id: boardId,
@@ -83,7 +83,7 @@ registry.register({
     if (!sprint) {
       throw new Error(`Sprint ${params.sprintId} not found.`);
     }
-    const boardId = `wb_${nanoid(8)}`;
+    const boardId = `wb_${nanoid()}`;
     const now = new Date().toISOString();
     const board: Whiteboard = {
       id: boardId,

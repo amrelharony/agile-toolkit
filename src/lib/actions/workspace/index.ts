@@ -2093,5 +2093,7 @@ defineCrudActions<Whiteboard>({
   selectAll: () => ws().whiteboards ?? [],
   upsert: (x) => ws().upsertWhiteboard(x),
   remove: (id) => ws().removeWhiteboard(id),
-  generateId: () => `wb_${nanoid(8)}`,
+  // A board id names its Realtime channels (tool:canvas:room:<id>), so it
+  // must not be guessable: nanoid's full 21 characters (~126 bits).
+  generateId: () => `wb_${nanoid()}`,
 });
