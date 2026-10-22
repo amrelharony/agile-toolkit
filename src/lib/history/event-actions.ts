@@ -286,6 +286,13 @@ export const SPRINT_METRICS_ACTIONS = {
   SPRINT_REOPENED: "sprint_reopened",
 } as const;
 
+/** Retro Actions: following up what the team agreed. Payloads carry `cardId` and `boardId`. */
+export const RETRO_ACTIONS_ACTIONS = {
+  ACTION_DONE: "action_done",
+  ACTION_REOPENED: "action_reopened",
+  ACTION_CARRIED_OVER: "action_carried_over",
+} as const;
+
 /** Sprint Planning: the plan for a sprint. Payloads carry `sprintId`. */
 export const SPRINT_PLANNING_ACTIONS = {
   STORY_ADDED: "story_added",
