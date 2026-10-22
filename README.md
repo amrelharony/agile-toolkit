@@ -1,9 +1,12 @@
 # Agile Toolkit
 
-A free, public toolkit of 110 interactive tools for agile delivery — sprint
-planning, retros, story mapping, OKRs, metrics dashboards, decision frameworks,
-whiteboarding, AI/ML PM workflows, and more — plus the free "Agile at Work"
-comic book.
+A free, public toolkit for Scrum masters and agile teams — sprint planning,
+daily scrum, retrospectives, estimation, delivery metrics, team health,
+prioritization and decision frameworks, whiteboarding — plus the free
+"Agile at Work" comic book. About 80 tools are in the main navigation; some
+30 more for neighbouring work (AI/LLM product management, security, SRE and
+incident response, strategy frameworks) sit on a "More tools" shelf
+(`/more-tools`) that any visitor can switch on.
 
 Every tool works without an account: a visitor's work stays in their browser.
 The owner's sign-in adds cross-device cloud sync, the in-app agent and MCP.
