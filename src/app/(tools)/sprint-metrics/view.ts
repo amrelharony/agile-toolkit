@@ -5,8 +5,9 @@
  * same thing and tests can check the wording without rendering.
  */
 
-import type { Sprint, SprintSeries, Workspace } from "@/lib/stores/workspace-types";
-import { selectCompletedSprints } from "@/lib/stores/workspace-store";
+import type { Sprint, SprintSeries } from "@/lib/stores/workspace-types";
+// Not from workspace-store: loading the store starts the sync registry.
+import { selectCompletedSprints } from "@/lib/stores/sprint-selectors";
 import { recentVelocity, type SprintStatus } from "@/lib/sprints/metrics";
 import {
   completedAt,
@@ -43,8 +44,7 @@ function days(n: number): string {
 
 /** Completed sprints with points, oldest first (the store's own ordering). */
 export function completedSprints(sprints: readonly Sprint[]): Sprint[] {
-  // selectCompletedSprints only reads `sprints`.
-  return selectCompletedSprints({ sprints } as unknown as Workspace);
+  return selectCompletedSprints({ sprints });
 }
 
 export interface AverageVelocity {

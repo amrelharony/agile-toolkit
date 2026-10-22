@@ -16,7 +16,10 @@ jobs:
   verify:
     name: Verify (typecheck + tests + lint)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The suite is ~3,150 tests (407 files) and takes ~9 min on a hosted
+    # runner, before the production build. 10 minutes cut master's run off
+    # mid-tests on 2026-10-19; 25 leaves room to grow.
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
