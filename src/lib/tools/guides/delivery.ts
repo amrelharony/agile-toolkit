@@ -222,4 +222,36 @@ export const GUIDES: ToolGuide[] = [
       "Make flag removal part of your definition of done. The Definition of Done Builder can help.",
     ],
   },
+  {
+    toolId: "dora-scorecard",
+    summary:
+      "DORA's four key metrics measure software delivery: two for speed (deployment frequency, lead time for changes) and two for stability (change failure rate, time to restore service). The scorecard bands each one Elite, High, Medium or Low and tracks them quarter by quarter.",
+    whenToUse: [
+      "Quarterly engineering reviews, to see whether delivery is getting faster and safer.",
+      "Before and after a big change, such as a new CI/CD pipeline, to check its effect.",
+    ],
+    steps: [
+      "Pull the four numbers for the quarter from your deploy pipeline and incident records.",
+      "Under Log a quarterly sample, enter the Quarter (e.g. 2026-Q2), Deploys / week, Lead time (hours from commit to production), Change-fail rate (%) and MTTR (hours to restore service).",
+      "Note what changed that quarter, such as a new pipeline or a major incident, then click Add sample.",
+      "Read the KPI cards for the latest band on each metric, and the Trend across quarters chart for direction.",
+      "Pick the weakest metric and agree one improvement to try next quarter.",
+    ],
+    tips: [
+      "Read all four together. Shipping faster while change failures climb isn't progress.",
+      "Keep definitions the same every quarter (e.g. what counts as a failed change), or the trend means nothing.",
+      "Compare a team with its own past, not with other teams.",
+    ],
+    scales: [
+      {
+        name: "Bands (deploys · lead time · change-fail rate · MTTR)",
+        values: [
+          { value: "Elite", meaning: "14+ a week · up to 1 day · up to 15% · within 1 hour" },
+          { value: "High", meaning: "1+ a week · up to 1 week · up to 30% · within 1 day" },
+          { value: "Medium", meaning: "about monthly · up to 1 month · up to 45% · within 1 week" },
+          { value: "Low", meaning: "anything slower or worse" },
+        ],
+      },
+    ],
+  },
 ];

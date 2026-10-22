@@ -3,22 +3,28 @@ import {
   BookOpen,
   Bot,
   CalendarRange,
+  CirclePlay,
   HeartPulse,
   ListOrdered,
+  RefreshCw,
   ShieldCheck,
   Target,
   TrendingUp,
-  Users,
 } from "lucide-react";
 
 /**
- * Navigation sections, grouped by the job a person is doing.
+ * Navigation sections, in the order a Scrum master's sprint runs: plan it,
+ * run it, look back on it, then the standing jobs around it.
  *
  * The registry's `category` (lib/constants/tools.ts) reflects how the tools
- * were built — 18 groups from 1 to 14 tools, with Retro, Premortem and
- * Post-mortem in three different places — and the agent/MCP surface keys
- * off it, so it stays. Sections are what people browse: eight jobs, each
- * tool in exactly one.
+ * were built — 18 groups from 1 to 14 tools — and the agent/MCP surface keys
+ * off it, so it stays. Sections are what people browse: each tool in exactly
+ * one (test/constants/sections.test.ts). Tools on the "More tools" shelf keep
+ * their place here and are filtered at render time (lib/tools/catalog), so a
+ * section can disappear from the page when every tool in it is shelved.
+ *
+ * Guides are chunked per section id (lib/tools/guides/index.ts): moving a
+ * tool between sections means moving its guide between chunk files too.
  */
 export interface ToolSection {
   id: string;
@@ -30,18 +36,18 @@ export interface ToolSection {
 export const SECTIONS: ToolSection[] = [
   {
     id: "plan",
-    label: "Plan & estimate",
+    label: "Plan the sprint",
     icon: CalendarRange,
     toolIds: [
-      "planning-poker",
       "capacity-planner",
       "sprint-goal",
-      "story-mapper",
-      "refinement",
+      "planning-poker",
       "estimation-guide",
+      "refinement",
+      "story-mapper",
+      "walking-skeleton",
       "release-planner",
       "jtbd-mapper",
-      "walking-skeleton",
       "pi-planning",
       "epic-roadmap",
       "scrum-of-scrums",
@@ -49,22 +55,72 @@ export const SECTIONS: ToolSection[] = [
     ],
   },
   {
-    id: "ceremonies",
-    label: "Run ceremonies",
-    icon: Users,
+    id: "run",
+    label: "Run the sprint",
+    icon: CirclePlay,
     toolIds: [
-      "retro",
       "standup",
       "async-standup",
-      "sprint-review",
+      "impediments",
+      "kanban",
       "ceremony-timer",
-      "icebreaker",
+      "sprint-review",
+    ],
+  },
+  {
+    id: "retro",
+    label: "Retrospect & improve",
+    icon: RefreshCw,
+    toolIds: [
+      "retro",
       "premortem",
-      "one-on-one",
-      "working-agreement",
+      "icebreaker",
       "liberating-structures",
-      "design-sprint",
+      "six-hats",
       "canvas",
+      "design-sprint",
+    ],
+  },
+  {
+    id: "delivery",
+    label: "Track delivery",
+    icon: TrendingUp,
+    toolIds: [
+      "sprint-metrics",
+      "burndown",
+      "burnup",
+      "velocity",
+      "sprint-compare",
+      "cumulative-flow",
+      "cycle-time",
+      "health-dashboard",
+      "dora-scorecard",
+      "value-stream",
+      "release-readiness",
+      "feature-flag-tracker",
+    ],
+  },
+  {
+    id: "team",
+    label: "Team & people",
+    icon: HeartPulse,
+    toolIds: [
+      "health-check",
+      "psych-safety",
+      "mood-tracker",
+      "kudos",
+      "working-agreement",
+      "dod-builder",
+      "skills-matrix",
+      "raci",
+      "maturity",
+      "onboarding-tracker",
+      "one-on-one",
+      "stakeholder-map",
+      "adkar",
+      "space-pulse",
+      "devex-survey",
+      "tech-radar",
     ],
   },
   {
@@ -87,50 +143,11 @@ export const SECTIONS: ToolSection[] = [
       "daci",
       "rapid-decision",
       "weighted-decision",
-      "six-hats",
       "cynefin",
       "stacey-matrix",
       "ooda-loop",
       "polarity-map",
       "rfc-tracker",
-    ],
-  },
-  {
-    id: "delivery",
-    label: "Track delivery",
-    icon: TrendingUp,
-    toolIds: [
-      "sprint-metrics",
-      "burndown",
-      "velocity",
-      "kanban",
-      "burnup",
-      "cycle-time",
-      "cumulative-flow",
-      "sprint-compare",
-      "health-dashboard",
-      "value-stream",
-      "release-readiness",
-      "feature-flag-tracker",
-    ],
-  },
-  {
-    id: "team",
-    label: "Team health",
-    icon: HeartPulse,
-    toolIds: [
-      "health-check",
-      "psych-safety",
-      "mood-tracker",
-      "kudos",
-      "impediments",
-      "maturity",
-      "skills-matrix",
-      "raci",
-      "onboarding-tracker",
-      "devex-survey",
-      "space-pulse",
-      "tech-radar",
     ],
   },
   {
@@ -144,30 +161,26 @@ export const SECTIONS: ToolSection[] = [
       "user-interviews",
       "opportunity-tree",
       "riskiest-assumption",
-      "stakeholder-map",
-      "adkar",
       "wardley-map",
     ],
   },
   {
     id: "quality",
-    label: "Quality, reliability & risk",
+    label: "Quality & risk",
     icon: ShieldCheck,
     toolIds: [
       "risk-register",
       "tech-debt",
-      "dod-builder",
-      "dora-scorecard",
+      "quality-cost",
+      "test-pyramid",
+      "flaky-tests",
+      "code-review-metrics",
       "slo-builder",
       "incident-commander",
       "post-mortem",
       "oncall-roster",
       "runbook-scorer",
       "platform-maturity",
-      "test-pyramid",
-      "flaky-tests",
-      "code-review-metrics",
-      "quality-cost",
       "threat-model",
       "vuln-burndown",
       "control-map",

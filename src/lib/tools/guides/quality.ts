@@ -1,6 +1,6 @@
 import type { ToolGuide } from "./types";
 
-/** Guides for the "Quality, reliability & risk" tools. Loaded on demand (see ./index.ts). */
+/** Guides for the "Quality & risk" tools. Loaded on demand (see ./index.ts). */
 export const GUIDES: ToolGuide[] = [
   {
     toolId: "tech-debt",
@@ -39,60 +39,6 @@ export const GUIDES: ToolGuide[] = [
           { value: "1–2", meaning: "a day or two" },
           { value: "3", meaning: "about a sprint" },
           { value: "4–5", meaning: "several sprints; needs planning" },
-        ],
-      },
-    ],
-  },
-  {
-    toolId: "dod-builder",
-    summary:
-      "The Definition of Done (DoD) is the shared checklist every backlog item must meet before the team calls it done. This builder assembles the checklist by category and tracks how well the team kept to it each sprint.",
-    whenToUse: [
-      "Forming a new team, or when “done” means different things to different people.",
-      "When bugs or rework keep coming back from work that was marked done.",
-      "At a retro, to check whether the team is living up to its own quality bar.",
-    ],
-    steps: [
-      "Start from the starter items and add your own under the tabs: Code, Testing, Docs, Performance, Security and Other.",
-      "Mark each item Required or Optional. Only Required items count toward adherence.",
-      "During the sprint, tick the done checkbox for each item the team actually met for its work.",
-      "At sprint end, type the Sprint name and click Snapshot this sprint. This saves the score and clears the ticks for the next sprint.",
-      "After four or more snapshots, watch the adherence chart. A point below the LCL line means the DoD slipped more than normal variation.",
-    ],
-    tips: [
-      "Keep the Required list short enough that the team really meets it every time. Add items as the team's skills grow.",
-      "The DoD applies to every item; acceptance criteria apply to one story. You need both.",
-      "Pair it with the Refinement Checklist, which covers whether work is ready to start.",
-    ],
-  },
-  {
-    toolId: "dora-scorecard",
-    summary:
-      "DORA's four key metrics measure software delivery: two for speed (deployment frequency, lead time for changes) and two for stability (change failure rate, time to restore service). The scorecard bands each one Elite, High, Medium or Low and tracks them quarter by quarter.",
-    whenToUse: [
-      "Quarterly engineering reviews, to see whether delivery is getting faster and safer.",
-      "Before and after a big change, such as a new CI/CD pipeline, to check its effect.",
-    ],
-    steps: [
-      "Pull the four numbers for the quarter from your deploy pipeline and incident records.",
-      "Under Log a quarterly sample, enter the Quarter (e.g. 2026-Q2), Deploys / week, Lead time (hours from commit to production), Change-fail rate (%) and MTTR (hours to restore service).",
-      "Note what changed that quarter, such as a new pipeline or a major incident, then click Add sample.",
-      "Read the KPI cards for the latest band on each metric, and the Trend across quarters chart for direction.",
-      "Pick the weakest metric and agree one improvement to try next quarter.",
-    ],
-    tips: [
-      "Read all four together. Shipping faster while change failures climb isn't progress.",
-      "Keep definitions the same every quarter (e.g. what counts as a failed change), or the trend means nothing.",
-      "Compare a team with its own past, not with other teams.",
-    ],
-    scales: [
-      {
-        name: "Bands (deploys · lead time · change-fail rate · MTTR)",
-        values: [
-          { value: "Elite", meaning: "14+ a week · up to 1 day · up to 15% · within 1 hour" },
-          { value: "High", meaning: "1+ a week · up to 1 week · up to 30% · within 1 day" },
-          { value: "Medium", meaning: "about monthly · up to 1 month · up to 45% · within 1 week" },
-          { value: "Low", meaning: "anything slower or worse" },
         ],
       },
     ],

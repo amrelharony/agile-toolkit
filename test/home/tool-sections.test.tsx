@@ -32,7 +32,8 @@ describe("home tool sections", () => {
   it("leaves out a section whose tools are all on the shelf", () => {
     prefs.showAllTools = false;
     render(<ToolSections />);
-    expect(screen.getByText("Run ceremonies")).toBeInTheDocument();
+    expect(screen.getByText("Run the sprint")).toBeInTheDocument();
+    expect(screen.getByText("Retrospect & improve")).toBeInTheDocument();
     expect(screen.queryByText("AI product management")).toBeNull();
   });
 
@@ -46,15 +47,15 @@ describe("home tool sections", () => {
   it("counts only the visible tools in a mixed section", () => {
     prefs.showAllTools = false;
     const { unmount } = render(<ToolSections />);
-    // "Quality, reliability & risk" keeps risk, debt, DoD, DORA and the quality
-    // trackers; the SRE and security tools are shelved.
-    const quality = screen.getByText("Quality, reliability & risk").closest("summary");
-    expect(quality?.textContent).toMatch(/8 tools$/);
+    // "Quality & risk" keeps risk, debt and the quality trackers; the SRE and
+    // security tools are shelved.
+    const quality = screen.getByText("Quality & risk").closest("summary");
+    expect(quality?.textContent).toMatch(/6 tools$/);
     unmount();
 
     prefs.showAllTools = true;
     render(<ToolSections />);
-    const all = screen.getByText("Quality, reliability & risk").closest("summary");
-    expect(all?.textContent).toMatch(/18 tools$/);
+    const all = screen.getByText("Quality & risk").closest("summary");
+    expect(all?.textContent).toMatch(/16 tools$/);
   });
 });

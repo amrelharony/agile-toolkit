@@ -35,6 +35,11 @@ describe("tool guides", () => {
   it("are loaded by tool id from the right chunk", async () => {
     expect((await getGuide("retro"))?.toolId).toBe("retro");
     expect((await getGuide("cynefin"))?.toolId).toBe("cynefin");
+    // Moved with their sections: they must load from the new chunk.
+    expect((await getGuide("six-hats"))?.toolId).toBe("six-hats");
+    expect((await getGuide("impediments"))?.toolId).toBe("impediments");
+    expect((await getGuide("dod-builder"))?.toolId).toBe("dod-builder");
+    expect((await getGuide("dora-scorecard"))?.toolId).toBe("dora-scorecard");
     expect((await getGuide("model-card"))?.toolId).toBe("model-card");
     expect(await getGuide("not-a-tool")).toBeUndefined();
   });
