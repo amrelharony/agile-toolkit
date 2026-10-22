@@ -11,7 +11,8 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { getToolById, type ToolDefinition } from "@/lib/constants/tools";
-import { getVisibleCategories, getVisibleToolsByCategory } from "@/lib/tools/catalog";
+import { isShelved } from "@/lib/tools/catalog";
+import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 import { searchTools } from "@/lib/search/tool-search";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";
 import { Badge } from "@/components/ui/badge";
@@ -27,13 +28,16 @@ interface CommandPaletteProps {
  *
  * Typing ranks tools with the synonym-aware matcher (lib/search/tool-search),
  * so "daily scrum", "definition of ready" or "prioritise my backlog" find the
- * right tools even when those words aren't in a tool's name. With an empty
- * query it shows favourites and recent tools first, then every category.
+ * right tools even when those words aren't in a tool's name. Hits from the
+ * "More tools" shelf sit in their own group unless "Show all tools" is on.
+ * With an empty query it shows favourites and recent tools first, then every
+ * visible category.
  */
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const { favorites, recent } = useToolPrefs();
+  const { showAll, categories, toolsIn } = useToolVisibility();
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -58,6 +62,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
   const trimmed = query.trim();
   const matches = useMemo(() => (trimmed ? searchTools(trimmed, 12) : []), [trimmed]);
+  const bestMatches = showAll ? matches : matches.filter((t) => !isShelved(t));
+  const shelvedMatches = showAll ? [] : matches.filter(isShelved);
 
   const pinned = useMemo(() => {
     const ids = [...favorites, ...recent.map((r) => r.id)];
@@ -97,9 +103,16 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             <CommandEmpty>
               No tools match “{trimmed}”. Try a method name (WSJF, OKR) or a task (estimate, retro).
             </CommandEmpty>
-            {matches.length > 0 && (
+            {bestMatches.length > 0 && (
               <CommandGroup heading="Best matches">
-                {matches.map((tool) => (
+                {bestMatches.map((tool) => (
+                  <ToolItem key={tool.id} tool={tool} onSelect={() => go(tool)} />
+                ))}
+              </CommandGroup>
+            )}
+            {shelvedMatches.length > 0 && (
+              <CommandGroup heading="More tools (off the main navigation)">
+                {shelvedMatches.map((tool) => (
                   <ToolItem key={tool.id} tool={tool} onSelect={() => go(tool)} />
                 ))}
               </CommandGroup>
@@ -119,9 +132,9 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 ))}
               </CommandGroup>
             )}
-            {getVisibleCategories().map((category) => (
+            {categories.map((category) => (
               <CommandGroup key={category} heading={category}>
-                {getVisibleToolsByCategory(category).map((tool) => (
+                {toolsIn(category).map((tool) => (
                   <ToolItem key={tool.id} tool={tool} onSelect={() => go(tool)} />
                 ))}
               </CommandGroup>

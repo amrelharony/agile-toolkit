@@ -31,7 +31,6 @@ export const JOBS: Job[] = [
     primaryToolId: "retro",
     alternatives: [
       { toolId: "premortem", pickWhen: "you want to look ahead at a risky project instead" },
-      { toolId: "post-mortem", pickWhen: "you're reviewing an incident, blamelessly" },
       { toolId: "icebreaker", pickWhen: "you need a warm-up to open the session" },
     ],
   },

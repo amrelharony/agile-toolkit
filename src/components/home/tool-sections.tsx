@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { SECTIONS } from "@/lib/constants/sections";
-import { getVisibleTools } from "@/lib/tools/catalog";
+import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 import type { ToolDefinition } from "@/lib/constants/tools";
 import { ToolCard } from "@/components/shared/tool-card";
 import { MoodReveal } from "@/components/shared/mood-reveal";
@@ -16,14 +16,15 @@ function countLabel(list: ToolDefinition[]): string {
 }
 
 /**
- * Every tool, grouped by the job it serves (lib/constants/sections) rather
- * than the 18 build-time categories. Sections start collapsed so the page
- * reads as an index, and a section's cards are only rendered once it has
- * been opened — 110 animated cards on first paint cost more than the whole
- * rest of the page.
+ * Every visible tool, grouped by the job it serves (lib/constants/sections)
+ * rather than the build-time categories. Sections start collapsed so the
+ * page reads as an index, and a section's cards are only rendered once it
+ * has been opened — a hundred animated cards on first paint cost more than
+ * the whole rest of the page. A section whose tools are all on the "More
+ * tools" shelf is left out.
  */
 export function ToolSections() {
-  const visible = new Map(getVisibleTools().map((t) => [t.id, t]));
+  const { byId: visible } = useToolVisibility();
   const sections = SECTIONS.map((s) => ({
     ...s,
     tools: s.toolIds.flatMap((id) => visible.get(id) ?? []),

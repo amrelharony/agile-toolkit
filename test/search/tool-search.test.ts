@@ -32,6 +32,12 @@ describe("searchTools", () => {
     expect(frameworks.filter((f) => found.includes(f)).length).toBeGreaterThanOrEqual(3);
   });
 
+  it("still finds a shelved tool by name, flagged so callers can group it", () => {
+    const hit = searchTools("model card", 3).find((t) => t.id === "model-card");
+    expect(hit?.shelf).toBe("more");
+    expect(searchTools("retro", 1)[0]?.shelf).toBeUndefined();
+  });
+
   it("returns nothing for an empty query", () => {
     expect(searchTools("   ")).toEqual([]);
   });

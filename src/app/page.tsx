@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ShieldCheck, TrendingUp } from "lucide-react";
-import { getVisibleTools } from "@/lib/tools/catalog";
+import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 import { PageHeader } from "@/components/shared/page-header";
 import { InsightsEngine } from "@/components/shared/insights-engine";
 import { FeaturedComicBanner } from "@/components/comic/featured-comic-banner";
@@ -11,10 +11,6 @@ import { JobLauncher } from "@/components/home/job-launcher";
 import { ContinueSection } from "@/components/home/continue-section";
 import { ToolSections } from "@/components/home/tool-sections";
 import { comicAsset } from "@/lib/comic/agile-at-work";
-
-// Reading material (the comic) lives in the grid but isn't an interactive
-// tool, so it stays out of the "N tools" number.
-const toolCount = getVisibleTools().filter((t) => t.kind !== "reading").length;
 
 /**
  * Home: say what this is, then get people to the right tool fast — search,
@@ -25,6 +21,10 @@ const toolCount = getVisibleTools().filter((t) => t.kind !== "reading").length;
 export default function Home() {
   // Build-time flag (scripts/comic-asset.mjs): no banner until the PDF is committed.
   const showComic = comicAsset().available;
+  const { tools: visibleTools, shelfCount, showAll } = useToolVisibility();
+  // Reading material (the comic) lives in the grid but isn't an interactive
+  // tool, so it stays out of the "N tools" number.
+  const toolCount = visibleTools.filter((t) => t.kind !== "reading").length;
 
   return (
     <div className="mx-auto max-w-[1200px] space-y-10 px-4 py-6 sm:space-y-12 sm:px-6 sm:py-8 md:p-8">
@@ -38,7 +38,7 @@ export default function Home() {
         </div>
         <PageHeader
           title="Agile Toolkit"
-          subtitle={`${toolCount} interactive tools for agile teams. Plan sprints, run retros and estimation sessions, track delivery metrics and decide what to build next.`}
+          subtitle={`${toolCount} interactive tools for Scrum masters and agile teams. Plan the sprint, run the daily and the retro, estimate together, track delivery and keep the team healthy.`}
           gradient
         />
         <div className="mt-4 flex flex-col gap-3 sm:mt-2 sm:flex-row sm:items-start">
@@ -70,6 +70,14 @@ export default function Home() {
           All {toolCount} tools, by job
         </h2>
         <ToolSections />
+        {!showAll && shelfCount > 0 && (
+          <p className="text-sm text-sub">
+            <Link href="/more-tools" className="font-medium text-text hover:text-accent">
+              {shelfCount} more tools
+            </Link>{" "}
+            for AI product work, security, reliability and strategy are on the shelf.
+          </p>
+        )}
       </section>
     </div>
   );
