@@ -64,8 +64,17 @@ function welchT(a: number[], b: number[]): number {
   const va = variance(a);
   const vb = variance(b);
   const se = Math.sqrt(va / a.length + vb / b.length);
-  if (se === 0) return 0;
+  // Two constant windows (1,1,1 → 0.5,0.5,0.5) are perfectly separated, not
+  // "no evidence": their t is unbounded unless the means are equal.
+  if (se === 0) return ma === mb ? 0 : Number.POSITIVE_INFINITY;
   return Math.abs(ma - mb) / se;
+}
+
+/** recordedAt as epoch ms; an unparseable timestamp sorts as the oldest
+ *  (raw NaN made the comparator non-transitive and scrambled the windows). */
+function recordedMs(s: EvalSample): number {
+  const t = new Date(s.recordedAt).getTime();
+  return Number.isFinite(t) ? t : Number.MIN_SAFE_INTEGER;
 }
 
 /** Map an absolute t-stat to a 0..1 confidence band. */
@@ -96,7 +105,7 @@ export interface RegressionOptions {
  */
 export function detectRegressions(
   samples: EvalSample[],
-  opts: RegressionOptions = {},
+  opts: RegressionOptions = {}
 ): RegressionFinding[] {
   const minSamples = opts.minSamples ?? 3;
   const recentWindow = opts.recentWindow ?? 3;
@@ -112,9 +121,7 @@ export function detectRegressions(
   const findings: RegressionFinding[] = [];
   for (const [group, list] of Array.from(byGroup.entries())) {
     if (list.length < minSamples * 2) continue;
-    const sorted = [...list].sort(
-      (a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime(),
-    );
+    const sorted = [...list].sort((a, b) => recordedMs(a) - recordedMs(b));
     const recent = sorted.slice(-recentWindow);
     const baseline = sorted.slice(0, sorted.length - recentWindow);
     if (baseline.length < minSamples || recent.length < minSamples) continue;

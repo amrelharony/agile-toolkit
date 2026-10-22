@@ -43,6 +43,12 @@ const COLORS: Record<RedTeamFinding["severity"], string> = {
   critical: "#ff00aa",
 };
 
+/** loggedAt as epoch ms; an unparseable timestamp counts as the oldest. */
+function loggedMs(x: RedTeamFinding): number {
+  const t = new Date(x.loggedAt).getTime();
+  return Number.isFinite(t) ? t : -Infinity;
+}
+
 export function AIRedTeamClient() {
   const list = useWorkspaceStore((s) => s.redTeamFindings ?? []);
   const upsert = useWorkspaceStore((s) => s.upsertRedTeamFinding);
@@ -289,7 +295,15 @@ export function AIRedTeamClient() {
           >
             <ul className="space-y-2">
               {[...list]
-                .sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime())
+                // NaN-safe newest-first (same fix as hallucination-log): an
+                // unparseable `loggedAt` (agents can pass any string) made the
+                // comparator non-transitive and left valid rows out of order.
+                // Treat it as -Infinity so it sinks to the bottom.
+                .sort((a, b) => {
+                  const ta = loggedMs(a);
+                  const tb = loggedMs(b);
+                  return ta === tb ? 0 : tb - ta;
+                })
                 .map((x) => (
                   <li
                     key={x.id}

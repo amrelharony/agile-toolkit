@@ -17,6 +17,7 @@ import { generateHitlPrompts } from "@/lib/ai-prompts/hitl-quality";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { HITL_ACTIONS } from "@/lib/history/event-actions";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 // Lazy-load — keep adapter chunks out of the eager bundle for users who
 // only manually log reviewer ratings.
@@ -26,6 +27,21 @@ const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), {
     <div className="text-xs text-sub p-2 border border-border rounded">Loading panel…</div>
   ),
 });
+
+/** The reviews list shows this many of the most recent reviews. */
+const REVIEWS_SHOWN = 50;
+
+/**
+ * The reviewer's local calendar day (YYYY-MM-DD) for a `loggedAt` ISO
+ * timestamp. Slicing the ISO string gave the UTC day, so a review logged
+ * just after local midnight (or in the evening west of UTC) showed, charted
+ * and exported under the neighbouring day. Unparseable values fall back to
+ * their first 10 characters.
+ */
+function localDay(loggedAt: string): string {
+  const d = new Date(loggedAt);
+  return Number.isNaN(d.getTime()) ? String(loggedAt).slice(0, 10) : todayLocalISO(d);
+}
 
 // Recharts loads with the trend chart, not the page.
 const HitlMeanRatingChart = dynamic(() => import("./charts").then((m) => m.HitlMeanRatingChart), {
@@ -126,7 +142,7 @@ export function HitlQualityClient() {
     for (const x of validList) {
       // `loggedAt.slice` throws on non-strings; we already filtered above but
       // re-check defensively so the type narrows cleanly.
-      const day = typeof x.loggedAt === "string" ? x.loggedAt.slice(0, 10) : "";
+      const day = typeof x.loggedAt === "string" ? localDay(x.loggedAt) : "";
       if (!day) continue;
       if (!byDay[day]) byDay[day] = { date: day, mean: 0, n: 0, sum: 0 };
       byDay[day].n++;
@@ -172,7 +188,7 @@ export function HitlQualityClient() {
     // `loggedAt` (corrupt persisted entry) → CSV export crashed. Use
     // validList AND coerce defensively.
     rows: validList.map((x) => [
-      String(x.loggedAt ?? "").slice(0, 10),
+      localDay(String(x.loggedAt ?? "")),
       x.feature ?? "",
       x.reviewer ?? "",
       x.rating,
@@ -324,6 +340,12 @@ export function HitlQualityClient() {
               </>
             }
           >
+            {validList.length > REVIEWS_SHOWN && (
+              <p className="mb-2 text-xs text-sub">
+                Showing the latest {REVIEWS_SHOWN} of {validList.length} reviews. The KPIs, the
+                trend and the export include them all.
+              </p>
+            )}
             <ul className="space-y-1.5">
               {/* R11-fix: render `validList` instead of raw `list`. A
                   persisted entry with non-string `loggedAt` (older schema
@@ -332,13 +354,13 @@ export function HitlQualityClient() {
                   type-narrowed at the top of the component. */}
               {[...validList]
                 .sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime())
-                .slice(0, 50)
+                .slice(0, REVIEWS_SHOWN)
                 .map((x) => (
                   <li
                     key={x.id}
                     className="flex items-center gap-2 border border-border bg-surface-deep rounded p-2 text-sm"
                   >
-                    <span className="font-mono text-xs text-sub">{x.loggedAt.slice(0, 10)}</span>
+                    <span className="font-mono text-xs text-sub">{localDay(x.loggedAt)}</span>
                     <span
                       className="font-bold w-6 text-center"
                       style={{

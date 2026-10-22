@@ -35,10 +35,18 @@ export function ModelCardClient() {
 
   function save() {
     if (!draft.modelName.trim()) return;
+    // Trim on save (not per keystroke); a whitespace-only optional field is
+    // unset rather than rendered as an empty "Use:" / "Eval:" line.
+    const opt = (v: string | undefined) => v?.trim() || undefined;
     const item: ModelCard = {
       id: crypto.randomUUID(),
       updatedAt: new Date().toISOString(),
-      ...draft,
+      modelName: draft.modelName.trim(),
+      intendedUse: opt(draft.intendedUse),
+      trainingData: opt(draft.trainingData),
+      evaluation: opt(draft.evaluation),
+      limitations: opt(draft.limitations),
+      license: opt(draft.license),
     };
     upsert(item);
     log(MODEL_CARD_ACTIONS.CARD_SAVED, { modelName: item.modelName });
@@ -201,6 +209,11 @@ export function ModelCardClient() {
                   {c.intendedUse && (
                     <p className="text-xs text-sub mb-1">
                       <span className="text-text">Use:</span> {c.intendedUse}
+                    </p>
+                  )}
+                  {c.trainingData && (
+                    <p className="text-xs text-sub mb-1">
+                      <span className="text-text">Data:</span> {c.trainingData}
                     </p>
                   )}
                   {c.evaluation && (

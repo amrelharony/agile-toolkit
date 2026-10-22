@@ -68,6 +68,35 @@ describe("tool.hitl_quality.list_state", () => {
     expect(r.byReviewer.alice).toEqual({ count: 2, avgRating: 4, agreementRate: 0.5 });
     expect(r.byReviewer.bob).toEqual({ count: 1, avgRating: 4, agreementRate: 1 });
   });
+
+  it("keeps out-of-range ratings out of the average and distribution, but counts them", async () => {
+    const u = useWorkspaceStore.getState().upsertHitlReview;
+    u(review({ id: "r1", rating: 4, agreedWithModel: true, feature: "search" }));
+    u(
+      review({
+        id: "r2",
+        rating: 9 as HitlReview["rating"],
+        agreedWithModel: false,
+        feature: "search",
+      })
+    );
+    u(review({ id: "r3", rating: 2.5 as HitlReview["rating"], agreedWithModel: true }));
+
+    const r = (await registry.get("tool.hitl_quality.list_state")!.handler({}, ctx())) as {
+      total: number;
+      averageRating: number;
+      ratingDistribution: Record<string, number>;
+      agreementRate: number;
+      byReviewer: Record<string, unknown>;
+      byFeature: Record<string, { count: number; avgRating: number; agreementRate: number }>;
+    };
+    expect(r.total).toBe(3);
+    expect(r.averageRating).toBe(4);
+    expect(r.ratingDistribution).toEqual({ 1: 0, 2: 0, 3: 0, 4: 1, 5: 0 });
+    expect(r.agreementRate).toBe(0.67);
+    expect(r.byReviewer).toEqual({});
+    expect(r.byFeature.search).toEqual({ count: 2, avgRating: 4, agreementRate: 0.5 });
+  });
 });
 
 describe("tool.hitl_quality.record_review", () => {

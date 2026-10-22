@@ -38,6 +38,19 @@ const ScoreOverTimeChart = dynamic(() => import("./charts").then((m) => m.ScoreO
   ),
 });
 
+/** recordedAt as epoch ms; an unparseable timestamp (record_eval accepts any
+ *  string) counts as the oldest so it can't make a sort comparator
+ *  non-transitive and scramble the valid rows. */
+function recordedMs(e: LLMEval): number {
+  const t = new Date(e.recordedAt).getTime();
+  return Number.isFinite(t) ? t : -Infinity;
+}
+function byRecordedAtAsc(a: LLMEval, b: LLMEval): number {
+  const ta = recordedMs(a);
+  const tb = recordedMs(b);
+  return ta === tb ? 0 : ta - tb;
+}
+
 export function LLMEvalTrackerClient() {
   const evals = useWorkspaceStore((s) => s.llmEvals ?? []);
   const upsertLLMEval = useWorkspaceStore((s) => s.upsertLLMEval);
@@ -216,12 +229,13 @@ export function LLMEvalTrackerClient() {
     return names.map((name, i) => ({ key: `ds${i}`, label: name }));
   }, [evals]);
 
+  // Oldest → newest by recordedAt. Store order is arrival order, which an
+  // agent backfill or a sync pull can make anything but chronological.
+  const chronological = useMemo(() => [...evals].sort(byRecordedAtAsc), [evals]);
+
   const chartData = useMemo(() => {
     const keyByName = new Map(datasetSeries.map((d) => [d.label, d.key]));
-    const sorted = [...evals].sort(
-      (a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime()
-    );
-    return sorted.map((e, i) => {
+    return chronological.map((e, i) => {
       const point: Record<string, string | number> = {
         idx: i + 1,
         date: e.recordedAt.slice(0, 10),
@@ -230,7 +244,7 @@ export function LLMEvalTrackerClient() {
       if (k) point[k] = e.score;
       return point;
     });
-  }, [evals, datasetSeries]);
+  }, [chronological, datasetSeries]);
 
   const workspace = useWorkspaceStore(
     useShallow(
@@ -272,10 +286,11 @@ export function LLMEvalTrackerClient() {
     ]),
   };
 
+  // "Last 5" = the five most recent runs by recordedAt, not the last five
+  // rows in store order.
+  const lastFive = chronological.slice(-5);
   const recentMean =
-    evals.length === 0
-      ? 0
-      : evals.slice(-5).reduce((s, e) => s + e.score, 0) / Math.min(5, evals.length);
+    lastFive.length === 0 ? 0 : lastFive.reduce((s, e) => s + e.score, 0) / lastFive.length;
 
   return (
     <ToolPageWrapper
@@ -311,7 +326,8 @@ export function LLMEvalTrackerClient() {
                     {(f.baselineMean * 100).toFixed(1)}% → {(f.recentMean * 100).toFixed(1)}%
                   </span>
                   <span className="text-xs text-danger">
-                    Δ {(f.delta * 100).toFixed(1)} pts · t={f.tStat.toFixed(2)} ·{" "}
+                    Δ {(f.delta * 100).toFixed(1)} pts · t=
+                    {Number.isFinite(f.tStat) ? f.tStat.toFixed(2) : "∞"} ·{" "}
                     {(f.confidence * 100).toFixed(0)}% conf
                   </span>
                 </li>
@@ -484,9 +500,7 @@ export function LLMEvalTrackerClient() {
                 </thead>
                 <tbody>
                   {[...evals]
-                    .sort(
-                      (a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
-                    )
+                    .sort((a, b) => byRecordedAtAsc(b, a))
                     .map((e) => (
                       <tr key={e.id} className="border-t border-border">
                         <td className="p-2 font-mono text-xs">{e.recordedAt.slice(0, 10)}</td>

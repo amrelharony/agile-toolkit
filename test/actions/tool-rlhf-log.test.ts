@@ -70,6 +70,19 @@ describe("tool.rlhf_log.list_state", () => {
     expect(r.winRateA).toBe(0.67); // 2 / (2+1) decisive
     expect(r.tieRate).toBe(0.25); // 1 / 4
   });
+
+  it("reports a zero A win rate, not NaN, when every comparison is a tie", async () => {
+    const u = useWorkspaceStore.getState().upsertRlhfPair;
+    u(pair({ id: "p1", winner: "tie" }));
+    u(pair({ id: "p2", winner: "tie" }));
+
+    const r = (await registry.get("tool.rlhf_log.list_state")!.handler({}, ctx())) as {
+      winRateA: number;
+      tieRate: number;
+    };
+    expect(r.winRateA).toBe(0);
+    expect(r.tieRate).toBe(1);
+  });
 });
 
 describe("tool.rlhf_log.record_comparison", () => {

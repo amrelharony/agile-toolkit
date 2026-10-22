@@ -8,7 +8,7 @@
  *   4. record_spend — appends with auto id + default date.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { TokenSpend } from "@/lib/stores/workspace-types";
@@ -149,5 +149,81 @@ describe("tool.token_cost_tracker.record_spend", () => {
     expect(stored).toHaveLength(1);
     expect(stored[0].costUsd).toBe(1.25);
     expect(stored[0].date).toBeTruthy();
+  });
+
+  it("keeps an explicit date", async () => {
+    await registry.get("tool.token_cost_tracker.record_spend")!.handler(
+      {
+        feature: "chat",
+        model: "opus",
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: 0,
+        date: "2026-09-30",
+      },
+      ctx()
+    );
+    expect((useWorkspaceStore.getState().tokenSpend ?? [])[0].date).toBe("2026-09-30");
+  });
+
+  // Bug: the default date was the UTC day, but the tracker shows and windows
+  // spend by local day, so an entry recorded just after local midnight (or in
+  // the evening west of UTC) landed on the neighbouring day.
+  it("defaults the date to the local calendar day", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      for (const now of [new Date(2026, 9, 18, 0, 30), new Date(2026, 9, 18, 23, 30)]) {
+        vi.setSystemTime(now);
+        useWorkspaceStore.setState({ tokenSpend: [] });
+        await registry
+          .get("tool.token_cost_tracker.record_spend")!
+          .handler(
+            { feature: "chat", model: "opus", inputTokens: 0, outputTokens: 0, costUsd: 0 },
+            ctx()
+          );
+        expect((useWorkspaceStore.getState().tokenSpend ?? [])[0].date).toBe("2026-10-18");
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("tool.token_cost_tracker.compute_monthly_projection — edges", () => {
+  it("is zero with no spend, and not over a budget", async () => {
+    const r = (await registry
+      .get("tool.token_cost_tracker.compute_monthly_projection")!
+      .handler({ spentUsd: 0, daysElapsed: 3, monthlyBudgetUsd: 100 }, ctx())) as {
+      dailyRateUsd: number;
+      projectedMonthEndUsd: number;
+      pctOfBudget: number;
+      overBudget: boolean;
+    };
+    expect(r).toEqual({
+      dailyRateUsd: 0,
+      projectedMonthEndUsd: 0,
+      pctOfBudget: 0,
+      overBudget: false,
+    });
+  });
+
+  it("is not over budget when the projection lands exactly on it", async () => {
+    const r = (await registry
+      .get("tool.token_cost_tracker.compute_monthly_projection")!
+      .handler(
+        { spentUsd: 50, daysElapsed: 15, daysInMonth: 30, monthlyBudgetUsd: 100 },
+        ctx()
+      )) as {
+      pctOfBudget: number;
+      overBudget: boolean;
+    };
+    expect(r.pctOfBudget).toBe(1);
+    expect(r.overBudget).toBe(false);
+  });
+
+  it("rejects a zero day count and a negative spend", () => {
+    const schema = registry.get("tool.token_cost_tracker.compute_monthly_projection")!.paramsSchema;
+    expect(schema.safeParse({ spentUsd: 10, daysElapsed: 0 }).success).toBe(false);
+    expect(schema.safeParse({ spentUsd: -1, daysElapsed: 1 }).success).toBe(false);
   });
 });

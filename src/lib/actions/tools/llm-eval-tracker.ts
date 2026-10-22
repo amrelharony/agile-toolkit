@@ -90,6 +90,20 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/** Newest-first by recordedAt. An unparseable recordedAt (record_eval takes
+ *  any string) sorts as the oldest: subtracting raw NaN times made the
+ *  comparator non-transitive, so valid rows stayed out of order and
+ *  "first sighting = latest" picked the wrong score. */
+function byRecordedAtDesc(a: LLMEval, b: LLMEval): number {
+  const ms = (e: LLMEval) => {
+    const t = new Date(e.recordedAt).getTime();
+    return Number.isFinite(t) ? t : -Infinity;
+  };
+  const ta = ms(a);
+  const tb = ms(b);
+  return ta === tb ? 0 : tb - ta;
+}
+
 // ──────── tool.llm_eval_tracker.list_state ────────
 // Snapshot + grouped summary stats. The agent's opening question for
 // the eval tracker is "what's the state of my evals?" — returning items
@@ -121,9 +135,7 @@ registry.register({
 function summarize(items: LLMEval[]): ListStateResult {
   // Pre-sort once; we reuse for the items field AND latestScore lookup
   // (latest per model = first encountered when iterating desc).
-  const sorted = [...items].sort(
-    (a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
-  );
+  const sorted = [...items].sort(byRecordedAtDesc);
 
   // Accumulator: collect sum + count + latestScore per bucket, then
   // derive avgScore at the end. Building the latestScore in one pass
@@ -472,9 +484,7 @@ function compareModels(
 
   // Sort once descending so the first encounter of each model = its
   // latestScore (same trick as summarize() above).
-  const sortedDesc = [...filtered].sort(
-    (a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
-  );
+  const sortedDesc = [...filtered].sort(byRecordedAtDesc);
 
   const acc = new Map<string, { sum: number; count: number; latestScore: number }>();
   for (const e of sortedDesc) {

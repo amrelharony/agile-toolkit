@@ -35,6 +35,7 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverListEntities, serverUpsertEntity } from "../server-store";
 import type { TokenSpend } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 const KIND_TOKEN_SPEND = "workspace:tokenSpend";
 
@@ -160,7 +161,10 @@ registry.register({
       inputTokens: params.inputTokens,
       outputTokens: params.outputTokens,
       costUsd: params.costUsd,
-      date: params.date ?? new Date().toISOString().slice(0, 10),
+      // The tracker shows and windows spend by local day (todayLocalISO in
+      // the client); the UTC day put an entry recorded just after local
+      // midnight on yesterday. The server path below has no user time zone.
+      date: params.date ?? todayLocalISO(),
     };
     ws().upsertTokenSpend(entry);
     return { added: true, id: entry.id };

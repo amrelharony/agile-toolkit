@@ -114,8 +114,12 @@ export function AgenticWorkflowClient() {
 
   // Auto-select first workflow after hydration if none selected (race: initial
   // useState ran before persist rehydrated, so workflows[0] was undefined).
+  // A selection pointing at a workflow deleted elsewhere (agent / another
+  // device) counts as "none selected" too.
   useEffect(() => {
-    if (!activeWfId && workflows.length > 0) setActiveWfId(workflows[0]!.id);
+    if (workflows.length > 0 && !workflows.some((w) => w.id === activeWfId)) {
+      setActiveWfId(workflows[0]!.id);
+    }
   }, [workflows, activeWfId]);
 
   const workspace = useWorkspaceStore(

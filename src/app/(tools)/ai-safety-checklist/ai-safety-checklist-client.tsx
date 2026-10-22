@@ -114,7 +114,13 @@ export function AISafetyChecklistClient() {
   );
 
   const total = SECTIONS.reduce((s, sec) => s + sec.items.length, 0);
-  const done = Object.values(checks).filter(Boolean).length;
+  // Count catalog items only (like list_state in ai-safety-checklist.ts): an
+  // id left in the checks map by a renamed/removed item must not inflate the
+  // score past what's actually checked (or past 100%).
+  const done = SECTIONS.reduce(
+    (n, sec) => n + sec.items.filter((it) => checks[it.id] === true).length,
+    0
+  );
   const pct = total === 0 ? 0 : Math.round((done / total) * 100);
 
   const promptConfig = useMemo(

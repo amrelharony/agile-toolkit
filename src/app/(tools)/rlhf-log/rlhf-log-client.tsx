@@ -28,6 +28,7 @@ import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
 import { redactPii, looksLikePii } from "@/lib/utils/redact-pii";
 import { PROVIDER_META, MODELS_BY_PROVIDER, findModel } from "@/lib/llm/pricing";
 import type { ProviderId } from "@/lib/llm/types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 // Lazy-load — adapter chunks stay async for users who only log
 // pairs they generated elsewhere.
@@ -40,6 +41,17 @@ const AiRunPanel = dynamic(() => import("@/components/shared/ai-run-panel"), {
 
 /** The Pairs list shows this many of the most recent pairs. */
 const PAIRS_SHOWN = 30;
+
+/**
+ * The local calendar day (YYYY-MM-DD) a pair was logged. Slicing the ISO
+ * timestamp gave the UTC day, so a pair logged just after local midnight (or
+ * in the evening west of UTC) showed and exported under the neighbouring day.
+ * Unparseable values fall back to their first 10 characters.
+ */
+function localDay(loggedAt: string): string {
+  const d = new Date(loggedAt);
+  return Number.isNaN(d.getTime()) ? String(loggedAt).slice(0, 10) : todayLocalISO(d);
+}
 
 // A single (provider, model) pick that the user can switch independently
 // for the A side and the B side of a pair.
@@ -177,8 +189,9 @@ export function RlhfLogClient() {
     setWinner("A");
   }
   // Inline indicator so the user knows redaction would change something.
-  const pendingPii =
-    (prompt && looksLikePii(prompt)) || (a && looksLikePii(a)) || (b && looksLikePii(b));
+  // The reason is redacted (or stored as-is) like the prompt and responses,
+  // so it counts too.
+  const pendingPii = [prompt, a, b, reason].some((s) => s && looksLikePii(s));
 
   function remove(id: string) {
     removeOne(id);
@@ -222,7 +235,7 @@ export function RlhfLogClient() {
     // first 100 chars with no marker — the CSV was useless for fine-
     // tuning. The shared exportToCSV helper handles quoting/escaping.
     rows: list.map((x) => [
-      x.loggedAt.slice(0, 10),
+      localDay(x.loggedAt),
       x.prompt,
       x.responseA,
       x.responseB,
@@ -451,7 +464,7 @@ export function RlhfLogClient() {
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-xs text-sub font-mono">
-                        {x.loggedAt.slice(0, 10)} · {x.reviewer ?? "—"}
+                        {localDay(x.loggedAt)} · {x.reviewer ?? "—"}
                       </span>
                       <span className="flex items-center gap-2">
                         <span

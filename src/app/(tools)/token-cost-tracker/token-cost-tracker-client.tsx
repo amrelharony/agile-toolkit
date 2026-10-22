@@ -70,6 +70,14 @@ function findModelEverywhere(needle: string): { provider: ProviderId; modelId: s
 /** The spend log table shows this many of the most recent entries. */
 const SPEND_LOG_ROWS = 50;
 
+/**
+ * An entry's cost for sums. A stored entry without a usable cost (older
+ * schema, hand-edited data) counts as $0 everywhere, as it already did in
+ * the totals; otherwise one such row turned its day in the chart and its
+ * By-feature line into NaN.
+ */
+const costOf = (x: TokenSpend) => (Number.isFinite(x.costUsd) ? x.costUsd : 0);
+
 interface Cfg {
   monthlyBudgetUsd: number;
 }
@@ -95,8 +103,10 @@ function BudgetInput({ value, onCommit }: { value: number; onCommit: (v: number)
     const n = parseFloat(draft);
     if (Number.isFinite(n) && n >= 0 && n !== value) {
       onCommit(n);
-    } else if (!Number.isFinite(n)) {
-      // Invalid input — revert the draft to the live value.
+    } else if (!Number.isFinite(n) || n < 0) {
+      // Invalid input — revert the draft to the live value. A negative
+      // budget used to stay in the field uncommitted, so the field and the
+      // KPI / banner disagreed.
       setDraft(String(value));
     }
   };
@@ -155,12 +165,14 @@ export function TokenCostTrackerClient() {
     // BUG-T9-token-cost-tracker-1: if the user left `costUsd` blank but
     // typed token counts AND a known model, derive cost from the price
     // table instead of forcing them to type it. Keeps the user-typed
-    // override when present (CSV-imported rows, custom-model pricing).
-    if (!Number.isFinite(c) || c <= 0) {
+    // override when present (CSV-imported rows, custom-model pricing) —
+    // including a typed 0 (free tier, credits), which used to be replaced
+    // by the price-table estimate.
+    if (!Number.isFinite(c)) {
       const hit = findModelEverywhere(model);
       const tokensOk = Number.isFinite(it) && it >= 0 && Number.isFinite(ot) && ot >= 0;
       if (hit && tokensOk) c = estimateCostUsd(hit.provider, hit.modelId, it, ot);
-      else if (!Number.isFinite(c)) {
+      else {
         return {
           error: hit
             ? "Enter the input and output tokens so the cost can be worked out from the price table, or type the Cost in USD."
@@ -219,7 +231,7 @@ export function TokenCostTrackerClient() {
     const byDay: Record<string, { date: string; cost: number; tokens: number }> = {};
     for (const x of list) {
       if (!byDay[x.date]) byDay[x.date] = { date: x.date, cost: 0, tokens: 0 };
-      byDay[x.date].cost += x.costUsd;
+      byDay[x.date].cost += costOf(x);
       byDay[x.date].tokens += x.inputTokens + x.outputTokens;
     }
     return Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date));
@@ -227,7 +239,7 @@ export function TokenCostTrackerClient() {
 
   const featureBreakdown = useMemo(() => {
     const m: Record<string, number> = {};
-    for (const x of list) m[x.feature] = (m[x.feature] ?? 0) + x.costUsd;
+    for (const x of list) m[x.feature] = (m[x.feature] ?? 0) + costOf(x);
     return Object.entries(m)
       .map(([feature, cost]) => ({ feature, cost }))
       .sort((a, b) => b.cost - a.cost);

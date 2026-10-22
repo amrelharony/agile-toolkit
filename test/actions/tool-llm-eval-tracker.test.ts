@@ -236,6 +236,25 @@ describe("tool.llm_eval_tracker.list_state — grouped summary", () => {
     const result = (await action!.handler({}, ctx())) as ListStateResult;
     expect(result.items.map((e) => e.id)).toEqual(["e2", "e3", "e1"]);
   });
+
+  // Bug: the desc sort subtracted raw Date values, so one unparseable
+  // recordedAt (record_eval accepts any string) made the comparator
+  // inconsistent — items stayed in store order and latestScore came from the
+  // OLDEST valid row.
+  it("sorts around an unparseable recordedAt and still picks the latest valid score", async () => {
+    const seeds: LLMEval[] = [
+      seed({ id: "old", score: 0.7, recordedAt: "2026-01-01T00:00:00.000Z" }),
+      seed({ id: "bad", score: 0.5, recordedAt: "last week" }),
+      seed({ id: "new", score: 0.9, recordedAt: "2026-03-01T00:00:00.000Z" }),
+    ];
+    for (const s of seeds) useWorkspaceStore.getState().upsertLLMEval(s);
+
+    const action = registry.get("tool.llm_eval_tracker.list_state");
+    const result = (await action!.handler({}, ctx())) as ListStateResult;
+    expect(result.items.map((e) => e.id)).toEqual(["new", "old", "bad"]);
+    expect(result.byModel["gpt-5"].latestScore).toBe(0.9);
+    expect(result.byModel["gpt-5"].count).toBe(3);
+  });
 });
 
 describe("tool.llm_eval_tracker.record_eval — append + defaults", () => {
@@ -591,5 +610,32 @@ describe("tool.llm_eval_tracker.compare_models — leaderboard", () => {
     expect(result.models).toHaveLength(1);
     expect(result.models[0].sampleSize).toBe(2); // e2 + e3, NOT e1
     expect(result.models[0].avgScore).toBeCloseTo(0.85, 5); // (0.8 + 0.9) / 2
+  });
+
+  it("treats an unparseable `since` as all-time instead of dropping everything", async () => {
+    useWorkspaceStore.getState().upsertLLMEval(seed({ id: "e1", dataset: "ds", score: 0.6 }));
+    const action = registry.get("tool.llm_eval_tracker.compare_models");
+    const result = (await action!.handler(
+      { dataset: "ds", since: "not-a-date" },
+      ctx()
+    )) as CompareResult;
+    expect(result.models).toHaveLength(1);
+    expect(result.models[0].sampleSize).toBe(1);
+  });
+
+  // Bug: same non-transitive desc sort as list_state — latestScore came from
+  // the oldest valid row when another row had an unparseable recordedAt.
+  it("picks latestScore by the newest valid recordedAt despite an unparseable one", async () => {
+    const seeds: LLMEval[] = [
+      seed({ id: "old", dataset: "ds", score: 0.7, recordedAt: "2026-01-01T00:00:00.000Z" }),
+      seed({ id: "bad", dataset: "ds", score: 0.5, recordedAt: "last week" }),
+      seed({ id: "new", dataset: "ds", score: 0.9, recordedAt: "2026-03-01T00:00:00.000Z" }),
+    ];
+    for (const s of seeds) useWorkspaceStore.getState().upsertLLMEval(s);
+
+    const action = registry.get("tool.llm_eval_tracker.compare_models");
+    const result = (await action!.handler({ dataset: "ds" }, ctx())) as CompareResult;
+    expect(result.models[0].latestScore).toBe(0.9);
+    expect(result.models[0].sampleSize).toBe(3);
   });
 });
