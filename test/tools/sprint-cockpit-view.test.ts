@@ -50,7 +50,7 @@ describe("flowCards", () => {
     expect(card(base, "planning")).toMatchObject({
       state: "done",
       line: "Goal set · 30 pts committed",
-      href: "/sprint-metrics",
+      href: "/sprint-planning",
     });
     expect(
       card(
@@ -61,11 +61,11 @@ describe("flowCards", () => {
     expect(card({ ...base, sprint: { ...SPRINT, goal: "" } }, "planning")).toMatchObject({
       state: "doing",
       line: "30 pts committed · no goal yet",
-      href: "/sprint-goal",
+      href: "/sprint-planning",
     });
     expect(card({ ...base, sprint: { ...SPRINT, pointsPlanned: 0 } }, "planning")).toMatchObject({
       state: "doing",
-      href: "/capacity-planner",
+      href: "/sprint-planning",
     });
     expect(
       card({ ...base, sprint: { ...SPRINT, goal: undefined, pointsPlanned: 0 } }, "planning")

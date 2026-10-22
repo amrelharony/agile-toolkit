@@ -286,6 +286,14 @@ export const SPRINT_METRICS_ACTIONS = {
   SPRINT_REOPENED: "sprint_reopened",
 } as const;
 
+/** Sprint Planning: the plan for a sprint. Payloads carry `sprintId`. */
+export const SPRINT_PLANNING_ACTIONS = {
+  STORY_ADDED: "story_added",
+  STORIES_IMPORTED: "stories_imported",
+  FILLED_TO_CAPACITY: "filled_to_capacity",
+  SPRINT_COMMITTED: "sprint_committed", // milestone
+} as const;
+
 /** The Sprint Cockpit: the current sprint's day-to-day. Payloads carry `sprintId`. */
 export const SPRINT_COCKPIT_ACTIONS = {
   SPRINT_CREATED: "sprint_created",
@@ -918,6 +926,7 @@ const MILESTONE_PAIRS: ReadonlySet<string> = new Set([
   `release-planner:${RELEASE_PLANNER_ACTIONS.RELEASE_RESET}`,
   `sprint-metrics:${SPRINT_METRICS_ACTIONS.SPRINT_CLOSED}`,
   `sprint:${SPRINT_COCKPIT_ACTIONS.SPRINT_CLOSED}`,
+  `sprint-planning:${SPRINT_PLANNING_ACTIONS.SPRINT_COMMITTED}`,
   `epic-roadmap:${EPIC_ROADMAP_ACTIONS.ROADMAP_RESET}`,
   `refinement:${REFINEMENT_ACTIONS.REFINEMENT_RESET}`,
   `story-mapper:${STORY_MAPPER_ACTIONS.STORY_MAP_RESET}`,

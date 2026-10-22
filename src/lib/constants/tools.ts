@@ -298,6 +298,22 @@ export const tools: ToolDefinition[] = [
     analyticsTier: 3,
   },
   {
+    id: "sprint-planning",
+    code: "A14",
+    name: "Sprint Planning",
+    description:
+      "Plan the sprint in one pass: check capacity and velocity, write the goal, pull stories from the backlog, size them and commit",
+    category: "Sprint Planning & Estimation",
+    path: "/sprint-planning",
+    icon: ClipboardCheck,
+    badge: "new",
+    requiresAuth: false,
+    isRealtime: false,
+    phase: 40,
+    usesWorkspace: true,
+    analyticsTier: 2,
+  },
+  {
     id: "capacity-planner",
     code: "A2",
     name: "Sprint Capacity Planner",

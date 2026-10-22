@@ -44,6 +44,7 @@ import {
   isExampleId,
 } from "@/components/tool-frame/example-data";
 import { buildExampleMembers } from "./example";
+import { effectiveHours } from "./capacity";
 import { toMarkdown } from "./markdown";
 import { revertRosterSync, syncFromRoster, type RosterSyncResult } from "./roster-sync";
 
@@ -233,15 +234,9 @@ function clearExampleTeam() {
 /*  Helpers                                                                   */
 /* -------------------------------------------------------------------------- */
 
+// The maths lives in ./capacity so Sprint Planning shows the same hours.
 function calcEffectiveHours(member: TeamMember, config: SprintConfig): number {
-  const workingDays = Math.max(config.sprintDays - member.daysOff, 0);
-  return (
-    workingDays *
-    (member.availability / 100) *
-    config.hoursPerDay *
-    config.focusFactor *
-    (1 - config.ceremonyOverhead / 100)
-  );
+  return effectiveHours(member, config);
 }
 
 function round(value: number, decimals = 1): number {

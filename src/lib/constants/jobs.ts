@@ -59,8 +59,9 @@ export const JOBS: Job[] = [
     id: "plan-sprint",
     title: "Plan a sprint",
     description: "Work out real capacity, set a goal and fit the work to it.",
-    primaryToolId: "capacity-planner",
+    primaryToolId: "sprint-planning",
     alternatives: [
+      { toolId: "capacity-planner", pickWhen: "you only need the team's hours and days off" },
       { toolId: "sprint-goal", pickWhen: "you want a clear, testable sprint goal" },
       { toolId: "story-mapper", pickWhen: "you're slicing a bigger feature into releases" },
     ],
