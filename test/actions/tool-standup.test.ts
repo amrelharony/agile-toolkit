@@ -8,10 +8,11 @@
  *      {updated:false} for an unknown id
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { StandupEntry, TeamMember } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 import "@/lib/actions/tools/standup";
 
@@ -19,7 +20,8 @@ function ctx() {
   return { userId: "test-user", source: "agent" as const, squadProfileIds: [] as string[] };
 }
 
-const TODAY = new Date().toISOString().slice(0, 10);
+// The board dates entries by the local day, and list_state defaults to it.
+const TODAY = todayLocalISO();
 
 function seed(partial: Partial<StandupEntry> & Pick<StandupEntry, "id" | "member">): StandupEntry {
   return {
@@ -139,5 +141,45 @@ describe("tool.standup.resolve_blocker", () => {
     const action = registry.get("tool.standup.resolve_blocker");
     const r = (await action!.handler({ id: "nope" }, ctx())) as { updated: boolean };
     expect(r.updated).toBe(false);
+  });
+});
+
+/** Tokyo, 00:30 on 18 Oct local = 15:30 on 17 Oct UTC. */
+function atTokyoJustAfterMidnight() {
+  const prevTz = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = "Asia/Tokyo";
+  });
+  afterAll(() => {
+    if (prevTz === undefined) delete process.env.TZ;
+    else process.env.TZ = prevTz;
+  });
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-17T15:30:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+}
+
+// Bug: the in-app list_state defaulted to the UTC day, so just after local
+// midnight east of UTC it summarised yesterday's standup.
+describe("tool.standup.list_state — local day", () => {
+  atTokyoJustAfterMidnight();
+
+  it("defaults to the user's local day, as the board dates entries", async () => {
+    useWorkspaceStore.setState({
+      teamMembers: [member("m1", "Alice")],
+      standupEntries: [seed({ id: "e1", member: "Alice", date: "2026-10-18" })],
+    });
+    const r = (await registry.get("tool.standup.list_state")!.handler({}, ctx())) as {
+      date: string;
+      todaysCount: number;
+      missingMembers: string[];
+    };
+    expect(r.date).toBe("2026-10-18");
+    expect(r.todaysCount).toBe(1);
+    expect(r.missingMembers).toEqual([]);
   });
 });

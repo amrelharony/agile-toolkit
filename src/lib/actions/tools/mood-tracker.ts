@@ -18,6 +18,7 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverListEntities, serverUpsertEntity } from "../server-store";
 import type { MoodEntry } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 const KIND_MOOD = "workspace:moodEntry";
 
@@ -88,7 +89,7 @@ registry.register({
       memberId: params.memberId,
       score: params.score as MoodEntry["score"],
       note: params.note,
-      date: params.date ?? new Date().toISOString().slice(0, 10),
+      date: params.date ?? todayLocalISO(),
     };
     ws().upsertMoodEntry(entry);
     return { added: true, id: entry.id };
@@ -99,7 +100,7 @@ registry.register({
       memberId: params.memberId,
       score: params.score as MoodEntry["score"],
       note: params.note,
-      date: params.date ?? new Date().toISOString().slice(0, 10),
+      date: params.date ?? todayLocalISO(),
     };
     await serverUpsertEntity<MoodEntry>(ctx.userId, KIND_MOOD, entry);
     return { added: true, id: entry.id };

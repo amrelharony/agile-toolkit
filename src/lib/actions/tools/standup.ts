@@ -22,12 +22,15 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverListEntities, serverGetEntity, serverUpsertEntity } from "../server-store";
 import type { StandupEntry, TeamMember } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 const KIND_STANDUP = "workspace:standupEntry";
 const KIND_TEAM = "workspace:teamMember";
 
 const ws = () => useWorkspaceStore.getState();
 
+/** The MCP server's "today": it has no user time zone, so UTC. The in-app
+ *  path uses the user's local day, as the standup board stores entries. */
 function todayUTC(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -63,14 +66,21 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the standup for a day (defaults to today, UTC). Returns {date, total, todaysCount, submittedToday: string[], missingMembers: string[] (roster members with no entry), openBlockers, resolvedBlockers, todaysEntries}.",
+    "Summarise the standup for a day (defaults to today: the user's local day in the app, UTC over MCP). Returns {date, total, todaysCount, submittedToday: string[], missingMembers: string[] (roster members with no entry), openBlockers, resolvedBlockers, todaysEntries}.",
   paramsSchema: z.object({
-    date: z.string().optional().describe("Day to summarise, YYYY-MM-DD. Defaults to today (UTC)."),
+    date: z
+      .string()
+      .optional()
+      .describe(
+        "Day to summarise, YYYY-MM-DD. Defaults to today (local in the app, UTC over MCP)."
+      ),
   }),
   handler: async (params) => {
     const s = ws();
     const names = (s.teamMembers ?? []).map((m) => m.name);
-    return summarize(s.standupEntries ?? [], names, params.date ?? todayUTC());
+    // The board dates entries by the local day (todayLocalISO); the UTC day
+    // summarised yesterday's standup just after local midnight east of UTC.
+    return summarize(s.standupEntries ?? [], names, params.date ?? todayLocalISO());
   },
   mcpHandler: async (params, ctx) => {
     const [entries, members] = await Promise.all([

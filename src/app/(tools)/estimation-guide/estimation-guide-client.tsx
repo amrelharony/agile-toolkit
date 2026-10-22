@@ -94,7 +94,9 @@ export function EstimationGuideClient() {
       }
       if (typeof window === "undefined") return;
       const params = new URLSearchParams(window.location.search);
-      const shared = params.get("state");
+      // Share links carry the base64 unescaped, and URLSearchParams reads
+      // its "+" as a space. Base64 has no spaces, so put them back.
+      const shared = params.get("state")?.replace(/ /g, "+");
       if (!shared) return;
       // Bound the inbound payload — a 1MB base64 blob in the URL is hostile
       // input, not a legitimate share. The decoded JSON is then bounded

@@ -431,7 +431,8 @@ export function CeremonyTimerClient() {
   // ---------------------------------------------------------------------------
 
   const selectPreset = (minutes: number) => {
-    const secs = minutes * 60;
+    // Whole seconds: a custom 1.33 min is 80 s, not 79.8 s (shown "01:19.8").
+    const secs = Math.round(minutes * 60);
     setTotalSeconds(secs);
     setRemaining(secs);
     setRunning(false);
@@ -445,7 +446,8 @@ export function CeremonyTimerClient() {
   const applyCustom = () => {
     const trimmed = customMin.trim();
     const mins = Number(trimmed);
-    if (trimmed && Number.isFinite(mins) && mins > 0 && mins <= 480) {
+    // At least one whole second (0.001 min used to make a 0.06 s time-box).
+    if (trimmed && Number.isFinite(mins) && Math.round(mins * 60) >= 1 && mins <= 480) {
       selectPreset(mins);
       setShowCustom(false);
       // Reset the input so the next time the user opens Custom they don't

@@ -286,8 +286,13 @@ function HistoryTab({ entries, members }: { entries: StandupEntry[]; members: st
   const [filterMember, setFilterMember] = useState<string>("all");
   const [selectedDate, setSelectedDate] = useState<string>(todayStr());
 
+  // Today is always on offer: it's the default pick, and without its option
+  // the dropdown showed another day while the list was for today.
   const allDates = useMemo(
-    () => Array.from(new Set(entries.map((e) => e.date))).sort((a, b) => b.localeCompare(a)),
+    () =>
+      Array.from(new Set([todayStr(), ...entries.map((e) => e.date)])).sort((a, b) =>
+        b.localeCompare(a)
+      ),
     [entries]
   );
 
@@ -316,15 +321,11 @@ function HistoryTab({ entries, members }: { entries: StandupEntry[]; members: st
             aria-label="Digest date"
             className="bg-surface-deep border border-border rounded-md px-3 py-1.5 text-sm text-text focus:border-accent/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
-            {allDates.length === 0 ? (
-              <option value={todayStr()}>{todayStr()}</option>
-            ) : (
-              allDates.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))
-            )}
+            {allDates.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
           </select>
         </div>
         <div className="flex items-center gap-2">

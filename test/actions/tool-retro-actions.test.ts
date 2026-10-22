@@ -83,6 +83,32 @@ describe("tool.retro_actions.list + complete", () => {
     expect(overdue.actions.map((a) => a.id)).toEqual(["a1"]);
   });
 
+  it("filters to open or done actions, and reports nulls for unset fields", async () => {
+    const list = registry.get("tool.retro_actions.list")!;
+    const open = (await list.handler({ status: "open" }, ctx())) as {
+      open: number;
+      actions: { id: string; dueDate: string | null; doneAt: string | null }[];
+    };
+    expect(open.actions.map((a) => a.id)).toEqual(["c1", "a1"]);
+    // The counts always cover every action, whatever the filter.
+    expect(open.open).toBe(2);
+    expect(open.actions[0]).toMatchObject({ dueDate: null, doneAt: null });
+
+    const done = (await list.handler({ status: "done" }, ctx())) as {
+      done: number;
+      actions: { id: string; done: boolean }[];
+    };
+    expect(done.actions.map((a) => [a.id, a.done])).toEqual([["a2", true]]);
+    expect(done.done).toBe(1);
+  });
+
+  it("returns updated:false for an id no board holds", async () => {
+    const r = (await registry
+      .get("tool.retro_actions.complete")!
+      .handler({ cardId: "ghost" }, ctx())) as { updated: boolean };
+    expect(r).toEqual({ updated: false });
+  });
+
   it("completes an action on the board that holds it, and reopens it", async () => {
     const done = (await registry
       .get("tool.retro_actions.complete")!

@@ -7,7 +7,7 @@
  *   3. record appends a mood entry (auto id + date)
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { MoodEntry } from "@/lib/stores/workspace-types";
@@ -82,5 +82,36 @@ describe("tool.mood_tracker.record", () => {
     expect(stored).toHaveLength(1);
     expect(stored[0].score).toBe(5);
     expect(stored[0].date).toBeTruthy();
+  });
+});
+
+/** Tokyo, 00:30 on 18 Oct local = 15:30 on 17 Oct UTC. */
+function atTokyoJustAfterMidnight() {
+  const prevTz = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = "Asia/Tokyo";
+  });
+  afterAll(() => {
+    if (prevTz === undefined) delete process.env.TZ;
+    else process.env.TZ = prevTz;
+  });
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-17T15:30:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+}
+
+// Bug: record defaulted the date to the UTC day; the in-app form uses the
+// local day, so an entry just after local midnight landed on yesterday.
+describe("tool.mood_tracker.record — local day", () => {
+  atTokyoJustAfterMidnight();
+  beforeEach(() => useWorkspaceStore.setState({ moodEntries: [] }));
+
+  it("dates an entry without a date on the local calendar day", async () => {
+    await registry.get("tool.mood_tracker.record")!.handler({ memberId: "alice", score: 4 }, ctx());
+    expect(useWorkspaceStore.getState().moodEntries?.[0]?.date).toBe("2026-10-18");
   });
 });

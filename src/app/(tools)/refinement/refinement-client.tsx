@@ -248,6 +248,9 @@ export function RefinementClient() {
   const { log } = useHistoryLogger("refinement");
 
   const saveStory: typeof saveStoryRaw = (...args) => {
+    // The store won't save a nameless story; don't log one either (Ctrl+Enter
+    // in the description bypasses the disabled Save button).
+    if (!storyName.trim()) return;
     saveStoryRaw(...args);
     log(REFINEMENT_ACTIONS.STORY_ADDED, { storyName });
   };
@@ -375,7 +378,7 @@ export function RefinementClient() {
             <span className="text-sm text-sub">{criteria.length} criteria defined</span>
             {history.length > 0 && (
               <Badge className="bg-accent/10 text-accent border border-accent/20 text-xs">
-                {history.length} stories saved
+                {history.length} {history.length === 1 ? "story" : "stories"} saved
               </Badge>
             )}
           </div>
