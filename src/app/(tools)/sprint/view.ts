@@ -19,6 +19,7 @@ import { sprintStatus, type SprintStatus } from "@/lib/sprints/metrics";
 import { fmt, type Tile } from "@/lib/sprints/hub-view";
 import { CEREMONY_HREF, CEREMONY_LABEL, type CeremonyKind } from "@/lib/sprints/cadence";
 import { dayForDate } from "@/lib/sprints/series";
+import { localDayOf } from "@/lib/sprints/report";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import { collectRetroActions, type RetroAction } from "@/lib/retro/actions";
 
@@ -300,9 +301,12 @@ export function openImpediments(all: readonly Impediment[]): Impediment[] {
     );
 }
 
-/** Whole days since an impediment was raised (0 when raised today or undated). */
+/**
+ * Whole days since an impediment was raised (0 when raised today or undated),
+ * counted in local days: a timestamped `raisedAt` is UTC.
+ */
 export function impedimentAgeDays(imp: Pick<Impediment, "raisedAt">, today: string): number {
-  const d = dayForDate({ startDate: imp.raisedAt.slice(0, 10) }, today);
+  const d = dayForDate({ startDate: localDayOf(imp.raisedAt ?? "") }, today);
   return d === null || d < 0 ? 0 : d;
 }
 

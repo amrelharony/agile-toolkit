@@ -239,8 +239,13 @@ function BurnupSprint({ sprint, series, readOnly, log }: SprintToolContext & { l
     );
 
     // Projected finish: straight line through the last two days with a number.
+    // Scope already met is done on the latest day (as tool.burnup.compute
+    // says); the pace there may be flat, or the points left negative.
     let projectedDay: number | null = null;
-    if (done.length >= 2) {
+    const latest = done[done.length - 1];
+    if (latest && currentScope > 0 && latestCompleted >= currentScope) {
+      projectedDay = latest.day;
+    } else if (done.length >= 2) {
       const last = done[done.length - 1];
       const prev = done[done.length - 2];
       const rate =

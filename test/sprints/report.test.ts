@@ -34,7 +34,9 @@ const full: SprintReportInput = {
       id: "i1",
       title: "Sandbox returns 500s",
       severity: "high",
-      raisedAt: "2026-10-17T09:00:00.000Z",
+      // Local time (no "Z"): the report shows a timestamp's local day, so a UTC
+      // stamp would read as another day on a machine far from UTC.
+      raisedAt: "2026-10-17T09:00:00",
       owner: "Ben",
     },
   ],

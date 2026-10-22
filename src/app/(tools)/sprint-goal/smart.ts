@@ -55,11 +55,16 @@ export function validateSmart(criterion: AcceptanceCriterion): SmartResult {
   // because the word's plural-s gets stripped to "thing"/"variou", which
   // neither equals "things" nor starts with it. Compare with the
   // ALSO-stemmed vague word too, so plural list entries fire.
+  // A vague verb ending in "e" loses it before a suffix ("improve" →
+  // "improving" → stem "improv"), so also match on the root without that
+  // "e". Only for roots of five letters or more: "fine" → "fin" would flag
+  // "finish" and "final".
   const hasVague = words.some((w) => {
     const s = stem(w);
     return VAGUE_WORDS.some((vague) => {
       const v = stem(vague);
-      return s === vague || s === v || s.startsWith(v);
+      const root = v.replace(/e$/, "");
+      return s === vague || s === v || s.startsWith(v) || (root.length >= 5 && s.startsWith(root));
     });
   });
   const hasConcreteNoun = text.length > 10 && !hasVague;

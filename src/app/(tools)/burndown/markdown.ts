@@ -61,9 +61,9 @@ export function toMarkdown(
   const lines = [
     title,
     "",
-    `**Sprint:** ${config.totalPoints} points over ${config.sprintDays} days, starting ${startDate(
-      config.sprintStartDate
-    )}`,
+    `**Sprint:** ${config.totalPoints} point${config.totalPoints === 1 ? "" : "s"} over ${
+      config.sprintDays
+    } day${config.sprintDays === 1 ? "" : "s"}, starting ${startDate(config.sprintStartDate)}`,
   ];
 
   // Same reading as the KPI tiles: a trend needs a second logged day.

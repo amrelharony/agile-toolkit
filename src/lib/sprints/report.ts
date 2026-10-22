@@ -9,6 +9,19 @@
 import type { Impediment, Sprint, SprintSeries, Story } from "@/lib/stores/workspace-types";
 import { toMarkdown } from "./markdown";
 import { fmt } from "./hub-view";
+import { todayIso } from "./series";
+
+/**
+ * The local calendar day of a stored date. Most tools store a local
+ * "YYYY-MM-DD"; a full timestamp (the agent's log-impediment intent writes
+ * `toISOString()`) is in UTC, so its first ten characters can be the day
+ * before or after the local one.
+ */
+export function localDayOf(iso: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const t = new Date(iso);
+  return Number.isNaN(t.getTime()) ? iso.slice(0, 10) : todayIso(t);
+}
 
 export interface ReportStandup {
   posted: number;
@@ -117,7 +130,7 @@ export function sprintReport(input: SprintReportInput): string {
       "|---|---|---|---|",
       ...openImpediments.map(
         (i) =>
-          `| ${cell(i.title)} | ${SEVERITY[i.severity]} | ${cell(i.raisedAt.slice(0, 10))} | ${cell(
+          `| ${cell(i.title)} | ${SEVERITY[i.severity]} | ${cell(localDayOf(i.raisedAt ?? ""))} | ${cell(
             i.owner ?? ""
           )} |`
       )

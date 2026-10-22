@@ -639,29 +639,37 @@ function StoryTable({
 }) {
   return (
     <ul className="divide-y divide-border rounded-lg border border-border">
-      {stories.map((story) => (
-        <li key={story.id} className="flex items-center gap-3 px-3 py-2">
-          <input
-            type="checkbox"
-            className="h-4 w-4 shrink-0 accent-[var(--accent)]"
-            checked={checked}
-            aria-label={`${checked ? "Remove from sprint" : "Add to sprint"}: ${story.title}`}
-            onChange={() => onToggle(story)}
-          />
-          <span className="min-w-0 flex-1">
-            <span className="block break-words text-sm text-text">{story.title}</span>
-            <span className="block text-xs text-sub">
-              {showStatus && STATUS_LABEL[story.status]}
-              {showStatus && story.owner ? ` · ${story.owner}` : (story.owner ?? "")}
-              {showPriority &&
-                (typeof story.priorityScore === "number"
-                  ? `Priority ${story.priorityScore}`
-                  : "Not scored")}
+      {stories.map((story) => {
+        // Status, owner and priority, each only when there is one, joined
+        // with a separator (the owner and "Priority N" used to run together).
+        const meta = [
+          showStatus ? STATUS_LABEL[story.status] : "",
+          story.owner?.trim() ?? "",
+          showPriority
+            ? typeof story.priorityScore === "number"
+              ? `Priority ${story.priorityScore}`
+              : "Not scored"
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        return (
+          <li key={story.id} className="flex items-center gap-3 px-3 py-2">
+            <input
+              type="checkbox"
+              className="h-4 w-4 shrink-0 accent-[var(--accent)]"
+              checked={checked}
+              aria-label={`${checked ? "Remove from sprint" : "Add to sprint"}: ${story.title}`}
+              onChange={() => onToggle(story)}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block break-words text-sm text-text">{story.title}</span>
+              <span className="block text-xs text-sub">{meta}</span>
             </span>
-          </span>
-          <PointsCell story={story} onChange={(points) => onPoints(story, points)} />
-        </li>
-      ))}
+            <PointsCell story={story} onChange={(points) => onPoints(story, points)} />
+          </li>
+        );
+      })}
     </ul>
   );
 }
