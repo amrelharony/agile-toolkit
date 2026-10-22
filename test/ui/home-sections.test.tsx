@@ -25,14 +25,23 @@ vi.mock("@/lib/sonification/emit", () => ({ emit: () => {}, emitUiEvent: () => {
 import { ToolSections } from "@/components/home/tool-sections";
 import { ContinueSection } from "@/components/home/continue-section";
 import { SECTIONS } from "@/lib/constants/sections";
+import { getVisibleTools } from "@/lib/tools/catalog";
 
 describe("home: tools by job", () => {
   it("lists the job sections and renders a section's cards only once it is opened", () => {
     const { container } = render(<ToolSections />);
     const summaries = Array.from(container.querySelectorAll("summary")).map((s) => s.textContent);
+    // A section appears when at least one of its tools is off the "More
+    // tools" shelf; the all-shelved AI section stays out of the way.
+    const visible = new Set(getVisibleTools().map((t) => t.id));
     for (const s of SECTIONS.filter((x) => x.id !== "library")) {
-      expect(summaries.some((t) => t?.includes(s.label))).toBe(true);
+      const shown = s.toolIds.some((id) => visible.has(id));
+      expect(
+        summaries.some((t) => t?.includes(s.label)),
+        s.id
+      ).toBe(shown);
     }
+    expect(summaries.some((t) => t?.includes("AI product management"))).toBe(false);
     expect(screen.queryByRole("link", { name: "WSJF Calculator" })).toBeNull();
 
     const prioritize = Array.from(container.querySelectorAll("details")).find((d) =>

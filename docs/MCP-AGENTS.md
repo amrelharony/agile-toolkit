@@ -1,6 +1,6 @@
 # Agile Toolkit — MCP Agent Surface
 
-How authorized AI agents call the 110-tool Agile Toolkit via the Model Context Protocol.
+How authorized AI agents call the Agile Toolkit via the Model Context Protocol. Every tool keeps its actions, including the ones the UI shelves under “More tools” (`shelf: "more"` in `src/lib/constants/tools.ts`).
 
 ## 1. Architecture
 

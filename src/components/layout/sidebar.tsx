@@ -7,11 +7,20 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { usePersisted } from "@/lib/utils/use-persisted";
 import { getToolById, getToolByPath, type ToolDefinition } from "@/lib/constants/tools";
-import { getVisibleTools } from "@/lib/tools/catalog";
+import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 import { SECTIONS, getSectionForTool } from "@/lib/constants/sections";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronLeft, History, Activity, Star, Clock, Users } from "lucide-react";
+import {
+  Archive,
+  ChevronDown,
+  ChevronLeft,
+  History,
+  Activity,
+  Star,
+  Clock,
+  Users,
+} from "lucide-react";
 import { useSwipeToClose } from "@/hooks/use-swipe-to-close";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useToolPrefs } from "@/lib/tools/tool-prefs";
@@ -177,7 +186,8 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
 
   // The section holding the page you're on opens and is marked current.
   const activeSectionId = getSectionForTool(getToolByPath(pathname ?? "")?.id ?? "")?.id;
-  const visibleTools = new Map(getVisibleTools().map((t) => [t.id, t]));
+  // Shelved tools ("More tools") are left out until the visitor shows them.
+  const { byId: visibleTools, shelfCount, showAll: showAllTools } = useToolVisibility();
 
   // Single handler shared by every Link in the sidebar (brand, meta
   // links, tool links). Emits the piano `sidebar-nav` tone — step 2
@@ -631,6 +641,33 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
               </Collapsible>
             );
           })}
+          {/* The "More tools" shelf (lib/tools/catalog): off-audience tools,
+              reachable here and switchable back into the lists. */}
+          {shelfCount > 0 && (
+            <Link
+              href="/more-tools"
+              onClick={handleNavClick}
+              data-no-sound="true"
+              aria-current={pathname === "/more-tools" ? "page" : undefined}
+              title={expanded ? undefined : "More tools"}
+              className={cn(
+                "mt-3 flex min-h-[40px] items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors",
+                !expanded && "justify-center",
+                pathname === "/more-tools"
+                  ? "bg-accent/10 text-accent"
+                  : "text-sub hover:bg-accent/5 hover:text-text"
+              )}
+            >
+              <Archive className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {expanded ? (
+                <span className="truncate">
+                  {showAllTools ? "All tools shown" : `More tools (${shelfCount})`}
+                </span>
+              ) : (
+                <span className="sr-only">More tools</span>
+              )}
+            </Link>
+          )}
         </nav>
 
         {/* Collapse toggle — desktop only */}

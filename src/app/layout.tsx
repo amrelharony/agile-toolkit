@@ -40,7 +40,7 @@ export const metadata: Metadata = {
     template: "%s | Agile Toolkit",
   },
   description:
-    "Free, open suite of 110+ interactive Agile tools — sprint planning, retros, estimation, metrics and more. Runs in your browser; no sign-up.",
+    "Free toolkit for Scrum masters and agile teams — sprint planning, daily scrum, retrospectives, estimation, delivery metrics and team health. Runs in your browser; no sign-up.",
   keywords: [
     "agile",
     "scrum",

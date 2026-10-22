@@ -209,6 +209,12 @@ export interface ToolDefinition {
    * tool: it still gets the sidebar, palette, favourites and recents, but
    * is left out of "N tools" counts. Defaults to "tool" if omitted. */
   kind?: "tool" | "reading";
+  /** "more" shelves a tool built for a neighbouring audience (AI/LLM product
+   * work, security, SRE and incident response, developer-experience surveys,
+   * strategy frameworks). It keeps its route, guide, actions and sitemap
+   * entry, but stays out of the home grid, sidebar and default search until a
+   * visitor turns "Show all tools" on (lib/tools/catalog). */
+  shelf?: "more";
 }
 
 export const categories: ToolCategory[] = [
@@ -1148,6 +1154,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "space-pulse",
+    shelf: "more",
     code: "J2",
     name: "SPACE Pulse",
     description:
@@ -1165,6 +1172,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "devex-survey",
+    shelf: "more",
     code: "J3",
     name: "DevEx Survey",
     description:
@@ -1182,6 +1190,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "slo-builder",
+    shelf: "more",
     code: "J4",
     name: "SLO & Error Budget Builder",
     description:
@@ -1203,6 +1212,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "platform-maturity",
+    shelf: "more",
     code: "J5",
     name: "Platform Engineering Maturity",
     description: "Self-assessment scorecard across golden paths, IDP, runbook hygiene, and on-call",
@@ -1220,6 +1230,7 @@ export const tools: ToolDefinition[] = [
   // Category K: Incidents & Reliability (NEW — Phase 12)
   {
     id: "incident-commander",
+    shelf: "more",
     code: "K1",
     name: "Incident Commander",
     description:
@@ -1240,6 +1251,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "post-mortem",
+    shelf: "more",
     code: "K2",
     name: "Blameless Post-Mortem",
     description:
@@ -1260,6 +1272,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "oncall-roster",
+    shelf: "more",
     code: "K3",
     name: "On-Call Roster & Burnout",
     description: "Rotation schedule with paging-frequency tracking and burnout heatmap",
@@ -1300,6 +1313,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "runbook-scorer",
+    shelf: "more",
     code: "K5",
     name: "Runbook Maturity Scorer",
     description:
@@ -1322,6 +1336,7 @@ export const tools: ToolDefinition[] = [
   // Category L: Security & Compliance (NEW — Phase 13)
   {
     id: "threat-model",
+    shelf: "more",
     code: "L1",
     name: "Threat Model Registry",
     description: "STRIDE-based threat catalog per service with mitigation status",
@@ -1338,6 +1353,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "vuln-burndown",
+    shelf: "more",
     code: "L2",
     name: "Vulnerability Burn-Down",
     description: "Track open vulnerabilities by severity over time with SLA aging",
@@ -1360,6 +1376,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "control-map",
+    shelf: "more",
     code: "L3",
     name: "Compliance Control Map",
     description: "Map team controls to SOC2/ISO 27001 lite categories with evidence links",
@@ -1375,6 +1392,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "a11y-tracker",
+    shelf: "more",
     code: "L4",
     name: "Accessibility Audit Tracker",
     description: "WCAG issues by severity with fix burn-down and per-component coverage",
@@ -1530,6 +1548,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "wardley-map",
+    shelf: "more",
     code: "N5",
     name: "Wardley Map Canvas",
     description:
@@ -1612,6 +1631,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "tech-radar",
+    shelf: "more",
     code: "D14",
     name: "Tech Radar",
     description:
@@ -1644,6 +1664,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "rfc-tracker",
+    shelf: "more",
     code: "D16",
     name: "RFC Tracker",
     description: "Pre-decision RFC pipeline (draft → review → decided) that feeds the decision-log",
@@ -1714,6 +1735,7 @@ export const tools: ToolDefinition[] = [
   // ════════════════════════════════════════════════════════════════════
   {
     id: "llm-eval-tracker",
+    shelf: "more",
     code: "AI1",
     name: "LLM Eval Tracker",
     description:
@@ -1735,6 +1757,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "prompt-registry",
+    shelf: "more",
     code: "AI2",
     name: "Prompt Registry",
     description: "Versioned prompt library: draft, publish and deprecate versions with notes",
@@ -1754,6 +1777,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "ai-feature-spec",
+    shelf: "more",
     code: "AI3",
     name: "AI Feature Spec",
     description:
@@ -1770,6 +1794,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "hallucination-log",
+    shelf: "more",
     code: "AI4",
     name: "Hallucination Log",
     description:
@@ -1793,6 +1818,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "token-cost-tracker",
+    shelf: "more",
     code: "AI5",
     name: "Token-Cost Tracker",
     description: "Per-feature token-spend rollup with a cost forecast and budget alerts",
@@ -1810,6 +1836,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "model-comparison",
+    shelf: "more",
     code: "AI6",
     name: "Model Comparison Matrix",
     description:
@@ -1826,6 +1853,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "ai-safety-checklist",
+    shelf: "more",
     code: "AI7",
     name: "AI Safety Review Checklist",
     description:
@@ -1842,6 +1870,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "model-migration",
+    shelf: "more",
     code: "AI8",
     name: "Model Upgrade Migration Tracker",
     description:
@@ -1862,6 +1891,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "agentic-workflow",
+    shelf: "more",
     code: "AI9",
     name: "Agentic Workflow Designer",
     description:
@@ -1878,6 +1908,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "ai-red-team",
+    shelf: "more",
     code: "AI10",
     name: "AI Red-Team Session Log",
     description: "Adversarial-prompt session log: attack vector, success rate and resolution",
@@ -1894,6 +1925,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "hitl-quality",
+    shelf: "more",
     code: "AI11",
     name: "Human-in-the-Loop Quality Tracker",
     description: "Reviewer ratings, reviewer-model agreement and acceptance rate over time",
@@ -1910,6 +1942,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "rlhf-log",
+    shelf: "more",
     code: "AI12",
     name: "RLHF Feedback Log",
     description: "Pairwise comparisons + ratings dataset: prompt, A, B, winner, reviewer, reason",
@@ -1925,6 +1958,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "vector-store-inventory",
+    shelf: "more",
     code: "AI13",
     name: "Vector Store Inventory",
     description:
@@ -1941,6 +1975,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "model-card",
+    shelf: "more",
     code: "AI14",
     name: "Model Card Builder",
     description:
@@ -2207,6 +2242,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "ooda-loop",
+    shelf: "more",
     code: "DC5",
     name: "OODA Loop Tracker",
     description: "Boyd's Observe-Orient-Decide-Act cycle for fast adaptation in chaotic conditions",
@@ -2239,6 +2275,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "stacey-matrix",
+    shelf: "more",
     code: "DC7",
     name: "Stacey Matrix",
     description:
@@ -2255,6 +2292,7 @@ export const tools: ToolDefinition[] = [
   },
   {
     id: "polarity-map",
+    shelf: "more",
     code: "DC8",
     name: "Polarity Map",
     description:

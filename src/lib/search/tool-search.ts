@@ -1,7 +1,8 @@
 /**
  * Find a tool by what the user is trying to do.
  *
- * Indexes every visible tool's name, id, category and description, plus a
+ * Indexes every tool's name, id, category and description (the "More tools"
+ * shelf included — callers group hits by `tool.shelf`), plus a
  * small vocabulary of the words people actually type ("daily scrum",
  * "definition of ready", "prioritise my backlog") that rarely appear in the
  * tool's own copy. Scored by the shared keyword/IDF matcher, which also
@@ -67,7 +68,8 @@ let cached: { index: KbIndex; byId: Map<string, ToolDefinition> } | null = null;
 
 function getIndex() {
   if (cached) return cached;
-  const visible = getVisibleTools();
+  // Everything but an unshipped comic: shelved tools must stay findable by name.
+  const visible = getVisibleTools(undefined, true);
   const index = buildKbIndex(
     visible.map((t) => ({
       id: t.id,

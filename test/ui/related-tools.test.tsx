@@ -2,8 +2,29 @@ import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { RelatedTools } from "@/components/tool-frame/related-tools";
 import { SECTIONS } from "@/lib/constants/sections";
+import { getToolById } from "@/lib/constants/tools";
+import { isShelved } from "@/lib/tools/catalog";
 
 describe("RelatedTools", () => {
+  it("skips shelved neighbours for a tool in the main navigation", () => {
+    render(<RelatedTools toolId="risk-register" />);
+    const hrefs = screen.getAllByRole("link").map((a) => a.getAttribute("href"));
+    const quality = SECTIONS.find((s) => s.id === "quality")!.toolIds;
+    const at = quality.indexOf("risk-register");
+    const expected = [...quality.slice(at + 1), ...quality.slice(0, at)]
+      .filter((id) => !isShelved(getToolById(id)!))
+      .slice(0, 4)
+      .map((id) => `/${id}`);
+    expect(hrefs).toEqual(expected);
+    for (const href of hrefs) expect(isShelved(getToolById(href!.slice(1))!)).toBe(false);
+  });
+
+  it("still lists a shelved tool's shelved neighbours, so it is not a dead end", () => {
+    render(<RelatedTools toolId="model-card" />);
+    const nav = screen.getByRole("navigation", { name: "More in AI product management" });
+    expect(within(nav).getAllByRole("link")).toHaveLength(4);
+  });
+
   it("links the next tools for the same job", () => {
     render(<RelatedTools toolId="wsjf" />);
     const nav = screen.getByRole("navigation", { name: "More in Prioritize & decide" });

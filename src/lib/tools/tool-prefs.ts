@@ -13,6 +13,8 @@ export interface RecentToolEntry {
 export interface ToolPrefs {
   favorites: string[];
   recent: RecentToolEntry[];
+  /** List the "More tools" shelf in navigation and search (lib/tools/catalog). */
+  showAllTools?: boolean;
 }
 
 const STORAGE_KEY = "agile-toolkit:tool-prefs:v1";
@@ -20,12 +22,24 @@ const RECENT_LIMIT = 8;
 
 const EMPTY: ToolPrefs = { favorites: [], recent: [] };
 
+/** A stored blob with every field in a usable shape (older blobs lack some). */
+function normalize(prev: ToolPrefs | undefined): Required<ToolPrefs> {
+  const base = prev ?? EMPTY;
+  return {
+    favorites: Array.isArray(base.favorites) ? base.favorites : [],
+    recent: Array.isArray(base.recent) ? base.recent : [],
+    showAllTools: base.showAllTools === true,
+  };
+}
+
 export interface ToolPrefsAPI {
   favorites: string[];
   recent: RecentToolEntry[];
+  showAllTools: boolean;
   isFavorite: (toolId: string) => boolean;
   toggleFavorite: (toolId: string) => void;
   recordUse: (toolId: string) => void;
+  setShowAllTools: (on: boolean) => void;
 }
 
 export function useToolPrefs(): ToolPrefsAPI {
@@ -43,19 +57,18 @@ export function useToolPrefs(): ToolPrefsAPI {
     () => (Array.isArray(prefs?.recent) ? prefs.recent : []),
     [prefs?.recent]
   );
+  const showAllTools = prefs?.showAllTools === true;
 
   const isFavorite = useCallback((toolId: string) => favorites.includes(toolId), [favorites]);
 
   const toggleFavorite = useCallback(
     (toolId: string) => {
       setPrefs((prev) => {
-        const base = prev ?? EMPTY;
-        const list = Array.isArray(base.favorites) ? base.favorites : [];
-        const next = list.includes(toolId) ? list.filter((id) => id !== toolId) : [...list, toolId];
-        return {
-          favorites: next,
-          recent: Array.isArray(base.recent) ? base.recent : [],
-        };
+        const base = normalize(prev);
+        const next = base.favorites.includes(toolId)
+          ? base.favorites.filter((id) => id !== toolId)
+          : [...base.favorites, toolId];
+        return { ...base, favorites: next };
       });
     },
     [setPrefs]
@@ -65,22 +78,35 @@ export function useToolPrefs(): ToolPrefsAPI {
     (toolId: string) => {
       const now = Date.now();
       setPrefs((prev) => {
-        const base = prev ?? EMPTY;
-        const list = Array.isArray(base.recent) ? base.recent : [];
-        const filtered = list.filter((r) => r.id !== toolId);
-        const next = [{ id: toolId, usedAt: now }, ...filtered].slice(0, RECENT_LIMIT);
+        const base = normalize(prev);
+        const filtered = base.recent.filter((r) => r.id !== toolId);
         return {
-          favorites: Array.isArray(base.favorites) ? base.favorites : [],
-          recent: next,
+          ...base,
+          recent: [{ id: toolId, usedAt: now }, ...filtered].slice(0, RECENT_LIMIT),
         };
       });
     },
     [setPrefs]
   );
 
+  const setShowAllTools = useCallback(
+    (on: boolean) => {
+      setPrefs((prev) => ({ ...normalize(prev), showAllTools: on }));
+    },
+    [setPrefs]
+  );
+
   return useMemo(
-    () => ({ favorites, recent, isFavorite, toggleFavorite, recordUse }),
-    [favorites, recent, isFavorite, toggleFavorite, recordUse]
+    () => ({
+      favorites,
+      recent,
+      showAllTools,
+      isFavorite,
+      toggleFavorite,
+      recordUse,
+      setShowAllTools,
+    }),
+    [favorites, recent, showAllTools, isFavorite, toggleFavorite, recordUse, setShowAllTools]
   );
 }
 
