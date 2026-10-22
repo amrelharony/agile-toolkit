@@ -21,12 +21,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { scales } from "@/lib/constants/scales";
-import { createPersistedStore } from "@/lib/stores/create-persisted-store";
 import { toast } from "@/lib/utils/toast";
 import { RotateCcw, Share2 } from "lucide-react";
 import {
   defaultDescription,
-  defaultScaleDescriptions,
   entriesForScale,
   entryKey,
   migrateDescriptions,
@@ -35,28 +33,7 @@ import {
   sameEntries,
 } from "./entries";
 
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
-
-interface EstimationGuideState {
-  selectedScale: string;
-  /** Keyed per scale and value, e.g. "Fibonacci:8" (see ./entries). */
-  descriptions: Record<string, string>;
-  /** Keyed per scale and value, e.g. "Fibonacci:8" (see ./entries). */
-  examples: Record<string, string>;
-}
-
-const initialState: EstimationGuideState = {
-  selectedScale: "Fibonacci",
-  descriptions: defaultScaleDescriptions(),
-  examples: {},
-};
-
-const useEstimationGuideStore = createPersistedStore<EstimationGuideState>(
-  "estimation-guide",
-  initialState
-);
+import { useEstimationGuideStore, initialState } from "./store";
 
 /**
  * Encode arbitrary JSON state as a URL-safe, UTF-8-correct base64 string.
