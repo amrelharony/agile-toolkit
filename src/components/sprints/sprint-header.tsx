@@ -15,7 +15,7 @@ import {
 import type { Sprint } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
 import { dayForDate, hasSyntheticDates, sprintLengthDays } from "@/lib/sprints/series";
-import { STATUS_LABEL, fmt, sprintDates, sprintDayLine } from "../view";
+import { STATUS_LABEL, fmt, sprintDates, sprintDayLine } from "@/lib/sprints/hub-view";
 
 const STATUS_BADGE: Record<Sprint["status"], string> = {
   planned: "border-border text-sub",

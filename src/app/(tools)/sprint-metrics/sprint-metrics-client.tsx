@@ -19,8 +19,8 @@ import { seriesFor, sprintsNewestFirst, todayIso } from "@/lib/sprints/series";
 import { updateSprint } from "@/lib/sprints/store";
 import { SprintHub, type SprintCommands } from "./components/sprint-hub";
 import { BoardLevelTools } from "./components/tool-cards";
-import { ExampleBanner, LoadingSprints, SprintsEmptyState } from "./components/start";
-import { toMarkdown } from "./markdown";
+import { ExampleBanner, LoadingSprints, SprintsEmptyState } from "@/components/sprints/start";
+import { toMarkdown } from "@/lib/sprints/markdown";
 
 const TOOL_ID = "sprint-metrics";
 const NO_SERIES: SprintSeries[] = [];

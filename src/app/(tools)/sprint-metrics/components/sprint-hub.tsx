@@ -10,12 +10,12 @@ import {
   hubTiles,
   sprintNudges,
   toolStatusLines,
-} from "../view";
-import { SprintHeader } from "./sprint-header";
-import { SprintTiles } from "./sprint-tiles";
+} from "@/lib/sprints/hub-view";
+import { SprintHeader } from "@/components/sprints/sprint-header";
+import { SprintTiles } from "@/components/sprints/sprint-tiles";
 import { BoardLevelTools, SprintToolCards } from "./tool-cards";
 import { Nudges } from "./nudges";
-import { CloseSprintDialog } from "./close-sprint-dialog";
+import { CloseSprintDialog } from "@/components/sprints/close-sprint-dialog";
 
 /** What the hub can change. Left out for a read-only example preview. */
 export interface SprintCommands {
