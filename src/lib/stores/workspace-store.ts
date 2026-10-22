@@ -8,6 +8,7 @@ import type {
   TeamMember,
   Sprint,
   SprintSeries,
+  CeremonyCadenceDoc,
   Story,
   Impediment,
   Risk,
@@ -122,6 +123,8 @@ interface WorkspaceActions {
   removeSprint: (id: string) => void;
   upsertSprintSeries: (x: SprintSeries) => void;
   removeSprintSeries: (id: string) => void;
+  upsertCeremonyCadence: (x: CeremonyCadenceDoc) => void;
+  removeCeremonyCadence: (id: string) => void;
   upsertStory: (s: Story) => void;
   removeStory: (id: string) => void;
   upsertImpediment: (i: Impediment) => void;
@@ -453,6 +456,12 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ sprintSeries: replaceById(_st.sprintSeries ?? [], x) })),
       removeSprintSeries: (id) =>
         set((s) => ({ sprintSeries: (s.sprintSeries ?? []).filter((y) => y.id !== id) })),
+      upsertCeremonyCadence: (x) =>
+        set((_st) => ({ ceremonyCadences: replaceById(_st.ceremonyCadences ?? [], x) })),
+      removeCeremonyCadence: (id) =>
+        set((s) => ({
+          ceremonyCadences: (s.ceremonyCadences ?? []).filter((y) => y.id !== id),
+        })),
       removeSprint: (id) =>
         set((s) => {
           // Stories that pointed at this sprint are now stranded — clear
@@ -1380,6 +1389,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           teamMembers: s.teamMembers,
           sprints: s.sprints,
           sprintSeries: s.sprintSeries,
+          ceremonyCadences: s.ceremonyCadences,
           stories: s.stories,
           impediments: s.impediments,
           risks: s.risks,
@@ -1507,6 +1517,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           teamMembers: sanitizeArray<TeamMember>(p.teamMembers),
           sprints: sanitizeArray<Sprint>(p.sprints),
           sprintSeries: sanitizeArray<SprintSeries>(p.sprintSeries),
+          ceremonyCadences: sanitizeArray<CeremonyCadenceDoc>(p.ceremonyCadences),
           stories: sanitizeArray<Story>(p.stories),
           impediments: sanitizeArray<Impediment>(p.impediments),
           risks: sanitizeArray<Risk>(p.risks),
@@ -1846,6 +1857,7 @@ if (typeof window !== "undefined") {
     registerCollection("teamMember", "teamMembers");
     registerCollection("sprint", "sprints");
     registerCollection("sprintSeries", "sprintSeries");
+    registerCollection("ceremonyCadence", "ceremonyCadences");
     registerCollection("story", "stories");
     registerCollection("impediment", "impediments");
     registerCollection("risk", "risks");
@@ -1994,6 +2006,7 @@ export function getWorkspaceSnapshot(): Workspace {
     teamMembers: state.teamMembers,
     sprints: state.sprints,
     sprintSeries: state.sprintSeries,
+    ceremonyCadences: state.ceremonyCadences,
     stories: state.stories,
     impediments: state.impediments,
     risks: state.risks,
