@@ -55,8 +55,8 @@ describe("tool.dependency_map.list_state", () => {
           { id: "b", label: "B" },
         ],
         edges: [
-          { id: "e1", from: "a", to: "b", kind: "blocks" },
-          { id: "e2", from: "b", to: "a", kind: "needs" }, // a→b→a cycle
+          { id: "e1", from: "a", to: "b", kind: "blocks" }, // a before b
+          { id: "e2", from: "a", to: "b", kind: "needs" }, // b before a → cycle
           { id: "e3", from: "a", to: "b", kind: "informs" },
         ],
       })
@@ -88,6 +88,66 @@ describe("tool.dependency_map.list_state", () => {
     };
     expect(r.hasCycle).toBe(false);
   });
+
+  // Bug: list_state read every edge as from→to, but the board reads "A needs
+  // B" as B before A. "A blocks B" + "B needs A" (the same fact said twice)
+  // was reported as a cycle the board doesn't show.
+  it("reads 'needs' in the board's direction: 'a blocks b' + 'b needs a' is no cycle", async () => {
+    useWorkspaceStore.getState().upsertDependencyMap(
+      map({
+        nodes: [
+          { id: "a", label: "A" },
+          { id: "b", label: "B" },
+        ],
+        edges: [
+          { id: "e1", from: "a", to: "b", kind: "blocks" },
+          { id: "e2", from: "b", to: "a", kind: "needs" },
+        ],
+      })
+    );
+    const r = (await registry.get("tool.dependency_map.list_state")!.handler({}, ctx())) as {
+      hasCycle: boolean;
+    };
+    expect(r.hasCycle).toBe(false);
+  });
+
+  it("detects a cycle made only of 'needs' edges", async () => {
+    useWorkspaceStore.getState().upsertDependencyMap(
+      map({
+        nodes: [
+          { id: "a", label: "A" },
+          { id: "b", label: "B" },
+          { id: "c", label: "C" },
+        ],
+        edges: [
+          { id: "e1", from: "a", to: "b", kind: "needs" },
+          { id: "e2", from: "b", to: "c", kind: "needs" },
+          { id: "e3", from: "c", to: "a", kind: "needs" },
+        ],
+      })
+    );
+    const r = (await registry.get("tool.dependency_map.list_state")!.handler({}, ctx())) as {
+      hasCycle: boolean;
+    };
+    expect(r.hasCycle).toBe(true);
+  });
+
+  // The board strips self-edges before cycle detection (they can't be created
+  // in the UI, but a stored one must not read as an "A → A" cycle).
+  it("ignores a stored self-edge, like the board does", async () => {
+    useWorkspaceStore.getState().upsertDependencyMap(
+      map({
+        nodes: [{ id: "a", label: "A" }],
+        edges: [{ id: "e1", from: "a", to: "a", kind: "blocks" }],
+      })
+    );
+    const r = (await registry.get("tool.dependency_map.list_state")!.handler({}, ctx())) as {
+      edgeCount: number;
+      hasCycle: boolean;
+    };
+    expect(r.edgeCount).toBe(1);
+    expect(r.hasCycle).toBe(false);
+  });
 });
 
 describe("tool.dependency_map add_node / add_edge", () => {
@@ -115,5 +175,35 @@ describe("tool.dependency_map add_node / add_edge", () => {
       added: boolean;
     };
     expect(bad.added).toBe(false);
+  });
+
+  it("add_node keeps the team / description; add_edge refuses self-edges and a missing map", async () => {
+    const addEdge = registry.get("tool.dependency_map.add_edge")!;
+    const none = (await addEdge.handler({ from: "a", to: "b", kind: "blocks" }, ctx())) as {
+      added: boolean;
+    };
+    expect(none.added).toBe(false);
+
+    const a = (await registry
+      .get("tool.dependency_map.add_node")!
+      .handler({ label: "Checkout", team: "Payments", description: "PSP" }, ctx())) as {
+      added: boolean;
+      id: string;
+    };
+    expect(a.added).toBe(true);
+    const stored = useWorkspaceStore.getState().dependencyMaps?.[0];
+    expect(stored?.id).toBe(DM_ID);
+    expect(stored?.nodes[0]).toMatchObject({
+      id: a.id,
+      label: "Checkout",
+      team: "Payments",
+      description: "PSP",
+    });
+
+    const self = (await addEdge.handler({ from: a.id, to: a.id, kind: "blocks" }, ctx())) as {
+      added: boolean;
+    };
+    expect(self.added).toBe(false);
+    expect(useWorkspaceStore.getState().dependencyMaps?.[0].edges).toEqual([]);
   });
 });

@@ -16,7 +16,7 @@
  * registration module once and don't unregister.
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from "vitest";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { SosEntry } from "@/lib/stores/workspace-types";
@@ -199,5 +199,87 @@ describe("tool.scrum_of_scrums.mark_resolved", () => {
     const action = registry.get("tool.scrum_of_scrums.mark_resolved");
     const result = (await action!.handler({ id: "nope" }, ctx())) as { updated: boolean };
     expect(result.updated).toBe(false);
+  });
+});
+
+// Bug: the browser handler worked in UTC days while the board (and its
+// resolve button) use local days, so just before local midnight west of UTC
+// an agent stamped tomorrow's resolvedAt and aged blockers a day early.
+describe("tool.scrum_of_scrums — local days, like the board", () => {
+  const prevTz = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = "America/Los_Angeles";
+  });
+  afterAll(() => {
+    if (prevTz === undefined) delete process.env.TZ;
+    else process.env.TZ = prevTz;
+  });
+  beforeEach(() => {
+    useWorkspaceStore.setState({ sosEntries: [] });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // 22:30 on 17 Oct in Los Angeles is already 18 Oct in UTC.
+    vi.setSystemTime(new Date("2026-10-18T05:30:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("runs in a zone where the local day differs from the UTC day", () => {
+    expect(new Date().getDate()).toBe(17);
+    expect(new Date().getUTCDate()).toBe(18);
+  });
+
+  it("mark_resolved stamps today's local date by default", async () => {
+    useWorkspaceStore.getState().upsertSosEntry(seed({ id: "s1", kind: "blocker" }));
+    await registry.get("tool.scrum_of_scrums.mark_resolved")!.handler({ id: "s1" }, ctx());
+    const stored = (useWorkspaceStore.getState().sosEntries ?? []).find((e) => e.id === "s1");
+    expect(stored?.resolvedAt).toBe("2026-10-17");
+  });
+
+  it("list_state ages blockers in local days (2 days old is not stale yet)", async () => {
+    useWorkspaceStore
+      .getState()
+      .upsertSosEntry(
+        seed({ id: "b1", kind: "blocker", status: "open", meetingDate: "2026-10-15" })
+      );
+    const result = (await registry.get("tool.scrum_of_scrums.list_state")!.handler({}, ctx())) as {
+      staleBlockers: SosEntry[];
+    };
+    expect(result.staleBlockers).toEqual([]);
+  });
+});
+
+// Bug: ageDays floored the gap between two local midnights in 24 h units;
+// across a spring-forward DST change the gap is 1 h short, so a blocker
+// three calendar days old aged 2 and dropped out of staleBlockers.
+describe("tool.scrum_of_scrums.list_state — ages across a DST change", () => {
+  const prevTz = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = "America/Los_Angeles";
+  });
+  afterAll(() => {
+    if (prevTz === undefined) delete process.env.TZ;
+    else process.env.TZ = prevTz;
+  });
+  beforeEach(() => {
+    useWorkspaceStore.setState({ sosEntries: [] });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // US clocks spring forward on 14 Mar 2027.
+    vi.setSystemTime(new Date(2027, 2, 15, 10, 0));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("treats a blocker from three calendar days ago as stale", async () => {
+    useWorkspaceStore
+      .getState()
+      .upsertSosEntry(
+        seed({ id: "b1", kind: "blocker", status: "open", meetingDate: "2027-03-12" })
+      );
+    const result = (await registry.get("tool.scrum_of_scrums.list_state")!.handler({}, ctx())) as {
+      staleBlockers: SosEntry[];
+    };
+    expect(result.staleBlockers.map((e) => e.id)).toEqual(["b1"]);
   });
 });

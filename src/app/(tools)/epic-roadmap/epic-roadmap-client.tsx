@@ -188,7 +188,9 @@ function ProgressCell({
   useEffect(() => setDraft(String(value)), [value]);
   const commit = () => {
     const n = Number(draft);
-    if (Number.isFinite(n)) {
+    // `Number("")` is 0, not NaN: an emptied field would commit 0 and wipe
+    // the epic's progress. Treat blank as invalid and restore the value.
+    if (draft.trim() !== "" && Number.isFinite(n)) {
       const clamped = Math.max(0, Math.min(100, n));
       if (clamped !== value) onChange(clamped);
       else setDraft(String(value));

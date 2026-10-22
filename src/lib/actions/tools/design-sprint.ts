@@ -22,6 +22,7 @@ import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverUpsertEntity } from "../server-store";
+import { todayLocalISO } from "@/lib/utils/formatters";
 import type {
   DesignSprint,
   DesignSprintPlan,
@@ -190,7 +191,9 @@ registry.register({
   },
 });
 
-const today = () => new Date().toISOString().slice(0, 10);
+// Local calendar day, like the board's todayLocalISO(). `toISOString()` is a
+// UTC day and rolled to tomorrow in the evening west of UTC.
+const today = () => todayLocalISO();
 
 /** Append a task to the matching day; null when no sprint / day not found. */
 function addTask(

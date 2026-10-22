@@ -37,14 +37,22 @@ function browserMap(): DependencyMap | null {
 }
 
 /** Does the directed blocking graph (blocks/needs edges) contain a cycle?
- *  DFS with a recursion stack; a visited-set bounds work on shared subtrees. */
+ *  DFS with a recursion stack; a visited-set bounds work on shared subtrees.
+ *
+ *  Edges point "must happen before", as on the board (dependency-map-client
+ *  detectCycles): "A blocks B" is A → B, while "A needs B" is B → A. Reading
+ *  every edge as from → to reported "A blocks B" + "B needs A" (one fact
+ *  stated twice) as a cycle the board doesn't show. Self-edges are skipped,
+ *  as the board strips them before analysis. */
 function hasCycle(nodes: DependencyNode[], edges: DependencyEdge[]): boolean {
   const adj = new Map<string, string[]>();
   for (const e of edges) {
-    if (e.kind === "blocks" || e.kind === "needs") {
-      const list = adj.get(e.from) ?? [];
-      list.push(e.to);
-      adj.set(e.from, list);
+    if ((e.kind === "blocks" || e.kind === "needs") && e.from !== e.to) {
+      const src = e.kind === "needs" ? e.to : e.from;
+      const dst = e.kind === "needs" ? e.from : e.to;
+      const list = adj.get(src) ?? [];
+      list.push(dst);
+      adj.set(src, list);
     }
   }
   const visited = new Set<string>();

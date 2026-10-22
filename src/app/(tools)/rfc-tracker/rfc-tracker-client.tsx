@@ -81,7 +81,9 @@ function daysSince(iso: string): number {
   const opened = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  return Math.max(0, Math.floor((today - opened) / (1000 * 60 * 60 * 24)));
+  // Round, not floor: across a DST change two local midnights are 23 or 25 h
+  // apart per day, and flooring 71 h read "day 2" for an RFC opened 3 days ago.
+  return Math.max(0, Math.round((today - opened) / (1000 * 60 * 60 * 24)));
 }
 
 export function RfcTrackerClient() {
@@ -313,7 +315,11 @@ export function RfcTrackerClient() {
     // — for users west of UTC that's local April 30, mis-bucketing every
     // first-of-month decision.
     const todayPrefix = todayLocalISO().slice(0, 7); // "yyyy-mm"
-    return rfcs.filter((r) => r.decidedAt?.slice(0, 7) === todayPrefix).length;
+    // decidedAt is preserved when a decided RFC is re-opened or withdrawn
+    // (R-STATUS-PRESERVE), so gate on the live status too — otherwise RFCs
+    // that are no longer decided keep counting as "decided this month".
+    return rfcs.filter((r) => r.status === "decided" && r.decidedAt?.slice(0, 7) === todayPrefix)
+      .length;
   }, [rfcs]);
 
   const avgTimeToDecide = useMemo(() => {

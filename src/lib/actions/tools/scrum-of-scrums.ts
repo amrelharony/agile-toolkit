@@ -30,6 +30,7 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverListEntities, serverGetEntity, serverUpsertEntity } from "../server-store";
 import type { SosEntry } from "@/lib/stores/workspace-types";
+import { todayLocalISO } from "@/lib/utils/formatters";
 
 /** Server-side entity kind. Matches kindFromToolId("workspace.sos_entry")
  *  used by the auto-generated CRUD, and the browser sync engine's
@@ -39,16 +40,21 @@ const KIND_SOS = "workspace:sosEntry";
 
 const ws = () => useWorkspaceStore.getState();
 
-/** Whole-day age of an entry from its meetingDate (UTC-midnight diff).
+/** Whole-day age of an entry from its meetingDate, anchored on LOCAL
+ *  midnight like the board's ageDays (BUG-T7-scrum-of-scrums-1). A UTC diff
+ *  aged entries a day early in the evening west of UTC, so the agent's
+ *  staleBlockers disagreed with the board's "aged ≥3 days" callout.
  *  Returns null on a malformed date so callers skip it rather than bucket
  *  a NaN into the stale-blocker filter. */
 function ageDays(e: SosEntry): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(e.meetingDate ?? "");
   if (!m) return null;
-  const meeting = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const meeting = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
   const now = new Date();
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  return Math.max(0, Math.floor((today - meeting) / 86_400_000));
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  // Round, not floor: across a DST change two local midnights are 23 or 25 h
+  // apart per day, and flooring 71 h aged a 3-day-old blocker as 2.
+  return Math.max(0, Math.round((today - meeting) / 86_400_000));
 }
 
 /** Build the {total, byKind, byStatus, staleBlockers, items} response.
@@ -118,7 +124,7 @@ registry.register({
     ws().upsertSosEntry({
       ...current,
       status: "resolved",
-      resolvedAt: params.resolvedAt ?? new Date().toISOString().slice(0, 10),
+      resolvedAt: params.resolvedAt ?? todayLocalISO(),
     });
     return { updated: true };
   },
@@ -129,7 +135,7 @@ registry.register({
     await serverUpsertEntity<SosEntry>(ctx.userId, KIND_SOS, {
       ...current,
       status: "resolved",
-      resolvedAt: params.resolvedAt ?? new Date().toISOString().slice(0, 10),
+      resolvedAt: params.resolvedAt ?? todayLocalISO(),
     });
     return { updated: true };
   },

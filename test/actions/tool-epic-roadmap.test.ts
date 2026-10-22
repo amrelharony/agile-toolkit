@@ -67,3 +67,58 @@ describe("tool.epic_roadmap.add_epic + set_progress + list_state", () => {
     expect(bad.updated).toBe(false);
   });
 });
+
+describe("tool.epic_roadmap edge cases", () => {
+  beforeEach(() => useWorkspaceStore.setState({ epicRoadmaps: [] }));
+
+  it("list_state reports an absent roadmap with a zero average (no NaN)", async () => {
+    const r = await registry.get("tool.epic_roadmap.list_state")!.handler({}, ctx());
+    expect(r).toEqual({ exists: false, total: 0, avgProgress: 0, epics: [] });
+  });
+
+  it("add_epic defaults progress to 0, keeps owner / description, and rounds the average", async () => {
+    const add = registry.get("tool.epic_roadmap.add_epic")!;
+    const a = (await add.handler(
+      {
+        title: "Search",
+        startQuarter: "2026 Q1",
+        endQuarter: "2026 Q2",
+        owner: "Ana",
+        description: "Facets",
+      },
+      ctx()
+    )) as { id: string };
+    await add.handler(
+      { title: "B", startQuarter: "2026 Q1", endQuarter: "2026 Q1", progress: 10 },
+      ctx()
+    );
+    await add.handler(
+      { title: "C", startQuarter: "2026 Q1", endQuarter: "2026 Q1", progress: 45 },
+      ctx()
+    );
+
+    const r = (await registry.get("tool.epic_roadmap.list_state")!.handler({}, ctx())) as {
+      exists: boolean;
+      total: number;
+      avgProgress: number;
+      epics: { id: string; progress: number; owner?: string; description?: string }[];
+    };
+    expect(r.exists).toBe(true);
+    expect(r.total).toBe(3);
+    expect(r.epics[0]).toMatchObject({
+      id: a.id,
+      progress: 0,
+      owner: "Ana",
+      description: "Facets",
+    });
+    expect(r.avgProgress).toBe(18.33); // 55 / 3
+  });
+
+  it("set_progress refuses when no roadmap exists yet", async () => {
+    const r = (await registry
+      .get("tool.epic_roadmap.set_progress")!
+      .handler({ epicId: "any", progress: 50 }, ctx())) as { updated: boolean };
+    expect(r.updated).toBe(false);
+    expect(useWorkspaceStore.getState().epicRoadmaps).toEqual([]);
+  });
+});

@@ -53,6 +53,14 @@ const KIND_COLORS: Record<PiItem["kind"], string> = {
   risk: "#ef4444",
 };
 
+/** Planned load above 115% of velocity. Compared as `planned * 100 >
+ *  velocity * 115` because `velocity * 1.15` is inexact in floating point
+ *  (100 * 1.15 === 114.99999999999999), which flagged a team planned at
+ *  exactly 115% as overloaded. A velocity of 0 has no capacity to compare. */
+function isOverloaded(planned: number, velocity: number): boolean {
+  return velocity > 0 && planned * 100 > velocity * 115;
+}
+
 export function PiPlanningClient() {
   const [state, setState] = usePersisted<State>("agile-toolkit:pi-planning", DEFAULT_STATE);
   const [newTeam, setNewTeam] = useState({ name: "", velocity: 20, description: "" });
@@ -154,7 +162,7 @@ export function PiPlanningClient() {
         const planned = state.items
           .filter((i) => i.teamId === team.id && i.iteration === it && i.kind === "feature")
           .reduce((a, b) => a + b.points, 0);
-        if (planned > team.velocity * 1.15) {
+        if (isOverloaded(planned, team.velocity)) {
           out.push({ teamId: team.id, iteration: it, planned, capacity: team.velocity });
         }
       }
@@ -273,7 +281,9 @@ export function PiPlanningClient() {
           variant="compact"
           label="P85 team velocity"
           value={forecast ? Math.round(forecast.percentiles[85]) : "—"}
-          hint={`points per iter, ${state.teams.length} teams sampled`}
+          // Velocity-0 teams are filtered out of the simulation, so count
+          // the samples actually drawn from, not every team on the board.
+          hint={`points per iter, ${velocities.length} team${velocities.length === 1 ? "" : "s"} sampled`}
         />
         <StatCard
           variant="compact"
@@ -426,7 +436,7 @@ export function PiPlanningClient() {
                   // Mirror the `overloads` memo's guard: a velocity-0 team has
                   // no capacity to compare against, so it must never render as
                   // overloaded (else red cells contradict the "0 overloads" KPI).
-                  const over = team.velocity > 0 && planned > team.velocity * 1.15;
+                  const over = isOverloaded(planned, team.velocity);
                   return (
                     <td key={it} className="align-top">
                       <div

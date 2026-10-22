@@ -196,6 +196,11 @@ export function DependencyMapClient() {
   };
   const addEdge = () => {
     if (!newEdge.from || !newEdge.to || newEdge.from === newEdge.to) return;
+    // The picked endpoints outlive their nodes: deleting a node that is
+    // still selected in a picker, then pressing Add, stored an edge to
+    // nothing. Re-check both against the live node list.
+    const ids = new Set(state.nodes.map((n) => n.id));
+    if (!ids.has(newEdge.from) || !ids.has(newEdge.to)) return;
     // BUG-T2-dependency-map-1: skip exact-duplicate (from, to, kind)
     // triples. Without this, clicking Add twice produced two edges
     // with the same endpoints + kind; cycle detection traversed both
@@ -322,7 +327,9 @@ export function DependencyMapClient() {
           value={state.nodes.length}
           valueClassName="text-accent"
         />
-        <StatCard variant="compact" icon={GitBranch} label="Edges" value={state.edges.length} />
+        {/* Count the cleaned list shown under "Dependencies", not the raw
+            array — orphan / self / unknown-kind edges are never listed. */}
+        <StatCard variant="compact" icon={GitBranch} label="Edges" value={validEdges.length} />
         <StatCard
           variant="compact"
           icon={AlertTriangle}

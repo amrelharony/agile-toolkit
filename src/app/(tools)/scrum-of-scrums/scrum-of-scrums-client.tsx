@@ -62,7 +62,9 @@ function ageDays(e: SosEntry): number | null {
   const meeting = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  return Math.max(0, Math.floor((today - meeting) / (1000 * 60 * 60 * 24)));
+  // Round, not floor: across a DST change two local midnights are 23 or 25 h
+  // apart per day, and flooring 71 h read a 3-day-old blocker as "2d".
+  return Math.max(0, Math.round((today - meeting) / (1000 * 60 * 60 * 24)));
 }
 
 export function ScrumOfScrumsClient() {
@@ -79,8 +81,18 @@ export function ScrumOfScrumsClient() {
   const { log } = useHistoryLogger("scrum-of-scrums");
 
   const add = () => {
-    if (!draft.text.trim() || !draft.team.trim()) return;
-    const entry: SosEntry = { ...draft, loggedAt: new Date().toISOString() };
+    const team = draft.team.trim();
+    const text = draft.text.trim();
+    if (!text || !team) return;
+    // Store trimmed values: a whitespace-only "Blocked by" was truthy and
+    // rendered a dangling "⇢ blocked by:" line.
+    const entry: SosEntry = {
+      ...draft,
+      team,
+      text,
+      blockedBy: draft.blockedBy?.trim() || undefined,
+      loggedAt: new Date().toISOString(),
+    };
     upsertSosEntry(entry);
     if (entry.kind === "blocker") {
       log(SCRUM_OF_SCRUMS_ACTIONS.IMPEDIMENT_RAISED, {
@@ -186,7 +198,7 @@ export function ScrumOfScrumsClient() {
           <StatCard
             key={k}
             variant="compact"
-            label={`${k}s open`}
+            label={`${k === "dependency" ? "dependencies" : `${k}s`} open`}
             value={
               <span style={{ color: KIND_COLORS[k] }}>
                 {entries.filter((e) => e.kind === k && e.status === "open").length}
