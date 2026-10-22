@@ -28,6 +28,7 @@ import {
 import { generateDodBuilderPrompts } from "@/lib/ai-prompts/dod-builder";
 import { ActionRow } from "@/components/shared/action-row";
 import { usePersisted } from "@/lib/utils/use-persisted";
+import { DOD_STORAGE_KEY } from "./summary";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { DOD_ACTIONS } from "@/lib/history/event-actions";
 import { pChartLimits } from "@/lib/analytics/control-chart";
@@ -90,7 +91,7 @@ const CATEGORIES: { id: CategoryId; label: string; icon: typeof Code }[] = [
 ];
 
 export function DodBuilderClient() {
-  const [state, setState] = usePersisted<DodState>("agile-toolkit:dod-builder", {
+  const [state, setState] = usePersisted<DodState>(DOD_STORAGE_KEY, {
     items: STARTER,
     history: [],
   });
