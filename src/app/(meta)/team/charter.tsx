@@ -1,0 +1,115 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { ArrowRight, CalendarClock, ScrollText } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
+import { SectionCard } from "@/components/shared/section-card";
+import { ExportButton } from "@/components/shared/export-button";
+import { CadenceForm } from "@/components/sprints/cadence-form";
+import { getToolById } from "@/lib/constants/tools";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { useTeamRoster } from "@/lib/team/use-team-roster";
+import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
+import { todayIso } from "@/lib/sprints/series";
+import { usePersisted } from "@/lib/utils/use-persisted";
+import { cn } from "@/lib/utils";
+import { DOD_STORAGE_KEY, EMPTY_DOD, normalizeDod } from "@/app/(tools)/dod-builder/summary";
+import { useRefinementStore } from "@/app/(tools)/refinement/store";
+import { useEstimationGuideStore } from "@/app/(tools)/estimation-guide/store";
+import { charterCards, charterMarkdown, type CharterDocs } from "./charter-view";
+
+/** MUST match WA_ID in working-agreement-client.tsx and actions/tools/working-agreement.ts. */
+const WA_ID = "workingAgreement:current";
+
+/**
+ * The team charter: the agreements the team works by, each a card with
+ * what's there and the way to the tool that edits it, plus the ceremony
+ * times and the whole charter as Markdown.
+ */
+export function TeamCharter() {
+  const members = useTeamRoster();
+  const agreement = useWorkspaceStore((s) =>
+    (s.workingAgreements ?? []).find((d) => d.id === WA_ID)
+  );
+  const [dodRaw] = usePersisted(DOD_STORAGE_KEY, EMPTY_DOD);
+  const dod = useMemo(() => normalizeDod(dodRaw), [dodRaw]);
+  const dor = useRefinementStore(useShallow((s) => ({ criteria: s.criteria, history: s.history })));
+  const estimation = useEstimationGuideStore(
+    useShallow((s) => ({
+      selectedScale: s.selectedScale,
+      descriptions: s.descriptions,
+      examples: s.examples,
+    }))
+  );
+  // The guide's store waits to be asked (its page merges a shared link first).
+  useEffect(() => {
+    void useEstimationGuideStore.persist.rehydrate();
+  }, []);
+  const [cadence, updateCadence] = useCeremonyCadence();
+  const [today] = useState(() => todayIso());
+
+  const docs = useMemo<CharterDocs>(
+    () => ({ members, cadence, agreement, dod, dor, estimation }),
+    [members, cadence, agreement, dod, dor, estimation]
+  );
+  const cards = useMemo(() => charterCards(docs), [docs]);
+  const markdown = useMemo(() => charterMarkdown(docs, today), [docs, today]);
+
+  return (
+    <div className="space-y-4">
+      <SectionCard
+        title="Team charter"
+        icon={ScrollText}
+        actions={
+          <ExportButton filename="team-charter" markdown={markdown} clipboardText={markdown} />
+        }
+      >
+        <p className="mb-3 text-sm text-sub">
+          The agreements the team works by, each kept in its own tool. Export copies the whole
+          charter as one document.
+        </p>
+        <ul className="grid gap-3 sm:grid-cols-2" aria-label="Charter documents">
+          {cards.map((card) => {
+            const tool = getToolById(card.toolId);
+            const Icon = tool?.icon;
+            return (
+              <li
+                key={card.id}
+                data-charter={card.id}
+                className={cn(
+                  "flex flex-col gap-1 rounded-lg border bg-card p-3",
+                  card.empty ? "border-dashed border-border" : "border-border"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  {Icon && <Icon className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />}
+                  <h3 className="text-sm font-semibold text-text">{card.title}</h3>
+                </div>
+                <p className={cn("text-sm", card.empty ? "text-sub" : "text-text")}>
+                  {card.status}
+                </p>
+                {card.detail && <p className="text-xs text-sub">{card.detail}</p>}
+                <Link
+                  href={card.href}
+                  className="mt-auto inline-flex items-center gap-1 pt-1 text-sm font-medium text-accent hover:underline"
+                >
+                  {card.empty ? "Write it" : "Open"}
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </SectionCard>
+
+      <SectionCard title="Ceremony times" icon={CalendarClock}>
+        <p className="mb-4 text-sm text-sub">
+          When the Daily Scrum, Planning, Review, Retro and Refinement happen. The Sprint Cockpit
+          uses them for &ldquo;next ceremony&rdquo;.
+        </p>
+        <CadenceForm cadence={cadence} onChange={updateCadence} />
+      </SectionCard>
+    </div>
+  );
+}

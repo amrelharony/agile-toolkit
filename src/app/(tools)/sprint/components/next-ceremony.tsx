@@ -12,7 +12,7 @@ import {
   type CeremonyOccurrence,
 } from "@/lib/sprints/cadence";
 import { cn } from "@/lib/utils";
-import { CadenceForm } from "./cadence-form";
+import { CadenceForm } from "@/components/sprints/cadence-form";
 
 /**
  * "Next ceremony": the next one or two events from the team's cadence, with

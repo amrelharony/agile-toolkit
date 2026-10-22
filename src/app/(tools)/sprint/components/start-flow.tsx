@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { nameKey, useTeamRoster } from "@/lib/team/use-team-roster";
 import type { CeremonyCadence } from "@/lib/sprints/cadence";
-import { CadenceForm } from "./cadence-form";
+import { CadenceForm } from "@/components/sprints/cadence-form";
 
 function Step({
   n,

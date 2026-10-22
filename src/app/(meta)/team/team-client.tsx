@@ -15,6 +15,7 @@ import type { TeamMember } from "@/lib/stores/workspace-types";
 import { nameKey, useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { undoable } from "@/lib/utils/undoable";
 import { ROSTER_TOOLS } from "./roster-tools";
+import { TeamCharter } from "./charter";
 
 /* -------------------------------------------------------------------------- */
 /*  Helpers                                                                   */
@@ -406,7 +407,9 @@ export function TeamClient() {
         <div>
           <h1 className="text-fluid-h2 font-display font-bold leading-tight text-text">Team</h1>
           <p className="mt-1 text-fluid-body text-sub">
-            The people on your team, entered once. Tools that need names read them from here.
+            The people on your team and the agreements you work by. Tools that need names read them
+            from here; the charter below gathers the working agreement, Definition of Ready and
+            Done, the estimation baseline and the ceremony times.
           </p>
         </div>
       </div>
@@ -515,6 +518,12 @@ export function TeamClient() {
           </ul>
         </SectionCard>
       </div>
+
+      {hydrated && (
+        <div className="mt-4">
+          <TeamCharter />
+        </div>
+      )}
     </div>
   );
 }
