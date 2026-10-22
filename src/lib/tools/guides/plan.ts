@@ -3,6 +3,29 @@ import type { ToolGuide } from "./types";
 /** Guides for the "Plan the sprint" tools. Loaded on demand (see ./index.ts). */
 export const GUIDES: ToolGuide[] = [
   {
+    toolId: "sprint-planning",
+    summary:
+      "Sprint Planning is the one page for the planning meeting: the team's capacity and recent velocity, the sprint goal, the stories pulled from the backlog and sized, and the commitment. What you decide here is what the Sprint Cockpit, Burndown and the agent see.",
+    whenToUse: [
+      "In the Sprint Planning meeting, on the shared screen.",
+      "The day before, to pre-fill the backlog and the capacity so the meeting is about choices.",
+      "When a sprint is under way and the commitment changed.",
+    ],
+    steps: [
+      "Pick the sprint (or create it). Check the team capacity from the Capacity Planner and the recent velocity; type the points to commit to, or leave it on the velocity average.",
+      "Write the sprint goal, or draft it in the Sprint Goal Builder and send it here.",
+      "Tick stories in from the backlog, import the Backlog Prioritizer's items, or add stories. Fill to capacity picks the highest-priority sized stories that fit.",
+      "Size what has no points — Estimate in Planning Poker queues them for a session — and read the checks.",
+      "Start the sprint. The commitment becomes the sprint's planned points and the cockpit opens on it.",
+    ],
+    tips: [
+      "Commit to the goal, not the list: a sprint with every story done but the goal missed is not a success.",
+      "Ten percent over the recent average is as far as a confident team should stretch.",
+      "Stories that aren't sized can't be weighed; size them or leave them out.",
+    ],
+    timebox: "Up to two hours for a two-week sprint; much less when the backlog is refined.",
+  },
+  {
     toolId: "refinement",
     summary:
       "A Definition of Ready is a short list of checks a story must pass before the team takes it into a sprint. This checklist scores each story against it and tracks how often stories arrive ready.",

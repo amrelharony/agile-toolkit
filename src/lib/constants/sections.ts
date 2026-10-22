@@ -39,6 +39,7 @@ export const SECTIONS: ToolSection[] = [
     label: "Plan the sprint",
     icon: CalendarRange,
     toolIds: [
+      "sprint-planning",
       "capacity-planner",
       "sprint-goal",
       "planning-poker",

@@ -27,7 +27,7 @@ export const RETRO_CURRENT_ID = "retro:current";
 /** MUST match SR_ID in src/app/(tools)/sprint-review/use-sprint-review-store.ts. */
 export const SPRINT_REVIEW_ID = "sprint-review:current";
 
-/** Where "plan the sprint" goes (a planning flow replaces this later). */
+/** Where every planning card goes: the Sprint Planning page. */
 export const PLANNING_HREF = CEREMONY_HREF.planning;
 
 export interface StandupToday {
@@ -109,7 +109,7 @@ export function flowCards(input: CockpitInput): FlowCard[] {
       line: `Goal set · ${fmt(sprint.pointsPlanned)} pts committed${
         counts.total > 0 ? ` · ${plural(counts.total, "story", "stories")}` : ""
       }`,
-      href: "/sprint-metrics",
+      href: PLANNING_HREF,
       cta: "Review the plan",
     };
   } else if (goal) {
@@ -118,7 +118,7 @@ export function flowCards(input: CockpitInput): FlowCard[] {
       label: CEREMONY_LABEL.planning,
       state: "doing",
       line: "Goal set · no points committed yet",
-      href: "/capacity-planner",
+      href: PLANNING_HREF,
       cta: "Set the commitment",
     };
   } else if (committed) {

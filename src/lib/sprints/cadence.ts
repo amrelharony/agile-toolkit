@@ -30,7 +30,7 @@ export const CEREMONY_LABEL: Record<CeremonyKind, string> = {
 
 /** Where each ceremony is run in the toolkit. */
 export const CEREMONY_HREF: Record<CeremonyKind, string> = {
-  planning: "/sprint-goal",
+  planning: "/sprint-planning",
   daily: "/standup",
   refinement: "/refinement",
   review: "/sprint-review",

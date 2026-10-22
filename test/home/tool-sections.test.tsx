@@ -40,8 +40,9 @@ describe("home tool sections", () => {
   it("lists the shelf once Show all tools is on", () => {
     prefs.showAllTools = true;
     render(<ToolSections />);
-    expect(screen.getByText("AI product management")).toBeInTheDocument();
-    expect(screen.getByText("14 tools")).toBeInTheDocument();
+    const ai = screen.getByText("AI product management").closest("summary");
+    expect(ai).not.toBeNull();
+    expect(ai?.textContent).toMatch(/14 tools$/);
   });
 
   it("counts only the visible tools in a mixed section", () => {
