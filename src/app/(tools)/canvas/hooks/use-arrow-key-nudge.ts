@@ -68,7 +68,8 @@ export function useArrowKeyNudge(params: {
       const updates: WhiteboardObject[] = [];
       for (const id of selection) {
         const o = objectsById.get(id);
-        if (!o) continue;
+        // Locked objects stay put, as they do for drag and align.
+        if (!o || o.locked) continue;
         // Bump version so peers receive the nudge — see C14.
         // Freehand ink lives in world-absolute `points` — translate
         // them with the bbox or the nudge moves the box, not the ink.
@@ -100,7 +101,13 @@ export function useArrowKeyNudge(params: {
       if (readOnly) return;
       if (!isInsideScope(e.target, viewportRef.current)) return;
       if (controlOwnsKey(e.target, e.key)) return;
-      if (selection.length === 0) return;
+      // Nothing to move (an empty selection, or only locked objects): leave
+      // the key alone and record no undo step.
+      const movable = selection.some((id) => {
+        const o = objectsById.get(id);
+        return o !== undefined && !o.locked;
+      });
+      if (!movable) return;
       // Don't fight with presentation-mode frame navigation — when the
       // user is in presentation mode, arrow keys cycle frames instead
       // of nudging selection.

@@ -32,10 +32,24 @@ export function toMarkdown(
   const title = `# Retro — ${mdDate(now)} (${oneLine(state.format.name)})`;
   if (state.cards.length === 0) return `${title}\n\nNo cards on the board yet.\n`;
 
+  // A card nests only under a top-level card of its own column; one grouped
+  // under anything else (a grouped card, a card in another column or one
+  // that's gone) is listed on its own rather than left out.
+  const byId = new Map(state.cards.map((c) => [c.id, c]));
+  const parentOf = (c: RetroCard): string | null => {
+    const parent = c.groupedWith === null ? undefined : byId.get(c.groupedWith);
+    return parent &&
+      parent.id !== c.id &&
+      parent.groupedWith === null &&
+      parent.columnKey === c.columnKey
+      ? parent.id
+      : null;
+  };
+
   const lines = [title];
   for (const col of state.format.columns) {
     const cards = state.cards.filter((c) => c.columnKey === col.key);
-    const top = sortedByVotes(cards.filter((c) => c.groupedWith === null));
+    const top = sortedByVotes(cards.filter((c) => parentOf(c) === null));
     lines.push("", `## ${oneLine(col.label)}`, "");
     if (top.length === 0) {
       lines.push("No cards.");
@@ -43,7 +57,7 @@ export function toMarkdown(
     }
     for (const card of top) {
       lines.push(`- ${withVotes(card)}`);
-      for (const child of sortedByVotes(cards.filter((c) => c.groupedWith === card.id))) {
+      for (const child of sortedByVotes(cards.filter((c) => parentOf(c) === card.id))) {
         lines.push(`  - ${withVotes(child)}`);
       }
     }

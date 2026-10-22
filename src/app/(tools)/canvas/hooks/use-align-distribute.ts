@@ -16,6 +16,17 @@ import type { WhiteboardObject } from "@/lib/stores/workspace-types";
 type LogFn = ReturnType<typeof useHistoryLogger>["log"];
 
 /**
+ * Whether the align/distribute result for `o` actually moves it. Objects
+ * already in place are left alone, so a no-op align doesn't bump versions,
+ * log a move or push an undo step the user would have to Cmd+Z past.
+ */
+function movesTo(o: WhiteboardObject, to: { x: number; y: number } | undefined): boolean {
+  if (!to) return false;
+  const norm = normalizedRect(o);
+  return to.x !== norm.x || to.y !== norm.y;
+}
+
+/**
  * Align + distribute callbacks for the floating align toolbar.
  *
  * Locked objects are filtered out — the toolbar still works on the
@@ -51,7 +62,7 @@ export function useAlignDistribute(params: {
         op
       );
       const updates = movable
-        .filter((o) => result[o.id])
+        .filter((o) => movesTo(o, result[o.id]))
         .map((o): WhiteboardObject => {
           const norm = normalizedRect(o);
           const dx = result[o.id].x - norm.x;
@@ -98,7 +109,7 @@ export function useAlignDistribute(params: {
         op
       );
       const updates = movable
-        .filter((o) => result[o.id])
+        .filter((o) => movesTo(o, result[o.id]))
         .map((o): WhiteboardObject => {
           const norm = normalizedRect(o);
           const dx = result[o.id].x - norm.x;

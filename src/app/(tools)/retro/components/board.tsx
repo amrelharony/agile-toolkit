@@ -321,9 +321,14 @@ export function Board({
           cursor = prev.cards.find((c) => c.id === cursor)?.groupedWith ?? null;
         }
         didGroup = { sourceId: id, targetId: parentId };
+        // Cards grouped under `id` join the new group too: groups are one
+        // level deep, and the columns only draw one level, so leaving them
+        // under `id` would hide them.
         return {
           ...prev,
-          cards: prev.cards.map((c) => (c.id === id ? { ...c, groupedWith: parentId } : c)),
+          cards: prev.cards.map((c) =>
+            c.id === id || c.groupedWith === id ? { ...c, groupedWith: parentId } : c
+          ),
         };
       });
       if (didGroup) log(RETRO_ACTIONS.CARDS_GROUPED, didGroup);
