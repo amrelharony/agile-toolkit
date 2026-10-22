@@ -1,0 +1,33 @@
+# Line endings: LF in the repository and in every checkout, so a Windows
+# worktree (core.autocrlf=true) sees the same bytes CI and Vercel do. Two
+# tests compare committed files byte for byte (test/pdf/worker-version) or
+# load a script with a shebang (test/comic/comic-asset-script); both failed on
+# CRLF checkouts before this file.
+*            text=auto eol=lf
+*.ts         text eol=lf
+*.tsx        text eol=lf
+*.js         text eol=lf
+*.mjs        text eol=lf
+*.cjs        text eol=lf
+*.json       text eol=lf
+*.md         text eol=lf
+*.css        text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+*.sql        text eol=lf
+*.svg        text eol=lf
+*.sh         text eol=lf
+
+# Byte-exact files. The self-hosted pdf.js workers must stay identical to the
+# package build (npm run pdf:worker); assets are binary.
+public/pdf.worker*.mjs -text
+*.glb        binary
+*.png        binary
+*.jpg        binary
+*.jpeg       binary
+*.webp       binary
+*.gif        binary
+*.ico        binary
+*.pdf        binary
+*.woff       binary
+*.woff2      binary
