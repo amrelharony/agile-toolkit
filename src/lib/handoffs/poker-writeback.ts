@@ -101,6 +101,20 @@ function setStoryMapEstimate(cardId: string, estimate: string): boolean {
   return true;
 }
 
+/**
+ * Set `points` on a workspace story (Sprint Planning queues these). Only a
+ * numeric estimate can become points; a T-shirt size is logged but not
+ * written. False when the story is gone or the value isn't a number.
+ */
+function setStoryPoints(storyId: string, estimate: string): boolean {
+  const n = Number(estimate);
+  if (!Number.isFinite(n) || n < 0) return false;
+  const story = useWorkspaceStore.getState().stories.find((st) => st.id === storyId);
+  if (!story) return false;
+  useWorkspaceStore.getState().upsertStory({ ...story, points: n });
+  return true;
+}
+
 export interface WriteBackInput {
   /** The session story the host accepted an estimate for. */
   sessionStoryId: string;
@@ -138,7 +152,9 @@ export function writeBackPokerEstimate({
   const written =
     item.sourceRef.tool === "story-mapper"
       ? setStoryMapEstimate(item.sourceRef.id, estimate)
-      : false;
+      : item.sourceRef.tool === "story"
+        ? setStoryPoints(item.sourceRef.id, estimate)
+        : false;
 
   const logged: PokerEstimate = {
     id: item.id,
